@@ -34,10 +34,30 @@ var ErrPostingNotFound = errors.New("posting not found")
 // BlockController manages I/O of postings on disk.
 type BlockController struct {
 	store     Store
-	encoder   BlockEncoder
+	encoder   *BlockEncoder
 	metadata  *common.FlatBuffer[PostingMetadata]
 	blockPool *BlockProvider
 	bufPool   sync.Pool
+}
+
+type BlockControllerConfig struct {
+	VectorDimensions int    // Number of dimensions of the vectors to encode/decode
+	StartOffset      uint64 // Starting offset for the first block
+}
+
+func NewBlockController(store Store, freeBlockPool *common.Pool[uint64], config *BlockControllerConfig) *BlockController {
+	return &BlockController{
+		store:     store,
+		encoder:   NewBlockEncoder(config.VectorDimensions),
+		metadata:  common.NewFlatBuffer[PostingMetadata](1024),
+		blockPool: NewBlockProvider(config.StartOffset, freeBlockPool),
+		bufPool: sync.Pool{
+			New: func() any {
+				b := make([]byte, 0, 3*blockSize)
+				return &b
+			},
+		},
+	}
 }
 
 // Get reads the entire data of the given posting.
@@ -50,8 +70,8 @@ func (b *BlockController) Get(ctx context.Context, postingID uint64) (Posting, e
 	buf := b.getBuffer()
 	defer b.putBuffer(buf)
 
-	offsets := mapping.Offsets.Load()
-	for _, blockID := range *offsets {
+	offsets := *mapping.Offsets.Load()
+	for _, blockID := range offsets {
 		block, err := b.store.Get(ctx, blockID)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get block %d for posting %d", blockID, postingID)
@@ -89,12 +109,20 @@ func (b *BlockController) Put(ctx context.Context, postingID uint64, posting Pos
 	var offsets []uint64
 	for len(data) > 0 {
 		offset := b.blockPool.getFreeBlockOffset()
-		err = b.store.Put(ctx, offset, data[:blockSize])
-		if err != nil {
-			return errors.Wrapf(err, "failed to put block %d for posting %d", offset, postingID)
+		if len(data) < blockSize {
+			err = b.store.Put(ctx, offset, data)
+			if err != nil {
+				return errors.Wrapf(err, "failed to put block %d for posting %d", offset, postingID)
+			}
+			data = nil // all data has been written
+		} else {
+			err = b.store.Put(ctx, offset, data[:blockSize])
+			if err != nil {
+				return errors.Wrapf(err, "failed to put block %d for posting %d", offset, postingID)
+			}
+			data = data[blockSize:]
 		}
 
-		data = data[blockSize:]
 		offsets = append(offsets, offset)
 	}
 
@@ -105,8 +133,11 @@ func (b *BlockController) Put(ctx context.Context, postingID uint64, posting Pos
 	b.metadata.Set(postingID, NewPostingMetadata(offsets, uint64(len(posting))))
 
 	// add the old offsets back to the free block pool
-	for _, offset := range *old.Offsets.Load() {
-		b.blockPool.freeBlockPool.Put(offset)
+	if old.Offsets != nil {
+		oldOffsets := *old.Offsets.Load()
+		for _, offset := range oldOffsets {
+			b.blockPool.freeBlockPool.Put(offset)
+		}
 	}
 
 	return nil
@@ -137,9 +168,11 @@ func (b *BlockController) Append(ctx context.Context, postingID uint64, vector *
 	for {
 		var newOffsets []uint64
 
-		// load the current offsets
-		offsets := *metadata.Offsets.Load()
-		lastOffset := offsets[len(offsets)-1]
+		// load the current offsets and keep the pointer
+		// for the CAS operation
+		oldOffsets := metadata.Offsets.Load()
+		o := *oldOffsets
+		lastOffset := o[len(o)-1]
 
 		// get the last block
 		lastBlock, err := b.store.Get(ctx, lastOffset)
@@ -152,15 +185,15 @@ func (b *BlockController) Append(ctx context.Context, postingID uint64, vector *
 			// append to the last block
 			lastBlock = append(lastBlock, data...)
 			// allocate a new offsets slice with the same length
-			newOffsets = make([]uint64, len(offsets))
+			newOffsets = make([]uint64, len(o))
 		} else {
 			lastBlock = data
 			// allocate a new offsets slice with one more element
-			newOffsets = make([]uint64, len(offsets)+1)
+			newOffsets = make([]uint64, len(o)+1)
 		}
 
 		// copy the old offsets
-		copy(newOffsets, offsets)
+		copy(newOffsets, o)
 		// set the new block offset at the end
 		newOffsets[len(newOffsets)-1] = newBlockOffset
 
@@ -170,7 +203,7 @@ func (b *BlockController) Append(ctx context.Context, postingID uint64, vector *
 			return errors.Wrapf(err, "failed to put new block %d for posting %d", newBlockOffset, postingID)
 		}
 
-		if metadata.Offsets.CompareAndSwap(&offsets, &newOffsets) {
+		if metadata.Offsets.CompareAndSwap(oldOffsets, &newOffsets) {
 			// successfully updated the offset mapping,
 			// update the vector count
 			// note: we introduce some inconsistency here, but it is acceptable
@@ -212,27 +245,16 @@ func NewPostingMetadata(offsets []uint64, vectorCount uint64) PostingMetadata {
 	}
 }
 
-// Store defines the interface for a storage backend that can retrieve blocks by their ID.
-// It is used by the BlockController to read blocks from disk.
-type Store interface {
-	Get(ctx context.Context, offset uint64) ([]byte, error)
-	// Put writes a block to the store at the given offset.
-	// It overwrites the full block.
-	Put(ctx context.Context, offset uint64, block []byte) error
-}
-
 // BlockEncoder encodes and decodes vectors to and from blocks.
 type BlockEncoder struct {
-	Dimensions    int // Number of dimensions of the vectors to encode/decode
-	DimensionSize int // Size of each dimension in bytes, e.g., 4 for float32
+	Dimensions int // Number of dimensions of the vectors to encode/decode
 
 	bufPool sync.Pool // Buffer pool for reusing byte slices
 }
 
-func NewBlockEncoder(dimensions int, dimensionSize int) *BlockEncoder {
+func NewBlockEncoder(dimensions int) *BlockEncoder {
 	return &BlockEncoder{
-		Dimensions:    dimensions,
-		DimensionSize: dimensionSize,
+		Dimensions: dimensions,
 		bufPool: sync.Pool{
 			New: func() any {
 				return new(bytes.Buffer)
@@ -242,9 +264,7 @@ func NewBlockEncoder(dimensions int, dimensionSize int) *BlockEncoder {
 }
 
 func (e *BlockEncoder) getBuffer() *bytes.Buffer {
-	buf := e.bufPool.Get().(*bytes.Buffer)
-	buf.Reset()
-	return buf
+	return e.bufPool.Get().(*bytes.Buffer)
 }
 
 func (e *BlockEncoder) putBuffer(buf *bytes.Buffer) {
@@ -272,10 +292,7 @@ func (e *BlockEncoder) encodeVector(out *bytes.Buffer, vector *Vector) error {
 
 	_ = binary.Write(out, binary.LittleEndian, vector.ID)
 	_ = binary.Write(out, binary.LittleEndian, vector.Version)
-	// we do not write the vector size
-	for _, value := range vector.Data {
-		_ = binary.Write(out, binary.LittleEndian, value)
-	}
+	_, _ = out.Write(vector.Data)
 	return nil
 }
 
@@ -294,7 +311,7 @@ func (e *BlockEncoder) Decode(block []byte) ([]Vector, error) {
 	var vectors []Vector
 
 	for {
-		if len(block) < 8+e.Dimensions*e.DimensionSize {
+		if len(block) < 8+1+e.Dimensions {
 			break // not enough data for another vector
 		}
 
@@ -304,18 +321,12 @@ func (e *BlockEncoder) Decode(block []byte) ([]Vector, error) {
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to read vector ID")
 		}
-		err = binary.Read(bytes.NewReader(block[8:16]), binary.LittleEndian, &version)
+		err = binary.Read(bytes.NewReader(block[8:9]), binary.LittleEndian, &version)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to read vector version")
 		}
 
-		data := make([]float32, e.Dimensions)
-		for i := 0; i < e.Dimensions; i++ {
-			err = binary.Read(bytes.NewReader(block[16+i*e.DimensionSize:]), binary.LittleEndian, &data[i])
-			if err != nil {
-				return nil, errors.Wrapf(err, "failed to read vector data for ID %d", id)
-			}
-		}
+		data := block[9 : 9+e.Dimensions]
 
 		vectors = append(vectors, Vector{
 			ID:      id,
@@ -323,7 +334,7 @@ func (e *BlockEncoder) Decode(block []byte) ([]Vector, error) {
 			Data:    data,
 		})
 
-		block = block[16+e.Dimensions*e.DimensionSize:]
+		block = block[9+e.Dimensions:] // move to the next vector
 	}
 
 	return vectors, nil
@@ -337,6 +348,13 @@ type BlockProvider struct {
 	offsetGenerator *common.MonotonicCounter[uint64]
 }
 
+func NewBlockProvider(startOffset uint64, pool *common.Pool[uint64]) *BlockProvider {
+	return &BlockProvider{
+		freeBlockPool:   pool,
+		offsetGenerator: common.NewUint64Counter(startOffset),
+	}
+}
+
 func (b *BlockProvider) getFreeBlockOffset() uint64 {
 	// get a free block offset from the pool
 	offset, ok := b.freeBlockPool.Get()
@@ -346,4 +364,44 @@ func (b *BlockProvider) getFreeBlockOffset() uint64 {
 
 	// if the pool is empty, generate a new offset
 	return b.offsetGenerator.Next()
+}
+
+// Store defines the interface for a storage backend that can retrieve blocks by their ID.
+// It is used by the BlockController to read blocks from disk.
+type Store interface {
+	Get(ctx context.Context, offset uint64) ([]byte, error)
+	// Put writes a block to the store at the given offset.
+	// It overwrites the full block.
+	Put(ctx context.Context, offset uint64, block []byte) error
+}
+
+type MemoryStore struct {
+	data *common.FlatBuffer[[]byte]
+}
+
+func NewMemoryStore() *MemoryStore {
+	return &MemoryStore{
+		data: common.NewFlatBuffer[[]byte](1024),
+	}
+}
+
+func (m *MemoryStore) Get(ctx context.Context, offset uint64) ([]byte, error) {
+	block := m.data.Get(offset)
+	if block == nil {
+		return nil, ErrPostingNotFound
+	}
+
+	return block, nil
+}
+
+func (m *MemoryStore) Put(ctx context.Context, offset uint64, block []byte) error {
+	if len(block) == 0 {
+		return errors.New("block cannot be empty")
+	}
+
+	cp := make([]byte, len(block))
+	copy(cp, block)
+	m.data.Set(offset, cp)
+
+	return nil
 }

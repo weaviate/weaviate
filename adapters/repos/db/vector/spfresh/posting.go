@@ -14,7 +14,7 @@ package spfresh
 type Vector struct {
 	ID      uint64
 	Version VectorVersion
-	Data    []float32
+	Data    []byte
 }
 
 // A Posting is a collection of vectors associated with the same centroid.
@@ -57,8 +57,8 @@ type PostingSplitter interface {
 }
 
 type SplitResult struct {
-	LeftCentroid  []float32
+	LeftCentroid  []byte
 	LeftPosting   Posting
-	RightCentroid []float32
+	RightCentroid []byte
 	RightPosting  Posting
 }
