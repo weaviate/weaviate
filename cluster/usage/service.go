@@ -31,36 +31,39 @@ import (
 
 type Service interface {
 	Usage(ctx context.Context) (*types.Report, error)
-	SetJitterFunction(jitterFunc func())
+	SetJitterInterval(interval time.Duration)
 }
 
 type service struct {
-	schemaManager schema.SchemaGetter
-	db            db.IndexGetter
-	backups       backup.BackupBackendProvider
-	logger        logrus.FieldLogger
-	jitterFunc    func() // Optional jitter function
+	schemaManager  schema.SchemaGetter
+	db             db.IndexGetter
+	backups        backup.BackupBackendProvider
+	logger         logrus.FieldLogger
+	jitterInterval time.Duration
 }
 
 func NewService(schemaManager schema.SchemaGetter, db db.IndexGetter, backups backup.BackupBackendProvider, logger logrus.FieldLogger) Service {
 	return &service{
-		schemaManager: schemaManager,
-		db:            db,
-		backups:       backups,
-		logger:        logger,
+		schemaManager:  schemaManager,
+		db:             db,
+		backups:        backups,
+		logger:         logger,
+		jitterInterval: 0, // Default to no jitter
 	}
 }
 
-// SetJitterFunction sets an optional jitter function to be called between shard processing
-func (s *service) SetJitterFunction(jitterFunc func()) {
-	s.jitterFunc = jitterFunc
+// SetJitterInterval sets the jitter interval for shard processing
+func (s *service) SetJitterInterval(interval time.Duration) {
+	s.jitterInterval = interval
 }
 
-// addJitter calls the jitter function if one is set
+// addJitter adds a small random delay if jitter interval is set
 func (s *service) addJitter() {
-	if s.jitterFunc != nil {
-		s.jitterFunc()
+	if s.jitterInterval <= 0 {
+		return // No jitter if interval is 0 or negative
 	}
+	jitter := time.Duration(time.Now().UnixNano() % int64(s.jitterInterval))
+	time.Sleep(jitter)
 }
 
 // Usage service collects usage metrics for the node and shall return error in case of any error

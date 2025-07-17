@@ -62,7 +62,7 @@ func NewBaseModule(moduleName string, storage StorageBackend) *BaseModule {
 func (b *BaseModule) SetUsageService(usageService any) {
 	if service, ok := usageService.(clusterusage.Service); ok {
 		b.usageService = service
-		service.SetJitterFunction(b.addShardJitter)
+		service.SetJitterInterval(b.shardJitter)
 	}
 }
 
@@ -182,16 +182,6 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 			return
 		}
 	}
-}
-
-// addShardJitter adds a small random delay between shard processing
-func (b *BaseModule) addShardJitter() {
-	if b.shardJitter <= 0 {
-		// Use default if configured value is invalid
-		b.shardJitter = DefaultShardJitterInterval
-	}
-	jitter := time.Duration(time.Now().UnixNano() % int64(b.shardJitter))
-	time.Sleep(jitter)
 }
 
 func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
