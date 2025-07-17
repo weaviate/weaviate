@@ -113,7 +113,7 @@ func (pf *vectorCachePrefiller[T]) logTotal(count, limit int, before time.Time) 
 		"count":    count,
 		"took":     time.Since(before),
 		"index_id": pf.index.id,
-	}).Info("prefilled vector cache")
+	}).Logf(pf.index.initLogLevel, "prefilled vector cache")
 }
 
 func levelOfNode(node *vertex) int {

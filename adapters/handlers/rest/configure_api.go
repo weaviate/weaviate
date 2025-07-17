@@ -417,6 +417,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		QuerySlowLogThreshold:       appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:      appState.ServerConfig.Config.InvertedSorterDisabled,
 		MaintenanceModeEnabled:      appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		ShardInitLogLevel:           appState.ServerConfig.Config.ShardInitLogLevel,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -1730,6 +1731,7 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+		registered.ShardInitLogLevel = appState.ServerConfig.Config.ShardInitLogLevel
 
 		hooks := make(map[string]func() error)
 

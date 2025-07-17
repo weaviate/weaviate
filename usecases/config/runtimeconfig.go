@@ -37,6 +37,7 @@ type WeaviateRuntimeConfig struct {
 	QuerySlowLogEnabled            *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
 	QuerySlowLogThreshold          *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
 	InvertedSorterDisabled         *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
+	ShardInitLogLevel              *runtime.DynamicValue[string]        `json:"shard_init_log_level" yaml:"shard_init_log_level"`
 
 	// Experimental configs. Will be removed in the future.
 	OIDCIssuer            *runtime.DynamicValue[string]   `json:"exp_oidc_issuer" yaml:"exp_oidc_issuer"`
