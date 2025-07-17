@@ -35,13 +35,6 @@ RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
       -o /weaviate-server ./cmd/weaviate-server
 
 ###############################################################################
-
-# This creates an image that can be used to fake an api for telemetry acceptance test purposes
-FROM build_base AS telemetry_mock_api
-COPY . .
-ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
-
-###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)
 FROM alpine AS weaviate
 ENTRYPOINT ["/bin/weaviate"]
