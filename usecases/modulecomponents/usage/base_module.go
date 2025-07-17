@@ -26,8 +26,9 @@ import (
 )
 
 const (
-	DefaultCollectionInterval  = 1 * time.Hour
-	DefaultJitterInterval      = 30 * time.Second
+	DefaultCollectionInterval = 1 * time.Hour
+	// DefaultShardJitterInterval short for shard-level operations and can be configurable later on
+	DefaultShardJitterInterval = 100 * time.Millisecond
 	DefaultRuntimeLoadInterval = 2 * time.Minute
 	DefaultPolicyVersion       = "2025-06-01"
 )
@@ -59,6 +60,7 @@ func NewBaseModule(moduleName string, storage StorageBackend) *BaseModule {
 func (b *BaseModule) SetUsageService(usageService any) {
 	if service, ok := usageService.(clusterusage.Service); ok {
 		b.usageService = service
+		service.SetJitterFunction(b.addShardJitter)
 	}
 }
 
@@ -123,9 +125,9 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 	}
 
 	b.logger.WithFields(logrus.Fields{
-		"base_interval":  b.interval.String(),
-		"load_interval":  loadInterval.String(),
-		"default_jitter": DefaultJitterInterval.String(),
+		"base_interval":        b.interval.String(),
+		"load_interval":        loadInterval.String(),
+		"default_shard_jitter": DefaultShardJitterInterval.String(),
 	}).Debug("starting periodic collection with ticker")
 
 	// Create ticker with base interval
@@ -170,6 +172,12 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// addShardJitter adds a small random delay between shard processing
+func (b *BaseModule) addShardJitter() {
+	jitter := time.Duration(time.Now().UnixNano() % int64(DefaultShardJitterInterval))
+	time.Sleep(jitter)
 }
 
 func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {

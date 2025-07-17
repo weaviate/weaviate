@@ -33,6 +33,39 @@ func (_m *MockService) EXPECT() *MockService_Expecter {
 	return &MockService_Expecter{mock: &_m.Mock}
 }
 
+// SetJitterFunction provides a mock function with given fields: jitterFunc
+func (_m *MockService) SetJitterFunction(jitterFunc func()) {
+	_m.Called(jitterFunc)
+}
+
+// MockService_SetJitterFunction_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetJitterFunction'
+type MockService_SetJitterFunction_Call struct {
+	*mock.Call
+}
+
+// SetJitterFunction is a helper method to define mock.On call
+//   - jitterFunc func()
+func (_e *MockService_Expecter) SetJitterFunction(jitterFunc interface{}) *MockService_SetJitterFunction_Call {
+	return &MockService_SetJitterFunction_Call{Call: _e.mock.On("SetJitterFunction", jitterFunc)}
+}
+
+func (_c *MockService_SetJitterFunction_Call) Run(run func(jitterFunc func())) *MockService_SetJitterFunction_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(func()))
+	})
+	return _c
+}
+
+func (_c *MockService_SetJitterFunction_Call) Return() *MockService_SetJitterFunction_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockService_SetJitterFunction_Call) RunAndReturn(run func(func())) *MockService_SetJitterFunction_Call {
+	_c.Run(run)
+	return _c
+}
+
 // Usage provides a mock function with given fields: ctx
 func (_m *MockService) Usage(ctx context.Context) (*types.Report, error) {
 	ret := _m.Called(ctx)

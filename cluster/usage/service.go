@@ -31,6 +31,7 @@ import (
 
 type Service interface {
 	Usage(ctx context.Context) (*types.Report, error)
+	SetJitterFunction(jitterFunc func())
 }
 
 type service struct {
@@ -38,6 +39,7 @@ type service struct {
 	db            db.IndexGetter
 	backups       backup.BackupBackendProvider
 	logger        logrus.FieldLogger
+	jitterFunc    func() // Optional jitter function
 }
 
 func NewService(schemaManager schema.SchemaGetter, db db.IndexGetter, backups backup.BackupBackendProvider, logger logrus.FieldLogger) Service {
@@ -46,6 +48,18 @@ func NewService(schemaManager schema.SchemaGetter, db db.IndexGetter, backups ba
 		db:            db,
 		backups:       backups,
 		logger:        logger,
+	}
+}
+
+// SetJitterFunction sets an optional jitter function to be called between shard processing
+func (s *service) SetJitterFunction(jitterFunc func()) {
+	s.jitterFunc = jitterFunc
+}
+
+// addJitter calls the jitter function if one is set
+func (s *service) addJitter() {
+	if s.jitterFunc != nil {
+		s.jitterFunc()
 	}
 }
 
@@ -72,7 +86,6 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 		index := m.db.GetIndexLike(entschema.ClassName(collection.Class))
 		if index != nil {
 			// First, collect cold tenants from sharding state
-			coldTenants := make(map[string]*types.ShardUsage)
 			for tenantName, physical := range shardingState.Physical {
 				// skip non-local shards
 				if !shardingState.IsLocalShard(tenantName) {
@@ -81,6 +94,11 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 
 				// Only process COLD tenants here
 				if physical.ActivityStatus() == models.TenantActivityStatusCOLD {
+					// Add jitter between cold tenant processing (except for the first one)
+					if len(collectionUsage.Shards) > 0 {
+						m.addJitter()
+					}
+
 					// Cold tenant: calculate from disk without loading
 					objectUsage, err := index.CalculateUnloadedObjectsMetrics(ctx, tenantName)
 					if err != nil {
@@ -99,7 +117,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 						VectorStorageBytes:  uint64(vectorStorageSize),
 						NamedVectors:        make([]*types.VectorUsage, 0), // Empty for cold tenants
 					}
-					coldTenants[tenantName] = shardUsage
+					collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
 				}
 			}
 
@@ -108,6 +126,11 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 				// skip non-local shards
 				if !shardingState.IsLocalShard(name) {
 					return nil
+				}
+
+				// Add jitter between hot shard processing (except for the first one)
+				if len(collectionUsage.Shards) > 0 {
+					m.addJitter()
 				}
 
 				objectStorageSize, err := shard.ObjectStorageSize(ctx)
@@ -174,11 +197,6 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 				collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
 				return nil
 			})
-
-			// Add cold tenants to the collection
-			for _, coldShard := range coldTenants {
-				collectionUsage.Shards = append(collectionUsage.Shards, coldShard)
-			}
 		}
 
 		usage.Collections = append(usage.Collections, collectionUsage)
