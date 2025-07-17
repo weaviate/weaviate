@@ -30,8 +30,10 @@ const (
 )
 
 type Operation struct {
-	PostingID uint64
 	OpType    BackgroundOpType
+	PostingID uint64
+	LeftID    uint64 // Used for reassign operations
+	RightID   uint64 // Used for reassign operations
 }
 
 // LocalRebuilder manages background operations for postings in the SPFresh index.
@@ -113,29 +115,26 @@ func (r *LocalRebuilder) Enqueue(ctx context.Context, op Operation) error {
 	return nil
 }
 
+func (r *LocalRebuilder) enqueueOrSteal(op Operation) error {
+	select {
+	case r.ch <- op:
+		return nil // Successfully enqueued
+	default:
+	}
+
+	// Channel is full, process the operation immediately
+	return r.process(op)
+}
+
 func (r *LocalRebuilder) worker() {
 	defer r.wg.Done()
-
-	var err error
 
 	for op := range r.ch {
 		if r.ctx.Err() != nil {
 			return // Stop processing if context is cancelled
 		}
 
-		// Process the operation
-		switch op.OpType {
-		case BackgroundOpSplit:
-			// Handle split operation
-			err = r.doSplit(op)
-		case BackgroundOpMerge:
-			// Handle merge operation
-		case BackgroundOpReassign:
-			// Handle reassign operation
-		default:
-			r.Logger.Warnf("Unknown operation type: %s for posting ID: %d", op.OpType, op.PostingID)
-		}
-
+		err := r.process(op)
 		if err != nil {
 			r.Logger.WithError(err).
 				WithField("postingID", op.PostingID).
@@ -143,7 +142,25 @@ func (r *LocalRebuilder) worker() {
 				Error("Failed to process operation")
 			continue // Log the error and continue processing other operations
 		}
+		r.dedup.done(op) // Ensure we mark the operation as done
 	}
+}
+
+func (r *LocalRebuilder) process(op Operation) error {
+	// Process the operation
+	switch op.OpType {
+	case BackgroundOpSplit:
+		// Handle split operation
+		return r.doSplit(op)
+	case BackgroundOpMerge:
+		// Handle merge operation
+	case BackgroundOpReassign:
+		// Handle reassign operation
+	default:
+		r.Logger.Warnf("Unknown operation type: %s for posting ID: %d", op.OpType, op.PostingID)
+	}
+
+	return nil
 }
 
 func (r *LocalRebuilder) Close(ctx context.Context) error {
@@ -166,8 +183,6 @@ func (r *LocalRebuilder) Close(ctx context.Context) error {
 }
 
 func (r *LocalRebuilder) doSplit(op Operation) error {
-	defer r.dedup.done(op) // Ensure we mark the operation as done
-
 	// TODO: Use WAL
 
 	p, err := r.Store.Get(r.ctx, op.PostingID)
@@ -219,7 +234,7 @@ func (r *LocalRebuilder) doSplit(op Operation) error {
 	}
 	err = r.Store.Put(r.ctx, rightID, result.RightPosting)
 	if err != nil {
-		// TODO: cleanup?
+		// cleanup will be handled by the snapshot process
 		return errors.Wrapf(err, "failed to put right posting %d for split operation on posting %d", rightID, op.PostingID)
 	}
 
@@ -229,7 +244,15 @@ func (r *LocalRebuilder) doSplit(op Operation) error {
 		return errors.Wrapf(err, "failed to split centroid for posting %d into %d and %d", op.PostingID, leftID, rightID)
 	}
 
-	// TODO: add reassign logic
+	// enqueue a reassign operation to ensure the new postings are balanced
+	err = r.enqueueOrSteal(Operation{
+		OpType:    BackgroundOpReassign,
+		PostingID: leftID,
+		RightID:   rightID,
+	})
+	if err != nil {
+		return errors.Wrapf(err, "failed to enqueue or steal reassign operation for posting %d", op.PostingID)
+	}
 
 	return nil
 }
