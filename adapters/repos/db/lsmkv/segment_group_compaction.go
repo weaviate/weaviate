@@ -400,8 +400,8 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	newPathTmp string,
 ) error {
 	sg.maintenanceLock.RLock()
-	updatedCountNetAdditions := sg.segments[old1].getCountNetAdditions() +
-		sg.segments[old2].getCountNetAdditions()
+	updatedCountNetAdditions := sg.segments[old1].getSegment().getCountNetAdditions() +
+		sg.segments[old2].getSegment().getCountNetAdditions()
 	sg.maintenanceLock.RUnlock()
 
 	// WIP: we could add a random suffix to the tmp file to avoid conflicts
