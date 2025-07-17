@@ -91,25 +91,27 @@ type SegmentGroup struct {
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bm25config                     *schema.BM25Config
+	writeSegmentInfoIntoFileName   bool
 }
 
 type sgConfig struct {
-	dir                      string
-	strategy                 string
-	mapRequiresSorting       bool
-	monitorCount             bool
-	mmapContents             bool
-	keepTombstones           bool
-	useBloomFilter           bool
-	calcCountNetAdditions    bool
-	forceCompaction          bool
-	keepLevelCompaction      bool
-	maxSegmentSize           int64
-	cleanupInterval          time.Duration
-	enableChecksumValidation bool
-	keepSegmentsInMemory     bool
-	MinMMapSize              int64
-	bm25config               *models.BM25Config
+	dir                          string
+	strategy                     string
+	mapRequiresSorting           bool
+	monitorCount                 bool
+	mmapContents                 bool
+	keepTombstones               bool
+	useBloomFilter               bool
+	calcCountNetAdditions        bool
+	forceCompaction              bool
+	keepLevelCompaction          bool
+	maxSegmentSize               int64
+	cleanupInterval              time.Duration
+	enableChecksumValidation     bool
+	keepSegmentsInMemory         bool
+	MinMMapSize                  int64
+	bm25config                   *models.BM25Config
+	writeSegmentInfoIntoFileName bool
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -118,25 +120,26 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 ) (*SegmentGroup, error) {
 	now := time.Now()
 	sg := &SegmentGroup{
-		segments:                 make([]Segment, len(files)),
-		dir:                      cfg.dir,
-		logger:                   logger,
-		metrics:                  metrics,
-		monitorCount:             cfg.monitorCount,
-		mapRequiresSorting:       cfg.mapRequiresSorting,
-		strategy:                 cfg.strategy,
-		mmapContents:             cfg.mmapContents,
-		keepTombstones:           cfg.keepTombstones,
-		useBloomFilter:           cfg.useBloomFilter,
-		calcCountNetAdditions:    cfg.calcCountNetAdditions,
-		compactLeftOverSegments:  cfg.forceCompaction,
-		maxSegmentSize:           cfg.maxSegmentSize,
-		cleanupInterval:          cfg.cleanupInterval,
-		enableChecksumValidation: cfg.enableChecksumValidation,
-		allocChecker:             allocChecker,
-		lastCompactionCall:       now,
-		lastCleanupCall:          now,
-		MinMMapSize:              cfg.MinMMapSize,
+		segments:                     make([]Segment, len(files)),
+		dir:                          cfg.dir,
+		logger:                       logger,
+		metrics:                      metrics,
+		monitorCount:                 cfg.monitorCount,
+		mapRequiresSorting:           cfg.mapRequiresSorting,
+		strategy:                     cfg.strategy,
+		mmapContents:                 cfg.mmapContents,
+		keepTombstones:               cfg.keepTombstones,
+		useBloomFilter:               cfg.useBloomFilter,
+		calcCountNetAdditions:        cfg.calcCountNetAdditions,
+		compactLeftOverSegments:      cfg.forceCompaction,
+		maxSegmentSize:               cfg.maxSegmentSize,
+		cleanupInterval:              cfg.cleanupInterval,
+		enableChecksumValidation:     cfg.enableChecksumValidation,
+		allocChecker:                 allocChecker,
+		lastCompactionCall:           now,
+		lastCleanupCall:              now,
+		MinMMapSize:                  cfg.MinMMapSize,
+		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 	}
 
 	segmentIndex := 0
@@ -177,8 +180,16 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			continue
 		}
 
-		leftSegmentFilename := fmt.Sprintf("segment-%s.db", jointSegmentsIDs[0])
-		rightSegmentFilename := fmt.Sprintf("segment-%s.db", jointSegmentsIDs[1])
+		// source segments for the compacted segment had a lower level
+		var leftSegmentFilename, rightSegmentFilename string
+		if cfg.writeSegmentInfoIntoFileName {
+			level, strategy := strategyAndLevelFromFileName(potentialCompactedSegmentFileName)
+			leftSegmentFilename = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[0], segmentExtraInfo(level-1, strategy))
+			rightSegmentFilename = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[1], segmentExtraInfo(level-1, strategy))
+		} else {
+			leftSegmentFilename = fmt.Sprintf("segment-%s.db", jointSegmentsIDs[0])
+			rightSegmentFilename = fmt.Sprintf("segment-%s.db", jointSegmentsIDs[1])
+		}
 
 		leftSegmentPath := filepath.Join(sg.dir, leftSegmentFilename)
 		rightSegmentPath := filepath.Join(sg.dir, rightSegmentFilename)
@@ -187,13 +198,13 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		if err != nil {
 			return nil, fmt.Errorf("check for presence of segment %s: %w", leftSegmentFilename, err)
 		}
-
 		rightSegmentFound, err := fileExists(rightSegmentPath)
 		if err != nil {
 			return nil, fmt.Errorf("check for presence of segment %s: %w", rightSegmentFilename, err)
 		}
 
 		if leftSegmentFound && rightSegmentFound {
+			delete(files, entry)
 			if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
 				return nil, fmt.Errorf("delete partially compacted segment %q: %w", entry, err)
 			}
@@ -247,6 +258,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			if err != nil {
 				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
+			delete(files, rightSegmentFilename)
 
 			err = diskio.Fsync(sg.dir)
 			if err != nil {
@@ -254,8 +266,17 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			}
 		}
 
-		if err := os.Rename(filepath.Join(sg.dir, entry), rightSegmentPath); err != nil {
-			return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry, rightSegmentFilename, err)
+		var newRightSegmentFileName string
+		if cfg.writeSegmentInfoIntoFileName {
+			level, strategy := strategyAndLevelFromFileName(potentialCompactedSegmentFileName)
+			newRightSegmentFileName = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[1], segmentExtraInfo(level, strategy))
+		} else {
+			newRightSegmentFileName = fmt.Sprintf("segment-%s.db", jointSegmentsIDs[1])
+		}
+		newRightSegmentPath := filepath.Join(sg.dir, newRightSegmentFileName)
+
+		if err := os.Rename(filepath.Join(sg.dir, entry), newRightSegmentPath); err != nil {
+			return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry, newRightSegmentFileName, err)
 		}
 
 		var segment Segment
@@ -270,25 +291,25 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			fileList:                 files,
 		}
 		if lazySegmentLoading {
-			segment, err = newLazySegment(rightSegmentPath, logger,
+			segment, err = newLazySegment(newRightSegmentPath, logger,
 				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), sgConf,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("init lazy segment %s: %w", rightSegmentFilename, err)
+				return nil, fmt.Errorf("init lazy segment %s: %w", newRightSegmentFileName, err)
 			}
 		} else {
-			segment, err = newSegment(rightSegmentPath, logger,
+			segment, err = newSegment(newRightSegmentPath, logger,
 				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), sgConf,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
+				return nil, fmt.Errorf("init segment %s: %w", newRightSegmentFileName, err)
 			}
 		}
 
 		sg.segments[segmentIndex] = segment
 		segmentIndex++
 
-		segmentsAlreadyRecoveredFromCompaction[rightSegmentFilename] = struct{}{}
+		segmentsAlreadyRecoveredFromCompaction[newRightSegmentFileName] = struct{}{}
 	}
 
 	for entry := range files {
@@ -319,8 +340,9 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 		// before we can mount this file, we need to check if a WAL exists for it.
 		// If yes, we must assume that the flush never finished, as otherwise the
-		// WAL would have been lsmkv.Deleted. Thus we must remove it.
-		walFileName := strings.TrimSuffix(entry, ".db") + ".wal"
+		// WAL would have been deleted. Thus we must remove it.
+		walFileName, _, _ := strings.Cut(entry, ".")
+		walFileName += ".wal"
 		_, ok := files[walFileName]
 		if ok {
 			// the segment will be recovered from the WAL

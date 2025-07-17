@@ -155,6 +155,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		lsmkv.WithCalcCountNetAdditions(true),
 		// dont lazy segment load object bucket - we need it in most (all?) operations
+		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
 	}
 
 	if s.metrics != nil && !s.metrics.grouped {
