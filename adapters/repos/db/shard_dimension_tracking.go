@@ -15,8 +15,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/cluster/usage/types"
@@ -88,23 +86,21 @@ func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector str
 	return calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, calcEntry), nil
 }
 
+// initDimensionTracking initializes the dimension tracking for a shard.
+// it's no op if the trackVectorDimensions is disabled or the usage is enabled
 func (s *Shard) initDimensionTracking() {
 	// do not use the context passed from NewShard, as that one is only meant for
 	// initialization. However, this goroutine keeps running forever, so if the
 	// startup context expires, this would error.
 	// https://github.com/weaviate/weaviate/issues/5091
 	rootCtx := context.Background()
-	if s.index.Config.TrackVectorDimensions {
+	if s.index.Config.TrackVectorDimensions && !s.index.Config.UsageEnabled {
 		s.dimensionTrackingInitialized.Store(true)
 
 		// The timeout is rather arbitrary, it's just meant to prevent a context
 		// leak. The actual work should be much faster.
 		ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
 		defer cancel()
-		s.index.logger.WithFields(logrus.Fields{
-			"action":   "init_dimension_tracking",
-			"duration": 30 * time.Minute,
-		}).Debug("context.WithTimeout")
 
 		// always send vector dimensions at startup if tracking is enabled
 		s.publishDimensionMetrics(ctx)
@@ -123,10 +119,6 @@ func (s *Shard) initDimensionTracking() {
 						// leak. The actual work should be much faster.
 						ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
 						defer cancel()
-						s.index.logger.WithFields(logrus.Fields{
-							"action":   "init_dimension_tracking",
-							"duration": 30 * time.Minute,
-						}).Debug("context.WithTimeout")
 						s.publishDimensionMetrics(ctx)
 					}()
 				}
