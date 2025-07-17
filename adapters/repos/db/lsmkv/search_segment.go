@@ -76,23 +76,27 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 			upperBound += results[i].currentBlockImpact
 		}
 		if iterations%100000 == 0 && ctx != nil && ctx.Err() != nil {
-			logger.Warnf("DoBlockMaxWand: context cancelled after %d iterations for docId %d, pivotID %d, firstNonExhausted %d, len(results) %d pivotPoint %d, upperBound %f",
-				iterations, results[0].idPointer, pivotID, firstNonExhausted, len(results),
+			logger.Warnf("DoBlockMaxWand: context cancelled after %d iterations, pivotID %d, firstNonExhausted %d, len(results) %d pivotPoint %d, upperBound %f",
+				iterations, pivotID, firstNonExhausted, len(results),
 				pivotPoint, upperBound,
 			)
 			return topKHeap
 		}
 		if iterations == 10000000 {
 			query := ""
-			for i := 0; i < len(results); i++ {
-				query += results[i].QueryTerm() + ":" + strconv.Itoa(results[i].Count()) + ":" + strconv.FormatUint(results[i].idPointer, 10) + " "
-			}
 			filterCardinality := 0
-			if results[0].filterDocIds != nil {
-				filterCardinality = results[0].filterDocIds.GetCardinality()
-			}
 
-			logger.Warnf("DoBlockMaxWand: too many iterations #5 (%d), pivotID %d, firstNonExhausted %d, len(results) %d pivotPoint %d, query: %s, filterCardinality: %d", iterations, pivotID, firstNonExhausted, len(results), pivotPoint, query, filterCardinality)
+			resultCount := 0
+			for i := 0; i < len(results); i++ {
+				resultCount = len(results)
+				if results[i] != nil {
+					query += results[i].QueryTerm() + ":" + strconv.Itoa(results[i].Count()) + ":" + strconv.FormatUint(results[i].idPointer, 10) + " "
+					if results[i].filterDocIds != nil {
+						filterCardinality = results[i].filterDocIds.GetCardinality()
+					}
+				}
+			}
+			logger.Warnf("DoBlockMaxWand: too many iterations #5 (%d), pivotID %d, firstNonExhausted %d, len(results) %d pivotPoint %d, query: %s, filterCardinality: %d", iterations, pivotID, firstNonExhausted, resultCount, pivotPoint, query, filterCardinality)
 			return topKHeap
 		}
 
