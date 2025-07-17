@@ -19,10 +19,12 @@ import (
 )
 
 func TestBaseModule_addShardJitter_Simple(t *testing.T) {
-	module := &BaseModule{}
+	// Create module with proper initialization
+	module := NewBaseModule("test-module", nil)
 
 	// Test 1: Check that the default value is correct
 	assert.Equal(t, 100*time.Millisecond, DefaultShardJitterInterval, "jitter interval should be 100ms")
+	assert.Equal(t, DefaultShardJitterInterval, module.shardJitter, "module should use default jitter")
 
 	// Test 2: Test that jitter function doesn't panic and completes
 	// This is a simple smoke test - the function should execute without error
@@ -44,7 +46,7 @@ func TestBaseModule_addShardJitter_Simple(t *testing.T) {
 
 	// The function should have slept for some time (even if it's very short)
 	assert.Greater(t, duration, 0*time.Millisecond, "function should actually sleep")
-	assert.Less(t, duration, DefaultShardJitterInterval+10*time.Millisecond, "sleep should not exceed max interval")
+	assert.Less(t, duration, module.shardJitter+10*time.Millisecond, "sleep should not exceed max interval")
 
 	// Test 5: Test that multiple calls produce different timing (basic variance check)
 	var durations []time.Duration
@@ -58,6 +60,35 @@ func TestBaseModule_addShardJitter_Simple(t *testing.T) {
 	// Test 6: Verify all durations are within bounds
 	for _, duration := range durations {
 		assert.GreaterOrEqual(t, duration, 0*time.Millisecond, "all durations should be non-negative")
-		assert.Less(t, duration, DefaultShardJitterInterval+10*time.Millisecond, "all durations should be within max interval")
+		assert.Less(t, duration, module.shardJitter+10*time.Millisecond, "all durations should be within max interval")
 	}
+
+	// Test 7: Test configurable jitter
+	customJitter := 50 * time.Millisecond
+	module.shardJitter = customJitter
+
+	start = time.Now()
+	module.addShardJitter()
+	duration = time.Since(start)
+
+	assert.Greater(t, duration, 0*time.Millisecond, "custom jitter should sleep")
+	assert.Less(t, duration, customJitter+10*time.Millisecond, "custom jitter should not exceed its interval")
+
+	// Test 8: Test zero jitter (should use default)
+	module.shardJitter = 0
+	start = time.Now()
+	module.addShardJitter()
+	duration = time.Since(start)
+
+	assert.Greater(t, duration, 0*time.Millisecond, "zero jitter should use default and sleep")
+	assert.Less(t, duration, DefaultShardJitterInterval+10*time.Millisecond, "zero jitter should not exceed default interval")
+
+	// Test 9: Test negative jitter (should use default)
+	module.shardJitter = -1 * time.Millisecond
+	start = time.Now()
+	module.addShardJitter()
+	duration = time.Since(start)
+
+	assert.Greater(t, duration, 0*time.Millisecond, "negative jitter should use default and sleep")
+	assert.Less(t, duration, DefaultShardJitterInterval+10*time.Millisecond, "negative jitter should not exceed default interval")
 }

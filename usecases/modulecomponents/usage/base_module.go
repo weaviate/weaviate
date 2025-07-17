@@ -41,6 +41,7 @@ type BaseModule struct {
 	config        *config.Config
 	storage       StorageBackend
 	interval      time.Duration
+	shardJitter   time.Duration
 	stopChan      chan struct{}
 	metrics       *Metrics
 	usageService  clusterusage.Service
@@ -50,10 +51,11 @@ type BaseModule struct {
 // NewBaseModule creates a new base module instance
 func NewBaseModule(moduleName string, storage StorageBackend) *BaseModule {
 	return &BaseModule{
-		interval:   DefaultCollectionInterval,
-		stopChan:   make(chan struct{}),
-		storage:    storage,
-		moduleName: moduleName,
+		interval:    DefaultCollectionInterval,
+		shardJitter: DefaultShardJitterInterval,
+		stopChan:    make(chan struct{}),
+		storage:     storage,
+		moduleName:  moduleName,
 	}
 }
 
@@ -97,6 +99,13 @@ func (b *BaseModule) InitializeCommon(ctx context.Context, config *config.Config
 		}
 	}
 
+	// Initialize shard jitter interval
+	if b.config.Usage.ShardJitterInterval != nil {
+		if jitterInterval := b.config.Usage.ShardJitterInterval.Get(); jitterInterval > 0 {
+			b.shardJitter = jitterInterval
+		}
+	}
+
 	// Verify storage permissions
 	if err := b.storage.VerifyPermissions(ctx); err != nil {
 		return fmt.Errorf("failed to verify storage permissions: %w", err)
@@ -127,6 +136,7 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 	b.logger.WithFields(logrus.Fields{
 		"base_interval":        b.interval.String(),
 		"load_interval":        loadInterval.String(),
+		"shard_jitter":         b.shardJitter.String(),
 		"default_shard_jitter": DefaultShardJitterInterval.String(),
 	}).Debug("starting periodic collection with ticker")
 
@@ -176,7 +186,11 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 
 // addShardJitter adds a small random delay between shard processing
 func (b *BaseModule) addShardJitter() {
-	jitter := time.Duration(time.Now().UnixNano() % int64(DefaultShardJitterInterval))
+	if b.shardJitter <= 0 {
+		// Use default if configured value is invalid
+		b.shardJitter = DefaultShardJitterInterval
+	}
+	jitter := time.Duration(time.Now().UnixNano() % int64(b.shardJitter))
 	time.Sleep(jitter)
 }
 

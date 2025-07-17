@@ -22,8 +22,9 @@ type UsageConfig struct {
 	GCSBucket *runtime.DynamicValue[string] `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
 	GCSPrefix *runtime.DynamicValue[string] `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
 
-	S3Bucket       *runtime.DynamicValue[string]        `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`
-	S3Prefix       *runtime.DynamicValue[string]        `json:"usage_s3_prefix" yaml:"usage_s3_prefix"`
-	ScrapeInterval *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
-	PolicyVersion  *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
+	S3Bucket            *runtime.DynamicValue[string]        `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`
+	S3Prefix            *runtime.DynamicValue[string]        `json:"usage_s3_prefix" yaml:"usage_s3_prefix"`
+	ScrapeInterval      *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
+	ShardJitterInterval *runtime.DynamicValue[time.Duration] `json:"usage_shard_jitter_interval" yaml:"usage_shard_jitter_interval"`
+	PolicyVersion       *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
 }
