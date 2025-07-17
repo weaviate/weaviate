@@ -13,43 +13,43 @@ package spfresh
 
 import (
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 type SPTAG interface {
-	Upsert(id uint64, centroid []float32) error
+	Upsert(id uint64, centroid []byte) error
 	Delete(id uint64) error
-	Search(query []float32, k int) ([]uint64, error)
-	Split(oldID uint64, newID1, newID2 uint64, c1, c2 []float32) error
-	Merge(oldID1, oldID2, newID uint64, newCentroid []float32) error
+	Search(query []byte, k int) ([]uint64, error)
+	Split(oldID uint64, newID1, newID2 uint64, c1, c2 []byte) error
+	Merge(oldID1, oldID2, newID uint64, newCentroid []byte) error
 }
 
-type DummySPTAG struct {
-	Centroids map[uint64][]float32
-	distancer distancer.L2SquaredProvider
+type BruteForceSPTAG struct {
+	Centroids map[uint64][]byte
+	quantizer *compressionhelpers.RotationalQuantizer
 }
 
-func NewDummySPTAG() *DummySPTAG {
-	return &DummySPTAG{
-		Centroids: make(map[uint64][]float32),
-		distancer: distancer.NewL2SquaredProvider(),
+func NewBruteForceSPTAG(quantizer *compressionhelpers.RotationalQuantizer) *BruteForceSPTAG {
+	return &BruteForceSPTAG{
+		Centroids: make(map[uint64][]byte),
+		quantizer: quantizer,
 	}
 }
 
-func (d *DummySPTAG) Upsert(id uint64, centroid []float32) error {
+func (d *BruteForceSPTAG) Upsert(id uint64, centroid []byte) error {
 	d.Centroids[id] = centroid
 	return nil
 }
 
-func (d *DummySPTAG) Delete(id uint64) error {
+func (d *BruteForceSPTAG) Delete(id uint64) error {
 	delete(d.Centroids, id)
 	return nil
 }
 
-func (d *DummySPTAG) Search(query []float32, k int) ([]uint64, error) {
-	q := priorityqueue.NewMinWithId[float32](k)
+func (d *BruteForceSPTAG) Search(query []byte, k int) ([]uint64, error) {
+	q := priorityqueue.NewMinWithId[byte](k)
 	for id, centroid := range d.Centroids {
-		dist, err := d.distancer.SingleDist(query, centroid)
+		dist, err := d.quantizer.DistanceBetweenCompressedVectors(query, centroid)
 		if err != nil {
 			return nil, err
 		}

@@ -17,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 // Updater handles write operations for the SPFresh index.
@@ -28,11 +29,15 @@ type Updater struct {
 	VersionMap     *VersionMap                      // VersionMap provides access to vector versions.
 	IDs            *common.MonotonicCounter[uint64] // IDs is a monotonic counter for generating unique IDs for postings.
 	LocalRebuilder *LocalRebuilder                  // LocalRebuilder manages background operations for postings.
+	Quantizer      *compressionhelpers.RotationalQuantizer
 }
 
 func (u *Updater) Insert(ctx context.Context, id uint64, vector []float32) error {
+	// compress the vector
+	compressed := u.Quantizer.Encode(vector)
+
 	// search the nearest centroid
-	ps, err := u.SPTAG.Search(vector, 1)
+	ps, err := u.SPTAG.Search(compressed, 1)
 	if err != nil {
 		return errors.Wrap(err, "failed to search for nearest centroid")
 	}
@@ -43,7 +48,7 @@ func (u *Updater) Insert(ctx context.Context, id uint64, vector []float32) error
 	v := Vector{
 		ID:      id,
 		Version: version,
-		Data:    vector,
+		Data:    compressed,
 	}
 
 	var postingID uint64
@@ -68,7 +73,7 @@ func (u *Updater) Insert(ctx context.Context, id uint64, vector []float32) error
 	}
 
 	// use the vector as the centroid and register it in the SPTAG
-	err = u.SPTAG.Upsert(postingID, vector)
+	err = u.SPTAG.Upsert(postingID, compressed)
 	if err != nil {
 		return errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
 	}
