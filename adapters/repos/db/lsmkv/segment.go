@@ -507,10 +507,6 @@ func (s *segment) setSize(size int64) {
 	s.size = size
 }
 
-func (s *segment) getIndexSize() int {
-	return s.index.Size()
-}
-
 func (s *segment) getInvertedData() *segmentInvertedData {
 	return s.invertedData
 }
