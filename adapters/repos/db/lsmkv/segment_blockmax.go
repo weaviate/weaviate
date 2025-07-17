@@ -450,7 +450,7 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 		s.decodeBlock()
 	}
 
-	for s.blockDataIdx < s.blockDataSize-1 && docId > s.blockDataDecoded.DocIds[s.blockDataIdx] {
+	for s.blockDataIdx < s.blockDataSize && docId > s.blockDataDecoded.DocIds[s.blockDataIdx] {
 		s.blockDataIdx++
 	}
 
