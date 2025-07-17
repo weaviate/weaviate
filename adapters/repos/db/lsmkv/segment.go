@@ -41,36 +41,18 @@ type Segment interface {
 	setPath(path string)
 	getStrategy() segmentindex.Strategy
 	getSecondaryIndexCount() uint16
-	getCountNetAdditions() int
 	getLevel() uint16
 	getSize() int64
 	setSize(size int64)
-	getIndexSize() int
 
 	PayloadSize() int
-	Size() int
-	bloomFilterPath() string
-	bloomFilterSecondaryPath(pos int) string
-	bufferedReaderAt(offset uint64, operation string) (io.Reader, error)
-	bytesReaderFrom(in []byte) (*bytes.Reader, error)
 	close() error
-	collectionStratParseData(in []byte) ([]value, error)
-	computeAndStoreBloomFilter(path string) error
-	computeAndStoreSecondaryBloomFilter(path string, pos int) error
-	copyNode(b []byte, offset nodeOffset) error
-	countNetPath() string
-	dropImmediately() error
-	dropMarked() error
-	exists(key []byte) (bool, error)
 	get(key []byte) ([]byte, error)
 	getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
 	getCollection(key []byte) ([]value, error)
 	getInvertedData() *segmentInvertedData
 	getSegment() *segment
 	isLoaded() bool
-	loadBloomFilterFromDisk() error
-	loadBloomFilterSecondaryFromDisk(pos int) error
-	loadCountNetFromDisk() error
 	markForDeletion() error
 	MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error)
 	newCollectionCursor() *segmentCursorCollection
@@ -82,18 +64,10 @@ type Segment interface {
 	newRoaringSetCursor() *roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor
 	newRoaringSetRangeReader() *roaringsetrange.SegmentReader
-	precomputeBloomFilter() error
-	precomputeBloomFilters() ([]string, error)
-	precomputeCountNetAdditions(updatedCountNetAdditions int) ([]string, error)
-	precomputeSecondaryBloomFilter(pos int) error
 	quantileKeys(q int) [][]byte
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	replaceStratParseData(in []byte) ([]byte, []byte, error)
 	roaringSetGet(key []byte) (roaringset.BitmapLayer, error)
-	segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentNode, bool, error)
-	storeBloomFilterOnDisk(path string) error
-	storeBloomFilterSecondaryOnDisk(path string, pos int) error
-	storeCountNetOnDisk() error
 }
 
 type segment struct {

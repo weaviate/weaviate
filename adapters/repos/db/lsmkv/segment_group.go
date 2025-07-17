@@ -723,7 +723,7 @@ func (sg *SegmentGroup) count() int {
 
 	count := 0
 	for _, seg := range segments {
-		count += seg.getCountNetAdditions()
+		count += seg.getSegment().getCountNetAdditions()
 	}
 
 	return count
