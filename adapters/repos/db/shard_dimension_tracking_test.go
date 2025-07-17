@@ -618,3 +618,76 @@ func createTestDatabaseWithClass(t *testing.T, class *models.Class) *DB {
 func intToUUID(i int) strfmt.UUID {
 	return strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 }
+
+func TestDimensionTrackingWithGrouping(t *testing.T) {
+	const (
+		objectCount         = 5
+		dimensionsPerVector = 64
+		expectedDimensions  = objectCount * dimensionsPerVector
+	)
+
+	testCases := []struct {
+		name            string
+		groupingEnabled bool
+		expectedLabels  []string
+	}{
+		{
+			name:            "with_grouping_enabled",
+			groupingEnabled: true,
+			expectedLabels:  []string{"n/a", "n/a"},
+		},
+		{
+			name:            "with_grouping_disabled",
+			groupingEnabled: false,
+			expectedLabels:  nil, // Will be set dynamically
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Setup metrics grouping
+			metrics := monitoring.GetMetrics()
+			originalGroup := metrics.Group
+			metrics.Group = tc.groupingEnabled
+			defer func() { metrics.Group = originalGroup }()
+
+			// Create test class and database
+			class := &models.Class{
+				Class:               tc.name,
+				VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+				InvertedIndexConfig: invertedConfig(),
+			}
+			db := createTestDatabaseWithClass(t, class)
+
+			// Set expected labels for non-grouping case
+			if !tc.groupingEnabled {
+				shardName := getSingleShardNameFromRepo(db, class.Class)
+				tc.expectedLabels = []string{class.Class, shardName}
+			}
+
+			// Insert test data
+			for i := range objectCount {
+				obj := &models.Object{
+					Class: class.Class,
+					ID:    intToUUID(i),
+				}
+				vec := randVector(dimensionsPerVector)
+				err := db.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
+				require.Nil(t, err)
+			}
+
+			// Publish metrics
+			publishDimensionMetricsFromRepo(context.Background(), db, class.Class)
+
+			// Verify dimension metrics
+			metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(tc.expectedLabels[0], tc.expectedLabels[1])
+			require.NoError(t, err)
+			require.Equal(t, float64(expectedDimensions), testutil.ToFloat64(metric))
+
+			// Verify segment metrics (should be 0 for standard vectors)
+			metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues(tc.expectedLabels[0], tc.expectedLabels[1])
+			require.NoError(t, err)
+			require.Equal(t, float64(0), testutil.ToFloat64(metric))
+		})
+	}
+}

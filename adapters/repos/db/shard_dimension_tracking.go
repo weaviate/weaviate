@@ -132,11 +132,18 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 	if s.promMetrics != nil {
 		var (
 			className = s.index.Config.ClassName.String()
+			shardName = s.name
 			configs   = s.index.GetVectorIndexConfigs()
 
 			sumSegments   = 0
 			sumDimensions = 0
 		)
+
+		// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled
+		if s.promMetrics.Group {
+			className = "n/a"
+			shardName = "n/a"
+		}
 
 		for targetVector, config := range configs {
 			metrics := s.calcDimensionMetrics(ctx, config, targetVector)
@@ -144,8 +151,8 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 			sumSegments += metrics.Compressed
 		}
 
-		sendVectorSegmentsMetric(s.promMetrics, className, s.name, sumSegments)
-		sendVectorDimensionsMetric(s.promMetrics, className, s.name, sumDimensions)
+		sendVectorSegmentsMetric(s.promMetrics, className, shardName, sumSegments)
+		sendVectorDimensionsMetric(s.promMetrics, className, shardName, sumDimensions)
 	}
 }
 
@@ -189,6 +196,11 @@ func (s *Shard) clearDimensionMetrics() {
 
 func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics, className, shardName string) {
 	if promMetrics != nil {
+		// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled
+		if promMetrics.Group {
+			className = "n/a"
+			shardName = "n/a"
+		}
 		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
 		sendVectorSegmentsMetric(promMetrics, className, shardName, 0)
 	}
@@ -197,6 +209,12 @@ func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 func sendVectorSegmentsMetric(promMetrics *monitoring.PrometheusMetrics,
 	className, shardName string, count int,
 ) {
+	// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled
+	if promMetrics != nil && promMetrics.Group {
+		className = "n/a"
+		shardName = "n/a"
+	}
+
 	metric, err := promMetrics.VectorSegmentsSum.
 		GetMetricWithLabelValues(className, shardName)
 	if err == nil {
@@ -207,14 +225,12 @@ func sendVectorSegmentsMetric(promMetrics *monitoring.PrometheusMetrics,
 func sendVectorDimensionsMetric(promMetrics *monitoring.PrometheusMetrics,
 	className, shardName string, count int,
 ) {
-	// Important: Never group classes/shards for this metric. We need the
-	// granularity here as this tracks an absolute value per shard that changes
-	// independently over time.
-	//
-	// If we need to reduce metrics further, an alternative could be to not
-	// make dimension tracking shard-centric, but rather make it node-centric.
-	// Then have a single metric that aggregates all dimensions first, then
-	// observes only the sum
+	// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled
+	if promMetrics != nil && promMetrics.Group {
+		className = "n/a"
+		shardName = "n/a"
+	}
+
 	metric, err := promMetrics.VectorDimensionsSum.
 		GetMetricWithLabelValues(className, shardName)
 	if err == nil {
