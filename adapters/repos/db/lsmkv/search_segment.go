@@ -73,6 +73,19 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 			upperBound += results[i].currentBlockImpact
 		}
 
+		if iterations == 10000000 {
+			query := ""
+			for i := 0; i < len(results); i++ {
+				query += results[i].QueryTerm() + " "
+			}
+			filterCardinality := 0
+			if results[0].filterDocIds != nil {
+				filterCardinality = results[0].filterDocIds.GetCardinality()
+			}
+			results[0].segment.logger.Warnf("DoBlockMaxWand: too many iterations #5 (%d) for docId %d, pivotID %d, firstNonExhausted %d, len(results) %d pivotPoint %d, query: %s, filterCardinality: %d", iterations, results[0].idPointer, pivotID, firstNonExhausted, len(results), pivotPoint, query, filterCardinality)
+			return topKHeap
+		}
+
 		if topKHeap.ShouldEnqueue(upperBound, limit) {
 			if additionalExplanations {
 				docInfos = make([]*terms.DocPointerWithScore, termCount)

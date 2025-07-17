@@ -321,8 +321,18 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 		return
 	}
 
+	iterations := 0
 	for (s.filterDocIds != nil && !s.filterDocIds.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) ||
 		(s.tombstones != nil && s.tombstones.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) {
+
+		if iterations == 10000 || iterations == 10001 {
+			currentId := s.blockDataDecoded.DocIds[s.blockDataIdx]
+			s.segment.logger.Warnf("AdvanceAtLeast: too many iterations #3 (%d), blockEntryIdx %d, blockEntries length %d maxBlockId %d, s.blockDataIdx %d blockSize %d currentId %d", iterations, s.blockEntryIdx, len(s.blockEntries), s.blockEntries[s.blockEntryIdx].MaxId, s.blockDataIdx, s.blockDataSize, currentId)
+		}
+		if iterations == 10001 {
+			s.exhaust()
+			return
+		}
 		s.blockDataIdx++
 		if s.blockDataIdx > s.blockDataSize-1 {
 			if s.blockEntryIdx >= len(s.blockEntries)-1 {
@@ -333,6 +343,7 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 			s.blockDataIdx = 0
 			s.decodeBlock()
 		}
+		iterations++
 	}
 
 	if !s.exhausted {
@@ -435,10 +446,20 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 		return
 	}
 
+	iterations := 0
+
 	for s.blockEntryIdx < len(s.blockEntries) && docId > s.blockEntries[s.blockEntryIdx].MaxId {
 		s.blockEntryIdx++
 		s.decoded = false
 		s.freqDecoded = false
+		iterations++
+		if iterations == 10000 || iterations == 10001 {
+			s.segment.logger.Warnf("AdvanceAtLeast: too many iterations #1 (%d) for docId %d, blockEntryIdx %d, blockEntries length %d maxBlockId %d, s.blockDataIdx %d blockSize %d", iterations, docId, s.blockEntryIdx, len(s.blockEntries), s.blockEntries[s.blockEntryIdx].MaxId, s.blockDataIdx, s.blockDataSize)
+		}
+		if iterations == 10001 {
+			s.exhaust()
+			return
+		}
 	}
 
 	if (s.blockEntryIdx == len(s.blockEntries)-1 && docId > s.blockEntries[s.blockEntryIdx].MaxId) || s.blockEntryIdx >= len(s.blockEntries) {
@@ -450,8 +471,17 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 		s.decodeBlock()
 	}
 
-	for s.blockDataIdx < s.blockDataSize && docId > s.blockDataDecoded.DocIds[s.blockDataIdx] {
+	iterations = 0
+	for s.blockDataIdx < s.blockDataSize-1 && docId > s.blockDataDecoded.DocIds[s.blockDataIdx] {
 		s.blockDataIdx++
+		if iterations == 1000 || iterations == 1001 {
+			currentId := s.blockDataDecoded.DocIds[s.blockDataIdx]
+			s.segment.logger.Warnf("AdvanceAtLeast: too many iterations #2 (%d) for docId %d, blockEntryIdx %d, blockEntries length %d maxBlockId %d, s.blockDataIdx %d blockSize %d currentId %d", iterations, docId, s.blockEntryIdx, len(s.blockEntries), s.blockEntries[s.blockEntryIdx].MaxId, s.blockDataIdx, s.blockDataSize, currentId)
+		}
+		if iterations == 1001 {
+			s.exhaust()
+			return
+		}
 	}
 
 	s.advanceOnTombstoneOrFilter()
