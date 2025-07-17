@@ -17,16 +17,20 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
 func newTestBlockController(t testing.TB, dims int) *BlockController {
 	t.Helper()
 
 	// Create a mock store and encoder for testing
-	store := NewMemoryStore()
+	store := testinghelpers.NewDummyStore(t)
+
+	err := store.CreateBucket(t.Context(), bucketName)
+	require.NoError(t, err, "failed to create bucket")
 
 	return NewBlockController(
-		store,
+		NewLSMStore(store),
 		new(common.Pool[uint64]),
 		&BlockControllerConfig{
 			VectorDimensions: dims,
@@ -232,6 +236,7 @@ func TestBlockController(t *testing.T) {
 
 func BenchmarkBlockControllerAppend(b *testing.B) {
 	ctx := b.Context()
+
 	ctrl := newTestBlockController(b, 32)
 
 	vector := bytes.Repeat([]byte{1}, 32)
