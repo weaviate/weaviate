@@ -57,49 +57,13 @@ type Router interface {
 	//   - error: if an error occurs while retrieving Replicas.
 	GetReadReplicasLocation(collection string, tenant string, shard string) (ReadReplicaSet, error)
 
-	// BuildWriteRoutingPlan constructs a routing plan for a write operation.
-	//
-	// For single-tenant collections:
-	//   - tenant must be empty string, otherwise returns an error
-	//   - shard specifies the target shard; empty string targets all shards
-	//
-	// For multi-tenant collections:
-	//   - tenant must be non-empty, otherwise returns an error
-	//   - shard defaults to tenant name if empty or an error if not matching the tenant name
-	//   - validates tenant exists and is active (HOT status)
-	//
-	// Parameters:
-	//   - tenant: tenant identifier (empty for single-tenant, required for multi-tenant)
-	//   - shard: shard identifier (optional for multi-tenant)
-	//   - cl: consistency level for the write operation
-	//   - directCandidate: preferred node name for routing (falls back to local node if empty)
-	//
-	// Returns:
-	//   - WriteRoutingPlan: routing plan with ordered replicas (preferred node first)
-	//   - error: validation errors, tenant errors, or replica resolution failures
-	BuildWriteRoutingPlan(tenant, shard string, cl ConsistencyLevel, directCandidate string) (WriteRoutingPlan, error)
+	BuildRoutingPlanOptions(tenant, shard string, cl ConsistencyLevel, directCandidate string) RoutingPlanBuildOptions
 
-	// BuildReadRoutingPlan constructs a routing plan for a read operation.
-	//
-	// For single-tenant collections:
-	//   - tenant must be empty string, otherwise returns an error
-	//   - shard specifies the target shard; empty string targets all shards
-	//
-	// For multi-tenant collections:
-	//   - tenant must be non-empty, otherwise returns an error
-	//   - shard defaults to tenant name if empty or an error if not matching the tenant name
-	//   - validates tenant exists and is active (HOT status)
-	//
-	// Parameters:
-	//   - tenant: tenant identifier (empty for single-tenant, required for multi-tenant)
-	//   - shard: shard identifier (optional for multi-tenant)
-	//   - cl: consistency level for the read operation
-	//   - directCandidate: preferred node name for routing (falls back to local node if empty)
-	//
-	// Returns:
-	//   - ReadRoutingPlan: routing plan with ordered replicas (preferred node first)
-	//   - error: validation errors, tenant errors, or replica resolution failures
-	BuildReadRoutingPlan(tenant, shard string, cl ConsistencyLevel, directCandidate string) (ReadRoutingPlan, error)
+	// BuildWriteRoutingPlan constructs a routing plan for a write operation based on the provided options.
+	BuildWriteRoutingPlan(params RoutingPlanBuildOptions) (WriteRoutingPlan, error)
+
+	// BuildReadRoutingPlan constructs a routing plan for a write operation based on the provided options.
+	BuildReadRoutingPlan(params RoutingPlanBuildOptions) (ReadRoutingPlan, error)
 
 	// NodeHostname returns the hostname for a given node name.
 	//
