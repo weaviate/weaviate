@@ -20,6 +20,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
+var ErrVectorNotFound = errors.New("vector not found")
+
 // Updater handles write operations for the SPFresh index.
 type Updater struct {
 	UserConfig     *UserConfig                      // UserConfig contains user-defined settings for the rebuilder.
@@ -92,6 +94,16 @@ func (u *Updater) Insert(ctx context.Context, id uint64, vector []float32) error
 		if err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// Delete marks a vector as deleted in the version map.
+func (u *Updater) Delete(ctx context.Context, id uint64) error {
+	version := u.VersionMap.MarkDeleted(id)
+	if version == 0 {
+		return ErrVectorNotFound
 	}
 
 	return nil

@@ -63,3 +63,19 @@ func (v *VersionMap) Increment(vectorID uint64) VectorVersion {
 	v.versions[vectorID] = newVE
 	return newVE
 }
+
+func (v *VersionMap) MarkDeleted(vectorID uint64) VectorVersion {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	ve := v.versions[vectorID] // zero value if unseen
+	if ve == 0 {
+		return 0 // return 0 if the vector was never seen
+	}
+
+	counter := uint8(ve) & counterMask // 0-127
+
+	newVE := VectorVersion(tombstoneMask | counter)
+	v.versions[vectorID] = newVE
+	return newVE
+}

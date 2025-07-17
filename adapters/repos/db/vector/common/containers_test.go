@@ -36,7 +36,7 @@ func TestStack(t *testing.T) {
 	require.Equal(t, 10, v)
 
 	// Pop from empty stack
-	v, ok = s.Pop()
+	_, ok = s.Pop()
 	require.False(t, ok, "expected pop to fail on empty stack")
 
 	// Interleaved push/pop

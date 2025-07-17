@@ -333,11 +333,7 @@ func (e *BlockEncoder) EncodeVector(vector *Vector) ([]byte, func(), error) {
 func (e *BlockEncoder) Decode(block []byte) ([]Vector, error) {
 	var vectors []Vector
 
-	for {
-		if len(block) < 8+1+e.Dimensions {
-			break // not enough data for another vector
-		}
-
+	for len(block) < 8+1+e.Dimensions {
 		var id uint64
 		var version VectorVersion
 		err := binary.Read(bytes.NewReader(block[:8]), binary.LittleEndian, &id)
