@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"context"
 	"os"
+	"path"
 	"path/filepath"
 	"testing"
 
@@ -66,6 +67,36 @@ func TestMetadataNoWrites(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCorruptFile(t *testing.T) {
+	dirName := t.TempDir()
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithWriteMetadata(true), WithUseBloomFilter(true), WithCalcCountNetAdditions(true), WithSecondaryIndices(uint16(2)))
+	require.NoError(t, err)
+
+	require.NoError(t, b.Put([]byte("key"), []byte("value")))
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Shutdown(ctx))
+
+	files, err := os.ReadDir(dirName)
+	require.NoError(t, err)
+	fname, ok := findFileWithExt(files, ".metadata")
+	require.True(t, ok)
+	require.NoError(t, corruptBloomFileByTruncatingIt(path.Join(dirName, fname)))
+
+	// broken file is ignored and correct one is recreated
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithWriteMetadata(true), WithUseBloomFilter(true), WithCalcCountNetAdditions(true), WithSecondaryIndices(uint16(2)))
+	require.NoError(t, err)
+	value, err := b2.Get([]byte("key"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("value"), value)
 }
 
 func countFileTypes(t *testing.T, path string) map[string]int {
