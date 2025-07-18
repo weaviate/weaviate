@@ -484,6 +484,7 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 func (i *Index) initShard(ctx context.Context, shardName string, class *models.Class,
 	promMetrics *monitoring.PrometheusMetrics, disableLazyLoad bool, implicitShardLoading bool,
 ) (ShardLike, error) {
+	fmt.Printf("initShard: shardName=%s, disableLazyLoad=%v, implicitShardLoading=%v\n", shardName, disableLazyLoad, implicitShardLoading)
 	if disableLazyLoad {
 		if err := i.allocChecker.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
 			return nil, errors.Wrap(err, "memory pressure: cannot init shard")
@@ -2991,14 +2992,18 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
 func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName, targetVector string) (int64, int64, error) {
-	// Obtain a lock that prevents tenant activation
-	i.shardCreateLocks.Lock(tenantName)
-	defer i.shardCreateLocks.Unlock(tenantName)
-
 	// check if created in the meantime by concurrent call
-	if shard := i.shards.Load(tenantName); shard != nil {  // Load does not actually load
+	i.LoadLocalShard(ctx, tenantName, true)
+	if shard, releaseShard, err := i.GetShard(ctx, tenantName); shard != nil {
+		defer releaseShard()
+		fmt.Printf("Calculating dimensions usage for shard %q of type %T and vector %q\n", tenantName, shard, targetVector)
 		return shard.DimensionsUsage(ctx, targetVector)
+	} else {
+		if err != nil {
+			return 0, 0, fmt.Errorf("get shard %q: %w", tenantName, err)
+		}
 	}
+
 
 	var sharList []string
 	// Check shard list for the tenant

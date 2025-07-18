@@ -457,8 +457,6 @@ func (s *Shard) VectorStorageSize(ctx context.Context) (int64, error) {
 
 		// Calculate total size using actual compression rate
 		totalSize += int64(float64(uncompressedSize) * compressionRate)
-		fmt.Printf("VectorStorageSize: targetVector=%s, dimensions=%d, count=%d, compressionRate=%.2f, size=%d\n",
-			targetVector, dimensionality, count, compressionRate, totalSize)
 
 		return nil
 	}); err != nil {

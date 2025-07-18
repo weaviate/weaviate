@@ -516,7 +516,7 @@ func getDimensionsFromRepo(ctx context.Context, repo *DB, className string) int 
 		return 0
 	}
 	index := repo.GetIndex(schema.ClassName(className))
-	sum := 0
+	sum := int64(0)
 	index.ForEachShard(func(name string, shard ShardLike) error {
 		dim, err := shard.Dimensions(ctx, "")
 		if err != nil {
@@ -525,7 +525,7 @@ func getDimensionsFromRepo(ctx context.Context, repo *DB, className string) int 
 		sum += dim
 		return nil
 	})
-	return sum
+	return int(sum)
 }
 
 func GetQuantizedDimensionsFromRepo(ctx context.Context, repo *DB, className string, segments int) int {
@@ -534,12 +534,12 @@ func GetQuantizedDimensionsFromRepo(ctx context.Context, repo *DB, className str
 		return 0
 	}
 	index := repo.GetIndex(schema.ClassName(className))
-	sum := 0
+	sum := int64(0)
 	index.ForEachShard(func(name string, shard ShardLike) error {
-		sum += shard.QuantizedDimensions(ctx, "", segments)
+		sum += shard.QuantizedDimensions(ctx, "", int64(segments))
 		return nil
 	})
-	return sum
+	return int(sum)
 }
 
 func Test_AddingReferenceOneByOne(t *testing.T) {

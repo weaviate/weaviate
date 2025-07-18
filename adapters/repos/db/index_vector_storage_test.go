@@ -746,6 +746,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	}))
 	newIndex.shards.LoadAndDelete(shardName)
 
+	fmt.Printf("Config.DisableLazyLoadShards: %v\n", newIndex.Config.DisableLazyLoadShards)
 	inactiveVectorStorageSize, err := newIndex.CalculateUnloadedVectorsMetrics(ctx, shardName)
 	require.NoError(t, err)
 	dimensionality, count, err = newIndex.CalculateUnloadedDimensionsUsage(ctx, shardName, "")
@@ -753,7 +754,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 
 	// Compare active and inactive metrics
 	assert.Equal(t, activeVectorStorageSize, inactiveVectorStorageSize, "Active and inactive vector storage size should be very similar")
-	assert.Equal(t, objectCount, count, "Active and inactive object count should match")
+	assert.Equal(t, int64(objectCount), count, "Active and inactive object count should match")
 	assert.Equal(t, vectorDimensions, dimensionality, "Active and inactive dimensions should match")
 	// Verify all mock expectations were met
 	mockSchema.AssertExpectations(t)
