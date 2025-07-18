@@ -124,6 +124,7 @@ type dynamic struct {
 	LazyLoadSegments             bool
 	flatBQ                       bool
 	WriteSegmentInfoIntoFileName bool
+	WriteMetadataFilesEnabled    bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -152,6 +153,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		LazyLoadSegments:             cfg.LazyLoadSegments,
 		AllocChecker:                 cfg.AllocChecker,
 		WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
+		WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -181,6 +183,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		LazyLoadSegments:             cfg.LazyLoadSegments,
 		flatBQ:                       uc.FlatUC.BQ.Enabled,
 		WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
+		WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
 	}
 
 	err := cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
@@ -227,6 +230,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				LazyLoadSegments:             index.LazyLoadSegments,
 				WaitForCachePrefill:          index.hnswWaitForCachePrefill,
 				WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
+				WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
 			},
 			index.hnswUC,
 			index.tombstoneCallbacks,
@@ -553,6 +557,7 @@ func (dynamic *dynamic) doUpgrade() error {
 			SnapshotOnStartup:            dynamic.hnswSnapshotOnStartup,
 			WaitForCachePrefill:          dynamic.hnswWaitForCachePrefill,
 			WriteSegmentInfoIntoFileName: dynamic.WriteSegmentInfoIntoFileName,
+			WriteMetadataFilesEnabled:    dynamic.WriteMetadataFilesEnabled,
 		},
 		dynamic.hnswUC,
 		dynamic.tombstoneCallbacks,

@@ -136,6 +136,7 @@ type segmentConfig struct {
 	allocChecker                 memwatch.AllocChecker
 	fileList                     map[string]int64
 	precomputedCountNetAdditions *int
+	writeMetadata                bool
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -322,14 +323,21 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}
 
-	if seg.useBloomFilter {
-		if err := seg.initBloomFilters(metrics, cfg.overwriteDerived, cfg.fileList); err != nil {
-			return nil, err
-		}
+	metadataRead, err := seg.initMetadata(metrics, cfg.overwriteDerived, existsLower, cfg.precomputedCountNetAdditions, cfg.fileList, cfg.writeMetadata)
+	if err != nil {
+		return nil, fmt.Errorf("init metadata: %w", err)
 	}
-	if seg.calcCountNetAdditions {
-		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived, cfg.precomputedCountNetAdditions, cfg.fileList); err != nil {
-			return nil, err
+
+	if !metadataRead {
+		if seg.useBloomFilter {
+			if err := seg.initBloomFilters(metrics, cfg.overwriteDerived, cfg.fileList); err != nil {
+				return nil, err
+			}
+		}
+		if seg.calcCountNetAdditions {
+			if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived, cfg.precomputedCountNetAdditions, cfg.fileList); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -390,6 +398,10 @@ func (s *segment) dropImmediately() error {
 		return fmt.Errorf("drop count net additions file: %w", err)
 	}
 
+	if err := os.RemoveAll(s.metadataPath()); err != nil {
+		return fmt.Errorf("drop metadata file: %w", err)
+	}
+
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
 	// was a NotExists error here, something would be seriously wrong, and we
 	// don't want to ignore it.
@@ -417,6 +429,10 @@ func (s *segment) dropMarked() error {
 
 	if err := os.RemoveAll(s.countNetPath() + DeleteMarkerSuffix); err != nil {
 		return fmt.Errorf("drop previously marked count net additions file: %w", err)
+	}
+
+	if err := os.RemoveAll(s.metadataPath() + DeleteMarkerSuffix); err != nil {
+		return fmt.Errorf("drop previously marked metadata file: %w", err)
 	}
 
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
@@ -456,6 +472,12 @@ func (s *segment) markForDeletion() error {
 	if err := markDeleted(s.countNetPath()); err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("mark count net additions file deleted: %w", err)
+		}
+	}
+
+	if err := markDeleted(s.metadataPath()); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("mark metadata file deleted: %w", err)
 		}
 	}
 

@@ -209,6 +209,7 @@ type Config struct {
 	MaxImportGoroutinesFactor           float64
 	LazySegmentsDisabled                bool
 	SegmentInfoIntoFileNameEnabled      bool
+	WriteMetadataFilesEnabled           bool
 	MemtablesFlushDirtyAfter            int
 	MemtablesInitialSizeMB              int
 	MemtablesMaxSizeMB                  int

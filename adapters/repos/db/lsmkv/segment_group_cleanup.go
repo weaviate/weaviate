@@ -595,6 +595,7 @@ func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 			MinMMapSize:                  sg.MinMMapSize,
 			allocChecker:                 sg.allocChecker,
 			precomputedCountNetAdditions: &countNetAdditions,
+			writeMetadata:                sg.writeMetadata,
 		})
 	if err != nil {
 		return nil, fmt.Errorf("precompute segment meta: %w", err)

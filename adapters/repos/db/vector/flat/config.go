@@ -29,6 +29,7 @@ type Config struct {
 	AllocChecker                 memwatch.AllocChecker
 	LazyLoadSegments             bool
 	WriteSegmentInfoIntoFileName bool
+	WriteMetadataFilesEnabled    bool
 }
 
 func (c Config) Validate() error {
