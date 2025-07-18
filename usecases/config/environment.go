@@ -51,6 +51,8 @@ const (
 	DefaultReplicaMovementMinimumAsyncWait = 60 * time.Second
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
+
+	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -86,6 +88,16 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
 		config.TrackVectorDimensions = true
+	}
+
+	if v := os.Getenv("TRACK_VECTOR_DIMENSIONS_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse TRACK_VECTOR_DIMENSIONS_INTERVAL as duration: %w", err)
+		}
+		config.TrackVectorDimensionsInterval = interval
+	} else {
+		config.TrackVectorDimensionsInterval = DefaultTrackVectorDimensionsInterval
 	}
 
 	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
