@@ -87,6 +87,7 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 			filterCardinality := 0
 
 			resultCount := 0
+			segmentPath := ""
 			for i := 0; i < len(results); i++ {
 				resultCount = len(results)
 				if results[i] != nil {
@@ -94,9 +95,12 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 					if results[i].filterDocIds != nil {
 						filterCardinality = results[i].filterDocIds.GetCardinality()
 					}
+					if results[i].segment != nil {
+						segmentPath = results[i].segment.path
+					}
 				}
 			}
-			logger.Warnf("DoBlockMaxWand: too many iterations #5 (%d), pivotID %d, firstNonExhausted %d, len(results) %d pivotPoint %d, query: %s, filterCardinality: %d", iterations, pivotID, firstNonExhausted, resultCount, pivotPoint, query, filterCardinality)
+			logger.Warnf("DoBlockMaxWand: too many iterations #5 (%d), pivotID %d, firstNonExhausted %d, len(results) %d pivotPoint %d, query: %s, filterCardinality: %d, segmentPath: %s", iterations, pivotID, firstNonExhausted, resultCount, pivotPoint, query, filterCardinality, segmentPath)
 			return topKHeap
 		}
 
