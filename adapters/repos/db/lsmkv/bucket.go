@@ -86,7 +86,8 @@ type Bucket struct {
 	secondaryIndices uint16
 
 	// Optional to avoid syscalls
-	mmapContents bool
+	mmapContents  bool
+	writeMetadata bool
 
 	// for backward compatibility
 	legacyMapSortingBeforeCompaction bool
@@ -212,6 +213,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		calcCountNetAdditions:        false,
 		haltedFlushTimer:             interval.NewBackoffTimer(),
 		writeSegmentInfoIntoFileName: false,
+		writeMetadata:                true,
 	}
 
 	for _, opt := range opts {
@@ -247,6 +249,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			bm25config:                   b.bm25Config,
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
+			writeMetadata:                b.writeMetadata,
 		}, b.allocChecker, b.lazySegmentLoading, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)

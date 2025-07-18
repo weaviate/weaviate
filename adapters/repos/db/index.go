@@ -652,6 +652,7 @@ type IndexConfig struct {
 	ResourceUsage                       config.ResourceUsage
 	LazySegmentsDisabled                bool
 	SegmentInfoIntoFileNameEnabled      bool
+	WriteMetadataFilesEnabled           bool
 	MemtablesFlushDirtyAfter            int
 	MemtablesInitialSizeMB              int
 	MemtablesMaxSizeMB                  int

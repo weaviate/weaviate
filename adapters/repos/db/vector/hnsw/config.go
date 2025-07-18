@@ -45,6 +45,7 @@ type Config struct {
 	SnapshotOnStartup            bool
 	LazyLoadSegments             bool
 	WriteSegmentInfoIntoFileName bool
+	WriteMetadataFilesEnabled    bool
 
 	// metadata for monitoring
 	ShardName string

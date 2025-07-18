@@ -92,6 +92,7 @@ type SegmentGroup struct {
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bm25config                     *schema.BM25Config
 	writeSegmentInfoIntoFileName   bool
+	writeMetadata                  bool
 }
 
 type sgConfig struct {
@@ -112,6 +113,7 @@ type sgConfig struct {
 	MinMMapSize                  int64
 	bm25config                   *models.BM25Config
 	writeSegmentInfoIntoFileName bool
+	writeMetadata                bool
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -140,6 +142,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		lastCleanupCall:              now,
 		MinMMapSize:                  cfg.MinMMapSize,
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
+		writeMetadata:                cfg.writeMetadata,
 	}
 
 	segmentIndex := 0
@@ -229,6 +232,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 					MinMMapSize:              sg.MinMMapSize,
 					allocChecker:             sg.allocChecker,
 					fileList:                 make(map[string]int64), // empty to not check if bloom/cna files already exist
+					writeMetadata:            sg.writeMetadata,
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
@@ -289,6 +293,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			fileList:                 files,
+			writeMetadata:            sg.writeMetadata,
 		}
 		if lazySegmentLoading {
 			segment, err = newLazySegment(newRightSegmentPath, logger,
@@ -370,6 +375,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			fileList:                 files,
+			writeMetadata:            sg.writeMetadata,
 		}
 		var err error
 		if lazySegmentLoading {
@@ -481,6 +487,7 @@ func (sg *SegmentGroup) add(path string) error {
 			enableChecksumValidation: sg.enableChecksumValidation,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
+			writeMetadata:            sg.writeMetadata,
 		})
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)
