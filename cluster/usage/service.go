@@ -18,6 +18,8 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	backupent "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -131,9 +133,10 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 				}
 
 				// Get vector usage for each named vector
-				_ = shard.ForEachVectorIndex(func(targetVector string, vectorIndex db.VectorIndex) error {
+				if err = shard.ForEachVectorIndex(func(targetVector string, vectorIndex db.VectorIndex) error {
 					category := db.DimensionCategoryStandard // Default category
 					indexType := ""
+
 					if vectorIndexConfig, ok := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
 						category, _ = db.GetDimensionCategory(vectorIndexConfig)
 						indexType = vectorIndexConfig.IndexType()
@@ -144,10 +147,16 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 						return err
 					}
 
+					// For dynamic indexes, get the actual underlying index type
+					if dynamicIndex, ok := vectorIndex.(dynamic.Index); ok {
+						indexType = dynamicIndex.UnderlyingIndex().String()
+					}
+
 					vectorUsage := &types.VectorUsage{
 						Name:                   targetVector,
 						Compression:            category.String(),
 						VectorIndexType:        indexType,
+						IsDynamic:              common.IsDynamic(common.IndexType(indexType)),
 						VectorCompressionRatio: vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions),
 					}
 
@@ -158,7 +167,9 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 
 					shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
 					return nil
-				})
+				}); err != nil {
+					return err
+				}
 
 				collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
 				return nil

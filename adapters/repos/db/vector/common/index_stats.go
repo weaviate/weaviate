@@ -23,3 +23,11 @@ const (
 type IndexStats interface {
 	IndexType() IndexType
 }
+
+func (i IndexType) String() string {
+	return string(i)
+}
+
+func IsDynamic(indexType IndexType) bool {
+	return indexType == IndexTypeDynamic
+}
