@@ -206,7 +206,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 
 		objectCount, err := shard.ObjectCountAsync(ctx)
 		if err != nil {
-			i.logger.Errorf("error while getting object count for shard %s: %w", shard.Name(), err)
+			i.logger.Warnf("error while getting object count for shard %s: %w", shard.Name(), err)
 		}
 
 		totalCount += int64(objectCount)
