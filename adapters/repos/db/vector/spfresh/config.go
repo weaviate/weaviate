@@ -13,6 +13,8 @@ package spfresh
 
 // UserConfig defines the configuration options for the SPFresh index.
 type UserConfig struct {
-	MaxPostingSize int `json:"maxPostingSize,omitempty"` // Maximum number of vectors in a posting
-	Workers        int `json:"workers,omitempty"`        // Number of concurrent workers for background operations
+	MaxPostingSize         int `json:"maxPostingSize,omitempty"`         // Maximum number of vectors in a posting
+	MinPostingSize         int `json:"minPostingSize,omitempty"`         // Minimum number of vectors in a posting
+	Workers                int `json:"workers,omitempty"`                // Number of concurrent workers for background operations
+	MergePostingCandidates int `json:"mergePostingCandidates,omitempty"` // Number of candidates to consider for merging postings
 }

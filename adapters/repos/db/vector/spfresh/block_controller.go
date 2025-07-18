@@ -155,7 +155,7 @@ func (b *BlockController) Put(ctx context.Context, postingID uint64, posting Pos
 }
 
 // Append appends new data to an existing posting.
-func (b *BlockController) Append(ctx context.Context, postingID uint64, vector *Vector) error {
+func (b *BlockController) Append(ctx context.Context, postingID uint64, vector *Vector) (err error) {
 	if vector == nil || len(vector.Data) == 0 {
 		return errors.New("vector cannot be nil or empty")
 	}
@@ -175,6 +175,13 @@ func (b *BlockController) Append(ctx context.Context, postingID uint64, vector *
 
 	// allocate a new block
 	newBlockOffset := b.blockPool.getFreeBlockOffset()
+
+	defer func() {
+		// add the new block back to the free block pool if the operation fails
+		if err != nil {
+			b.blockPool.freeBlockPool.Put(newBlockOffset)
+		}
+	}()
 
 	for {
 		var newOffsets []uint64
