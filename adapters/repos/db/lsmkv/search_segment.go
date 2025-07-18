@@ -12,15 +12,18 @@
 package lsmkv
 
 import (
+	"context"
 	"math"
 	"sort"
+	"strconv"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
 
 func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additionalExplanations bool,
-	termCount, minimumOrTokensMatch int,
+	termCount, minimumOrTokensMatch int, ctx context.Context, logger logrus.FieldLogger,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	var docInfos []*terms.DocPointerWithScore
 	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
@@ -71,6 +74,34 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 				results[i].AdvanceAtLeastShallow(pivotID)
 			}
 			upperBound += results[i].currentBlockImpact
+		}
+		if iterations%100000 == 0 && ctx != nil && ctx.Err() != nil {
+			logger.Warnf("DoBlockMaxWand: context cancelled after %d iterations, pivotID %d, firstNonExhausted %d, len(results) %d pivotPoint %d, upperBound %f",
+				iterations, pivotID, firstNonExhausted, len(results),
+				pivotPoint, upperBound,
+			)
+			return topKHeap
+		}
+		if iterations == 10000000 {
+			query := ""
+			filterCardinality := 0
+
+			resultCount := 0
+			segmentPath := ""
+			for i := 0; i < len(results); i++ {
+				resultCount = len(results)
+				if results[i] != nil {
+					query += results[i].QueryTerm() + ":" + strconv.Itoa(results[i].Count()) + ":" + strconv.FormatUint(results[i].idPointer, 10) + " "
+					if results[i].filterDocIds != nil {
+						filterCardinality = results[i].filterDocIds.GetCardinality()
+					}
+					if results[i].segment != nil {
+						segmentPath = results[i].segment.path
+					}
+				}
+			}
+			logger.Warnf("DoBlockMaxWand: too many iterations #5 (%d), pivotID %d, firstNonExhausted %d, len(results) %d pivotPoint %d, query: %s, filterCardinality: %d, segmentPath: %s", iterations, pivotID, firstNonExhausted, resultCount, pivotPoint, query, filterCardinality, segmentPath)
+			return topKHeap
 		}
 
 		if topKHeap.ShouldEnqueue(upperBound, limit) {
@@ -175,7 +206,7 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 }
 
 func DoBlockMaxAnd(limit int, resultsByTerm Terms, averagePropLength float64, additionalExplanations bool,
-	termCount int, minimumOrTokensMatch int,
+	termCount int, minimumOrTokensMatch int, ctx context.Context, logger logrus.FieldLogger,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	results := TermsBySize(resultsByTerm)
 	var docInfos []*terms.DocPointerWithScore
@@ -192,6 +223,13 @@ func DoBlockMaxAnd(limit int, resultsByTerm Terms, averagePropLength float64, ad
 
 	for {
 		iterations++
+
+		if iterations%100000 == 0 && ctx != nil && ctx.Err() != nil {
+			logger.Warnf("DoBlockMaxAnd: context cancelled after %d iterations for docId %d, pivotID %d, len(results) %d",
+				iterations, results[0].idPointer, pivotID, len(results),
+			)
+			return topKHeap
+		}
 
 		for i := 0; i < len(results); i++ {
 			if results[i].exhausted {
