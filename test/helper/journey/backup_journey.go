@@ -255,7 +255,7 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 	t.Run("create and cancel backup", func(t *testing.T) {
 		// Ensure cluster is in sync
 		if journeyType == clusterJourney {
-			time.Sleep(3 * time.Second)
+			time.Sleep(4 * time.Second)
 		}
 		cfg := helper.DefaultBackupConfig()
 		cfg.Bucket = overrideBucket
