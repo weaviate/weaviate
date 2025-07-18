@@ -294,6 +294,7 @@ func (s *Shard) resetDimensionsLSM() error {
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
+		lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
 		s.segmentCleanupConfig(),
 	)
 	if err != nil {

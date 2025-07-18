@@ -356,6 +356,10 @@ func FromEnv(config *Config) error {
 		config.Persistence.SegmentInfoIntoFileNameEnabled = true
 	}
 
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_WRITE_METADATA_FILES_ENABLED")) {
+		config.Persistence.WriteMetadataFilesEnabled = true
+	}
+
 	if v := os.Getenv("PERSISTENCE_MAX_REUSE_WAL_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {

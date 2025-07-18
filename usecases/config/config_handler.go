@@ -375,6 +375,7 @@ type Persistence struct {
 	MinMMapSize                                  int64  `json:"minMMapSize" yaml:"minMMapSize"`
 	LazySegmentsDisabled                         bool   `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
 	SegmentInfoIntoFileNameEnabled               bool   `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`
+	WriteMetadataFilesEnabled                    bool   `json:"writeMetadataFilesEnabled" yaml:"writeMetadataFilesEnabled"`
 	MaxReuseWalSize                              int64  `json:"MaxReuseWalSize" yaml:"MaxReuseWalSize"`
 	HNSWMaxLogSize                               int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 	HNSWDisableSnapshots                         bool   `json:"hnswDisableSnapshots" yaml:"hnswDisableSnapshots"`

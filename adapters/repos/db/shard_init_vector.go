@@ -126,6 +126,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				SnapshotOnStartup:            s.index.Config.HNSWSnapshotOnStartup,
 				LazyLoadSegments:             lazyLoadSegments,
 				WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
+				WriteMetadataFilesEnabled:    s.index.Config.WriteMetadataFilesEnabled,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
@@ -158,6 +159,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			MaxWalReuseSize:              s.index.Config.MaxReuseWalSize,
 			LazyLoadSegments:             lazyLoadSegments,
 			WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
+			WriteMetadataFilesEnabled:    s.index.Config.WriteMetadataFilesEnabled,
 		}, flatUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
