@@ -1734,7 +1734,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		if b.active != nil {
 			memtable := b.active
 			n2, _ := fillTerm(memtable, key, active, filterDocIds)
-			if n2 > 0 {
+			if active.Count() > 0 {
 				output[len(segmentsDisk)+1] = append(output[len(segmentsDisk)+1], active)
 			}
 			n += n2
@@ -1755,7 +1755,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		if b.flushing != nil {
 			memtable := b.flushing
 			n2, _ := fillTerm(memtable, key, flushing, filterDocIds)
-			if n2 > 0 {
+			if flushing.Count() > 0 {
 				output[len(segmentsDisk)] = append(output[len(segmentsDisk)], flushing)
 			}
 			n += n2
