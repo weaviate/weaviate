@@ -243,6 +243,17 @@ func (b *BaseModule) reloadConfig(ticker *time.Ticker) {
 		ticker.Reset(b.interval)
 	}
 
+	// Check for shard jitter interval updates
+	// Note: we allow 0 as a valid value for the shard jitter interval
+	if jitterInterval := b.config.Usage.ShardJitterInterval.Get(); jitterInterval >= 0 && b.shardJitter != jitterInterval {
+		b.logger.WithFields(logrus.Fields{
+			"old_jitter": b.shardJitter.String(),
+			"new_jitter": jitterInterval.String(),
+		}).Info("shard jitter interval updated")
+		b.shardJitter = jitterInterval
+		b.usageService.SetJitterInterval(b.shardJitter)
+	}
+
 	// Build common storage config
 	storageConfig := b.buildStorageConfig()
 

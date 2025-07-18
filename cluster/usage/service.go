@@ -55,6 +55,7 @@ func NewService(schemaManager schema.SchemaGetter, db db.IndexGetter, backups ba
 // SetJitterInterval sets the jitter interval for shard processing
 func (s *service) SetJitterInterval(interval time.Duration) {
 	s.jitterInterval = interval
+	s.logger.WithFields(logrus.Fields{"jitter_interval": interval.String()}).Info("shard jitter interval updated")
 }
 
 // addJitter adds a small random delay if jitter interval is set
