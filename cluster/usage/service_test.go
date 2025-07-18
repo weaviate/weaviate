@@ -1071,3 +1071,195 @@ func TestService_DynamicIndexDetection(t *testing.T) {
 		})
 	}
 }
+
+func TestService_JitterFunctionality(t *testing.T) {
+	logger, _ := logrus.NewNullLogger()
+
+	t.Run("Usage_WithJitter", func(t *testing.T) {
+		ctx := context.Background()
+		nodeName := "test-node"
+		className := "JitterTestClass"
+
+		// Minimal schema mock - just need one class
+		mockSchema := schema.NewMockSchemaGetter(t)
+		mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
+			Objects: &models.Schema{
+				Classes: []*models.Class{
+					{
+						Class:             className,
+						VectorIndexConfig: &hnsw.UserConfig{},
+						ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+					},
+				},
+			},
+		})
+		mockSchema.EXPECT().NodeName().Return(nodeName)
+
+		// Simple sharding state with two shards
+		shardingState := &sharding.State{
+			Physical: map[string]sharding.Physical{
+				"shard1": {
+					Name:           "shard1",
+					BelongsToNodes: []string{nodeName},
+					Status:         models.TenantActivityStatusHOT,
+				},
+				"shard2": {
+					Name:           "shard2",
+					BelongsToNodes: []string{nodeName},
+					Status:         models.TenantActivityStatusHOT,
+				},
+			},
+		}
+		shardingState.SetLocalName(nodeName)
+		mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+
+		// Minimal DB mock
+		mockDB := db.NewMockIndexGetter(t)
+		mockIndex := db.NewMockIndexLike(t)
+		mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
+
+		// Simple shard mock
+		mockShard := db.NewMockShardLike(t)
+		mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(100), nil).Times(2)
+		mockShard.EXPECT().ObjectStorageSize(ctx).Return(int64(1000), nil).Times(2)
+		mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil).Times(2)
+		mockShard.EXPECT().DimensionsUsage(ctx, "default").Return(types.Dimensionality{
+			Dimensions: 1536,
+			Count:      100,
+		}, nil).Times(2)
+
+		// Simple vector index mock
+		mockVectorIndex := db.NewMockVectorIndex(t)
+		mockCompressionStats := compressionhelpers.NewMockCompressionStats(t)
+		mockCompressionStats.EXPECT().CompressionRatio(1536).Return(0.75).Times(2)
+		mockVectorIndex.EXPECT().CompressionStats().Return(mockCompressionStats).Times(2)
+
+		// Mock the shard iteration
+		mockIndex.On("ForEachShard", mock.Anything).Return(nil).Run(func(args mock.Arguments) {
+			f := args.Get(0).(func(string, db.ShardLike) error)
+			f("shard1", mockShard)
+			f("shard2", mockShard)
+		})
+
+		mockShard.On("ForEachVectorIndex", mock.Anything).Return(nil).Run(func(args mock.Arguments) {
+			f := args.Get(0).(func(string, db.VectorIndex) error)
+			f("default", mockVectorIndex)
+		})
+
+		// Minimal backup mock
+		mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
+		mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
+
+		service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+		service.SetJitterInterval(10 * time.Millisecond)
+
+		result, err := service.Usage(ctx)
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+
+		// Only assert jitter-related behavior: both shards should be processed
+		assert.Len(t, result.Collections, 1)
+		collection := result.Collections[0]
+		assert.Len(t, collection.Shards, 2, "Should process both shards with jitter")
+
+		mockSchema.AssertExpectations(t)
+		mockDB.AssertExpectations(t)
+		mockIndex.AssertExpectations(t)
+		mockShard.AssertExpectations(t)
+		mockVectorIndex.AssertExpectations(t)
+		mockCompressionStats.AssertExpectations(t)
+		mockBackupProvider.AssertExpectations(t)
+	})
+
+	t.Run("Usage_WithZeroJitter", func(t *testing.T) {
+		ctx := context.Background()
+		nodeName := "test-node"
+		className := "ZeroJitterTestClass"
+
+		// Minimal schema mock
+		mockSchema := schema.NewMockSchemaGetter(t)
+		mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
+			Objects: &models.Schema{
+				Classes: []*models.Class{
+					{
+						Class:             className,
+						VectorIndexConfig: &hnsw.UserConfig{},
+						ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+					},
+				},
+			},
+		})
+		mockSchema.EXPECT().NodeName().Return(nodeName)
+
+		// Simple sharding state with one shard
+		shardingState := &sharding.State{
+			Physical: map[string]sharding.Physical{
+				"shard1": {
+					Name:           "shard1",
+					BelongsToNodes: []string{nodeName},
+					Status:         models.TenantActivityStatusHOT,
+				},
+			},
+		}
+		shardingState.SetLocalName(nodeName)
+		mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+
+		// Minimal DB mock
+		mockDB := db.NewMockIndexGetter(t)
+		mockIndex := db.NewMockIndexLike(t)
+		mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
+
+		// Simple shard mock
+		mockShard := db.NewMockShardLike(t)
+		mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(100), nil)
+		mockShard.EXPECT().ObjectStorageSize(ctx).Return(int64(1000), nil)
+		mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
+		mockShard.EXPECT().DimensionsUsage(ctx, "default").Return(types.Dimensionality{
+			Dimensions: 1536,
+			Count:      100,
+		}, nil)
+
+		// Simple vector index mock
+		mockVectorIndex := db.NewMockVectorIndex(t)
+		mockCompressionStats := compressionhelpers.NewMockCompressionStats(t)
+		mockCompressionStats.EXPECT().CompressionRatio(1536).Return(0.75)
+		mockVectorIndex.EXPECT().CompressionStats().Return(mockCompressionStats)
+
+		// Mock the shard iteration
+		mockIndex.On("ForEachShard", mock.Anything).Return(nil).Run(func(args mock.Arguments) {
+			f := args.Get(0).(func(string, db.ShardLike) error)
+			f("shard1", mockShard)
+		})
+
+		mockShard.On("ForEachVectorIndex", mock.Anything).Return(nil).Run(func(args mock.Arguments) {
+			f := args.Get(0).(func(string, db.VectorIndex) error)
+			f("default", mockVectorIndex)
+		})
+
+		// Minimal backup mock
+		mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
+		mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
+
+		service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+		service.SetJitterInterval(0)
+
+		result, err := service.Usage(ctx)
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+
+		// Only assert jitter-related behavior: single shard should be processed
+		assert.Len(t, result.Collections, 1)
+		collection := result.Collections[0]
+		assert.Len(t, collection.Shards, 1, "Should process single shard without jitter")
+
+		mockSchema.AssertExpectations(t)
+		mockDB.AssertExpectations(t)
+		mockIndex.AssertExpectations(t)
+		mockShard.AssertExpectations(t)
+		mockVectorIndex.AssertExpectations(t)
+		mockCompressionStats.AssertExpectations(t)
+		mockBackupProvider.AssertExpectations(t)
+	})
+}

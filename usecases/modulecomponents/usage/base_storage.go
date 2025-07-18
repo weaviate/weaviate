@@ -161,5 +161,18 @@ func ParseCommonUsageConfig(config *config.Config) error {
 	}
 	config.Usage.PolicyVersion = runtime.NewDynamicValue(policyVersion)
 
+	// Parse shard jitter interval environment variable
+	shardJitterInterval := DefaultShardJitterInterval
+	if config.Usage.ShardJitterInterval != nil {
+		shardJitterInterval = config.Usage.ShardJitterInterval.Get()
+	} else if v := os.Getenv("USAGE_SHARD_JITTER_INTERVAL"); v != "" {
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid %s: %w", "USAGE_SHARD_JITTER_INTERVAL", err)
+		}
+		shardJitterInterval = duration
+	}
+	config.Usage.ShardJitterInterval = runtime.NewDynamicValue(shardJitterInterval)
+
 	return nil
 }
