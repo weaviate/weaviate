@@ -29,7 +29,7 @@ func (_m *MockCompressionStats) EXPECT() *MockCompressionStats_Expecter {
 }
 
 // CompressionRatio provides a mock function with given fields: dimensions
-func (_m *MockCompressionStats) CompressionRatio(dimensions int) float64 {
+func (_m *MockCompressionStats) CompressionRatio(dimensions int64) float64 {
 	ret := _m.Called(dimensions)
 
 	if len(ret) == 0 {
@@ -37,7 +37,7 @@ func (_m *MockCompressionStats) CompressionRatio(dimensions int) float64 {
 	}
 
 	var r0 float64
-	if rf, ok := ret.Get(0).(func(int) float64); ok {
+	if rf, ok := ret.Get(0).(func(int64) float64); ok {
 		r0 = rf(dimensions)
 	} else {
 		r0 = ret.Get(0).(float64)
@@ -52,14 +52,14 @@ type MockCompressionStats_CompressionRatio_Call struct {
 }
 
 // CompressionRatio is a helper method to define mock.On call
-//   - dimensions int
+//   - dimensions int64
 func (_e *MockCompressionStats_Expecter) CompressionRatio(dimensions interface{}) *MockCompressionStats_CompressionRatio_Call {
 	return &MockCompressionStats_CompressionRatio_Call{Call: _e.mock.On("CompressionRatio", dimensions)}
 }
 
-func (_c *MockCompressionStats_CompressionRatio_Call) Run(run func(dimensions int)) *MockCompressionStats_CompressionRatio_Call {
+func (_c *MockCompressionStats_CompressionRatio_Call) Run(run func(dimensions int64)) *MockCompressionStats_CompressionRatio_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(int))
+		run(args[0].(int64))
 	})
 	return _c
 }
@@ -69,7 +69,7 @@ func (_c *MockCompressionStats_CompressionRatio_Call) Return(_a0 float64) *MockC
 	return _c
 }
 
-func (_c *MockCompressionStats_CompressionRatio_Call) RunAndReturn(run func(int) float64) *MockCompressionStats_CompressionRatio_Call {
+func (_c *MockCompressionStats_CompressionRatio_Call) RunAndReturn(run func(int64) float64) *MockCompressionStats_CompressionRatio_Call {
 	_c.Call.Return(run)
 	return _c
 }

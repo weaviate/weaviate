@@ -84,10 +84,10 @@ type VectorUsage struct {
 // Dimensionality represents metrics for a specific dimensionality
 type Dimensionality struct {
 	// The dimensionality of the vectors
-	Dimensions int `json:"dimensionality"`
+	Dimensions int64 `json:"dimensionality"`
 
 	// The number of objects with this dimensionality
-	Count int `json:"count"`
+	Count int64 `json:"count"`
 }
 
 // BackupUsage represents metrics for a single backup

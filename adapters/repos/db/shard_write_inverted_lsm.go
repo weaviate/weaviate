@@ -281,50 +281,6 @@ func GenerateUniqueString(length int) (string, error) {
 	return fmt.Sprintf("%v", uniqueCounter.Load()), nil
 }
 
-// Empty the dimensions bucket, quickly and efficiently
-func (s *Shard) resetDimensionsLSM() error {
-	// Load the current one, or an empty one if it doesn't exist
-	err := s.store.CreateOrLoadBucket(context.Background(),
-		helpers.DimensionsBucketLSM,
-		s.memtableDirtyConfig(),
-		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
-		lsmkv.WithPread(s.index.Config.AvoidMMap),
-		lsmkv.WithAllocChecker(s.index.allocChecker),
-		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
-		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
-		s.segmentCleanupConfig(),
-	)
-	if err != nil {
-		return fmt.Errorf("create dimensions bucket: %w", err)
-	}
-
-	// Fetch the actual bucket
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return errors.Errorf("resetDimensionsLSM: no bucket dimensions")
-	}
-
-	// Create random bucket name
-	name, err := GenerateUniqueString(32)
-	if err != nil {
-		return errors.Wrap(err, "generate unique bucket name")
-	}
-
-	// Create a new bucket with the unique name
-	err = s.createDimensionsBucket(context.Background(), name)
-	if err != nil {
-		return errors.Wrap(err, "create temporary dimensions bucket")
-	}
-
-	// Replace the old bucket with the new one
-	err = s.store.ReplaceBuckets(context.Background(), helpers.DimensionsBucketLSM, name)
-	if err != nil {
-		return errors.Wrap(err, "replace dimensions bucket")
-	}
-
-	return nil
-}
 
 // Key (target vector name and dimensionality) | Value Doc IDs
 // targetVector,128 | 1,2,4,5,17
@@ -347,20 +303,35 @@ func (s *Shard) addToDimensionBucket(
 		return errors.Errorf("add dimension bucket: no bucket dimensions")
 	}
 
-	tv := []byte(vecName)
-	// 8 bytes for doc id (map key)
-	// 4 bytes for dim count (row key)
-	// len(vecName) bytes for vector name (prefix of row key)
-	buf := make([]byte, 12+len(tv))
-	binary.LittleEndian.PutUint64(buf[:8], docID)
-	binary.LittleEndian.PutUint32(buf[8+len(tv):], uint32(dimLength))
-	copy(buf[8:], tv)
 
-	return b.MapSet(buf[8:], lsmkv.MapPair{
-		Key:       buf[:8],
-		Value:     []byte{},
-		Tombstone: tombstone,
-	})
+
+	keybuff := make([]byte, 4+len(vecName))
+	copy(keybuff[4:], vecName)
+	binary.LittleEndian.PutUint32(keybuff[:4], uint32(dimLength))
+	countbuff_r, err := b.Get(keybuff)
+	if err != nil {
+		return err
+	}
+	var countbuff []byte = make([]byte, len(countbuff_r))
+	if countbuff_r == nil {
+		// if the bucket is empty, initialize the count to 0
+		countbuff = make([]byte, 8)
+		binary.LittleEndian.PutUint64(countbuff, 0)
+	} else {
+		copy(countbuff, countbuff_r)
+	}
+	count := binary.LittleEndian.Uint64(countbuff)
+
+	if tombstone {
+		count = count - 1
+	} else {
+		count = count + 1
+	}
+	binary.LittleEndian.PutUint64(countbuff, count)
+	if err := b.Put(keybuff, countbuff); err != nil {
+		return errors.Wrapf(err, "add dimension bucket: set key %s", string(countbuff))
+	}
+	return nil
 }
 
 func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
