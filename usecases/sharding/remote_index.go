@@ -135,7 +135,7 @@ type RemoteIndexClient interface {
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
 	obj *storobj.Object, schemaVersion uint64,
 ) error {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, err := ri.getShardOwnerForWrite(shardName)
 	if err != nil {
 		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -161,7 +161,7 @@ func duplicateErr(in error, count int) []error {
 func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
 	objs []*storobj.Object, schemaVersion uint64,
 ) []error {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, err := ri.getShardOwnerForWrite(shardName)
 	if err != nil {
 		return duplicateErr(fmt.Errorf("class %s has no physical shard %q: %w",
 			ri.class, shardName, err), len(objs))
@@ -179,7 +179,7 @@ func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
 func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
 	refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, err := ri.getShardOwnerForWrite(shardName)
 	if err != nil {
 		return duplicateErr(fmt.Errorf("class %s has no physical shard %q: %w",
 			ri.class, shardName, err), len(refs))
@@ -197,7 +197,7 @@ func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
 func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
 	id strfmt.UUID,
 ) (bool, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, err := ri.getShardOwnerForRead(shardName)
 	if err != nil {
 		return false, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -213,7 +213,7 @@ func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
 func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
 	id strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
 ) error {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, err := ri.getShardOwnerForWrite(shardName)
 	if err != nil {
 		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -229,7 +229,7 @@ func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
 func (ri *RemoteIndex) MergeObject(ctx context.Context, shardName string,
 	mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, err := ri.getShardOwnerForWrite(shardName)
 	if err != nil {
 		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -246,7 +246,7 @@ func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,
 	id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, err := ri.getShardOwnerForRead(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -262,7 +262,7 @@ func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,
 func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
 	ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, err := ri.getShardOwnerForRead(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -366,7 +366,7 @@ func (ri *RemoteIndex) Aggregate(
 func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,
 	filters *filters.LocalFilter,
 ) ([]strfmt.UUID, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, err := ri.getShardOwnerForRead(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -382,7 +382,7 @@ func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,
 func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) objects.BatchSimpleObjects {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, err := ri.getShardOwnerForWrite(shardName)
 	if err != nil {
 		err := fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
@@ -398,7 +398,7 @@ func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
 }
 
 func (ri *RemoteIndex) GetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, err := ri.getShardOwnerForRead(shardName)
 	if err != nil {
 		return 0, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -412,7 +412,7 @@ func (ri *RemoteIndex) GetShardQueueSize(ctx context.Context, shardName string) 
 }
 
 func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName string) (string, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, err := ri.getShardOwnerForWrite(shardName)
 	if err != nil {
 		return "", fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -426,7 +426,7 @@ func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName string) (st
 }
 
 func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, err := ri.getShardOwnerForWrite(shardName)
 	if err != nil {
 		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -554,6 +554,7 @@ func (ri *RemoteIndex) queryReplicas(
 	return
 }
 
+// TODO dry all these
 func (ri *RemoteIndex) getReplicasForRead(shard string) ([]string, error) {
 	var replicas []string
 	if ri.router != nil {
@@ -577,6 +578,56 @@ func (ri *RemoteIndex) getReplicasForRead(shard string) ([]string, error) {
 		return nil, fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, errors.New("no replicas"))
 	}
 	return replicas, nil
+}
+
+func (ri *RemoteIndex) getShardOwnerForRead(shard string) (string, error) {
+	var replicas []string
+	if ri.router != nil {
+		readPlan, _, _, err := ri.router.GetReadWriteReplicasLocation(ri.class, shard)
+		if err != nil {
+			return "", fmt.Errorf("class %q error getting replicas for shard %q: %w", ri.class, shard, err)
+		}
+		rr := []string{}
+		for _, r := range readPlan.Replicas {
+			rr = append(rr, r.NodeName)
+		}
+		replicas = rr
+	} else {
+		var err error
+		replicas, err = ri.stateGetter.ShardReplicas(ri.class, shard)
+		if err != nil {
+			return "", fmt.Errorf("class %q error getting replicas for shard %q: %w", ri.class, shard, err)
+		}
+	}
+	if len(replicas) == 0 {
+		return "", fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, errors.New("no replicas"))
+	}
+	return replicas[rand.Intn(len(replicas))], nil
+}
+
+func (ri *RemoteIndex) getShardOwnerForWrite(shard string) (string, error) {
+	var replicas []string
+	if ri.router != nil {
+		_, writePlan, _, err := ri.router.GetReadWriteReplicasLocation(ri.class, shard)
+		if err != nil {
+			return "", fmt.Errorf("class %q error getting replicas for shard %q: %w", ri.class, shard, err)
+		}
+		rr := []string{}
+		for _, r := range writePlan.Replicas {
+			rr = append(rr, r.NodeName)
+		}
+		replicas = rr
+	} else {
+		var err error
+		replicas, err = ri.stateGetter.ShardReplicas(ri.class, shard)
+		if err != nil {
+			return "", fmt.Errorf("class %q error getting replicas for shard %q: %w", ri.class, shard, err)
+		}
+	}
+	if len(replicas) == 0 {
+		return "", fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, errors.New("no replicas"))
+	}
+	return replicas[rand.Intn(len(replicas))], nil
 }
 
 // func (ri *RemoteIndex) getReplicasForWrite(shard string) ([]string, error) {

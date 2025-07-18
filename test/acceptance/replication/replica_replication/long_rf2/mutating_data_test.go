@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package long
+package long_rf2
 
 import (
 	"context"
@@ -258,15 +258,15 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 			}
 		}
 	}
-	if mutateDataTriggeredSleep.Load() {
-		fmt.Println(time.Now(), "NATEE mutateDataTriggeredSleep is true, sleeping for debug wait")
-		time.Sleep(time.Hour)
-	}
+	// if mutateDataTriggeredSleep.Load() {
+	// 	fmt.Println(time.Now(), "NATEE mutateDataTriggeredSleep is true, sleeping for debug wait")
+	// 	time.Sleep(time.Hour)
+	// }
 
-	if failed {
-		fmt.Println(time.Now(), "NATEE sleeping")
-		time.Sleep(time.Hour)
-	}
+	// if failed {
+	// 	fmt.Println(time.Now(), "NATEE sleeping")
+	// 	time.Sleep(time.Hour)
+	// }
 	assert.False(t, failed, "failed to verify object UUIDs across replicas")
 }
 
@@ -333,7 +333,7 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 					WithTenant(tenantName).
 					Object())
 				btch[i].ID = strfmt.UUID(fmt.Sprintf("10000000-0000-0000-0000-%012d", counter))
-				fmt.Println(time.Now(), "NATEE mutate create data btch[i].ID", btch[i].ID.String())
+				// fmt.Println(time.Now(), "NATEE mutate create data btch[i].ID", btch[i].ID.String())
 				counter++
 			}
 			all := "ALL"
@@ -354,36 +354,38 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 			// Get the existing objects
 			limit := int64(10000)
 			one := "ONE"
-			fmt.Println(time.Now(), "NATEE mutate data starting list op", iteration)
+			// fmt.Println(time.Now(), "NATEE mutate data starting list op", iteration)
 			res, err := client.Objects.ObjectsList(
 				objects.NewObjectsListParams().WithClass(&className).WithTenant(&tenantName).WithLimit(&limit).WithConsistencyLevel(&one),
 				nil,
 			)
-			fmt.Println(time.Now(), "NATEE mutate data listing done", iteration)
+			// fmt.Println(time.Now(), "NATEE mutate data listing done", iteration)
 			if err != nil {
 				t.Logf("Error listing objects for tenant %s: %v", tenantName, err)
 				continue
 			}
 			// check if any of the objects have been deleted
+			notDeletedObjects := []*models.Object{}
 			for _, obj := range res.Payload.Objects {
-				if _, ok := deletedIds.Load(obj.ID.String()); ok {
-					mutateDataTriggeredSleep.Store(true)
-					fmt.Println(time.Now(), "NATEE object", obj.ID.String(), "has been deleted, sleeping for debug")
-					fmt.Println("NATEE node was", r, nodeToAddress[r])
+				if _, ok := deletedIds.Load(obj.ID.String()); !ok {
+					notDeletedObjects = append(notDeletedObjects, obj)
+					// mutateDataTriggeredSleep.Store(true)
+					// fmt.Println(time.Now(), "NATEE object", obj.ID.String(), "has been deleted, sleeping for debug")
+					// fmt.Println("NATEE node was", r, nodeToAddress[r])
 
-					fmt.Println("NATEE check each node for deleted object")
-					for n, a := range nodeToAddress {
-						client := newClient(a)
-						gr, ge := client.Objects.ObjectsClassGet(
-							objects.NewObjectsClassGetParams().WithClassName(className).WithID(obj.ID).WithConsistencyLevel(&one).WithTenant(&tenantName),
-							nil,
-						)
-						fmt.Println(time.Now(), "NATEE check get object on node", n, a, gr, ge)
+					// fmt.Println("NATEE check each node for deleted object")
+					// for n, a := range nodeToAddress {
+					// 	client := newClient(a)
+					// 	gr, ge := client.Objects.ObjectsClassGet(
+					// 		objects.NewObjectsClassGetParams().WithClassName(className).WithID(obj.ID).WithConsistencyLevel(&one).WithTenant(&tenantName),
+					// 		nil,
+					// 	)
+					// 	fmt.Println(time.Now(), "NATEE check get object on node", n, a, gr, ge)
 
-						// TODO try a list with filter in case it's list vs get
+					// 	// TODO try a list with filter in case it's list vs get
 
-					}
-					time.Sleep(time.Hour)
+					// }
+					// time.Sleep(time.Hour)
 				}
 			}
 
@@ -408,7 +410,7 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 			// 	)
 			// 	fmt.Println(time.Now(), "NATEE mutate update data obj.ID", res.Payload.Objects[0].ID.String())
 			// } else {
-			for _, obj := range toUpdate {
+			for _, obj := range notDeletedObjects {
 				// if obj.ID.String() == "000000000-0000-0000-0000-000000000000" {
 				// 	fmt.Println(time.Now(), "NATEE skipping update for obj.ID", obj.ID.String())
 				// 	continue
@@ -423,7 +425,7 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 					objects.NewObjectsClassPutParams().WithClassName(className).WithID(obj.ID).WithBody(updated).WithConsistencyLevel(&all),
 					nil,
 				)
-				fmt.Println(time.Now(), "NATEE mutate update data obj.ID", obj.ID.String())
+				// fmt.Println(time.Now(), "NATEE mutate update data obj.ID", obj.ID.String())
 				if err != nil {
 					fmt.Println(time.Now(), "NATEE error updating object", obj.ID.String(), err)
 					fmt.Println(time.Now(), "NATEE error updating object str", obj.ID.String(), err.Error())
@@ -463,7 +465,7 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 					objects.NewObjectsClassDeleteParams().WithClassName(className).WithID(obj.ID).WithTenant(&tenantName).WithConsistencyLevel(&all),
 					nil,
 				)
-				fmt.Println(time.Now(), "NATEE mutate delete data obj.ID", obj.ID.String())
+				// fmt.Println(time.Now(), "NATEE mutate delete data obj.ID", obj.ID.String())
 				require.NotNil(t, ok)
 				require.Equal(t, ok.Code(), 204)
 				require.Nil(t, err)
