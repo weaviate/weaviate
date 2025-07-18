@@ -58,6 +58,11 @@ type MultiVectorIndex interface {
 	ValidateMultiBeforeInsert(vector [][]float32) error
 }
 
+type Index interface {
+	// UnderlyingIndex returns the underlying index type (flat or hnsw)
+	UnderlyingIndex() common.IndexType
+}
+
 type VectorIndex interface {
 	MultiVectorIndex
 	Dump(labels ...string)
@@ -88,6 +93,7 @@ type VectorIndex interface {
 	// If the callback returns false, the iteration will stop.
 	Iterate(fn func(docID uint64) bool)
 	Stats() (common.IndexStats, error)
+	Type() common.IndexType
 }
 
 type upgradableIndexer interface {
@@ -660,8 +666,19 @@ func (dynamic *dynamic) CompressionStats() compressionhelpers.CompressionStats {
 	return compressionhelpers.UncompressedStats{}
 }
 
+// UnderlyingIndex returns the underlying index type (flat or hnsw)
+// for dynamic indexes.
+func (dynamic *dynamic) UnderlyingIndex() common.IndexType {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.Type()
+}
+
 type DynamicStats struct{}
 
 func (s *DynamicStats) IndexType() common.IndexType {
 	return common.IndexTypeDynamic
 }
+
+// to make sure the dynamic index satisfies the Index interface
+var _ = Index(&dynamic{})

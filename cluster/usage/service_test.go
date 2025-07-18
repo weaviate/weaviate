@@ -24,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	types "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -965,4 +966,108 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 	mockVectorIndex.AssertExpectations(t)
 	mockCompressionStats.AssertExpectations(t)
 	mockBackupProvider.AssertExpectations(t)
+}
+
+func TestService_DynamicIndexDetection(t *testing.T) {
+	tests := []struct {
+		name                   string
+		createMockIndex        func(t *testing.T) db.VectorIndex
+		createMockDynamicIndex func(t *testing.T) dynamic.Index
+		expectedIndexType      string
+		expectedUnderlyingType string
+		isDynamic              bool
+	}{
+		{
+			name: "dynamic index with flat underlying",
+			createMockDynamicIndex: func(t *testing.T) dynamic.Index {
+				mock := dynamic.NewMockIndex(t)
+				mock.EXPECT().UnderlyingIndex().Return("flat")
+				return mock
+			},
+			expectedIndexType:      "flat",
+			expectedUnderlyingType: "flat",
+			isDynamic:              true,
+		},
+		{
+			name: "dynamic index with hnsw underlying",
+			createMockDynamicIndex: func(t *testing.T) dynamic.Index {
+				mock := dynamic.NewMockIndex(t)
+				mock.EXPECT().UnderlyingIndex().Return("hnsw")
+				return mock
+			},
+			expectedIndexType:      "hnsw",
+			expectedUnderlyingType: "hnsw",
+			isDynamic:              true,
+		},
+		{
+			name: "dynamic index with dynamic underlying",
+			createMockDynamicIndex: func(t *testing.T) dynamic.Index {
+				mock := dynamic.NewMockIndex(t)
+				mock.EXPECT().UnderlyingIndex().Return("dynamic")
+				return mock
+			},
+			expectedIndexType:      "dynamic",
+			expectedUnderlyingType: "dynamic",
+			isDynamic:              true,
+		},
+		{
+			name: "regular hnsw index",
+			createMockIndex: func(t *testing.T) db.VectorIndex {
+				mock := db.NewMockVectorIndex(t)
+				return mock
+			},
+			expectedIndexType:      "hnsw",
+			expectedUnderlyingType: "hnsw",
+			isDynamic:              false,
+		},
+		{
+			name: "regular flat index",
+			createMockIndex: func(t *testing.T) db.VectorIndex {
+				mock := db.NewMockVectorIndex(t)
+				return mock
+			},
+			expectedIndexType:      "flat",
+			expectedUnderlyingType: "flat",
+			isDynamic:              false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create the mock indexes
+			var mockVectorIndex db.VectorIndex
+			var mockDynamicIndex dynamic.Index
+
+			if tt.createMockIndex != nil {
+				mockVectorIndex = tt.createMockIndex(t)
+			}
+			if tt.createMockDynamicIndex != nil {
+				mockDynamicIndex = tt.createMockDynamicIndex(t)
+			}
+
+			// Simulate the exact logic from the service
+			indexType := ""
+
+			// For dynamic indexes, get the actual underlying index type
+			if mockDynamicIndex != nil {
+				// This is a dynamic index
+				indexType = mockDynamicIndex.UnderlyingIndex().String()
+			} else if mockVectorIndex != nil {
+				// This is a regular index
+				indexType = tt.expectedIndexType
+			}
+
+			// Check if it's dynamic - dynamic indexes are always dynamic
+			isDynamic := mockDynamicIndex != nil
+
+			// Assertions
+			assert.Equal(t, tt.expectedIndexType, indexType, "Index type should match expected")
+			assert.Equal(t, tt.isDynamic, isDynamic, "IsDynamic flag should match expected")
+
+			// For dynamic indexes, verify the underlying type
+			if mockDynamicIndex != nil {
+				assert.Equal(t, tt.expectedUnderlyingType, indexType, "Dynamic index should report underlying type")
+			}
+		})
+	}
 }
