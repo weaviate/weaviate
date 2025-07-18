@@ -66,10 +66,10 @@ type VectorUsage struct {
 	Name string `json:"name"`
 
 	// The type of vector index (for dynamic indexes, this shows the underlying type: flat/hnsw)
-	VectorIndexType string `json:"vectorIndexType"`
+	VectorIndexType string `json:"vector_index_type"`
 
 	// Indicates if this index originated from a dynamic index configuration
-	IsDynamic bool `json:"isDynamic"`
+	IsDynamic bool `json:"is_dynamic"`
 
 	// The compression type used
 	Compression string `json:"compression"`
