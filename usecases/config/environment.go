@@ -262,12 +262,12 @@ func FromEnv(config *Config) error {
 
 		viewerGroupString, ok := os.LookupEnv("AUTHORIZATION_RBAC_READONLY_GROUPS")
 		if ok {
-			config.Authorization.Rbac.ViewerGroups = strings.Split(viewerGroupString, ",")
+			config.Authorization.Rbac.ReadOnlyGroups = strings.Split(viewerGroupString, ",")
 		} else {
 			// delete this after 1.30.11 + 1.31.3 is the minimum version in WCD
 			viewerGroupString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_ROOT_GROUPS")
 			if ok {
-				config.Authorization.Rbac.ViewerGroups = strings.Split(viewerGroupString, ",")
+				config.Authorization.Rbac.ReadOnlyGroups = strings.Split(viewerGroupString, ",")
 			}
 		}
 
