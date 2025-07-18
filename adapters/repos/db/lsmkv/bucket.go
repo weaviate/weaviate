@@ -213,6 +213,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		calcCountNetAdditions:        false,
 		haltedFlushTimer:             interval.NewBackoffTimer(),
 		writeSegmentInfoIntoFileName: false,
+		writeMetadata:                true,
 	}
 
 	for _, opt := range opts {
