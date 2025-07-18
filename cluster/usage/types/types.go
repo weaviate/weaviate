@@ -47,6 +47,9 @@ type ShardUsage struct {
 	// The name of the shard
 	Name string `json:"name"`
 
+	// The status of the shard (ACTIVE, INACTIVE)
+	Status string `json:"status"`
+
 	// The number of objects in the shard
 	ObjectsCount int64 `json:"objects_count"`
 
