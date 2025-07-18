@@ -53,53 +53,53 @@ type LocalRebuilder struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	dedup deduplicator // Deduplicator to prevent multiple operations on the same posting
+	dedup *deduplicator // Deduplicator to prevent multiple operations on the same posting
 }
 
-func (r *LocalRebuilder) Start(ctx context.Context) {
-	if r.UserConfig == nil {
+func (l *LocalRebuilder) Start(ctx context.Context) {
+	if l.UserConfig == nil {
 		panic("UserConfig must be set before starting LocalRebuilder")
 	}
-	if r.Store == nil {
+	if l.Store == nil {
 		panic("Store must be set before starting LocalRebuilder")
 	}
-	if r.Splitter == nil {
+	if l.Splitter == nil {
 		panic("Splitter must be set before starting LocalRebuilder")
 	}
-	if r.VersionMap == nil {
+	if l.VersionMap == nil {
 		panic("VersionMap must be set before starting LocalRebuilder")
 	}
-	if r.IDs == nil {
+	if l.IDs == nil {
 		panic("IdGenerator must be set before starting LocalRebuilder")
 	}
 
-	r.ch = make(chan Operation, r.UserConfig.Workers)
-	r.ctx, r.cancel = context.WithCancel(context.Background())
+	l.ch = make(chan Operation, l.UserConfig.Workers)
+	l.ctx, l.cancel = context.WithCancel(context.Background())
 
-	if r.Logger == nil {
-		r.Logger = logrus.New().WithField("component", "LocalRebuilder")
+	if l.Logger == nil {
+		l.Logger = logrus.New().WithField("component", "LocalRebuilder")
 	} else {
-		r.Logger = r.Logger.WithField("component", "LocalRebuilder")
+		l.Logger = l.Logger.WithField("component", "LocalRebuilder")
 	}
 
-	for i := 0; i < r.UserConfig.Workers; i++ {
-		r.wg.Add(1)
-		enterrors.GoWrapper(r.worker, r.Logger)
+	for i := 0; i < l.UserConfig.Workers; i++ {
+		l.wg.Add(1)
+		enterrors.GoWrapper(l.worker, l.Logger)
 	}
 }
 
-func (r *LocalRebuilder) Enqueue(ctx context.Context, op Operation) error {
-	if r.ctx == nil {
+func (l *LocalRebuilder) Enqueue(ctx context.Context, op Operation) error {
+	if l.ctx == nil {
 		return nil // Not started yet
 	}
 
-	if r.ctx.Err() != nil {
-		return r.ctx.Err() // Context already cancelled
+	if l.ctx.Err() != nil {
+		return l.ctx.Err() // Context already cancelled
 	}
 
 	// Check if the operation is already in progress
-	if !r.dedup.tryEnqueue(op) {
-		r.Logger.WithField("postingID", op.PostingID).
+	if !l.dedup.tryEnqueue(op) {
+		l.Logger.WithField("postingID", op.PostingID).
 			WithField("operation", op.OpType).
 			Debug("Operation already in progress, skipping enqueue")
 		return nil
@@ -107,7 +107,7 @@ func (r *LocalRebuilder) Enqueue(ctx context.Context, op Operation) error {
 
 	// Enqueue the operation to the channel
 	select {
-	case r.ch <- op:
+	case l.ch <- op:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -115,104 +115,97 @@ func (r *LocalRebuilder) Enqueue(ctx context.Context, op Operation) error {
 	return nil
 }
 
-func (r *LocalRebuilder) enqueueOrSteal(op Operation) error {
+func (l *LocalRebuilder) enqueueOrSteal(op Operation) error {
 	select {
-	case r.ch <- op:
+	case l.ch <- op:
 		return nil // Successfully enqueued
 	default:
 	}
 
 	// Channel is full, process the operation immediately
-	return r.process(op)
+	return l.process(op)
 }
 
-func (r *LocalRebuilder) worker() {
-	defer r.wg.Done()
+func (l *LocalRebuilder) worker() {
+	defer l.wg.Done()
 
-	for op := range r.ch {
-		if r.ctx.Err() != nil {
+	for op := range l.ch {
+		if l.ctx.Err() != nil {
 			return // Stop processing if context is cancelled
 		}
 
-		err := r.process(op)
+		err := l.process(op)
 		if err != nil {
-			r.Logger.WithError(err).
+			l.Logger.WithError(err).
 				WithField("postingID", op.PostingID).
 				WithField("operation", op.OpType).
 				Error("Failed to process operation")
 			continue // Log the error and continue processing other operations
 		}
-		r.dedup.done(op) // Ensure we mark the operation as done
+		l.dedup.done(op) // Ensure we mark the operation as done
 	}
 }
 
-func (r *LocalRebuilder) process(op Operation) error {
+func (l *LocalRebuilder) process(op Operation) error {
 	// Process the operation
 	switch op.OpType {
 	case BackgroundOpSplit:
 		// Handle split operation
-		return r.doSplit(op)
+		return l.doSplit(op)
 	case BackgroundOpMerge:
 		// Handle merge operation
 	case BackgroundOpReassign:
 		// Handle reassign operation
 	default:
-		r.Logger.Warnf("Unknown operation type: %s for posting ID: %d", op.OpType, op.PostingID)
+		l.Logger.Warnf("Unknown operation type: %s for posting ID: %d", op.OpType, op.PostingID)
 	}
 
 	return nil
 }
 
-func (r *LocalRebuilder) Close(ctx context.Context) error {
-	if r.ctx == nil {
+func (l *LocalRebuilder) Close(ctx context.Context) error {
+	if l.ctx == nil {
 		return nil // Already closed or not started
 	}
 
-	if r.ctx.Err() != nil {
-		return r.ctx.Err() // Context already cancelled
+	if l.ctx.Err() != nil {
+		return l.ctx.Err() // Context already cancelled
 	}
 
 	// Cancel the context to prevent new operations from being enqueued
-	r.cancel()
+	l.cancel()
 
 	// Close the channel to signal workers to stop
-	close(r.ch)
+	close(l.ch)
 
-	r.wg.Wait() // Wait for all workers to finish
+	l.wg.Wait() // Wait for all workers to finish
 	return nil
 }
 
-func (r *LocalRebuilder) doSplit(op Operation) error {
-	// TODO: Use WAL
-
-	p, err := r.Store.Get(r.ctx, op.PostingID)
+func (l *LocalRebuilder) doSplit(op Operation) error {
+	p, err := l.Store.Get(l.ctx, op.PostingID)
 	if err != nil {
 		return err
 	}
 
-	// skip if the posting is too small
-	if len(p) < r.UserConfig.MaxPostingSize {
-		r.Logger.
-			WithField("postingID", op.PostingID).
-			WithField("size", len(p)).
-			WithField("max", r.UserConfig.MaxPostingSize).
-			Debug("Posting is too small, skipping split operation")
-		return nil
-	}
-
 	// garbage collect the deleted vectors
-	filtered := p.GarbageCollect(r.VersionMap)
+	filtered := p.GarbageCollect(l.VersionMap)
 
 	// skip if the filtered posting is now too small
-	if len(filtered) < r.UserConfig.MaxPostingSize {
-		r.Logger.
+	if len(filtered) < l.UserConfig.MaxPostingSize {
+		l.Logger.
 			WithField("postingID", op.PostingID).
 			WithField("size", len(filtered)).
-			WithField("max", r.UserConfig.MaxPostingSize).
+			WithField("max", l.UserConfig.MaxPostingSize).
 			Debug("Posting has less than max size after garbage collection, skipping split operation")
 
-		// persist the filtered posting
-		err = r.Store.Put(r.ctx, op.PostingID, filtered)
+		if len(filtered) == len(p) {
+			// no changes, just return
+			return nil
+		}
+
+		// persist the gc'ed posting
+		err = l.Store.Put(l.ctx, op.PostingID, filtered)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put filtered posting %d after split operation", op.PostingID)
 		}
@@ -221,31 +214,31 @@ func (r *LocalRebuilder) doSplit(op Operation) error {
 	}
 
 	// split the vectors into two clusters
-	result, err := r.Splitter.Split(filtered)
+	result, err := l.Splitter.Split(filtered)
 	if err != nil {
 		return errors.Wrapf(err, "failed to split vectors for posting %d", op.PostingID)
 	}
 
 	// persist the new postings first
-	leftID, rightID := r.IDs.NextN(2)
-	err = r.Store.Put(r.ctx, leftID, result.LeftPosting)
+	leftID, rightID := l.IDs.NextN(2)
+	err = l.Store.Put(l.ctx, leftID, result.LeftPosting)
 	if err != nil {
 		return errors.Wrapf(err, "failed to put left posting %d for split operation on posting %d", leftID, op.PostingID)
 	}
-	err = r.Store.Put(r.ctx, rightID, result.RightPosting)
+	err = l.Store.Put(l.ctx, rightID, result.RightPosting)
 	if err != nil {
 		// cleanup will be handled by the snapshot process
 		return errors.Wrapf(err, "failed to put right posting %d for split operation on posting %d", rightID, op.PostingID)
 	}
 
 	// atomically add new centroids to the SPTAG index and delete the old one
-	err = r.SPTAG.Split(op.PostingID, leftID, rightID, result.LeftCentroid, result.RightCentroid)
+	err = l.SPTAG.Split(op.PostingID, leftID, rightID, result.LeftCentroid, result.RightCentroid)
 	if err != nil {
 		return errors.Wrapf(err, "failed to split centroid for posting %d into %d and %d", op.PostingID, leftID, rightID)
 	}
 
 	// enqueue a reassign operation to ensure the new postings are balanced
-	err = r.enqueueOrSteal(Operation{
+	err = l.enqueueOrSteal(Operation{
 		OpType:    BackgroundOpReassign,
 		PostingID: leftID,
 		RightID:   rightID,
@@ -257,21 +250,112 @@ func (r *LocalRebuilder) doSplit(op Operation) error {
 	return nil
 }
 
+func (l *LocalRebuilder) doMerge(op Operation) error {
+	p, err := l.Store.Get(l.ctx, op.PostingID)
+	if err != nil {
+		return err
+	}
+
+	// garbage collect the deleted vectors
+	filtered := p.GarbageCollect(l.VersionMap)
+
+	// skip if the posting is big enough
+	if len(filtered) >= l.UserConfig.MinPostingSize {
+		l.Logger.
+			WithField("postingID", op.PostingID).
+			WithField("size", len(filtered)).
+			WithField("min", l.UserConfig.MinPostingSize).
+			Debug("Posting is big enough, skipping merge operation")
+
+		if len(filtered) == len(p) {
+			// no changes, just return
+			return nil
+		}
+
+		// persist the gc'ed posting
+		err = l.Store.Put(l.ctx, op.PostingID, filtered)
+		if err != nil {
+			return errors.Wrapf(err, "failed to put filtered posting %d after split operation", op.PostingID)
+		}
+
+		return nil
+	}
+
+	// get posting centroid
+	oldCentroid := l.SPTAG.Get(op.PostingID)
+	if oldCentroid == nil {
+		return errors.Errorf("centroid not found for posting %d", op.PostingID)
+	}
+
+	// search for the closest centroids
+	nearest, err := l.SPTAG.Search(oldCentroid, l.UserConfig.MergePostingCandidates)
+	if err != nil {
+		return errors.Wrapf(err, "failed to search for nearest centroid for posting %d", op.PostingID)
+	}
+
+	// first centroid is the query centroid, the rest are candidates for merging
+	for i := 1; i < len(nearest); i++ {
+		// check if the combined size of the postings is within limits
+		count, err := l.Store.VectorCount(nearest[i])
+		if err != nil {
+			return errors.Wrapf(err, "failed to get vector count for posting %d", nearest[i])
+		}
+		if count+len(filtered) > l.UserConfig.MaxPostingSize {
+			continue // Skip this candidate
+		}
+
+		// TODO: ensure posting is not already being merged/split
+
+		// get the candidate posting
+		candidate, err := l.Store.Get(l.ctx, nearest[i])
+		if err != nil {
+			return errors.Wrapf(err, "failed to get candidate posting %d for merge operation on posting %d", nearest[i], op.PostingID)
+		}
+		var smallPosting, smallID = filtered, op.PostingID
+		var largePosting, largeID = candidate, nearest[i]
+		if len(filtered) > count {
+			// Ensure small is the one with fewer vectors
+			smallPosting, smallID, largePosting, largeID = largePosting, largeID, smallPosting, smallID
+		}
+
+		// append the vectors from the small posting to the large one
+		for _, v := range smallPosting {
+			// TODO: do we need to increment the version here?
+			v.Version = l.VersionMap.Increment(v.ID) // Increment version for each vector
+			err = l.Store.Append(l.ctx, largeID, &v)
+			if err != nil {
+				return errors.Wrapf(err, "failed to append vector %d to posting %d", v.ID, largeID)
+			}
+		}
+
+		// delete the old posting centroid
+		err = l.SPTAG.Delete(smallID)
+		if err != nil {
+			return errors.Wrapf(err, "failed to delete old centroid %d for posting %d", smallID, op.PostingID)
+		}
+
+		// TODO: delete the old posting
+
+	}
+
+	return nil
+}
+
 // deduplicator ensures only one operation per posting ID can be enqueued at a time.
 type deduplicator struct {
 	mu       sync.Mutex
 	inflight map[Operation]struct{} // map of inflight operations by posting ID
 }
 
+func newDeduplicator() *deduplicator {
+	return &deduplicator{
+		inflight: make(map[Operation]struct{}),
+	}
+}
+
 func (d *deduplicator) tryEnqueue(op Operation) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-
-	if d.inflight == nil {
-		d.inflight = make(map[Operation]struct{})
-		d.inflight[op] = struct{}{}
-		return true // First operation, no duplicates
-	}
 
 	if _, exists := d.inflight[op]; exists {
 		return false // Operation already in progress

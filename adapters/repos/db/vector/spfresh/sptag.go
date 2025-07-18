@@ -19,6 +19,7 @@ import (
 )
 
 type SPTAG interface {
+	Get(id uint64) []byte
 	Upsert(id uint64, centroid []byte) error
 	Delete(id uint64) error
 	Search(query []byte, k int) ([]uint64, error)
@@ -37,6 +38,13 @@ func NewBruteForceSPTAG(quantizer *compressionhelpers.RotationalQuantizer) *Brut
 		Centroids: make(map[uint64][]byte),
 		quantizer: quantizer,
 	}
+}
+
+func (d *BruteForceSPTAG) Get(id uint64) []byte {
+	d.m.RLock()
+	defer d.m.RUnlock()
+
+	return d.Centroids[id]
 }
 
 func (d *BruteForceSPTAG) Upsert(id uint64, centroid []byte) error {
