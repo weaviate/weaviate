@@ -1904,6 +1904,7 @@ func initRuntimeOverrides(appState *state.State) {
 			registered.UsageS3Prefix = appState.ServerConfig.Config.Usage.S3Prefix
 			// common config
 			registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
+			registered.UsageShardJitterInterval = appState.ServerConfig.Config.Usage.ShardJitterInterval
 			registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
 		}
 
