@@ -14,6 +14,7 @@ package usage
 import (
 	"context"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -272,11 +273,13 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	require.NotNil(t, hotShard)
 	assert.Equal(t, int64(hotObjectCount), hotShard.ObjectsCount)
 	assert.Equal(t, uint64(hotStorageSize), hotShard.ObjectsStorageBytes)
+	assert.Equal(t, strings.ToLower(models.TenantActivityStatusACTIVE), hotShard.Status)
 	assert.Len(t, hotShard.NamedVectors, 1)
 
 	require.NotNil(t, coldShard)
 	assert.Equal(t, int64(coldObjectCount), coldShard.ObjectsCount)
 	assert.Equal(t, uint64(coldStorageSize), coldShard.ObjectsStorageBytes)
+	assert.Equal(t, strings.ToLower(models.TenantActivityStatusINACTIVE), coldShard.Status)
 	assert.Len(t, coldShard.NamedVectors, 0)
 
 	vector := hotShard.NamedVectors[0]
@@ -938,6 +941,7 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 	require.NotNil(t, hotShard)
 	assert.Equal(t, int64(hotObjectCount), hotShard.ObjectsCount)
 	assert.Equal(t, uint64(hotStorageSize), hotShard.ObjectsStorageBytes)
+	assert.Equal(t, strings.ToLower(models.TenantActivityStatusACTIVE), hotShard.Status)
 	assert.Equal(t, uint64(hotVectorStorageSize), hotShard.VectorStorageBytes) // Verify hot tenant vector storage
 	assert.Len(t, hotShard.NamedVectors, 1)
 
@@ -945,6 +949,7 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 	require.NotNil(t, coldShard)
 	assert.Equal(t, int64(coldObjectCount), coldShard.ObjectsCount)
 	assert.Equal(t, uint64(coldStorageSize), coldShard.ObjectsStorageBytes)
+	assert.Equal(t, strings.ToLower(models.TenantActivityStatusINACTIVE), coldShard.Status)
 	assert.Equal(t, uint64(coldVectorStorageSize), coldShard.VectorStorageBytes) // Verify cold tenant vector storage
 	assert.Len(t, coldShard.NamedVectors, 0)                                     // Cold tenants don't have named vectors
 

@@ -13,6 +13,7 @@ package usage
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -117,6 +118,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 					shardUsage := &types.ShardUsage{
 						Name:                tenantName,
 						ObjectsCount:        objectUsage.Count,
+						Status:              strings.ToLower(models.TenantActivityStatusINACTIVE),
 						ObjectsStorageBytes: uint64(objectUsage.StorageBytes),
 						VectorStorageBytes:  uint64(vectorStorageSize),
 						NamedVectors:        make([]*types.VectorUsage, 0), // Empty for cold tenants
@@ -153,6 +155,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 
 				shardUsage := &types.ShardUsage{
 					Name:                name,
+					Status:              strings.ToLower(models.TenantActivityStatusACTIVE),
 					ObjectsCount:        objectCount,
 					ObjectsStorageBytes: uint64(objectStorageSize),
 					VectorStorageBytes:  uint64(vectorStorageSize),
