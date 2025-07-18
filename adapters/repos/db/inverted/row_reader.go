@@ -67,6 +67,8 @@ func (rr *RowReader) Read(ctx context.Context, readFn ReadFn) error {
 		return rr.lessThan(ctx, readFn, true)
 	case filters.OperatorLike:
 		return rr.like(ctx, readFn)
+	case filters.OperatorNotLike:
+		return rr.notLike(ctx, readFn)
 	case filters.OperatorIsNull: // we need to fetch a row with a given value (there is only nil and !nil) and can reuse equal to get the correct row
 		return rr.equal(ctx, readFn)
 	default:
@@ -204,6 +206,62 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 
 		continueReading, err := readFn(k, rr.transformToBitmap(v), noopRelease)
 		if err != nil {
+			return err
+		}
+
+		if !continueReading {
+			break
+		}
+	}
+
+	return nil
+}
+
+func (rr *RowReader) notLike(ctx context.Context, readFn ReadFn) error {
+	like, err := parseLikeRegexp(rr.value)
+	if err != nil {
+		return fmt.Errorf("parse notLike value: %w", err)
+	}
+
+	c := rr.newCursor()
+	defer c.Close()
+
+	var (
+		initialK []byte
+		initialV [][]byte
+	)
+
+	if like.optimizable {
+		initialK, initialV = c.Seek(like.min)
+	} else {
+		initialK, initialV = c.First()
+	}
+
+	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		if like.optimizable {
+			if len(k) < len(like.min) {
+				break
+			}
+
+			if bytes.Compare(like.min, k[:len(like.min)]) == -1 {
+				break
+			}
+		}
+
+		if !like.regexp.Match(k) {
+			continue
+		}
+
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
+		if err != nil {
+			// Invert the Equal results for an efficient NotEqual
+			inverted := rr.bitmapFactory.GetBitmap()
+			inverted.AndNot(rr.transformToBitmap(v))
+			_, err = readFn(rr.value, inverted)
 			return err
 		}
 
