@@ -220,6 +220,7 @@ type Config struct {
 	SeparateObjectsCompactions          bool
 	MaxSegmentSize                      int64
 	TrackVectorDimensions               bool
+	TrackVectorDimensionsInterval       time.Duration
 	ServerVersion                       string
 	GitHash                             string
 	AvoidMMap                           bool

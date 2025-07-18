@@ -101,6 +101,7 @@ func (db *DB) init(ctx context.Context) error {
 				IndexRangeableInMemory:                       db.config.IndexRangeableInMemory,
 				MaxSegmentSize:                               db.config.MaxSegmentSize,
 				TrackVectorDimensions:                        db.config.TrackVectorDimensions,
+				TrackVectorDimensionsInterval:                db.config.TrackVectorDimensionsInterval,
 				AvoidMMap:                                    db.config.AvoidMMap,
 				DisableLazyLoadShards:                        db.config.DisableLazyLoadShards,
 				ForceFullReplicasSearch:                      db.config.ForceFullReplicasSearch,
