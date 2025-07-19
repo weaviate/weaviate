@@ -53,7 +53,7 @@ func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 	// no vectors exist
 	if dims == 0 {
 		vecDimensions := make(map[int]struct{})
-		for i := range vector {
+		for i := 0; i < len(vector) && len(vecDimensions) <= 1; i++{
 			vecDimensions[len(vector[i])] = struct{}{}
 		}
 		if len(vecDimensions) > 1 {
@@ -81,10 +81,10 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		return errors.Errorf("AddBatch called on multivector index")
 	}
 	if len(ids) != len(vectors) {
-		return errors.Errorf("ids and vectors sizes does not match")
+		return errors.Errorf("ids and vectors sizes do not match")
 	}
 	if len(ids) == 0 {
-		return errors.Errorf("insertBatch called with empty lists")
+		return errors.Errorf("AddBatch called with empty lists")
 	}
 
 	var err error
@@ -183,7 +183,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		return errors.Errorf("addMultiBatch called on non-multivector index")
 	}
 	if len(docIDs) != len(vectors) {
-		return errors.Errorf("ids and vectors sizes does not match")
+		return errors.Errorf("ids and vectors sizes do not match")
 	}
 	if len(docIDs) == 0 {
 		return errors.Errorf("addMultiBatch called with empty lists")
@@ -322,8 +322,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 
 			vector = h.normalizeVec(vector)
 
-			nodeId := counter
-			counter++
+			nodeId := ids[j]
 
 			node := &vertex{
 				id:    uint64(nodeId),
@@ -331,7 +330,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			}
 
 			h.Lock()
-			h.docIDVectors[docID] = append(h.docIDVectors[docIDs[i]], nodeId)
+			h.docIDVectors[docID] = append(h.docIDVectors[docID], nodeId)
 			h.Unlock()
 
 			nodeIDBytes := make([]byte, 8)
