@@ -403,11 +403,11 @@ github.com/hashicorp/raft-boltdb/v2 v2.3.1 h1:ackhdCNPKblmOhjEU9+4lHSJYFkJd6Jqyv
 github.com/hashicorp/raft-boltdb/v2 v2.3.1/go.mod h1:n4S+g43dXF1tqDT+yzcXHhXM6y7MrlUd3TTwGRcUvQE=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
 github.com/ianlancetaylor/demangle v0.0.0-20230524184225-eabc099b10ab/go.mod h1:gx7rwoVhcfuVKG5uya9Hs3Sxj7EIvldVofAWIUtGouw=
-github.com/ikawaha/kagome-dict v1.0.3/go.mod h1:8Ma5E21J2kyaak6KumYLWGLKxm1kaAkCCWKWnrc5o/o=
+github.com/ikawaha/kagome-dict v1.0.0/go.mod h1:pbeH4qwp/LVWKNePhU4Mh11w/l8uUSXKxfvNwRkj3NY=
 github.com/ikawaha/kagome-dict v1.1.6 h1:bpMDkXEbHsgh/gdqNMpASM5EDd/jpRtzm2AFJTGP6C4=
 github.com/ikawaha/kagome-dict v1.1.6/go.mod h1:kVQBTitXg2pqmQUMFqGOw60e14zahWKyEyuZW2n7Yus=
-github.com/ikawaha/kagome-dict-ko v0.2.1 h1:4vBxs9FhnrtCnCpM5J4niQIF8Ys2/p4xpy1pRKW1Iow=
-github.com/ikawaha/kagome-dict-ko v0.2.1/go.mod h1:37IdqtbE77c8xxVmsxtS4MIT5f78KZRDhiBOFfJ1wvw=
+github.com/ikawaha/kagome-dict-ko v1.1.0 h1:UdzDIiMODp4/7TjV/zXBU+nrqaust0qDydEiCm3al9I=
+github.com/ikawaha/kagome-dict-ko v1.1.0/go.mod h1:04XLdBZi1Q3ygXVrMZIb9+LIGLCaK/0trwqZttPRILg=
 github.com/ikawaha/kagome-dict/ipa v1.2.5 h1:uX9D/T7xNpx1nleDU6SSbpaYHgiAhRs9IIEkcWu9XLQ=
 github.com/ikawaha/kagome-dict/ipa v1.2.5/go.mod h1:mfrhW/dynf56fNLSD4fyC29wQsEffWJj7trEJjSZz5Q=
 github.com/ikawaha/kagome/v2 v2.10.2 h1:5bWo0LJqJHzjtpeLQ+XO5IMdyLOMr52de28czE+s1r0=
