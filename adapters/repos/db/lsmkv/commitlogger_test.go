@@ -16,13 +16,16 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 )
 
 func BenchmarkCommitlogWriter(b *testing.B) {
+	metrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
+
 	for _, val := range []int{10, 100, 1000, 10000} {
 		b.Run(fmt.Sprintf("%d", val), func(b *testing.B) {
-			cl, err := newCommitLogger(b.TempDir(), "n/a")
+			cl, err := newCommitLogger(b.TempDir(), "n/a", metrics)
 			require.NoError(b, err)
 
 			data := make([]byte, val)

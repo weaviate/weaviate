@@ -47,8 +47,9 @@ type Store struct {
 	bucketAccessLock sync.RWMutex
 	bucketsByName    map[string]*Bucket
 
-	logger  logrus.FieldLogger
-	metrics *Metrics
+	logger     logrus.FieldLogger
+	metrics    *Metrics
+	walMetrics *CommitLoggerMetrics
 
 	cycleCallbacks *storeCycleCallbacks
 	bcreator       BucketCreator
@@ -63,10 +64,11 @@ type Store struct {
 // New initializes a new [Store] based on the root dir. If state is present on
 // disk, it is loaded, if the folder is empty a new store is initialized in
 // there.
-func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
+func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics, walMetrics *CommitLoggerMetrics,
 	shardCompactionCallbacks, shardCompactionAuxCallbacks,
 	shardFlushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Store, error) {
+
 	s := &Store{
 		dir:           dir,
 		rootDir:       rootDir,
@@ -75,6 +77,7 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 		bcreator:      NewBucketCreator(),
 		logger:        logger,
 		metrics:       metrics,
+		walMetrics:    walMetrics,
 	}
 	s.initCycleCallbacks(shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 
@@ -190,7 +193,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 
 	// bucket can be concurrently loaded with another buckets but
 	// the same bucket will be loaded only once
-	b, err := s.bcreator.NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
+	b, err := s.bcreator.NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics, s.walMetrics,
 		compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
 		return err
@@ -401,7 +404,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 		compactionCallbacks = s.cycleCallbacks.compactionAuxCallbacks
 	}
 
-	b, err := s.bcreator.NewBucket(ctx, bucketDir, s.rootDir, s.logger, s.metrics,
+	b, err := s.bcreator.NewBucket(ctx, bucketDir, s.rootDir, s.logger, s.metrics, s.walMetrics,
 		compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
 		return err

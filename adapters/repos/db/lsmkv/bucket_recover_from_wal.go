@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/weaviate/weaviate/entities/diskio"
 )
@@ -79,11 +80,13 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		})
 	}
 
+	clMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
+
 	// recover from each log
 	for _, fname := range walFileNames {
 		path := filepath.Join(b.dir, strings.TrimSuffix(fname, ".wal"))
 
-		cl, err := newCommitLogger(path, b.strategy)
+		cl, err := newCommitLogger(path, b.strategy, clMetrics)
 		if err != nil {
 			return errors.Wrap(err, "init commit logger")
 		}

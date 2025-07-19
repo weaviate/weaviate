@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,8 +48,9 @@ func Test_BucketBackup(t *testing.T) {
 func bucketBackup_FlushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 	t.Run("assert that readonly bucket fails to flush", func(t *testing.T) {
 		dirName := t.TempDir()
+		walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
-		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, logrus.New(), nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, logrus.New(), nil, walMetrics,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 		b.UpdateStatus(storagestate.StatusReadOnly)
@@ -65,8 +67,9 @@ func bucketBackup_FlushMemtable(ctx context.Context, t *testing.T, opts []Bucket
 
 func bucketBackup_ListFiles(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
-	b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, logrus.New(), nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, logrus.New(), nil, walMetrics,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.NoError(t, err)
 
