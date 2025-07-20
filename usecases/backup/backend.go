@@ -218,6 +218,9 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	desc.Status = string(backup.Transferring)
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes)
 	defer func() {
+		//  release indexes under all conditions
+		u.releaseIndexes(classes, desc.ID)
+
 		//  make sure context is not cancelled when uploading metadata
 		ctx := context.Background()
 
@@ -232,7 +235,6 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			return
 		}
 
-		u.releaseIndexes(classes, desc.ID)
 		desc.Error = err.Error()
 
 		// Handle error cases
