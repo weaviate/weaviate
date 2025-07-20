@@ -580,51 +580,29 @@ func (ri *RemoteIndex) getReplicasForRead(shard string) ([]string, error) {
 }
 
 func (ri *RemoteIndex) getShardOwnerForRead(shard string) (string, error) {
-	var replicas []string
 	if ri.router != nil {
 		readPlan, _, _, err := ri.router.GetReadWriteReplicasLocation(ri.class, shard)
 		if err != nil {
 			return "", fmt.Errorf("class %q error getting replicas for shard %q: %w", ri.class, shard, err)
 		}
-		rr := []string{}
-		for _, r := range readPlan.Replicas {
-			rr = append(rr, r.NodeName)
+		if len(readPlan.Replicas) == 0 {
+			return "", fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, errors.New("no replicas"))
 		}
-		replicas = rr
-	} else {
-		var err error
-		replicas, err = ri.stateGetter.ShardReplicas(ri.class, shard)
-		if err != nil {
-			return "", fmt.Errorf("class %q error getting replicas for shard %q: %w", ri.class, shard, err)
-		}
+		return readPlan.Replicas[rand.Intn(len(readPlan.Replicas))].NodeName, nil
 	}
-	if len(replicas) == 0 {
-		return "", fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, errors.New("no replicas"))
-	}
-	return replicas[rand.Intn(len(replicas))], nil
+	return ri.stateGetter.ShardOwner(ri.class, shard)
 }
 
 func (ri *RemoteIndex) getShardOwnerForWrite(shard string) (string, error) {
-	var replicas []string
 	if ri.router != nil {
 		_, writePlan, _, err := ri.router.GetReadWriteReplicasLocation(ri.class, shard)
 		if err != nil {
 			return "", fmt.Errorf("class %q error getting replicas for shard %q: %w", ri.class, shard, err)
 		}
-		rr := []string{}
-		for _, r := range writePlan.Replicas {
-			rr = append(rr, r.NodeName)
+		if len(writePlan.Replicas) == 0 {
+			return "", fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, errors.New("no replicas"))
 		}
-		replicas = rr
-	} else {
-		var err error
-		replicas, err = ri.stateGetter.ShardReplicas(ri.class, shard)
-		if err != nil {
-			return "", fmt.Errorf("class %q error getting replicas for shard %q: %w", ri.class, shard, err)
-		}
+		return writePlan.Replicas[rand.Intn(len(writePlan.Replicas))].NodeName, nil
 	}
-	if len(replicas) == 0 {
-		return "", fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, errors.New("no replicas"))
-	}
-	return replicas[rand.Intn(len(replicas))], nil
+	return ri.stateGetter.ShardOwner(ri.class, shard)
 }
