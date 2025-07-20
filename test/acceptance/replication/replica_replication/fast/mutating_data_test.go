@@ -218,7 +218,9 @@ func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, clas
 				WithBody(batch.BatchObjectsCreateBody{
 					Objects: btch,
 				}).WithConsistencyLevel(&all)
-			client.Batch.BatchObjectsCreate(params, nil)
+			ok, err := client.Batch.BatchObjectsCreate(params, nil)
+			require.NotNil(t, ok)
+			require.Nil(t, err)
 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
@@ -228,6 +230,7 @@ func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, clas
 				objects.NewObjectsListParams().WithClass(&className).WithTenant(&tenantName).WithLimit(&limit),
 				nil,
 			)
+			require.NotNil(t, res)
 			if err != nil {
 				t.Logf("Error listing objects for tenant %s: %v", tenantName, err)
 				continue
@@ -246,20 +249,24 @@ func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, clas
 					WithTenant(tenantName).
 					WithID(obj.ID).
 					Object())
-				client.Objects.ObjectsClassPut(
+				res, err := client.Objects.ObjectsClassPut(
 					objects.NewObjectsClassPutParams().WithID(obj.ID).WithBody(updated).WithConsistencyLevel(&all),
 					nil,
 				)
+				require.NotNil(t, res)
+				require.Nil(t, err)
 			}
 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
 			// Delete some existing objects
 			for _, obj := range toDelete {
-				client.Objects.ObjectsClassDelete(
+				res, err := client.Objects.ObjectsClassDelete(
 					objects.NewObjectsClassDeleteParams().WithClassName(className).WithID(obj.ID).WithTenant(&tenantName).WithConsistencyLevel(&all),
 					nil,
 				)
+				require.NotNil(t, res)
+				require.Nil(t, err)
 			}
 		}
 	}
