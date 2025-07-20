@@ -14,6 +14,7 @@ package replication
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -253,6 +254,11 @@ func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, clas
 					objects.NewObjectsClassPutParams().WithID(obj.ID).WithBody(updated).WithConsistencyLevel(&all),
 					nil,
 				)
+				if err != nil {
+					t.Logf("Error updating object %s: %v", obj.ID, err)
+					t.Logf("Error as string: %v", err.Error())
+					t.Logf("Error unwrapped: %v", errors.Unwrap(err))
+				}
 				require.NotNil(t, res)
 				require.Nil(t, err)
 			}
@@ -265,6 +271,11 @@ func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, clas
 					objects.NewObjectsClassDeleteParams().WithClassName(className).WithID(obj.ID).WithTenant(&tenantName).WithConsistencyLevel(&all),
 					nil,
 				)
+				if err != nil {
+					t.Logf("Error deleting object %s: %v", obj.ID, err)
+					t.Logf("Error as string: %v", err.Error())
+					t.Logf("Error unwrapped: %v", errors.Unwrap(err))
+				}
 				require.NotNil(t, res)
 				require.Nil(t, err)
 			}
