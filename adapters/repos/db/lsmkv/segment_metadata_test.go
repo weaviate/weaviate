@@ -69,6 +69,36 @@ func TestMetadataNoWrites(t *testing.T) {
 	}
 }
 
+func TestNoWriteIfBloomPresent(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	dirName := t.TempDir()
+
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithUseBloomFilter(true))
+	require.NoError(t, err)
+	require.NoError(t, b.Put([]byte("key"), []byte("value")))
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Shutdown(ctx))
+	fileTypes := countFileTypes(t, dirName)
+	require.Len(t, fileTypes, 2)
+	require.Equal(t, fileTypes[".db"], 1)
+	require.Equal(t, fileTypes[".bloom"], 1)
+
+	// load with writeMetadata enabled, no metadata files should be written
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithUseBloomFilter(true), WithWriteMetadata(true))
+	require.NoError(t, err)
+	require.NoError(t, b2.Shutdown(ctx))
+
+	fileTypes = countFileTypes(t, dirName)
+	require.Len(t, fileTypes, 2)
+	require.Equal(t, fileTypes[".db"], 1)
+	require.Equal(t, fileTypes[".bloom"], 1)
+}
+
 func TestCorruptFile(t *testing.T) {
 	dirName := t.TempDir()
 	ctx := context.Background()

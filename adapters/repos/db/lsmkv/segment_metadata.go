@@ -65,6 +65,22 @@ func (s *segment) initMetadata(metrics *Metrics, overwrite bool, exists existsOn
 	if !writeMetadata {
 		return false, nil
 	}
+	// don't write metadata file if other metadata files exist
+	bloomFilterFileExists, err := fileExistsInList(existingFilesList, filepath.Base(s.bloomFilterPath()))
+	if err != nil || bloomFilterFileExists {
+		return false, nil
+	}
+	cnaExists, err := fileExistsInList(existingFilesList, filepath.Base(s.countNetPath()))
+	if err != nil || cnaExists {
+		return false, nil
+	}
+	for i := 0; i < int(s.secondaryIndexCount); i++ {
+		secondaryBloomFilterFileExists, err := fileExistsInList(existingFilesList, filepath.Base(s.bloomFilterSecondaryPath(i)))
+		if err != nil || secondaryBloomFilterFileExists {
+			return false, nil
+		}
+	}
+
 	s.metaPaths = append(s.metaPaths, path)
 
 	primaryBloom, secondaryBloom, err := s.recalculateBloomFilters()
