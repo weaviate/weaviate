@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
@@ -49,6 +50,8 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWith
 func test(suite *ReplicationTestSuite, strategy string) {
 	t := suite.T()
 	helper.SetupClient(suite.compose.GetWeaviate().URI())
+
+	deletedIds := &sync.Map{}
 
 	cls := articles.ParagraphsClass()
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -110,7 +113,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	t.Log("Starting data mutation in background")
-	go mutateData(t, ctx, helper.Client(t), cls.Class, tenantName, 100)
+	go mutateData(t, ctx, helper.Client(t), cls.Class, tenantName, 100, deletedIds)
 
 	// Choose other node node as the target node
 	var targetNode string
@@ -192,13 +195,14 @@ func test(suite *ReplicationTestSuite, strategy string) {
 			if val != expected {
 				consistent = false
 			}
+			// TODO verify all deleted objects do not exist
 		}
 
 		require.True(ct, consistent, "replicas did not converge on object count")
 	}, 2*time.Minute, 5*time.Second, "replication operations for class %s did not converge in time", cls.Class)
 }
 
-func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, className string, tenantName string, wait int) {
+func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, className string, tenantName string, wait int, deletedIds *sync.Map) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -236,10 +240,20 @@ func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, clas
 				t.Logf("Error listing objects for tenant %s: %v", tenantName, err)
 				continue
 			}
+			// filter out deleted objects
+			allListedObjects := res.Payload.Objects
+			notDeletedObjects := make([]*models.Object, 0, len(allListedObjects))
+			for _, obj := range allListedObjects {
+				if _, ok := deletedIds.Load(obj.ID); !ok {
+					notDeletedObjects = append(notDeletedObjects, obj)
+				} else {
+					t.Logf("Object %s is deleted, skipping", obj.ID)
+				}
+			}
 			randUpdate := rand.Intn(20) + 1
-			toUpdate := random(res.Payload.Objects, randUpdate)
+			toUpdate := random(notDeletedObjects, randUpdate)
 			randDelete := rand.Intn(20) + 1
-			toDelete := random(symmetricDifference(res.Payload.Objects, toUpdate), randDelete)
+			toDelete := random(symmetricDifference(notDeletedObjects, toUpdate), randDelete)
 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
@@ -278,6 +292,7 @@ func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, clas
 				}
 				require.NotNil(t, res)
 				require.Nil(t, err)
+				deletedIds.Store(obj.ID, true)
 			}
 		}
 	}
