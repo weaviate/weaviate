@@ -247,7 +247,7 @@ func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, clas
 				if _, ok := deletedIds.Load(obj.ID); !ok {
 					notDeletedObjects = append(notDeletedObjects, obj)
 				} else {
-					t.Logf("Object %s is deleted, skipping", obj.ID)
+					t.Logf("Object %s was deleted, skipping", obj.ID)
 				}
 			}
 			randUpdate := rand.Intn(20) + 1
