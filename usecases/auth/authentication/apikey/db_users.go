@@ -197,7 +197,7 @@ func (c *DBUser) CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [
 	c.data.Users[userId] = &User{
 		Id:                 userId,
 		Active:             true,
-		InternalIdentifier: "imported",
+		InternalIdentifier: "imported_" + userId,
 		CreatedAt:          createdAt,
 		ApiKeyFirstLetters: apiKeyFirstLetters,
 		ImportedWithKey:    true,
@@ -247,6 +247,7 @@ func (c *DBUser) DeleteUser(userId string) error {
 	delete(c.data.Users, userId)
 	delete(c.memoryOnlyData.weakKeyStorageById, userId)
 	delete(c.data.UserKeyRevoked, userId)
+	delete(c.data.ImportedApiKeysWeakHash, userId)
 	return c.storeToFile()
 }
 
@@ -317,7 +318,7 @@ func (c *DBUser) UpdateLastUsedTimestamp(users map[string]time.Time) {
 	}
 }
 
-func (c *DBUser) ValidateImportedKey(token string) *models.Principal {
+func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
@@ -326,6 +327,14 @@ func (c *DBUser) ValidateImportedKey(token string) *models.Principal {
 		if subtle.ConstantTimeCompare(keyHashGiven[:], keyHashStored[:]) != 1 {
 			continue
 		}
+		if c.data.Users[userId] != nil && !c.data.Users[userId].Active {
+			return nil, fmt.Errorf("user deactivated")
+		}
+
+		if _, ok := c.data.UserKeyRevoked[userId]; ok {
+			return nil, fmt.Errorf("key is revoked")
+		}
+
 		// Last used time does not have to be exact. If we have multiple concurrent requests for the same
 		// user, only recording one of them is good enough
 		if c.data.Users[userId].TryLock() {
@@ -333,10 +342,10 @@ func (c *DBUser) ValidateImportedKey(token string) *models.Principal {
 			c.data.Users[userId].Unlock()
 		}
 
-		return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}
+		return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}, nil
 	}
 
-	return nil
+	return nil, nil
 }
 
 func (c *DBUser) IsBlockedKey(token string) bool {

@@ -204,10 +204,6 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 		return errors.Wrapf(err, "end store object %d of batch", objectIndex)
 	}
 
-	if err := ob.shard.mayUpsertObjectHashTree(object, idBytes, status); err != nil {
-		return errors.Wrap(err, "object creation in hashtree")
-	}
-
 	return nil
 }
 

@@ -24,6 +24,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 
@@ -84,7 +86,8 @@ type Bucket struct {
 	secondaryIndices uint16
 
 	// Optional to avoid syscalls
-	mmapContents bool
+	mmapContents  bool
+	writeMetadata bool
 
 	// for backward compatibility
 	legacyMapSortingBeforeCompaction bool
@@ -131,6 +134,11 @@ type Bucket struct {
 	disableCompaction  bool
 	lazySegmentLoading bool
 
+	// if true, don't increase the segment level during compaction.
+	// useful for migrations, as it allows to merge reindex and ingest buckets
+	// without discontinuities in segment levels.
+	keepLevelCompaction bool
+
 	// optionally supplied to prevent starting memory-intensive
 	// processes when memory pressure is high
 	allocChecker memwatch.AllocChecker
@@ -157,6 +165,10 @@ type Bucket struct {
 	// (currently used by roaringsetrange inverted indexes)
 	bitmapBufPool roaringset.BitmapBufPool
 
+	// add information like the level and the strategy into the filename so these things can be checked without loading
+	// the segment
+	writeSegmentInfoIntoFileName bool
+
 	bm25Config *models.BM25Config
 }
 
@@ -182,19 +194,25 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return nil, err
 	}
 
+	files, err := diskio.GetFileWithSizes(dir)
+	if err != nil {
+		return nil, err
+	}
+
 	b := &Bucket{
-		dir:                   dir,
-		rootDir:               rootDir,
-		memtableThreshold:     defaultMemTableThreshold,
-		walThreshold:          defaultWalThreshold,
-		flushDirtyAfter:       defaultFlushAfterDirty,
-		strategy:              defaultStrategy,
-		mmapContents:          true,
-		logger:                logger,
-		metrics:               metrics,
-		useBloomFilter:        true,
-		calcCountNetAdditions: true,
-		haltedFlushTimer:      interval.NewBackoffTimer(),
+		dir:                          dir,
+		rootDir:                      rootDir,
+		memtableThreshold:            defaultMemTableThreshold,
+		walThreshold:                 defaultWalThreshold,
+		flushDirtyAfter:              defaultFlushAfterDirty,
+		strategy:                     defaultStrategy,
+		mmapContents:                 true,
+		logger:                       logger,
+		metrics:                      metrics,
+		useBloomFilter:               true,
+		calcCountNetAdditions:        false,
+		haltedFlushTimer:             interval.NewBackoffTimer(),
+		writeSegmentInfoIntoFileName: false,
 	}
 
 	for _, opt := range opts {
@@ -213,22 +231,25 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
 		sgConfig{
-			dir:                      dir,
-			strategy:                 b.strategy,
-			mapRequiresSorting:       b.legacyMapSortingBeforeCompaction,
-			monitorCount:             b.monitorCount,
-			mmapContents:             b.mmapContents,
-			keepTombstones:           b.keepTombstones,
-			forceCompaction:          b.forceCompaction,
-			useBloomFilter:           b.useBloomFilter,
-			calcCountNetAdditions:    b.calcCountNetAdditions,
-			maxSegmentSize:           b.maxSegmentSize,
-			cleanupInterval:          b.segmentsCleanupInterval,
-			enableChecksumValidation: b.enableChecksumValidation,
-			keepSegmentsInMemory:     b.keepSegmentsInMemory,
-			MinMMapSize:              b.minMMapSize,
-			bm25config:               b.bm25Config,
-		}, b.allocChecker, b.lazySegmentLoading)
+			dir:                          dir,
+			strategy:                     b.strategy,
+			mapRequiresSorting:           b.legacyMapSortingBeforeCompaction,
+			monitorCount:                 b.monitorCount,
+			mmapContents:                 b.mmapContents,
+			keepTombstones:               b.keepTombstones,
+			forceCompaction:              b.forceCompaction,
+			useBloomFilter:               b.useBloomFilter,
+			calcCountNetAdditions:        b.calcCountNetAdditions,
+			maxSegmentSize:               b.maxSegmentSize,
+			cleanupInterval:              b.segmentsCleanupInterval,
+			enableChecksumValidation:     b.enableChecksumValidation,
+			keepSegmentsInMemory:         b.keepSegmentsInMemory,
+			MinMMapSize:                  b.minMMapSize,
+			bm25config:                   b.bm25Config,
+			keepLevelCompaction:          b.keepLevelCompaction,
+			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
+			writeMetadata:                b.writeMetadata,
+		}, b.allocChecker, b.lazySegmentLoading, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
@@ -282,7 +303,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	b.disk = sg
 
-	if err := b.mayRecoverFromCommitLogs(ctx); err != nil {
+	if err := b.mayRecoverFromCommitLogs(ctx, files); err != nil {
 		return nil, err
 	}
 
@@ -382,13 +403,19 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	return nil
 }
 
-func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storobj.Object) error) error {
+func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
+	afterInMemCallback func(), f func(object *storobj.Object) error,
+) error {
 	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
 	onDiskCursor := b.CursorOnDisk()
 	defer onDiskCursor.Close()
 
+	inmemProcessedDocIDs := make(map[uint64]struct{})
+
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
 	err := func() error {
+		defer afterInMemCallback()
+
 		inMemCursor := b.CursorInMem()
 		defer inMemCursor.Close()
 
@@ -404,6 +431,8 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 				if err := f(obj); err != nil {
 					return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
 				}
+
+				inmemProcessedDocIDs[obj.DocID] = struct{}{}
 			}
 		}
 
@@ -422,6 +451,11 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 			if err != nil {
 				return fmt.Errorf("cannot unmarshal object: %w", err)
 			}
+
+			if _, ok := inmemProcessedDocIDs[obj.DocID]; ok {
+				continue
+			}
+
 			if err := f(obj); err != nil {
 				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
 			}
@@ -1114,7 +1148,7 @@ func (b *Bucket) setNewActiveMemtable() error {
 	}
 
 	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl,
-		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config)
+		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config, b.writeSegmentInfoIntoFileName, b.allocChecker)
 	if err != nil {
 		return err
 	}
@@ -1213,7 +1247,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 			return err
 		}
 	} else {
-		if err := b.active.flush(); err != nil {
+		if _, err := b.active.flush(); err != nil {
 			b.flushLock.Unlock()
 			return err
 		}
@@ -1424,7 +1458,8 @@ func (b *Bucket) FlushAndSwitch() error {
 	if b.flushing.strategy == StrategyInverted {
 		b.flushing.averagePropLength, b.flushing.propLengthCount = b.disk.GetAveragePropertyLength()
 	}
-	if err := b.flushing.flush(); err != nil {
+	segmentPath, err := b.flushing.flush()
+	if err != nil {
 		return fmt.Errorf("flush: %w", err)
 	}
 
@@ -1435,7 +1470,7 @@ func (b *Bucket) FlushAndSwitch() error {
 		}
 	}
 
-	segment, err := b.initAndPrecomputeNewSegment()
+	segment, err := b.initAndPrecomputeNewSegment(segmentPath)
 	if err != nil {
 		return fmt.Errorf("precompute metadata: %w", err)
 	}
@@ -1503,12 +1538,11 @@ func (b *Bucket) atomicallySwitchMemtable() (bool, error) {
 	return true, nil
 }
 
-func (b *Bucket) initAndPrecomputeNewSegment() (*segment, error) {
+func (b *Bucket) initAndPrecomputeNewSegment(segmentPath string) (*segment, error) {
 	// Note that this operation does not require the flush lock, i.e. it can
 	// happen in the background and we can accept new writes will this
 	// pre-compute is happening.
-	path := b.flushing.path
-	segment, err := b.disk.initAndPrecomputeNewSegment(path + ".db")
+	segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
 	if err != nil {
 		return nil, err
 	}

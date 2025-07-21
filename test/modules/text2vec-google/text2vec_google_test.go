@@ -48,6 +48,10 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 				name:  "text-multilingual-embedding-002",
 				model: "text-multilingual-embedding-002",
 			},
+			{
+				name:  "gemini-embedding-001",
+				model: "gemini-embedding-001",
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {

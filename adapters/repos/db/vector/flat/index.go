@@ -24,8 +24,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/memwatch"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -104,7 +102,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		store:                store,
 		concurrentCacheReads: runtime.GOMAXPROCS(0) * 2,
 	}
-	if err := index.initBuckets(context.Background(), cfg.MinMMapSize, cfg.MaxWalReuseSize, cfg.AllocChecker, cfg.LazyLoadSegments); err != nil {
+	if err := index.initBuckets(context.Background(), cfg); err != nil {
 		return nil, fmt.Errorf("init flat index buckets: %w", err)
 	}
 
@@ -208,7 +206,7 @@ func (index *flat) getCompressedBucketName() string {
 	return helpers.VectorsCompressedBucketLSM
 }
 
-func (index *flat) initBuckets(ctx context.Context, minMMapSize int64, minWalThreshold int64, allocchecker memwatch.AllocChecker, lazyLoadSegments bool) error {
+func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 	// TODO: Forced compaction should not stay an all or nothing option.
 	//       This is only a temporary measure until dynamic compaction
 	//       behavior is implemented.
@@ -217,11 +215,12 @@ func (index *flat) initBuckets(ctx context.Context, minMMapSize int64, minWalThr
 	if err := index.store.CreateOrLoadBucket(ctx, index.getBucketName(),
 		lsmkv.WithForceCompaction(forceCompaction),
 		lsmkv.WithUseBloomFilter(false),
-		lsmkv.WithCalcCountNetAdditions(false),
-		lsmkv.WithMinMMapSize(minMMapSize),
-		lsmkv.WithMinWalThreshold(minWalThreshold),
-		lsmkv.WithAllocChecker(allocchecker),
-		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
+		lsmkv.WithMinMMapSize(cfg.MinMMapSize),
+		lsmkv.WithMinWalThreshold(cfg.MinMMapSize),
+		lsmkv.WithAllocChecker(cfg.AllocChecker),
+		lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
+		lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
+		lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
 
 		// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
 		// was simply missing. Now we want to explicitly set it to false for
@@ -239,11 +238,12 @@ func (index *flat) initBuckets(ctx context.Context, minMMapSize int64, minWalThr
 		if err := index.store.CreateOrLoadBucket(ctx, index.getCompressedBucketName(),
 			lsmkv.WithForceCompaction(forceCompaction),
 			lsmkv.WithUseBloomFilter(false),
-			lsmkv.WithCalcCountNetAdditions(false),
-			lsmkv.WithMinMMapSize(minMMapSize),
-			lsmkv.WithMinWalThreshold(minWalThreshold),
-			lsmkv.WithAllocChecker(allocchecker),
-			lsmkv.WithLazySegmentLoading(lazyLoadSegments),
+			lsmkv.WithMinMMapSize(cfg.MinMMapSize),
+			lsmkv.WithMinWalThreshold(cfg.MinMMapSize),
+			lsmkv.WithAllocChecker(cfg.AllocChecker),
+			lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
+			lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
+			lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
 
 			// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
 			// was simply missing. Now we want to explicitly set it to false for
@@ -1057,4 +1057,16 @@ type FlatStats struct{}
 
 func (s *FlatStats) IndexType() common.IndexType {
 	return common.IndexTypeFlat
+}
+
+func (h *flat) ShouldUpgrade() (bool, int) {
+	return false, 0
+}
+
+func (h *flat) Upgrade(callback func()) error {
+	return nil
+}
+
+func (h *flat) Upgraded() bool {
+	return false
 }

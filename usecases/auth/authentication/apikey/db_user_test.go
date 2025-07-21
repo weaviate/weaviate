@@ -315,6 +315,45 @@ func TestLastUsedTime(t *testing.T) {
 	require.Equal(t, user[userId].LastUsedAt, updateTime)
 }
 
+func TestImportingAndSuspendingStaticKeys(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+
+	createdAt := time.Now()
+	userId := "user"
+	importedApiKey := "importedApiKey"
+	require.NoError(t, dynUsers.CreateUserWithKey(userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
+
+	principal, err := dynUsers.ValidateImportedKey(importedApiKey)
+	require.NoError(t, err)
+	require.NotNil(t, principal)
+	require.Equal(t, userId, principal.Username)
+
+	require.NoError(t, dynUsers.DeactivateUser(userId, true))
+
+	principal, err = dynUsers.ValidateImportedKey(importedApiKey)
+	require.Error(t, err)
+	require.Nil(t, principal)
+
+	require.NoError(t, dynUsers.ActivateUser(userId))
+	principal, err = dynUsers.ValidateImportedKey(importedApiKey)
+	require.Error(t, err)
+	require.Nil(t, principal)
+
+	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
+	require.NoError(t, err)
+	require.NoError(t, dynUsers.RotateKey(userId, apiKey[:3], hash, "imported_"+userId, identifier))
+
+	login, _, err := keys.DecodeApiKey(apiKey)
+	require.NoError(t, err)
+	_, err = dynUsers.ValidateAndExtract(login, identifier)
+	require.NoError(t, err)
+
+	principal, err = dynUsers.ValidateImportedKey(importedApiKey)
+	require.NoError(t, err) // error is only returned if key is deactivated
+	require.Nil(t, principal)
+}
+
 func TestImportingStaticKeys(t *testing.T) {
 	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
@@ -324,7 +363,8 @@ func TestImportingStaticKeys(t *testing.T) {
 		importedApiKey := "importedApiKey" + strconv.Itoa(i)
 		require.NoError(t, dynUsers.CreateUserWithKey(userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
 
-		principal := dynUsers.ValidateImportedKey(importedApiKey)
+		principal, err := dynUsers.ValidateImportedKey(importedApiKey)
+		require.NoError(t, err)
 		require.NotNil(t, principal)
 		require.Equal(t, userId, principal.Username)
 		require.Equal(t, principal.UserType, models.UserTypeInputDb)
@@ -342,13 +382,13 @@ func TestImportingStaticKeys(t *testing.T) {
 		user, ok := users[userId]
 		require.True(t, ok)
 		require.Equal(t, user.Id, userId)
-		require.Equal(t, user.InternalIdentifier, "imported")
+		require.Equal(t, user.InternalIdentifier, "imported_"+userId)
 		require.Equal(t, user.CreatedAt, createdAt)
 		require.True(t, user.ImportedWithKey)
 
 		apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.RotateKey(userId, apiKey[:3], hash, "imported", identifier))
+		require.NoError(t, dynUsers.RotateKey(userId, apiKey[:3], hash, "imported_"+userId, identifier))
 
 		login, _, err := keys.DecodeApiKey(apiKey)
 		require.NoError(t, err)

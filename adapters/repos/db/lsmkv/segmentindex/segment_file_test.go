@@ -81,6 +81,6 @@ func TestSegmentFile_ValidateChecksum(t *testing.T) {
 	}
 
 	segmentFile := NewSegmentFile(WithReader(f))
-	err = segmentFile.ValidateChecksum(fileInfo)
+	err = segmentFile.ValidateChecksum(fileInfo.Size())
 	require.Nil(t, err)
 }

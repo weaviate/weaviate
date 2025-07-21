@@ -479,7 +479,7 @@ func cursorCompactor(t *testing.T, leftCursor, rightCursor *SegmentCursor, maxNe
 	f, err := os.Create(segmentFile)
 	require.NoError(t, err)
 
-	c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", cleanup, checkSum, maxNewFileSize)
+	c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", cleanup, checkSum, maxNewFileSize, nil)
 	require.NoError(t, c.Do())
 
 	require.NoError(t, f.Close())
@@ -526,7 +526,7 @@ func TestCompactor_InMemoryWritesEfficency(t *testing.T) {
 			maxNewFileSize = compactor.SegmentWriterBufferSize + 1
 		}
 
-		c := NewCompactor(ws, leftCursor, rightCursor, 0, t.TempDir(), true, true, maxNewFileSize)
+		c := NewCompactor(ws, leftCursor, rightCursor, 0, t.TempDir(), true, true, maxNewFileSize, nil)
 
 		err = c.Do()
 		require.Nil(t, err)

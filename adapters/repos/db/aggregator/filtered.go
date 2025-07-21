@@ -59,7 +59,7 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 		}
 
 		if fa.params.ObjectLimit == nil {
-			limit := hybrid.DefaultLimit
+			limit := int(fa.defaultLimit)
 			fa.params.ObjectLimit = &limit
 		}
 

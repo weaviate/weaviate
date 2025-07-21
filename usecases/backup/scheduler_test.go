@@ -752,6 +752,79 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 	})
 }
 
+func TestSchedulerList(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName = "s3"
+		ctx         = context.Background()
+		backupID1   = "backup-1"
+		backupID2   = "backup-2"
+		cls1        = "Class1"
+		cls2        = "Class2"
+	)
+
+	t.Run("BackendNotFound", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.backendErr = ErrAny
+		_, err := fs.scheduler().List(ctx, nil, backendName)
+		assert.NotNil(t, err)
+	})
+
+	t.Run("AllBackupsFails", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.backend.On("AllBackups", mock.Anything).Return(nil, ErrAny)
+		_, err := fs.scheduler().List(ctx, nil, backendName)
+		assert.NotNil(t, err)
+		assert.Equal(t, ErrAny, err)
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		backups := []*backup.DistributedBackupDescriptor{
+			{
+				ID:     backupID1,
+				Status: backup.Success,
+				Nodes: map[string]*backup.NodeDescriptor{
+					"node1": {Classes: []string{cls1}},
+				},
+			},
+			{
+				ID:     backupID2,
+				Status: backup.Failed,
+				Nodes: map[string]*backup.NodeDescriptor{
+					"node2": {Classes: []string{cls2}},
+				},
+			},
+		}
+		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
+
+		resp, err := fs.scheduler().List(ctx, nil, backendName)
+		assert.Nil(t, err)
+		assert.NotNil(t, resp)
+		assert.Len(t, *resp, 2)
+
+		// Check first backup
+		assert.Equal(t, backupID1, (*resp)[0].ID)
+		assert.Equal(t, string(backup.Success), (*resp)[0].Status)
+		assert.Equal(t, []string{cls1}, (*resp)[0].Classes)
+
+		// Check second backup
+		assert.Equal(t, backupID2, (*resp)[1].ID)
+		assert.Equal(t, string(backup.Failed), (*resp)[1].Status)
+		assert.Equal(t, []string{cls2}, (*resp)[1].Classes)
+	})
+
+	t.Run("EmptyList", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.backend.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{}, nil)
+
+		resp, err := fs.scheduler().List(ctx, nil, backendName)
+		assert.Nil(t, err)
+		assert.NotNil(t, resp)
+		assert.Len(t, *resp, 0)
+	})
+}
+
 type fakeScheduler struct {
 	selector     fakeSelector
 	client       fakeClient

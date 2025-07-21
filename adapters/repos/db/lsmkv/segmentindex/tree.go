@@ -22,6 +22,12 @@ import (
 	"github.com/pkg/errors"
 )
 
+type Nodes []Node
+
+func (n Nodes) Len() int           { return len(n) }
+func (n Nodes) Swap(i, j int)      { n[i], n[j] = n[j], n[i] }
+func (n Nodes) Less(i, j int) bool { return bytes.Compare(n[i].Key, n[j].Key) < 0 }
+
 type Tree struct {
 	nodes []*Node
 }
@@ -38,15 +44,12 @@ func NewTree(capacity int) Tree {
 	}
 }
 
-func NewBalanced(nodes []Node) Tree {
+func NewBalanced(nodes Nodes) Tree {
 	t := Tree{nodes: make([]*Node, len(nodes))}
 
 	if len(nodes) > 0 {
 		// sort the slice just once
-		sort.Slice(nodes, func(a, b int) bool {
-			return bytes.Compare(nodes[a].Key, nodes[b].Key) < 0
-		})
-
+		sort.Sort(nodes)
 		t.buildBalanced(nodes, 0, 0, len(nodes)-1)
 	}
 
@@ -313,4 +316,13 @@ func (t *Tree) Height() int {
 	}
 
 	return int(math.Ceil(math.Log2(float64(highestElem))))
+}
+
+func (t *Tree) Size() int {
+	size := 0
+	for _, node := range t.nodes {
+		size += node.size()
+	}
+
+	return size
 }

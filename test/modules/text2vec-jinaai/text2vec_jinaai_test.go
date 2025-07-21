@@ -29,26 +29,45 @@ func testText2VecJinaAI(rest, grpc string) func(t *testing.T) {
 		data := companies.Companies
 		class := companies.BaseClass(className)
 		tests := []struct {
-			name  string
-			model string
+			name       string
+			model      string
+			dimensions int
 		}{
 			{
-				name:  "jina-embeddings-v3",
-				model: "jina-embeddings-v3",
+				name:  "jina-embeddings-v2-base-en",
+				model: "jina-embeddings-v2-base-en",
+			},
+			{
+				name:       "jina-embeddings-v3",
+				model:      "jina-embeddings-v3",
+				dimensions: 64,
+			},
+			{
+				name:  "jina-embeddings-v4",
+				model: "jina-embeddings-v4",
+			},
+			{
+				name: "default settings",
 			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
+				// Define module settings
+				settings := map[string]interface{}{
+					"properties":         []interface{}{"description"},
+					"vectorizeClassName": false,
+				}
+				if tt.model != "" {
+					settings["model"] = tt.model
+				}
+				if tt.dimensions > 0 {
+					settings["dimensions"] = tt.dimensions
+				}
 				// Define class
 				class.VectorConfig = map[string]models.VectorConfig{
 					"description": {
 						Vectorizer: map[string]interface{}{
-							"text2vec-jinaai": map[string]interface{}{
-								"properties":         []interface{}{"description"},
-								"vectorizeClassName": false,
-								"model":              tt.model,
-								"dimensions":         64,
-							},
+							"text2vec-jinaai": settings,
 						},
 						VectorIndexType: "flat",
 					},

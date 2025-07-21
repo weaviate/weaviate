@@ -38,7 +38,7 @@ func Test_BucketBackup(t *testing.T) {
 		{
 			name: "bucketBackup_ListFiles",
 			f:    bucketBackup_ListFiles,
-			opts: []BucketOption{WithStrategy(StrategyReplace)},
+			opts: []BucketOption{WithStrategy(StrategyReplace), WithCalcCountNetAdditions(true)},
 		},
 	}
 	tests.run(ctx, t)

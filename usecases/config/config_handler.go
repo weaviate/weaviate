@@ -107,6 +107,7 @@ type Config struct {
 	Debug                               bool                     `json:"debug" yaml:"debug"`
 	QueryDefaults                       QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
 	QueryMaximumResults                 int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
+	QueryHybridMaximumResults           int64                    `json:"query_hybrid_maximum_results" yaml:"query_hybrid_maximum_results"`
 	QueryNestedCrossReferenceLimit      int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
 	QueryCrossReferenceDepthLimit       int                      `json:"query_cross_reference_depth_limit" yaml:"query_cross_reference_depth_limit"`
 	Contextionary                       Contextionary            `json:"contextionary" yaml:"contextionary"`
@@ -131,6 +132,7 @@ type Config struct {
 	MaximumConcurrentGetRequests        int                      `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
 	MaximumConcurrentShardLoads         int                      `json:"maximum_concurrent_shard_loads" yaml:"maximum_concurrent_shard_loads"`
 	TrackVectorDimensions               bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
+	TrackVectorDimensionsInterval       time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
 	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
 	DisableLazyLoadShards               bool                     `json:"disable_lazy_load_shards" yaml:"disable_lazy_load_shards"`
 	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
@@ -212,15 +214,16 @@ type Config struct {
 }
 
 type MapToBlockamaxConfig struct {
-	SwapBuckets               bool                     `json:"swap_buckets" yaml:"swap_buckets"`
-	UnswapBuckets             bool                     `json:"unswap_buckets" yaml:"unswap_buckets"`
-	TidyBuckets               bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
-	ReloadShards              bool                     `json:"reload_shards" yaml:"reload_shards"`
-	Rollback                  bool                     `json:"rollback" yaml:"rollback"`
-	ConditionalStart          bool                     `json:"conditional_start" yaml:"conditional_start"`
-	ProcessingDurationSeconds int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
-	PauseDurationSeconds      int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
-	Selected                  []CollectionPropsTenants `json:"selected" yaml:"selected"`
+	SwapBuckets                bool                     `json:"swap_buckets" yaml:"swap_buckets"`
+	UnswapBuckets              bool                     `json:"unswap_buckets" yaml:"unswap_buckets"`
+	TidyBuckets                bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
+	ReloadShards               bool                     `json:"reload_shards" yaml:"reload_shards"`
+	Rollback                   bool                     `json:"rollback" yaml:"rollback"`
+	ConditionalStart           bool                     `json:"conditional_start" yaml:"conditional_start"`
+	ProcessingDurationSeconds  int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
+	PauseDurationSeconds       int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
+	PerObjectDelayMilliseconds int                      `json:"per_object_delay_milliseconds" yaml:"per_object_delay_milliseconds"`
+	Selected                   []CollectionPropsTenants `json:"selected" yaml:"selected"`
 }
 
 type CollectionPropsTenants struct {
@@ -323,11 +326,15 @@ func (a AutoSchema) Validate() error {
 
 // QueryDefaults for optional parameters
 type QueryDefaults struct {
-	Limit int64 `json:"limit" yaml:"limit"`
+	Limit        int64 `json:"limit" yaml:"limit"`
+	LimitGraphQL int64 `json:"limitGraphQL" yaml:"limitGraphQL"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
-const DefaultQueryDefaultsLimit int64 = 10
+const (
+	DefaultQueryDefaultsLimit        int64 = 10
+	DefaultQueryDefaultsLimitGraphQL int64 = 100
+)
 
 type Contextionary struct {
 	URL string `json:"url" yaml:"url"`
@@ -368,6 +375,8 @@ type Persistence struct {
 	IndexRangeableInMemory                       bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
 	MinMMapSize                                  int64  `json:"minMMapSize" yaml:"minMMapSize"`
 	LazySegmentsDisabled                         bool   `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
+	SegmentInfoIntoFileNameEnabled               bool   `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`
+	WriteMetadataFilesEnabled                    bool   `json:"writeMetadataFilesEnabled" yaml:"writeMetadataFilesEnabled"`
 	MaxReuseWalSize                              int64  `json:"MaxReuseWalSize" yaml:"MaxReuseWalSize"`
 	HNSWMaxLogSize                               int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 	HNSWDisableSnapshots                         bool   `json:"hnswDisableSnapshots" yaml:"hnswDisableSnapshots"`
@@ -407,8 +416,9 @@ const (
 const (
 	DefaultReindexerGoroutinesFactor = 0.5
 
-	DefaultMapToBlockmaxProcessingDurationSeconds = 3 * 60
-	DefaultMapToBlockmaxPauseDurationSeconds      = 60
+	DefaultMapToBlockmaxProcessingDurationSeconds  = 3 * 60
+	DefaultMapToBlockmaxPauseDurationSeconds       = 60
+	DefaultMapToBlockmaxPerObjectDelayMilliseconds = 0
 )
 
 // MetadataServer is experimental.

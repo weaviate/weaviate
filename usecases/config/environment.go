@@ -51,6 +51,8 @@ const (
 	DefaultReplicaMovementMinimumAsyncWait = 60 * time.Second
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
+
+	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -86,6 +88,16 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
 		config.TrackVectorDimensions = true
+	}
+
+	if v := os.Getenv("TRACK_VECTOR_DIMENSIONS_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse TRACK_VECTOR_DIMENSIONS_INTERVAL as duration: %w", err)
+		}
+		config.TrackVectorDimensionsInterval = interval
+	} else {
+		config.TrackVectorDimensionsInterval = DefaultTrackVectorDimensionsInterval
 	}
 
 	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
@@ -352,6 +364,14 @@ func FromEnv(config *Config) error {
 		config.Persistence.LazySegmentsDisabled = true
 	}
 
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_SEGMENT_INFO_FROM_FILE_ENABLED")) {
+		config.Persistence.SegmentInfoIntoFileNameEnabled = true
+	}
+
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_WRITE_METADATA_FILES_ENABLED")) {
+		config.Persistence.WriteMetadataFilesEnabled = true
+	}
+
 	if v := os.Getenv("PERSISTENCE_MAX_REUSE_WAL_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {
@@ -490,6 +510,10 @@ func FromEnv(config *Config) error {
 		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PAUSE_DURATION_SECONDS",
 			func(val int) { config.ReindexMapToBlockmaxConfig.PauseDurationSeconds = val },
 			DefaultMapToBlockmaxPauseDurationSeconds)
+		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PER_OBJECT_DELAY_MILLISECONDS",
+			func(val int) { config.ReindexMapToBlockmaxConfig.PerObjectDelayMilliseconds = val },
+			DefaultMapToBlockmaxPerObjectDelayMilliseconds)
+
 		cptSelected, err := cptParser.parse(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SELECT"))
 		if err != nil {
 			return err
@@ -526,6 +550,19 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse QUERY_DEFAULTS_LIMIT_GRAPHQL as int: %w", err)
+		}
+
+		config.QueryDefaults.LimitGraphQL = int64(asInt)
+	} else {
+		if config.QueryDefaults.LimitGraphQL == 0 {
+			config.QueryDefaults.LimitGraphQL = DefaultQueryDefaultsLimitGraphQL
+		}
+	}
+
 	if v := os.Getenv("QUERY_MAXIMUM_RESULTS"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
@@ -535,6 +572,16 @@ func FromEnv(config *Config) error {
 		config.QueryMaximumResults = int64(asInt)
 	} else {
 		config.QueryMaximumResults = DefaultQueryMaximumResults
+	}
+
+	if v := os.Getenv("QUERY_HYBRID_MAXIMUM_RESULTS"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse QUERY_HYBRID_MAXIMUM_RESULTS as int: %w", err)
+		}
+		config.QueryHybridMaximumResults = int64(asInt)
+	} else {
+		config.QueryHybridMaximumResults = DefaultQueryHybridMaximumResults
 	}
 
 	if v := os.Getenv("QUERY_NESTED_CROSS_REFERENCE_LIMIT"); v != "" {
@@ -1153,7 +1200,8 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 }
 
 const (
-	DefaultQueryMaximumResults = int64(10000)
+	DefaultQueryMaximumResults       = int64(10000)
+	DefaultQueryHybridMaximumResults = int64(100)
 	// DefaultQueryNestedCrossReferenceLimit describes the max number of nested crossrefs returned for a query
 	DefaultQueryNestedCrossReferenceLimit = int64(100000)
 	// DefaultQueryCrossReferenceDepthLimit describes the max depth of nested crossrefs in a query

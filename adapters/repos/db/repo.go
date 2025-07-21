@@ -203,10 +203,13 @@ type Config struct {
 	RootPath                            string
 	QueryLimit                          int64
 	QueryMaximumResults                 int64
+	QueryHybridMaximumResults           int64
 	QueryNestedRefLimit                 int64
 	ResourceUsage                       config.ResourceUsage
 	MaxImportGoroutinesFactor           float64
 	LazySegmentsDisabled                bool
+	SegmentInfoIntoFileNameEnabled      bool
+	WriteMetadataFilesEnabled           bool
 	MemtablesFlushDirtyAfter            int
 	MemtablesInitialSizeMB              int
 	MemtablesMaxSizeMB                  int
@@ -218,6 +221,7 @@ type Config struct {
 	SeparateObjectsCompactions          bool
 	MaxSegmentSize                      int64
 	TrackVectorDimensions               bool
+	TrackVectorDimensionsInterval       time.Duration
 	ServerVersion                       string
 	GitHash                             string
 	AvoidMMap                           bool
@@ -246,6 +250,7 @@ type Config struct {
 	QuerySlowLogEnabled         *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
+	MaintenanceModeEnabled      func() bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

@@ -29,24 +29,38 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
-func (s *segment) bloomFilterPath() string {
+func (s *segment) buildPath(template string) string {
+	isTmpFile := filepath.Ext(s.path) == ".tmp"
+
 	extless := strings.TrimSuffix(s.path, filepath.Ext(s.path))
-	return fmt.Sprintf("%s.bloom", extless)
+	if isTmpFile { // remove second extension
+		extless = strings.TrimSuffix(extless, filepath.Ext(extless))
+	}
+
+	path := fmt.Sprintf(template, extless)
+	if isTmpFile {
+		path = fmt.Sprintf("%s.tmp", path)
+	}
+	return path
+}
+
+func (s *segment) bloomFilterPath() string {
+	return s.buildPath("%s.bloom")
 }
 
 func (s *segment) bloomFilterSecondaryPath(pos int) string {
-	extless := strings.TrimSuffix(s.path, filepath.Ext(s.path))
-	return fmt.Sprintf("%s.secondary.%d.bloom", extless, pos)
+	posTemplate := fmt.Sprintf(".%d.bloom", pos)
+	return s.buildPath("%s.secondary" + posTemplate)
 }
 
-func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool) error {
-	if err := s.initBloomFilter(overwrite); err != nil {
+func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool, existingFilesList map[string]int64) error {
+	if err := s.initBloomFilter(overwrite, existingFilesList); err != nil {
 		return fmt.Errorf("init bloom filter for primary index: %w", err)
 	}
 	if s.secondaryIndexCount > 0 {
 		s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
 		for i := range s.secondaryBloomFilters {
-			if err := s.initSecondaryBloomFilter(i, overwrite); err != nil {
+			if err := s.initSecondaryBloomFilter(i, overwrite, existingFilesList); err != nil {
 				return fmt.Errorf("init bloom filter for secondary index at %d: %w", i, err)
 			}
 		}
@@ -55,15 +69,15 @@ func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool) error {
 	return nil
 }
 
-func (s *segment) initBloomFilter(overwrite bool) error {
+func (s *segment) initBloomFilter(overwrite bool, existingFilesList map[string]int64) error {
 	path := s.bloomFilterPath()
+	s.metaPaths = append(s.metaPaths, path)
 
-	ok, err := fileExists(path)
+	loadFromDisk, err := fileExistsInList(existingFilesList, filepath.Base(path))
 	if err != nil {
 		return err
 	}
-
-	if ok {
+	if loadFromDisk {
 		if overwrite {
 			err := os.Remove(path)
 			if err != nil {
@@ -118,57 +132,6 @@ func (s *segment) computeAndStoreBloomFilter(path string) error {
 	return nil
 }
 
-func (s *segment) precomputeBloomFilters() ([]string, error) {
-	out := []string{}
-
-	if err := s.precomputeBloomFilter(); err != nil {
-		return nil, fmt.Errorf("precompute bloom filter for primary index: %w", err)
-	}
-	out = append(out, fmt.Sprintf("%s.tmp", s.bloomFilterPath()))
-
-	if s.secondaryIndexCount > 0 {
-		s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
-		for i := range s.secondaryBloomFilters {
-			if err := s.precomputeSecondaryBloomFilter(i); err != nil {
-				return nil, fmt.Errorf("precompute bloom filter for secondary index at %d: %w", i, err)
-			}
-			out = append(out, fmt.Sprintf("%s.tmp", s.bloomFilterSecondaryPath(i)))
-		}
-	}
-	return out, nil
-}
-
-func (s *segment) precomputeBloomFilter() error {
-	before := time.Now()
-
-	path := fmt.Sprintf("%s.tmp", s.bloomFilterPath())
-	ok, err := fileExists(path)
-	if err != nil {
-		return err
-	}
-
-	if ok {
-		s.logger.WithField("action", "lsm_precompute_disk_segment_build_bloom_filter_primary").
-			WithField("path", path).
-			Debugf("temp bloom filter already exists - deleting")
-		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("delete existing primary temp bloom filter %s: %w", path, err)
-		}
-	}
-
-	if err := s.computeAndStoreBloomFilter(path); err != nil {
-		return err
-	}
-
-	took := time.Since(before)
-	s.logger.WithField("action", "lsm_precompute_disk_segment_build_bloom_filter_primary").
-		WithField("path", s.path).
-		WithField("took", took).
-		Debugf("building bloom filter took %s\n", took)
-
-	return nil
-}
-
 func (s *segment) storeBloomFilterOnDisk(path string) error {
 	bfSize := getBloomFilterSize(s.bloomFilter)
 
@@ -197,17 +160,17 @@ func (s *segment) loadBloomFilterFromDisk() error {
 	return nil
 }
 
-func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool) error {
+func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool, existingFilesList map[string]int64) error {
 	before := time.Now()
 
 	path := s.bloomFilterSecondaryPath(pos)
+	s.metaPaths = append(s.metaPaths, path)
 
-	ok, err := fileExists(path)
+	loadFromDisk, err := fileExistsInList(existingFilesList, filepath.Base(path))
 	if err != nil {
 		return err
 	}
-
-	if ok {
+	if loadFromDisk {
 		if overwrite {
 			err := os.Remove(path)
 			if err != nil {
@@ -261,38 +224,6 @@ func (s *segment) computeAndStoreSecondaryBloomFilter(path string, pos int) erro
 	return nil
 }
 
-func (s *segment) precomputeSecondaryBloomFilter(pos int) error {
-	before := time.Now()
-	path := fmt.Sprintf("%s.tmp", s.bloomFilterSecondaryPath(pos))
-
-	ok, err := fileExists(path)
-	if err != nil {
-		return err
-	}
-
-	if ok {
-		s.logger.WithField("action", "lsm_precompute_disk_segment_build_bloom_filter_secondary").
-			WithField("secondary_index_position", pos).
-			WithField("path", path).
-			Debugf("temp bloom filter already exists - deleting")
-		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("delete existing secondary temp bloom filter %s: %w", path, err)
-		}
-	}
-
-	if err := s.computeAndStoreSecondaryBloomFilter(path, pos); err != nil {
-		return err
-	}
-
-	took := time.Since(before)
-	s.logger.WithField("action", "lsm_precompute_disk_segment_build_bloom_filter_secondary").
-		WithField("secondary_index_position", pos).
-		WithField("path", s.path).
-		WithField("took", took).
-		Debugf("building bloom filter took %s\n", took)
-	return nil
-}
-
 func (s *segment) storeBloomFilterSecondaryOnDisk(path string, pos int) error {
 	bfSize := getBloomFilterSize(s.bloomFilter)
 
@@ -319,6 +250,15 @@ func (s *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
 	}
 
 	return nil
+}
+
+func fileExistsInList(nameList map[string]int64, filePath string) (bool, error) {
+	if nameList != nil {
+		_, ok := nameList[filePath]
+		return ok, nil
+	} else {
+		return fileExists(filePath)
+	}
 }
 
 // writeWithChecksum expects the data in the buffer to start at position byteops.Uint32Len so the

@@ -131,7 +131,7 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList, modul
 		}
 
 		if g.params.ObjectLimit == nil {
-			limit := hybrid.DefaultLimit
+			limit := int(g.defaultLimit)
 			g.params.ObjectLimit = &limit
 		}
 

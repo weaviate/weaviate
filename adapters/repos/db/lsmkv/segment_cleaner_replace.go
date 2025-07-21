@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -158,7 +159,7 @@ func (p *segmentCleanerReplace) writeIndexes(f *segmentindex.SegmentFile,
 			"operation": "cleanupWriteIndices",
 		}),
 	}
-	_, err := f.WriteIndexes(indexes)
+	_, err := f.WriteIndexes(indexes, math.MaxInt64) // segment cleaner only runs for big files
 	return err
 }
 

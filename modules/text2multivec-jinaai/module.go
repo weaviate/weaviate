@@ -19,7 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 
-	"github.com/weaviate/weaviate/modules/text2colbert-jinaai/ent"
+	"github.com/weaviate/weaviate/modules/text2multivec-jinaai/ent"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 
@@ -28,11 +28,14 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2colbert-jinaai/clients"
+	"github.com/weaviate/weaviate/modules/text2multivec-jinaai/clients"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
-const Name = "text2colbert-jinaai"
+const (
+	Name       = "text2multivec-jinaai"
+	LegacyName = "text2colbert-jinaai"
+)
 
 var batchSettings = batch.Settings{
 	// the encoding is different than OpenAI, but the code is not available in Go and too complicated to port.
@@ -66,8 +69,12 @@ func (m *JinaAIModule) Name() string {
 	return Name
 }
 
+func (m *JinaAIModule) AltNames() []string {
+	return []string{LegacyName}
+}
+
 func (m *JinaAIModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2ColBERT
+	return modulecapabilities.Text2Multivec
 }
 
 func (m *JinaAIModule) Init(ctx context.Context,
@@ -166,4 +173,5 @@ var (
 	_ = modulecapabilities.MetaProvider(New())
 	_ = modulecapabilities.Searcher[[][]float32](New())
 	_ = modulecapabilities.GraphQLArguments(New())
+	_ = modulecapabilities.ModuleHasAltNames(New())
 )
