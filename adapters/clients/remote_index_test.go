@@ -36,38 +36,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 )
 
-func TestRemoteIndexIncreaseRF(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	path := "/replicas/indices/C1/replication-factor:increase"
-	fs := newFakeRemoteIndexServer(t, http.MethodPut, path)
-	ts := fs.server(t)
-	defer ts.Close()
-	client := newRemoteIndex(ts.Client())
-	t.Run("ConnectionError", func(t *testing.T) {
-		err := client.IncreaseReplicationFactor(ctx, "", "C1", nil)
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "connect")
-	})
-	n := 0
-	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
-		switch n {
-		case 0:
-			w.WriteHeader(http.StatusInternalServerError)
-		case 1:
-			w.WriteHeader(http.StatusTooManyRequests)
-		default:
-			w.WriteHeader(http.StatusNoContent)
-		}
-		n++
-	}
-	t.Run("Success", func(t *testing.T) {
-		err := client.IncreaseReplicationFactor(ctx, fs.host, "C1", nil)
-		assert.Nil(t, err)
-	})
-}
-
 func TestRemoteIndexReInitShardIn(t *testing.T) {
 	t.Parallel()
 
