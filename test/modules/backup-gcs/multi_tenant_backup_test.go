@@ -123,6 +123,7 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		t.Setenv(envGCSCredentials, "")
 		t.Setenv(envGCSProjectID, gcsBackupJourneyProjectID)
 		t.Setenv(envGCSBucket, gcsBackupJourneyBucketName)
+		t.Setenv(envGCSUseAuth, "false")
 
 		compose, err := docker.New().
 			WithBackendGCS(gcsBackupJourneyBucketName).

@@ -124,6 +124,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		t.Setenv(envGCSCredentials, "")
 		t.Setenv(envGCSProjectID, gcsBackupJourneyProjectID)
 		t.Setenv(envGCSBucket, gcsBackupJourneyBucketName)
+		t.Setenv(envGCSUseAuth, "false")
 
 		compose, err := docker.New().
 			WithBackendGCS(gcsBackupJourneyBucketName).
