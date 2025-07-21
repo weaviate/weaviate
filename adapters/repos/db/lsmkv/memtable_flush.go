@@ -42,7 +42,7 @@ func (m *Memtable) flushWAL() error {
 	}
 
 	// fsync parent directory
-	err := diskio.Fsync(filepath.Dir(m.path))
+	err := diskio.Fsync(filepath.Dir(m.path), "flushWAL")
 	if err != nil {
 		return err
 	}
@@ -192,7 +192,7 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 	}
 
 	// fsync parent directory
-	err = diskio.Fsync(filepath.Dir(m.path))
+	err = diskio.Fsync(filepath.Dir(m.path), "flush")
 	if err != nil {
 		return "", err
 	}

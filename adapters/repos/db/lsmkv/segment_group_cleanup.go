@@ -632,7 +632,7 @@ func (sg *SegmentGroup) replaceSegmentBlocking(
 	if err := oldSegment.markForDeletion(); err != nil {
 		return nil, fmt.Errorf("drop disk segment %q: %w", oldSegment.path, err)
 	}
-	if err := diskio.Fsync(sg.dir); err != nil {
+	if err := diskio.Fsync(sg.dir, "cleanup"); err != nil {
 		return nil, fmt.Errorf("fsync segment directory %q: %w", sg.dir, err)
 	}
 

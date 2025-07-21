@@ -497,7 +497,7 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 		return nil, nil, errors.Wrap(err, "drop disk segment")
 	}
 
-	err := diskio.Fsync(sg.dir)
+	err := diskio.Fsync(sg.dir, "compaction")
 	if err != nil {
 		return nil, nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 	}

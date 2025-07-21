@@ -264,7 +264,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			}
 			delete(files, rightSegmentFilename)
 
-			err = diskio.Fsync(sg.dir)
+			err = diskio.Fsync(sg.dir, "segmentGroupRecovery")
 			if err != nil {
 				return nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 			}
