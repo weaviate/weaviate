@@ -12,15 +12,18 @@
 package lsmkv
 
 import (
+	"context"
 	"math"
 	"sort"
+	"strconv"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
 
-func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additionalExplanations bool,
-	termCount, minimumOrTokensMatch int,
+func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLength float64, additionalExplanations bool,
+	termCount, minimumOrTokensMatch int, logger logrus.FieldLogger,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	var docInfos []*terms.DocPointerWithScore
 	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
@@ -34,6 +37,37 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 
 	for {
 		iterations++
+
+		if iterations%100000 == 0 && ctx != nil && ctx.Err() != nil {
+			segmentPath := ""
+			terms := ""
+			filterCardinality := -1
+			for _, r := range results {
+				if r == nil {
+					continue
+				}
+				if r.segment != nil {
+					segmentPath = r.segment.path
+					if r.filterDocIds != nil {
+						filterCardinality = r.filterDocIds.GetCardinality()
+					}
+				}
+				terms += r.QueryTerm() + ":" + strconv.Itoa(int(r.IdPointer())) + ":" + strconv.Itoa(r.Count()) + ", "
+			}
+			logger.WithFields(logrus.Fields{
+				"segment":           segmentPath,
+				"iterations":        iterations,
+				"pivotID":           pivotID,
+				"firstNonExhausted": firstNonExhausted,
+				"lenResults":        len(results),
+				"pivotPoint":        pivotPoint,
+				"upperBound":        upperBound,
+				"terms":             terms,
+				"filterCardinality": filterCardinality,
+				"limit":             limit,
+			}).Warnf("DoBlockMaxWand: search timed out, returning partial results")
+			return topKHeap
+		}
 
 		cumScore := float64(0)
 		firstNonExhausted = -1
@@ -93,9 +127,6 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 						docInfos[term.QueryTermIndex()] = d
 					}
 
-					//if !topKHeap.ShouldEnqueue(upperBound, limit) {
-					//	break
-					//}
 				}
 				for _, term := range results {
 					if !term.exhausted && term.idPointer != pivotID {
