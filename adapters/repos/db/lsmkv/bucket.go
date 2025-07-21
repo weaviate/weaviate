@@ -1148,7 +1148,7 @@ func (b *Bucket) setNewActiveMemtable() error {
 	}
 
 	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl,
-		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config, b.writeSegmentInfoIntoFileName)
+		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config, b.writeSegmentInfoIntoFileName, b.allocChecker)
 	if err != nil {
 		return err
 	}

@@ -285,7 +285,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 
 		c := newCompactorReplace(f, leftSegment.newCursor(),
 			rightSegment.newCursor(), level, secondaryIndices,
-			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize)
+			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionReplace.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -298,7 +298,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, leftSegment.newCollectionCursor(),
 			rightSegment.newCollectionCursor(), level, secondaryIndices,
-			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize)
+			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionSet.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -314,7 +314,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 			rightSegment.newCollectionCursorReusable(),
 			level, secondaryIndices, scratchSpacePath,
 			sg.mapRequiresSorting, cleanupTombstones,
-			sg.enableChecksumValidation, maxNewFileSize)
+			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -330,7 +330,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 
 		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
 			level, scratchSpacePath, cleanupTombstones,
-			sg.enableChecksumValidation, maxNewFileSize)
+			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(1)
@@ -367,7 +367,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		c := newCompactorInverted(f,
 			leftSegment.newInvertedCursorReusable(),
 			rightSegment.newInvertedCursorReusable(),
-			level, secondaryIndices, scratchSpacePath, cleanupTombstones, k1, b, avgPropLen)
+			level, secondaryIndices, scratchSpacePath, cleanupTombstones, k1, b, avgPropLen, maxNewFileSize, sg.allocChecker)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
