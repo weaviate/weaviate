@@ -30,7 +30,7 @@ func Test_MemtableSecondaryKeyBug(t *testing.T) {
 	cl, err := newCommitLogger(dir, StrategyReplace, 0)
 	require.NoError(t, err)
 
-	m, err := newMemtable(path.Join(dir, "will-never-flush"), StrategyReplace, 1, cl, nil, logger, false, nil, false)
+	m, err := newMemtable(path.Join(dir, "will-never-flush"), StrategyReplace, 1, cl, nil, logger, false, nil, false, nil)
 	require.Nil(t, err)
 	t.Cleanup(func() {
 		require.Nil(t, m.commitlog.close())

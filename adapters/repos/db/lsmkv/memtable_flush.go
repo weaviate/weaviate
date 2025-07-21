@@ -147,17 +147,18 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 				"strategy":  m.strategy,
 				"operation": "writeIndices",
 			}),
+			AllocChecker: m.allocChecker,
 		}
 
 		// TODO: Currently no checksum validation support for StrategyInverted.
 		//       This condition can be removed once support is added, and for
 		//       all strategies we can simply `segmentFile.WriteIndexes(indexes)`
 		if m.strategy == StrategyInverted {
-			if _, err := indexes.WriteTo(bufw); err != nil {
+			if _, err := indexes.WriteTo(bufw, m.size); err != nil {
 				return "", err
 			}
 		} else {
-			if _, err := segmentFile.WriteIndexes(indexes); err != nil {
+			if _, err := segmentFile.WriteIndexes(indexes, int64(m.size)); err != nil {
 				return "", err
 			}
 		}

@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/memwatch"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
@@ -37,6 +39,7 @@ type Memtable struct {
 	roaringSet         *roaringset.BinarySearchTree
 	roaringSetRange    *roaringsetrange.Memtable
 	commitlog          memtableCommitLogger
+	allocChecker       memwatch.AllocChecker
 	size               uint64
 	path               string
 	strategy           string
@@ -60,7 +63,7 @@ type Memtable struct {
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
 	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
-	enableChecksumValidation bool, bm25config *models.BM25Config, writeSegmentInfoIntoFileName bool,
+	enableChecksumValidation bool, bm25config *models.BM25Config, writeSegmentInfoIntoFileName bool, allocChecker memwatch.AllocChecker,
 ) (*Memtable, error) {
 	m := &Memtable{
 		key:                          &binarySearchTree{},
