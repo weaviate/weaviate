@@ -186,7 +186,7 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 	}
 
 	segmentPath = strings.TrimSuffix(tmpSegmentPath, ".tmp")
-	err = os.Rename(tmpSegmentPath, segmentPath)
+	err = diskio.Rename(tmpSegmentPath, segmentPath, "flush")
 	if err != nil {
 		return "", err
 	}

@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -574,7 +573,7 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath, left, right string) (string, 
 
 	newPath = strings.ReplaceAll(newPath, fmt.Sprintf("%s_%s", left, right), right)
 
-	if err := os.Rename(oldPath, newPath); err != nil {
+	if err := diskio.Rename(oldPath, newPath, "compaction"); err != nil {
 		return "", errors.Wrapf(err, "rename %q -> %q", oldPath, newPath)
 	}
 

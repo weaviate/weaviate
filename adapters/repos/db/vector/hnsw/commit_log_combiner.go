@@ -231,7 +231,7 @@ func (c *CommitLogCombiner) renameAndCleanUp(tmpName, finalName string,
 	// sources will. This will look to the corrupted file fixer as if a
 	// condensing had gone wrong and will delete the the source
 
-	if err := os.Rename(tmpName, finalName); err != nil {
+	if err := diskio.Rename(tmpName, finalName, "commitLogCombiner"); err != nil {
 		return errors.Wrapf(err, "rename tmp (%q) to final (%q)", tmpName, finalName)
 	}
 

@@ -448,7 +448,7 @@ func (s *segment) dropMarked() error {
 const DeleteMarkerSuffix = ".deleteme"
 
 func markDeleted(path string) error {
-	return os.Rename(path, path+DeleteMarkerSuffix)
+	return diskio.Rename(path, path+DeleteMarkerSuffix, "markDeleted")
 }
 
 func (s *segment) markForDeletion() error {

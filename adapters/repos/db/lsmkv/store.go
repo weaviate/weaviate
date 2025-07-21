@@ -22,6 +22,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -479,10 +481,10 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 
 	replacementBucket.flushLock.Lock()
 	defer replacementBucket.flushLock.Unlock()
-	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
+	if err := diskio.Rename(currBucketDir, newBucketDir, "replaceBucket"); err != nil {
 		return "", "", "", "", errors.Wrapf(err, "failed moving orig bucket dir '%s'", currBucketDir)
 	}
-	if err := os.Rename(currReplacementBucketDir, newReplacementBucketDir); err != nil {
+	if err := diskio.Rename(currReplacementBucketDir, newReplacementBucketDir, "replaceBucket"); err != nil {
 		return "", "", "", "", errors.Wrapf(err, "failed moving replacement bucket dir '%s'", currReplacementBucketDir)
 	}
 
@@ -594,7 +596,7 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 	s.bucketsByName[newBucketName] = currBucket
 	delete(s.bucketsByName, bucketName)
 
-	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
+	if err := diskio.Rename(currBucketDir, newBucketDir, "renameBucket"); err != nil {
 		return errors.Wrapf(err, "failed renaming bucket dir '%s' to '%s'", currBucketDir, newBucketDir)
 	}
 

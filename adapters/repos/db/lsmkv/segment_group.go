@@ -279,7 +279,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		}
 		newRightSegmentPath := filepath.Join(sg.dir, newRightSegmentFileName)
 
-		if err := os.Rename(filepath.Join(sg.dir, entry), newRightSegmentPath); err != nil {
+		if err := diskio.Rename(filepath.Join(sg.dir, entry), newRightSegmentPath, "segmentRecovery"); err != nil {
 			return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry, newRightSegmentFileName, err)
 		}
 

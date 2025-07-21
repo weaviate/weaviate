@@ -560,7 +560,7 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 	}
 
 	// rename the temporary snapshot file to the final name
-	err = os.Rename(tmpSnapshotFileName, filename)
+	err = diskio.Rename(tmpSnapshotFileName, filename, "hnswCommitlog")
 	if err != nil {
 		return errors.Wrapf(err, "rename snapshot file %q", tmpSnapshotFileName)
 	}
