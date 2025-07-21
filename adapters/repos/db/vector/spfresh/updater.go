@@ -87,10 +87,7 @@ func (u *Updater) Insert(ctx context.Context, id uint64, vector []float32) error
 	}
 	if count > u.UserConfig.MaxPostingSize {
 		// enqueue a split operation.
-		err = u.LocalRebuilder.Enqueue(ctx, Operation{
-			OpType:    BackgroundOpSplit,
-			PostingID: postingID,
-		})
+		err = u.LocalRebuilder.EnqueueSplit(ctx, postingID)
 		if err != nil {
 			return err
 		}

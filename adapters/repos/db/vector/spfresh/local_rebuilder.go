@@ -22,18 +22,8 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-type BackgroundOpType string
-
-const (
-	BackgroundOpSplit    BackgroundOpType = "split"
-	BackgroundOpReassign BackgroundOpType = "reassign"
-)
-
-type Operation struct {
-	OpType    BackgroundOpType
+type SplitOperation struct {
 	PostingID uint64
-	LeftID    uint64 // Used for reassign operations
-	RightID   uint64 // Used for reassign operations
 }
 
 type MergeOperation struct {
@@ -55,15 +45,15 @@ type LocalRebuilder struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	ch      chan Operation
+	splitCh chan SplitOperation               // Channel for split operations
 	mergeCh *xsync.UMPSCQueue[MergeOperation] // Unbounded channel for merge operations
 	wg      sync.WaitGroup
 
-	dedup *deduplicator // Deduplicator to prevent multiple operations on the same posting
+	splitList *deduplicator // Prevents duplicate split operations
+	mergeList *deduplicator // Prevents duplicate merge operations
 }
 
 func (l *LocalRebuilder) Start(ctx context.Context) {
-
 	if l.UserConfig == nil {
 		panic("UserConfig must be set before starting LocalRebuilder")
 	}
@@ -88,13 +78,13 @@ func (l *LocalRebuilder) Start(ctx context.Context) {
 		l.Logger = l.Logger.WithField("component", "LocalRebuilder")
 	}
 
-	l.ch = make(chan Operation, l.UserConfig.Workers)
+	l.splitCh = make(chan SplitOperation, l.UserConfig.SplitWorkers*100) // TODO: fine-tune buffer size
 	l.mergeCh = xsync.NewUMPSCQueue[MergeOperation]()
 
-	// start N workers to process split and reassign operations
-	for i := 0; i < l.UserConfig.Workers; i++ {
+	// start N workers to process split operations
+	for i := 0; i < l.UserConfig.SplitWorkers; i++ {
 		l.wg.Add(1)
-		enterrors.GoWrapper(l.worker, l.Logger)
+		enterrors.GoWrapper(l.splitWorker, l.Logger)
 	}
 
 	// start a single worker to process merge operations
@@ -102,7 +92,7 @@ func (l *LocalRebuilder) Start(ctx context.Context) {
 	enterrors.GoWrapper(l.mergeWorker, l.Logger)
 }
 
-func (l *LocalRebuilder) Enqueue(ctx context.Context, op Operation) error {
+func (l *LocalRebuilder) EnqueueSplit(ctx context.Context, postingID uint64) error {
 	if l.ctx == nil {
 		return nil // Not started yet
 	}
@@ -112,16 +102,15 @@ func (l *LocalRebuilder) Enqueue(ctx context.Context, op Operation) error {
 	}
 
 	// Check if the operation is already in progress
-	if !l.dedup.tryEnqueue(op) {
-		l.Logger.WithField("postingID", op.PostingID).
-			WithField("operation", op.OpType).
-			Debug("Operation already in progress, skipping enqueue")
+	if !l.splitList.tryEnqueue(postingID) {
+		l.Logger.WithField("postingID", postingID).
+			Debug("Split operation already enqueued, skipping")
 		return nil
 	}
 
 	// Enqueue the operation to the channel
 	select {
-	case l.ch <- op:
+	case l.splitCh <- SplitOperation{PostingID: postingID}:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -129,34 +118,43 @@ func (l *LocalRebuilder) Enqueue(ctx context.Context, op Operation) error {
 	return nil
 }
 
-func (l *LocalRebuilder) enqueueOrSteal(op Operation) error {
-	select {
-	case l.ch <- op:
-		return nil // Successfully enqueued
-	default:
+func (l *LocalRebuilder) EnqueueMerge(ctx context.Context, postingID uint64) error {
+	if l.ctx == nil {
+		return nil // Not started yet
 	}
 
-	// Channel is full, process the operation immediately
-	return l.process(op)
+	if l.ctx.Err() != nil {
+		return l.ctx.Err() // Context already cancelled
+	}
+
+	// Check if the operation is already in progress
+	if !l.mergeList.tryEnqueue(postingID) {
+		l.Logger.WithField("postingID", postingID).
+			Debug("Merge operation already enqueued, skipping")
+		return nil
+	}
+
+	// Enqueue the operation to the channel
+	l.mergeCh.Enqueue(MergeOperation{PostingID: postingID})
+
+	return nil
 }
 
-func (l *LocalRebuilder) worker() {
+func (l *LocalRebuilder) splitWorker() {
 	defer l.wg.Done()
 
-	for op := range l.ch {
+	for op := range l.splitCh {
 		if l.ctx.Err() != nil {
 			return
 		}
 
-		err := l.process(op)
+		err := l.doSplit(op.PostingID)
 		if err != nil {
 			l.Logger.WithError(err).
 				WithField("postingID", op.PostingID).
-				WithField("operation", op.OpType).
-				Error("Failed to process operation")
+				Error("Failed to process split operation")
 			continue // Log the error and continue processing other operations
 		}
-		l.dedup.done(op) // Ensure we mark the operation as done
 	}
 }
 
@@ -186,21 +184,6 @@ func (l *LocalRebuilder) mergeWorker() {
 	}
 }
 
-func (l *LocalRebuilder) process(op Operation) error {
-	// Process the operation
-	switch op.OpType {
-	case BackgroundOpSplit:
-		// Handle split operation
-		return l.doSplit(op)
-	case BackgroundOpReassign:
-		// Handle reassign operation
-	default:
-		l.Logger.Warnf("Unknown operation type: %s for posting ID: %d", op.OpType, op.PostingID)
-	}
-
-	return nil
-}
-
 func (l *LocalRebuilder) Close(ctx context.Context) error {
 	if l.ctx == nil {
 		return nil // Already closed or not started
@@ -213,8 +196,8 @@ func (l *LocalRebuilder) Close(ctx context.Context) error {
 	// Cancel the context to prevent new operations from being enqueued
 	l.cancel()
 
-	// Close the channel to signal workers to stop
-	close(l.ch)
+	// Close the split channel to signal workers to stop
+	close(l.splitCh)
 
 	// Close the merge channel by enqueuing a zero-value MergeOperation
 	l.mergeCh.Enqueue(MergeOperation{})
@@ -223,16 +206,18 @@ func (l *LocalRebuilder) Close(ctx context.Context) error {
 	return nil
 }
 
-func (l *LocalRebuilder) doSplit(op Operation) error {
-	p, err := l.Store.Get(l.ctx, op.PostingID)
+func (l *LocalRebuilder) doSplit(postingID uint64) error {
+	defer l.splitList.done(postingID) // Ensure we mark the operation as done
+
+	p, err := l.Store.Get(l.ctx, postingID)
 	if err != nil {
 		if err == ErrPostingNotFound {
-			l.Logger.WithField("postingID", op.PostingID).
+			l.Logger.WithField("postingID", postingID).
 				Debug("Posting not found, skipping split operation")
 			return nil
 		}
 
-		return errors.Wrapf(err, "failed to get posting %d for split operation", op.PostingID)
+		return errors.Wrapf(err, "failed to get posting %d for split operation", postingID)
 	}
 
 	// garbage collect the deleted vectors
@@ -241,7 +226,7 @@ func (l *LocalRebuilder) doSplit(op Operation) error {
 	// skip if the filtered posting is now too small
 	if len(filtered) < l.UserConfig.MaxPostingSize {
 		l.Logger.
-			WithField("postingID", op.PostingID).
+			WithField("postingID", postingID).
 			WithField("size", len(filtered)).
 			WithField("max", l.UserConfig.MaxPostingSize).
 			Debug("Posting has less than max size after garbage collection, skipping split operation")
@@ -252,9 +237,9 @@ func (l *LocalRebuilder) doSplit(op Operation) error {
 		}
 
 		// persist the gc'ed posting
-		err = l.Store.Put(l.ctx, op.PostingID, filtered)
+		err = l.Store.Put(l.ctx, postingID, filtered)
 		if err != nil {
-			return errors.Wrapf(err, "failed to put filtered posting %d after split operation", op.PostingID)
+			return errors.Wrapf(err, "failed to put filtered posting %d after split operation", postingID)
 		}
 
 		return nil
@@ -263,36 +248,28 @@ func (l *LocalRebuilder) doSplit(op Operation) error {
 	// split the vectors into two clusters
 	result, err := l.Splitter.Split(filtered)
 	if err != nil {
-		return errors.Wrapf(err, "failed to split vectors for posting %d", op.PostingID)
+		return errors.Wrapf(err, "failed to split vectors for posting %d", postingID)
 	}
 
 	// persist the new postings first
 	leftID, rightID := l.IDs.NextN(2)
 	err = l.Store.Put(l.ctx, leftID, result.LeftPosting)
 	if err != nil {
-		return errors.Wrapf(err, "failed to put left posting %d for split operation on posting %d", leftID, op.PostingID)
+		return errors.Wrapf(err, "failed to put left posting %d for split operation on posting %d", leftID, postingID)
 	}
 	err = l.Store.Put(l.ctx, rightID, result.RightPosting)
 	if err != nil {
 		// cleanup will be handled by the snapshot process
-		return errors.Wrapf(err, "failed to put right posting %d for split operation on posting %d", rightID, op.PostingID)
+		return errors.Wrapf(err, "failed to put right posting %d for split operation on posting %d", rightID, postingID)
 	}
 
 	// atomically add new centroids to the SPTAG index and delete the old one
-	err = l.SPTAG.Split(op.PostingID, leftID, rightID, result.LeftCentroid, result.RightCentroid)
+	err = l.SPTAG.Split(postingID, leftID, rightID, result.LeftCentroid, result.RightCentroid)
 	if err != nil {
-		return errors.Wrapf(err, "failed to split centroid for posting %d into %d and %d", op.PostingID, leftID, rightID)
+		return errors.Wrapf(err, "failed to split centroid for posting %d into %d and %d", postingID, leftID, rightID)
 	}
 
-	// enqueue a reassign operation to ensure the new postings are balanced
-	err = l.enqueueOrSteal(Operation{
-		OpType:    BackgroundOpReassign,
-		PostingID: leftID,
-		RightID:   rightID,
-	})
-	if err != nil {
-		return errors.Wrapf(err, "failed to enqueue or steal reassign operation for posting %d", op.PostingID)
-	}
+	// TODO: enqueue reassign operations
 
 	return nil
 }
@@ -441,31 +418,20 @@ func (l *LocalRebuilder) doMerge(op MergeOperation) error {
 
 // deduplicator ensures only one operation per posting ID can be enqueued at a time.
 type deduplicator struct {
-	mu       sync.Mutex
-	inflight map[Operation]struct{} // map of inflight operations by posting ID
+	inflight *xsync.Map[uint64, struct{}] // map of inflight operations by posting ID
 }
 
 func newDeduplicator() *deduplicator {
 	return &deduplicator{
-		inflight: make(map[Operation]struct{}),
+		inflight: xsync.NewMap[uint64, struct{}](),
 	}
 }
 
-func (d *deduplicator) tryEnqueue(op Operation) bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if _, exists := d.inflight[op]; exists {
-		return false // Operation already in progress
-	}
-
-	d.inflight[op] = struct{}{}
-	return true
+func (d *deduplicator) tryEnqueue(id uint64) bool {
+	_, exists := d.inflight.LoadAndStore(id, struct{}{})
+	return !exists
 }
 
-func (d *deduplicator) done(op Operation) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	delete(d.inflight, op)
+func (d *deduplicator) done(id uint64) {
+	d.inflight.Delete(id)
 }
