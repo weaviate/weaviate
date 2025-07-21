@@ -154,6 +154,7 @@ func (l *LocalRebuilder) process(op Operation) error {
 		return l.doSplit(op)
 	case BackgroundOpMerge:
 		// Handle merge operation
+		return l.doMerge(op)
 	case BackgroundOpReassign:
 		// Handle reassign operation
 	default:
@@ -185,7 +186,13 @@ func (l *LocalRebuilder) Close(ctx context.Context) error {
 func (l *LocalRebuilder) doSplit(op Operation) error {
 	p, err := l.Store.Get(l.ctx, op.PostingID)
 	if err != nil {
-		return err
+		if err == ErrPostingNotFound {
+			l.Logger.WithField("postingID", op.PostingID).
+				Debug("Posting not found, skipping split operation")
+			return nil
+		}
+
+		return errors.Wrapf(err, "failed to get posting %d for split operation", op.PostingID)
 	}
 
 	// garbage collect the deleted vectors
@@ -253,29 +260,49 @@ func (l *LocalRebuilder) doSplit(op Operation) error {
 func (l *LocalRebuilder) doMerge(op Operation) error {
 	p, err := l.Store.Get(l.ctx, op.PostingID)
 	if err != nil {
-		return err
+		if err == ErrPostingNotFound {
+			l.Logger.WithField("postingID", op.PostingID).
+				Debug("Posting not found, skipping merge operation")
+			return nil
+		}
+
+		return errors.Wrapf(err, "failed to get posting %d for merge operation", op.PostingID)
 	}
 
 	// garbage collect the deleted vectors
-	filtered := p.GarbageCollect(l.VersionMap)
+	vectorSet := make(map[uint64]struct{})
+	var merged Posting
+	for _, v := range p {
+		version := l.VersionMap.Get(v.ID)
+		if version.Deleted() || version.Version() > v.Version.Version() {
+			continue
+		}
+		merged = append(merged, Vector{
+			ID:      v.ID,
+			Version: version,
+			Data:    v.Data,
+		})
+		vectorSet[v.ID] = struct{}{}
+	}
+	prevLen := len(merged)
 
 	// skip if the posting is big enough
-	if len(filtered) >= l.UserConfig.MinPostingSize {
+	if len(merged) >= l.UserConfig.MinPostingSize {
 		l.Logger.
 			WithField("postingID", op.PostingID).
-			WithField("size", len(filtered)).
+			WithField("size", len(merged)).
 			WithField("min", l.UserConfig.MinPostingSize).
 			Debug("Posting is big enough, skipping merge operation")
 
-		if len(filtered) == len(p) {
+		if len(merged) == len(p) {
 			// no changes, just return
 			return nil
 		}
 
 		// persist the gc'ed posting
-		err = l.Store.Put(l.ctx, op.PostingID, filtered)
+		err = l.Store.Put(l.ctx, op.PostingID, merged)
 		if err != nil {
-			return errors.Wrapf(err, "failed to put filtered posting %d after split operation", op.PostingID)
+			return errors.Wrapf(err, "failed to put filtered posting %d", op.PostingID)
 		}
 
 		return nil
@@ -293,6 +320,19 @@ func (l *LocalRebuilder) doMerge(op Operation) error {
 		return errors.Wrapf(err, "failed to search for nearest centroid for posting %d", op.PostingID)
 	}
 
+	if len(nearest) <= 1 {
+		l.Logger.WithField("postingID", op.PostingID).
+			Debug("No candidates found for merge operation, skipping")
+
+		// persist the gc'ed posting
+		err = l.Store.Put(l.ctx, op.PostingID, merged)
+		if err != nil {
+			return errors.Wrapf(err, "failed to put filtered posting %d", op.PostingID)
+		}
+
+		return nil
+	}
+
 	// first centroid is the query centroid, the rest are candidates for merging
 	for i := 1; i < len(nearest); i++ {
 		// check if the combined size of the postings is within limits
@@ -300,7 +340,7 @@ func (l *LocalRebuilder) doMerge(op Operation) error {
 		if err != nil {
 			return errors.Wrapf(err, "failed to get vector count for posting %d", nearest[i])
 		}
-		if count+len(filtered) > l.UserConfig.MaxPostingSize {
+		if count+len(merged) > l.UserConfig.MaxPostingSize {
 			continue // Skip this candidate
 		}
 
@@ -311,31 +351,49 @@ func (l *LocalRebuilder) doMerge(op Operation) error {
 		if err != nil {
 			return errors.Wrapf(err, "failed to get candidate posting %d for merge operation on posting %d", nearest[i], op.PostingID)
 		}
-		var smallPosting, smallID = filtered, op.PostingID
-		var largePosting, largeID = candidate, nearest[i]
-		if len(filtered) > count {
-			// Ensure small is the one with fewer vectors
-			smallPosting, smallID, largePosting, largeID = largePosting, largeID, smallPosting, smallID
-		}
 
-		// append the vectors from the small posting to the large one
-		for _, v := range smallPosting {
-			// TODO: do we need to increment the version here?
-			v.Version = l.VersionMap.Increment(v.ID) // Increment version for each vector
-			err = l.Store.Append(l.ctx, largeID, &v)
-			if err != nil {
-				return errors.Wrapf(err, "failed to append vector %d to posting %d", v.ID, largeID)
+		var candidateLen int
+		for _, v := range candidate {
+			version := l.VersionMap.Get(v.ID)
+			if version.Deleted() || version.Version() > v.Version.Version() {
+				continue
 			}
+			if _, exists := vectorSet[v.ID]; exists {
+				continue // Skip duplicate vectors
+			}
+			merged = append(merged, Vector{
+				ID:      v.ID,
+				Version: version,
+				Data:    v.Data,
+			})
+			candidateLen++
 		}
 
-		// delete the old posting centroid
-		err = l.SPTAG.Delete(smallID)
-		if err != nil {
-			return errors.Wrapf(err, "failed to delete old centroid %d for posting %d", smallID, op.PostingID)
+		if prevLen > candidateLen {
+			err = l.SPTAG.Delete(nearest[i])
+			if err != nil {
+				return errors.Wrapf(err, "failed to delete centroid %d for posting %d", nearest[i], op.PostingID)
+			}
+			err = l.Store.Put(l.ctx, op.PostingID, merged)
+			if err != nil {
+				return errors.Wrapf(err, "failed to put merged posting %d after merge operation", op.PostingID)
+			}
+			// TODO: delete the old posting
+		} else {
+			err = l.SPTAG.Delete(op.PostingID)
+			if err != nil {
+				return errors.Wrapf(err, "failed to delete old centroid %d for posting %d", op.PostingID, nearest[i])
+			}
+			err = l.Store.Put(l.ctx, nearest[i], merged)
+			if err != nil {
+				return errors.Wrapf(err, "failed to put merged posting %d after merge operation", nearest[i])
+			}
+			// TODO: delete the old posting
 		}
 
-		// TODO: delete the old posting
+		// TODO: enqueue a reassign operation to ensure the new posting is balanced
 
+		return nil // Successfully merged and persisted
 	}
 
 	return nil

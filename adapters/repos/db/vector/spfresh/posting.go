@@ -27,13 +27,15 @@ func (p Posting) GarbageCollect(versionMap *VersionMap) Posting {
 
 	for _, v := range p {
 		version := versionMap.Get(v.ID)
-		if !version.Deleted() || version.Version() > v.Version.Version() {
-			filtered = append(filtered, Vector{
-				ID:      v.ID,
-				Version: version,
-				Data:    v.Data,
-			})
+		if version.Deleted() || version.Version() > v.Version.Version() {
+			continue
 		}
+
+		filtered = append(filtered, Vector{
+			ID:      v.ID,
+			Version: version,
+			Data:    v.Data,
+		})
 	}
 
 	return filtered
