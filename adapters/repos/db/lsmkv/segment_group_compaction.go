@@ -424,6 +424,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 			allocChecker:                 sg.allocChecker,
 			precomputedCountNetAdditions: &updatedCountNetAdditions,
 			fileList:                     make(map[string]int64), // empty to not check if bloom/cna files already exist
+			writeMetadata:                sg.writeMetadata,
 		})
 	if err != nil {
 		return errors.Wrap(err, "create new segment")

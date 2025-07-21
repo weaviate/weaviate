@@ -264,7 +264,13 @@ func New(cfg Config, uc ent.UserConfig,
 	} else {
 		if uc.Multivector.MuveraConfig.Enabled {
 			muveraEncoder = multivector.NewMuveraEncoder(uc.Multivector.MuveraConfig, store)
-			err := store.CreateOrLoadBucket(context.Background(), cfg.ID+"_muvera_vectors", lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName))
+			err := store.CreateOrLoadBucket(
+				context.Background(),
+				cfg.ID+"_muvera_vectors",
+				lsmkv.WithStrategy(lsmkv.StrategyReplace),
+				lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
+				lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (muvera store)")
 			}
@@ -370,7 +376,14 @@ func New(cfg Config, uc ent.UserConfig,
 	if uc.Multivector.Enabled {
 		index.multiDistancerProvider = distancer.NewDotProductProvider()
 		if !uc.Multivector.MuveraConfig.Enabled {
-			err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments), lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName))
+			err := index.store.CreateOrLoadBucket(
+				context.Background(),
+				cfg.ID+"_mv_mappings",
+				lsmkv.WithStrategy(lsmkv.StrategyReplace),
+				lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
+				lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
+				lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
 			}
