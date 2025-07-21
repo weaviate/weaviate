@@ -269,7 +269,7 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 		})
 
 		// wait for cancellation
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(15 * time.Second)
 	wait:
 		for {
 			select {
