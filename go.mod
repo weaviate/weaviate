@@ -70,7 +70,6 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	github.com/weaviate/contextionary v1.2.1
 	github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa
-	github.com/weaviate/mockoidc v0.0.0-20250611114324-56bff60d94c2
 	github.com/weaviate/s5cmd/v2 v2.0.1
 	github.com/weaviate/sroar v0.0.9
 	github.com/weaviate/tiktoken-go v0.0.2
@@ -140,7 +139,6 @@ require (
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
 	github.com/fatih/color v1.17.0 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
-	github.com/go-jose/go-jose/v3 v3.0.4 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
@@ -149,7 +147,6 @@ require (
 	github.com/go-openapi/jsonreference v0.21.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/btree v1.0.1 // indirect
 	github.com/google/pprof v0.0.0-20240227163752-401108e1b7e7 // indirect
@@ -241,4 +238,6 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
-go 1.24
+go 1.23.0
+
+toolchain go1.23.11

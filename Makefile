@@ -7,7 +7,7 @@ help:
 
 .DEFAULT_GOAL := weaviate
 
-GO_VERSION         := 1.24.0
+GO_VERSION         := 1.23.0
 
 # Git tags
 GIT_REVISION       := $(shell git rev-parse --short HEAD)
