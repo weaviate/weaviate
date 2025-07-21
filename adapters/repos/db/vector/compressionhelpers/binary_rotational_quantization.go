@@ -12,6 +12,7 @@
 package compressionhelpers
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
 	"math/bits"
@@ -24,7 +25,6 @@ import (
 
 type BinaryRotationalQuantizer struct {
 	inputDim  uint32
-	outputDim uint32
 	rotation  *FastRotation
 	distancer distancer.Provider
 	queryBits int
@@ -46,7 +46,6 @@ func NewBinaryRotationalQuantizer(inputDim int, queryBits int, seed uint64, dist
 
 	rq := &BinaryRotationalQuantizer{
 		inputDim:  uint32(inputDim),
-		outputDim: rotation.OutputDim,
 		rotation:  rotation,
 		distancer: distancer,
 		queryBits: queryBits,
@@ -159,6 +158,24 @@ func (rq *BinaryRotationalQuantizer) Encode(x []float32) []uint64 {
 	return code
 }
 
+func (rq *BinaryRotationalQuantizer) Restore(b []uint64) []float32 {
+	code := RQOneBitCode(b)
+	step := code.Step()
+	dim := code.Dimension()
+	x := make([]float32, dim)
+	bits := code.Bits()
+	for i := 0; i < dim; i++ {
+		block := i / 64
+		bit := uint(i) % 64
+		if (bits[block] & (1 << bit)) != 0 {
+			x[i] = -step
+		} else {
+			x[i] = step
+		}
+	}
+	return x
+}
+
 // TODO: replace this with SIMD-optimized instructions. A version of this can be
 // implemented using the HammingBitwise SIMD functions we already have, but it
 // may require changing some aspects of the encoding to use signs instead of bits.
@@ -265,6 +282,7 @@ func estimateDotProduct(cq RQMultiBitCode, cx RQOneBitCode) float32 {
 }
 
 type BinaryRQDistancer struct {
+	query     []float32
 	distancer distancer.Provider
 	rq        *BinaryRotationalQuantizer
 	cos       float32
@@ -286,6 +304,7 @@ func (rq *BinaryRotationalQuantizer) NewDistancer(q []float32) *BinaryRQDistance
 		l2 = 1.0
 	}
 	return &BinaryRQDistancer{
+		query:     q,
 		distancer: rq.distancer,
 		rq:        rq,
 		cos:       cos,
@@ -298,4 +317,101 @@ func (d *BinaryRQDistancer) Distance(x []uint64) (float32, error) {
 	cx := RQOneBitCode(x)
 	dotEstimate := estimateDotProduct(d.cq, cx)
 	return d.l2*(cx.SquaredNorm()+d.cq.SquaredNorm) + d.cos - (1.0+d.l2)*dotEstimate, nil
+}
+
+func (d *BinaryRQDistancer) DistanceToFloat(x []float32) (float32, error) {
+	if len(d.query) > 0 {
+		return d.distancer.SingleDist(d.query, x)
+	}
+	cx := d.rq.Encode(x)
+	return d.Distance(cx)
+}
+
+func (brq *BinaryRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []uint64) (float32, error) { // TODO: Compute the distance between compressed vectors.
+	//cx, cy := RQOneBitCode(x), RQOneBitCode(y)
+	//dotEstimate := estimateDotProduct(cx, cy)
+	//return d.l2*(cx.SquaredNorm()+d.cq.SquaredNorm) + d.cos - (1.0+d.l2)*dotEstimate, nil
+	return binaryDot(x, y), nil
+}
+
+func (brq *BinaryRotationalQuantizer) CompressedBytes(compressed []uint64) []byte {
+	slice := make([]byte, len(compressed)*8)
+	for i := range compressed {
+		binary.LittleEndian.PutUint64(slice[i*8:], compressed[i])
+	}
+	return slice
+}
+
+func (brq *BinaryRotationalQuantizer) FromCompressedBytes(compressed []byte) []uint64 {
+	l := len(compressed) / 8
+	if len(compressed)%8 != 0 {
+		l++
+	}
+	slice := make([]uint64, l)
+
+	for i := range slice {
+		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
+	}
+	return slice
+}
+
+func (brq *BinaryRotationalQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]uint64) []uint64 {
+	l := len(compressed) / 8
+	if len(compressed)%8 != 0 {
+		l++
+	}
+
+	if len(*buffer) < l {
+		*buffer = make([]uint64, 1000*l)
+	}
+
+	// take from end so we can address the start of the buffer
+	slice := (*buffer)[len(*buffer)-l:]
+	*buffer = (*buffer)[:len(*buffer)-l]
+
+	for i := range slice {
+		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
+	}
+	return slice
+}
+
+func (brq *BinaryRotationalQuantizer) NewCompressedQuantizerDistancer(c []uint64) quantizerDistancer[uint64] {
+	restored := brq.Restore(c)
+	return brq.NewDistancer(restored)
+}
+
+func (brq *BinaryRotationalQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistancer[uint64] {
+	return brq.NewDistancer(vec)
+}
+
+func (brq *BinaryRotationalQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[uint64]) {
+}
+
+func (brq *BinaryRotationalQuantizer) PersistCompression(logger CommitLogger) {
+	panic("PersistCompression not implemented")
+}
+
+type BinaryRQStats struct {
+	dataBits  uint32
+	queryBits uint32
+}
+
+func (brq BinaryRQStats) CompressionType() string {
+	return "rq"
+}
+
+func (brq BinaryRQStats) CompressionRatio(dimensionality int) float64 {
+	// RQ compression: original size = inputDim * 4 bytes (float32)
+	// compressed size = 12 bytes (metadata) + outputDim * 1 bit (compressed data)
+	// where outputDim is typically the same as inputDim after rotation
+	originalSize := dimensionality * 4
+	compressedSize := 12 + (dimensionality / 8) // 12 bytes metadata + 1 bit per dimension
+	return float64(originalSize) / float64(compressedSize)
+}
+
+func (brq *BinaryRotationalQuantizer) Stats() CompressionStats {
+	return BinaryRQStats{
+		dataBits:  1,
+		queryBits: uint32(brq.queryBits),
+	}
 }
