@@ -38,6 +38,12 @@ type Indexes struct {
 const WriteToMemoryMaxSize = 10 * 1024 * 1024
 
 func (s *Indexes) WriteTo(w io.Writer, expectedSize uint64) (int64, error) {
+	if s.SecondaryIndexCount == 0 {
+		// In case there are no secondary indices present, we can write the primary index directly to the writer without
+		// all the extra steps
+		return s.buildAndMarshalPrimary(w, s.Keys)
+	}
+
 	// the expectedSize is only used to decide if we should use the more efficient (but memory-intensive) in-Memory code path
 	// or the one with scratch files which is less efficient (more write operations) but can handle any size
 	if expectedSize < WriteToMemoryMaxSize && (s.AllocChecker == nil || s.AllocChecker.CheckAlloc(int64(expectedSize)) == nil) {
@@ -150,12 +156,6 @@ func (s *Indexes) buildPrimary(keys []Key) Tree {
 // We first write the primary index to a scratch file to know the positions of the secondary indices. Only then we know
 // the offsets of the secondary indices.
 func (s *Indexes) writeToScratchFiles(w io.Writer) (int64, error) {
-	if s.SecondaryIndexCount == 0 {
-		// In case there are no secondary indices present, we can write the primary index directly to the writer without
-		// all the extra steps
-		return s.buildAndMarshalPrimary(w, s.Keys)
-	}
-
 	var currentOffset uint64 = HeaderSize
 	if len(s.Keys) > 0 {
 		currentOffset = uint64(s.Keys[len(s.Keys)-1].ValueEnd)
