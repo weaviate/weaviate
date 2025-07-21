@@ -295,8 +295,6 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 			require.NotNil(t, statusResp)
 			require.NotNil(t, statusResp.Payload)
 			require.NotNil(t, statusResp.Payload.Status)
-			t.Logf("statusResp: %+v", statusResp.Payload)
-			t.Logf("error: %+v", statusResp.Payload.Error)
 			require.Equal(t, string(backup.Cancelled), *statusResp.Payload.Status)
 		})
 	})
