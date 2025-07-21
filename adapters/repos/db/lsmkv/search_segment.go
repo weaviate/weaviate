@@ -205,8 +205,8 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 	}
 }
 
-func DoBlockMaxAnd(limit int, resultsByTerm Terms, averagePropLength float64, additionalExplanations bool,
-	termCount int, minimumOrTokensMatch int,
+func DoBlockMaxAnd(ctx context.Context, limit int, resultsByTerm Terms, averagePropLength float64, additionalExplanations bool,
+	termCount int, minimumOrTokensMatch int, logger logrus.FieldLogger,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	results := TermsBySize(resultsByTerm)
 	var docInfos []*terms.DocPointerWithScore
@@ -223,6 +223,35 @@ func DoBlockMaxAnd(limit int, resultsByTerm Terms, averagePropLength float64, ad
 
 	for {
 		iterations++
+
+		if iterations%100000 == 0 && ctx != nil && ctx.Err() != nil {
+			segmentPath := ""
+			terms := ""
+			filterCardinality := -1
+			for _, r := range results {
+				if r == nil {
+					continue
+				}
+				if r.segment != nil {
+					segmentPath = r.segment.path
+					if r.filterDocIds != nil {
+						filterCardinality = r.filterDocIds.GetCardinality()
+					}
+				}
+				terms += r.QueryTerm() + ":" + strconv.Itoa(int(r.IdPointer())) + ":" + strconv.Itoa(r.Count()) + ", "
+			}
+			logger.WithFields(logrus.Fields{
+				"segment":           segmentPath,
+				"iterations":        iterations,
+				"pivotID":           pivotID,
+				"lenResults":        len(results),
+				"upperBound":        upperBound,
+				"terms":             terms,
+				"filterCardinality": filterCardinality,
+				"limit":             limit,
+			}).Warnf("DoBlockMaxAnd: search timed out, returning partial results")
+			return topKHeap
+		}
 
 		for i := 0; i < len(results); i++ {
 			if results[i].exhausted {
