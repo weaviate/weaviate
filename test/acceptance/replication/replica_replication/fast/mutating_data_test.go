@@ -243,12 +243,17 @@ func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, clas
 			// filter out deleted objects
 			allListedObjects := res.Payload.Objects
 			notDeletedObjects := make([]*models.Object, 0, len(allListedObjects))
+			numSkippedObjects := 0
 			for _, obj := range allListedObjects {
 				if _, ok := deletedIds.Load(obj.ID); !ok {
 					notDeletedObjects = append(notDeletedObjects, obj)
 				} else {
-					t.Logf("Object %s was deleted, skipping", obj.ID)
+					t.Logf("Skipping deleted object %s", obj.ID)
+					numSkippedObjects++
 				}
+			}
+			if numSkippedObjects == 0 {
+				t.Logf("Did not list any deleted objects")
 			}
 			randUpdate := rand.Intn(20) + 1
 			toUpdate := random(notDeletedObjects, randUpdate)
