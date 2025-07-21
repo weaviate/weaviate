@@ -553,3 +553,54 @@ func TestModule_MetricsPrefixGeneration(t *testing.T) {
 		assert.True(t, foundMetrics[expectedName], "Expected metric %s not found", expectedName)
 	}
 }
+
+func TestModule_VerifyPermissions_OptIn(t *testing.T) {
+	tests := []struct {
+		name                 string
+		envVar               string
+		expectedVerification bool
+		wantErr              bool
+	}{
+		{
+			name:                 "default behavior when env var not set",
+			envVar:               "",
+			expectedVerification: false,
+			wantErr:              false,
+		},
+		{
+			name:                 "explicitly enable verification",
+			envVar:               "true",
+			expectedVerification: true,
+			wantErr:              false,
+		},
+		{
+			name:                 "explicitly disable verification",
+			envVar:               "false",
+			expectedVerification: false,
+			wantErr:              false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set environment variable
+			if tt.envVar != "" {
+				t.Setenv("USAGE_VERIFY_PERMISSIONS", tt.envVar)
+			}
+
+			config := &config.Config{
+				Usage: usagetypes.UsageConfig{},
+			}
+
+			err := common.ParseCommonUsageConfig(config)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			assert.NoError(t, err)
+			require.NotNil(t, config.Usage.VerifyPermissions)
+			assert.Equal(t, tt.expectedVerification, config.Usage.VerifyPermissions.Get())
+		})
+	}
+}

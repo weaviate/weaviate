@@ -167,8 +167,14 @@ func (g *GCSStorage) UpdateConfig(config common.StorageConfig) (bool, error) {
 		g.Logger.WithFields(logrus.Fields{
 			"old_bucket": oldBucketName,
 			"new_bucket": g.BucketName,
-		}).Info("GCS bucket name changed - verifying permissions")
+		}).Info("GCS bucket name changed")
 
+		if !config.VerifyPermissions {
+			g.Logger.Info("permission verification skipped after bucket change (disabled by configuration)")
+			return configChanged, nil
+		}
+
+		g.Logger.Info("verifying permissions after bucket change")
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 

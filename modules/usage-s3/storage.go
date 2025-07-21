@@ -139,8 +139,14 @@ func (s *S3Storage) UpdateConfig(config common.StorageConfig) (bool, error) {
 		s.Logger.WithFields(logrus.Fields{
 			"old_bucket": oldBucketName,
 			"new_bucket": s.BucketName,
-		}).Info("S3 bucket name changed - verifying permissions")
+		}).Info("S3 bucket name changed")
 
+		if !config.VerifyPermissions {
+			s.Logger.Info("permission verification skipped after bucket change (disabled by configuration)")
+			return configChanged, nil
+		}
+
+		s.Logger.Info("verifying permissions after bucket change")
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
