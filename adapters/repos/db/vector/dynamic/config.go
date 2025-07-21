@@ -42,6 +42,8 @@ type Config struct {
 	TombstoneCallbacks      cyclemanager.CycleCallbackGroup
 	SharedDB                *bolt.DB
 	HNSWWaitForCachePrefill bool
+	MinMMapSize             int64
+	MaxWalReuseSize         int64
 	AllocChecker            memwatch.AllocChecker
 }
 
