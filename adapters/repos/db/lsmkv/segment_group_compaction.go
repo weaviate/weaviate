@@ -259,7 +259,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		path = filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+".db.tmp")
 	}
 
-	f, err := os.Create(path)
+	f, err := diskio.CreateFile(path, "compaction")
 	if err != nil {
 		return false, err
 	}

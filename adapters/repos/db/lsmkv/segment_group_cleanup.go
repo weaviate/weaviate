@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"encoding/binary"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -493,7 +492,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		}
 	}()
 
-	file, err := os.Create(tmpSegmentPath)
+	file, err := diskio.CreateFile(tmpSegmentPath, "segmentCleaner")
 	if err != nil {
 		return false, err
 	}

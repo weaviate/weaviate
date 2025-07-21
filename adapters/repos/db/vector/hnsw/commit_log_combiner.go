@@ -18,6 +18,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -183,7 +185,7 @@ func (c *CommitLogCombiner) combine(left, right string) error {
 }
 
 func (c *CommitLogCombiner) mergeFiles(outName, first, second string) error {
-	out, err := os.Create(outName)
+	out, err := diskio.CreateFile(outName, "CommitLogCombiner")
 	if err != nil {
 		return errors.Wrapf(err, "open target file %q", outName)
 	}

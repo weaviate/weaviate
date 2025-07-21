@@ -182,7 +182,7 @@ func (s *Indexes) writeToScratchFiles(w io.Writer) (int64, error) {
 	}
 
 	primaryFileName := filepath.Join(s.ScratchSpacePath, "primary")
-	primaryFD, err := os.Create(primaryFileName)
+	primaryFD, err := diskio.CreateFile(primaryFileName, "primaryScratchFile")
 	if err != nil {
 		return written, err
 	}
@@ -209,7 +209,7 @@ func (s *Indexes) writeToScratchFiles(w io.Writer) (int64, error) {
 		uint64(s.SecondaryIndexCount)*8
 
 	secondaryFileName := filepath.Join(s.ScratchSpacePath, "secondary")
-	secondaryFD, err := os.Create(secondaryFileName)
+	secondaryFD, err := diskio.CreateFile(secondaryFileName, "secondaryScratchFile")
 	if err != nil {
 		return written, err
 	}

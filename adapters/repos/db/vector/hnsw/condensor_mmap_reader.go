@@ -15,6 +15,8 @@ import (
 	"bufio"
 	"os"
 
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/edsrzf/mmap-go"
 	"github.com/pkg/errors"
 )
@@ -31,7 +33,7 @@ func newMmapCondensorReader() *MmapCondensorReader {
 func (r *MmapCondensorReader) Do(source *os.File, index mmapIndex, targetName string) error {
 	r.reader = bufio.NewReaderSize(source, 1024*1024)
 
-	scratchFile, err := os.Create(targetName)
+	scratchFile, err := diskio.CreateFile(targetName, "condensor")
 	if err != nil {
 		return err
 	}

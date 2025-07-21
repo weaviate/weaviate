@@ -269,7 +269,7 @@ func writeWithChecksum(bufWriter byteops.ReadWriter, path string, observeFileWri
 	chksm := crc32.ChecksumIEEE(bufWriter.Buffer[byteops.Uint32Len:])
 	bufWriter.MoveBufferToAbsolutePosition(0)
 	bufWriter.WriteUint32(chksm)
-	f, err := os.Create(path)
+	f, err := diskio.CreateFile(path, "writeWithChecksum")
 	if err != nil {
 		return fmt.Errorf("open file for writing: %w", err)
 	}

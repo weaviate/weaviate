@@ -17,6 +17,8 @@ import (
 	"math"
 	"os"
 
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
@@ -49,7 +51,7 @@ const (
 )
 
 func NewLogger(fileName string) *Logger {
-	file, err := os.Create(fileName)
+	file, err := diskio.CreateFile(fileName, "hnswCommitLog")
 	if err != nil {
 		panic(err)
 	}
