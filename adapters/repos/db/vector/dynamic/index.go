@@ -119,10 +119,7 @@ type dynamic struct {
 	db                      *bbolt.DB
 	ctx                     context.Context
 	cancel                  context.CancelFunc
-	hnswDisableSnapshots    bool
-	hnswSnapshotOnStartup   bool
 	hnswWaitForCachePrefill bool
-	LazyLoadSegments        bool
 	flatBQ                  bool
 }
 
@@ -147,8 +144,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		TargetVector:     cfg.TargetVector,
 		Logger:           cfg.Logger,
 		DistanceProvider: cfg.DistanceProvider,
-		MinMMapSize:      cfg.MinMMapSize,
-		MaxWalReuseSize:  cfg.MaxWalReuseSize,
 		AllocChecker:     cfg.AllocChecker,
 	}
 
@@ -173,10 +168,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		db:                      cfg.SharedDB,
 		ctx:                     ctx,
 		cancel:                  cancel,
-		hnswDisableSnapshots:    cfg.HNSWDisableSnapshots,
-		hnswSnapshotOnStartup:   cfg.HNSWSnapshotOnStartup,
 		hnswWaitForCachePrefill: cfg.HNSWWaitForCachePrefill,
-		LazyLoadSegments:        cfg.LazyLoadSegments,
 		flatBQ:                  uc.FlatUC.BQ.Enabled,
 	}
 

@@ -41,12 +41,7 @@ type Config struct {
 	MakeCommitLoggerThunk   hnsw.MakeCommitLogger
 	TombstoneCallbacks      cyclemanager.CycleCallbackGroup
 	SharedDB                *bolt.DB
-	HNSWDisableSnapshots    bool
-	HNSWSnapshotOnStartup   bool
 	HNSWWaitForCachePrefill bool
-	MinMMapSize             int64
-	MaxWalReuseSize         int64
-	LazyLoadSegments        bool
 	AllocChecker            memwatch.AllocChecker
 }
 
