@@ -403,7 +403,7 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 		if strings.HasSuffix(name, ".snapshot.tmp") {
 			// a temporary snapshot file was found which means that a previous
 			// snapshoting process never completed, we can safely remove it.
-			err := os.Remove(filepath.Join(snapshotDir, name))
+			err := diskio.Remove(filepath.Join(snapshotDir, name), "hnswCommitlog")
 			if err != nil {
 				return errors.Wrapf(err, "remove tmp snapshot file %q", name)
 			}
@@ -417,7 +417,7 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 			}
 
 			if i < before {
-				err := os.Remove(filepath.Join(snapshotDir, name))
+				err := diskio.Remove(filepath.Join(snapshotDir, name), "hnswCommitlog")
 				if err != nil {
 					return errors.Wrapf(err, "remove snapshot file %q", name)
 				}
@@ -432,7 +432,7 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 			}
 
 			if i < before {
-				err := os.Remove(filepath.Join(snapshotDir, name))
+				err := diskio.Remove(filepath.Join(snapshotDir, name), "hnswCommitlog")
 				if err != nil {
 					return errors.Wrapf(err, "remove checkpoints file %q", name)
 				}
@@ -573,9 +573,9 @@ func (l *hnswCommitLogger) readSnapshot(path string) (*DeserializationResult, er
 	if err != nil {
 		// if for any reason the checkpoints file is not found or corrupted
 		// we need to remove the snapshot file and create a new one from the commit log.
-		_ = os.Remove(path)
+		_ = diskio.Remove(path, "hnswCommitlog")
 		cpPath := path + ".checkpoints"
-		_ = os.Remove(cpPath)
+		_ = diskio.Remove(cpPath, "hnswCommitlog")
 
 		l.logger.WithField("action", "hnsw_remove_corrupt_snapshot").
 			WithField("path", path).
@@ -589,9 +589,9 @@ func (l *hnswCommitLogger) readSnapshot(path string) (*DeserializationResult, er
 	if err != nil {
 		// if for any reason the snapshot file is not found or corrupted
 		// we need to remove the snapshot file and create a new one from the commit log.
-		_ = os.Remove(path)
+		_ = diskio.Remove(path, "hnswCommitlog")
 		cpPath := path + ".checkpoints"
-		_ = os.Remove(cpPath)
+		_ = diskio.Remove(cpPath, "hnswCommitlog")
 
 		l.logger.WithField("action", "hnsw_remove_corrupt_snapshot").
 			WithField("path", path).

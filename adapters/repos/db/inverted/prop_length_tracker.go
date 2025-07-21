@@ -19,6 +19,8 @@ import (
 	"os"
 	"sync"
 
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/pkg/errors"
 )
 
@@ -428,7 +430,7 @@ func (t *PropertyLengthTracker) Drop() error {
 
 	t.pages = nil
 
-	if err := os.Remove(t.path); err != nil {
+	if err := diskio.Remove(t.path, "oldPropLengthTracker"); err != nil {
 		return errors.Wrap(err, "remove prop length tracker state from disk")
 	}
 

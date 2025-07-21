@@ -384,21 +384,21 @@ func (s *segment) dropImmediately() error {
 	// therefore the files may not be present on segments created with previous
 	// versions. By using RemoveAll, which does not error on NotExists, these
 	// drop calls are backward-compatible:
-	if err := os.RemoveAll(s.bloomFilterPath()); err != nil {
+	if err := diskio.RemoveAll(s.bloomFilterPath(), "segment"); err != nil {
 		return fmt.Errorf("drop bloom filter: %w", err)
 	}
 
 	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := os.RemoveAll(s.bloomFilterSecondaryPath(i)); err != nil {
+		if err := diskio.RemoveAll(s.bloomFilterSecondaryPath(i), "segment"); err != nil {
 			return fmt.Errorf("drop bloom filter: %w", err)
 		}
 	}
 
-	if err := os.RemoveAll(s.countNetPath()); err != nil {
+	if err := diskio.RemoveAll(s.countNetPath(), "segment"); err != nil {
 		return fmt.Errorf("drop count net additions file: %w", err)
 	}
 
-	if err := os.RemoveAll(s.metadataPath()); err != nil {
+	if err := diskio.RemoveAll(s.metadataPath(), "segment"); err != nil {
 		return fmt.Errorf("drop metadata file: %w", err)
 	}
 
@@ -417,28 +417,28 @@ func (s *segment) dropMarked() error {
 	// therefore the files may not be present on segments created with previous
 	// versions. By using RemoveAll, which does not error on NotExists, these
 	// drop calls are backward-compatible:
-	if err := os.RemoveAll(s.bloomFilterPath() + DeleteMarkerSuffix); err != nil {
+	if err := diskio.RemoveAll(s.bloomFilterPath()+DeleteMarkerSuffix, "segment"); err != nil {
 		return fmt.Errorf("drop previously marked bloom filter: %w", err)
 	}
 
 	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := os.RemoveAll(s.bloomFilterSecondaryPath(i) + DeleteMarkerSuffix); err != nil {
+		if err := diskio.RemoveAll(s.bloomFilterSecondaryPath(i)+DeleteMarkerSuffix, "segment"); err != nil {
 			return fmt.Errorf("drop previously marked secondary bloom filter: %w", err)
 		}
 	}
 
-	if err := os.RemoveAll(s.countNetPath() + DeleteMarkerSuffix); err != nil {
+	if err := diskio.RemoveAll(s.countNetPath()+DeleteMarkerSuffix, "segment"); err != nil {
 		return fmt.Errorf("drop previously marked count net additions file: %w", err)
 	}
 
-	if err := os.RemoveAll(s.metadataPath() + DeleteMarkerSuffix); err != nil {
+	if err := diskio.RemoveAll(s.metadataPath()+DeleteMarkerSuffix, "segment"); err != nil {
 		return fmt.Errorf("drop previously marked metadata file: %w", err)
 	}
 
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
 	// was a NotExists error here, something would be seriously wrong, and we
 	// don't want to ignore it.
-	if err := os.Remove(s.path + DeleteMarkerSuffix); err != nil {
+	if err := diskio.Remove(s.path+DeleteMarkerSuffix, "segment"); err != nil {
 		return fmt.Errorf("drop previously marked segment: %w", err)
 	}
 

@@ -23,6 +23,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/bbolt"
@@ -392,7 +394,7 @@ func (dynamic *dynamic) Drop(ctx context.Context) error {
 	if err := dynamic.db.Close(); err != nil {
 		return err
 	}
-	os.Remove(filepath.Join(dynamic.rootPath, "index.db"))
+	diskio.Remove(filepath.Join(dynamic.rootPath, "index.db"), "dynamic")
 	return dynamic.index.Drop(ctx)
 }
 
@@ -624,7 +626,7 @@ func (dynamic *dynamic) doUpgrade() error {
 	if err != nil {
 		errs = append(errs, err)
 	}
-	err = os.RemoveAll(bDir)
+	err = diskio.RemoveAll(bDir, "dynamic")
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -634,7 +636,7 @@ func (dynamic *dynamic) doUpgrade() error {
 		if err != nil {
 			errs = append(errs, err)
 		}
-		err = os.RemoveAll(bDir)
+		err = diskio.RemoveAll(bDir, "dynamic")
 		if err != nil {
 			errs = append(errs, err)
 		}

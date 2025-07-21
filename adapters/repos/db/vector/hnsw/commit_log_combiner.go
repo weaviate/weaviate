@@ -236,7 +236,7 @@ func (c *CommitLogCombiner) renameAndCleanUp(tmpName, finalName string,
 	}
 
 	for _, toDelete := range toDeletes {
-		if err := os.Remove(toDelete); err != nil {
+		if err := diskio.Remove(toDelete, "commitLogCombiner"); err != nil {
 			return errors.Wrapf(err, "clean up %q", toDelete)
 		}
 	}

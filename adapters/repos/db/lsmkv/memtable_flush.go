@@ -85,7 +85,7 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 	defer func() {
 		if rerr != nil {
 			f.Close()
-			os.Remove(tmpSegmentPath)
+			diskio.Remove(tmpSegmentPath, "memtable")
 		}
 	}()
 

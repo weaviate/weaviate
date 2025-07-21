@@ -14,9 +14,10 @@ package flat
 import (
 	"encoding/binary"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sync/atomic"
+
+	"github.com/weaviate/weaviate/entities/diskio"
 
 	"github.com/pkg/errors"
 	bolt "go.etcd.io/bbolt"
@@ -40,7 +41,7 @@ func (index *flat) getMetadataFile() string {
 func (index *flat) removeMetadataFile() error {
 	path := filepath.Join(index.rootPath, index.getMetadataFile())
 	index.closeMetadata()
-	err := os.Remove(path)
+	err := diskio.Remove(path, "flat")
 	if err != nil {
 		return errors.Wrapf(err, "remove metadata file %q", path)
 	}

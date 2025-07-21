@@ -17,6 +17,8 @@ import (
 	"os"
 	"sync"
 
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/pkg/errors"
 )
 
@@ -100,7 +102,7 @@ func (c *Counter) Drop() error {
 	}
 	filename := c.FileName()
 	c.f.Close()
-	err := os.Remove(filename)
+	err := diskio.Remove(filename, "counter")
 	if err != nil {
 		return errors.Wrap(err, "drop counter file")
 	}

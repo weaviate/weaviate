@@ -414,7 +414,7 @@ func (cl *commitLogger) unpause() {
 }
 
 func (cl *commitLogger) delete() error {
-	return os.Remove(cl.path)
+	return diskio.Remove(cl.path, "commitlogger")
 }
 
 func (cl *commitLogger) flushBuffers() error {

@@ -79,7 +79,7 @@ func (s *segment) initBloomFilter(overwrite bool, existingFilesList map[string]i
 	}
 	if loadFromDisk {
 		if overwrite {
-			err := os.Remove(path)
+			err := diskio.Remove(path, "bloomfilter")
 			if err != nil {
 				return fmt.Errorf("delete existing bloom filter %s: %w", path, err)
 			}
@@ -172,7 +172,7 @@ func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool, existingFile
 	}
 	if loadFromDisk {
 		if overwrite {
-			err := os.Remove(path)
+			err := diskio.Remove(path, "bloomfilter")
 			if err != nil {
 				return fmt.Errorf("deleting existing secondary bloom filter %s: %w", path, err)
 			}

@@ -15,6 +15,8 @@ import (
 	"encoding/binary"
 	"os"
 
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/pkg/errors"
 )
 
@@ -105,7 +107,7 @@ func (sv *shardVersioner) init(fileName string, dataPresent bool) error {
 }
 
 func (sv *shardVersioner) Drop() error {
-	err := os.Remove(sv.path)
+	err := diskio.Remove(sv.path, "shardVersioner")
 	if err != nil {
 		return errors.Wrap(err, "drop versioner file")
 	}

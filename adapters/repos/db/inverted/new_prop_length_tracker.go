@@ -412,8 +412,8 @@ func (t *JsonShardMetaData) Drop() error {
 
 	clear(t.data.BucketedData)
 
-	os.Remove(t.path)
-	os.Remove(t.path + ".bak")
+	diskio.Remove(t.path, "propLengthTracker")
+	diskio.Remove(t.path+".bak", "propLengthTracker")
 
 	return nil
 }

@@ -440,7 +440,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	}
 
 	bucketDir := s.bucketDir(bucketName)
-	if err := os.RemoveAll(bucketDir); err != nil {
+	if err := diskio.RemoveAll(bucketDir, "createBucket"); err != nil {
 		return errors.Wrapf(err, "failed removing bucket %s files", bucketName)
 	}
 
@@ -545,7 +545,7 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
 	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
 
-	if err := os.RemoveAll(newBucketDir); err != nil {
+	if err := diskio.RemoveAll(newBucketDir, "replaceBucket"); err != nil {
 		return errors.Wrapf(err, "failed removing dir '%s'", newBucketDir)
 	}
 
