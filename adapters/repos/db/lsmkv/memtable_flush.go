@@ -42,7 +42,7 @@ func (m *Memtable) flushWAL() error {
 	}
 
 	// fsync parent directory
-	err := diskio.Fsync(filepath.Dir(m.path))
+	err := diskio.Fsync(filepath.Dir(m.path), "flushWAL")
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 	defer func() {
 		if rerr != nil {
 			f.Close()
-			os.Remove(tmpSegmentPath)
+			diskio.Remove(tmpSegmentPath, "memtable")
 		}
 	}()
 
@@ -186,13 +186,13 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 	}
 
 	segmentPath = strings.TrimSuffix(tmpSegmentPath, ".tmp")
-	err = os.Rename(tmpSegmentPath, segmentPath)
+	err = diskio.Rename(tmpSegmentPath, segmentPath, "flush")
 	if err != nil {
 		return "", err
 	}
 
 	// fsync parent directory
-	err = diskio.Fsync(filepath.Dir(m.path))
+	err = diskio.Fsync(filepath.Dir(m.path), "flush")
 	if err != nil {
 		return "", err
 	}

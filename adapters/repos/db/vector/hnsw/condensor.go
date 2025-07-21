@@ -20,6 +20,8 @@ import (
 	"math"
 	"os"
 
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -154,7 +156,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "close new commit log")
 	}
 
-	if err := os.Remove(fileName); err != nil {
+	if err := diskio.Remove(fileName, "condensor"); err != nil {
 		return errors.Wrap(err, "cleanup old (uncondensed) commit log")
 	}
 
