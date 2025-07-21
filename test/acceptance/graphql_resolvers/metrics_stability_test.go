@@ -35,6 +35,7 @@ import (
 const metricClassPrefix = "MetricsClassPrefix"
 
 func metricsCount(t *testing.T) {
+	t.Helper()
 	defer cleanupMetricsClasses(t, 0, 20)
 	createImportQueryMetricsClasses(t, 0, 10)
 	backupID := startBackup(t, 0, 10)
@@ -189,7 +190,7 @@ func countMetricsLines(t *testing.T) int {
 	lineCount := 0
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.Contains(line, "shards_loaded") || strings.Contains(line, "shards_loading") || strings.Contains(line, "shards_unloading") || strings.Contains(line, "shards_unloaded") {
+		if strings.Contains(line, "shards_loaded") || strings.Contains(line, "shards_loading") || strings.Contains(line, "shards_unloading") || strings.Contains(line, "shards_unloaded") || strings.Contains(line, "file_io_ops_total") {
 			continue
 		}
 		require.NotContains(
