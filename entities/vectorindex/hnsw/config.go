@@ -47,6 +47,7 @@ const (
 	CompressionPQ = "pq"
 	CompressionSQ = "sq"
 	CompressionRQ = "rq"
+	NoCompression = "uncompressed"
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
@@ -321,14 +322,14 @@ func (u *UserConfig) validate(defaultCompression *configRuntime.DynamicValue[str
 			u.RQ.Enabled = false
 =======
 	defaultCompression := os.Getenv("DEFAULT_COMPRESSION")
-	if enabled == 2 && defaultCompression != "" {
+	if enabled == 2 && defaultCompression != "" && defaultCompression != NoCompression {
 		switch defaultCompression {
 		case CompressionBQ:
-			u.BQ.Enabled = DefaultBQEnabled
+			u.BQ.Enabled = false
 		case CompressionPQ:
-			u.PQ.Enabled = DefaultPQEnabled
+			u.PQ.Enabled = false
 		case CompressionSQ:
-			u.SQ.Enabled = DefaultSQEnabled
+			u.SQ.Enabled = false
 		case CompressionRQ:
 			u.RQ.Enabled = DefaultRQEnabled
 >>>>>>> 8610e9d92b (check number of quantization algorithms enabled)
