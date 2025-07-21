@@ -453,9 +453,9 @@ func TestAssignRoleToGroupForbidden(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 				rbacconfig: rbacconf.Config{
-					RootUsers:    []string{"root-user"},
-					RootGroups:   []string{"root-group"},
-					ViewerGroups: []string{"viewer-root-group"},
+					RootUsers:      []string{"root-user"},
+					RootGroups:     []string{"root-group"},
+					ReadOnlyGroups: []string{"viewer-root-group"},
 				},
 			}
 			res := h.assignRoleToGroup(tt.params, tt.principal)
