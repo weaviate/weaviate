@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -25,7 +26,6 @@ type BackgroundOpType string
 
 const (
 	BackgroundOpSplit    BackgroundOpType = "split"
-	BackgroundOpMerge    BackgroundOpType = "merge"
 	BackgroundOpReassign BackgroundOpType = "reassign"
 )
 
@@ -34,6 +34,10 @@ type Operation struct {
 	PostingID uint64
 	LeftID    uint64 // Used for reassign operations
 	RightID   uint64 // Used for reassign operations
+}
+
+type MergeOperation struct {
+	PostingID uint64
 }
 
 // LocalRebuilder manages background operations for postings in the SPFresh index.
@@ -48,15 +52,18 @@ type LocalRebuilder struct {
 	VersionMap *VersionMap      // VersionMap provides access to vector versions.
 	IDs        *common.MonotonicCounter[uint64]
 
-	ch     chan Operation
 	ctx    context.Context
 	cancel context.CancelFunc
-	wg     sync.WaitGroup
+
+	ch      chan Operation
+	mergeCh *xsync.UMPSCQueue[MergeOperation] // Unbounded channel for merge operations
+	wg      sync.WaitGroup
 
 	dedup *deduplicator // Deduplicator to prevent multiple operations on the same posting
 }
 
 func (l *LocalRebuilder) Start(ctx context.Context) {
+
 	if l.UserConfig == nil {
 		panic("UserConfig must be set before starting LocalRebuilder")
 	}
@@ -73,7 +80,6 @@ func (l *LocalRebuilder) Start(ctx context.Context) {
 		panic("IdGenerator must be set before starting LocalRebuilder")
 	}
 
-	l.ch = make(chan Operation, l.UserConfig.Workers)
 	l.ctx, l.cancel = context.WithCancel(context.Background())
 
 	if l.Logger == nil {
@@ -82,10 +88,18 @@ func (l *LocalRebuilder) Start(ctx context.Context) {
 		l.Logger = l.Logger.WithField("component", "LocalRebuilder")
 	}
 
+	l.ch = make(chan Operation, l.UserConfig.Workers)
+	l.mergeCh = xsync.NewUMPSCQueue[MergeOperation]()
+
+	// start N workers to process split and reassign operations
 	for i := 0; i < l.UserConfig.Workers; i++ {
 		l.wg.Add(1)
 		enterrors.GoWrapper(l.worker, l.Logger)
 	}
+
+	// start a single worker to process merge operations
+	l.wg.Add(1)
+	enterrors.GoWrapper(l.mergeWorker, l.Logger)
 }
 
 func (l *LocalRebuilder) Enqueue(ctx context.Context, op Operation) error {
@@ -131,7 +145,7 @@ func (l *LocalRebuilder) worker() {
 
 	for op := range l.ch {
 		if l.ctx.Err() != nil {
-			return // Stop processing if context is cancelled
+			return
 		}
 
 		err := l.process(op)
@@ -146,15 +160,38 @@ func (l *LocalRebuilder) worker() {
 	}
 }
 
+func (l *LocalRebuilder) mergeWorker() {
+	defer l.wg.Done()
+
+	for {
+		op := l.mergeCh.Dequeue()
+
+		if l.ctx.Err() != nil {
+			return // Exit if the context is cancelled
+		}
+
+		// A zero-value MergeOperation indicates no more operations to process
+		if op.PostingID == 0 {
+			// No more merge operations to process
+			return
+		}
+
+		err := l.doMerge(op)
+		if err != nil {
+			l.Logger.WithError(err).
+				WithField("postingID", op.PostingID).
+				Error("Failed to process merge operation")
+			continue // Log the error and continue processing other operations
+		}
+	}
+}
+
 func (l *LocalRebuilder) process(op Operation) error {
 	// Process the operation
 	switch op.OpType {
 	case BackgroundOpSplit:
 		// Handle split operation
 		return l.doSplit(op)
-	case BackgroundOpMerge:
-		// Handle merge operation
-		return l.doMerge(op)
 	case BackgroundOpReassign:
 		// Handle reassign operation
 	default:
@@ -178,6 +215,9 @@ func (l *LocalRebuilder) Close(ctx context.Context) error {
 
 	// Close the channel to signal workers to stop
 	close(l.ch)
+
+	// Close the merge channel by enqueuing a zero-value MergeOperation
+	l.mergeCh.Enqueue(MergeOperation{})
 
 	l.wg.Wait() // Wait for all workers to finish
 	return nil
@@ -257,7 +297,7 @@ func (l *LocalRebuilder) doSplit(op Operation) error {
 	return nil
 }
 
-func (l *LocalRebuilder) doMerge(op Operation) error {
+func (l *LocalRebuilder) doMerge(op MergeOperation) error {
 	p, err := l.Store.Get(l.ctx, op.PostingID)
 	if err != nil {
 		if err == ErrPostingNotFound {
