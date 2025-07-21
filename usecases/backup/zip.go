@@ -155,13 +155,17 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 	header.Name = relPath
 	header.ChangeTime = info.ModTime()
 	if err := z.w.WriteHeader(header); err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			// we ignore in case the ctx was cancelled
+			return written, nil
+		}
 		return written, fmt.Errorf("write backup header in file %s: %s: %w", z.sourcePath, relPath, err)
 	}
 	// write bytes
 	written, err = io.Copy(z.w, r)
 	if err != nil {
-		if errors.Is(err, io.ErrClosedPipe) && ctx.Err() != nil {
-			// we ignore ErrClosedPipe in case the ctx was cancelled
+		if errors.Is(ctx.Err(), context.Canceled) {
+			// we ignore in case the ctx was cancelled
 			return written, nil
 		}
 		return written, fmt.Errorf("copy: %s %w", relPath, err)
