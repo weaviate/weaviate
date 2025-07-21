@@ -140,22 +140,22 @@ func (s *S3Storage) UpdateConfig(config common.StorageConfig) (bool, error) {
 			"old_bucket": oldBucketName,
 			"new_bucket": s.BucketName,
 		}).Info("S3 bucket name changed")
-
-		if !config.VerifyPermissions {
-			s.Logger.Info("permission verification skipped after bucket change (disabled by configuration)")
-			return configChanged, nil
-		}
-
-		s.Logger.Info("verifying permissions after bucket change")
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		if err := s.VerifyPermissions(ctx); err != nil {
-			s.Logger.WithError(err).Error("S3 permission verification failed after bucket change")
-			return configChanged, err
-		}
-		s.Logger.Info("S3 permissions verified successfully after bucket change")
 	}
+
+	if !config.VerifyPermissions {
+		s.Logger.Info("permission verification skipped after bucket change (disabled by configuration)")
+		return configChanged, nil
+	}
+
+	s.Logger.Info("verifying permissions")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := s.VerifyPermissions(ctx); err != nil {
+		s.Logger.WithError(err).Error("S3 permission verification failed after bucket change")
+		return configChanged, err
+	}
+	s.Logger.Info("S3 permissions verified successfully")
 
 	return configChanged, nil
 }

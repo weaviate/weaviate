@@ -168,22 +168,22 @@ func (g *GCSStorage) UpdateConfig(config common.StorageConfig) (bool, error) {
 			"old_bucket": oldBucketName,
 			"new_bucket": g.BucketName,
 		}).Info("GCS bucket name changed")
-
-		if !config.VerifyPermissions {
-			g.Logger.Info("permission verification skipped after bucket change (disabled by configuration)")
-			return configChanged, nil
-		}
-
-		g.Logger.Info("verifying permissions after bucket change")
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		if err := g.VerifyPermissions(ctx); err != nil {
-			g.Logger.WithError(err).Error("GCS permission verification failed after bucket change")
-			return configChanged, err
-		}
-		g.Logger.Info("GCS permissions verified successfully after bucket change")
 	}
+
+	if !config.VerifyPermissions {
+		g.Logger.Info("permission verification skipped after bucket change (disabled by configuration)")
+		return configChanged, nil
+	}
+
+	g.Logger.Info("verifying permissions")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := g.VerifyPermissions(ctx); err != nil {
+		g.Logger.WithError(err).Error("GCS permission verification failed after bucket change")
+		return configChanged, err
+	}
+	g.Logger.Info("GCS permissions verified successfully")
 
 	return configChanged, nil
 }
