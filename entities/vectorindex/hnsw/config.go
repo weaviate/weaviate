@@ -41,12 +41,6 @@ const (
 	MinmumMaxConnections  = 4
 	MaximumMaxConnections = 2047
 	MinmumEFConstruction  = 4
-
-	CompressionBQ = "bq"
-	CompressionPQ = "pq"
-	CompressionSQ = "sq"
-	CompressionRQ = "rq"
-	NoCompression = "uncompressed"
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
@@ -138,15 +132,15 @@ func (u *UserConfig) SetDefaults() {
 	}
 
 	defaultCompression := os.Getenv("DEFAULT_COMPRESSION")
-	if defaultCompression != "" && defaultCompression != NoCompression {
+	if defaultCompression != "" && defaultCompression != vectorIndexCommon.NoCompression {
 		switch defaultCompression {
-		case CompressionBQ:
+		case vectorIndexCommon.CompressionBQ:
 			u.BQ.Enabled = true
-		case CompressionPQ:
+		case vectorIndexCommon.CompressionPQ:
 			u.PQ.Enabled = true
-		case CompressionSQ:
+		case vectorIndexCommon.CompressionSQ:
 			u.SQ.Enabled = true
-		case CompressionRQ:
+		case vectorIndexCommon.CompressionRQ:
 			u.RQ.Enabled = true
 		}
 	}
@@ -308,15 +302,15 @@ func (u *UserConfig) validate() error {
 		enabled++
 	}
 	defaultCompression := os.Getenv("DEFAULT_COMPRESSION")
-	if enabled == 2 && defaultCompression != "" && defaultCompression != NoCompression {
+	if enabled == 2 && defaultCompression != "" && defaultCompression != vectorIndexCommon.NoCompression {
 		switch defaultCompression {
-		case CompressionBQ:
+		case vectorIndexCommon.CompressionBQ:
 			u.BQ.Enabled = false
-		case CompressionPQ:
+		case vectorIndexCommon.CompressionPQ:
 			u.PQ.Enabled = false
-		case CompressionSQ:
+		case vectorIndexCommon.CompressionSQ:
 			u.SQ.Enabled = false
-		case CompressionRQ:
+		case vectorIndexCommon.CompressionRQ:
 			u.RQ.Enabled = false
 		}
 		enabled--
