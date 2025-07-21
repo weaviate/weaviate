@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,4 +27,12 @@ func (s *Service) Check(ctx context.Context, request *grpc_health_v1.HealthCheck
 
 func (s *Service) Watch(request *grpc_health_v1.HealthCheckRequest, server grpc_health_v1.Health_WatchServer) error {
 	return server.Send(s.healthCheck())
+}
+
+func (s *Service) List(ctx context.Context, request *grpc_health_v1.HealthListRequest) (*grpc_health_v1.HealthListResponse, error) {
+	return &grpc_health_v1.HealthListResponse{
+		Statuses: map[string]*grpc_health_v1.HealthCheckResponse{
+			"weaviate": s.healthCheck(),
+		},
+	}, nil
 }

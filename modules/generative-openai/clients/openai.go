@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -142,7 +142,11 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		vrst.WithLabelValues("generate", oaiUrl, fmt.Sprintf("%v", res.StatusCode)).Inc()
 	}
 	if err != nil {
-		monitoring.GetMetrics().ModuleExternalError.WithLabelValues("generate", "openai", "OpenAI API", fmt.Sprintf("%v", res.StatusCode)).Inc()
+		code := -1
+		if res != nil {
+			code = res.StatusCode
+		}
+		monitoring.GetMetrics().ModuleExternalError.WithLabelValues("generate", "openai", "OpenAI API", fmt.Sprintf("%v", code)).Inc()
 		return nil, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()

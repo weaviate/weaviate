@@ -4,13 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package lsmkv
 
@@ -425,6 +424,46 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 				assert.Equal(t, pair.values, retrieved)
 			}
 		})
+}
+
+func compactionMapStrategy_HugeEntries(ctx context.Context, t *testing.T, opts []BucketOption) {
+	dirName := t.TempDir()
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.Nil(t, err)
+
+	// so big it effectively never triggers as part of this test
+	b.SetMemtableThreshold(1e9)
+	key := []byte("my-key")
+
+	// test with very big values to make sure that the read cache can handle it
+	byteKey := make([]byte, 10000)
+	byteVal := make([]byte, 10000)
+
+	for i := 0; i < len(byteKey); i++ {
+		byteKey[i] = byteKey[i] + 1
+		byteVal[i] = byteVal[i] + 1
+	}
+
+	// first segment
+	require.NoError(t, b.MapSet(key, MapPair{Key: byteKey, Value: byteVal}))
+	require.NoError(t, b.FlushMemtable())
+
+	// second segment
+	require.NoError(t, b.MapSet(key, MapPair{Key: byteKey, Value: byteVal}))
+	require.NoError(t, b.FlushMemtable())
+
+	// compact and check that value is the same
+	once, err := b.disk.compactOnce()
+	require.NoError(t, err)
+	require.True(t, once)
+
+	list, err := b.MapList(ctx, key)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+
+	require.Equal(t, byteKey, list[0].Key)
+	require.Equal(t, byteVal, list[0].Value)
 }
 
 func compactionMapStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, opts []BucketOption) {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,6 +29,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	hnswindex "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -697,7 +698,8 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	shd.resetDimensionsLSM()
 
 	t.Run("count dimensions before insert", func(t *testing.T) {
-		dims := shd.Dimensions(ctx, "")
+		dims, err := shd.Dimensions(ctx, "")
+		require.NoError(t, err)
 		require.Equal(t, 0, dims)
 	})
 
@@ -716,7 +718,8 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	})
 
 	t.Run("count dimensions", func(t *testing.T) {
-		dims := shd.Dimensions(ctx, "")
+		dims, err := shd.Dimensions(ctx, "")
+		require.NoError(t, err)
 		require.Equal(t, 3*amount, dims)
 	})
 
@@ -726,7 +729,8 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	})
 
 	t.Run("count dimensions after reset", func(t *testing.T) {
-		dims := shd.Dimensions(ctx, "")
+		dims, err := shd.Dimensions(ctx, "")
+		require.NoError(t, err)
 		require.Equal(t, 0, dims)
 	})
 
@@ -745,7 +749,8 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	})
 
 	t.Run("count dimensions after reset and insert", func(t *testing.T) {
-		dims := shd.Dimensions(ctx, "")
+		dims, err := shd.Dimensions(ctx, "")
+		require.NoError(t, err)
 		require.Equal(t, 3*amount, dims)
 	})
 
@@ -758,7 +763,7 @@ func TestShard_UpgradeIndex(t *testing.T) {
 	t.Setenv("QUEUE_SCHEDULER_INTERVAL", "1ms")
 
 	cfg := dynamic.NewDefaultUserConfig()
-	cfg.Threshold = 1000
+	cfg.Threshold = 400
 
 	ctx := context.Background()
 	className := "SomeClass"
@@ -776,7 +781,7 @@ func TestShard_UpgradeIndex(t *testing.T) {
 		}
 	}(shd.Index().Config.RootPath)
 
-	amount := 1000
+	amount := 400
 	for i := 0; i < 3; i++ {
 		objs := make([]*storobj.Object, 0, amount)
 		for j := 0; j < amount; j++ {

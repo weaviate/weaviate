@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,10 +18,37 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
+
+func (m *Memtable) flushWAL() error {
+	if err := m.commitlog.close(); err != nil {
+		return err
+	}
+
+	if m.Size() == 0 {
+		// this is an empty memtable, nothing to do
+		// however, we still have to cleanup the commit log, otherwise we will
+		// attempt to recover from it on the next cycle
+		if err := m.commitlog.delete(); err != nil {
+			return errors.Wrap(err, "delete commit log file")
+		}
+		return nil
+	}
+
+	// fsync parent directory
+	err := diskio.Fsync(filepath.Dir(m.path))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
 
 func (m *Memtable) flush() (rerr error) {
 	// close the commit log first, this also forces it to be fsynced. If
@@ -57,7 +84,13 @@ func (m *Memtable) flush() (rerr error) {
 		}
 	}()
 
-	bufw := bufio.NewWriter(f)
+	observeWrite := m.metrics.writeMemtable
+	cb := func(written int64) {
+		observeWrite(written)
+	}
+	meteredF := diskio.NewMeteredWriter(f, cb)
+
+	bufw := bufio.NewWriter(meteredF)
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(bufw),
 		segmentindex.WithChecksumsDisabled(!m.enableChecksumValidation),
@@ -105,6 +138,10 @@ func (m *Memtable) flush() (rerr error) {
 			Keys:                keys,
 			SecondaryIndexCount: m.secondaryIndices,
 			ScratchSpacePath:    m.path + ".scratch.d",
+			ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+				"strategy":  m.strategy,
+				"operation": "writeIndices",
+			}),
 		}
 
 		// TODO: Currently no checksum validation support for StrategyInverted.
@@ -126,6 +163,10 @@ func (m *Memtable) flush() (rerr error) {
 	//       all strategies we can simply `segmentFile.WriteChecksum()`
 	if m.strategy != StrategyInverted {
 		if _, err := segmentFile.WriteChecksum(); err != nil {
+			return err
+		}
+	} else {
+		if err := bufw.Flush(); err != nil {
 			return err
 		}
 	}

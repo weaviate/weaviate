@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -169,6 +169,10 @@ func (f *fakeCache) PreloadMulti(docID uint64, ids []uint64, vecs [][]float32) {
 }
 
 func (f *fakeCache) PreloadPassage(id uint64, docID uint64, relativeID uint64, vec []float32) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) GetDoc(ctx context.Context, docID uint64) ([][]float32, error) {
 	panic("not implemented")
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -115,7 +115,7 @@ func (db *DB) ShardsBackup(
 	idx.shardTransferMutex.Lock()
 	defer idx.shardTransferMutex.Unlock()
 	for shardName, shard := range sm {
-		if err := shard.HaltForTransfer(ctx, false); err != nil {
+		if err := shard.HaltForTransfer(ctx, false, 0); err != nil {
 			return cd, fmt.Errorf("class %q: shard %q: begin backup: %w", class, shardName, err)
 		}
 
@@ -218,7 +218,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	defer i.shardTransferMutex.Unlock()
 
 	if err = i.ForEachShard(func(name string, s ShardLike) error {
-		if err = s.HaltForTransfer(ctx, false); err != nil {
+		if err = s.HaltForTransfer(ctx, false, 0); err != nil {
 			return fmt.Errorf("pause compaction and flush: %w", err)
 		}
 		var sd backup.ShardDescriptor

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -291,6 +291,8 @@ func (s *Shard) resetDimensionsLSM() error {
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		s.segmentCleanupConfig(),
 	)
 	if err != nil {

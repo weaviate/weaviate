@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -74,6 +74,8 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/.*$`, authorization.DataDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/[^/]+$`, authorization.DataDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+$`, authorization.ReplicateDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+/aliases/[^/]+$`, authorization.AliasesDomain),
 }
 
 func newPolicy(policy []string) *authorization.Policy {
@@ -140,6 +142,31 @@ func CasbinSchema(collection, shard string) string {
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
 	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.SchemaDomain, collection, shard)
+}
+
+func CasbinReplicate(collection, shard string) string {
+	collection = schema.UppercaseClassesNames(collection)[0]
+	if collection == "" {
+		collection = "*"
+	}
+	if shard == "" {
+		shard = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	shard = strings.ReplaceAll(shard, "*", ".*")
+	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.ReplicateDomain, collection, shard)
+}
+
+func CasbinAliases(collection, alias string) string {
+	if collection == "" {
+		collection = "*"
+	}
+	if alias == "" {
+		alias = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	alias = strings.ReplaceAll(alias, "*", ".*")
+	return fmt.Sprintf("%s/collections/%s/aliases/%s", authorization.AliasesDomain, collection, alias)
 }
 
 func CasbinData(collection, shard, object string) string {
@@ -277,6 +304,30 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			}
 		}
 		resource = CasbinNodes(verbosity, collection)
+	case authorization.ReplicateDomain:
+		collection := "*"
+		shard := "*"
+		if permission.Replicate != nil {
+			if permission.Replicate.Collection != nil {
+				collection = schema.UppercaseClassName(*permission.Replicate.Collection)
+			}
+			if permission.Replicate.Shard != nil {
+				shard = *permission.Replicate.Shard
+			}
+		}
+		resource = CasbinReplicate(collection, shard)
+	case authorization.AliasesDomain:
+		collection := "*"
+		alias := "*"
+		if permission.Aliases != nil {
+			if permission.Aliases.Collection != nil {
+				collection = schema.UppercaseClassName(*permission.Aliases.Collection)
+			}
+			if permission.Aliases.Alias != nil {
+				alias = schema.UppercaseClassName(*permission.Aliases.Alias)
+			}
+		}
+		resource = CasbinAliases(collection, alias)
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 
@@ -379,6 +430,16 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Users = &models.PermissionUsers{
 			Users: &splits[1],
 		}
+	case authorization.ReplicateDomain:
+		permission.Replicate = &models.PermissionReplicate{
+			Collection: &splits[2],
+			Shard:      &splits[4],
+		}
+	case authorization.AliasesDomain:
+		permission.Aliases = &models.PermissionAliases{
+			Collection: &splits[2],
+			Alias:      &splits[4],
+		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups
 		permission.Data = authorization.AllData
@@ -387,6 +448,8 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Collections = authorization.AllCollections
 		permission.Tenants = authorization.AllTenants
 		permission.Users = authorization.AllUsers
+		permission.Replicate = authorization.AllReplicate
+		permission.Aliases = authorization.AllAliases
 	case authorization.ClusterDomain:
 		// do nothing
 	default:

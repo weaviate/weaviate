@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,12 +25,12 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ReplicationReplicateReplicaResponse The OK response of POST /replication/replicate
+// ReplicationReplicateReplicaResponse Contains the unique identifier for a successfully initiated asynchronous replica movement operation. This ID can be used to track the progress of the operation.
 //
 // swagger:model ReplicationReplicateReplicaResponse
 type ReplicationReplicateReplicaResponse struct {
 
-	// The unique id of the replication operation.
+	// The unique identifier (ID) assigned to the registered replication operation.
 	// Required: true
 	// Format: uuid
 	ID *strfmt.UUID `json:"id"`

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -34,11 +34,13 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	repl *additional.ReplicationProperties, tenant string,
 ) (*BatchDeleteResponse, error) {
 	class := "*"
+	aliasName := ""
 	if match != nil {
+		match.Class, aliasName = b.resolveAlias(match.Class)
 		class = match.Class
 	}
 
-	err := b.authorizer.Authorize(principal, authorization.DELETE, authorization.ShardsData(class, tenant)...)
+	err := b.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsData(class, tenant)...)
 	if err != nil {
 		return nil, err
 	}
@@ -48,6 +50,10 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
+	if aliasName != "" {
+		batchDeleteResponse, err := b.deleteObjects(ctx, principal, match, deletionTimeUnixMilli, dryRun, output, repl, tenant)
+		return b.batchDeleteWithAlias(batchDeleteResponse, aliasName), err
+	}
 	return b.deleteObjects(ctx, principal, match, deletionTimeUnixMilli, dryRun, output, repl, tenant)
 }
 
@@ -136,7 +142,7 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		return nil, 0, fmt.Errorf("failed to parse where filter: %w", err)
 	}
 
-	err = filters.ValidateFilters(b.classGetterFunc(principal), filter)
+	err = filters.ValidateFilters(b.classGetterFunc(ctx, principal), filter)
 	if err != nil {
 		return nil, 0, fmt.Errorf("invalid where filter: %w", err)
 	}
@@ -160,9 +166,9 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	return params, vclasses[match.Class].Version, nil
 }
 
-func (b *BatchManager) classGetterFunc(principal *models.Principal) func(string) (*models.Class, error) {
+func (b *BatchManager) classGetterFunc(ctx context.Context, principal *models.Principal) func(string) (*models.Class, error) {
 	return func(name string) (*models.Class, error) {
-		if err := b.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+		if err := b.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Collections(name)...); err != nil {
 			return nil, err
 		}
 		class := b.schemaManager.ReadOnlyClass(name)

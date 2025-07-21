@@ -36,6 +36,7 @@ type AggregateRequest struct {
 	// matches/searches for objects
 	Filters *Filters `protobuf:"bytes,40,opt,name=filters,proto3,oneof" json:"filters,omitempty"`
 	// Types that are assignable to Search:
+	//
 	//	*AggregateRequest_Hybrid
 	//	*AggregateRequest_NearVector
 	//	*AggregateRequest_NearObject
@@ -285,6 +286,7 @@ type AggregateReply struct {
 
 	Took float32 `protobuf:"fixed32,1,opt,name=took,proto3" json:"took,omitempty"`
 	// Types that are assignable to Result:
+	//
 	//	*AggregateReply_SingleResult
 	//	*AggregateReply_GroupedResults
 	Result isAggregateReply_Result `protobuf_oneof:"result"`
@@ -373,6 +375,7 @@ type AggregateRequest_Aggregation struct {
 
 	Property string `protobuf:"bytes,1,opt,name=property,proto3" json:"property,omitempty"`
 	// Types that are assignable to Aggregation:
+	//
 	//	*AggregateRequest_Aggregation_Int
 	//	*AggregateRequest_Aggregation_Number_
 	//	*AggregateRequest_Aggregation_Text_
@@ -1290,6 +1293,7 @@ type AggregateReply_Aggregations_Aggregation struct {
 
 	Property string `protobuf:"bytes,1,opt,name=property,proto3" json:"property,omitempty"`
 	// Types that are assignable to Aggregation:
+	//
 	//	*AggregateReply_Aggregations_Aggregation_Int
 	//	*AggregateReply_Aggregations_Aggregation_Number_
 	//	*AggregateReply_Aggregations_Aggregation_Text_
@@ -2042,6 +2046,7 @@ type AggregateReply_Group_GroupedBy struct {
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	Path []string `protobuf:"bytes,1,rep,name=path,proto3" json:"path,omitempty"`
 	// Types that are assignable to Value:
+	//
 	//	*AggregateReply_Group_GroupedBy_Text
 	//	*AggregateReply_Group_GroupedBy_Int
 	//	*AggregateReply_Group_GroupedBy_Boolean
@@ -2630,7 +2635,7 @@ func file_v1_aggregate_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_aggregate_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
-var file_v1_aggregate_proto_goTypes = []interface{}{
+var file_v1_aggregate_proto_goTypes = []any{
 	(*AggregateRequest)(nil),                                                          // 0: weaviate.v1.AggregateRequest
 	(*AggregateReply)(nil),                                                            // 1: weaviate.v1.AggregateReply
 	(*AggregateRequest_Aggregation)(nil),                                              // 2: weaviate.v1.AggregateRequest.Aggregation
@@ -2727,7 +2732,7 @@ func file_v1_aggregate_proto_init() {
 	file_v1_base_proto_init()
 	file_v1_base_search_proto_init()
 	if !protoimpl.UnsafeEnabled {
-		file_v1_aggregate_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[0].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateRequest); i {
 			case 0:
 				return &v.state
@@ -2739,7 +2744,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[1].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateReply); i {
 			case 0:
 				return &v.state
@@ -2751,7 +2756,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[2].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateRequest_Aggregation); i {
 			case 0:
 				return &v.state
@@ -2763,7 +2768,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[3].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateRequest_GroupBy); i {
 			case 0:
 				return &v.state
@@ -2775,7 +2780,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[4].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateRequest_Aggregation_Integer); i {
 			case 0:
 				return &v.state
@@ -2787,7 +2792,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[5].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateRequest_Aggregation_Number); i {
 			case 0:
 				return &v.state
@@ -2799,7 +2804,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[6].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateRequest_Aggregation_Text); i {
 			case 0:
 				return &v.state
@@ -2811,7 +2816,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[7].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateRequest_Aggregation_Boolean); i {
 			case 0:
 				return &v.state
@@ -2823,7 +2828,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[8].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateRequest_Aggregation_Date); i {
 			case 0:
 				return &v.state
@@ -2835,7 +2840,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[9].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateRequest_Aggregation_Reference); i {
 			case 0:
 				return &v.state
@@ -2847,7 +2852,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[10].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateReply_Aggregations); i {
 			case 0:
 				return &v.state
@@ -2859,7 +2864,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[11].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateReply_Single); i {
 			case 0:
 				return &v.state
@@ -2871,7 +2876,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[12].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateReply_Group); i {
 			case 0:
 				return &v.state
@@ -2883,7 +2888,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[13].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateReply_Grouped); i {
 			case 0:
 				return &v.state
@@ -2895,7 +2900,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[14].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateReply_Aggregations_Aggregation); i {
 			case 0:
 				return &v.state
@@ -2907,7 +2912,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[15].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateReply_Aggregations_Aggregation_Integer); i {
 			case 0:
 				return &v.state
@@ -2919,7 +2924,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[16].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateReply_Aggregations_Aggregation_Number); i {
 			case 0:
 				return &v.state
@@ -2931,7 +2936,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[17].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateReply_Aggregations_Aggregation_Text); i {
 			case 0:
 				return &v.state
@@ -2943,7 +2948,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[18].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[18].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateReply_Aggregations_Aggregation_Boolean); i {
 			case 0:
 				return &v.state
@@ -2955,7 +2960,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[19].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[19].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateReply_Aggregations_Aggregation_Date); i {
 			case 0:
 				return &v.state
@@ -2967,7 +2972,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[20].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[20].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateReply_Aggregations_Aggregation_Reference); i {
 			case 0:
 				return &v.state
@@ -2979,7 +2984,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[21].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[21].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences); i {
 			case 0:
 				return &v.state
@@ -2991,7 +2996,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[22].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[22].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence); i {
 			case 0:
 				return &v.state
@@ -3003,7 +3008,7 @@ func file_v1_aggregate_proto_init() {
 				return nil
 			}
 		}
-		file_v1_aggregate_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_aggregate_proto_msgTypes[23].Exporter = func(v any, i int) any {
 			switch v := v.(*AggregateReply_Group_GroupedBy); i {
 			case 0:
 				return &v.state
@@ -3016,7 +3021,7 @@ func file_v1_aggregate_proto_init() {
 			}
 		}
 	}
-	file_v1_aggregate_proto_msgTypes[0].OneofWrappers = []interface{}{
+	file_v1_aggregate_proto_msgTypes[0].OneofWrappers = []any{
 		(*AggregateRequest_Hybrid)(nil),
 		(*AggregateRequest_NearVector)(nil),
 		(*AggregateRequest_NearObject)(nil),
@@ -3028,11 +3033,11 @@ func file_v1_aggregate_proto_init() {
 		(*AggregateRequest_NearThermal)(nil),
 		(*AggregateRequest_NearImu)(nil),
 	}
-	file_v1_aggregate_proto_msgTypes[1].OneofWrappers = []interface{}{
+	file_v1_aggregate_proto_msgTypes[1].OneofWrappers = []any{
 		(*AggregateReply_SingleResult)(nil),
 		(*AggregateReply_GroupedResults)(nil),
 	}
-	file_v1_aggregate_proto_msgTypes[2].OneofWrappers = []interface{}{
+	file_v1_aggregate_proto_msgTypes[2].OneofWrappers = []any{
 		(*AggregateRequest_Aggregation_Int)(nil),
 		(*AggregateRequest_Aggregation_Number_)(nil),
 		(*AggregateRequest_Aggregation_Text_)(nil),
@@ -3040,10 +3045,10 @@ func file_v1_aggregate_proto_init() {
 		(*AggregateRequest_Aggregation_Date_)(nil),
 		(*AggregateRequest_Aggregation_Reference_)(nil),
 	}
-	file_v1_aggregate_proto_msgTypes[6].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[11].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[12].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[14].OneofWrappers = []interface{}{
+	file_v1_aggregate_proto_msgTypes[6].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[11].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[12].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[14].OneofWrappers = []any{
 		(*AggregateReply_Aggregations_Aggregation_Int)(nil),
 		(*AggregateReply_Aggregations_Aggregation_Number_)(nil),
 		(*AggregateReply_Aggregations_Aggregation_Text_)(nil),
@@ -3051,13 +3056,13 @@ func file_v1_aggregate_proto_init() {
 		(*AggregateReply_Aggregations_Aggregation_Date_)(nil),
 		(*AggregateReply_Aggregations_Aggregation_Reference_)(nil),
 	}
-	file_v1_aggregate_proto_msgTypes[15].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[16].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[17].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[18].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[19].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[20].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[23].OneofWrappers = []interface{}{
+	file_v1_aggregate_proto_msgTypes[15].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[16].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[17].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[18].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[19].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[20].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[23].OneofWrappers = []any{
 		(*AggregateReply_Group_GroupedBy_Text)(nil),
 		(*AggregateReply_Group_GroupedBy_Int)(nil),
 		(*AggregateReply_Group_GroupedBy_Boolean)(nil),

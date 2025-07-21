@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -42,7 +42,8 @@ func TestRevokeRoleFromUserSuccess(t *testing.T) {
 			name:      "successful revocation",
 			principal: &models.Principal{Username: "user1"},
 			params: authz.RevokeRoleFromUserParams{
-				ID: "user1",
+				ID:          "user1",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromUserBody{
 					Roles:    []string{"testRole"},
 					UserType: userType,
@@ -52,7 +53,8 @@ func TestRevokeRoleFromUserSuccess(t *testing.T) {
 		{
 			name: "revoke another user not configured admin role",
 			params: authz.RevokeRoleFromUserParams{
-				ID: "user1",
+				ID:          "user1",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromUserBody{
 					Roles:    []string{"admin"},
 					UserType: userType,
@@ -64,7 +66,8 @@ func TestRevokeRoleFromUserSuccess(t *testing.T) {
 		{
 			name: "revoke another user user not configured viewer role",
 			params: authz.RevokeRoleFromUserParams{
-				ID: "user1",
+				ID:          "user1",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromUserBody{
 					Roles:    []string{"viewer"},
 					UserType: userType,
@@ -81,7 +84,7 @@ func TestRevokeRoleFromUserSuccess(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, nil)
 			controller.On("RevokeRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, tt.params.Body.UserType), tt.params.Body.Roles[0]).Return(nil)
 
@@ -111,7 +114,8 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 			name:      "successful revocation",
 			principal: &models.Principal{Username: "root-user"},
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "user1",
+				ID:          "user1",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromGroupBody{
 					Roles: []string{"testRole"},
 				},
@@ -121,7 +125,8 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 			name:      "successful revocation via root group",
 			principal: &models.Principal{Username: "not-root-user", Groups: []string{"root-group"}},
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "user1",
+				ID:          "user1",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromGroupBody{
 					Roles: []string{"testRole"},
 				},
@@ -130,7 +135,8 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 		{
 			name: "revoke another user not configured admin role",
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "user1",
+				ID:          "user1",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromGroupBody{
 					Roles: []string{"admin"},
 				},
@@ -141,7 +147,8 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 		{
 			name: "revoke another user user not configured viewer role",
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "user1",
+				ID:          "user1",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromGroupBody{
 					Roles: []string{"viewer"},
 				},
@@ -157,7 +164,7 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, nil)
 			controller.On("RevokeRolesForUser", conv.PrefixGroupName(tt.params.ID), tt.params.Body.Roles[0]).Return(nil)
 
@@ -192,7 +199,8 @@ func TestRevokeRoleFromUserBadRequest(t *testing.T) {
 		{
 			name: "empty role",
 			params: authz.RevokeRoleFromUserParams{
-				ID: "testUser",
+				ID:          "testUser",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromUserBody{
 					Roles: []string{""},
 				},
@@ -210,7 +218,7 @@ func TestRevokeRoleFromUserBadRequest(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if tt.callAuthZ {
-				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			}
 
 			h := &authZHandlers{
@@ -243,7 +251,8 @@ func TestRevokeRoleFromGroupBadRequest(t *testing.T) {
 		{
 			name: "empty role",
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "testUser",
+				ID:          "testUser",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromGroupBody{
 					Roles: []string{""},
 				},
@@ -261,7 +270,7 @@ func TestRevokeRoleFromGroupBadRequest(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if tt.callAuthZ {
-				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			}
 
 			h := &authZHandlers{
@@ -294,7 +303,8 @@ func TestRevokeRoleFromUserOrUserNotFound(t *testing.T) {
 		{
 			name: "user not found",
 			params: authz.RevokeRoleFromUserParams{
-				ID: "user_not_exist",
+				ID:          "user_not_exist",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromUserBody{
 					Roles: []string{"role1"},
 				},
@@ -307,7 +317,8 @@ func TestRevokeRoleFromUserOrUserNotFound(t *testing.T) {
 		{
 			name: "role not found",
 			params: authz.RevokeRoleFromUserParams{
-				ID: "user1",
+				ID:          "user1",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromUserBody{
 					Roles: []string{"role1"},
 				},
@@ -325,7 +336,7 @@ func TestRevokeRoleFromUserOrUserNotFound(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
 			if tt.callToGetUser {
@@ -360,7 +371,8 @@ func TestRevokeRoleFromGroupOrUserNotFound(t *testing.T) {
 		{
 			name: "role not found",
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "user1",
+				ID:          "user1",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromGroupBody{
 					Roles: []string{"role1"},
 				},
@@ -378,7 +390,7 @@ func TestRevokeRoleFromGroupOrUserNotFound(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), mock.Anything, mock.Anything).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), mock.Anything, mock.Anything).Return(nil)
 
 			if tt.callToGetRole {
 				controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
@@ -414,7 +426,8 @@ func TestRevokeRoleFromUserForbidden(t *testing.T) {
 		{
 			name: "authorization error",
 			params: authz.RevokeRoleFromUserParams{
-				ID: "testUser",
+				ID:          "testUser",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromUserBody{
 					Roles: []string{"testRole"},
 				},
@@ -426,7 +439,8 @@ func TestRevokeRoleFromUserForbidden(t *testing.T) {
 		{
 			name: "revoke configured root role",
 			params: authz.RevokeRoleFromUserParams{
-				ID: "root-user",
+				ID:          "root-user",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromUserBody{
 					Roles: []string{"root"},
 				},
@@ -444,7 +458,7 @@ func TestRevokeRoleFromUserForbidden(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if !tt.skipAuthZ {
-				authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(tt.authorizeErr)
+				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{
@@ -480,7 +494,8 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 		{
 			name: "authorization error",
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "testUser",
+				ID:          "testUser",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromGroupBody{
 					Roles: []string{"testRole"},
 				},
@@ -492,7 +507,8 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 		{
 			name: "revoke role from root group as root user",
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "viewer-root-group",
+				ID:          "viewer-root-group",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromGroupBody{
 					Roles: []string{"something"},
 				},
@@ -503,7 +519,8 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 		{
 			name: "revoke role from root group as non-root user",
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "viewer-root-group",
+				ID:          "viewer-root-group",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromGroupBody{
 					Roles: []string{"something"},
 				},
@@ -514,7 +531,8 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 		{
 			name: "revoke configured root role",
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "testUser",
+				ID:          "testUser",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromGroupBody{
 					Roles: []string{"root"},
 				},
@@ -532,7 +550,7 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if !tt.skipAuthZ {
-				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
+				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{
@@ -540,9 +558,9 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 				rbacconfig: rbacconf.Config{
-					RootUsers:        []string{"root-user"},
-					RootGroups:       []string{"root-group"},
-					ViewerRootGroups: []string{"viewer-root-group"},
+					RootUsers:    []string{"root-user"},
+					RootGroups:   []string{"root-group"},
+					ViewerGroups: []string{"viewer-root-group"},
 				},
 			}
 			res := h.revokeRoleFromGroup(tt.params, tt.principal)
@@ -570,7 +588,8 @@ func TestRevokeRoleFromUserInternalServerError(t *testing.T) {
 		{
 			name: "internal server error from revoking",
 			params: authz.RevokeRoleFromUserParams{
-				ID: "testUser",
+				ID:          "testUser",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromUserBody{
 					Roles:    []string{"testRole"},
 					UserType: userType,
@@ -583,7 +602,8 @@ func TestRevokeRoleFromUserInternalServerError(t *testing.T) {
 		{
 			name: "internal server error from getting role",
 			params: authz.RevokeRoleFromUserParams{
-				ID: "testUser",
+				ID:          "testUser",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromUserBody{
 					Roles:    []string{"testRole"},
 					UserType: userType,
@@ -601,7 +621,7 @@ func TestRevokeRoleFromUserInternalServerError(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
 				controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
@@ -638,7 +658,8 @@ func TestRevokeRoleFromGroupInternalServerError(t *testing.T) {
 		{
 			name: "internal server error from revoking",
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "testUser",
+				ID:          "testUser",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromGroupBody{
 					Roles: []string{"testRole"},
 				},
@@ -650,7 +671,8 @@ func TestRevokeRoleFromGroupInternalServerError(t *testing.T) {
 		{
 			name: "internal server error from getting role",
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "testUser",
+				ID:          "testUser",
+				HTTPRequest: req,
 				Body: authz.RevokeRoleFromGroupBody{
 					Roles: []string{"testRole"},
 				},
@@ -667,7 +689,7 @@ func TestRevokeRoleFromGroupInternalServerError(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
 				controller.On("RevokeRolesForUser", conv.PrefixGroupName(tt.params.ID), tt.params.Body.Roles[0]).Return(tt.revokeErr)

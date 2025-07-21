@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -233,7 +233,12 @@ func (r *ShardInvertedReindexer) createTempBucket(ctx context.Context, name stri
 	strategy string, options ...lsmkv.BucketOption,
 ) error {
 	tempName := helpers.TempBucketFromBucketName(name)
-	bucketOptions := append(options, lsmkv.WithStrategy(strategy))
+	index := r.shard.Index()
+	bucketOptions := append(options,
+		lsmkv.WithStrategy(strategy),
+		lsmkv.WithMinMMapSize(index.Config.MinMMapSize),
+		lsmkv.WithMinWalThreshold(index.Config.MaxReuseWalSize),
+	)
 
 	if err := r.shard.Store().CreateBucket(ctx, tempName, bucketOptions...); err != nil {
 		return errors.Wrapf(err, "failed creating temp bucket '%s'", tempName)

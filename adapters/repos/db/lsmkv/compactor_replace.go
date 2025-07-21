@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,14 +12,18 @@
 package lsmkv
 
 import (
-	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
 	"io"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
+
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type compactorReplace struct {
@@ -37,7 +41,8 @@ type compactorReplace struct {
 	secondaryIndexCount uint16
 
 	w                io.WriteSeeker
-	bufw             *bufio.Writer
+	bufw             compactor.Writer
+	mw               *compactor.MemoryWriter
 	scratchSpacePath string
 
 	enableChecksumValidation bool
@@ -46,13 +51,24 @@ type compactorReplace struct {
 func newCompactorReplace(w io.WriteSeeker,
 	c1, c2 *segmentCursorReplace, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
-	enableChecksumValidation bool,
+	enableChecksumValidation bool, maxNewFileSize int64,
 ) *compactorReplace {
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"operation": "compaction",
+		"strategy":  StrategyReplace,
+	})
+	writeCB := func(written int64) {
+		observeWrite.Observe(float64(written))
+	}
+	meteredW := diskio.NewMeteredWriter(w, writeCB)
+	writer, mw := compactor.NewWriter(meteredW, maxNewFileSize)
+
 	return &compactorReplace{
 		c1:                       c1,
 		c2:                       c2,
-		w:                        w,
-		bufw:                     bufio.NewWriterSize(w, 256*1024),
+		w:                        meteredW,
+		bufw:                     writer,
+		mw:                       mw,
 		currentLevel:             level,
 		cleanupTombstones:        cleanupTombstones,
 		secondaryIndexCount:      secondaryIndexCount,
@@ -81,8 +97,10 @@ func (c *compactorReplace) do() error {
 	}
 
 	// flush buffered, so we can safely seek on underlying writer
-	if err := c.bufw.Flush(); err != nil {
-		return fmt.Errorf("flush buffered: %w", err)
+	if c.mw == nil {
+		if err := c.bufw.Flush(); err != nil {
+			return fmt.Errorf("flush buffered: %w", err)
+		}
 	}
 
 	var dataEnd uint64 = segmentindex.HeaderSize
@@ -91,8 +109,8 @@ func (c *compactorReplace) do() error {
 	}
 
 	version := segmentindex.ChooseHeaderVersion(c.enableChecksumValidation)
-	if err := c.writeHeader(segmentFile, c.currentLevel,
-		version, c.secondaryIndexCount, dataEnd); err != nil {
+	if err := compactor.WriteHeader(c.mw, c.w, c.bufw, segmentFile, c.currentLevel, version,
+		c.secondaryIndexCount, dataEnd, segmentindex.StrategyReplace); err != nil {
 		return fmt.Errorf("write header: %w", err)
 	}
 
@@ -198,45 +216,11 @@ func (c *compactorReplace) writeIndexes(f *segmentindex.SegmentFile,
 		Keys:                keys,
 		SecondaryIndexCount: c.secondaryIndexCount,
 		ScratchSpacePath:    c.scratchSpacePath,
+		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+			"strategy":  StrategyReplace,
+			"operation": "writeIndices",
+		}),
 	}
 	_, err := f.WriteIndexes(indexes)
 	return err
-}
-
-// writeHeader assumes that everything has been written to the underlying
-// writer and it is now safe to seek to the beginning and override the initial
-// header
-func (c *compactorReplace) writeHeader(f *segmentindex.SegmentFile,
-	level, version, secondaryIndices uint16, startOfIndex uint64,
-) error {
-	if _, err := c.w.Seek(0, io.SeekStart); err != nil {
-		return fmt.Errorf("seek to beginning to write header: %w", err)
-	}
-
-	h := &segmentindex.Header{
-		Level:            level,
-		Version:          version,
-		SecondaryIndices: secondaryIndices,
-		Strategy:         segmentindex.StrategyReplace,
-		IndexStart:       startOfIndex,
-	}
-	// We have to write directly to compactor writer,
-	// since it has seeked back to start. The following
-	// call to f.WriteHeader will not write again.
-	if _, err := h.WriteTo(c.w); err != nil {
-		return err
-	}
-
-	if _, err := f.WriteHeader(h); err != nil {
-		return err
-	}
-
-	// We need to seek back to the end so we can write a checksum
-	if _, err := c.w.Seek(0, io.SeekEnd); err != nil {
-		return fmt.Errorf("seek to end after writing header: %w", err)
-	}
-
-	c.bufw.Reset(c.w)
-
-	return nil
 }

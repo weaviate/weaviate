@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,12 +12,9 @@
 package hnsw
 
 import (
-	"bufio"
 	"context"
 	"encoding/binary"
 	"fmt"
-	"io"
-	"os"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -27,15 +24,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 func (h *hnsw) init(cfg Config) error {
 	h.pools = newPools(h.maximumConnectionsLayerZero, h.visitedListPoolMaxSize)
-
-	if err := h.restoreFromDisk(); err != nil {
-		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
-	}
 
 	// init commit logger for future writes
 	cl, err := cfg.MakeCommitLoggerThunk()
@@ -43,6 +35,9 @@ func (h *hnsw) init(cfg Config) error {
 		return errors.Wrap(err, "create commit logger")
 	}
 
+	if err := h.restoreFromDisk(cl); err != nil {
+		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
+	}
 	h.commitLog = cl
 
 	// report the vector_index_size at server startup.
@@ -56,67 +51,63 @@ func (h *hnsw) init(cfg Config) error {
 
 // if a commit log is already present it will be read into memory, if not we
 // start with an empty model
-func (h *hnsw) restoreFromDisk() error {
+func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	beforeAll := time.Now()
 	defer h.metrics.TrackStartupTotal(beforeAll)
+	defer func() {
+		h.logger.WithField("action", "restore_from_disk").
+			WithField("duration", time.Since(beforeAll).String()).
+			Info("restored data from disk")
+	}()
 
-	fileNames, err := getCommitFileNames(h.rootPath, h.id)
+	var state *DeserializationResult
+	var stateTimestamp int64
+	var err error
+
+	if !h.disableSnapshots {
+		if h.snapshotOnStartup {
+			// This will opportunistically create a snapshot if it does not exist yet,
+			// as we are loading state from disk. Otherwise, it simply loads
+			// the last snapshot.
+			state, stateTimestamp, err = cl.CreateAndLoadSnapshot()
+		} else {
+			state, stateTimestamp, err = cl.LoadSnapshot()
+		}
+
+		if err != nil {
+			// errors reading snapshots are not fatal
+			// we can still read the commit log from the beginning
+			h.logger.
+				WithError(err).
+				WithField("action", "restore_from_disk").
+				Error("failed to read last snapshot, loading from commit log")
+
+			state = nil
+			stateTimestamp = 0
+		} else if state == nil {
+			h.logger.
+				WithField("action", "restore_from_disk").
+				Info("no snapshot found, loading from commit log")
+		}
+	} else {
+		h.logger.
+			WithField("action", "restore_from_disk").
+			Info("snapshots disabled, loading from commit log")
+	}
+
+	fileNames, err := getCommitFileNames(h.rootPath, h.id, stateTimestamp)
 	if err != nil {
 		return err
 	}
 
-	if len(fileNames) == 0 {
+	state, err = loadCommitLoggerState(h.logger, fileNames, state, h.metrics)
+	if err != nil {
+		return errors.Wrap(err, "load commit logger state")
+	}
+
+	if state == nil {
 		// nothing to do
 		return nil
-	}
-
-	fileNames, err = NewCorruptedCommitLogFixer(h.logger).Do(fileNames)
-	if err != nil {
-		return errors.Wrap(err, "corrupted commit log fixer")
-	}
-
-	var state *DeserializationResult
-	for i, fileName := range fileNames {
-		beforeIndividual := time.Now()
-
-		fd, err := os.Open(fileName)
-		if err != nil {
-			return errors.Wrapf(err, "open commit log %q for reading", fileName)
-		}
-
-		defer fd.Close()
-
-		metered := diskio.NewMeteredReader(fd,
-			h.metrics.TrackStartupReadCommitlogDiskIO)
-		fdBuf := bufio.NewReaderSize(metered, 256*1024)
-
-		var valid int
-		state, valid, err = NewDeserializer(h.logger).Do(fdBuf, state, false)
-		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				// we need to check for both EOF or UnexpectedEOF, as we don't know where
-				// the commit log got corrupted, a field ending that weset a longer
-				// encoding for would return EOF, whereas a field read with binary.Read
-				// with a fixed size would return UnexpectedEOF. From our perspective both
-				// are unexpected.
-
-				h.logger.WithField("action", "hnsw_load_commit_log_corruption").
-					WithField("path", fileName).
-					Error("write-ahead-log ended abruptly, some elements may not have been recovered")
-
-				// we need to truncate the file to its valid length!
-				if err := os.Truncate(fileName, int64(valid)); err != nil {
-					return errors.Wrapf(err, "truncate corrupt commit log %q", fileName)
-				}
-			} else {
-				// only return an actual error on non-EOF errors, otherwise we'll end
-				// up in a startup crashloop
-				return errors.Wrapf(err, "deserialize commit log %q", fileName)
-			}
-		}
-
-		h.metrics.StartupProgress(float64(i+1) / float64(len(fileNames)))
-		h.metrics.TrackStartupIndividual(beforeIndividual)
 	}
 
 	h.Lock()
@@ -133,8 +124,15 @@ func (h *hnsw) restoreFromDisk() error {
 	h.tombstoneLock.Unlock()
 
 	if h.multivector.Load() {
-		if err := h.restoreDocMappings(); err != nil {
-			return errors.Wrapf(err, "restore doc mappings %q", h.id)
+		if !h.muvera.Load() {
+			if err := h.restoreDocMappings(); err != nil {
+				return errors.Wrapf(err, "restore doc mappings %q", h.id)
+			}
+		} else if state.MuveraEnabled {
+			h.trackMuveraOnce.Do(func() {
+				h.muveraEncoder.LoadMuveraConfig(*state.EncoderMuvera)
+			})
+			h.muvera.Store(true)
 		}
 	}
 
@@ -150,7 +148,7 @@ func (h *hnsw) restoreFromDisk() error {
 				if h.pqConfig.Segments == 0 {
 					h.pqConfig.Segments = int(data.Dimensions)
 				}
-				if !h.multivector.Load() {
+				if !h.multivector.Load() || h.muvera.Load() {
 					h.compressor, err = compressionhelpers.RestoreHNSWPQCompressor(
 						h.pqConfig,
 						h.distancerProvider,
@@ -181,7 +179,7 @@ func (h *hnsw) restoreFromDisk() error {
 		} else if state.CompressionSQData != nil {
 			data := state.CompressionSQData
 			h.dims = int32(data.Dimensions)
-			if !h.multivector.Load() {
+			if !h.multivector.Load() || h.muvera.Load() {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQCompressor(
 					h.distancerProvider,
 					1e12,
@@ -207,6 +205,44 @@ func (h *hnsw) restoreFromDisk() error {
 			if err != nil {
 				return errors.Wrap(err, "Restoring compressed data.")
 			}
+		} else if state.CompressionRQData != nil {
+			data := state.CompressionRQData
+			if !h.multivector.Load() || h.muvera.Load() {
+				h.trackRQOnce.Do(func() {
+					h.compressor, err = compressionhelpers.RestoreRQCompressor(
+						h.distancerProvider,
+						1e12,
+						h.logger,
+						int(data.InputDim),
+						int(data.Bits),
+						int(data.Rotation.OutputDim),
+						int(data.Rotation.Rounds),
+						data.Rotation.Swaps,
+						data.Rotation.Signs,
+						h.store,
+						h.allocChecker,
+					)
+				})
+			} else {
+				h.trackRQOnce.Do(func() {
+					h.compressor, err = compressionhelpers.RestoreRQMultiCompressor(
+						h.distancerProvider,
+						1e12,
+						h.logger,
+						int(data.InputDim),
+						int(data.Bits),
+						int(data.Rotation.OutputDim),
+						int(data.Rotation.Rounds),
+						data.Rotation.Swaps,
+						data.Rotation.Signs,
+						h.store,
+						h.allocChecker,
+					)
+				})
+			}
+			if err != nil {
+				return errors.Wrap(err, "Restoring compressed data.")
+			}
 		} else {
 			return errors.New("unsupported type while loading compression data")
 		}
@@ -216,7 +252,7 @@ func (h *hnsw) restoreFromDisk() error {
 		// make sure the cache fits the current size
 		h.cache.Grow(uint64(len(h.nodes)))
 
-		if h.multivector.Load() {
+		if h.multivector.Load() && !h.muvera.Load() {
 			h.populateKeys()
 		}
 		if len(h.nodes) > 0 {
@@ -225,10 +261,13 @@ func (h *hnsw) restoreFromDisk() error {
 			}
 		}
 	}
-	if h.compressed.Load() && h.multivector.Load() {
+
+	if h.compressed.Load() && h.multivector.Load() && !h.muvera.Load() {
 		h.compressor.GrowCache(uint64(len(h.nodes)))
 		h.populateKeys()
 	}
+
+	h.resetTombstoneMetric()
 
 	// make sure the visited list pool fits the current size
 	h.pools.visitedLists.Destroy()
@@ -320,12 +359,24 @@ func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bo
 	return executed
 }
 
+// The vector_index_tombstones metric is represented as a counter so on
+// restart we need to reset it to the current number of tombstones read from
+// the commit log.
+func (h *hnsw) resetTombstoneMetric() {
+	h.tombstoneLock.Lock()
+	defer h.tombstoneLock.Unlock()
+	if len(h.tombstones) > 0 {
+		h.metrics.SetTombstone(len(h.tombstones))
+	}
+}
+
 // PostStartup triggers routines that should happen after startup. The startup
 // process is triggered during the creation which in turn happens as part of
 // the shard creation. Some post-startup routines, such as prefilling the
 // vector cache, however, depend on the shard being ready as they will call
 // getVectorForID.
 func (h *hnsw) PostStartup() {
+	h.commitLog.InitMaintenance()
 	h.prefillCache()
 }
 
@@ -348,7 +399,7 @@ func (h *hnsw) prefillCache() {
 
 		var err error
 		if h.compressed.Load() {
-			if !h.multivector.Load() {
+			if !h.multivector.Load() || h.muvera.Load() {
 				h.compressor.PrefillCache()
 			} else {
 				h.compressor.PrefillMultiCache(h.docIDVectors)

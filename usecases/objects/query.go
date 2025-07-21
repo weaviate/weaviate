@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -69,12 +69,14 @@ func (q *QueryParams) inputs(m *Manager) (*QueryInput, error) {
 func (m *Manager) Query(ctx context.Context, principal *models.Principal, params *QueryParams,
 ) ([]*models.Object, *Error) {
 	class := "*"
+	aliasName := ""
 
 	if params != nil && params.Class != "" {
+		params.Class, aliasName = m.resolveAlias(params.Class)
 		class = params.Class
 	}
 
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(class)...); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsData(class)...); err != nil {
 		return nil, &Error{err.Error(), StatusForbidden, err}
 	}
 
@@ -87,6 +89,7 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 	}
 
 	filteredQuery := filter.New[*QueryInput](m.authorizer, m.config.Config.Authorization.Rbac).Filter(
+		ctx,
 		m.logger,
 		principal,
 		[]*QueryInput{q},
@@ -116,5 +119,8 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 		m.trackUsageList(res)
 	}
 
+	if aliasName != "" {
+		return m.classNamesToAliases(res.ObjectsWithVector(q.Additional.Vector), aliasName), nil
+	}
 	return res.ObjectsWithVector(q.Additional.Vector), nil
 }

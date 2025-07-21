@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,9 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/pkg/errors"
 )
 
@@ -28,9 +31,26 @@ type Indexes struct {
 	Keys                []Key
 	SecondaryIndexCount uint16
 	ScratchSpacePath    string
+	ObserveWrite        prometheus.Observer
 }
 
+// WriteTo writes the indices (primary and secondary) to the writer
+//
+// The segment files look like this:
+// - header (already written)
+// - secondary indexes offset (if present)
+// - primary index
+// - secondary indexes (if present)
+//
+// We first write the primary index to a scratch file to know the positions of the secondary indices. Only then we know
+// the offsets of the secondary indices.
 func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
+	if s.SecondaryIndexCount == 0 {
+		// In case there are no secondary indices present, we can write the primary index directly to the writer without
+		// all the extra steps
+		return s.buildAndMarshalPrimary(w, s.Keys)
+	}
+
 	var currentOffset uint64 = HeaderSize
 	if len(s.Keys) > 0 {
 		currentOffset = uint64(s.Keys[len(s.Keys)-1].ValueEnd)
@@ -61,8 +81,9 @@ func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
 	if err != nil {
 		return written, err
 	}
-
-	primaryFDBuffered := bufio.NewWriter(primaryFD)
+	primaryFDBuffered := bufio.NewWriter(diskio.NewMeteredWriter(primaryFD, func(written int64) {
+		s.ObserveWrite.Observe(float64(written))
+	}))
 
 	n, err := s.buildAndMarshalPrimary(primaryFDBuffered, s.Keys)
 	if err != nil {
@@ -88,7 +109,9 @@ func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
 		return written, err
 	}
 
-	secondaryFDBuffered := bufio.NewWriter(secondaryFD)
+	secondaryFDBuffered := bufio.NewWriter(diskio.NewMeteredWriter(secondaryFD, func(written int64) {
+		s.ObserveWrite.Observe(float64(written))
+	}))
 
 	if s.SecondaryIndexCount > 0 {
 		offsets := make([]uint64, s.SecondaryIndexCount)

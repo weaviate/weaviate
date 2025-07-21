@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,16 +28,17 @@ import (
 )
 
 // UpdateObject updates object of class.
-// If the class contains a network ref, it has a side-effect on the schema: The schema will be updated to
+// If the class contains a network ref, it has a side effect on the schema: The schema will be updated to
 // include this particular network ref class.
 func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
 	className := schema.UppercaseClassName(updates.Class)
+	className, aliasName := m.resolveAlias(className)
 	updates.Class = className
 
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
 		return nil, err
 	}
 
@@ -56,6 +57,10 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 		return nil, fmt.Errorf("cannot process update object: %w", err)
 	}
 
+	if aliasName != "" {
+		obj, err := m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl, fetchedClasses)
+		return m.classNameToAlias(obj, aliasName), err
+	}
 	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl, fetchedClasses)
 }
 
@@ -63,6 +68,12 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	principal *models.Principal, className string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (*models.Object, error) {
+	var alias string
+	if cls := m.schemaManager.ResolveAlias(className); cls != "" {
+		alias = className
+		className = cls
+	}
+
 	if id != updates.ID {
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
@@ -119,6 +130,10 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, vectors, multiVectors, repl, maxSchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
+	}
+
+	if alias != "" {
+		updates.Class = alias
 	}
 
 	return updates, nil

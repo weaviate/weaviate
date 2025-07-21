@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -56,7 +56,6 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
-	handler.parser.experimentBackwardsCompatibleNamedVectorsEnabled = true
 	return &handler, schemaManager
 }
 
@@ -106,6 +105,15 @@ func (f *fakeDB) AddReplicaToShard(class string, shard string, targetNode string
 
 func (f *fakeDB) DeleteReplicaFromShard(class string, shard string, targetNode string) error {
 	return nil
+}
+
+func (f *fakeDB) LoadShard(class string, shard string) {
+}
+
+func (f *fakeDB) DropShard(class string, shard string) {
+}
+
+func (f *fakeDB) ShutdownShard(class string, shard string) {
 }
 
 func (f *fakeDB) UpdateClass(cmd command.UpdateClassRequest) error {
@@ -307,12 +315,17 @@ func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop .
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) AddReplicaToShard(ctx context.Context, class string, shard string) error {
+func (f *fakeMigrator) LoadShard(ctx context.Context, class string, shard string) error {
 	args := f.Called(ctx, class, shard)
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) DeleteReplicaFromShard(ctx context.Context, class string, shard string) error {
+func (f *fakeMigrator) DropShard(ctx context.Context, class string, shard string) error {
+	args := f.Called(ctx, class, shard)
+	return args.Error(0)
+}
+
+func (f *fakeMigrator) ShutdownShard(ctx context.Context, class string, shard string) error {
 	args := f.Called(ctx, class, shard)
 	return args.Error(0)
 }
@@ -326,7 +339,7 @@ func (f *fakeMigrator) NewTenants(ctx context.Context, class *models.Class, crea
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) error {
+func (f *fakeMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload, implicitUpdate bool) error {
 	args := f.Called(ctx, class, updates)
 	return args.Error(0)
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,6 +25,7 @@ type ReplicationEngineOpsCallbacks struct {
 	onOpStart           func(node string)
 	onOpComplete        func(node string)
 	onOpFailed          func(node string)
+	onOpCancelled       func(node string)
 }
 
 // ReplicationEngineOpsCallbacksBuilder helps construct an ReplicationEngineOpsCallbacks instance with
@@ -44,6 +45,7 @@ func NewReplicationEngineOpsCallbacksBuilder() *ReplicationEngineOpsCallbacksBui
 			onOpStart:           func(node string) {},
 			onOpComplete:        func(node string) {},
 			onOpFailed:          func(node string) {},
+			onOpCancelled:       func(node string) {},
 		},
 	}
 }
@@ -91,6 +93,13 @@ func (b *ReplicationEngineOpsCallbacksBuilder) WithOpFailedCallback(callback fun
 	return b
 }
 
+// WithOpCancelledCallback sets a callback to be executed when a replication
+// operation is cancelled for the given node.
+func (b *ReplicationEngineOpsCallbacksBuilder) WithOpCancelledCallback(callback func(node string)) *ReplicationEngineOpsCallbacksBuilder {
+	b.callbacks.onOpCancelled = callback
+	return b
+}
+
 // Build finalizes the configuration and returns the ReplicationEngineOpsCallbacks instance.
 func (b *ReplicationEngineOpsCallbacksBuilder) Build() *ReplicationEngineOpsCallbacks {
 	return &b.callbacks
@@ -125,6 +134,11 @@ func (m *ReplicationEngineOpsCallbacks) OnOpFailed(node string) {
 	m.onOpFailed(node)
 }
 
+// OnOpCancelled invokes the configured callback for when a replication operation is cancelled.
+func (m *ReplicationEngineOpsCallbacks) OnOpCancelled(node string) {
+	m.onOpCancelled(node)
+}
+
 // NewReplicationEngineOpsCallbacks creates and registers Prometheus metrics for tracking
 // replication operations and returns a ReplicationEngineOpsCallbacks instance configured to update those metrics.
 //
@@ -133,6 +147,7 @@ func (m *ReplicationEngineOpsCallbacks) OnOpFailed(node string) {
 // - weaviate_replication_ongoing_operations (GaugeVec)
 // - weaviate_replication_complete_operations (CounterVec)
 // - weaviate_replication_failed_operations (CounterVec)
+// - weaviate_replication_cancelled_operations (CounterVec)
 //
 // All metrics are labeled by node and automatically updated through the callback lifecycle.
 //
@@ -170,6 +185,12 @@ func NewReplicationEngineOpsCallbacks(reg prometheus.Registerer) *ReplicationEng
 		Help:      "Number of failed replication operations",
 	}, []string{"node"})
 
+	cancelledOps := promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
+		Namespace: "weaviate",
+		Name:      "replication_cancelled_operations",
+		Help:      "Number of cancelled replication operations",
+	}, []string{"node"})
+
 	return NewReplicationEngineOpsCallbacksBuilder().
 		WithPrepareProcessing(func(node string) {
 			// Add(0) is used to ensure that the metric exists for the given node label
@@ -198,6 +219,10 @@ func NewReplicationEngineOpsCallbacks(reg prometheus.Registerer) *ReplicationEng
 		WithOpFailedCallback(func(node string) {
 			ongoingOps.WithLabelValues(node).Dec()
 			failedOps.WithLabelValues(node).Inc()
+		}).
+		WithOpCancelledCallback(func(node string) {
+			ongoingOps.WithLabelValues(node).Dec()
+			cancelledOps.WithLabelValues(node).Inc()
 		}).
 		Build()
 }

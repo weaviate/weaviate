@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,6 +37,13 @@ func NewCRC32Writer(w io.Writer) *CRC32Writer {
 	return &CRC32Writer{
 		w:    w,
 		hash: crc32.NewIEEE(),
+	}
+}
+
+func NewCRC32WriterWithSeed(w io.Writer, seed uint32) *CRC32Writer {
+	return &CRC32Writer{
+		w:    w,
+		hash: NewCRC32Resumable(seed),
 	}
 }
 

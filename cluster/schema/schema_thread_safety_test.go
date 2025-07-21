@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
@@ -682,7 +683,9 @@ func testConcurrentTenantManagementOperations(t *testing.T, s *schema) {
 						{Name: "tenant1"},
 					},
 				}
-				_ = s.updateTenants("TestClass", uint64(j), req)
+				fsm := NewMockreplicationFSM(t)
+				fsm.On("HasOngoingReplication", mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+				_ = s.updateTenants("TestClass", uint64(j), req, fsm)
 				time.Sleep(time.Microsecond)
 			}
 		}(i)

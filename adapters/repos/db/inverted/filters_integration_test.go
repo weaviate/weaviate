@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
+	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -364,7 +365,7 @@ func Test_Filters_Int(t *testing.T) {
 		t.Run("import data", func(t *testing.T) {
 			for _, idx := range fakeInvertedIndex {
 				idValues := idsToBinaryList(idx.ids)
-				valueBytes, err := LexicographicallySortableInt64(idx.val)
+				valueBytes, err := entinverted.LexicographicallySortableInt64(idx.val)
 				require.NoError(t, err)
 				require.NoError(t, bucket.SetAdd(valueBytes, idValues))
 			}
@@ -559,7 +560,7 @@ func Test_Filters_Int(t *testing.T) {
 				})
 
 				t.Run("update", func(t *testing.T) {
-					valueBytes, _ := LexicographicallySortableInt64(7)
+					valueBytes, _ := entinverted.LexicographicallySortableInt64(7)
 					idsBinary := idsToBinaryList([]uint64{21})
 					require.Nil(t, bucket.SetAdd(valueBytes, idsBinary))
 				})
@@ -574,7 +575,7 @@ func Test_Filters_Int(t *testing.T) {
 
 				t.Run("restore inverted index, so we can run test suite again", func(t *testing.T) {
 					idsList := idsToBinaryList([]uint64{21})
-					valueBytes, _ := LexicographicallySortableInt64(7)
+					valueBytes, _ := entinverted.LexicographicallySortableInt64(7)
 					require.NoError(t, bucket.SetDeleteSingle(valueBytes, idsList[0]))
 				})
 			})
@@ -590,7 +591,7 @@ func Test_Filters_Int(t *testing.T) {
 
 		t.Run("import data", func(t *testing.T) {
 			for _, idx := range fakeInvertedIndex {
-				valueBytes, err := LexicographicallySortableInt64(idx.val)
+				valueBytes, err := entinverted.LexicographicallySortableInt64(idx.val)
 				require.NoError(t, err)
 				require.NoError(t, bucket.RoaringSetAddList(valueBytes, idx.ids))
 			}
@@ -785,7 +786,7 @@ func Test_Filters_Int(t *testing.T) {
 				})
 
 				t.Run("update", func(t *testing.T) {
-					valueBytes, _ := LexicographicallySortableInt64(7)
+					valueBytes, _ := entinverted.LexicographicallySortableInt64(7)
 					require.Nil(t, bucket.RoaringSetAddOne(valueBytes, 21))
 				})
 
@@ -798,7 +799,7 @@ func Test_Filters_Int(t *testing.T) {
 				})
 
 				t.Run("restore inverted index, so we can run test suite again", func(t *testing.T) {
-					valueBytes, _ := LexicographicallySortableInt64(7)
+					valueBytes, _ := entinverted.LexicographicallySortableInt64(7)
 					require.NoError(t, bucket.RoaringSetRemoveOne(valueBytes, 21))
 				})
 			})
@@ -811,7 +812,7 @@ func Test_Filters_Int(t *testing.T) {
 
 			t.Run("import data", func(t *testing.T) {
 				for _, idx := range fakeInvertedIndex {
-					valueBytes, err := LexicographicallySortableInt64(idx.val)
+					valueBytes, err := entinverted.LexicographicallySortableInt64(idx.val)
 					require.NoError(t, err)
 					require.NoError(t, bucket.RoaringSetRangeAdd(binary.BigEndian.Uint64(valueBytes), idx.ids...))
 				}
@@ -1005,7 +1006,7 @@ func Test_Filters_Int(t *testing.T) {
 					})
 
 					t.Run("update", func(t *testing.T) {
-						valueBytes, _ := LexicographicallySortableInt64(7)
+						valueBytes, _ := entinverted.LexicographicallySortableInt64(7)
 						require.Nil(t, bucket.RoaringSetRangeAdd(binary.BigEndian.Uint64(valueBytes), 21))
 					})
 
@@ -1018,7 +1019,7 @@ func Test_Filters_Int(t *testing.T) {
 					})
 
 					t.Run("restore inverted index, so we can run test suite again", func(t *testing.T) {
-						valueBytes, _ := LexicographicallySortableInt64(7)
+						valueBytes, _ := entinverted.LexicographicallySortableInt64(7)
 						require.NoError(t, bucket.RoaringSetRangeRemove(binary.BigEndian.Uint64(valueBytes), 21))
 					})
 				})

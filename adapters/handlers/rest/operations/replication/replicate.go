@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,7 +45,9 @@ func NewReplicate(ctx *middleware.Context, handler ReplicateHandler) *Replicate 
 /*
 	Replicate swagger:route POST /replication/replicate replication replicate
 
-Start the async operation to replicate a replica between two nodes
+# Initiate a replica movement
+
+Begins an asynchronous operation to move or copy a specific shard replica from its current node to a designated target node. The operation involves copying data, synchronizing, and potentially decommissioning the source replica.
 */
 type Replicate struct {
 	Context *middleware.Context

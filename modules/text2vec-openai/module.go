@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,24 +13,21 @@ package modopenai
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-
-	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
+	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
@@ -41,9 +38,11 @@ var batchSettings = batch.Settings{
 	TokenMultiplier:    1,
 	MaxTimePerBatch:    float64(10),
 	MaxObjectsPerBatch: 2000, // https://platform.openai.com/docs/api-reference/embeddings/create
-	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 500000 },
-	HasTokenLimit:      true,
-	ReturnsRateLimit:   true,
+	// cant find any info about this on the website besides this forum thread:https://community.openai.com/t/max-total-embeddings-tokens-per-request/1254699
+	// we had customers run into this error, too
+	MaxTokensPerBatch: func(cfg moduletools.ClassConfig) int { return 300000 },
+	HasTokenLimit:     true,
+	ReturnsRateLimit:  true,
 }
 
 func New() *OpenAIModule {
@@ -65,7 +64,7 @@ func (m *OpenAIModule) Name() string {
 }
 
 func (m *OpenAIModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2MultiVec
+	return modulecapabilities.Text2ManyVec
 }
 
 func (m *OpenAIModule) Init(ctx context.Context,
@@ -123,11 +122,6 @@ func (m *OpenAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 
 func (m *OpenAIModule) initAdditionalPropertiesProvider() error {
 	m.additionalPropertiesProvider = additional.NewText2VecProvider()
-	return nil
-}
-
-func (m *OpenAIModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

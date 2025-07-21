@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -75,7 +75,7 @@ type ReplicationDetailsParams struct {
 
 	/* ID.
 
-	   The id of the replication operation to get details for.
+	   The ID of the replication operation to get details for.
 
 	   Format: uuid
 	*/

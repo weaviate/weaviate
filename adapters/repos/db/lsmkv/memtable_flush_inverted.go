@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentindex.Key, *sroar.Bitmap, error) {
@@ -65,6 +66,16 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 			}
 		}
 
+	}
+
+	// weighted average of m.averagePropLength and the average of the current flush
+	// averaged by propLengthCount and m.propLengthCount
+	if m.averagePropLength == 0 {
+		m.averagePropLength = float64(propLengthSum) / float64(propLengthCount)
+		m.propLengthCount = propLengthCount
+	} else {
+		m.averagePropLength = (m.averagePropLength*float64(m.propLengthCount) + float64(propLengthSum)) / float64(m.propLengthCount+propLengthCount)
+		m.propLengthCount += propLengthCount
 	}
 
 	tombstoneBuffer := make([]byte, 0)
@@ -124,7 +135,14 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 				ValueStart: totalWritten,
 			}
 
-			blocksEncoded, _ := createAndEncodeBlocksWithLengths(mapNode.values, docIdEncoder, tfEncoder)
+			b := config.DefaultBM25b
+			k1 := config.DefaultBM25k1
+			if m.bm25config != nil {
+				b = m.bm25config.B
+				k1 = m.bm25config.K1
+			}
+
+			blocksEncoded, _ := createAndEncodeBlocksWithLengths(mapNode.values, docIdEncoder, tfEncoder, float64(b), float64(k1), m.averagePropLength)
 
 			if _, err := f.Write(blocksEncoded); err != nil {
 				return nil, nil, err

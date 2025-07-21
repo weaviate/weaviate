@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package geo
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -55,6 +56,12 @@ type Config struct {
 	DisablePersistence bool
 	RootPath           string
 	Logger             logrus.FieldLogger
+
+	SnapshotDisabled                         bool
+	SnapshotOnStartup                        bool
+	SnapshotCreateInterval                   time.Duration
+	SnapshotMinDeltaCommitlogsNumer          int
+	SnapshotMinDeltaCommitlogsSizePercentage int
 }
 
 func NewIndex(config Config,
@@ -66,6 +73,8 @@ func NewIndex(config Config,
 		RootPath:              config.RootPath,
 		MakeCommitLoggerThunk: makeCommitLoggerFromConfig(config, commitLogMaintenanceCallbacks),
 		DistanceProvider:      distancer.NewGeoProvider(),
+		DisableSnapshots:      config.SnapshotDisabled,
+		SnapshotOnStartup:     config.SnapshotOnStartup,
 	}, hnswent.UserConfig{
 		MaxConnections:         64,
 		EFConstruction:         128,
@@ -101,7 +110,12 @@ func makeCommitLoggerFromConfig(config Config, maintenanceCallbacks cyclemanager
 	makeCL := hnsw.MakeNoopCommitLogger
 	if !config.DisablePersistence {
 		makeCL = func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.Logger, maintenanceCallbacks)
+			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.Logger, maintenanceCallbacks,
+				hnsw.WithSnapshotDisabled(config.SnapshotDisabled),
+				hnsw.WithSnapshotCreateInterval(config.SnapshotCreateInterval),
+				hnsw.WithSnapshotMinDeltaCommitlogsNumer(config.SnapshotMinDeltaCommitlogsNumer),
+				hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(config.SnapshotMinDeltaCommitlogsSizePercentage),
+			)
 		}
 	}
 	return makeCL

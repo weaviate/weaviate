@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,7 +41,7 @@ func TestUserWithSimilarBuiltInRoleName(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
-		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+		WithRBAC().WithRbacRoots(adminUser).Start(ctx)
 	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
@@ -370,7 +370,7 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacRoots(adminUser).Start(ctx)
 	require.Nil(t, err)
 
 	defer func() {
@@ -510,7 +510,7 @@ func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacRoots(adminUser).Start(ctx)
 	require.Nil(t, err)
 
 	defer func() {
@@ -996,7 +996,7 @@ func TestRaceConcurrentRoleCreation(t *testing.T) {
 
 	compose, err := docker.New().WithWeaviate().
 		WithApiKey().WithUserApiKey(adminUser, adminKey).
-		WithRBAC().WithRbacAdmins(adminUser).
+		WithRBAC().WithRbacRoots(adminUser).
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -1065,7 +1065,7 @@ func TestRolesUserExistence(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().
-		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+		WithRBAC().WithRbacRoots(adminUser).Start(ctx)
 	require.Nil(t, err)
 
 	defer func() {
@@ -1138,7 +1138,7 @@ func TestGetRolesForUserPermission(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, "a").WithDbUsers().
-		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+		WithRBAC().WithRbacRoots(adminUser).Start(ctx)
 	require.Nil(t, err)
 
 	defer func() {

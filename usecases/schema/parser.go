@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -44,8 +44,6 @@ type Parser struct {
 	configParser VectorConfigParser
 	validator    validator
 	modules      modulesProvider
-
-	experimentBackwardsCompatibleNamedVectorsEnabled bool
 }
 
 func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider) *Parser {
@@ -54,8 +52,6 @@ func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules mo
 		configParser: vCfg,
 		validator:    v,
 		modules:      modules,
-
-		experimentBackwardsCompatibleNamedVectorsEnabled: experimentBackwardsCompatibleNamedVectorsEnabled(),
 	}
 }
 
@@ -459,7 +455,7 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 			continue
 		}
 
-		if _, moduleExisted := initialModConf[module]; p.experimentBackwardsCompatibleNamedVectorsEnabled && !moduleExisted {
+		if _, moduleExisted := initialModConf[module]; !moduleExisted {
 			continue
 		}
 
@@ -505,14 +501,6 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 }
 
 func (p *Parser) validateNamedVectorConfigsParityAndImmutables(initial, updated *models.Class) error {
-	if !p.experimentBackwardsCompatibleNamedVectorsEnabled {
-		for vecName := range updated.VectorConfig {
-			if _, ok := initial.VectorConfig[vecName]; !ok {
-				return fmt.Errorf("additional config for vector %q", vecName)
-			}
-		}
-	}
-
 	if modelsext.ClassHasLegacyVectorIndex(initial) {
 		for targetVector := range updated.VectorConfig {
 			if targetVector == modelsext.DefaultNamedVectorName {

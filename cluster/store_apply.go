@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package cluster
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
@@ -59,12 +60,30 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	return resp.Version, resp.Error
 }
 
+// StoreConfiguration is invoked once a log entry containing a configuration
+// change is committed. It takes the index at which the configuration was
+// written and the configuration value.
+
+// We implemented this to keep `lastAppliedIndex` metric to correct value
+// to also handle `LogConfiguration` type of Raft command.
+func (st *Store) StoreConfiguration(index uint64, _ raft.Configuration) {
+	st.metrics.raftLastAppliedIndex.Set(float64(index))
+}
+
 // Apply is called once a log entry is committed by a majority of the cluster.
 // Apply should apply the log to the FSM. Apply must be deterministic and
 // produce the same result on all peers in the cluster.
 // The returned value is returned to the client as the ApplyFuture.Response.
-func (st *Store) Apply(l *raft.Log) interface{} {
+func (st *Store) Apply(l *raft.Log) any {
 	ret := Response{Version: l.Index}
+
+	start := time.Now()
+	defer func() {
+		// this defer is final one that called before returning and thus capturing the
+		// applyDuration correctly.
+		st.metrics.applyDuration.Observe(float64(time.Since(start).Seconds()))
+	}()
+
 	if l.Type != raft.LogCommand {
 		st.log.WithFields(logrus.Fields{
 			"type":  l.Type,
@@ -87,7 +106,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
-		if l.Index != 0 && l.Index == st.lastAppliedIndexToDB.Load() {
+		// we do this at the beginning to handle situation were schema was catching up
+		// and to make sure no matter is the error status we are going to open the db on startup
+		// we reload the db only if we have a previous state and the db is not loaded
+		dbReloadRequired := st.lastAppliedIndexToDB.Load() != 0 && !st.dbLoaded.Load()
+		if dbReloadRequired && l.Index != 0 && l.Index >= st.lastAppliedIndexToDB.Load() {
 			st.log.WithFields(logrus.Fields{
 				"log_type":                     l.Type,
 				"log_name":                     l.Type.String(),
@@ -97,9 +120,13 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			st.reloadDBFromSchema()
 		}
 
+		// we update no mater the error status to avoid any edge cases in the DB layer for already released versions,
+		// however we do not update the metrics so the metric will be the source of truth
+		// about AppliedIndex
 		st.lastAppliedIndex.Store(l.Index)
 
 		if ret.Error != nil {
+			st.metrics.applyFailures.Inc()
 			st.log.WithFields(logrus.Fields{
 				"log_type":      l.Type,
 				"log_name":      l.Type.String(),
@@ -108,7 +135,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 				"cmd_type_name": cmd.Type.String(),
 				"cmd_class":     cmd.Class,
 			}).WithError(ret.Error).Error("apply command")
+			return
 		}
+
+		st.metrics.fsmLastAppliedIndex.Set(float64(l.Index))
+		st.metrics.raftLastAppliedIndex.Set(float64(l.Index))
 	}()
 
 	cmd.Version = l.Index
@@ -119,7 +150,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	// This can happen for example if quorum is lost briefly.
 	// By checking lastAppliedIndexToDB we ensure that we never print past that index
 	if !st.Ready() && l.Index <= st.lastAppliedIndexToDB.Load() {
-		st.log.Infof("Schema catching up: applying log entry: [%d/%d]", l.Index, st.lastAppliedIndexToDB.Load())
+		st.log.Debugf("Schema catching up: applying log entry: [%d/%d]", l.Index, st.lastAppliedIndexToDB.Load())
 	}
 	st.log.WithFields(logrus.Fields{
 		"log_type":        l.Type,
@@ -159,7 +190,18 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly, !catchingUp)
 		}
-
+	case api.ApplyRequest_TYPE_CREATE_ALIAS:
+		f = func() {
+			ret.Error = st.schemaManager.CreateAlias(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLACE_ALIAS:
+		f = func() {
+			ret.Error = st.schemaManager.ReplaceAlias(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DELETE_ALIAS:
+		f = func() {
+			ret.Error = st.schemaManager.DeleteAlias(&cmd)
+		}
 	case api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:
 		f = func() {
 			ret.Error = st.schemaManager.UpdateShardStatus(&cmd, schemaOnly)
@@ -191,6 +233,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	case api.ApplyRequest_TYPE_TENANT_PROCESS:
 		f = func() {
 			ret.Error = st.schemaManager.UpdateTenantsProcess(&cmd, schemaOnly)
+		}
+
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD:
+		f = func() {
+			ret.Error = st.schemaManager.SyncShard(&cmd, schemaOnly)
 		}
 
 	case api.ApplyRequest_TYPE_STORE_SCHEMA_V1:
@@ -238,18 +285,77 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.dynUserManager.ActivateUser(&cmd)
 		}
-
+	case api.ApplyRequest_TYPE_CREATE_USER_WITH_KEY:
+		f = func() {
+			ret.Error = st.dynUserManager.CreateUserWithKeyRequest(&cmd)
+		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		f = func() {
 			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)
 		}
-	case api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR:
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR:
 		f = func() {
-			ret.Error = st.replicationManager.RegisterError(l.Index, &cmd)
+			ret.Error = st.replicationManager.RegisterError(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE:
 		f = func() {
 			ret.Error = st.replicationManager.UpdateReplicateOpState(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCEL:
+		f = func() {
+			ret.Error = st.replicationManager.CancelReplication(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE:
+		f = func() {
+			ret.Error = st.replicationManager.DeleteReplication(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_ALL:
+		f = func() {
+			ret.Error = st.replicationManager.DeleteAllReplications(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REMOVE:
+		f = func() {
+			ret.Error = st.replicationManager.RemoveReplicaOp(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE:
+		f = func() {
+			ret.Error = st.replicationManager.ReplicationCancellationComplete(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION:
+		f = func() {
+			ret.Error = st.replicationManager.DeleteReplicationsByCollection(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS:
+		f = func() {
+			ret.Error = st.replicationManager.DeleteReplicationsByTenants(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REGISTER_SCHEMA_VERSION:
+		f = func() {
+			ret.Error = st.replicationManager.StoreSchemaVersion(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD:
+		f = func() {
+			ret.Error = st.schemaManager.ReplicationAddReplicaToShard(&cmd, schemaOnly)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteAll(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByCollection(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByCollectionAndShard(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByTargetNode(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByUuid(&cmd)
 		}
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
@@ -268,6 +374,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.distributedTasksManager.CleanUpTask(&cmd)
 		}
+
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart

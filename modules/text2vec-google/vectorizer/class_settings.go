@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package vectorizer
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -47,11 +48,17 @@ var availableGoogleModels = []string{
 	"textembedding-gecko@001",
 	"text-embedding-preview-0409",
 	"text-multilingual-embedding-preview-0409",
+	"gemini-embedding-001",
+	"text-embedding-005",
+	"text-multilingual-embedding-002",
 }
 
 var availableGenerativeAIModels = []string{
 	DefaulAIStudioModelID,
 	"text-embedding-004",
+	"gemini-embedding-001",
+	"text-embedding-005",
+	"text-multilingual-embedding-002",
 }
 
 type classSettings struct {
@@ -96,12 +103,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 }
 
 func (ic *classSettings) validateGoogleSetting(value string, availableValues []string) bool {
-	for i := range availableValues {
-		if value == availableValues[i] {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(availableValues, value)
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) string {

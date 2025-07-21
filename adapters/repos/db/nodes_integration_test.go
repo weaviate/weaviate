@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -53,7 +53,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	// check nodes api response on empty DB
-	nodeStatues, err := repo.GetNodeStatus(context.Background(), "", verbosity.OutputVerbose)
+	nodeStatues, err := repo.GetNodeStatus(context.Background(), "", "", verbosity.OutputVerbose)
 	require.Nil(t, err)
 	require.NotNil(t, nodeStatues)
 
@@ -121,7 +121,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	assert.Nil(t, batchRes[1].Err)
 
 	// check nodes api after importing 2 objects to DB
-	nodeStatues, err = repo.GetNodeStatus(context.Background(), "", verbosity.OutputVerbose)
+	nodeStatues, err = repo.GetNodeStatus(context.Background(), "", "", verbosity.OutputVerbose)
 	require.Nil(t, err)
 	require.NotNil(t, nodeStatues)
 

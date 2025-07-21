@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -371,6 +371,52 @@ func (_c *MockSchemaGetter_ReadOnlyClass_Call) Return(_a0 *models.Class) *MockSc
 }
 
 func (_c *MockSchemaGetter_ReadOnlyClass_Call) RunAndReturn(run func(string) *models.Class) *MockSchemaGetter_ReadOnlyClass_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ResolveAlias provides a mock function with given fields: _a0
+func (_m *MockSchemaGetter) ResolveAlias(_a0 string) string {
+	ret := _m.Called(_a0)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ResolveAlias")
+	}
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func(string) string); ok {
+		r0 = rf(_a0)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// MockSchemaGetter_ResolveAlias_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResolveAlias'
+type MockSchemaGetter_ResolveAlias_Call struct {
+	*mock.Call
+}
+
+// ResolveAlias is a helper method to define mock.On call
+//   - _a0 string
+func (_e *MockSchemaGetter_Expecter) ResolveAlias(_a0 interface{}) *MockSchemaGetter_ResolveAlias_Call {
+	return &MockSchemaGetter_ResolveAlias_Call{Call: _e.mock.On("ResolveAlias", _a0)}
+}
+
+func (_c *MockSchemaGetter_ResolveAlias_Call) Run(run func(_a0 string)) *MockSchemaGetter_ResolveAlias_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockSchemaGetter_ResolveAlias_Call) Return(_a0 string) *MockSchemaGetter_ResolveAlias_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSchemaGetter_ResolveAlias_Call) RunAndReturn(run func(string) string) *MockSchemaGetter_ResolveAlias_Call {
 	_c.Call.Return(run)
 	return _c
 }

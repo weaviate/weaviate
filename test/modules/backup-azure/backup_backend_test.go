@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,16 +20,15 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	mod "github.com/weaviate/weaviate/modules/backup-azure"
 	"github.com/weaviate/weaviate/test/docker"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func Test_AzureBackend_Start(t *testing.T) {
@@ -105,10 +104,9 @@ func testAzureBackendBackup(overrideBucket, overridePath string) func(t *testing
 func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath string) {
 	testCtx := context.Background()
 
-	dataDir := t.TempDir()
 	className := "BackupClass"
 	backupID := "backup_id"
-	containerName := "container"
+	containerName := "container-level-store-backup-meta"
 	if overrideBucket != "" {
 		containerName = overrideBucket
 	}
@@ -125,7 +123,10 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath strin
 	t.Run("store backup meta in Azure", func(t *testing.T) {
 		t.Setenv(envAzureContainer, containerName)
 		azure := mod.New()
-		err := azure.Init(testCtx, newFakeModuleParams(dataDir))
+		params := moduletools.NewMockModuleInitParams(t)
+		params.EXPECT().GetLogger().Return(logrus.New())
+		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		err := azure.Init(testCtx, params)
 		require.Nil(t, err)
 
 		t.Run("access permissions", func(t *testing.T) {
@@ -192,10 +193,9 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath strin
 func moduleLevelCopyObjects(t *testing.T, overrideBucket, overridePath string) {
 	testCtx := context.Background()
 
-	dataDir := t.TempDir()
 	key := "moduleLevelCopyObjects"
 	backupID := "backup_id"
-	containerName := "container"
+	containerName := "container-level-copy-objects"
 	if overrideBucket != "" {
 		containerName = overrideBucket
 	}
@@ -211,7 +211,10 @@ func moduleLevelCopyObjects(t *testing.T, overrideBucket, overridePath string) {
 	t.Run("copy objects", func(t *testing.T) {
 		t.Setenv(envAzureContainer, containerName)
 		azure := mod.New()
-		err := azure.Init(testCtx, newFakeModuleParams(dataDir))
+		params := moduletools.NewMockModuleInitParams(t)
+		params.EXPECT().GetLogger().Return(logrus.New())
+		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		err := azure.Init(testCtx, params)
 		require.Nil(t, err)
 
 		t.Run("put object to bucket", func(t *testing.T) {
@@ -235,7 +238,7 @@ func moduleLevelCopyFiles(t *testing.T, overrideBucket, overridePath string) {
 	dataDir := t.TempDir()
 	key := "moduleLevelCopyFiles"
 	backupID := "backup_id"
-	containerName := "container"
+	containerName := "container-level-copy-files"
 	if overrideBucket != "" {
 		containerName = overrideBucket
 	}
@@ -259,7 +262,10 @@ func moduleLevelCopyFiles(t *testing.T, overrideBucket, overridePath string) {
 
 		t.Setenv(envAzureContainer, containerName)
 		azure := mod.New()
-		err = azure.Init(testCtx, newFakeModuleParams(dataDir))
+		params := moduletools.NewMockModuleInitParams(t)
+		params.EXPECT().GetLogger().Return(logrus.New())
+		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: dataDir})
+		err = azure.Init(testCtx, params)
 		require.Nil(t, err)
 
 		t.Run("verify source data path", func(t *testing.T) {
@@ -286,36 +292,6 @@ func moduleLevelCopyFiles(t *testing.T, overrideBucket, overridePath string) {
 			assert.Equal(t, expectedContents, contents)
 		})
 	})
-}
-
-type fakeModuleParams struct {
-	logger   logrus.FieldLogger
-	provider fakeStorageProvider
-	config   config.Config
-}
-
-func newFakeModuleParams(dataPath string) *fakeModuleParams {
-	logger, _ := logrustest.NewNullLogger()
-	return &fakeModuleParams{
-		logger:   logger,
-		provider: fakeStorageProvider{dataPath: dataPath},
-	}
-}
-
-func (f *fakeModuleParams) GetStorageProvider() moduletools.StorageProvider {
-	return &f.provider
-}
-
-func (f *fakeModuleParams) GetAppState() interface{} {
-	return nil
-}
-
-func (f *fakeModuleParams) GetLogger() logrus.FieldLogger {
-	return f.logger
-}
-
-func (f *fakeModuleParams) GetConfig() config.Config {
-	return f.config
 }
 
 type fakeStorageProvider struct {

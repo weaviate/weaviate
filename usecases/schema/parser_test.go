@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -98,10 +98,11 @@ func TestParser(t *testing.T) {
 			error:    false,
 		},
 		{
-			name:   "update text2vec - previously not configured => error",
-			old:    &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc},
-			update: &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ModuleConfig: map[string]interface{}{"text2vec-random": emptyMap}},
-			error:  true,
+			name:     "update text2vec - previously not configured, add a new vector index",
+			old:      &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc},
+			update:   &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ModuleConfig: map[string]interface{}{"text2vec-random": emptyMap}},
+			expected: &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc, ModuleConfig: map[string]interface{}{"text2vec-random": emptyMap}},
+			error:    false,
 		},
 		{
 			name:   "update text2vec - previously differently configured => error",
@@ -110,10 +111,11 @@ func TestParser(t *testing.T) {
 			error:  true,
 		},
 		{
-			name:   "update text2vec - other modules present => error",
-			old:    &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc, ModuleConfig: map[string]interface{}{"generative-random": valueMap}},
-			update: &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ModuleConfig: map[string]interface{}{"text2vec-random": emptyMap, "generative-random": valueMap}},
-			error:  true,
+			name:     "update text2vec - other modules present => error",
+			old:      &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc, ModuleConfig: map[string]interface{}{"generative-random": valueMap}},
+			update:   &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ModuleConfig: map[string]interface{}{"text2vec-random": emptyMap, "generative-random": valueMap}},
+			expected: &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc, ModuleConfig: map[string]interface{}{"text2vec-random": emptyMap, "generative-random": valueMap}},
+			error:    false,
 		},
 		{
 			name:     "update with same text2vec config",

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package distancer
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -93,5 +94,55 @@ func TestCosineDistancerStepbyStep(t *testing.T) {
 		control := distanceProvider.Wrap(sum)
 
 		assert.Equal(t, control, expectedDistance)
+	})
+}
+
+func TestNoNegativeDistance(t *testing.T) {
+	dimensions := 1536
+	vectors := make([][]float32, 20)
+	vectors[0] = make([]float32, dimensions)
+	for i := 0; i < dimensions; i++ {
+		vectors[0][i] = rand.Float32() - 0.5
+	}
+	Normalize(vectors[0])
+	for i := 1; i < len(vectors); i++ {
+		vectors[i] = make([]float32, dimensions)
+		for j := 0; j < dimensions; j++ {
+			vectors[i][j] = vectors[i][j] + (rand.Float32()-0.5)*0.00001
+		}
+		Normalize(vectors[i])
+	}
+
+	t.Run("test single distance", func(t *testing.T) {
+		distanceProvider := NewCosineDistanceProvider()
+		for _, vec1 := range vectors {
+			for _, vec2 := range vectors {
+				dist, err := distanceProvider.SingleDist(vec1, vec2)
+				require.Nil(t, err)
+				assert.True(t, dist >= 0)
+			}
+		}
+	})
+
+	t.Run("test distancer", func(t *testing.T) {
+		distanceProvider := NewCosineDistanceProvider()
+		for _, vec1 := range vectors {
+			distancer := distanceProvider.New(vec1)
+			for _, vec2 := range vectors {
+				dist, err := distancer.Distance(vec2)
+				require.Nil(t, err)
+				assert.True(t, dist >= 0)
+			}
+		}
+	})
+
+	t.Run("test wrap", func(t *testing.T) {
+		distanceProvider := NewCosineDistanceProvider()
+		for _, vec1 := range vectors {
+			for _, vec2 := range vectors {
+				dist := distanceProvider.Wrap(distanceProvider.Step(vec1, vec2))
+				assert.True(t, dist >= 0)
+			}
+		}
 	})
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"time"
 
 	"github.com/docker/go-connections/nat"
@@ -207,11 +208,64 @@ func (d *DockerCompose) GetMockOIDC() *DockerContainer {
 	return d.getContainerByName(MockOIDC)
 }
 
+func (d *DockerCompose) GetMockOIDCHelper() *DockerContainer {
+	return d.getContainerByName(MockOIDCHelper)
+}
+
 func (d *DockerCompose) getContainerByName(name string) *DockerContainer {
 	for _, c := range d.containers {
 		if c.name == name {
 			return c
 		}
 	}
+	return nil
+}
+
+// DisconnectFromNetwork disconnects a container from the network by its index
+func (d *DockerCompose) DisconnectFromNetwork(ctx context.Context, nodeIndex int) error {
+	if nodeIndex >= len(d.containers) {
+		return fmt.Errorf("node index: %v is greater than available nodes: %v", nodeIndex, len(d.containers))
+	}
+
+	container := d.containers[nodeIndex]
+	if d.network == nil {
+		return fmt.Errorf("network is nil")
+	}
+
+	// Get the network name
+	networkName := d.network.Name
+
+	// Execute docker network disconnect command
+	cmd := exec.CommandContext(ctx, "docker", "network", "disconnect", networkName, container.name)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to disconnect container %s from network: %w", container.name, err)
+	}
+	// sleep to make sure that the off node is detected by memberlist and marked failed
+	time.Sleep(3 * time.Second)
+	return nil
+}
+
+// ConnectToNetwork connects a container to the network by its index
+func (d *DockerCompose) ConnectToNetwork(ctx context.Context, nodeIndex int) error {
+	if nodeIndex >= len(d.containers) {
+		return fmt.Errorf("node index: %v is greater than available nodes: %v", nodeIndex, len(d.containers))
+	}
+
+	container := d.containers[nodeIndex]
+	if d.network == nil {
+		return fmt.Errorf("network is nil")
+	}
+
+	// Get the network name
+	networkName := d.network.Name
+
+	// Execute docker network connect command
+	cmd := exec.CommandContext(ctx, "docker", "network", "connect", networkName, container.name)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to connect container %s to network: %w", container.name, err)
+	}
+
+	// sleep to make sure that the off node is detected by memberlist and connected to the network
+	time.Sleep(3 * time.Second)
 	return nil
 }

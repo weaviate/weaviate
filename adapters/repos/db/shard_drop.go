@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -51,6 +51,12 @@ func (s *Shard) drop() (err error) {
 	}).Debug("dropping shard")
 
 	s.mayStopAsyncReplication()
+
+	s.haltForTransferMux.Lock()
+	if s.haltForTransferCancel != nil {
+		s.haltForTransferCancel()
+	}
+	s.haltForTransferMux.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()

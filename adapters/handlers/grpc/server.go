@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,10 +13,14 @@ package grpc
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"time"
+
+	"google.golang.org/grpc/peer"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
@@ -32,6 +36,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	_ "google.golang.org/grpc/encoding/gzip" // Install the gzip compressor
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
@@ -63,6 +68,16 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) *grpc.Se
 
 	interceptors = append(interceptors, makeAuthInterceptor())
 
+	basicAuth := state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
+	if basicAuth.Enabled() {
+		interceptors = append(interceptors,
+			basicAuthUnaryInterceptor("/weaviate.v1.FileReplicationService", basicAuth.Username, basicAuth.Password))
+
+		o = append(o, grpc.StreamInterceptor(
+			basicAuthStreamInterceptor("/weaviate.v1.FileReplicationService", basicAuth.Username, basicAuth.Password),
+		))
+	}
+
 	// If sentry is enabled add automatic spans on gRPC requests
 	if state.ServerConfig.Config.Sentry.Enabled {
 		interceptors = append(interceptors, grpc_middleware.ChainUnaryServer(
@@ -73,6 +88,8 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) *grpc.Se
 	if state.Metrics != nil {
 		interceptors = append(interceptors, makeMetricsInterceptor(state.Logger, state.Metrics))
 	}
+
+	interceptors = append(interceptors, makeIPInterceptor())
 
 	if len(interceptors) > 0 {
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
@@ -94,6 +111,10 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) *grpc.Se
 	)
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
+
+	weaviateV1FileReplicationService := v1.NewFileReplicationService(state.DB, state.ClusterService.SchemaReader())
+	pbv1.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
+
 	grpc_health_v1.RegisterHealthServer(s, weaviateV1)
 
 	return s
@@ -146,6 +167,120 @@ func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 		}
 
 		return resp, err
+	}
+}
+
+func makeIPInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		clientIP := getRealClientIP(ctx)
+
+		// Add IP to context
+		ctx = context.WithValue(ctx, "sourceIp", clientIP)
+		return handler(ctx, req)
+	}
+}
+
+func basicAuthUnaryInterceptor(servicePrefix, expectedUsername, expectedPassword string) grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (any, error) {
+		if !strings.HasPrefix(info.FullMethod, servicePrefix) {
+			return handler(ctx, req)
+		}
+
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			return nil, status.Error(codes.Unauthenticated, "missing metadata")
+		}
+
+		authHeader := md["authorization"]
+		if len(authHeader) == 0 || !strings.HasPrefix(authHeader[0], "Basic ") {
+			return nil, status.Error(codes.Unauthenticated, "missing or invalid auth header")
+		}
+
+		// Decode and validate Basic Auth credentials
+		payload, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(authHeader[0], "Basic "))
+		if err != nil {
+			return nil, status.Error(codes.Unauthenticated, "invalid base64 encoding")
+		}
+
+		parts := strings.SplitN(string(payload), ":", 2)
+		if len(parts) != 2 || parts[0] != expectedUsername || parts[1] != expectedPassword {
+			return nil, status.Error(codes.Unauthenticated, "invalid username or password")
+		}
+
+		return handler(ctx, req)
+	}
+}
+
+func getRealClientIP(ctx context.Context) string {
+	// First, check for forwarded headers in metadata
+	md, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		if xRealIP := md.Get("x-real-ip"); len(xRealIP) > 0 {
+			return xRealIP[0]
+		}
+
+		if xForwardedFor := md.Get("x-forwarded-for"); len(xForwardedFor) > 0 {
+			// X-Forwarded-For can contain multiple IPs, take the first one
+			ips := strings.Split(xForwardedFor[0], ",")
+			if len(ips) > 0 {
+				return strings.TrimSpace(ips[0])
+			}
+		}
+	}
+
+	// Fall back to peer address
+	if p, ok := peer.FromContext(ctx); ok {
+		host, _, err := net.SplitHostPort(p.Addr.String())
+		if err != nil {
+			return convertIP6ToIP4Loopback(p.Addr.String())
+		}
+		return convertIP6ToIP4Loopback(host)
+	}
+
+	return "unknown"
+}
+
+func convertIP6ToIP4Loopback(ip string) string {
+	if ip == "::1" {
+		return "127.0.0.1" // Convert IPv6 loopback to IPv4
+	}
+	return ip
+}
+
+func basicAuthStreamInterceptor(servicePrefix, expectedUsername, expectedPassword string) grpc.StreamServerInterceptor {
+	return func(
+		srv interface{},
+		ss grpc.ServerStream,
+		info *grpc.StreamServerInfo,
+		handler grpc.StreamHandler,
+	) error {
+		if !strings.HasPrefix(info.FullMethod, servicePrefix) {
+			return handler(srv, ss) // no auth needed
+		}
+
+		md, ok := metadata.FromIncomingContext(ss.Context())
+		if !ok {
+			return status.Error(codes.Unauthenticated, "missing metadata")
+		}
+
+		authHeader := md["authorization"]
+		if len(authHeader) == 0 || !strings.HasPrefix(authHeader[0], "Basic ") {
+			return status.Error(codes.Unauthenticated, "missing or invalid auth header")
+		}
+
+		decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(authHeader[0], "Basic "))
+		if err != nil {
+			return status.Error(codes.Unauthenticated, "invalid base64 encoding")
+		}
+
+		parts := strings.SplitN(string(decoded), ":", 2)
+		if len(parts) != 2 || parts[0] != expectedUsername || parts[1] != expectedPassword {
+			return status.Error(codes.Unauthenticated, "invalid username or password")
+		}
+
+		return handler(srv, ss)
 	}
 }
 

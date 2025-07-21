@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -58,6 +58,7 @@ func TestCompareRevectorize(t *testing.T) {
 		oldProps  map[string]interface{}
 		newProps  map[string]interface{}
 		different bool
+		disabled  bool
 	}{
 		{name: "same text prop", oldProps: map[string]interface{}{"text": "value1"}, newProps: map[string]interface{}{"text": "value1"}, different: false},
 		{name: "different text prop", oldProps: map[string]interface{}{"text": "value1"}, newProps: map[string]interface{}{"text": "value2"}, different: true},
@@ -71,6 +72,7 @@ func TestCompareRevectorize(t *testing.T) {
 		{name: "many props changed", oldProps: map[string]interface{}{"image": "abc", "text": "abc", "text_array": []string{"abc"}}, newProps: map[string]interface{}{"image": "def", "text": "def", "text_array": []string{"def"}}, different: true},
 		{name: "many props - only irrelevant changed", oldProps: map[string]interface{}{"image": "abc", "text": "abc", "text_array": []string{"abc"}, "number": 1}, newProps: map[string]interface{}{"image": "abc", "text": "abc", "text_array": []string{"abc"}, "number": 2}, different: false},
 		{name: "new props are nil", oldProps: map[string]interface{}{"text": "value1"}, newProps: nil, different: true},
+		{name: "same text prop, but feature globally disabled", oldProps: map[string]interface{}{"text": "value1"}, newProps: map[string]interface{}{"text": "value1"}, disabled: true, different: true},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -80,7 +82,7 @@ func TestCompareRevectorize(t *testing.T) {
 			if tt.oldProps != nil {
 				objsToReturn[uid.String()] = tt.oldProps
 			}
-			different, _, _, err := reVectorize(context.Background(), cfg, module, objNew, class, nil, "", findObject)
+			different, _, _, err := reVectorize(context.Background(), cfg, module, objNew, class, nil, "", findObject, tt.disabled)
 			require.NoError(t, err)
 			require.Equal(t, different, tt.different)
 		})
@@ -155,9 +157,48 @@ func TestCompareRevectorizeNamedVectors(t *testing.T) {
 			if tt.oldProps != nil {
 				objsToReturn[uid.String()] = tt.oldProps
 			}
-			different, _, _, err := reVectorize(context.Background(), cfg, module, objNew, class, tt.targetVectors, "", findObject)
+			disabled := false
+			different, _, _, err := reVectorize(context.Background(), cfg, module, objNew, class, tt.targetVectors, "", findObject, disabled)
 			require.NoError(t, err)
 			require.Equal(t, different, tt.different)
 		})
 	}
+}
+
+func TestCompareRevectorizeDisabled(t *testing.T) {
+	class := &models.Class{
+		Class: "MyClass",
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{schema.DataTypeText.String()}},
+		},
+		VectorConfig: map[string]models.VectorConfig{
+			"text": {
+				Vectorizer: map[string]interface{}{
+					"my-module": map[string]interface{}{
+						"vectorizeClassName": false,
+						"properties":         []string{"text"},
+					},
+				},
+				VectorIndexType: "hnsw",
+			},
+		},
+	}
+	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "")
+	module := newDummyText2VecModule("my-module", []string{"image", "video"})
+
+	props := map[string]interface{}{
+		"text": "value1",
+	}
+	uid, _ := uuid.NewUUID()
+	uidfmt := strfmt.UUID(uid.String())
+	objNew := &models.Object{Class: class.Class, Properties: props, ID: uidfmt}
+	disabled := true
+	findObjectMock := func(ctx context.Context, class string, id strfmt.UUID,
+		props search.SelectProperties, adds additional.Properties, tenant string,
+	) (*search.Result, error) {
+		panic("why did you call me?")
+	}
+	different, _, _, err := reVectorize(context.Background(), cfg, module, objNew, class, []string{"text"}, "", findObjectMock, disabled)
+	require.NoError(t, err)
+	require.Equal(t, different, true)
 }

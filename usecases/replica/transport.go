@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -34,8 +34,8 @@ const (
 
 // Client is used to read and write objects on replicas
 type Client interface {
-	rClient
-	wClient
+	RClient
+	WClient
 }
 
 // StatusCode is communicate the cause of failure during replication
@@ -79,16 +79,16 @@ func (e *Error) Clone() *Error {
 func (e *Error) Unwrap() error { return e.Err }
 
 func (e *Error) Error() string {
-	return fmt.Sprintf("%s %q: %v", statusText(e.Code), e.Msg, e.Err)
+	return fmt.Sprintf("%s %q: %v", StatusText(e.Code), e.Msg, e.Err)
 }
 
 func (e *Error) IsStatusCode(sc StatusCode) bool {
 	return e.Code == sc
 }
 
-// statusText returns a text for the status code. It returns the empty
+// StatusText returns a text for the status code. It returns the empty
 // string if the code is unknown.
-func statusText(code StatusCode) string {
+func StatusText(code StatusCode) string {
 	switch code {
 	case StatusOK:
 		return "ok"
@@ -155,7 +155,7 @@ func (r *DeleteBatchResponse) FirstError() error {
 	return nil
 }
 
-func fromReplicas(xs []objects.Replica) []*storobj.Object {
+func fromReplicas(xs []Replica) []*storobj.Object {
 	rs := make([]*storobj.Object, len(xs))
 	for i := range xs {
 		rs[i] = xs[i].Object
@@ -173,8 +173,8 @@ type DigestObjectsInRangeResp struct {
 	Digests []types.RepairResponse `json:"digests,omitempty"`
 }
 
-// wClient is the client used to write to replicas
-type wClient interface {
+// WClient is the client used to write to replicas
+type WClient interface {
 	PutObject(ctx context.Context, host, index, shard, requestID string,
 		obj *storobj.Object, schemaVersion uint64) (SimpleResponse, error)
 	DeleteObject(ctx context.Context, host, index, shard, requestID string,
@@ -191,16 +191,16 @@ type wClient interface {
 	Abort(ctx context.Context, host, index, shard, requestID string) (SimpleResponse, error)
 }
 
-// rClient is the client used to read from remote replicas
-type rClient interface {
+// RClient is the client used to read from remote replicas
+type RClient interface {
 	// FetchObject fetches one object
 	FetchObject(_ context.Context, host, index, shard string,
 		id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties, numRetries int) (objects.Replica, error)
+		additional additional.Properties, numRetries int) (Replica, error)
 
 	// FetchObjects fetches objects specified in ids list.
 	FetchObjects(_ context.Context, host, index, shard string,
-		ids []strfmt.UUID) ([]objects.Replica, error)
+		ids []strfmt.UUID) ([]Replica, error)
 
 	// OverwriteObjects conditionally updates existing objects.
 	OverwriteObjects(_ context.Context, host, index, shard string,
@@ -223,30 +223,30 @@ type rClient interface {
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
 
-// finderClient extends RClient with consistency checks
-type finderClient struct {
-	cl rClient
+// FinderClient extends RClient with consistency checks
+type FinderClient struct {
+	cl RClient
 }
 
 // FullRead reads full object
-func (fc finderClient) FullRead(ctx context.Context,
+func (fc FinderClient) FullRead(ctx context.Context,
 	host, index, shard string,
 	id strfmt.UUID,
 	props search.SelectProperties,
 	additional additional.Properties,
 	numRetries int,
-) (objects.Replica, error) {
+) (Replica, error) {
 	return fc.cl.FetchObject(ctx, host, index, shard, id, props, additional, numRetries)
 }
 
-func (fc finderClient) HashTreeLevel(ctx context.Context,
+func (fc FinderClient) HashTreeLevel(ctx context.Context,
 	host, index, shard string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
 	return fc.cl.HashTreeLevel(ctx, host, index, shard, level, discriminant)
 }
 
 // DigestReads reads digests of all specified objects
-func (fc finderClient) DigestReads(ctx context.Context,
+func (fc FinderClient) DigestReads(ctx context.Context,
 	host, index, shard string,
 	ids []strfmt.UUID, numRetries int,
 ) ([]types.RepairResponse, error) {
@@ -258,7 +258,7 @@ func (fc finderClient) DigestReads(ctx context.Context,
 	return rs, err
 }
 
-func (fc finderClient) DigestObjectsInRange(ctx context.Context,
+func (fc FinderClient) DigestObjectsInRange(ctx context.Context,
 	host, index, shard string,
 	initialUUID, finalUUID strfmt.UUID, limit int,
 ) ([]types.RepairResponse, error) {
@@ -266,10 +266,10 @@ func (fc finderClient) DigestObjectsInRange(ctx context.Context,
 }
 
 // FullReads read full objects
-func (fc finderClient) FullReads(ctx context.Context,
+func (fc FinderClient) FullReads(ctx context.Context,
 	host, index, shard string,
 	ids []strfmt.UUID,
-) ([]objects.Replica, error) {
+) ([]Replica, error) {
 	n := len(ids)
 	rs, err := fc.cl.FetchObjects(ctx, host, index, shard, ids)
 	if m := len(rs); err == nil && n != m {
@@ -279,14 +279,14 @@ func (fc finderClient) FullReads(ctx context.Context,
 }
 
 // Overwrite specified object with most recent contents
-func (fc finderClient) Overwrite(ctx context.Context,
+func (fc FinderClient) Overwrite(ctx context.Context,
 	host, index, shard string,
 	xs []*objects.VObject,
 ) ([]types.RepairResponse, error) {
 	return fc.cl.OverwriteObjects(ctx, host, index, shard, xs)
 }
 
-func (fc finderClient) FindUUIDs(ctx context.Context,
+func (fc FinderClient) FindUUIDs(ctx context.Context,
 	host, class, shard string, filters *filters.LocalFilter,
 ) ([]strfmt.UUID, error) {
 	return fc.cl.FindUUIDs(ctx, host, class, shard, filters)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -285,7 +285,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 
 	shardName := shardState.AllPhysicalShards()[0]
 
-	shard, err := idx.initShard(ctx, shardName, class, nil, idx.Config.DisableLazyLoadShards)
+	shard, err := idx.initShard(ctx, shardName, class, nil, idx.Config.DisableLazyLoadShards, true)
 	require.NoError(t, err)
 
 	idx.shards.Store(shardName, shard)

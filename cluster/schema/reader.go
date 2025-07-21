@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -130,8 +130,17 @@ func (rs SchemaReader) metaClass(class string) (meta *metaClass) {
 func (rs SchemaReader) ReadOnlySchema() models.Schema {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ReadOnlySchema"))
 	defer t.ObserveDuration()
-
 	return rs.schema.ReadOnlySchema()
+}
+
+func (rs SchemaReader) ResolveAlias(alias string) string {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ResolveAlias"))
+	defer t.ObserveDuration()
+	return rs.schema.ResolveAlias(alias)
+}
+
+func (rs SchemaReader) Aliases() map[string]string {
+	return rs.schema.getAliases("", "")
 }
 
 // ShardOwner returns the node owner of the specified shard

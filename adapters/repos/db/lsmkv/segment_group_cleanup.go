@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,7 +17,10 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -204,13 +207,13 @@ func (c *segmentCleanerCommon) getSegmentIdsAndSizes() ([]int64, []int64, error)
 		sizes = make([]int64, count)
 
 		for i, seg := range segments {
-			idStr := segmentID(seg.path)
+			idStr := segmentID(seg.getPath())
 			id, err := strconv.ParseInt(idStr, 10, 64)
 			if err != nil {
 				return nil, nil, fmt.Errorf("parse segment id %q: %w", idStr, err)
 			}
 			ids[i] = id
-			sizes[i] = seg.size
+			sizes[i] = seg.getSize()
 		}
 	}
 
@@ -554,7 +557,7 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyE
 			if i >= startIdx && i <= lastIdx {
 				j := i
 				updateI()
-				return segments[j]
+				return segments[j].getSegment()
 			}
 			return nil
 		}
@@ -575,13 +578,29 @@ func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 	oldSegment := sg.segmentAtPos(segmentIdx)
 	countNetAdditions := oldSegment.countNetAdditions
 
-	precomputedFiles, err := preComputeSegmentMeta(tmpSegmentPath, countNetAdditions,
-		sg.logger, sg.useBloomFilter, sg.calcCountNetAdditions, sg.enableChecksumValidation)
+	// as a guardrail validate that the segment is considered a .tmp segment.
+	// This way we can be sure that we're not accidentally operating on a live
+	// segment as the segment group completely ignores .tmp segment files
+	if !strings.HasSuffix(tmpSegmentPath, ".tmp") {
+		return nil, fmt.Errorf("pre computing a segment expects a .tmp segment path")
+	}
+
+	seg, err := newSegment(tmpSegmentPath, sg.logger, sg.metrics, nil,
+		segmentConfig{
+			mmapContents:                 sg.mmapContents,
+			useBloomFilter:               sg.useBloomFilter,
+			calcCountNetAdditions:        sg.calcCountNetAdditions,
+			overwriteDerived:             true,
+			enableChecksumValidation:     sg.enableChecksumValidation,
+			MinMMapSize:                  sg.MinMMapSize,
+			allocChecker:                 sg.allocChecker,
+			precomputedCountNetAdditions: &countNetAdditions,
+		})
 	if err != nil {
 		return nil, fmt.Errorf("precompute segment meta: %w", err)
 	}
 
-	newSegment, err := sg.replaceSegmentBlocking(segmentIdx, oldSegment, precomputedFiles)
+	newSegment, err := sg.replaceSegmentBlocking(segmentIdx, oldSegment, seg)
 	if err != nil {
 		return nil, fmt.Errorf("replace segment (blocking): %w", err)
 	}
@@ -600,7 +619,7 @@ func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 }
 
 func (sg *SegmentGroup) replaceSegmentBlocking(
-	segmentIdx int, oldSegment *segment, precomputedFiles []string,
+	segmentIdx int, oldSegment *segment, newSegment *segment,
 ) (*segment, error) {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
@@ -618,31 +637,20 @@ func (sg *SegmentGroup) replaceSegmentBlocking(
 	}
 
 	segmentId := segmentID(oldSegment.path)
-	var segmentPath string
+	newPath, err := sg.stripTmpExtension(newSegment.path, segmentId, segmentId)
+	if err != nil {
+		return nil, errors.Wrap(err, "strip .tmp extension of new segment")
+	}
+	newSegment.path = newPath
 
 	// the old segment have been deleted, we can now safely remove the .tmp
 	// extension from the new segment itself and the pre-computed files
-	for i, tmpPath := range precomputedFiles {
+	for i, tmpPath := range newSegment.metaPaths {
 		path, err := sg.stripTmpExtension(tmpPath, segmentId, segmentId)
 		if err != nil {
 			return nil, fmt.Errorf("strip .tmp extension of new segment %q: %w", tmpPath, err)
 		}
-		if i == 0 {
-			// the first element in the list is the segment itself
-			segmentPath = path
-		}
-	}
-
-	newSegment, err := newSegment(segmentPath, sg.logger, sg.metrics, nil,
-		segmentConfig{
-			mmapContents:             sg.mmapContents,
-			useBloomFilter:           sg.useBloomFilter,
-			calcCountNetAdditions:    sg.calcCountNetAdditions,
-			overwriteDerived:         false,
-			enableChecksumValidation: sg.enableChecksumValidation,
-		})
-	if err != nil {
-		return nil, fmt.Errorf("create new segment %q: %w", segmentPath, err)
+		newSegment.metaPaths[i] = path
 	}
 
 	sg.segments[segmentIdx] = newSegment

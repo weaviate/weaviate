@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,21 +25,21 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (s *Shard) initProperties(eg *enterrors.ErrorGroupWrapper, class *models.Class) {
+func (s *Shard) initProperties(eg *enterrors.ErrorGroupWrapper, class *models.Class, lazyLoadSegments bool) {
 	s.propertyIndices = propertyspecific.Indices{}
 	if class == nil {
 		return
 	}
 
-	s.initPropertyBuckets(context.Background(), eg, class.Properties...)
+	s.initPropertyBuckets(context.Background(), eg, lazyLoadSegments, class.Properties...)
 
 	eg.Go(func() error {
-		return s.addIDProperty(context.TODO())
+		return s.addIDProperty(context.TODO(), lazyLoadSegments)
 	})
 
 	if s.index.invertedIndexConfig.IndexTimestamps {
 		eg.Go(func() error {
-			return s.addTimestampProperties(context.TODO())
+			return s.addTimestampProperties(context.TODO(), lazyLoadSegments)
 		})
 	}
 
@@ -50,7 +50,7 @@ func (s *Shard) initProperties(eg *enterrors.ErrorGroupWrapper, class *models.Cl
 	}
 }
 
-func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) {
+func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property) {
 	for _, prop := range props {
 		if !inverted.HasAnyInvertedIndex(prop) {
 			continue
@@ -59,7 +59,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 		propCopy := *prop // prevent loop variable capture
 
 		eg.Go(func() error {
-			if err := s.createPropertyValueIndex(ctx, &propCopy); err != nil {
+			if err := s.createPropertyValueIndex(ctx, &propCopy, lazyLoadSegments); err != nil {
 				return fmt.Errorf("init prop %q: value index: %w", propCopy.Name, err)
 			}
 			return nil
@@ -67,7 +67,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 
 		if s.index.invertedIndexConfig.IndexNullState {
 			eg.Go(func() error {
-				if err := s.createPropertyNullIndex(ctx, &propCopy); err != nil {
+				if err := s.createPropertyNullIndex(ctx, &propCopy, lazyLoadSegments); err != nil {
 					return fmt.Errorf("init prop %q: null index: %w", prop.Name, err)
 				}
 				return nil
@@ -76,7 +76,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 
 		if s.index.invertedIndexConfig.IndexPropertyLength {
 			eg.Go(func() error {
-				if err := s.createPropertyLengthIndex(ctx, &propCopy); err != nil {
+				if err := s.createPropertyLengthIndex(ctx, &propCopy, lazyLoadSegments); err != nil {
 					return fmt.Errorf("init prop %q: length index: %w", prop.Name, err)
 				}
 				return nil
@@ -85,7 +85,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 	}
 }
 
-func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
+func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property, lazyLoadSegments bool) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
@@ -97,6 +97,9 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
 		s.segmentCleanupConfig(),
 	}
 
@@ -124,9 +127,18 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 
 	if inverted.HasSearchableIndex(prop) {
 		strategy := lsmkv.DefaultSearchableStrategy(s.usingBlockMaxWAND)
-		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(strategy))
+		searchableBucketOpts := append(
+			bucketOpts,
+			lsmkv.WithStrategy(strategy),
+			lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+			lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		)
 		if strategy == lsmkv.StrategyMapCollection && s.versioner.Version() < 2 {
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
+		}
+
+		if s.class.InvertedIndexConfig != nil {
+			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithBM25Config(s.class.InvertedIndexConfig.Bm25))
 		}
 
 		bucketName := helpers.BucketSearchableFromPropNameLSM(prop.Name)
@@ -145,9 +157,10 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			append(bucketOpts,
 				lsmkv.WithStrategy(lsmkv.StrategyRoaringSetRange),
 				lsmkv.WithUseBloomFilter(false),
-				lsmkv.WithCalcCountNetAdditions(false),
 				lsmkv.WithKeepSegmentsInMemory(s.index.Config.IndexRangeableInMemory),
 				lsmkv.WithBitmapBufPool(s.bitmapBufPool),
+				lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+				lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 			)...,
 		); err != nil {
 			return err
@@ -157,7 +170,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	return nil
 }
 
-func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property) error {
+func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property, lazyLoadSegments bool) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
@@ -177,11 +190,14 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
 		s.segmentCleanupConfig(),
 	)
 }
 
-func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
+func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property, lazyLoadSegments bool) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
@@ -193,11 +209,14 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
 		s.segmentCleanupConfig(),
 	)
 }
 
-func (s *Shard) addIDProperty(ctx context.Context) error {
+func (s *Shard) addIDProperty(ctx context.Context, lazyLoadSegments bool) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
@@ -210,6 +229,9 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
 		s.segmentCleanupConfig(),
 	)
 	if err != nil {
@@ -231,6 +253,8 @@ func (s *Shard) createDimensionsBucket(ctx context.Context, name string) error {
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		s.segmentCleanupConfig(),
 	)
 	if err != nil {
@@ -254,23 +278,23 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) addTimestampProperties(ctx context.Context) error {
+func (s *Shard) addTimestampProperties(ctx context.Context, lazyLoadSegments bool) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 
-	if err := s.addCreationTimeUnixProperty(ctx); err != nil {
+	if err := s.addCreationTimeUnixProperty(ctx, lazyLoadSegments); err != nil {
 		return fmt.Errorf("create creation time property: %w", err)
 	}
 
-	if err := s.addLastUpdateTimeUnixProperty(ctx); err != nil {
+	if err := s.addLastUpdateTimeUnixProperty(ctx, lazyLoadSegments); err != nil {
 		return fmt.Errorf("create last update time property: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
+func (s *Shard) addCreationTimeUnixProperty(ctx context.Context, lazyLoadSegments bool) error {
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
 		s.memtableDirtyConfig(),
@@ -279,11 +303,14 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
 		s.segmentCleanupConfig(),
 	)
 }
 
-func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
+func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context, lazyLoadSegments bool) error {
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		s.memtableDirtyConfig(),
@@ -292,6 +319,9 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
 		s.segmentCleanupConfig(),
 	)
 }

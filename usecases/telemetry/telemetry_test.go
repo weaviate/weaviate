@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,7 +36,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		t.Run("on init", func(t *testing.T) {
 			tel, sg, sm := newTestTelemeter()
-			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputVerbose).Return(
+			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 100,
@@ -141,7 +141,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 
 		t.Run("on update", func(t *testing.T) {
 			tel, sg, sm := newTestTelemeter()
-			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputVerbose).Return(
+			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 1000,
@@ -195,7 +195,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 
 		t.Run("on terminate", func(t *testing.T) {
 			tel, sg, _ := newTestTelemeter()
-			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputVerbose).Return(
+			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 300_000_000_000,
@@ -216,7 +216,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 	t.Run("failure path", func(t *testing.T) {
 		t.Run("fail to get node status", func(t *testing.T) {
 			tel, sg, _ := newTestTelemeter()
-			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputVerbose).Return(nil)
+			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(nil)
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
 			assert.Nil(t, payload)
 			assert.NotNil(t, err)
@@ -225,7 +225,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 
 		t.Run("fail to get node status stats", func(t *testing.T) {
 			tel, sg, _ := newTestTelemeter()
-			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputVerbose).Return(&models.NodeStatus{})
+			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(&models.NodeStatus{})
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
 			assert.Nil(t, payload)
 			assert.NotNil(t, err)
@@ -246,7 +246,7 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 	}
 	tel, sg, sm := newTestTelemeter(opts...)
 
-	sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputVerbose).Return(
+	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{
 			Stats: &models.NodeStats{
 				ObjectCount: 100,

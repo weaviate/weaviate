@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -86,7 +86,7 @@ TenantsGetOneOK describes a response with status code 200, with default header v
 load the tenant given the specified class
 */
 type TenantsGetOneOK struct {
-	Payload *models.TenantResponse
+	Payload *models.Tenant
 }
 
 // IsSuccess returns true when this tenants get one o k response has a 2xx status code
@@ -127,13 +127,13 @@ func (o *TenantsGetOneOK) String() string {
 	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneOK  %+v", 200, o.Payload)
 }
 
-func (o *TenantsGetOneOK) GetPayload() *models.TenantResponse {
+func (o *TenantsGetOneOK) GetPayload() *models.Tenant {
 	return o.Payload
 }
 
 func (o *TenantsGetOneOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.TenantResponse)
+	o.Payload = new(models.Tenant)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

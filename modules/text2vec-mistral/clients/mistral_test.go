@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -173,7 +173,7 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.NotEmpty(f.t, req.Input)
 
 	resp := embeddingsResponse{
-		Data:  []embeddingsDataResponse{{Embeddings: []float32{0.1, 0.2, 0.3}}},
+		Data:  []embeddingsDataResponse{{Embedding: []float32{0.1, 0.2, 0.3}}},
 		Model: "model",
 	}
 	outBytes, err := json.Marshal(resp)

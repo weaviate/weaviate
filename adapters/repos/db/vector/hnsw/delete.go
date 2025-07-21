@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -99,6 +100,10 @@ func (h *hnsw) Delete(ids ...uint64) error {
 func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
 	before := time.Now()
 	defer h.metrics.TrackDelete(before, "total")
+
+	if h.muvera.Load() {
+		return h.Delete(docIDs...)
+	}
 
 	for _, docID := range docIDs {
 		h.RLock()
@@ -601,8 +606,10 @@ func (h *hnsw) reassignNeighbor(
 	return true, nil
 }
 
-func connectionsPointTo(connections [][]uint64, needles helpers.AllowList) bool {
-	for _, atLevel := range connections {
+func connectionsPointTo(connections *packedconn.Connections, needles helpers.AllowList) bool {
+	iter := connections.Iterator()
+	for iter.Next() {
+		_, atLevel := iter.Current()
 		for _, pointer := range atLevel {
 			if needles.Contains(pointer) {
 				return true
@@ -786,7 +793,7 @@ func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
 
 func (h *hnsw) isOnlyNodeUnlocked(needle *vertex, denyList helpers.AllowList) bool {
 	for _, node := range h.nodes {
-		if node == nil || node.id == needle.id || denyList.Contains(node.id) || len(node.connections) == 0 {
+		if node == nil || node.id == needle.id || denyList.Contains(node.id) || node.connections.Layers() == 0 {
 			continue
 		}
 		return false
@@ -845,12 +852,25 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 
 		h.resetLock.Lock()
 		h.shardedNodeLocks.Lock(id)
-		h.nodes[id] = nil
+		if uint64(len(h.nodes)) > id {
+			h.nodes[id] = nil
+		}
 		h.shardedNodeLocks.Unlock(id)
 		if h.compressed.Load() {
 			h.compressor.Delete(context.TODO(), id)
 		} else {
 			h.cache.Delete(context.TODO(), id)
+		}
+		if h.muvera.Load() {
+			idBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(idBytes, id)
+			if err := h.store.Bucket(h.id + "_muvera_vectors").Delete(idBytes); err != nil {
+				h.logger.WithFields(logrus.Fields{
+					"action": "muvera_delete",
+					"id":     id,
+				}).WithError(err).
+					Warnf("cannot delete vector from muvera bucket")
+			}
 		}
 		if err := h.commitLog.DeleteNode(id); err != nil {
 			h.resetLock.Unlock()

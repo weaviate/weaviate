@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,6 +27,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -180,19 +181,21 @@ func (s *coordStore) Meta(ctx context.Context, filename, overrideBucket, overrid
 
 // uploader uploads backup artifacts. This includes db files and metadata
 type uploader struct {
-	sourcer  Sourcer
-	backend  nodeStore
-	backupID string
+	sourcer        Sourcer
+	rbacSourcer    fsm.Snapshotter
+	dynUserSourcer fsm.Snapshotter
+	backend        nodeStore
+	backupID       string
 	zipConfig
 	setStatus func(st backup.Status)
 	log       logrus.FieldLogger
 }
 
-func newUploader(sourcer Sourcer, backend nodeStore,
+func newUploader(sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter, backend nodeStore,
 	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
-		sourcer, backend,
+		sourcer, rbacSourcer, dynUserSourcer, backend,
 		backupID,
 		newZipConfig(Compression{
 			Level:         DefaultCompression,
@@ -214,6 +217,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	u.setStatus(backup.Transferring)
 	desc.Status = string(backup.Transferring)
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes)
+	var totalPreCompressionSize int64 // Track total pre-compression bytes
 	defer func() {
 		//  make sure context is not cancelled when uploading metadata
 		ctx := context.Background()
@@ -234,6 +238,17 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			u.log.Info("finish uploading meta data")
 		}
 	}()
+
+	contextChecker := func(ctx context.Context) error {
+		ctxerr := ctx.Err()
+		if ctxerr != nil {
+			u.setStatus(backup.Cancelled)
+			desc.Status = string(backup.Cancelled)
+			u.releaseIndexes(classes, desc.ID)
+		}
+		return ctxerr
+	}
+
 Loop:
 	for {
 		select {
@@ -246,24 +261,46 @@ Loop:
 				return cdesc.Error
 			}
 			u.log.WithField("class", cdesc.Name).Info("start uploading files")
-			if err := u.class(ctx, desc.ID, &cdesc, overrideBucket, overridePath); err != nil {
+			preCompressionSize, err := u.class(ctx, desc.ID, &cdesc, overrideBucket, overridePath)
+			if err != nil {
 				return err
 			}
+			totalPreCompressionSize += preCompressionSize
+			cdesc.PreCompressionSizeBytes = preCompressionSize // Set pre-compression size for this class
 			desc.Classes = append(desc.Classes, cdesc)
 			u.log.WithField("class", cdesc.Name).Info("finish uploading files")
 
 		case <-ctx.Done():
-			ctxerr := ctx.Err()
-			if ctxerr != nil {
-				u.setStatus(backup.Cancelled)
-				desc.Status = string(backup.Cancelled)
-				u.releaseIndexes(classes, desc.ID)
-			}
-			return ctxerr
+			return contextChecker(ctx)
 		}
 	}
+
+	if err := ctx.Err(); err != nil {
+		return contextChecker(ctx)
+	} else if u.rbacSourcer != nil {
+		u.log.Info("start uploading RBAC backups")
+		descrp, err := u.rbacSourcer.Snapshot()
+		if err != nil {
+			return err
+		}
+		desc.RbacBackups = descrp
+	}
+
+	if err := ctx.Err(); err != nil {
+		return contextChecker(ctx)
+	} else if u.dynUserSourcer != nil {
+		u.log.Info("start uploading dynamic user backups")
+		descrp, err := u.dynUserSourcer.Snapshot()
+		if err != nil {
+			return err
+		}
+		desc.UserBackups = descrp
+	}
+
 	u.setStatus(backup.Transferred)
 	desc.Status = string(backup.Success)
+	// After all classes, set desc.PreCompressionSizeBytes as the sum of all class sizes
+	desc.PreCompressionSizeBytes = totalPreCompressionSize
 	return nil
 }
 
@@ -282,7 +319,9 @@ func (u *uploader) releaseIndexes(classes []string, ID string) {
 }
 
 // class uploads one class
-func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor, overrideBucket, overridePath string) (err error) {
+// Returns the number of bytes written for this class
+func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor, overrideBucket, overridePath string) (int64, error) {
+	var err error
 	classLabel := desc.Name
 	if monitoring.GetMetrics().Group {
 		classLabel = "n/a"
@@ -313,7 +352,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 
 	nShards := len(desc.Shards)
 	if nShards == 0 {
-		return nil
+		return 0, nil
 	}
 
 	desc.Chunks = make(map[int32][]string, 1+nShards/2)
@@ -367,12 +406,12 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 							return err
 						}
 						chunk := atomic.AddInt32(&lastChunk, 1)
-						shards, err := u.compress(ctx, desc.Name, chunk, sender, overrideBucket, overridePath)
+						shards, preCompressionSize, err := u.compress(ctx, desc.Name, chunk, sender, overrideBucket, overridePath)
 						if err != nil {
 							return err
 						}
 						if m := int32(len(shards)); m > 0 {
-							recvCh <- chuckShards{chunk, shards}
+							recvCh <- chuckShards{chunk, shards, preCompressionSize}
 						}
 					}
 					return err
@@ -386,13 +425,15 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 
 	for x := range processor(nWorker, jobs(desc.Shards)) {
 		desc.Chunks[x.chunk] = x.shards
+		desc.PreCompressionSizeBytes += x.preCompressionSize
 	}
-	return
+	return desc.PreCompressionSizeBytes, err
 }
 
 type chuckShards struct {
-	chunk  int32
-	shards []string
+	chunk              int32
+	shards             []string
+	preCompressionSize int64
 }
 
 func (u *uploader) compress(ctx context.Context,
@@ -400,12 +441,14 @@ func (u *uploader) compress(ctx context.Context,
 	chunk int32, // chunk index
 	ch <-chan *backup.ShardDescriptor, // chan of shards
 	overrideBucket, overridePath string, // bucket name and path
-) ([]string, error) {
+) ([]string, int64, error) {
 	var (
 		chunkKey = chunkKey(class, chunk)
 		shards   = make([]string, 0, 10)
 		// add tolerance to enable better optimization of the chunk size
-		maxSize = int64(u.ChunkSize + u.ChunkSize/20) // size + 5%
+		maxSize            = int64(u.ChunkSize + u.ChunkSize/20) // size + 5%
+		preCompressionSize atomic.Int64
+		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
 	zip, reader := NewZip(u.backend.SourceDataPath(), u.Level)
 	producer := func() error {
@@ -415,6 +458,14 @@ func (u *uploader) compress(ctx context.Context,
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+
+			eg.Go(func() error {
+				// Calculate pre-compression size for this shard
+				shardPreSize := u.calculateShardPreCompressionSize(shard)
+				preCompressionSize.Add(shardPreSize)
+				return nil
+			})
+
 			if _, err := zip.WriteShard(ctx, shard); err != nil {
 				return err
 			}
@@ -431,7 +482,6 @@ func (u *uploader) compress(ctx context.Context,
 	}
 
 	// consumer
-	eg := enterrors.NewErrorGroupWrapper(u.log)
 	eg.Go(func() error {
 		if _, err := u.backend.Write(ctx, chunkKey, overrideBucket, overridePath, reader); err != nil {
 			return err
@@ -440,10 +490,34 @@ func (u *uploader) compress(ctx context.Context,
 	})
 
 	if err := producer(); err != nil {
-		return shards, err
+		return shards, preCompressionSize.Load(), err
 	}
 	// wait for the consumer to finish
-	return shards, eg.Wait()
+	return shards, preCompressionSize.Load(), eg.Wait()
+}
+
+// calculateShardPreCompressionSize calculates the total size of a shard before compression
+// Since shards are paused and memtables are flushed during backup, we only need to calculate
+// the size of files on disk, not in-memory data.
+func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescriptor) int64 {
+	var totalSize int64
+	sourceDataPath := u.backend.SourceDataPath()
+	// Add size of files on disk (in-memory data is flushed to disk during backup preparation)
+	for _, filePath := range shard.Files {
+		fullPath := filepath.Join(sourceDataPath, filePath)
+		if info, err := os.Stat(fullPath); err == nil {
+			totalSize += info.Size()
+		}
+	}
+
+	u.log.WithFields(logrus.Fields{
+		"shard":          shard.Name,
+		"filesCount":     len(shard.Files),
+		"totalSize":      totalSize,
+		"sourceDataPath": sourceDataPath,
+	}).Debug("calculated pre-compression size for shard")
+
+	return totalSize
 }
 
 // fileWriter downloads files from object store and writes files to the destination folder destDir

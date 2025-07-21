@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,10 +33,6 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 			model string
 		}{
 			{
-				name:  "textembedding-gecko@001",
-				model: "textembedding-gecko@001",
-			},
-			{
 				name:  "textembedding-gecko@latest",
 				model: "textembedding-gecko@latest",
 			},
@@ -45,24 +41,16 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 				model: "textembedding-gecko-multilingual@latest",
 			},
 			{
-				name:  "textembedding-gecko@003",
-				model: "textembedding-gecko@003",
+				name:  "text-embedding-005",
+				model: "text-embedding-005",
 			},
 			{
-				name:  "textembedding-gecko@002",
-				model: "textembedding-gecko@002",
+				name:  "text-multilingual-embedding-002",
+				model: "text-multilingual-embedding-002",
 			},
 			{
-				name:  "textembedding-gecko-multilingual@001",
-				model: "textembedding-gecko-multilingual@001",
-			},
-			{
-				name:  "text-embedding-preview-0409",
-				model: "text-embedding-preview-0409",
-			},
-			{
-				name:  "text-multilingual-embedding-preview-0409",
-				model: "text-multilingual-embedding-preview-0409",
+				name:  "gemini-embedding-001",
+				model: "gemini-embedding-001",
 			},
 		}
 		for _, tt := range tests {

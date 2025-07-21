@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
@@ -31,14 +32,14 @@ import (
 	"go.etcd.io/bbolt"
 )
 
-func (s *Shard) initShardVectors(ctx context.Context) error {
+func (s *Shard) initShardVectors(ctx context.Context, lazyLoadSegments bool) error {
 	if s.index.vectorIndexUserConfig != nil {
-		if err := s.initLegacyVector(ctx); err != nil {
+		if err := s.initLegacyVector(ctx, lazyLoadSegments); err != nil {
 			return err
 		}
 	}
 
-	if err := s.initTargetVectors(ctx); err != nil {
+	if err := s.initTargetVectors(ctx, lazyLoadSegments); err != nil {
 		return err
 	}
 
@@ -46,7 +47,7 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 }
 
 func (s *Shard) initVectorIndex(ctx context.Context,
-	targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig,
+	targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig, lazyLoadSegments bool,
 ) (VectorIndex, error) {
 	var distProv distancer.Provider
 
@@ -110,6 +111,10 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
 						// consistent with previous logic where the individual limit is 1/5 of the combined limit
 						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
+						hnsw.WithSnapshotDisabled(s.index.Config.HNSWDisableSnapshots),
+						hnsw.WithSnapshotCreateInterval(time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds)*time.Second),
+						hnsw.WithSnapshotMinDeltaCommitlogsNumer(s.index.Config.HNSWSnapshotMinDeltaCommitlogsNumber),
+						hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
 					)
 				},
 				AllocChecker:           s.index.allocChecker,
@@ -117,6 +122,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
 				AcornFilterRatio:       s.index.Config.HNSWAcornFilterRatio,
 				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
+				DisableSnapshots:       s.index.Config.HNSWDisableSnapshots,
+				SnapshotOnStartup:      s.index.Config.HNSWSnapshotOnStartup,
+				LazyLoadSegments:       lazyLoadSegments,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
@@ -145,6 +153,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			Logger:           s.index.logger,
 			DistanceProvider: distProv,
 			AllocChecker:     s.index.allocChecker,
+			MinMMapSize:      s.index.Config.MinMMapSize,
+			MaxWalReuseSize:  s.index.Config.MaxReuseWalSize,
+			LazyLoadSegments: lazyLoadSegments,
 		}, flatUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
@@ -183,10 +194,25 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			TempVectorForIDThunk: hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
 			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 				return hnsw.NewCommitLogger(s.path(), vecIdxID,
-					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
+					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+					hnsw.WithAllocChecker(s.index.allocChecker),
+					hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
+					// consistent with previous logic where the individual limit is 1/5 of the combined limit
+					hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
+					hnsw.WithSnapshotDisabled(s.index.Config.HNSWDisableSnapshots),
+					hnsw.WithSnapshotCreateInterval(time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds)*time.Second),
+					hnsw.WithSnapshotMinDeltaCommitlogsNumer(s.index.Config.HNSWSnapshotMinDeltaCommitlogsNumber),
+					hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
+				)
 			},
-			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-			SharedDB:           sharedDB,
+			TombstoneCallbacks:    s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			SharedDB:              sharedDB,
+			HNSWDisableSnapshots:  s.index.Config.HNSWDisableSnapshots,
+			HNSWSnapshotOnStartup: s.index.Config.HNSWSnapshotOnStartup,
+			MinMMapSize:           s.index.Config.MinMMapSize,
+			MaxWalReuseSize:       s.index.Config.MaxReuseWalSize,
+			LazyLoadSegments:      lazyLoadSegments,
+			AllocChecker:          s.index.allocChecker,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
@@ -215,7 +241,7 @@ func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
 	return s.dynamicVectorIndexDB, nil
 }
 
-func (s *Shard) initTargetVectors(ctx context.Context) error {
+func (s *Shard) initTargetVectors(ctx context.Context, lazyLoadSegments bool) error {
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()
 
@@ -223,21 +249,21 @@ func (s *Shard) initTargetVectors(ctx context.Context) error {
 	s.queues = make(map[string]*VectorIndexQueue, len(s.index.vectorIndexUserConfigs))
 
 	for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
-		if err := s.initTargetVectorWithLock(ctx, targetVector, vectorIndexConfig); err != nil {
+		if err := s.initTargetVectorWithLock(ctx, targetVector, vectorIndexConfig, lazyLoadSegments); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig) error {
+func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()
-	return s.initTargetVectorWithLock(ctx, targetVector, cfg)
+	return s.initTargetVectorWithLock(ctx, targetVector, cfg, lazyLoadSegments)
 }
 
-func (s *Shard) initTargetVectorWithLock(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig) error {
-	vectorIndex, err := s.initVectorIndex(ctx, targetVector, cfg)
+func (s *Shard) initTargetVectorWithLock(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
+	vectorIndex, err := s.initVectorIndex(ctx, targetVector, cfg, lazyLoadSegments)
 	if err != nil {
 		return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
 	}
@@ -251,11 +277,11 @@ func (s *Shard) initTargetVectorWithLock(ctx context.Context, targetVector strin
 	return nil
 }
 
-func (s *Shard) initLegacyVector(ctx context.Context) error {
+func (s *Shard) initLegacyVector(ctx context.Context, lazyLoadSegments bool) error {
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()
 
-	vectorIndex, err := s.initVectorIndex(ctx, "", s.index.vectorIndexUserConfig)
+	vectorIndex, err := s.initVectorIndex(ctx, "", s.index.vectorIndexUserConfig, lazyLoadSegments)
 	if err != nil {
 		return err
 	}

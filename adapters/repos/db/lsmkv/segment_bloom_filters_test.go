@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -110,6 +110,10 @@ func TestCreateBloomInit(t *testing.T) {
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
+
+	// just to ensure segments are loaded
+	cursor := b2.Cursor()
+	cursor.Close()
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -320,7 +324,7 @@ func TestRepairTooShortBloomSecondaryOnInit(t *testing.T) {
 func TestLoadWithChecksumErrorCases(t *testing.T) {
 	t.Run("file does not exist", func(t *testing.T) {
 		dirName := t.TempDir()
-		_, err := loadWithChecksum(path.Join(dirName, "my-file"), -1)
+		_, err := loadWithChecksum(path.Join(dirName, "my-file"), -1, nil)
 		assert.NotNil(t, err)
 	})
 
@@ -335,7 +339,7 @@ func TestLoadWithChecksumErrorCases(t *testing.T) {
 
 		require.Nil(t, f.Close())
 
-		_, err = loadWithChecksum(path.Join(dirName, "my-file"), 17)
+		_, err = loadWithChecksum(path.Join(dirName, "my-file"), 17, nil)
 		assert.NotNil(t, err)
 	})
 }
@@ -360,7 +364,7 @@ func BenchmarkLoading(b *testing.B) {
 			require.NoError(b, f.Close())
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				loadedData, err := loadWithChecksum(fName, len(data))
+				loadedData, err := loadWithChecksum(fName, len(data), nil)
 				require.NoError(b, err)
 				require.Equal(b, loadedData, data[4:])
 			}
@@ -594,4 +598,45 @@ func corruptBloomFileByTruncatingIt(fname string) error {
 	}
 
 	return f.Close()
+}
+
+func BenchmarkName(b *testing.B) {
+	logger, _ := test.NewNullLogger()
+	fn := func(key []byte) (bool, error) { return true, nil }
+
+	for _, val := range []int{10, 100, 1000, 10000} {
+		b.Run(fmt.Sprintf("%d", val), func(b *testing.B) {
+			dirName := b.TempDir()
+			ctx := context.Background()
+			bu, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithStrategy(StrategyReplace))
+			require.Nil(b, err)
+
+			for i := 0; i < val; i++ {
+				require.Nil(b, bu.Put([]byte(fmt.Sprintf("hello-%v", i)), []byte(fmt.Sprintf("world-%v", i))))
+			}
+
+			require.Nil(b, bu.FlushMemtable())
+			bu.Shutdown(ctx)
+
+			files, err := os.ReadDir(dirName)
+			require.NoError(b, err)
+
+			fnames, ok := findFileWithExt(files, ".db")
+			assert.True(b, ok)
+			assert.NotNil(b, fnames)
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_, err := newSegment(path.Join(dirName, fnames), logger, nil, fn, segmentConfig{
+					mmapContents:     false,
+					useBloomFilter:   true,
+					overwriteDerived: true,
+				})
+				require.NoError(b, err)
+			}
+		})
+	}
 }

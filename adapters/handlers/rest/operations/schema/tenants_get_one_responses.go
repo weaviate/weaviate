@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,7 +37,7 @@ type TenantsGetOneOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.TenantResponse `json:"body,omitempty"`
+	Payload *models.Tenant `json:"body,omitempty"`
 }
 
 // NewTenantsGetOneOK creates TenantsGetOneOK with default headers values
@@ -47,13 +47,13 @@ func NewTenantsGetOneOK() *TenantsGetOneOK {
 }
 
 // WithPayload adds the payload to the tenants get one o k response
-func (o *TenantsGetOneOK) WithPayload(payload *models.TenantResponse) *TenantsGetOneOK {
+func (o *TenantsGetOneOK) WithPayload(payload *models.Tenant) *TenantsGetOneOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the tenants get one o k response
-func (o *TenantsGetOneOK) SetPayload(payload *models.TenantResponse) {
+func (o *TenantsGetOneOK) SetPayload(payload *models.Tenant) {
 	o.Payload = payload
 }
 

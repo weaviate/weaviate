@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -58,14 +58,17 @@ type generativeParser interface {
 type Parser struct {
 	generative         generativeParser
 	authorizedGetClass classGetterWithAuthzFunc
+	aliasGetter        aliasGetter
 }
 
 func NewParser(uses127Api bool,
 	authorizedGetClass classGetterWithAuthzFunc,
+	aliasGetter aliasGetter,
 ) *Parser {
 	return &Parser{
 		generative:         generative.NewParser(uses127Api),
 		authorizedGetClass: authorizedGetClass,
+		aliasGetter:        aliasGetter,
 	}
 }
 
@@ -76,7 +79,8 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		return out, err
 	}
 
-	out.ClassName = req.Collection
+	out.Alias = p.aliasGetter(req.Collection)
+	out.ClassName = class.Class
 	out.ReplicationProperties = extractReplicationProperties(req.ConsistencyLevel)
 
 	out.Tenant = req.Tenant
@@ -105,6 +109,13 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 
 	if bm25 := req.Bm25Search; bm25 != nil {
 		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: schema.LowercaseFirstLetterOfStrings(bm25.Properties), Type: "bm25", AdditionalExplanations: out.AdditionalProperties.ExplainScore}
+
+		if bm25.SearchOperator != nil {
+			if bm25.SearchOperator.MinimumOrTokensMatch != nil {
+				out.KeywordRanking.MinimumOrTokensMatch = int(*bm25.SearchOperator.MinimumOrTokensMatch)
+			}
+			out.KeywordRanking.SearchOperator = bm25.SearchOperator.Operator.String()
+		}
 	}
 
 	if nv := req.NearVector; nv != nil {
@@ -288,6 +299,13 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			TargetVectors:   targetVectors,
 			Distance:        distance,
 			WithDistance:    withDistance,
+		}
+
+		if hs.Bm25SearchOperator != nil {
+			if hs.Bm25SearchOperator.MinimumOrTokensMatch != nil {
+				out.HybridSearch.MinimumOrTokensMatch = int(*hs.Bm25SearchOperator.MinimumOrTokensMatch)
+			}
+			out.HybridSearch.SearchOperator = hs.Bm25SearchOperator.Operator.String()
 		}
 
 		if nearVec != nil {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,6 +48,12 @@ func (o *GetOwnInfoReader) ReadResponse(response runtime.ClientResponse, consume
 		return nil, result
 	case 500:
 		result := NewGetOwnInfoInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 501:
+		result := NewGetOwnInfoNotImplemented()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -238,6 +244,74 @@ func (o *GetOwnInfoInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetOwnInfoInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewGetOwnInfoNotImplemented creates a GetOwnInfoNotImplemented with default headers values
+func NewGetOwnInfoNotImplemented() *GetOwnInfoNotImplemented {
+	return &GetOwnInfoNotImplemented{}
+}
+
+/*
+GetOwnInfoNotImplemented describes a response with status code 501, with default header values.
+
+Replica movement operations are disabled.
+*/
+type GetOwnInfoNotImplemented struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this get own info not implemented response has a 2xx status code
+func (o *GetOwnInfoNotImplemented) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this get own info not implemented response has a 3xx status code
+func (o *GetOwnInfoNotImplemented) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this get own info not implemented response has a 4xx status code
+func (o *GetOwnInfoNotImplemented) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this get own info not implemented response has a 5xx status code
+func (o *GetOwnInfoNotImplemented) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this get own info not implemented response a status code equal to that given
+func (o *GetOwnInfoNotImplemented) IsCode(code int) bool {
+	return code == 501
+}
+
+// Code gets the status code for the get own info not implemented response
+func (o *GetOwnInfoNotImplemented) Code() int {
+	return 501
+}
+
+func (o *GetOwnInfoNotImplemented) Error() string {
+	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoNotImplemented  %+v", 501, o.Payload)
+}
+
+func (o *GetOwnInfoNotImplemented) String() string {
+	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoNotImplemented  %+v", 501, o.Payload)
+}
+
+func (o *GetOwnInfoNotImplemented) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *GetOwnInfoNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

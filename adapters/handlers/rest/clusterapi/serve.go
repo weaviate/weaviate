@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,16 +12,30 @@
 package clusterapi
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-func Serve(appState *state.State) {
+// Server represents the cluster API server
+type Server struct {
+	server   *http.Server
+	appState *state.State
+}
+
+// Ensure Server implements interfaces.ClusterServer
+var _ types.ClusterServer = (*Server)(nil)
+
+// NewServer creates a new cluster API server instance
+func NewServer(appState *state.State) *Server {
 	port := appState.ServerConfig.Config.Cluster.DataBindPort
 	auth := NewBasicAuthHandler(appState.ServerConfig.Config.Cluster.AuthConfig)
 
@@ -75,7 +89,45 @@ func Serve(appState *state.State) {
 		)
 	}
 
-	http.ListenAndServe(fmt.Sprintf(":%d", port), handler)
+	return &Server{
+		server: &http.Server{
+			Addr:    fmt.Sprintf(":%d", port),
+			Handler: handler,
+		},
+		appState: appState,
+	}
+}
+
+// Serve starts the server and blocks until an error occurs
+func (s *Server) Serve() error {
+	s.appState.Logger.WithField("action", "cluster_api_startup").
+		Infof("cluster api server is ready to handle requests on %s", s.server.Addr)
+	return s.server.ListenAndServe()
+}
+
+// Close gracefully shuts down the server
+func (s *Server) Close(ctx context.Context) error {
+	s.appState.Logger.WithField("action", "cluster_api_shutdown").
+		Info("server is shutting down")
+
+	if err := s.server.Shutdown(ctx); err != nil {
+		s.appState.Logger.WithField("action", "cluster_api_shutdown").
+			WithError(err).
+			Error("could not stop server gracefully")
+		return s.server.Close()
+	}
+	return nil
+}
+
+// Serve is kept for backward compatibility
+func Serve(appState *state.State) (*Server, error) {
+	server := NewServer(appState)
+	if err := server.Serve(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		appState.Logger.WithField("action", "cluster_api_shutdown").
+			WithError(err).
+			Error("server error")
+	}
+	return server, nil
 }
 
 func index() http.Handler {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,19 +20,24 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/storobj"
-
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
-	"github.com/weaviate/weaviate/cluster/router"
+	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/types"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -42,7 +47,6 @@ import (
 
 type DB struct {
 	logger            logrus.FieldLogger
-	router            *router.Router
 	schemaGetter      schemaUC.SchemaGetter
 	config            Config
 	indices           map[string]*Index
@@ -56,6 +60,9 @@ type DB struct {
 	startupComplete   atomic.Bool
 	resourceScanState *resourceScanState
 	memMonitor        *memwatch.Monitor
+	nodeSelector      cluster.NodeSelector
+	schemaReader      schemaUC.SchemaReader
+	replicationFSM    types.ReplicationFSMReader
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modification at a time. R/W can be a bit confusing here,
@@ -116,10 +123,6 @@ func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 	db.schemaGetter = sg
 }
 
-func (db *DB) SetRouter(r *router.Router) {
-	db.router = r
-}
-
 func (db *DB) GetScheduler() *queue.Scheduler {
 	return db.scheduler
 }
@@ -137,6 +140,20 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 }
 
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
+
+// IndexGetter interface defines the methods that the service uses from db.IndexGetter
+// This allows for better testability by using interfaces instead of concrete types
+type IndexGetter interface {
+	GetIndexLike(className schema.ClassName) IndexLike
+}
+
+// IndexLike interface defines the methods that the service uses from db.Index
+// This allows for better testability by using interfaces instead of concrete types
+type IndexLike interface {
+	ForEachShard(f func(name string, shard ShardLike) error) error
+	CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (usagetypes.ObjectUsage, error)
+	CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) (int64, error)
+}
 
 func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
@@ -202,33 +219,55 @@ type Config struct {
 	RootPath                            string
 	QueryLimit                          int64
 	QueryMaximumResults                 int64
+	QueryHybridMaximumResults           int64
 	QueryNestedRefLimit                 int64
 	ResourceUsage                       config.ResourceUsage
 	MaxImportGoroutinesFactor           float64
+	LazySegmentsDisabled                bool
 	MemtablesFlushDirtyAfter            int
 	MemtablesInitialSizeMB              int
 	MemtablesMaxSizeMB                  int
 	MemtablesMinActiveSeconds           int
 	MemtablesMaxActiveSeconds           int
+	MinMMapSize                         int64
+	MaxReuseWalSize                     int64
 	SegmentsCleanupIntervalSeconds      int
 	SeparateObjectsCompactions          bool
 	MaxSegmentSize                      int64
-	HNSWMaxLogSize                      int64
-	HNSWWaitForCachePrefill             bool
-	HNSWFlatSearchConcurrency           int
-	HNSWAcornFilterRatio                float64
-	VisitedListPoolMaxSize              int
 	TrackVectorDimensions               bool
 	ServerVersion                       string
 	GitHash                             string
 	AvoidMMap                           bool
 	DisableLazyLoadShards               bool
 	ForceFullReplicasSearch             bool
+	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	Replication                         replication.GlobalConfig
 	MaximumConcurrentShardLoads         int
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+
+	HNSWMaxLogSize                               int64
+	HNSWDisableSnapshots                         bool
+	HNSWSnapshotIntervalSeconds                  int
+	HNSWSnapshotOnStartup                        bool
+	HNSWSnapshotMinDeltaCommitlogsNumber         int
+	HNSWSnapshotMinDeltaCommitlogsSizePercentage int
+	HNSWWaitForCachePrefill                      bool
+	HNSWFlatSearchConcurrency                    int
+	HNSWAcornFilterRatio                         float64
+	VisitedListPoolMaxSize                       int
+
+	TenantActivityReadLogLevel  *configRuntime.DynamicValue[string]
+	TenantActivityWriteLogLevel *configRuntime.DynamicValue[string]
+	QuerySlowLogEnabled         *configRuntime.DynamicValue[bool]
+	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
+	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
+	MaintenanceModeEnabled      func() bool
+}
+
+func (db *DB) GetIndexLike(className schema.ClassName) IndexLike {
+	return db.GetIndex(className)
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -384,4 +423,16 @@ func (db *DB) batchWorker(first bool) {
 func (db *DB) WithReindexer(reindexer ShardReindexerV3) *DB {
 	db.reindexer = reindexer
 	return db
+}
+
+func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {
+	db.nodeSelector = nodeSelector
+}
+
+func (db *DB) SetSchemaReader(schemaReader clusterSchema.SchemaReader) {
+	db.schemaReader = schemaReader
+}
+
+func (db *DB) SetReplicationFSM(replicationFsm *clusterReplication.ShardReplicationFSM) {
+	db.replicationFSM = replicationFsm
 }

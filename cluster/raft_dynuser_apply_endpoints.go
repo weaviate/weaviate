@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -35,6 +36,28 @@ func (s *Raft) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_UPSERT_USER,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(context.Background(), command); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Raft) CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error {
+	req := cmd.CreateUserWithKeyRequest{
+		UserId:             userId,
+		CreatedAt:          createdAt,
+		ApiKeyFirstLetters: apiKeyFirstLetters,
+		WeakHash:           weakHash,
+		Version:            cmd.DynUserLatestCommandPolicyVersion,
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_CREATE_USER_WITH_KEY,
 		SubCommand: subCommand,
 	}
 	if _, err := s.Execute(context.Background(), command); err != nil {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,6 +46,6 @@ func ComposeModules() (composeModules *docker.Compose) {
 		WithText2VecCohere(os.Getenv("COHERE_APIKEY")).
 		WithGenerativeOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
 		WithGenerativeCohere(os.Getenv("COHERE_APIKEY")).
-		WithText2ColBERTJinaAI(os.Getenv("JINAAI_APIKEY"))
+		WithText2MultivecJinaAI(os.Getenv("JINAAI_APIKEY"))
 	return
 }

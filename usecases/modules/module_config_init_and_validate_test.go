@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestSetClassDefaults(t *testing.T) {
@@ -34,7 +35,7 @@ func TestSetClassDefaults(t *testing.T) {
 			Vectorizer: "none",
 		}
 
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.SetClassDefaults(class)
 
 		assert.Equal(t, &models.Class{Class: "Foo", Vectorizer: "none"}, class,
@@ -47,7 +48,7 @@ func TestSetClassDefaults(t *testing.T) {
 			Vectorizer: "my-module",
 		}
 
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.Register(&dummyText2VecModuleNoCapabilities{name: "my-module"})
 		p.SetClassDefaults(class)
 
@@ -87,7 +88,7 @@ func TestSetClassDefaults(t *testing.T) {
 			Vectorizer: "my-module",
 		}
 
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.Register(&dummyModuleClassConfigurator{
 			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
 				name: "my-module",
@@ -141,7 +142,7 @@ func TestSetClassDefaults(t *testing.T) {
 			Vectorizer: "my-module",
 		}
 
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.Register(&dummyModuleClassConfigurator{
 			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
 				name: "my-module",
@@ -192,7 +193,7 @@ func TestSetClassDefaults(t *testing.T) {
 			},
 		}
 
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.Register(&dummyModuleClassConfigurator{
 			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
 				name: "my-module",
@@ -252,7 +253,7 @@ func TestSetClassDefaults(t *testing.T) {
 			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
 		}
 
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.Register(&dummyModuleClassConfigurator{
 			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
 				name: "my-module",
@@ -278,7 +279,7 @@ func TestValidateClass(t *testing.T) {
 			Vectorizer: "none",
 		}
 
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.Register(&dummyModuleClassConfigurator{
 			validateError: errors.Errorf("if I was used, you'd fail"),
 			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
@@ -302,7 +303,7 @@ func TestValidateClass(t *testing.T) {
 				Vectorizer: "my-module",
 			}
 
-			p := NewProvider(logger)
+			p := NewProvider(logger, config.Config{})
 			p.Register(&dummyText2VecModuleNoCapabilities{
 				name: "my-module",
 			})
@@ -322,7 +323,7 @@ func TestValidateClass(t *testing.T) {
 			Vectorizer: "my-module",
 		}
 
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.Register(&dummyModuleClassConfigurator{
 			validateError: errors.Errorf("no can do!"),
 			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
@@ -378,7 +379,7 @@ func TestSetSinglePropertyDefaults(t *testing.T) {
 	}
 
 	logger, _ := test.NewNullLogger()
-	p := NewProvider(logger)
+	p := NewProvider(logger, config.Config{})
 	p.Register(&dummyModuleClassConfigurator{
 		dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
 			name: "my-module",
@@ -443,7 +444,7 @@ func TestSetSinglePropertyDefaults_MixedVectors(t *testing.T) {
 	}
 
 	logger, _ := test.NewNullLogger()
-	p := NewProvider(logger)
+	p := NewProvider(logger, config.Config{})
 	p.Register(&dummyModuleClassConfigurator{
 		dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
 			name: "my-module",

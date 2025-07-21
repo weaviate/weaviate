@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,10 +21,12 @@ import (
 	"math"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type compactorInverted struct {
@@ -58,11 +60,14 @@ type compactorInverted struct {
 
 	docIdEncoder varenc.VarEncEncoder[uint64]
 	tfEncoder    varenc.VarEncEncoder[uint64]
+
+	k1, b, avgPropLen float64
 }
 
 func newCompactorInverted(w io.WriteSeeker,
 	c1, c2 *segmentCursorInvertedReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
+	k1, b, avgPropLen float64,
 ) *compactorInverted {
 	return &compactorInverted{
 		c1:                  c1,
@@ -74,6 +79,9 @@ func newCompactorInverted(w io.WriteSeeker,
 		secondaryIndexCount: secondaryIndexCount,
 		scratchSpacePath:    scratchSpacePath,
 		offset:              0,
+		k1:                  k1,
+		b:                   b,
+		avgPropLen:          avgPropLen,
 	}
 }
 
@@ -354,7 +362,7 @@ func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
 		primaryKey:  keyCopy,
 		offset:      offset,
 		propLengths: propertyLengths,
-	}.KeyIndexAndWriteTo(c.bufw, c.docIdEncoder, c.tfEncoder)
+	}.KeyIndexAndWriteTo(c.bufw, c.docIdEncoder, c.tfEncoder, c.k1, c.b, c.avgPropLen)
 }
 
 func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {
@@ -362,6 +370,10 @@ func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {
 		Keys:                keys,
 		SecondaryIndexCount: c.secondaryIndexCount,
 		ScratchSpacePath:    c.scratchSpacePath,
+		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+			"strategy":  StrategyInverted,
+			"operation": "writeIndices",
+		}),
 	}
 
 	_, err := indices.WriteTo(c.bufw)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -70,10 +70,21 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						"trainingLimit": float64(100000),
 						"rescoreLimit":  float64(20),
 					},
+					"rq": map[string]interface{}{
+						"enabled":      false,
+						"bits":         float64(8),
+						"rescoreLimit": float64(20),
+					},
 					"filterStrategy": "sweeping",
 					"multivector": map[string]interface{}{
 						"enabled":     false,
 						"aggregation": "maxSim",
+						"muvera": map[string]interface{}{
+							"dprojections": float64(16),
+							"enabled":      false,
+							"ksim":         float64(4),
+							"repetitions":  float64(10),
+						},
 					},
 				},
 				"shardingConfig": map[string]interface{}{

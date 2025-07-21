@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -93,12 +93,6 @@ type ShardReplicationEngine struct {
 	// The wait group helps ensure that the engine doesn't terminate prematurely before all goroutines have finished.
 	wg sync.WaitGroup
 
-	// cancel is a function that cancels the context associated with the replication engine's main execution loop.
-	// It is used to gracefully stop the operation of the engine by canceling the context passed to the producer
-	// and consumer goroutines. The context cancellation triggers the shutdown sequence for the engine, allowing
-	// the producer and consumer to stop gracefully.
-	cancel context.CancelFunc
-
 	// maxWorkers controls the maximum number of concurrent workers in the consumer pool.
 	// It is used to limit the parallelism of replication operations, preventing the system from being overwhelmed by
 	// too many concurrent tasks performing replication operations.
@@ -159,7 +153,6 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 	e.stopChan = make(chan struct{})
 
 	engineCtx, engineCancel := context.WithCancel(ctx)
-	e.cancel = engineCancel
 	e.logger.WithFields(logrus.Fields{"engine": e}).Info("starting replication engine")
 
 	// Channels for error reporting used by producer and consumer.
@@ -218,8 +211,8 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 	// Always cancel the replication engine context and wait for the producer and consumers to terminate to gracefully
 	// shut down the replication engine the both the producer and consumer.
 	engineCancel()
-	e.wg.Wait()
 	close(e.opsChan)
+	e.wg.Wait()
 	e.isRunning.Store(false)
 	return err
 }
@@ -239,26 +232,7 @@ func (e *ShardReplicationEngine) Stop() {
 	// Closing the stop channel notifies both the producer and consumer to shut down gracefully coordinating with the
 	// replication engine.
 	close(e.stopChan)
-	e.cancel()
-
-	// We use a timeout mechanism to wait for the replication engine to shut down and prevent it from running
-	// indefinitely.
-	timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), e.shutdownTimeout)
-	defer timeoutCancel()
-
-	done := make(chan struct{})
-	enterrors.GoWrapper(func() {
-		e.wg.Wait()
-		close(done)
-	}, e.logger)
-
-	select {
-	case <-done:
-		e.logger.WithField("engine", e).Info("replication engine shutdown completed successfully")
-	case <-timeoutCtx.Done():
-		e.logger.WithField("engine", e).WithField("timeout", e.shutdownTimeout).Warn("replication engine shutdown timed out")
-	}
-
+	e.wg.Wait()
 	e.isRunning.Store(false)
 	e.engineMetricCallbacks.OnEngineStop(e.nodeId)
 }

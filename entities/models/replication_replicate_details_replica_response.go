@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,43 +27,55 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ReplicationReplicateDetailsReplicaResponse The current status and details of a replication operation, including information about the resources involved in the replication process.
+// ReplicationReplicateDetailsReplicaResponse Provides a comprehensive overview of a specific replication operation, detailing its unique ID, the involved collection, shard, source and target nodes, transfer type, current status, and optionally, its status history.
 //
 // swagger:model ReplicationReplicateDetailsReplicaResponse
 type ReplicationReplicateDetailsReplicaResponse struct {
 
-	// The name of the collection holding data being replicated.
+	// The name of the collection to which the shard being replicated belongs.
 	// Required: true
 	Collection *string `json:"collection"`
 
-	// The unique id of the replication operation.
+	// The unique identifier (ID) of this specific replication operation.
 	// Required: true
 	// Format: uuid
 	ID *strfmt.UUID `json:"id"`
 
-	// The id of the shard to collect replication details for.
-	// Required: true
-	ShardID *string `json:"shardId"`
+	// Whether the replica operation is scheduled for cancellation.
+	ScheduledForCancel bool `json:"scheduledForCancel,omitempty"`
 
-	// The id of the node where the source replica is allocated.
-	// Required: true
-	SourceNodeID *string `json:"sourceNodeId"`
+	// Whether the replica operation is scheduled for deletion.
+	ScheduledForDelete bool `json:"scheduledForDelete,omitempty"`
 
-	// The current status of the replication operation
+	// The name of the shard involved in this replication operation.
+	// Required: true
+	Shard *string `json:"shard"`
+
+	// The identifier of the node from which the replica is being moved or copied (the source node).
+	// Required: true
+	SourceNode *string `json:"sourceNode"`
+
+	// An object detailing the current operational state of the replica movement and any errors encountered.
 	// Required: true
 	Status *ReplicationReplicateDetailsReplicaStatus `json:"status"`
 
-	// The history of the replication operation
+	// An array detailing the historical sequence of statuses the replication operation has transitioned through, if requested and available.
 	StatusHistory []*ReplicationReplicateDetailsReplicaStatus `json:"statusHistory"`
 
-	// The id of the node where the target replica is allocated.
+	// The identifier of the node to which the replica is being moved or copied (the target node).
 	// Required: true
-	TargetNodeID *string `json:"targetNodeId"`
+	TargetNode *string `json:"targetNode"`
 
-	// The transfer type of the replication request, being 'copy' or 'move'.
+	// Indicates whether the operation is a 'COPY' (source replica remains) or a 'MOVE' (source replica is removed after successful transfer).
 	// Required: true
 	// Enum: [COPY MOVE]
-	TransferType *string `json:"transferType"`
+	Type *string `json:"type"`
+
+	// Whether the replica operation is uncancelable.
+	Uncancelable bool `json:"uncancelable,omitempty"`
+
+	// The UNIX timestamp in ms when the replication operation was initiated. This is an approximate time and so should not be used for precise timing.
+	WhenStartedUnixMs int64 `json:"whenStartedUnixMs,omitempty"`
 }
 
 // Validate validates this replication replicate details replica response
@@ -78,11 +90,11 @@ func (m *ReplicationReplicateDetailsReplicaResponse) Validate(formats strfmt.Reg
 		res = append(res, err)
 	}
 
-	if err := m.validateShardID(formats); err != nil {
+	if err := m.validateShard(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateSourceNodeID(formats); err != nil {
+	if err := m.validateSourceNode(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -94,11 +106,11 @@ func (m *ReplicationReplicateDetailsReplicaResponse) Validate(formats strfmt.Reg
 		res = append(res, err)
 	}
 
-	if err := m.validateTargetNodeID(formats); err != nil {
+	if err := m.validateTargetNode(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateTransferType(formats); err != nil {
+	if err := m.validateType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -130,18 +142,18 @@ func (m *ReplicationReplicateDetailsReplicaResponse) validateID(formats strfmt.R
 	return nil
 }
 
-func (m *ReplicationReplicateDetailsReplicaResponse) validateShardID(formats strfmt.Registry) error {
+func (m *ReplicationReplicateDetailsReplicaResponse) validateShard(formats strfmt.Registry) error {
 
-	if err := validate.Required("shardId", "body", m.ShardID); err != nil {
+	if err := validate.Required("shard", "body", m.Shard); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *ReplicationReplicateDetailsReplicaResponse) validateSourceNodeID(formats strfmt.Registry) error {
+func (m *ReplicationReplicateDetailsReplicaResponse) validateSourceNode(formats strfmt.Registry) error {
 
-	if err := validate.Required("sourceNodeId", "body", m.SourceNodeID); err != nil {
+	if err := validate.Required("sourceNode", "body", m.SourceNode); err != nil {
 		return err
 	}
 
@@ -194,16 +206,16 @@ func (m *ReplicationReplicateDetailsReplicaResponse) validateStatusHistory(forma
 	return nil
 }
 
-func (m *ReplicationReplicateDetailsReplicaResponse) validateTargetNodeID(formats strfmt.Registry) error {
+func (m *ReplicationReplicateDetailsReplicaResponse) validateTargetNode(formats strfmt.Registry) error {
 
-	if err := validate.Required("targetNodeId", "body", m.TargetNodeID); err != nil {
+	if err := validate.Required("targetNode", "body", m.TargetNode); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-var replicationReplicateDetailsReplicaResponseTypeTransferTypePropEnum []interface{}
+var replicationReplicateDetailsReplicaResponseTypeTypePropEnum []interface{}
 
 func init() {
 	var res []string
@@ -211,35 +223,35 @@ func init() {
 		panic(err)
 	}
 	for _, v := range res {
-		replicationReplicateDetailsReplicaResponseTypeTransferTypePropEnum = append(replicationReplicateDetailsReplicaResponseTypeTransferTypePropEnum, v)
+		replicationReplicateDetailsReplicaResponseTypeTypePropEnum = append(replicationReplicateDetailsReplicaResponseTypeTypePropEnum, v)
 	}
 }
 
 const (
 
-	// ReplicationReplicateDetailsReplicaResponseTransferTypeCOPY captures enum value "COPY"
-	ReplicationReplicateDetailsReplicaResponseTransferTypeCOPY string = "COPY"
+	// ReplicationReplicateDetailsReplicaResponseTypeCOPY captures enum value "COPY"
+	ReplicationReplicateDetailsReplicaResponseTypeCOPY string = "COPY"
 
-	// ReplicationReplicateDetailsReplicaResponseTransferTypeMOVE captures enum value "MOVE"
-	ReplicationReplicateDetailsReplicaResponseTransferTypeMOVE string = "MOVE"
+	// ReplicationReplicateDetailsReplicaResponseTypeMOVE captures enum value "MOVE"
+	ReplicationReplicateDetailsReplicaResponseTypeMOVE string = "MOVE"
 )
 
 // prop value enum
-func (m *ReplicationReplicateDetailsReplicaResponse) validateTransferTypeEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, replicationReplicateDetailsReplicaResponseTypeTransferTypePropEnum, true); err != nil {
+func (m *ReplicationReplicateDetailsReplicaResponse) validateTypeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, replicationReplicateDetailsReplicaResponseTypeTypePropEnum, true); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *ReplicationReplicateDetailsReplicaResponse) validateTransferType(formats strfmt.Registry) error {
+func (m *ReplicationReplicateDetailsReplicaResponse) validateType(formats strfmt.Registry) error {
 
-	if err := validate.Required("transferType", "body", m.TransferType); err != nil {
+	if err := validate.Required("type", "body", m.Type); err != nil {
 		return err
 	}
 
 	// value enum
-	if err := m.validateTransferTypeEnum("transferType", "body", *m.TransferType); err != nil {
+	if err := m.validateTypeEnum("type", "body", *m.Type); err != nil {
 		return err
 	}
 

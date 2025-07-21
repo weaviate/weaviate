@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,9 +33,9 @@ func TestMemtableRoaringSetRange(t *testing.T) {
 	}
 
 	t.Run("concurrent writes and search", func(t *testing.T) {
-		cl, err := newCommitLogger(memPath())
+		cl, err := newCommitLogger(memPath(), StrategyRoaringSetRange, 0)
 		require.NoError(t, err)
-		m, err := newMemtable(memPath(), StrategyRoaringSetRange, 0, cl, nil, logger, false)
+		m, err := newMemtable(memPath(), StrategyRoaringSetRange, 0, cl, nil, logger, false, nil)
 		require.Nil(t, err)
 
 		addKeyVals := func(k uint64) error {

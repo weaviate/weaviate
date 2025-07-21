@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -71,13 +71,14 @@ func TestLSMKV_ChecksumsCatchCorruptedFiles(t *testing.T) {
 	bucket, err := newTestBucket(dataDir, true)
 	require.NoError(t, err)
 	require.NoError(t, bucket.Put(key, val))
+	require.NoError(t, bucket.FlushAndSwitch())
 	require.NoError(t, bucket.Shutdown(context.Background()))
 
 	entries, err := os.ReadDir(dataDir)
 	require.NoError(t, err)
-	require.Len(t, entries, 1, "single segment file should be created")
+	require.Len(t, entries, 3, "segment files should be created")
 
-	segmentPath := path.Join(dataDir, entries[0].Name())
+	segmentPath := path.Join(dataDir, entries[2].Name())
 	fileContent, err := os.ReadFile(segmentPath)
 	require.NoError(t, err)
 
@@ -99,5 +100,6 @@ func newTestBucket(dataPath string, checkSumEnabled bool) (*lsmkv.Bucket, error)
 			cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop(),
 			lsmkv.WithSegmentsChecksumValidationEnabled(checkSumEnabled),
+			lsmkv.WithCalcCountNetAdditions(true),
 		)
 }

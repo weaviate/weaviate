@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
+func (s *Shard) initNonVector(ctx context.Context, class *models.Class, lazyLoadSegments bool) error {
 	before := time.Now()
 	defer func() {
 		took := time.Since(before)
@@ -82,7 +82,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 
 	// error group is passed, so properties can be initialized in parallel with
 	// the other initializations going on here.
-	s.initProperties(eg, class)
+	s.initProperties(eg, class, lazyLoadSegments)
 
 	err := eg.Wait()
 	if err != nil {
@@ -151,6 +151,10 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		s.segmentCleanupConfig(),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		lsmkv.WithCalcCountNetAdditions(true),
+		// dont lazy segment load object bucket - we need it in most (all?) operations
 	}
 
 	if s.metrics != nil && !s.metrics.grouped {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,10 +16,14 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/weaviate/weaviate/usecases/integrity"
 )
+
+type SegmentWriter interface {
+	Write(p []byte) (n int, err error)
+	Flush() error
+}
 
 // SegmentFile facilitates the writing/reading of an LSM bucket segment file.
 //
@@ -50,7 +54,7 @@ import (
 //	   ```
 type SegmentFile struct {
 	header         *Header
-	writer         *bufio.Writer
+	writer         SegmentWriter
 	reader         *bufio.Reader
 	checksumWriter integrity.ChecksumWriter
 	checksumReader integrity.ChecksumReader
@@ -66,7 +70,7 @@ type SegmentFileOption func(*SegmentFile)
 
 // WithBufferedWriter sets the desired segment file writer
 // This will typically wrap the segment *os.File
-func WithBufferedWriter(writer *bufio.Writer) SegmentFileOption {
+func WithBufferedWriter(writer SegmentWriter) SegmentFileOption {
 	return func(segmentFile *SegmentFile) {
 		segmentFile.writer = writer
 		segmentFile.checksumWriter = integrity.NewCRC32Writer(writer)
@@ -119,6 +123,12 @@ func (f *SegmentFile) BodyWriter() io.Writer {
 		return f.writer
 	}
 	return f.checksumWriter
+}
+
+// SetHeader sets the header in the SegmentFile without writing anything. This should be used if the header was already
+// written by another reader.
+func (f *SegmentFile) SetHeader(header *Header) {
+	f.header = header
 }
 
 // WriteHeader writes the header struct to the underlying writer.
@@ -209,7 +219,7 @@ func (f *SegmentFile) WriteChecksum() (int64, error) {
 }
 
 // ValidateChecksum determines if a segment's content matches its checksum
-func (f *SegmentFile) ValidateChecksum(info os.FileInfo) error {
+func (f *SegmentFile) ValidateChecksum(size int64) error {
 	if f.reader == nil {
 		return fmt.Errorf(" SegmentFile not initialized with a reader, " +
 			"try adding one with segmentindex.WithReader(io.Reader)")
@@ -225,7 +235,7 @@ func (f *SegmentFile) ValidateChecksum(info os.FileInfo) error {
 
 	var (
 		buffer    = make([]byte, 4096) // Buffer for chunked reads
-		dataSize  = info.Size() - HeaderSize - ChecksumSize
+		dataSize  = size - HeaderSize - ChecksumSize
 		remaining = dataSize
 	)
 

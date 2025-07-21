@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,14 +12,18 @@
 package roaringset
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"io"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
+
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // Compactor takes in a left and a right segment and merges them into a single
@@ -69,26 +73,68 @@ type Compactor struct {
 	cleanupDeletions bool
 
 	w    io.WriteSeeker
-	bufw *bufio.Writer
+	bufw compactor.Writer
+	mw   *compactor.MemoryWriter
 
 	scratchSpacePath string
 
 	enableChecksumValidation bool
 }
 
-// NewCompactor from left (older) and right (newer) seeker. See [Compactor] for
-// an explanation of what goes on under the hood, and why the input
+// NewCompactor from left (older) and right (newer) segment. See [Compactor]
+// for an explanation of what goes on under the hood, and why the input
 // requirements are the way they are.
+//
+// # Segment Layout
+//
+// The layout of the segment is
+// - header
+// - data
+// - check-sum
+//
+// However, it is challenging to calculate the length of the data (which is
+// part of the header) before writing the file:
+//
+// big files (overhead is not that relevant)
+// - write empty header
+// - write data
+// - seek back to start
+// - write real header
+// - seek to original position (after data)
+// - write checksum
+//
+// # Decision Logic
+//
+// For small files we use a custom buffered writer, that buffers everything
+// and writes just once at the end. For larger files, we use the regular
+// approach as outlined above using a standard go buffered writer.
+//
+// The threshold to consider a file small vs large is simply the size of the
+// regular buffered writer. The idea is that we would allocate
+// [SegmentWriterBufferSize] bytes in any case, so if we anticipate being able
+// to write the entire file in less than [SegmentWriterBufferSize] bytes, there
+// is no additional cost to using the fully-in-memory approach.
 func NewCompactor(w io.WriteSeeker,
 	left, right *SegmentCursor, level uint16,
 	scratchSpacePath string, cleanupDeletions bool,
-	enableChecksumValidation bool,
+	enableChecksumValidation bool, maxNewFileSize int64,
 ) *Compactor {
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"operation": "compaction",
+		"strategy":  "roaringset",
+	})
+	writeCB := func(written int64) {
+		observeWrite.Observe(float64(written))
+	}
+	meteredW := diskio.NewMeteredWriter(w, writeCB)
+	writer, mw := compactor.NewWriter(meteredW, maxNewFileSize)
+
 	return &Compactor{
 		left:                     left,
 		right:                    right,
-		w:                        w,
-		bufw:                     bufio.NewWriterSize(w, 256*1024),
+		w:                        meteredW,
+		bufw:                     writer,
+		mw:                       mw,
 		currentLevel:             level,
 		cleanupDeletions:         cleanupDeletions,
 		scratchSpacePath:         scratchSpacePath,
@@ -117,8 +163,10 @@ func (c *Compactor) Do() error {
 	}
 
 	// flush buffered, so we can safely seek on underlying writer
-	if err := c.bufw.Flush(); err != nil {
-		return fmt.Errorf("flush buffered: %w", err)
+	if c.mw == nil {
+		if err := c.bufw.Flush(); err != nil {
+			return fmt.Errorf("flush buffered: %w", err)
+		}
 	}
 
 	var dataEnd uint64 = segmentindex.HeaderSize
@@ -127,9 +175,9 @@ func (c *Compactor) Do() error {
 	}
 
 	version := segmentindex.ChooseHeaderVersion(c.enableChecksumValidation)
-	if err := c.writeHeader(segmentFile, c.currentLevel,
-		version, 0, dataEnd); err != nil {
-		return fmt.Errorf("write header: %w", err)
+	if err := compactor.WriteHeader(c.mw, c.w, c.bufw, segmentFile, c.currentLevel, version,
+		0, dataEnd, segmentindex.StrategyRoaringSet); err != nil {
+		return errors.Wrap(err, "write header")
 	}
 
 	if _, err := segmentFile.WriteChecksum(); err != nil {
@@ -310,45 +358,11 @@ func (c *Compactor) writeIndexes(f *segmentindex.SegmentFile,
 		Keys:                keys,
 		SecondaryIndexCount: 0,
 		ScratchSpacePath:    c.scratchSpacePath,
+		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+			"strategy":  "roaringset",
+			"operation": "writeIndices",
+		}),
 	}
 	_, err := f.WriteIndexes(indexes)
 	return err
-}
-
-// writeHeader assumes that everything has been written to the underlying
-// writer and it is now safe to seek to the beginning and override the initial
-// header
-func (c *Compactor) writeHeader(f *segmentindex.SegmentFile,
-	level, version, secondaryIndices uint16, startOfIndex uint64,
-) error {
-	if _, err := c.w.Seek(0, io.SeekStart); err != nil {
-		return errors.Wrap(err, "seek to beginning to write header")
-	}
-
-	h := &segmentindex.Header{
-		Level:            level,
-		Version:          version,
-		SecondaryIndices: secondaryIndices,
-		Strategy:         segmentindex.StrategyRoaringSet,
-		IndexStart:       startOfIndex,
-	}
-	// We have to write directly to compactor writer,
-	// since it has seeked back to start. The following
-	// call to f.WriteHeader will not write again.
-	if _, err := h.WriteTo(c.w); err != nil {
-		return err
-	}
-
-	if _, err := f.WriteHeader(h); err != nil {
-		return err
-	}
-
-	// We need to seek back to the end so we can write a checksum
-	if _, err := c.w.Seek(0, io.SeekEnd); err != nil {
-		return fmt.Errorf("seek to end after writing header: %w", err)
-	}
-
-	c.bufw.Reset(c.w)
-
-	return nil
 }

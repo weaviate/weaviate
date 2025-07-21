@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,8 +25,10 @@ import (
 
 func (a *Aggregator) buildHybridKeywordRanking() (*searchparams.KeywordRanking, error) {
 	kw := &searchparams.KeywordRanking{
-		Type:  "bm25",
-		Query: a.params.Hybrid.Query,
+		Type:                 "bm25",
+		Query:                a.params.Hybrid.Query,
+		MinimumOrTokensMatch: a.params.Hybrid.MinimumOrTokensMatch,
+		SearchOperator:       a.params.Hybrid.SearchOperator,
 	}
 
 	cl := a.getSchema.ReadOnlyClass(a.params.ClassName.String())

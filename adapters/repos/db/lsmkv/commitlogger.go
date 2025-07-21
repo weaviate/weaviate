@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,12 +14,18 @@ package lsmkv
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"fmt"
+	"hash/crc32"
+	"io"
 	"os"
 	"sync"
 	"sync/atomic"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/usecases/integrity"
@@ -35,6 +41,7 @@ type memtableCommitLogger interface {
 	flushBuffers() error
 	close() error
 	delete() error
+	sync() error
 }
 
 var (
@@ -44,6 +51,7 @@ var (
 
 type lazyCommitLogger struct {
 	path         string
+	strategy     string
 	commitLogger *commitLogger
 	mux          sync.Mutex
 }
@@ -56,7 +64,8 @@ func (cl *lazyCommitLogger) mayInitCommitLogger() error {
 		return nil
 	}
 
-	commitLogger, err := newCommitLogger(cl.path)
+	// file does not exist yet
+	commitLogger, err := newCommitLogger(cl.path, cl.strategy, 0)
 	if err != nil {
 		return err
 	}
@@ -153,6 +162,17 @@ func (cl *lazyCommitLogger) delete() error {
 	return cl.commitLogger.delete()
 }
 
+func (cl *lazyCommitLogger) sync() error {
+	cl.mux.Lock()
+	defer cl.mux.Unlock()
+
+	if cl.commitLogger == nil {
+		return nil
+	}
+
+	return cl.commitLogger.sync()
+}
+
 type commitLogger struct {
 	file   *os.File
 	writer *bufio.Writer
@@ -218,26 +238,54 @@ func (ct CommitType) Is(checkedCommitType CommitType) bool {
 	return ct == checkedCommitType
 }
 
-func newLazyCommitLogger(path string) (*lazyCommitLogger, error) {
+func newLazyCommitLogger(path, strategy string) (*lazyCommitLogger, error) {
 	return &lazyCommitLogger{
-		path: path,
+		path:     path,
+		strategy: strategy,
 	}, nil
 }
 
-func newCommitLogger(path string) (*commitLogger, error) {
-	out := &commitLogger{
-		path: walPath(path),
-	}
+func newCommitLogger(path, strategy string, fileSize int64) (*commitLogger, error) {
+	out := &commitLogger{path: walPath(path)}
 
-	f, err := os.OpenFile(out.path, os.O_CREATE|os.O_RDWR, 0o666)
+	out.n.Swap(fileSize)
+
+	f, err := os.OpenFile(out.path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o666)
 	if err != nil {
 		return nil, err
 	}
 
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"strategy":  strategy,
+		"operation": "appendWAL",
+	})
+
 	out.file = f
 
-	out.writer = bufio.NewWriter(f)
-	out.checksumWriter = integrity.NewCRC32Writer(out.writer)
+	meteredF := diskio.NewMeteredWriter(f, func(written int64) {
+		observeWrite.Observe(float64(written))
+	})
+
+	out.writer = bufio.NewWriter(meteredF)
+
+	if out.n.Load() == 0 {
+		out.checksumWriter = integrity.NewCRC32Writer(out.writer)
+	} else {
+		_, err = out.file.Seek(-crc32.Size, io.SeekEnd)
+		if err != nil {
+			return nil, err
+		}
+
+		var checksum [crc32.Size]byte
+		_, err = io.ReadFull(out.file, checksum[:])
+		if err != nil {
+			return nil, err
+		}
+
+		seed := binary.BigEndian.Uint32(checksum[:])
+
+		out.checksumWriter = integrity.NewCRC32WriterWithSeed(out.writer, seed)
+	}
 
 	out.bufNode = bytes.NewBuffer(nil)
 	out.tmpBuf = make([]byte, byteops.Uint8Len+byteops.Uint8Len+byteops.Uint32Len)
@@ -337,6 +385,10 @@ func (cl *commitLogger) add(node *roaringset.SegmentNodeList) error {
 // automatically resets the logger.
 func (cl *commitLogger) size() int64 {
 	return cl.n.Load()
+}
+
+func (cl *commitLogger) sync() error {
+	return cl.file.Sync()
 }
 
 func (cl *commitLogger) close() error {

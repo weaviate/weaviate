@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -93,6 +93,13 @@ func TestBackup_Integration(t *testing.T) {
 		require.Nil(t, err)
 	})
 
+	// after switch commit logs, to have source log(s)
+	t.Run("create snapshot", func(t *testing.T) {
+		created, _, err := idx.commitLog.CreateSnapshot()
+		require.Nil(t, err)
+		require.True(t, created)
+	})
+
 	t.Run("list files", func(t *testing.T) {
 		files, err := idx.ListFiles(ctx, dirName)
 		require.Nil(t, err)
@@ -107,7 +114,16 @@ func TestBackup_Integration(t *testing.T) {
 		// it excludes any currently active log files, which are not part
 		// of the backup. in this case, the only other file is the prev
 		// commitlog, so we should only have 1 result here.
-		assert.Len(t, files, 1)
+		//
+		// additionally snapshot was created which consist of 2 files,
+		// so total of 3 files are expected
+		assert.Len(t, files, 3)
+
+		filesUnique := make(map[string]struct{}, len(files))
+		for i := range files {
+			filesUnique[files[i]] = struct{}{}
+		}
+		require.Len(t, filesUnique, len(files))
 
 		t.Run("verify commitlog dir contents", func(t *testing.T) {
 			// checking to ensure that indeed there are only 2 files in the
@@ -126,6 +142,19 @@ func TestBackup_Integration(t *testing.T) {
 				assert.Empty(t, path.Ext(info.Name()))
 			}
 			assert.True(t, prevLogFound, "previous commitlog not found in commitlog root dir")
+		})
+
+		t.Run("verify snapshot dir contents", func(t *testing.T) {
+			snapshotDir := snapshotDirectory(idx.commitLog.RootPath(), idx.commitLog.ID())
+			relSnapshotDir := snapshotDirectory("", idx.commitLog.ID())
+
+			ls, err := os.ReadDir(snapshotDir)
+			require.Nil(t, err)
+
+			for i := range ls {
+				snapshotFilePath := path.Join(relSnapshotDir, ls[i].Name())
+				assert.Contains(t, filesUnique, snapshotFilePath)
+			}
 		})
 	})
 

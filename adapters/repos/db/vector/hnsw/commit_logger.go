@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -33,26 +34,67 @@ import (
 
 const defaultCommitLogSize = 500 * 1024 * 1024
 
-func commitLogFileName(rootPath, indexName, fileName string) string {
-	return fmt.Sprintf("%s/%s", commitLogDirectory(rootPath, indexName), fileName)
-}
+type hnswCommitLogger struct {
+	// protect against concurrent attempts to write in the underlying file or
+	// buffer
+	sync.Mutex
 
-func commitLogDirectory(rootPath, name string) string {
-	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
+	rootPath          string
+	id                string
+	condensor         Condensor
+	logger            logrus.FieldLogger
+	maxSizeIndividual int64
+	maxSizeCombining  int64
+	commitLogger      *commitlog.Logger
+
+	switchLogsCallbackCtrl   cyclemanager.CycleCallbackCtrl
+	maintainLogsCallbackCtrl cyclemanager.CycleCallbackCtrl
+	maintenanceCallbacks     cyclemanager.CycleCallbackGroup
+
+	allocChecker memwatch.AllocChecker
+
+	snapshotLogger logrus.FieldLogger
+	// whether snapshots are disabled
+	snapshotDisabled bool
+	// minimum interval to create next snapshot out of last one and new commitlogs, 0 = no periodic snapshots
+	snapshotCreateInterval time.Duration
+	// minimal interval to check if next snapshot should be created
+	snapshotCheckInterval time.Duration
+	// minimum number of delta commitlogs required to create new snapshot
+	snapshotMinDeltaCommitlogsNumber int
+	// minimum percentage size of delta commitlogs (compared to last snapshot) required to create new one
+	snapshotMinDeltaCommitlogsSizePercentage int
+	// time that last snapshot was created at (based on its name, which is based on last included commitlog name;
+	// not the actual snapshot file creation time)
+	snapshotLastCreatedAt time.Time
+	// time that last check if snapshot should be created was made
+	snapshotLastCheckedAt time.Time
+	// partitions mark commitlogs (left ones) that should not be combined with
+	// logs on the right side (newer ones).
+	// example: given logs 0001.condensed, 0002.condensed, 0003.condensed and 0004.condensed
+	// with partition = "0002", only logs [older or equal 0002.condensed]
+	// or [newer than 0002.condensed] can be combined with each other
+	// (so 0001+0002 or 0003+0004, NOT 0002+0003)
+	// partitions are commitlog filenames (no path, no extension)
+	snapshotPartitions []string
 }
 
 func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 	maintenanceCallbacks cyclemanager.CycleCallbackGroup, opts ...CommitlogOption,
 ) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
-		rootPath:  rootPath,
-		id:        name,
-		condensor: NewMemoryCondensor(logger),
-		logger:    logger,
+		rootPath:             rootPath,
+		id:                   name,
+		condensor:            NewMemoryCondensor(logger),
+		logger:               logger,
+		maintenanceCallbacks: maintenanceCallbacks,
 
 		// both can be overwritten using functional options
 		maxSizeIndividual: defaultCommitLogSize / 5,
 		maxSizeCombining:  defaultCommitLogSize,
+
+		snapshotMinDeltaCommitlogsNumber:         1,
+		snapshotMinDeltaCommitlogsSizePercentage: 0,
 	}
 
 	for _, o := range opts {
@@ -65,17 +107,32 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 	if err != nil {
 		return nil, err
 	}
+	l.commitLogger = commitlog.NewLoggerWithFile(fd)
 
+	if err := l.initSnapshotData(); err != nil {
+		return nil, errors.Wrapf(err, "init snapshot data")
+	}
+
+	return l, nil
+}
+
+func (l *hnswCommitLogger) InitMaintenance() {
 	id := func(elems ...string) string {
 		elems = append([]string{"commit_logger"}, elems...)
 		elems = append(elems, l.id)
 		return strings.Join(elems, "/")
 	}
-	l.commitLogger = commitlog.NewLoggerWithFile(fd)
-	l.switchLogsCallbackCtrl = maintenanceCallbacks.Register(id("switch_logs"), l.startSwitchLogs)
-	l.condenseLogsCallbackCtrl = maintenanceCallbacks.Register(id("condense_logs"), l.startCombineAndCondenseLogs)
 
-	return l, nil
+	l.switchLogsCallbackCtrl = l.maintenanceCallbacks.Register(id("switch_logs"), l.startSwitchLogs)
+	l.maintainLogsCallbackCtrl = l.maintenanceCallbacks.Register(id("maintain_logs"), l.startCommitLogsMaintenance)
+}
+
+func commitLogFileName(rootPath, indexName, fileName string) string {
+	return fmt.Sprintf("%s/%s", commitLogDirectory(rootPath, indexName), fileName)
+}
+
+func commitLogDirectory(rootPath, name string) string {
+	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
 }
 
 func getLatestCommitFileOrCreate(rootPath, name string) (*os.File, error) {
@@ -105,8 +162,16 @@ func getLatestCommitFileOrCreate(rootPath, name string) (*os.File, error) {
 }
 
 // getCommitFileNames in order, from old to new
-func getCommitFileNames(rootPath, name string) ([]string, error) {
-	dir := commitLogDirectory(rootPath, name)
+func getCommitFileNames(rootPath, id string, createdAfter int64) ([]string, error) {
+	files, err := getCommitFiles(rootPath, id, createdAfter)
+	if err != nil {
+		return nil, err
+	}
+	return commitLogFileNames(rootPath, id, files), nil
+}
+
+func getCommitFiles(rootPath, id string, createdAfter int64) ([]os.DirEntry, error) {
+	dir := commitLogDirectory(rootPath, id)
 	err := os.MkdirAll(dir, os.ModePerm)
 	if err != nil {
 		return nil, errors.Wrap(err, "create commit logger directory")
@@ -117,10 +182,17 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 		return nil, errors.Wrap(err, "browse commit logger directory")
 	}
 
-	files = removeTmpScratchOrHiddenFiles(files)
+	files = skipTmpScratchOrHiddenFiles(files)
 	files, err = removeTmpCombiningFiles(dir, files)
 	if err != nil {
-		return nil, errors.Wrap(err, "remove temporary files")
+		return nil, errors.Wrap(err, "clean up tmp combining files")
+	}
+
+	if createdAfter > 0 {
+		files, err = filterNewerCommitLogFiles(files, createdAfter)
+		if err != nil {
+			return nil, errors.Wrap(err, "remove old commit files")
+		}
 	}
 
 	if len(files) == 0 {
@@ -144,12 +216,15 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 		return nil, err
 	}
 
+	return files, nil
+}
+
+func commitLogFileNames(rootPath, id string, files []os.DirEntry) []string {
 	out := make([]string, len(files))
 	for i, file := range files {
-		out[i] = commitLogFileName(rootPath, name, file.Name())
+		out[i] = commitLogFileName(rootPath, id, file.Name())
 	}
-
-	return out, nil
+	return out
 }
 
 // getCurrentCommitLogFileName returns the fileName and true if a file was
@@ -160,14 +235,16 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 		return "", false, errors.Wrap(err, "browse commit logger directory")
 	}
 
-	if len(files) == 0 {
-		return "", false, nil
+	if len(files) > 0 {
+		files = skipTmpScratchOrHiddenFiles(files)
+		files, err = removeTmpCombiningFiles(dirPath, files)
+		if err != nil {
+			return "", false, errors.Wrap(err, "clean up tmp combining files")
+		}
 	}
 
-	files = removeTmpScratchOrHiddenFiles(files)
-	files, err = removeTmpCombiningFiles(dirPath, files)
-	if err != nil {
-		return "", false, errors.Wrap(err, "clean up tmp combining files")
+	if len(files) == 0 {
+		return "", false, nil
 	}
 
 	ec := errorcompounder.New()
@@ -190,30 +267,45 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 	return files[0].Name(), true, nil
 }
 
-func removeTmpScratchOrHiddenFiles(in []os.DirEntry) []os.DirEntry {
+func skipTmpScratchOrHiddenFiles(in []os.DirEntry) []os.DirEntry {
 	out := make([]os.DirEntry, len(in))
 	i := 0
-	for _, info := range in {
-		if strings.HasSuffix(info.Name(), ".scratch.tmp") {
+	for _, entry := range in {
+		if strings.HasSuffix(entry.Name(), ".scratch.tmp") {
 			continue
 		}
 
-		if strings.HasPrefix(info.Name(), ".") {
+		if strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
 
-		out[i] = info
+		out[i] = entry
 		i++
 	}
-
 	return out[:i]
 }
 
-func removeTmpCombiningFiles(dirPath string,
-	in []os.DirEntry,
-) ([]os.DirEntry, error) {
+func skipEmptyFiles(in []os.DirEntry) ([]os.DirEntry, error) {
 	out := make([]os.DirEntry, len(in))
 	i := 0
+	for _, entry := range in {
+		info, err := entry.Info()
+		if err != nil {
+			return nil, errors.Wrap(err, "get file info")
+		}
+		if info.Size() == 0 {
+			continue
+		}
+		out[i] = entry
+		i++
+	}
+	return out[:i], nil
+}
+
+func removeTmpCombiningFiles(dirPath string, in []os.DirEntry) ([]os.DirEntry, error) {
+	out := make([]os.DirEntry, len(in))
+	i := 0
+
 	for _, info := range in {
 		if strings.HasSuffix(info.Name(), ".combined.tmp") {
 			// a temporary combining file was found which means that the combining
@@ -235,31 +327,32 @@ func removeTmpCombiningFiles(dirPath string,
 	return out[:i], nil
 }
 
+func filterNewerCommitLogFiles(in []os.DirEntry, createdAfter int64) ([]os.DirEntry, error) {
+	out := make([]os.DirEntry, len(in))
+	i := 0
+	for _, entry := range in {
+		ts, err := asTimeStamp(entry.Name())
+		if err != nil {
+			return nil, errors.Wrapf(err, "read commitlog timestamp %q", entry.Name())
+		}
+
+		if ts <= createdAfter {
+			continue
+		}
+
+		out[i] = entry
+		i++
+	}
+
+	return out[:i], nil
+}
+
 func asTimeStamp(in string) (int64, error) {
 	return strconv.ParseInt(strings.TrimSuffix(in, ".condensed"), 10, 64)
 }
 
 type Condensor interface {
 	Do(filename string) error
-}
-
-type hnswCommitLogger struct {
-	// protect against concurrent attempts to write in the underlying file or
-	// buffer
-	sync.Mutex
-
-	rootPath          string
-	id                string
-	condensor         Condensor
-	logger            logrus.FieldLogger
-	maxSizeIndividual int64
-	maxSizeCombining  int64
-	commitLogger      *commitlog.Logger
-
-	switchLogsCallbackCtrl   cyclemanager.CycleCallbackCtrl
-	condenseLogsCallbackCtrl cyclemanager.CycleCallbackCtrl
-
-	allocChecker memwatch.AllocChecker
 }
 
 type HnswCommitType uint8 // 256 options, plenty of room for future extensions
@@ -278,6 +371,8 @@ const (
 	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1705
 	AddPQ
 	AddSQ
+	AddMuvera
+	AddRQ
 )
 
 func (t HnswCommitType) String() string {
@@ -308,6 +403,10 @@ func (t HnswCommitType) String() string {
 		return "AddProductQuantizer"
 	case AddSQ:
 		return "AddScalarQuantizer"
+	case AddMuvera:
+		return "AddMuvera"
+	case AddRQ:
+		return "AddRotationalQuantizer"
 	}
 	return "unknown commit type"
 }
@@ -328,6 +427,20 @@ func (l *hnswCommitLogger) AddSQCompression(data compressionhelpers.SQData) erro
 	defer l.Unlock()
 
 	return l.commitLogger.AddSQCompression(data)
+}
+
+func (l *hnswCommitLogger) AddRQCompression(data compressionhelpers.RQData) error {
+	l.Lock()
+	defer l.Unlock()
+
+	return l.commitLogger.AddRQCompression(data)
+}
+
+func (l *hnswCommitLogger) AddMuvera(data multivector.MuveraData) error {
+	l.Lock()
+	defer l.Unlock()
+
+	return l.commitLogger.AddMuvera(data)
 }
 
 // AddNode adds an empty node
@@ -407,11 +520,15 @@ func (l *hnswCommitLogger) Reset() error {
 // scheduling. The caller can be sure that state on disk is immutable after
 // calling Shutdown().
 func (l *hnswCommitLogger) Shutdown(ctx context.Context) error {
-	if err := l.switchLogsCallbackCtrl.Unregister(ctx); err != nil {
-		return errors.Wrap(err, "failed to unregister commitlog switch from maintenance cycle")
+	if l.switchLogsCallbackCtrl != nil {
+		if err := l.switchLogsCallbackCtrl.Unregister(ctx); err != nil {
+			return errors.Wrap(err, "failed to unregister commitlog switch from maintenance cycle")
+		}
 	}
-	if err := l.condenseLogsCallbackCtrl.Unregister(ctx); err != nil {
-		return errors.Wrap(err, "failed to unregister commitlog condense from maintenance cycle")
+	if l.maintainLogsCallbackCtrl != nil {
+		if err := l.maintainLogsCallbackCtrl.Unregister(ctx); err != nil {
+			return errors.Wrap(err, "failed to unregister commitlog condense from maintenance cycle")
+		}
 	}
 	return nil
 }
@@ -424,27 +541,35 @@ func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortC
 	executed, err := l.switchCommitLogs(false)
 	if err != nil {
 		l.logger.WithError(err).
-			WithField("action", "hnsw_commit_log_maintenance").
-			Error("hnsw commit log maintenance failed")
+			WithField("action", "hnsw_commit_log_switch").
+			Error("hnsw commit log switch failed")
 	}
 	return executed
 }
 
-func (l *hnswCommitLogger) startCombineAndCondenseLogs(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-	executed1, err := l.combineLogs()
+func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	executedCombine, err := l.combineLogs()
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_combining").
 			Error("hnsw commit log maintenance (combining) failed")
 	}
 
-	executed2, err := l.condenseOldLogs()
+	executedCondense, err := l.condenseLogs()
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_condensing").
 			Error("hnsw commit log maintenance (condensing) failed")
 	}
-	return executed1 || executed2
+
+	executedSnapshot, err := l.createSnapshot(shouldAbort)
+	if err != nil {
+		l.logger.WithError(err).
+			WithField("action", "hnsw_snapshot_creating").
+			Error("hnsw commit log maintenance (snapshot) failed")
+	}
+
+	return executedCombine || executedCondense || executedSnapshot
 }
 
 func (l *hnswCommitLogger) SwitchCommitLogs(force bool) error {
@@ -504,8 +629,8 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 	return true, nil
 }
 
-func (l *hnswCommitLogger) condenseOldLogs() (bool, error) {
-	files, err := getCommitFileNames(l.rootPath, l.id)
+func (l *hnswCommitLogger) condenseLogs() (bool, error) {
+	files, err := getCommitFileNames(l.rootPath, l.id, 0)
 	if err != nil {
 		return false, err
 	}
@@ -560,8 +685,31 @@ func (l *hnswCommitLogger) combineLogs() (bool, error) {
 	// can set the combining threshold higher than the final threshold under the
 	// assumption that the combined file will be considerably smaller than the
 	// sum of both input files
-	threshold := int64(float64(l.maxSizeCombining) * 1.75)
-	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger).Do()
+	threshold := l.logCombiningThreshold()
+	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger).Do(l.snapshotPartitions...)
+}
+
+// TODO al:snapshot handle should abort
+func (l *hnswCommitLogger) createSnapshot(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
+	if l.snapshotDisabled || l.snapshotCreateInterval <= 0 {
+		return false, nil
+	}
+
+	if !time.Now().Add(-l.snapshotCheckInterval).After(l.snapshotLastCheckedAt) {
+		return false, nil
+	}
+	l.snapshotLastCheckedAt = time.Now()
+
+	if !time.Now().Add(-l.snapshotCreateInterval).After(l.snapshotLastCreatedAt) {
+		return false, nil
+	}
+
+	created, _, err := l.CreateSnapshot()
+	return created, err
+}
+
+func (l *hnswCommitLogger) logCombiningThreshold() int64 {
+	return int64(float64(l.maxSizeCombining) * 1.75)
 }
 
 func (l *hnswCommitLogger) Drop(ctx context.Context) error {

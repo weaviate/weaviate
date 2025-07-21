@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,7 +19,7 @@ import (
 )
 
 type RemoteNodeClient interface {
-	GetNodeStatus(ctx context.Context, hostName, className, output string) (*models.NodeStatus, error)
+	GetNodeStatus(ctx context.Context, hostName, className, shardName, output string) (*models.NodeStatus, error)
 	GetStatistics(ctx context.Context, hostName string) (*models.Statistics, error)
 }
 
@@ -35,12 +35,12 @@ func NewRemoteNode(nodeResolver nodeResolver, client RemoteNodeClient) *RemoteNo
 	}
 }
 
-func (rn *RemoteNode) GetNodeStatus(ctx context.Context, nodeName, className, output string) (*models.NodeStatus, error) {
+func (rn *RemoteNode) GetNodeStatus(ctx context.Context, nodeName, className, shardName, output string) (*models.NodeStatus, error) {
 	host, ok := rn.nodeResolver.NodeHostname(nodeName)
 	if !ok {
 		return nil, fmt.Errorf("resolve node name %q to host", nodeName)
 	}
-	return rn.client.GetNodeStatus(ctx, host, className, output)
+	return rn.client.GetNodeStatus(ctx, host, className, shardName, output)
 }
 
 func (rn *RemoteNode) GetStatistics(ctx context.Context, nodeName string) (*models.Statistics, error) {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -509,7 +510,7 @@ func partiallyNestedSelectProperties() search.SelectProperties {
 	}
 }
 
-func GetDimensionsFromRepo(ctx context.Context, repo *DB, className string) int {
+func getDimensionsFromRepo(ctx context.Context, repo *DB, className string) int {
 	if !repo.config.TrackVectorDimensions {
 		log.Printf("Vector dimensions tracking is disabled, returning 0")
 		return 0
@@ -517,7 +518,11 @@ func GetDimensionsFromRepo(ctx context.Context, repo *DB, className string) int 
 	index := repo.GetIndex(schema.ClassName(className))
 	sum := 0
 	index.ForEachShard(func(name string, shard ShardLike) error {
-		sum += shard.Dimensions(ctx, "")
+		dim, err := shard.Dimensions(ctx, "")
+		if err != nil {
+			return err
+		}
+		sum += dim
 		return nil
 	})
 	return sum
@@ -636,8 +641,8 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 
 	t.Run("add reference between them", func(t *testing.T) {
 		// Get dimensions before adding reference
-		sourceShardDimension := GetDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestSource")
-		targetShardDimension := GetDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestTarget")
+		sourceShardDimension := getDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestSource")
+		targetShardDimension := getDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestTarget")
 
 		source := crossref.NewSource("AddingReferencesTestSource", "toTarget", sourceID)
 		target := crossref.New("localhost", "", targetID)
@@ -646,8 +651,8 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		assert.Nil(t, err)
 
 		// Check dimensions after adding reference
-		sourceDimensionAfter := GetDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestSource")
-		targetDimensionAfter := GetDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestTarget")
+		sourceDimensionAfter := getDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestSource")
+		targetDimensionAfter := getDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestTarget")
 
 		require.Equalf(t, sourceShardDimension, sourceDimensionAfter, "dimensions of source should not change")
 		require.Equalf(t, targetShardDimension, targetDimensionAfter, "dimensions of target should not change")

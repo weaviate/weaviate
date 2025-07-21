@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -131,6 +131,51 @@ func (o *GetOwnInfoInternalServerError) SetPayload(payload *models.ErrorResponse
 func (o *GetOwnInfoInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// GetOwnInfoNotImplementedCode is the HTTP code returned for type GetOwnInfoNotImplemented
+const GetOwnInfoNotImplementedCode int = 501
+
+/*
+GetOwnInfoNotImplemented Replica movement operations are disabled.
+
+swagger:response getOwnInfoNotImplemented
+*/
+type GetOwnInfoNotImplemented struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGetOwnInfoNotImplemented creates GetOwnInfoNotImplemented with default headers values
+func NewGetOwnInfoNotImplemented() *GetOwnInfoNotImplemented {
+
+	return &GetOwnInfoNotImplemented{}
+}
+
+// WithPayload adds the payload to the get own info not implemented response
+func (o *GetOwnInfoNotImplemented) WithPayload(payload *models.ErrorResponse) *GetOwnInfoNotImplemented {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the get own info not implemented response
+func (o *GetOwnInfoNotImplemented) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GetOwnInfoNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(501)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,6 +30,7 @@ func TestOpCallbacks(t *testing.T) {
 		callbacks.OnOpStart("node1")
 		callbacks.OnOpComplete("node1")
 		callbacks.OnOpFailed("node1")
+		callbacks.OnOpCancelled("node1")
 	})
 
 	t.Run("custom callbacks should be called with correct parameters", func(t *testing.T) {
@@ -41,6 +42,7 @@ func TestOpCallbacks(t *testing.T) {
 			startNode             string
 			completeNode          string
 			failedNode            string
+			cancelledNode         string
 		)
 
 		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
@@ -62,6 +64,9 @@ func TestOpCallbacks(t *testing.T) {
 			WithOpFailedCallback(func(node string) {
 				failedNode = node
 			}).
+			WithOpCancelledCallback(func(node string) {
+				cancelledNode = node
+			}).
 			Build()
 
 		// WHEN
@@ -72,6 +77,7 @@ func TestOpCallbacks(t *testing.T) {
 		callbacks.OnOpStart(expectedNode)
 		callbacks.OnOpComplete(expectedNode)
 		callbacks.OnOpFailed(expectedNode)
+		callbacks.OnOpCancelled(expectedNode)
 
 		// THEN
 		require.Equal(t, expectedNode, prepareProcessingNode, "invalid prepare processing callback node")
@@ -80,6 +86,7 @@ func TestOpCallbacks(t *testing.T) {
 		require.Equal(t, expectedNode, startNode, "invalid start callback node")
 		require.Equal(t, expectedNode, completeNode, "invalid complete callback node")
 		require.Equal(t, expectedNode, failedNode, "invalid failed callback node")
+		require.Equal(t, expectedNode, cancelledNode, "invalid cancelled callback node")
 	})
 
 	t.Run("only prepare processing", func(t *testing.T) {
@@ -177,6 +184,22 @@ func TestOpCallbacks(t *testing.T) {
 		// THEN
 		require.True(t, failedCalled, "expected failed callback to be called")
 	})
+
+	t.Run("only op cancelled", func(t *testing.T) {
+		// GIVEN
+		cancelledCalled := false
+		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+			WithOpCancelledCallback(func(node string) {
+				cancelledCalled = true
+			}).
+			Build()
+
+		// WHEN
+		callbacks.OnOpCancelled("node1")
+
+		// THEN
+		require.True(t, cancelledCalled, "expected cancelled callback to be called")
+	})
 }
 
 func TestMetricsCollection(t *testing.T) {
@@ -209,6 +232,11 @@ func TestMetricsCollection(t *testing.T) {
 		callbacks.OnOpPending(node)
 		callbacks.OnOpSkipped(node)
 
+		// Start a sixth operation but cancel it
+		callbacks.OnOpPending(node)
+		callbacks.OnOpStart(node)
+		callbacks.OnOpCancelled(node)
+
 		// WHEN
 		metricFamilies, err := reg.Gather()
 		require.NoError(t, err)
@@ -223,6 +251,7 @@ func TestMetricsCollection(t *testing.T) {
 		require.Equal(t, float64(1), metricsByName["weaviate_replication_ongoing_operations"].GetMetric()[0].GetGauge().GetValue())
 		require.Equal(t, float64(1), metricsByName["weaviate_replication_complete_operations"].GetMetric()[0].GetCounter().GetValue())
 		require.Equal(t, float64(1), metricsByName["weaviate_replication_failed_operations"].GetMetric()[0].GetCounter().GetValue())
+		require.Equal(t, float64(1), metricsByName["weaviate_replication_cancelled_operations"].GetMetric()[0].GetCounter().GetValue())
 	})
 
 	t.Run("metrics should be tracked separately for different nodes", func(t *testing.T) {

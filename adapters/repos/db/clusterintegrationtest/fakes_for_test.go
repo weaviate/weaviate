@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
-
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -39,6 +38,7 @@ import (
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -102,7 +102,8 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 
 	backendProvider := newFakeBackupBackendProvider(localDir)
 	n.backupManager = ubak.NewHandler(
-		logger, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider)
+		logger, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeRbacBackupWrapper{},
+	)
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
@@ -110,7 +111,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 
 	n.migrator = db.NewMigrator(n.repo, logger)
 
-	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider(logger)),
+	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider(logger, config.Config{})),
 		n.repo, clusterapi.NewNoopAuthHandler(), func() bool { return false }, logger)
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
@@ -127,6 +128,24 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 		panic(err)
 	}
 	n.hostname = u.Host
+}
+
+type fakeRbacBackupWrapper struct{}
+
+func (r fakeRbacBackupWrapper) GetBackupItems(context.Context) (map[string][]byte, error) {
+	return nil, nil
+}
+
+func (r fakeRbacBackupWrapper) WriteBackupItems(context.Context, map[string][]byte) error {
+	return nil
+}
+
+func (r fakeRbacBackupWrapper) Snapshot() ([]byte, error) {
+	return nil, nil
+}
+
+func (r fakeRbacBackupWrapper) Restore([]byte) error {
+	return nil
 }
 
 type fakeSchemaManager struct {
@@ -146,6 +165,10 @@ func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {
 func (f *fakeSchemaManager) ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64,
 ) (*models.Class, error) {
 	return f.schema.GetClass(class), nil
+}
+
+func (f *fakeSchemaManager) ResolveAlias(string) string {
+	return ""
 }
 
 func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
@@ -450,14 +473,14 @@ func (f *fakeBackupBackend) reset() {
 
 type fakeAuthorizer struct{}
 
-func (f *fakeAuthorizer) Authorize(_ *models.Principal, _ string, _ ...string) error {
+func (f *fakeAuthorizer) Authorize(ctx context.Context, _ *models.Principal, _ string, _ ...string) error {
 	return nil
 }
 
-func (f *fakeAuthorizer) AuthorizeSilent(_ *models.Principal, _ string, _ ...string) error {
+func (f *fakeAuthorizer) AuthorizeSilent(ctx context.Context, _ *models.Principal, _ string, _ ...string) error {
 	return nil
 }
 
-func (f *fakeAuthorizer) FilterAuthorizedResources(_ *models.Principal, _ string, resources ...string) ([]string, error) {
+func (f *fakeAuthorizer) FilterAuthorizedResources(ctx context.Context, _ *models.Principal, _ string, resources ...string) ([]string, error) {
 	return resources, nil
 }

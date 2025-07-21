@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -132,7 +132,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 			defer idx.shardCreateLocks.Unlock(name)
 
 			if shard != nil {
-				if err := shard.HaltForTransfer(ctx, true); err != nil {
+				if err := shard.HaltForTransfer(ctx, true, 0); err != nil {
 					m.logger.WithFields(logrus.Fields{
 						"action": "halt_for_transfer",
 						"error":  err,

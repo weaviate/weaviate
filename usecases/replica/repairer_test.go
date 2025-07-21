@@ -4,16 +4,18 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
-package replica
+package replica_test
 
 import (
 	"context"
 	"testing"
+
+	"github.com/weaviate/weaviate/usecases/replica"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/mock"
@@ -35,7 +37,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		adds      = additional.Properties{}
 		proj      = search.SelectProperties{}
 		nilObject *storobj.Object
-		emptyItem = objects.Replica{}
+		emptyItem = replica.Replica{}
 	)
 
 	t.Run("GetContentFromDirectRead", func(t *testing.T) {
@@ -43,7 +45,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item      = objects.Replica{ID: id, Object: object(id, 3)}
+			item      = replica.Replica{ID: id, Object: object(id, 3)}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
@@ -72,7 +74,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item      = objects.Replica{ID: id, Object: objectWithVectors(id, 3, vectors)}
+			item      = replica.Replica{ID: id, Object: objectWithVectors(id, 3, vectors)}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			digestR4  = []types.RepairResponse{{ID: id.String(), UpdateTime: 4, Err: "conflict"}}
@@ -94,9 +96,9 @@ func TestRepairerOneWithALL(t *testing.T) {
 
 		got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
 		require.Error(t, err)
-		require.ErrorContains(t, err, msgCLevel)
+		require.ErrorContains(t, err, replica.MsgCLevel)
 		require.Nil(t, got)
-		require.ErrorContains(t, err, errRepair.Error())
+		require.ErrorContains(t, err, replica.ErrRepair.Error())
 		f.assertLogContains(t, "msg", "A:3", "B:2", "C:3")
 		f.assertLogErrorContains(t, "conflict")
 	})
@@ -106,8 +108,8 @@ func TestRepairerOneWithALL(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item2     = objects.Replica{ID: id, Object: object(id, 2)}
-			item3     = objects.Replica{ID: id, Object: object(id, 3)}
+			item2     = replica.Replica{ID: id, Object: object(id, 2)}
+			item3     = replica.Replica{ID: id, Object: object(id, 3)}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
@@ -135,7 +137,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item      = objects.Replica{ID: id, Object: object(id, 3)}
+			item      = replica.Replica{ID: id, Object: object(id, 3)}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
@@ -153,8 +155,8 @@ func TestRepairerOneWithALL(t *testing.T) {
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
 		got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
-		require.ErrorContains(t, err, msgCLevel)
-		require.ErrorContains(t, err, errRepair.Error())
+		require.ErrorContains(t, err, replica.MsgCLevel)
+		require.ErrorContains(t, err, replica.ErrRepair.Error())
 		require.Nil(t, got)
 		f.assertLogContains(t, "msg", "A:3", "B:2", "C:3")
 	})
@@ -164,7 +166,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item1     = objects.Replica{ID: id, Object: object(id, 1)}
+			item1     = replica.Replica{ID: id, Object: object(id, 1)}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
@@ -175,8 +177,8 @@ func TestRepairerOneWithALL(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
 		got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
-		require.ErrorContains(t, err, errRepair.Error())
-		require.ErrorContains(t, err, msgCLevel)
+		require.ErrorContains(t, err, replica.ErrRepair.Error())
+		require.ErrorContains(t, err, replica.MsgCLevel)
 		require.Nil(t, got)
 		f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
 	})
@@ -185,7 +187,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item1     = objects.Replica{ID: id, Object: object(id, 1)}
+			item1     = replica.Replica{ID: id, Object: object(id, 1)}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
@@ -197,11 +199,11 @@ func TestRepairerOneWithALL(t *testing.T) {
 			Return(item1, nil).Once()
 
 		got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
-		require.ErrorContains(t, err, msgCLevel)
-		require.ErrorContains(t, err, errRepair.Error())
+		require.ErrorContains(t, err, replica.MsgCLevel)
+		require.ErrorContains(t, err, replica.ErrRepair.Error())
 		require.Nil(t, got)
 		f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
-		f.assertLogErrorContains(t, errConflictObjectChanged.Error())
+		f.assertLogErrorContains(t, replica.ErrConflictObjectChanged.Error())
 	})
 
 	t.Run("CreateMissingObject", func(t *testing.T) {
@@ -209,7 +211,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item      = objects.Replica{ID: id, Object: object(id, 3)}
+			item      = replica.Replica{ID: id, Object: object(id, 3)}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 0, Deleted: false}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 		)
@@ -233,7 +235,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item      = objects.Replica{ID: id, Object: nil, Deleted: true}
+			item      = replica.Replica{ID: id, Object: nil, Deleted: true}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 		)
@@ -242,16 +244,16 @@ func TestRepairerOneWithALL(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR3, nil)
 
 		got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
-		require.ErrorContains(t, err, msgCLevel)
+		require.ErrorContains(t, err, replica.MsgCLevel)
 		require.Equal(t, nilObject, got)
-		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
+		f.assertLogErrorContains(t, replica.ErrConflictExistOrDeleted.Error())
 	})
 	t.Run("NoConflictDeletedObject", func(t *testing.T) {
 		var (
 			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item      = objects.Replica{ID: id, Object: nil, LastUpdateTimeUnixMilli: 3, Deleted: true}
+			item      = replica.Replica{ID: id, Object: nil, LastUpdateTimeUnixMilli: 3, Deleted: true}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: true}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: true}}
 		)
@@ -274,7 +276,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		ctx       = context.Background()
 		adds      = additional.Properties{}
 		proj      = search.SelectProperties{}
-		emptyItem = objects.Replica{}
+		emptyItem = replica.Replica{}
 	)
 
 	t.Run("ChangedObject", func(t *testing.T) {
@@ -282,7 +284,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item      = objects.Replica{ID: id, Object: object(id, 3)}
+			item      = replica.Replica{ID: id, Object: object(id, 3)}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			digestR4  = []types.RepairResponse{{ID: id.String(), UpdateTime: 4, Err: "conflict"}}
@@ -309,8 +311,8 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		}
 
 		got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
-		require.ErrorContains(t, err, errRepair.Error())
-		require.ErrorContains(t, err, msgCLevel)
+		require.ErrorContains(t, err, replica.ErrRepair.Error())
+		require.ErrorContains(t, err, replica.MsgCLevel)
 		require.Equal(t, false, got)
 
 		f.assertLogContains(t, "msg", "A:3", "B:2", "C:3")
@@ -322,7 +324,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item3     = objects.Replica{ID: id, Object: object(id, 3)}
+			item3     = replica.Replica{ID: id, Object: object(id, 3)}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
@@ -352,7 +354,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item      = objects.Replica{ID: id, Object: object(id, 3)}
+			item      = replica.Replica{ID: id, Object: object(id, 3)}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
@@ -375,8 +377,8 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
 		got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
-		require.ErrorContains(t, err, errRepair.Error())
-		require.ErrorContains(t, err, msgCLevel)
+		require.ErrorContains(t, err, replica.ErrRepair.Error())
+		require.ErrorContains(t, err, replica.MsgCLevel)
 		require.Equal(t, false, got)
 
 		f.assertLogContains(t, "msg", "A:3", "B:2", "C:3")
@@ -400,8 +402,8 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
 		got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
-		require.ErrorContains(t, err, errRepair.Error())
-		require.ErrorContains(t, err, msgCLevel)
+		require.ErrorContains(t, err, replica.ErrRepair.Error())
+		require.ErrorContains(t, err, replica.MsgCLevel)
 		require.Equal(t, false, got)
 
 		f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
@@ -412,7 +414,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item1     = objects.Replica{ID: id, Object: object(id, 1)}
+			item1     = replica.Replica{ID: id, Object: object(id, 1)}
 			digestR1  = []types.RepairResponse{{ID: id.String(), UpdateTime: 1}}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
@@ -425,11 +427,11 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(item1, nil)
 
 		got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
-		require.ErrorContains(t, err, errRepair.Error())
-		require.ErrorContains(t, err, msgCLevel)
+		require.ErrorContains(t, err, replica.ErrRepair.Error())
+		require.ErrorContains(t, err, replica.MsgCLevel)
 		require.Equal(t, false, got)
 		f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
-		f.assertLogErrorContains(t, errConflictObjectChanged.Error())
+		f.assertLogErrorContains(t, replica.ErrConflictObjectChanged.Error())
 	})
 
 	t.Run("CreateMissingObject", func(t *testing.T) {
@@ -437,7 +439,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item      = objects.Replica{ID: id, Object: object(id, 3)}
+			item      = replica.Replica{ID: id, Object: object(id, 3)}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2, Deleted: false}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 		)
@@ -476,10 +478,10 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR3, nil)
 
 		got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
-		require.ErrorContains(t, err, errRepair.Error())
-		require.ErrorContains(t, err, msgCLevel)
+		require.ErrorContains(t, err, replica.ErrRepair.Error())
+		require.ErrorContains(t, err, replica.MsgCLevel)
 		require.Equal(t, false, got)
-		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
+		f.assertLogErrorContains(t, replica.ErrConflictExistOrDeleted.Error())
 	})
 }
 
@@ -492,7 +494,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		ctx       = context.Background()
 		adds      = additional.Properties{}
 		proj      = search.SelectProperties{}
-		emptyItem = objects.Replica{}
+		emptyItem = replica.Replica{}
 	)
 
 	t.Run("ChangedObject", func(t *testing.T) {
@@ -500,7 +502,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item      = objects.Replica{ID: id, Object: object(id, 3)}
+			item      = replica.Replica{ID: id, Object: object(id, 3)}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			digestR4  = []types.RepairResponse{{ID: id.String(), UpdateTime: 4, Err: "conflict"}}
@@ -528,7 +530,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		}
 
 		got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
-		require.ErrorContains(t, err, msgCLevel)
+		require.ErrorContains(t, err, replica.MsgCLevel)
 		require.Equal(t, false, got)
 		f.assertLogContains(t, "msg", "A:3", "B:2")
 		f.assertLogErrorContains(t, "conflict")
@@ -539,7 +541,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes[:2])
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item3     = objects.Replica{ID: id, Object: object(id, 3)}
+			item3     = replica.Replica{ID: id, Object: object(id, 3)}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
@@ -568,7 +570,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes[:2])
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item      = objects.Replica{ID: id, Object: object(id, 3)}
+			item      = replica.Replica{ID: id, Object: object(id, 3)}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
@@ -590,8 +592,8 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
 		got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
-		require.ErrorContains(t, err, errRepair.Error())
-		require.ErrorContains(t, err, msgCLevel)
+		require.ErrorContains(t, err, replica.ErrRepair.Error())
+		require.ErrorContains(t, err, replica.MsgCLevel)
 		require.Equal(t, false, got)
 		f.assertLogContains(t, "msg", "A:3", "B:2")
 		f.assertLogErrorContains(t, errAny.Error())
@@ -614,8 +616,8 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
 		got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
-		require.ErrorContains(t, err, errRepair.Error())
-		require.ErrorContains(t, err, msgCLevel)
+		require.ErrorContains(t, err, replica.ErrRepair.Error())
+		require.ErrorContains(t, err, replica.MsgCLevel)
 		require.Equal(t, false, got)
 		f.assertLogContains(t, "msg", "A:1", "C:3")
 		f.assertLogErrorContains(t, errAny.Error())
@@ -625,7 +627,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes)
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item1     = objects.Replica{ID: id, Object: object(id, 1)}
+			item1     = replica.Replica{ID: id, Object: object(id, 1)}
 			digestR1  = []types.RepairResponse{{ID: id.String(), UpdateTime: 1}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
@@ -637,12 +639,12 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[1], cls, shard, id, proj, adds).Return(item1, nil)
 
 		got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
-		require.ErrorContains(t, err, errRepair.Error())
-		require.ErrorContains(t, err, msgCLevel)
+		require.ErrorContains(t, err, replica.ErrRepair.Error())
+		require.ErrorContains(t, err, replica.MsgCLevel)
 		require.Equal(t, false, got)
 
 		f.assertLogContains(t, "msg", "A:1", "B:3")
-		f.assertLogErrorContains(t, errConflictObjectChanged.Error())
+		f.assertLogErrorContains(t, replica.ErrConflictObjectChanged.Error())
 	})
 
 	t.Run("CreateMissingObject", func(t *testing.T) {
@@ -650,7 +652,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			f         = newFakeFactory(t, "C1", shard, nodes[:2])
 			finder    = f.newFinder("A")
 			digestIDs = []strfmt.UUID{id}
-			item      = objects.Replica{ID: id, Object: object(id, 3)}
+			item      = replica.Replica{ID: id, Object: object(id, 3)}
 			digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2, Deleted: false}}
 			digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 		)
@@ -685,9 +687,9 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
 
 		got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
-		require.ErrorContains(t, err, errRepair.Error())
-		require.ErrorContains(t, err, msgCLevel)
-		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
+		require.ErrorContains(t, err, replica.ErrRepair.Error())
+		require.ErrorContains(t, err, replica.MsgCLevel)
+		f.assertLogErrorContains(t, replica.ErrConflictExistOrDeleted.Error())
 		require.Equal(t, false, got)
 	})
 }
@@ -709,10 +711,10 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				objectEx(ids[1], 5, shard, "A"),
 				objectEx(ids[2], 6, shard, "A"),
 			}
-			directRe = []objects.Replica{
-				replica(ids[0], 4, false),
-				replica(ids[1], 5, false),
-				replica(ids[2], 6, false),
+			directRe = []replica.Replica{
+				repl(ids[0], 4, false),
+				repl(ids[1], 5, false),
+				repl(ids[2], 6, false),
 			}
 
 			digestR2 = []types.RepairResponse{
@@ -808,8 +810,8 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				objectEx(ids[4], 2, shard, "A"),
 			}
 
-			directRe = []objects.Replica{
-				replica(ids[3], 4, false),
+			directRe = []replica.Replica{
+				repl(ids[3], 4, false),
 			}
 			digestR2 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 2}, // latest
@@ -825,13 +827,13 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				{ID: ids[3].String(), UpdateTime: 1},
 				{ID: ids[4].String(), UpdateTime: 3}, // latest
 			}
-			directR2 = []objects.Replica{
-				replica(ids[0], 2, false),
-				replica(ids[1], 2, false),
+			directR2 = []replica.Replica{
+				repl(ids[0], 2, false),
+				repl(ids[1], 2, false),
 			}
-			directR3 = []objects.Replica{
-				replica(ids[2], 3, false),
-				replica(ids[4], 3, false),
+			directR3 = []replica.Replica{
+				repl(ids[2], 3, false),
+				repl(ids[4], 3, false),
 			}
 			want = setObjectsConsistency(result, true)
 		)
@@ -1000,10 +1002,10 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				{ID: ids[2].String(), UpdateTime: 1, Err: "conflict"}, // this one
 			}
 
-			directRe = []objects.Replica{
-				replica(ids[0], 4, false),
-				replica(ids[1], 5, false),
-				replica(ids[2], 6, false),
+			directRe = []replica.Replica{
+				repl(ids[0], 4, false),
+				repl(ids[1], 5, false),
+				repl(ids[2], 6, false),
 			}
 		)
 		want := setObjectsConsistency(xs, true)
@@ -1093,15 +1095,15 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				{ID: ids[1].String(), UpdateTime: 1},
 				{ID: ids[2].String(), UpdateTime: 4}, // latest
 			}
-			directR2 = []objects.Replica{
-				replica(ids[1], 3, false),
+			directR2 = []replica.Replica{
+				repl(ids[1], 3, false),
 			}
-			directR3 = []objects.Replica{
-				replica(ids[2], 4, false),
+			directR3 = []replica.Replica{
+				repl(ids[2], 4, false),
 			}
-			directRe = []objects.Replica{
-				replica(ids[0], 2, false),
-				replica(ids[1], 3, false),
+			directRe = []replica.Replica{
+				repl(ids[0], 2, false),
+				repl(ids[1], 3, false),
 			}
 		)
 
@@ -1186,11 +1188,11 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				{ID: ids[1].String(), UpdateTime: 3},
 				{ID: ids[2].String(), UpdateTime: 4}, // latest
 			}
-			directR2 = []objects.Replica{
-				replica(ids[1], 3, false),
+			directR2 = []replica.Replica{
+				repl(ids[1], 3, false),
 			}
-			directR3 = []objects.Replica{
-				replica(ids[2], 4, false),
+			directR3 = []replica.Replica{
+				repl(ids[2], 4, false),
 			}
 		)
 
@@ -1255,15 +1257,15 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				{ID: ids[1].String(), UpdateTime: 3},
 				{ID: ids[2].String(), UpdateTime: 4}, // latest
 			}
-			directR2 = []objects.Replica{
-				replica(ids[1], 3, false),
+			directR2 = []replica.Replica{
+				repl(ids[1], 3, false),
 			}
 			// unexpected response UpdateTime  is 3 instead of 4
-			directR3 = []objects.Replica{replica(ids[2], 3, false)}
+			directR3 = []replica.Replica{repl(ids[2], 3, false)}
 
-			directRe = []objects.Replica{
-				replica(ids[0], 2, false),
-				replica(ids[1], 3, false),
+			directRe = []replica.Replica{
+				repl(ids[0], 2, false),
+				repl(ids[1], 3, false),
 			}
 		)
 
@@ -1336,13 +1338,13 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				{ID: ids[1].String(), UpdateTime: 1},
 				{ID: ids[2].String(), UpdateTime: 4, Deleted: true}, // latest
 			}
-			directR2 = []objects.Replica{
-				replica(ids[1], 3, false),
+			directR2 = []replica.Replica{
+				repl(ids[1], 3, false),
 			}
 
-			directRe = []objects.Replica{
-				replica(ids[0], 2, false),
-				replica(ids[1], 3, false),
+			directRe = []replica.Replica{
+				repl(ids[0], 2, false),
+				repl(ids[1], 3, false),
 			}
 		)
 
@@ -1417,10 +1419,10 @@ func TestRepairerCheckConsistencyQuorum(t *testing.T) {
 			{ID: ids[1].String(), UpdateTime: 5},
 			{ID: ids[2].String(), UpdateTime: 3},
 		}
-		directRe = []objects.Replica{
-			replica(ids[0], 4, false),
-			// replica(ids[1], 5, false),
-			replica(ids[2], 6, false),
+		directRe = []replica.Replica{
+			repl(ids[0], 4, false),
+			// repl(ids[1], 5, false),
+			repl(ids[2], 6, false),
 		}
 		want = setObjectsConsistency(xs, true)
 	)

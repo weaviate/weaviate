@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -51,7 +51,7 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		newConfig = s.index.vectorIndexUserConfigs[targetVector]
 	}
 
-	vidx, err = s.initVectorIndex(ctx, targetVector, newConfig)
+	vidx, err = s.initVectorIndex(ctx, targetVector, newConfig, false)
 	if err != nil {
 		return errors.Wrap(err, "init vector index")
 	}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
@@ -88,7 +89,7 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 
 	// as newest segments are prioritized, loop in reverse order
 	for leftId := len(sg.segments) - 2; leftId >= 0; leftId-- {
-		left, right := sg.segments[leftId], sg.segments[leftId+1]
+		left, right := sg.segments[leftId].getSegment(), sg.segments[leftId+1].getSegment()
 
 		if left.secondaryIndexCount != right.secondaryIndexCount {
 			// only pair of segments with the same secondary indexes are compacted
@@ -100,7 +101,18 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 				// max size not exceeded
 				matchingPairFound = true
 				matchingLeftId = leftId
-				matchingLevel = left.level + 1
+
+				// this is for bucket migrations with re-ingestion, specifically
+				// for the new incoming data (ingest) bucket.
+				// we don't want to change the level of the segments on ingest data,
+				// so that, when we copy the segments to the bucket with the reingested
+				// data, the levels are all still at zero, and they can be compacted
+				// with the existing re-ingested segments.
+				if sg.keepLevelCompaction {
+					matchingLevel = left.level
+				} else {
+					matchingLevel = left.level + 1
+				}
 			} else if matchingPairFound {
 				// older segment of same level as pair's level exist.
 				// keep unchanged level
@@ -178,7 +190,7 @@ func (sg *SegmentGroup) segmentAtPos(pos int) *segment {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
-	return sg.segments[pos]
+	return sg.segments[pos].getSegment()
 }
 
 func segmentID(path string) string {
@@ -240,14 +252,18 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	if sg.metrics != nil && !sg.metrics.groupClasses {
 		pathLabel = sg.dir
 	}
+
+	maxNewFileSize := leftSegment.size + rightSegment.size
+
 	switch strategy {
 
 	// TODO: call metrics just once with variable strategy label
 
 	case segmentindex.StrategyReplace:
+
 		c := newCompactorReplace(f, leftSegment.newCursor(),
 			rightSegment.newCursor(), level, secondaryIndices,
-			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation)
+			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionReplace.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -260,7 +276,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, leftSegment.newCollectionCursor(),
 			rightSegment.newCollectionCursor(), level, secondaryIndices,
-			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation)
+			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionSet.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -276,7 +292,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 			rightSegment.newCollectionCursorReusable(),
 			level, secondaryIndices, scratchSpacePath,
 			sg.mapRequiresSorting, cleanupTombstones,
-			sg.enableChecksumValidation)
+			sg.enableChecksumValidation, maxNewFileSize)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -292,13 +308,12 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 
 		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
 			level, scratchSpacePath, cleanupTombstones,
-			sg.enableChecksumValidation)
+			sg.enableChecksumValidation, maxNewFileSize)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(1)
 			defer sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(0)
 		}
-
 		if err := c.Do(); err != nil {
 			return false, err
 		}
@@ -308,7 +323,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		rightCursor := rightSegment.newRoaringSetRangeCursor()
 
 		c := roaringsetrange.NewCompactor(f, leftCursor, rightCursor,
-			level, cleanupTombstones, sg.enableChecksumValidation)
+			level, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionRoaringSetRange.With(prometheus.Labels{"path": pathLabel}).Set(1)
@@ -319,10 +334,18 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 			return false, err
 		}
 	case segmentindex.StrategyInverted:
+		avgPropLen, _ := sg.GetAveragePropertyLength()
+		b := float64(config.DefaultBM25b)
+		k1 := float64(config.DefaultBM25k1)
+		if sg.bm25config != nil {
+			b = sg.bm25config.B
+			k1 = sg.bm25config.K1
+		}
+
 		c := newCompactorInverted(f,
 			leftSegment.newInvertedCursorReusable(),
 			rightSegment.newInvertedCursorReusable(),
-			level, secondaryIndices, scratchSpacePath, cleanupTombstones)
+			level, secondaryIndices, scratchSpacePath, cleanupTombstones, k1, b, avgPropLen)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -355,19 +378,36 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	newPathTmp string,
 ) error {
 	sg.maintenanceLock.RLock()
-	updatedCountNetAdditions := sg.segments[old1].countNetAdditions +
-		sg.segments[old2].countNetAdditions
+	updatedCountNetAdditions := sg.segments[old1].getCountNetAdditions() +
+		sg.segments[old2].getCountNetAdditions()
 	sg.maintenanceLock.RUnlock()
 
 	// WIP: we could add a random suffix to the tmp file to avoid conflicts
-	precomputedFiles, err := preComputeSegmentMeta(newPathTmp,
-		updatedCountNetAdditions, sg.logger, sg.useBloomFilter,
-		sg.calcCountNetAdditions, sg.enableChecksumValidation)
-	if err != nil {
-		return fmt.Errorf("precompute segment meta: %w", err)
+
+	// as a guardrail validate that the segment is considered a .tmp segment.
+	// This way we can be sure that we're not accidentally operating on a live
+	// segment as the segment group completely ignores .tmp segment files
+	if !strings.HasSuffix(newPathTmp, ".tmp") {
+		return fmt.Errorf("pre computing a segment expects a .tmp segment path")
 	}
 
-	oldL, oldR, err := sg.replaceCompactedSegmentsBlocking(old1, old2, precomputedFiles)
+	seg, err := newSegment(newPathTmp, sg.logger, sg.metrics, nil,
+		segmentConfig{
+			mmapContents:                 sg.mmapContents,
+			useBloomFilter:               sg.useBloomFilter,
+			calcCountNetAdditions:        sg.calcCountNetAdditions,
+			overwriteDerived:             true,
+			enableChecksumValidation:     sg.enableChecksumValidation,
+			MinMMapSize:                  sg.MinMMapSize,
+			allocChecker:                 sg.allocChecker,
+			precomputedCountNetAdditions: &updatedCountNetAdditions,
+			fileList:                     make(map[string]int64), // empty to not check if bloom/cna files already exist
+		})
+	if err != nil {
+		return errors.Wrap(err, "create new segment")
+	}
+
+	oldL, oldR, err := sg.replaceCompactedSegmentsBlocking(old1, old2, seg)
 	if err != nil {
 		return fmt.Errorf("replace compacted segments (blocking): %w", err)
 	}
@@ -389,7 +429,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 const replaceSegmentWarnThreshold = 300 * time.Millisecond
 
 func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
-	old1, old2 int, precomputedFiles []string,
+	old1, old2 int, newSeg *segment,
 ) (*segment, *segment, error) {
 	// We need a maintenanceLock.Lock() to switch segments, however, we can't
 	// simply call Lock(). Due to the write-preferring nature of the RWMutex this
@@ -443,40 +483,30 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 	sg.segments[old1] = nil
 	sg.segments[old2] = nil
 
-	var newPath string
 	// the old segments have been deleted, we can now safely remove the .tmp
 	// extension from the new segment itself and the pre-computed files which
 	// carried the name of the second old segment
-	for i, path := range precomputedFiles {
-		updated, err := sg.stripTmpExtension(path, segmentID(leftSegment.path), segmentID(rightSegment.path))
+
+	newPath, err := sg.stripTmpExtension(newSeg.path, segmentID(leftSegment.getPath()), segmentID(rightSegment.getPath()))
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
+	}
+	newSeg.path = newPath
+
+	for i, pth := range newSeg.metaPaths {
+		updated, err := sg.stripTmpExtension(pth, segmentID(leftSegment.getPath()), segmentID(rightSegment.getPath()))
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
 		}
-
-		if i == 0 {
-			// the first element in the list is the segment itself
-			newPath = updated
-		}
+		newSeg.metaPaths[i] = updated
 	}
 
-	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil,
-		segmentConfig{
-			mmapContents:             sg.mmapContents,
-			useBloomFilter:           sg.useBloomFilter,
-			calcCountNetAdditions:    sg.calcCountNetAdditions,
-			overwriteDerived:         false,
-			enableChecksumValidation: sg.enableChecksumValidation,
-		})
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "create new segment")
-	}
-
-	sg.segments[old2] = seg
+	sg.segments[old2] = newSeg
 
 	sg.segments = append(sg.segments[:old1], sg.segments[old1+1:]...)
 
-	sg.observeReplaceCompactedDuration(start, old1, leftSegment, rightSegment)
-	return leftSegment, rightSegment, nil
+	sg.observeReplaceCompactedDuration(start, old1, leftSegment.getSegment(), rightSegment.getSegment())
+	return leftSegment.getSegment(), rightSegment.getSegment(), nil
 }
 
 func (sg *SegmentGroup) observeReplaceCompactedDuration(
@@ -574,6 +604,7 @@ type segmentLevelStats struct {
 	indexes  map[uint16]int
 	payloads map[uint16]int
 	count    map[uint16]int
+	unloaded int
 }
 
 func newSegmentLevelStats() segmentLevelStats {
@@ -581,6 +612,7 @@ func newSegmentLevelStats() segmentLevelStats {
 		indexes:  map[uint16]int{},
 		payloads: map[uint16]int{},
 		count:    map[uint16]int{},
+		unloaded: 0,
 	}
 }
 
@@ -591,15 +623,20 @@ func (sg *SegmentGroup) segmentLevelStats() segmentLevelStats {
 	stats := newSegmentLevelStats()
 
 	for _, seg := range sg.segments {
-		stats.count[seg.level]++
+		if !seg.isLoaded() {
+			stats.unloaded++
+			continue
+		}
+		sgm := seg.getSegment()
+		stats.count[sgm.level]++
 
-		cur := stats.indexes[seg.level]
-		cur += seg.index.Size()
-		stats.indexes[seg.level] = cur
+		cur := stats.indexes[sgm.level]
+		cur += sgm.index.Size()
+		stats.indexes[sgm.level] = cur
 
-		cur = stats.payloads[seg.level]
+		cur = stats.payloads[sgm.level]
 		cur += seg.PayloadSize()
-		stats.payloads[seg.level] = cur
+		stats.payloads[sgm.level] = cur
 	}
 
 	return stats
@@ -663,6 +700,11 @@ func (s *segmentLevelStats) report(metrics *Metrics,
 			"path":     dir,
 		}).Set(float64(count))
 	}
+
+	metrics.SegmentUnloaded.With(prometheus.Labels{
+		"strategy": strategy,
+		"path":     dir,
+	}).Set(float64(s.unloaded))
 }
 
 func (sg *SegmentGroup) compactionFitsSizeLimit(left, right *segment) bool {

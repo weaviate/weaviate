@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,37 +25,37 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ReplicationDisableReplicaRequest Request body to disable (soft-delete) a replica of given shard of a given collection
+// ReplicationDisableReplicaRequest Specifies the parameters required to mark a specific shard replica as inactive (soft-delete) on a particular node. This action typically prevents the replica from serving requests but does not immediately remove its data.
 //
 // swagger:model ReplicationDisableReplicaRequest
 type ReplicationDisableReplicaRequest struct {
 
-	// The collection name holding the replica to be disabled
+	// The name of the collection to which the shard replica belongs.
 	// Required: true
-	CollectionID *string `json:"collectionId"`
+	Collection *string `json:"collection"`
 
-	// The node containing the replica to be disabled
+	// The name of the Weaviate node hosting the shard replica that is to be disabled.
 	// Required: true
-	NodeName *string `json:"nodeName"`
+	Node *string `json:"node"`
 
-	// The shard id holding the replica to be disabled
+	// The ID of the shard whose replica is to be disabled.
 	// Required: true
-	ShardID *string `json:"shardId"`
+	Shard *string `json:"shard"`
 }
 
 // Validate validates this replication disable replica request
 func (m *ReplicationDisableReplicaRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateCollectionID(formats); err != nil {
+	if err := m.validateCollection(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateNodeName(formats); err != nil {
+	if err := m.validateNode(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateShardID(formats); err != nil {
+	if err := m.validateShard(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -65,27 +65,27 @@ func (m *ReplicationDisableReplicaRequest) Validate(formats strfmt.Registry) err
 	return nil
 }
 
-func (m *ReplicationDisableReplicaRequest) validateCollectionID(formats strfmt.Registry) error {
+func (m *ReplicationDisableReplicaRequest) validateCollection(formats strfmt.Registry) error {
 
-	if err := validate.Required("collectionId", "body", m.CollectionID); err != nil {
+	if err := validate.Required("collection", "body", m.Collection); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *ReplicationDisableReplicaRequest) validateNodeName(formats strfmt.Registry) error {
+func (m *ReplicationDisableReplicaRequest) validateNode(formats strfmt.Registry) error {
 
-	if err := validate.Required("nodeName", "body", m.NodeName); err != nil {
+	if err := validate.Required("node", "body", m.Node); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *ReplicationDisableReplicaRequest) validateShardID(formats strfmt.Registry) error {
+func (m *ReplicationDisableReplicaRequest) validateShard(formats strfmt.Registry) error {
 
-	if err := validate.Required("shardId", "body", m.ShardID); err != nil {
+	if err := validate.Required("shard", "body", m.Shard); err != nil {
 		return err
 	}
 

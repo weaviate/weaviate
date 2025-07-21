@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,9 +15,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/replication"
+
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
@@ -76,10 +77,18 @@ func (s *Raft) SchemaReader() schema.SchemaReader {
 	return s.store.SchemaReader()
 }
 
-func (s *Raft) NewRouter(logger *logrus.Logger) *router.Router {
-	return router.New(logger, s.store.cfg.NodeSelector, s.store.SchemaReader(), s.store.replicationManager.GetReplicationFSM())
-}
-
 func (s *Raft) WaitUntilDBRestored(ctx context.Context, period time.Duration, close chan struct{}) error {
 	return s.store.WaitToRestoreDB(ctx, period, close)
+}
+
+func (s *Raft) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	return s.store.WaitForAppliedIndex(ctx, time.Millisecond*50, schemaVersion)
+}
+
+func (s *Raft) NodeSelector() cluster.NodeSelector {
+	return s.nodeSelector
+}
+
+func (s *Raft) ReplicationFsm() *replication.ShardReplicationFSM {
+	return s.store.replicationManager.GetReplicationFSM()
 }

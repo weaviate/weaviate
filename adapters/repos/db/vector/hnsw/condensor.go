@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,14 +13,17 @@ package hnsw
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"os"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
@@ -65,12 +68,22 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			if err := c.AddSQCompression(*res.CompressionSQData); err != nil {
 				return fmt.Errorf("write sq data: %w", err)
 			}
+		} else if res.CompressionRQData != nil {
+			if err := c.AddRQCompression(*res.CompressionRQData); err != nil {
+				return fmt.Errorf("write rq data: %w", err)
+			}
 		} else {
 			return errors.Wrap(err, "unavailable compression data")
 		}
 	}
+	if res.MuveraEnabled {
+		if err := c.AddMuvera(*res.EncoderMuvera); err != nil {
+			return fmt.Errorf("write muvera data: %w", err)
+		}
+	}
 
-	for _, node := range res.Nodes {
+	for i := len(res.Nodes) - 1; i >= 0; i-- {
+		node := res.Nodes[i]
 		if node == nil {
 			// nil nodes occur when we've grown, but not inserted anything yet
 			continue
@@ -85,9 +98,11 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			}
 		}
 
-		for level, links := range node.connections {
+		iter := node.connections.Iterator()
+		for iter.Next() {
+			level, links := iter.Current()
 			if res.ReplaceLinks(node.id, uint16(level)) {
-				if err := c.SetLinksAtLevel(node.id, level, links); err != nil {
+				if err := c.SetLinksAtLevel(node.id, int(level), links); err != nil {
 					return errors.Wrapf(err,
 						"write links for node %d at level %d to commit log", node.id, level)
 				}
@@ -153,42 +168,74 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	return nil
 }
 
-func (c *MemoryCondensor) writeUint64(w *bufWriter, in uint64) error {
-	toWrite := make([]byte, 8)
-	binary.LittleEndian.PutUint64(toWrite[0:8], in)
-	_, err := w.Write(toWrite)
-	if err != nil {
-		return err
-	}
+const writeUint64Size = 8
 
-	return nil
+func writeUint64(w io.Writer, in uint64) error {
+	var b [writeUint64Size]byte
+	binary.LittleEndian.PutUint64(b[:], in)
+	_, err := w.Write(b[:])
+	return err
 }
 
-func (c *MemoryCondensor) writeUint16(w *bufWriter, in uint16) error {
-	toWrite := make([]byte, 2)
-	binary.LittleEndian.PutUint16(toWrite[0:2], in)
-	_, err := w.Write(toWrite)
-	if err != nil {
-		return err
-	}
+const writeUint32Size = 4
 
-	return nil
+func writeUint32(w io.Writer, in uint32) error {
+	var b [writeUint32Size]byte
+	binary.LittleEndian.PutUint32(b[:], in)
+	_, err := w.Write(b[:])
+	return err
 }
 
-func (c *MemoryCondensor) writeCommitType(w *bufWriter, in HnswCommitType) error {
-	toWrite := make([]byte, 1)
-	toWrite[0] = byte(in)
-	_, err := w.Write(toWrite)
-	if err != nil {
-		return err
-	}
+const writeUint16Size = 2
 
-	return nil
+func writeUint16(w io.Writer, in uint16) error {
+	var b [writeUint16Size]byte
+	binary.LittleEndian.PutUint16(b[:], in)
+	_, err := w.Write(b[:])
+	return err
 }
 
-func (c *MemoryCondensor) writeUint64Slice(w *bufWriter, in []uint64) error {
+const writeFloat32Size = 4
+
+func writeFloat32(w io.Writer, in float32) error {
+	var b [writeFloat32Size]byte
+	binary.LittleEndian.PutUint32(b[:], math.Float32bits(in))
+	_, err := w.Write(b[:])
+	return err
+}
+
+const writeByteSize = 1
+
+func writeByte(w io.Writer, in byte) error {
+	var b [writeByteSize]byte
+	b[0] = in
+	_, err := w.Write(b[:])
+	return err
+}
+
+const writeBoolSize = 1
+
+func writeBool(w io.Writer, in bool) error {
+	var b [writeBoolSize]byte
+	if in {
+		b[0] = 1
+	}
+	_, err := w.Write(b[:])
+	return err
+}
+
+const writeCommitTypeSize = 1
+
+func writeCommitType(w io.Writer, in HnswCommitType) error {
+	var b [writeCommitTypeSize]byte
+	b[0] = byte(in)
+	_, err := w.Write(b[:])
+	return err
+}
+
+func writeUint64Slice(w io.Writer, in []uint64) error {
 	for _, v := range in {
-		err := c.writeUint64(w, v)
+		err := writeUint64(w, v)
 		if err != nil {
 			return err
 		}
@@ -200,26 +247,25 @@ func (c *MemoryCondensor) writeUint64Slice(w *bufWriter, in []uint64) error {
 // AddNode adds an empty node
 func (c *MemoryCondensor) AddNode(node *vertex) error {
 	ec := errorcompounder.New()
-	ec.Add(c.writeCommitType(c.newLog, AddNode))
-	ec.Add(c.writeUint64(c.newLog, node.id))
-	ec.Add(c.writeUint16(c.newLog, uint16(node.level)))
+	ec.Add(writeCommitType(c.newLog, AddNode))
+	ec.Add(writeUint64(c.newLog, node.id))
+	ec.Add(writeUint16(c.newLog, uint16(node.level)))
 
 	return ec.ToError()
 }
 
 func (c *MemoryCondensor) DeleteNode(id uint64) error {
-	ec := &errorcompounder.ErrorCompounder{}
-	ec.Add(c.writeCommitType(c.newLog, DeleteNode))
-	ec.Add(c.writeUint64(c.newLog, id))
-
+	ec := errorcompounder.New()
+	ec.Add(writeCommitType(c.newLog, DeleteNode))
+	ec.Add(writeUint64(c.newLog, id))
 	return ec.ToError()
 }
 
 func (c *MemoryCondensor) SetLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
 	ec := errorcompounder.New()
-	ec.Add(c.writeCommitType(c.newLog, ReplaceLinksAtLevel))
-	ec.Add(c.writeUint64(c.newLog, nodeid))
-	ec.Add(c.writeUint16(c.newLog, uint16(level)))
+	ec.Add(writeCommitType(c.newLog, ReplaceLinksAtLevel))
+	ec.Add(writeUint64(c.newLog, nodeid))
+	ec.Add(writeUint16(c.newLog, uint16(level)))
 
 	targetLength := len(targets)
 	if targetLength > math.MaxUint16 {
@@ -230,8 +276,8 @@ func (c *MemoryCondensor) SetLinksAtLevel(nodeid uint64, level int, targets []ui
 			WithField("maximum_length", targetLength).
 			Warning("condensor length of connections would overflow uint16, cutting off")
 	}
-	ec.Add(c.writeUint16(c.newLog, uint16(targetLength)))
-	ec.Add(c.writeUint64Slice(c.newLog, targets[:targetLength]))
+	ec.Add(writeUint16(c.newLog, uint16(targetLength)))
+	ec.Add(writeUint64Slice(c.newLog, targets[:targetLength]))
 
 	return ec.ToError()
 }
@@ -253,36 +299,32 @@ func (c *MemoryCondensor) AddLinksAtLevel(nodeid uint64, level uint16, targets [
 
 func (c *MemoryCondensor) AddLinkAtLevel(nodeid uint64, level uint16, target uint64) error {
 	ec := errorcompounder.New()
-	ec.Add(c.writeCommitType(c.newLog, AddLinkAtLevel))
-	ec.Add(c.writeUint64(c.newLog, nodeid))
-	ec.Add(c.writeUint16(c.newLog, uint16(level)))
-	ec.Add(c.writeUint64(c.newLog, target))
-
+	ec.Add(writeCommitType(c.newLog, AddLinkAtLevel))
+	ec.Add(writeUint64(c.newLog, nodeid))
+	ec.Add(writeUint16(c.newLog, uint16(level)))
+	ec.Add(writeUint64(c.newLog, target))
 	return ec.ToError()
 }
 
 func (c *MemoryCondensor) SetEntryPointWithMaxLayer(id uint64, level int) error {
 	ec := errorcompounder.New()
-	ec.Add(c.writeCommitType(c.newLog, SetEntryPointMaxLevel))
-	ec.Add(c.writeUint64(c.newLog, id))
-	ec.Add(c.writeUint16(c.newLog, uint16(level)))
-
+	ec.Add(writeCommitType(c.newLog, SetEntryPointMaxLevel))
+	ec.Add(writeUint64(c.newLog, id))
+	ec.Add(writeUint16(c.newLog, uint16(level)))
 	return ec.ToError()
 }
 
 func (c *MemoryCondensor) AddTombstone(nodeid uint64) error {
 	ec := errorcompounder.New()
-	ec.Add(c.writeCommitType(c.newLog, AddTombstone))
-	ec.Add(c.writeUint64(c.newLog, nodeid))
-
+	ec.Add(writeCommitType(c.newLog, AddTombstone))
+	ec.Add(writeUint64(c.newLog, nodeid))
 	return ec.ToError()
 }
 
 func (c *MemoryCondensor) RemoveTombstone(nodeid uint64) error {
 	ec := errorcompounder.New()
-	ec.Add(c.writeCommitType(c.newLog, RemoveTombstone))
-	ec.Add(c.writeUint64(c.newLog, nodeid))
-
+	ec.Add(writeCommitType(c.newLog, RemoveTombstone))
+	ec.Add(writeUint64(c.newLog, nodeid))
 	return ec.ToError()
 }
 
@@ -314,6 +356,72 @@ func (c *MemoryCondensor) AddSQCompression(data compressionhelpers.SQData) error
 	binary.LittleEndian.PutUint32(toWrite[5:], math.Float32bits(data.B))
 	binary.LittleEndian.PutUint16(toWrite[9:], data.Dimensions)
 	_, err := c.newLog.Write(toWrite)
+	return err
+}
+
+func (c *MemoryCondensor) AddRQCompression(data compressionhelpers.RQData) error {
+	swapSize := 2 * data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 2
+	signSize := 4 * data.Rotation.Rounds * data.Rotation.OutputDim
+	var buf bytes.Buffer
+	buf.Grow(17 + int(swapSize) + int(signSize))
+
+	buf.WriteByte(byte(AddRQ))                                       // 1
+	binary.Write(&buf, binary.LittleEndian, data.InputDim)           // 4 input dim
+	binary.Write(&buf, binary.LittleEndian, data.Bits)               // 4 bits
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4 rotation - output dim
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4 rotation - rounds
+
+	for _, swap := range data.Rotation.Swaps {
+		for _, dim := range swap {
+			binary.Write(&buf, binary.LittleEndian, dim.I)
+			binary.Write(&buf, binary.LittleEndian, dim.J)
+		}
+	}
+
+	for _, sign := range data.Rotation.Signs {
+		for _, dim := range sign {
+			binary.Write(&buf, binary.LittleEndian, dim)
+		}
+	}
+
+	_, err := c.newLog.Write(buf.Bytes())
+	return err
+}
+
+func (c *MemoryCondensor) AddMuvera(data multivector.MuveraData) error {
+	gSize := 4 * data.Repetitions * data.KSim * data.Dimensions
+	dSize := 4 * data.Repetitions * data.DProjections * data.Dimensions
+	var buf bytes.Buffer
+	buf.Grow(21 + int(gSize) + int(dSize))
+
+	buf.WriteByte(byte(AddMuvera))                             // 1
+	binary.Write(&buf, binary.LittleEndian, data.KSim)         // 4
+	binary.Write(&buf, binary.LittleEndian, data.NumClusters)  // 4
+	binary.Write(&buf, binary.LittleEndian, data.Dimensions)   // 4
+	binary.Write(&buf, binary.LittleEndian, data.DProjections) // 4
+	binary.Write(&buf, binary.LittleEndian, data.Repetitions)  // 4
+
+	i := 0
+	for _, gaussian := range data.Gaussians {
+		for _, cluster := range gaussian {
+			for _, el := range cluster {
+				binary.Write(&buf, binary.LittleEndian, math.Float32bits(el))
+				i++
+			}
+		}
+	}
+
+	i = 0
+	for _, matrix := range data.S {
+		for _, vector := range matrix {
+			for _, el := range vector {
+				binary.Write(&buf, binary.LittleEndian, math.Float32bits(el))
+				i++
+			}
+		}
+	}
+
+	_, err := c.newLog.Write(buf.Bytes())
 	return err
 }
 

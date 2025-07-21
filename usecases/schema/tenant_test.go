@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -215,9 +216,9 @@ func TestUpdateTenants(t *testing.T) {
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.TenantResponse{
-					{Tenant: models.Tenant{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD}},
-					{Tenant: models.Tenant{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT}},
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
+					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
 				}, 0, nil)
 			},
 		},
@@ -229,9 +230,9 @@ func TestUpdateTenants(t *testing.T) {
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.TenantResponse{
-					{Tenant: models.Tenant{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD}},
-					{Tenant: models.Tenant{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT}},
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
+					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
 				}, 0, nil)
 			},
 		},
@@ -243,9 +244,9 @@ func TestUpdateTenants(t *testing.T) {
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.TenantResponse{
-					{Tenant: models.Tenant{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD}},
-					{Tenant: models.Tenant{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT}},
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
+					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
 				}, 0, nil)
 			},
 		},
@@ -299,9 +300,9 @@ func TestUpdateTenants(t *testing.T) {
 			},
 			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.TenantResponse{
-					{Tenant: models.Tenant{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD}},
-					{Tenant: models.Tenant{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT}},
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
+					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
 				}, 0, nil)
 			},
 		},

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ package byteops
 import (
 	"encoding/binary"
 	"errors"
+	"io"
 	"math"
 )
 
@@ -150,6 +151,17 @@ func (bo *ReadWriter) CopyBytesToBuffer(copyBytes []byte) error {
 		return errors.New("could not copy data into buffer")
 	}
 	return nil
+}
+
+// for io.Writer interface
+func (bo *ReadWriter) Write(p []byte) (int, error) {
+	lenCopyBytes := uint64(len(p))
+	bo.Position += lenCopyBytes
+	if bo.Position > uint64(len(bo.Buffer)) {
+		return 0, io.EOF
+	}
+	numCopiedBytes := copy(bo.Buffer[bo.Position-lenCopyBytes:bo.Position], p)
+	return numCopiedBytes, nil
 }
 
 // Writes a uint64 length indicator about the buffer that's about to follow,

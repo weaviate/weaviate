@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -58,6 +58,7 @@ type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 type SchemaGetter interface {
 	GetSchemaSkipAuth() schema.Schema
 	ReadOnlyClass(string) *models.Class
+	ResolveAlias(string) string
 	Nodes() []string
 	NodeName() string
 	ClusterHealthScore() int
@@ -405,8 +406,9 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 	status map[string]string,
 ) (map[string]string, error) {
 	req := &api.UpdateTenantsRequest{
-		Tenants:      make([]*api.Tenant, 0, len(status)),
-		ClusterNodes: m.schemaManager.StorageCandidates(),
+		Tenants:               make([]*api.Tenant, 0, len(status)),
+		ClusterNodes:          m.schemaManager.StorageCandidates(),
+		ImplicitUpdateRequest: true,
 	}
 	for tenant, s := range status {
 		if s != models.TenantActivityStatusHOT {

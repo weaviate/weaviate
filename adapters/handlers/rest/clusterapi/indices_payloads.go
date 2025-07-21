@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,33 +41,33 @@ import (
 var IndicesPayloads = indicesPayloads{}
 
 type indicesPayloads struct {
-	ErrorList                     errorListPayload
-	SingleObject                  singleObjectPayload
-	MergeDoc                      mergeDocPayload
-	ObjectList                    objectListPayload
-	VersionedObjectList           versionedObjectListPayload
-	SearchResults                 searchResultsPayload
-	SearchParams                  searchParamsPayload
-	VectorDistanceParams          vectorDistanceParamsPayload
-	VectorDistanceResults         vectorDistanceResultsPayload
-	ReferenceList                 referenceListPayload
-	AggregationParams             aggregationParamsPayload
-	AggregationResult             aggregationResultPayload
-	FindUUIDsParams               findUUIDsParamsPayload
-	FindUUIDsResults              findUUIDsResultsPayload
-	BatchDeleteParams             batchDeleteParamsPayload
-	BatchDeleteResults            batchDeleteResultsPayload
-	GetShardQueueSizeParams       getShardQueueSizeParamsPayload
-	GetShardQueueSizeResults      getShardQueueSizeResultsPayload
-	GetShardStatusParams          getShardStatusParamsPayload
-	GetShardStatusResults         getShardStatusResultsPayload
-	UpdateShardStatusParams       updateShardStatusParamsPayload
-	UpdateShardsStatusResults     updateShardsStatusResultsPayload
-	ShardFiles                    shardFilesPayload
-	IncreaseReplicationFactor     increaseReplicationFactorPayload
-	ShardFileMetadataResults      shardFileMetadataResultsPayload
-	ShardFilesResults             shardFilesResultsPayload
-	SetAsyncReplicationTargetNode setAsyncReplicationTargetNode
+	ErrorList                  errorListPayload
+	SingleObject               singleObjectPayload
+	MergeDoc                   mergeDocPayload
+	ObjectList                 objectListPayload
+	VersionedObjectList        versionedObjectListPayload
+	SearchResults              searchResultsPayload
+	SearchParams               searchParamsPayload
+	VectorDistanceParams       vectorDistanceParamsPayload
+	VectorDistanceResults      vectorDistanceResultsPayload
+	ReferenceList              referenceListPayload
+	AggregationParams          aggregationParamsPayload
+	AggregationResult          aggregationResultPayload
+	FindUUIDsParams            findUUIDsParamsPayload
+	FindUUIDsResults           findUUIDsResultsPayload
+	BatchDeleteParams          batchDeleteParamsPayload
+	BatchDeleteResults         batchDeleteResultsPayload
+	GetShardQueueSizeParams    getShardQueueSizeParamsPayload
+	GetShardQueueSizeResults   getShardQueueSizeResultsPayload
+	GetShardStatusParams       getShardStatusParamsPayload
+	GetShardStatusResults      getShardStatusResultsPayload
+	UpdateShardStatusParams    updateShardStatusParamsPayload
+	UpdateShardsStatusResults  updateShardsStatusResultsPayload
+	ShardFiles                 shardFilesPayload
+	IncreaseReplicationFactor  increaseReplicationFactorPayload
+	ShardFileMetadataResults   shardFileMetadataResultsPayload
+	ShardFilesResults          shardFilesResultsPayload
+	AsyncReplicationTargetNode asyncReplicationTargetNode
 }
 
 type shardFileMetadataResultsPayload struct{}
@@ -106,17 +106,17 @@ func (p shardFilesResultsPayload) Unmarshal(in []byte) ([]string, error) {
 	return shardFiles, nil
 }
 
-type setAsyncReplicationTargetNode struct{}
+type asyncReplicationTargetNode struct{}
 
-func (p setAsyncReplicationTargetNode) MIME() string {
-	return "application/vnd.weaviate.setasyncreplicationtargetnode+json"
+func (p asyncReplicationTargetNode) MIME() string {
+	return "application/vnd.weaviate.asyncreplicationtargetnode+json"
 }
 
-func (p setAsyncReplicationTargetNode) SetContentTypeHeaderReq(r *http.Request) {
+func (p asyncReplicationTargetNode) SetContentTypeHeaderReq(r *http.Request) {
 	r.Header.Set("content-type", p.MIME())
 }
 
-func (p setAsyncReplicationTargetNode) Marshal(in additional.AsyncReplicationTargetNodeOverride) ([]byte, error) {
+func (p asyncReplicationTargetNode) Marshal(in additional.AsyncReplicationTargetNodeOverride) ([]byte, error) {
 	return json.Marshal(in)
 }
 

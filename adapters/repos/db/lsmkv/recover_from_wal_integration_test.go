@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,7 +37,7 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 	t.Run("with some previous state", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+			WithStrategy(StrategyReplace), WithMinWalThreshold(0))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -72,7 +72,7 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 			var err error
 			b, err = NewBucketCreator().NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(StrategyReplace))
+				WithStrategy(StrategyReplace), WithMinWalThreshold(0))
 			require.Nil(t, err)
 		})
 
@@ -158,7 +158,7 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 		t.Run("create new bucket from existing state", func(t *testing.T) {
 			b, err := NewBucketCreator().NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(StrategyReplace))
+				WithStrategy(StrategyReplace), WithMinWalThreshold(0))
 			require.Nil(t, err)
 
 			// so big it effectively never triggers as part of this test

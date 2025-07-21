@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,8 +46,8 @@ import (
 // are only available within there
 var configureServer func(*http.Server, string, string)
 
-func makeUpdateSchemaCall(appState *state.State) func(schema.Schema) {
-	return func(updatedSchema schema.Schema) {
+func makeUpdateSchemaCall(appState *state.State) func(aliases schema.SchemaWithAliases) {
+	return func(updatedSchema schema.SchemaWithAliases) {
 		if appState.ServerConfig.Config.DisableGraphQL {
 			return
 		}
@@ -71,7 +71,7 @@ func makeUpdateSchemaCall(appState *state.State) func(schema.Schema) {
 	}
 }
 
-func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
+func rebuildGraphQL(updatedSchema schema.SchemaWithAliases, logger logrus.FieldLogger,
 	config config.Config, traverser *traverser.Traverser, modulesProvider *modules.Provider, authorizer authorization.Authorizer,
 ) (graphql.GraphQL, error) {
 	updatedGraphQL, err := graphql.Build(&updatedSchema, traverser, logger, config, modulesProvider, authorizer)
@@ -87,7 +87,7 @@ func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
 // middleware will still be able to provide the user with a valuable error
 // message, even when OIDC is globally disabled.
 func configureOIDC(appState *state.State) *oidc.Client {
-	c, err := oidc.New(appState.ServerConfig.Config)
+	c, err := oidc.New(appState.ServerConfig.Config, appState.Logger)
 	if err != nil {
 		appState.Logger.WithField("action", "oidc_init").WithError(err).Fatal("oidc client could not start up")
 		os.Exit(1)
@@ -126,6 +126,7 @@ func configureAuthorizer(appState *state.State) error {
 
 		appState.AuthzController = rbacController
 		appState.AuthzSnapshotter = rbacController
+		appState.RBAC = rbacController
 		appState.Authorizer = rbacController
 	} else if appState.ServerConfig.Config.Authorization.AdminList.Enabled {
 		appState.Authorizer = adminlist.New(appState.ServerConfig.Config.Authorization.AdminList)
@@ -133,7 +134,7 @@ func configureAuthorizer(appState *state.State) error {
 		appState.Authorizer = &authorization.DummyAuthorizer{}
 	}
 
-	if appState.ServerConfig.Config.Authorization.Rbac.Enabled && appState.AuthzController == nil {
+	if appState.ServerConfig.Config.Authorization.Rbac.Enabled && appState.RBAC == nil {
 		// this in general shall not happen, it's to catch cases were RBAC expected but we weren't able
 		// to assign it.
 		return fmt.Errorf("RBAC is expected to be enabled, but the controller wasn't initialized")

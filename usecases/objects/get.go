@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,7 +33,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, additional additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*models.Object, error) {
-	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(class, tenant, id))
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant, id))
 	if err != nil {
 		return nil, err
 	}
@@ -46,11 +46,20 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 		return nil, err
 	}
 
+	var alias string
+	if res.ClassName != class {
+		alias = class
+	}
+
 	if additional.Vector {
 		m.trackUsageSingle(res)
 	}
 
-	return res.ObjectWithVector(additional.Vector), nil
+	obj := res.ObjectWithVector(additional.Vector)
+	if alias != "" {
+		obj.Class = alias
+	}
+	return obj, nil
 }
 
 // GetObjects Class from the connected DB
@@ -58,7 +67,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	offset *int64, limit *int64, sort *string, order *string, after *string,
 	addl additional.Properties, tenant string,
 ) ([]*models.Object, error) {
-	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects("", tenant, ""))
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects("", tenant, ""))
 	if err != nil {
 		return nil, err
 	}
@@ -74,6 +83,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	// Filter objects based on authorization
 	resourceFilter := filter.New[*models.Object](m.authorizer, m.config.Config.Authorization.Rbac)
 	filteredObjects := resourceFilter.Filter(
+		ctx,
 		m.logger,
 		principal,
 		objects,
@@ -89,7 +99,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID,
 ) (*models.Class, error) {
-	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects("", "", id))
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects("", "", id))
 	if err != nil {
 		return nil, err
 	}
@@ -117,6 +127,9 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 	adds additional.Properties, repl *additional.ReplicationProperties, tenant string,
 ) (res *search.Result, err error) {
 	if class != "" {
+		if cls := m.schemaManager.ResolveAlias(class); cls != "" {
+			class = cls
+		}
 		res, err = m.vectorRepo.Object(ctx, class, id, search.SelectProperties{}, adds, repl, tenant)
 	} else {
 		res, err = m.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, adds, tenant)

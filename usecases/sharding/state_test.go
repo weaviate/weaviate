@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -180,6 +181,15 @@ func TestInitState(t *testing.T) {
 	}
 }
 
+func TestInitStateWithZeroReplicationFactor(t *testing.T) {
+	nodes := mocks.NewMockNodeSelector("node1", "node2", "node3")
+	cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
+	require.NoError(t, err)
+
+	_, err = InitState("index-zero", cfg, nodes.LocalName(), nodes.StorageCandidates(), 0, false)
+	require.Errorf(t, err, "replication factor zero is not allowed")
+}
+
 func TestAdjustReplicas(t *testing.T) {
 	t.Run("1->3", func(t *testing.T) {
 		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
@@ -288,8 +298,10 @@ func TestAddPartition(t *testing.T) {
 	s, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 1, true)
 	require.Nil(t, err)
 
-	s.AddPartition("A", nodes1, models.TenantActivityStatusHOT)
-	s.AddPartition("B", nodes2, models.TenantActivityStatusCOLD)
+	_, err = s.AddPartition("A", nodes1, models.TenantActivityStatusHOT)
+	require.NoErrorf(t, err, "unexpect error while adding partition for tenant A")
+	_, err = s.AddPartition("B", nodes2, models.TenantActivityStatusCOLD)
+	require.NoErrorf(t, err, "unexpect error while adding partition for tenant B")
 
 	want := map[string]Physical{
 		"A": {Name: "A", BelongsToNodes: nodes1, OwnsPercentage: 1, Status: models.TenantActivityStatusHOT},
@@ -329,6 +341,7 @@ func TestStateDeepCopy(t *testing.T) {
 				AssignedToPhysical: "original",
 			},
 		},
+		ReplicationFactor: 3,
 	}
 
 	control := State{
@@ -361,6 +374,7 @@ func TestStateDeepCopy(t *testing.T) {
 				AssignedToPhysical: "original",
 			},
 		},
+		ReplicationFactor: 3,
 	}
 
 	assert.Equal(t, control, original, "control matches initially")
@@ -549,4 +563,137 @@ func TestApplyNodeMapping(t *testing.T) {
 			assert.Equal(t, tc.control, tc.state)
 		})
 	}
+}
+
+func TestShardReplicationFactor(t *testing.T) {
+	t.Run("add replica", func(t *testing.T) {
+		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
+		cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
+		require.NoErrorf(t, err, "unexpected error while parsing config")
+
+		state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 2, false)
+		require.NoErrorf(t, err, "unexpected error while initializing state")
+
+		shardName := state.AllPhysicalShards()[0]
+		numberOfReplicas, err := state.NumberOfReplicas(shardName)
+		require.NoErrorf(t, err, "error while getting number of replicas for shard %s", shardName)
+		require.Equal(t, int64(2), numberOfReplicas, "unexpected replication factor")
+		require.Equal(t, int64(2), state.ReplicationFactor, "unexpected minimum replication factor")
+
+		initialReplicaCount := len(state.Physical[shardName].BelongsToNodes)
+		require.Equal(t, 2, initialReplicaCount)
+
+		err = state.AddReplicaToShard(shardName, "test-replica")
+		require.NoErrorf(t, err, "unexpected error while adding a replica")
+
+		numberOfReplicas, err = state.NumberOfReplicas(shardName)
+		require.NoErrorf(t, err, "error while getting number of replicas for shard %s", shardName)
+		require.Equal(t, int64(3), numberOfReplicas)
+		require.Equal(t, 3, len(state.Physical[shardName].BelongsToNodes))
+	})
+
+	t.Run("add existing replica", func(t *testing.T) {
+		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
+		cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
+		require.NoErrorf(t, err, "unexpected error while parsing config")
+
+		state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 2, false)
+		require.NoErrorf(t, err, "unexpected error while initializing state")
+
+		shardName := state.AllPhysicalShards()[0]
+		numberOfReplicas, err := state.NumberOfReplicas(shardName)
+		require.NoErrorf(t, err, "error while getting number of replicas for shard %s", shardName)
+		require.Equal(t, int64(2), numberOfReplicas, "unexpected replication factor")
+		require.Equal(t, int64(2), state.ReplicationFactor, "unexpected minimum replication factor")
+
+		initialReplicaCount := len(state.Physical[shardName].BelongsToNodes)
+		require.Equal(t, 2, initialReplicaCount)
+
+		err = state.AddReplicaToShard(shardName, "test-replica")
+		require.NoErrorf(t, err, "unexpected error while adding a replica")
+
+		numberOfReplicas, err = state.NumberOfReplicas(shardName)
+		require.NoErrorf(t, err, "error while getting number of replicas for shard %s", shardName)
+		require.Equal(t, int64(3), numberOfReplicas)
+		require.Equal(t, 3, len(state.Physical[shardName].BelongsToNodes))
+
+		err = state.AddReplicaToShard(shardName, "test-replica")
+		require.Errorf(t, err, "expected a failure while adding exisiting shard")
+
+		require.Equal(t, 3, len(state.Physical[shardName].BelongsToNodes))
+		require.Truef(t, strings.Contains(err.Error(), "already exists"), "expected already existing replica error")
+
+		numberOfReplicas, err = state.NumberOfReplicas(shardName)
+		require.NoErrorf(t, err, "error while getting number of replicas for shard %s", shardName)
+		require.Equal(t, int64(3), numberOfReplicas)
+	})
+
+	t.Run("delete replica", func(t *testing.T) {
+		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
+		cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
+		require.NoErrorf(t, err, "unexpected error while parsing config")
+
+		state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 2, false)
+		require.NoErrorf(t, err, "unexpected error while initializing state")
+
+		shardName := state.AllPhysicalShards()[0]
+		initialReplicaCount := len(state.Physical[shardName].BelongsToNodes)
+		require.Equal(t, 2, initialReplicaCount)
+
+		err = state.AddReplicaToShard(shardName, "test-replica1")
+		require.NoError(t, err, "unexpected error while adding replica")
+
+		// 3 replicas with a minimum of 2, deleting a replica is exepcted to work
+		replicaToDelete := state.Physical[shardName].BelongsToNodes[0]
+		err = state.DeleteReplicaFromShard(shardName, replicaToDelete)
+		require.NoErrorf(t, err, "unexpected error while deleting replica from shard")
+	})
+
+	t.Run("delete replica failure", func(t *testing.T) {
+		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
+		cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
+		require.NoErrorf(t, err, "unexpected error while parsing config")
+
+		state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 2, false)
+		require.NoErrorf(t, err, "unexpected error while initializing state")
+
+		shardName := state.AllPhysicalShards()[0]
+		initialReplicaCount := len(state.Physical[shardName].BelongsToNodes)
+		require.Equal(t, 2, initialReplicaCount)
+
+		// 2 replicas with a minimum of 2ca, deleting a replica is expected to fail
+		replicaToDelete := state.Physical[shardName].BelongsToNodes[0]
+		err = state.DeleteReplicaFromShard(shardName, replicaToDelete)
+		require.Errorf(t, err, "expected a failure while removing a replica")
+	})
+
+	t.Run("delete non-existing replica", func(t *testing.T) {
+		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
+		cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
+		require.NoErrorf(t, err, "unexpected error while parsing config")
+
+		state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 2, false)
+		require.NoErrorf(t, err, "unexpected error while initializing state")
+
+		shardName := state.AllPhysicalShards()[0]
+		initialReplicaCount := len(state.Physical[shardName].BelongsToNodes)
+		require.Equal(t, 2, initialReplicaCount)
+
+		// 3 replicas with a minimum of 3, deleting a replica is expected to fail
+		replicaToDelete := state.Physical[shardName].BelongsToNodes[0] + "-dummy"
+		err = state.DeleteReplicaFromShard(shardName, replicaToDelete)
+		require.Errorf(t, err, "expected a failure while removing a replica")
+	})
+
+	t.Run("deep copy", func(t *testing.T) {
+		original := State{
+			ReplicationFactor: 2,
+		}
+
+		copied := original.DeepCopy()
+		require.Equal(t, int64(2), copied.ReplicationFactor)
+
+		copied.ReplicationFactor = 4
+		require.Equal(t, int64(2), original.ReplicationFactor)
+	})
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -83,6 +84,8 @@ func NewHandler(
 	schema schemaManger,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
+	rbacSourcer fsm.Snapshotter,
+	dynUserSourcer fsm.Snapshotter,
 ) *Handler {
 	node := schema.NodeName()
 	m := &Handler{
@@ -91,10 +94,10 @@ func NewHandler(
 		authorizer: authorizer,
 		backends:   backends,
 		backupper: newBackupper(node, logger,
-			sourcer,
+			sourcer, rbacSourcer, dynUserSourcer,
 			backends),
 		restorer: newRestorer(node, logger,
-			sourcer,
+			sourcer, rbacSourcer, dynUserSourcer,
 			backends,
 		),
 	}
@@ -142,6 +145,9 @@ type BackupRequest struct {
 
 	// Override path (optional) - replaces environement variable for one call
 	Path string
+
+	RbacRestoreOption string
+	UserRestoreOption string
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate

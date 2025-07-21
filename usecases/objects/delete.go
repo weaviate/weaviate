@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,7 +36,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	principal *models.Principal, className string, id strfmt.UUID,
 	repl *additional.ReplicationProperties, tenant string,
 ) error {
-	err := m.authorizer.Authorize(principal, authorization.DELETE, authorization.Objects(className, tenant, id))
+	err := m.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Objects(className, tenant, id))
 	if err != nil {
 		return err
 	}

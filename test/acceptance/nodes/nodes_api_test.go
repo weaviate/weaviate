@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,6 +33,21 @@ import (
 )
 
 func Test_NodesAPI(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().
+		WithWeaviate().
+		WithText2VecContextionary().
+		WithWeaviateEnv("PERSISTENCE_MAX_REUSE_WAL_SIZE", "0").
+		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "2"). // flush fast enough so object counts are correct
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
+	helper.SetupClient(compose.GetWeaviate().URI())
+
 	t.Run("empty DB", func(t *testing.T) {
 		meta, err := helper.Client(t).Meta.MetaGet(meta.NewMetaGetParams(), nil)
 		require.Nil(t, err)
@@ -74,6 +89,8 @@ func Test_NodesAPI(t *testing.T) {
 			assert.True(t, len(shard.Name) > 0)
 			assert.Equal(t, booksClass.Class, shard.Class)
 			assert.Equal(t, int64(3), shard.ObjectCount)
+			assert.Equal(t, int64(1), shard.ReplicationFactor)
+			assert.Equal(t, int64(1), shard.NumberOfReplicas)
 			require.NotNil(t, nodeStatus.Stats)
 			assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
 			assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
@@ -105,6 +122,8 @@ func Test_NodesAPI(t *testing.T) {
 				assert.True(t, len(shard.Name) > 0)
 				assert.Equal(t, multiShardClass.Class, shard.Class)
 				assert.GreaterOrEqual(t, shard.ObjectCount, int64(0))
+				assert.Equal(t, int64(1), shard.ReplicationFactor)
+				assert.Equal(t, int64(1), shard.NumberOfReplicas)
 				require.NotNil(t, nodeStatus.Stats)
 				assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
 				assert.Equal(t, int64(2), nodeStatus.Stats.ShardCount)
@@ -164,6 +183,8 @@ func Test_NodesAPI(t *testing.T) {
 				assert.True(t, len(shard.Name) > 0)
 				assert.Equal(t, docsClass.Class, shard.Class)
 				assert.Equal(t, int64(2), shard.ObjectCount)
+				assert.Equal(t, int64(1), shard.ReplicationFactor)
+				assert.Equal(t, int64(1), shard.NumberOfReplicas)
 			}
 
 			testStatusResponse(t, minimalAssertions, verboseAssertions, docsClass.Class)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -1913,6 +1913,20 @@ func TestGetRelation(t *testing.T) {
 			{ Get { SomeAction { hasAction { ...actionFragment } } } }`
 		resolver.AssertResolve(t, query)
 	})
+}
+
+func TestGetWithAlias(t *testing.T) {
+	t.Parallel()
+	resolver := newMockResolver()
+	expectedParams := dto.GetParams{
+		ClassName:  "SomeAction",
+		Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+	}
+
+	resolver.On("GetClass", expectedParams).
+		Return(test_helper.EmptyList(), nil).Once()
+
+	resolver.AssertResolve(t, "{ Get { SomeActionAlias { intField } } }")
 }
 
 func TestNearObject(t *testing.T) {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,7 +41,7 @@ import (
 )
 
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 		return nil, err
 	}
 	name = schema.UppercaseClassName(name)
@@ -53,7 +53,7 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, nam
 func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Principal,
 	name string, consistency bool,
 ) (*models.Class, uint64, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 		return nil, 0, err
 	}
 
@@ -73,7 +73,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	principal *models.Principal, names ...string,
 ) (map[string]versioned.Class, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(names...)...); err != nil {
+	if err := h.Authorizer.Authorize(ctxWithClassCache, principal, authorization.READ, authorization.CollectionsMetadata(names...)...); err != nil {
 		return nil, err
 	}
 
@@ -98,13 +98,13 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls.Class = schema.UppercaseClassName(cls.Class)
 	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
 
-	err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...)
+	err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	classGetterWithAuth := func(name string) (*models.Class, error) {
-		if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
+		if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err
 		}
 		return h.schemaReader.ReadOnlyClass(name), nil
@@ -207,6 +207,10 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	shardingState.MigrateFromOldFormat()
+	err = shardingState.MigrateShardingStateReplicationFactor()
+	if err != nil {
+		return fmt.Errorf("error while migrating replication factor: %w", err)
+	}
 	shardingState.ApplyNodeMapping(m)
 	_, err = h.schemaManager.RestoreClass(ctx, class, &shardingState)
 	return err
@@ -214,21 +218,24 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 
 // DeleteClass from the schema
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.CollectionsMetadata(class)...)
+	err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsMetadata(class)...)
 	if err != nil {
 		return err
 	}
 
 	class = schema.UppercaseClassName(class)
 
-	_, err = h.schemaManager.DeleteClass(ctx, class)
-	return err
+	if _, err = h.schemaManager.DeleteClass(ctx, class); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
-	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
+	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
 	if err != nil || updated == nil {
 		return err
 	}
@@ -923,8 +930,4 @@ func validateLegacyVectorIndexConfigImmutableFields(initial, updated *models.Cla
 			accessor: func(c *models.Class) string { return c.VectorIndexType },
 		},
 	}...)
-}
-
-func experimentBackwardsCompatibleNamedVectorsEnabled() bool {
-	return entcfg.Enabled(os.Getenv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS"))
 }

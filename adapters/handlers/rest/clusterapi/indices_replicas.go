@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -54,9 +54,9 @@ type replicator interface {
 		vobjects []*objects.VObject) ([]types.RepairResponse, error)
 	// Read endpoints
 	FetchObject(ctx context.Context, indexName,
-		shardName string, id strfmt.UUID) (objects.Replica, error)
+		shardName string, id strfmt.UUID) (replica.Replica, error)
 	FetchObjects(ctx context.Context, class,
-		shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
+		shardName string, ids []strfmt.UUID) ([]replica.Replica, error)
 	DigestObjects(ctx context.Context, class, shardName string,
 		ids []strfmt.UUID) (result []types.RepairResponse, err error)
 	DigestObjectsInRange(ctx context.Context, class, shardName string,
@@ -742,7 +742,7 @@ func (i *replicatedIndices) getObject() http.Handler {
 		defer r.Body.Close()
 
 		var (
-			resp objects.Replica
+			resp replica.Replica
 			err  error
 		)
 
@@ -814,7 +814,7 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 			return
 		}
 
-		b, err := objects.Replicas(resp).MarshalBinary()
+		b, err := replica.Replicas(resp).MarshalBinary()
 		if err != nil {
 			http.Error(w, fmt.Sprintf("unmarshal resp: %+v, error: %v", resp, err),
 				http.StatusInternalServerError)

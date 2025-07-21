@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,6 +48,8 @@ const (
 	CollectionsDomain = "collections"
 	TenantsDomain     = "tenants"
 	DataDomain        = "data"
+	ReplicateDomain   = "replicate"
+	AliasesDomain     = "aliases"
 )
 
 var (
@@ -78,6 +80,14 @@ var (
 	}
 	AllCollections = &models.PermissionCollections{
 		Collection: All,
+	}
+	AllReplicate = &models.PermissionReplicate{
+		Collection: All,
+		Shard:      All,
+	}
+	AllAliases = &models.PermissionAliases{
+		Collection: All,
+		Alias:      All,
 	}
 
 	ComponentName = "RBAC"
@@ -115,6 +125,16 @@ var (
 	ReadTenants   = "read_tenants"
 	UpdateTenants = "update_tenants"
 	DeleteTenants = "delete_tenants"
+
+	CreateReplicate = "create_replicate"
+	ReadReplicate   = "read_replicate"
+	UpdateReplicate = "update_replicate"
+	DeleteReplicate = "delete_replicate"
+
+	CreateAliases = "create_aliases"
+	ReadAliases   = "read_aliases"
+	UpdateAliases = "update_aliases"
+	DeleteAliases = "delete_aliases"
 
 	availableWeaviateActions = []string{
 		// Roles domain
@@ -156,6 +176,18 @@ var (
 		ReadTenants,
 		UpdateTenants,
 		DeleteTenants,
+
+		// Replicate domain
+		CreateReplicate,
+		ReadReplicate,
+		UpdateReplicate,
+		DeleteReplicate,
+
+		// Aliases domain
+		CreateAliases,
+		ReadAliases,
+		UpdateAliases,
+		DeleteAliases,
 	}
 )
 
@@ -297,6 +329,30 @@ func CollectionsMetadata(classes ...string) []string {
 	return resources
 }
 
+func Aliases(class string, aliases ...string) []string {
+	class = schema.UppercaseClassName(class)
+	aliases = schema.UppercaseClassesNames(aliases...)
+
+	if class == "" {
+		class = "*"
+	}
+
+	if len(aliases) == 0 || (len(aliases) == 1 && (aliases[0] == "" || aliases[0] == "*")) {
+		return []string{fmt.Sprintf("%s/collections/%s/aliases/*", AliasesDomain, class)}
+	}
+
+	resources := make([]string, len(aliases))
+	for idx := range aliases {
+		if aliases[idx] == "" {
+			resources[idx] = fmt.Sprintf("%s/collections/%s/aliases/*", AliasesDomain, class)
+		} else {
+			resources[idx] = fmt.Sprintf("%s/collections/%s/aliases/%s", AliasesDomain, class, aliases[idx])
+		}
+	}
+
+	return resources
+}
+
 func CollectionsData(classes ...string) []string {
 	classes = schema.UppercaseClassesNames(classes...)
 
@@ -418,6 +474,26 @@ func Backups(classes ...string) []string {
 	return resources
 }
 
+// Replications generates a replication resource string for a given class and shard.
+//
+// Parameters:
+//   - class: The class name for the resource. If empty, defaults to "*".
+//   - shard: The shard name for the resource. If empty, defaults to "*".
+//
+// Returns:
+//
+//	A slice of strings representing the resource paths for the given class and shards.
+func Replications(class, shard string) string {
+	class = schema.UppercaseClassName(class)
+	if class == "" {
+		class = "*"
+	}
+	if shard == "" {
+		shard = "*"
+	}
+	return fmt.Sprintf("%s/collections/%s/shards/%s", ReplicateDomain, class, shard)
+}
+
 // WildcardPath returns the appropriate wildcard path based on the domain and original resource path.
 // The domain is expected to be the first part of the resource path.
 func WildcardPath(resource string) string {
@@ -447,6 +523,7 @@ func viewerPermissions() []*models.Permission {
 			Collections: AllCollections,
 			Tenants:     AllTenants,
 			Users:       AllUsers,
+			Aliases:     AllAliases,
 		})
 	}
 
@@ -467,6 +544,7 @@ func adminPermissions() []*models.Permission {
 			Collections: AllCollections,
 			Tenants:     AllTenants,
 			Users:       AllUsers,
+			Aliases:     AllAliases,
 		})
 	}
 

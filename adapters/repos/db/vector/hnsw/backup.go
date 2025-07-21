@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/pkg/errors"
 )
 
 // SwitchCommitLogs makes sure that the previously writeable commitlog is
@@ -80,11 +82,46 @@ func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error)
 	}
 	delete(found, path)
 
-	files, i := make([]string, len(found)), 0
-	for file := range found {
-		files[i] = file
-		i++
+	snapshotFiles, err := h.listSnapshotFiles(ctx, basePath)
+	if err != nil {
+		return nil, fmt.Errorf("list snapshot files: %w", err)
 	}
 
+	files = make([]string, 0, len(found)+len(snapshotFiles))
+	for file := range found {
+		files = append(files, file)
+	}
+	files = append(files, snapshotFiles...)
+
+	return files, nil
+}
+
+func (h *hnsw) listSnapshotFiles(ctx context.Context, basePath string) ([]string, error) {
+	snapshotDir := snapshotDirectory(h.commitLog.RootPath(), h.commitLog.ID())
+	entries, err := os.ReadDir(snapshotDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// no snapshot directory, no files
+			return []string{}, nil
+		}
+		return nil, errors.Wrapf(err, "read snapshot directory %q", snapshotDir)
+	}
+
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			return nil, errors.Wrap(err, "direntry info")
+		}
+		if info.Size() == 0 {
+			continue
+		}
+
+		file, err := filepath.Rel(basePath, filepath.Join(snapshotDir, entry.Name()))
+		if err != nil {
+			return nil, errors.Wrap(err, "relative path")
+		}
+		files = append(files, file)
+	}
 	return files, nil
 }

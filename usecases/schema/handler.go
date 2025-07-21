@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -66,12 +66,18 @@ type SchemaManager interface {
 	// from an up to date schema.
 	QueryReadOnlyClasses(names ...string) (map[string]versioned.Class, error)
 	QuerySchema() (models.Schema, error)
-	QueryTenants(class string, tenants []string) ([]*models.TenantResponse, uint64, error)
+	QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error)
 	QueryCollectionsCount() (int, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
 	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
 	QueryShardingState(class string) (*sharding.State, uint64, error)
 	QueryClassVersions(names ...string) (map[string]uint64, error)
+
+	// Aliases
+	CreateAlias(ctx context.Context, alias string, class *models.Class) (uint64, error)
+	ReplaceAlias(ctx context.Context, alias *models.Alias, newClass *models.Class) (uint64, error)
+	DeleteAlias(ctx context.Context, alias string) (uint64, error)
+	GetAliases(ctx context.Context, alias string, class *models.Class) ([]*models.Alias, error)
 }
 
 // SchemaReader allows reading the local schema with or without using a schema version.
@@ -88,12 +94,14 @@ type SchemaReader interface {
 	ReadOnlyClass(name string) *models.Class
 	ReadOnlyVersionedClass(name string) versioned.Class
 	ReadOnlySchema() models.Schema
+	Aliases() map[string]string
 	CopyShardingState(class string) *sharding.State
 	ShardReplicas(class, shard string) ([]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardOwner(class, shard string) (string, error)
 	Read(class string, reader func(*models.Class, *sharding.State) error) error
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
+	ResolveAlias(alias string) string
 
 	// These schema reads function (...WithVersion) return the metadata once the local schema has caught up to the
 	// version parameter. If version is 0 is behaves exactly the same as eventual consistent reads.
@@ -184,7 +192,7 @@ func NewHandler(
 }
 
 // GetSchema retrieves a locally cached copy of the schema
-func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
+func (h *Handler) GetConsistentSchema(ctx context.Context, principal *models.Principal, consistency bool) (schema.Schema, error) {
 	var fullSchema schema.Schema
 	if !consistency {
 		fullSchema = h.getSchema()
@@ -199,6 +207,7 @@ func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency b
 	}
 
 	filteredClasses := filter.New[*models.Class](h.Authorizer, h.config.Authorization.Rbac).Filter(
+		ctx,
 		h.logger,
 		principal,
 		fullSchema.Objects.Classes,
@@ -238,7 +247,7 @@ func (h *Handler) NodeName() string {
 func (h *Handler) UpdateShardStatus(ctx context.Context,
 	principal *models.Principal, class, shard, status string,
 ) (uint64, error) {
-	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsMetadata(class, shard)...)
+	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsMetadata(class, shard)...)
 	if err != nil {
 		return 0, err
 	}
@@ -249,7 +258,7 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 func (h *Handler) ShardsStatus(ctx context.Context,
 	principal *models.Principal, class, shard string,
 ) (models.ShardStatusList, error) {
-	err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, shard)...)
+	err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsMetadata(class, shard)...)
 	if err != nil {
 		return nil, err
 	}

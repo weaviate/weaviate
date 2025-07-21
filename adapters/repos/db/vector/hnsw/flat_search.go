@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -140,28 +140,75 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 	return ids, dists, nil
 }
 
-func (h *hnsw) flatMultiSearch(ctx context.Context, queryVectors [][]float32, k int,
+func (h *hnsw) flatMultiSearch(ctx context.Context, queryVector [][]float32, limit int,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
-	kPrime := k
-	candidateSet := make(map[uint64]struct{})
-	for _, vec := range queryVectors {
-		ids, _, err := h.flatSearch(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList)
-		if err != nil {
-			return nil, nil, err
-		}
-		for _, id := range ids {
-			var docId uint64
-			if !h.compressed.Load() {
-				docId, _ = h.cache.GetKeys(id)
-			} else {
-				docId, _ = h.compressor.GetKeys(id)
+	aggregateMu := &sync.Mutex{}
+	results := priorityqueue.NewMax[any](limit)
+
+	beforeIter := time.Now()
+	// first extract all candidates, this reduces the amount of coordination
+	// needed for the workers
+	candidates := allowList.Slice()
+
+	eg := enterrors.NewErrorGroupWrapper(h.logger)
+	for workerID := 0; workerID < h.flatSearchConcurrency; workerID++ {
+		workerID := workerID
+		eg.Go(func() error {
+			localResults := priorityqueue.NewMax[any](limit)
+			var e storobj.ErrNotFound
+			for idPos := workerID; idPos < len(candidates); idPos += h.flatSearchConcurrency {
+				candidate := candidates[idPos]
+
+				dist, err := h.computeScore(queryVector, candidate)
+
+				if errors.As(err, &e) {
+					h.RLock()
+					vecIDs := h.docIDVectors[candidate]
+					h.RUnlock()
+					for _, vecID := range vecIDs {
+						h.handleDeletedNode(vecID, "flatSearch")
+					}
+					continue
+				}
+				if err != nil {
+					return err
+				}
+
+				addResult(localResults, candidate, dist, limit)
 			}
-			candidateSet[docId] = struct{}{}
-		}
+
+			aggregateMu.Lock()
+			defer aggregateMu.Unlock()
+			for localResults.Len() > 0 {
+				res := localResults.Pop()
+				addResult(results, res.ID, res.Dist, limit)
+			}
+
+			return nil
+		})
 	}
 
-	return h.computeLateInteraction(queryVectors, k, candidateSet)
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
+	}
+	took := time.Since(beforeIter)
+	helpers.AnnotateSlowQueryLog(ctx, "flat_search_iteration_took", took)
+
+	ids := make([]uint64, results.Len())
+	dists := make([]float32, results.Len())
+
+	// results is ordered in reverse, we need to flip the order before presenting
+	// to the user!
+	i := len(ids) - 1
+	for results.Len() > 0 {
+		res := results.Pop()
+		ids[i] = res.ID
+		dists[i] = res.Dist
+		i--
+	}
+
+	return ids, dists, nil
 }
 
 func addResult(results *priorityqueue.Queue[any], id uint64, dist float32, limit int) {

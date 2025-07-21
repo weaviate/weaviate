@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,7 +32,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantModel: "rerank-multilingual-v3.0",
+			wantModel: "rerank-v3.5",
 		},
 		{
 			name: "custom settings",
@@ -50,7 +50,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"model": "rerank-french-v2.0",
 				},
 			},
-			wantErr: fmt.Errorf("wrong Cohere model name, available model names are: [rerank-english-v3.0 rerank-multilingual-v3.0 rerank-english-v2.0 rerank-multilingual-v2.0]"),
+			wantErr: fmt.Errorf("wrong Cohere model name, available model names are: [rerank-v3.5 rerank-english-v3.0 rerank-multilingual-v3.0 rerank-english-v2.0 rerank-multilingual-v2.0]"),
 		},
 	}
 	for _, tt := range tests {

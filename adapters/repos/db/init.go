@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,8 +16,9 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"sync/atomic"
 	"time"
+
+	"github.com/weaviate/weaviate/cluster/router"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -80,41 +81,64 @@ func (db *DB) init(ctx context.Context) error {
 				return fmt.Errorf("replication config: %w", err)
 			}
 
+			shardingState := db.schemaGetter.CopyShardingState(class.Class)
+			indexRouter := router.NewBuilder(
+				schema.ClassName(class.Class).String(),
+				shardingState.PartitioningEnabled,
+				db.nodeSelector,
+				db.schemaGetter,
+				db.schemaReader,
+				db.replicationFSM,
+			).Build()
 			idx, err := NewIndex(ctx, IndexConfig{
-				ClassName:                           schema.ClassName(class.Class),
-				RootPath:                            db.config.RootPath,
-				ResourceUsage:                       db.config.ResourceUsage,
-				QueryMaximumResults:                 db.config.QueryMaximumResults,
-				QueryNestedRefLimit:                 db.config.QueryNestedRefLimit,
-				MemtablesFlushDirtyAfter:            db.config.MemtablesFlushDirtyAfter,
-				MemtablesInitialSizeMB:              db.config.MemtablesInitialSizeMB,
-				MemtablesMaxSizeMB:                  db.config.MemtablesMaxSizeMB,
-				MemtablesMinActiveSeconds:           db.config.MemtablesMinActiveSeconds,
-				MemtablesMaxActiveSeconds:           db.config.MemtablesMaxActiveSeconds,
-				SegmentsCleanupIntervalSeconds:      db.config.SegmentsCleanupIntervalSeconds,
-				SeparateObjectsCompactions:          db.config.SeparateObjectsCompactions,
-				CycleManagerRoutinesFactor:          db.config.CycleManagerRoutinesFactor,
-				IndexRangeableInMemory:              db.config.IndexRangeableInMemory,
-				MaxSegmentSize:                      db.config.MaxSegmentSize,
-				HNSWMaxLogSize:                      db.config.HNSWMaxLogSize,
-				HNSWWaitForCachePrefill:             db.config.HNSWWaitForCachePrefill,
-				HNSWFlatSearchConcurrency:           db.config.HNSWFlatSearchConcurrency,
-				HNSWAcornFilterRatio:                db.config.HNSWAcornFilterRatio,
-				VisitedListPoolMaxSize:              db.config.VisitedListPoolMaxSize,
-				TrackVectorDimensions:               db.config.TrackVectorDimensions,
-				AvoidMMap:                           db.config.AvoidMMap,
-				DisableLazyLoadShards:               db.config.DisableLazyLoadShards,
-				ForceFullReplicasSearch:             db.config.ForceFullReplicasSearch,
-				LSMEnableSegmentsChecksumValidation: db.config.LSMEnableSegmentsChecksumValidation,
-				ReplicationFactor:                   class.ReplicationConfig.Factor,
-				AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
-				DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
-				ShardLoadLimiter:                    db.shardLoadLimiter,
-			}, db.schemaGetter.CopyShardingState(class.Class),
+				ClassName:                                    schema.ClassName(class.Class),
+				RootPath:                                     db.config.RootPath,
+				ResourceUsage:                                db.config.ResourceUsage,
+				QueryMaximumResults:                          db.config.QueryMaximumResults,
+				QueryHybridMaximumResults:                    db.config.QueryHybridMaximumResults,
+				QueryNestedRefLimit:                          db.config.QueryNestedRefLimit,
+				MemtablesFlushDirtyAfter:                     db.config.MemtablesFlushDirtyAfter,
+				MemtablesInitialSizeMB:                       db.config.MemtablesInitialSizeMB,
+				MemtablesMaxSizeMB:                           db.config.MemtablesMaxSizeMB,
+				MemtablesMinActiveSeconds:                    db.config.MemtablesMinActiveSeconds,
+				MemtablesMaxActiveSeconds:                    db.config.MemtablesMaxActiveSeconds,
+				MinMMapSize:                                  db.config.MinMMapSize,
+				LazySegmentsDisabled:                         db.config.LazySegmentsDisabled,
+				MaxReuseWalSize:                              db.config.MaxReuseWalSize,
+				SegmentsCleanupIntervalSeconds:               db.config.SegmentsCleanupIntervalSeconds,
+				SeparateObjectsCompactions:                   db.config.SeparateObjectsCompactions,
+				CycleManagerRoutinesFactor:                   db.config.CycleManagerRoutinesFactor,
+				IndexRangeableInMemory:                       db.config.IndexRangeableInMemory,
+				MaxSegmentSize:                               db.config.MaxSegmentSize,
+				TrackVectorDimensions:                        db.config.TrackVectorDimensions,
+				AvoidMMap:                                    db.config.AvoidMMap,
+				DisableLazyLoadShards:                        db.config.DisableLazyLoadShards,
+				ForceFullReplicasSearch:                      db.config.ForceFullReplicasSearch,
+				TransferInactivityTimeout:                    db.config.TransferInactivityTimeout,
+				LSMEnableSegmentsChecksumValidation:          db.config.LSMEnableSegmentsChecksumValidation,
+				ReplicationFactor:                            class.ReplicationConfig.Factor,
+				AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
+				DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
+				ShardLoadLimiter:                             db.shardLoadLimiter,
+				HNSWMaxLogSize:                               db.config.HNSWMaxLogSize,
+				HNSWDisableSnapshots:                         db.config.HNSWDisableSnapshots,
+				HNSWSnapshotIntervalSeconds:                  db.config.HNSWSnapshotIntervalSeconds,
+				HNSWSnapshotOnStartup:                        db.config.HNSWSnapshotOnStartup,
+				HNSWSnapshotMinDeltaCommitlogsNumber:         db.config.HNSWSnapshotMinDeltaCommitlogsNumber,
+				HNSWSnapshotMinDeltaCommitlogsSizePercentage: db.config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
+				HNSWWaitForCachePrefill:                      db.config.HNSWWaitForCachePrefill,
+				HNSWFlatSearchConcurrency:                    db.config.HNSWFlatSearchConcurrency,
+				HNSWAcornFilterRatio:                         db.config.HNSWAcornFilterRatio,
+				VisitedListPoolMaxSize:                       db.config.VisitedListPoolMaxSize,
+				QuerySlowLogEnabled:                          db.config.QuerySlowLogEnabled,
+				QuerySlowLogThreshold:                        db.config.QuerySlowLogThreshold,
+				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
+				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
+			}, shardingState,
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
-				db.router, db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
+				indexRouter, db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
 				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
 				db.memMonitor, db.reindexer)
 			if err != nil {
@@ -141,8 +165,8 @@ func (db *DB) init(ctx context.Context) error {
 	return nil
 }
 
-func (db *DB) LocalTenantActivity() tenantactivity.ByCollection {
-	return db.metricsObserver.Usage()
+func (db *DB) LocalTenantActivity(filter tenantactivity.UsageFilter) tenantactivity.ByCollection {
+	return db.metricsObserver.Usage(filter)
 }
 
 func (db *DB) migrateFileStructureIfNecessary() error {
@@ -171,10 +195,4 @@ func (db *DB) migrateToHierarchicalFS() error {
 	db.logger.WithField("action", "hierarchical_fs_migration").
 		Debugf("fs migration took %s\n", time.Since(before))
 	return nil
-}
-
-func NewAtomicInt64(val int64) *atomic.Int64 {
-	aval := &atomic.Int64{}
-	aval.Store(val)
-	return aval
 }

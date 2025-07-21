@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -63,10 +63,21 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
 					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
 				},
 			},
 		},
@@ -103,10 +114,21 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
 					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
 				},
 			},
 		},
@@ -154,10 +176,21 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
 					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
 				},
 			},
 		},
@@ -205,10 +238,21 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
 					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
 				},
 			},
 		},
@@ -257,10 +301,21 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
 					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
 				},
 			},
 		},
@@ -306,10 +361,21 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
 					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
 				},
 			},
 		},
@@ -364,10 +430,21 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
 					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
 				},
 			},
 		},
@@ -421,10 +498,21 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
 					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
 				},
 			},
 		},
@@ -498,10 +586,21 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
 					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
 				},
 			},
 		},
@@ -586,10 +685,21 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
 					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
 				},
 			},
 		},
@@ -635,10 +745,21 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
 					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
 				},
 			},
 		},
@@ -699,12 +820,82 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: FilterStrategyAcorn,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
 					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
 				},
 			},
+		},
+		{
+			name: "max connections at maximum allowed value (2047)",
+			input: map[string]interface{}{
+				"maxConnections": json.Number("2047"),
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
+				MaxConnections:         2047,
+				EFConstruction:         DefaultEFConstruction,
+				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
+				EF:                     DefaultEF,
+				Skip:                   DefaultSkip,
+				FlatSearchCutoff:       DefaultFlatSearchCutoff,
+				DynamicEFMin:           DefaultDynamicEFMin,
+				DynamicEFMax:           DefaultDynamicEFMax,
+				DynamicEFFactor:        DefaultDynamicEFFactor,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:        DefaultPQEnabled,
+					BitCompression: DefaultPQBitCompression,
+					Segments:       DefaultPQSegments,
+					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
+					Encoder: PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
+				},
+			},
+		},
+		{
+			name: "max connections exceeds maximum allowed value (2048)",
+			input: map[string]interface{}{
+				"maxConnections": json.Number("2048"),
+			},
+			expectErr:    true,
+			expectErrMsg: "maxConnections must be less than 2048",
 		},
 	}
 

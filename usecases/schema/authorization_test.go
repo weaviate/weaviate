@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -124,6 +124,30 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedVerb:      authorization.READ,
 			expectedResources: authorization.ShardsMetadata("className", "P1"),
 		},
+		{
+			methodName:        "AddAlias",
+			additionalArgs:    []interface{}{&models.Alias{Class: "classname"}},
+			expectedVerb:      authorization.CREATE,
+			expectedResources: authorization.Aliases("Classname"),
+		},
+		{
+			methodName:        "UpdateAlias",
+			additionalArgs:    []interface{}{"aliasName", "class"},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.Aliases("class", "aliasName"),
+		},
+		{
+			methodName:        "DeleteAlias",
+			additionalArgs:    []interface{}{"aliasName"},
+			expectedVerb:      authorization.DELETE,
+			expectedResources: authorization.Aliases("", "aliasName"),
+		},
+		{
+			methodName:        "GetAlias",
+			additionalArgs:    []interface{}{"aliasName"},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.Aliases("", "aliasName"),
+		},
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {
@@ -145,7 +169,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				// Cluster/nodes related endpoint
 				"JoinNode", "RemoveNode", "Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
 				// revert to schema v0 (non raft),
-				"GetConsistentSchema", "GetConsistentTenants", "GetConsistentTenant",
+				"GetConsistentSchema", "GetConsistentTenants", "GetConsistentTenant", "GetAliases",
 				// ignored because it will check if schema has collections otherwise returns nothing
 				"StoreSchemaV1":
 				// don't require auth on methods which are exported because other
@@ -166,6 +190,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
 				fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{})
 				fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(models.Class{})
+				fakeSchemaManager.On("GetAliases", mock.Anything, mock.Anything, mock.Anything).Return([]*models.Alias{{}}, nil)
 
 				var args []interface{}
 				if test.methodName == "GetSchema" || test.methodName == "GetConsistentSchema" {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,8 @@
 package mocks
 
 import (
+	"context"
+
 	models "github.com/weaviate/weaviate/entities/models"
 )
 
@@ -35,7 +37,7 @@ func (a *FakeAuthorizer) SetErr(err error) {
 }
 
 // Authorize provides a mock function with given fields: principal, verb, resource
-func (a *FakeAuthorizer) Authorize(principal *models.Principal, verb string, resources ...string) error {
+func (a *FakeAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
 	a.requests = append(a.requests, AuthZReq{principal, verb, resources})
 	if a.err != nil {
 		return a.err
@@ -43,12 +45,12 @@ func (a *FakeAuthorizer) Authorize(principal *models.Principal, verb string, res
 	return nil
 }
 
-func (a *FakeAuthorizer) AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error {
-	return a.Authorize(principal, verb, resources...)
+func (a *FakeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	return a.Authorize(ctx, principal, verb, resources...)
 }
 
-func (a *FakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	if err := a.Authorize(principal, verb, resources...); err != nil {
+func (a *FakeAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	if err := a.Authorize(ctx, principal, verb, resources...); err != nil {
 		return nil, err
 	}
 	return resources, nil

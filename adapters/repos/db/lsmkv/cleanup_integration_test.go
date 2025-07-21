@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,6 +31,7 @@ func TestSegmentsCleanup(t *testing.T) {
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
 				WithSegmentsCleanupInterval(time.Second),
+				WithCalcCountNetAdditions(true),
 			},
 		},
 		{
@@ -42,6 +43,7 @@ func TestSegmentsCleanup(t *testing.T) {
 				WithStrategy(StrategyReplace),
 				WithSecondaryIndices(2),
 				WithSegmentsCleanupInterval(time.Second),
+				WithCalcCountNetAdditions(true),
 			},
 		},
 	}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,23 +13,20 @@ package moddatabricks
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
-
-	"github.com/weaviate/weaviate/modules/text2vec-databricks/ent"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-databricks/clients"
+	"github.com/weaviate/weaviate/modules/text2vec-databricks/ent"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 )
 
 const (
@@ -64,7 +61,7 @@ func (m *DatabricksModule) Name() string {
 }
 
 func (m *DatabricksModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2MultiVec
+	return modulecapabilities.Text2ManyVec
 }
 
 func (m *DatabricksModule) Init(ctx context.Context,
@@ -120,11 +117,6 @@ func (m *DatabricksModule) initVectorizer(ctx context.Context, timeout time.Dura
 
 func (m *DatabricksModule) initAdditionalPropertiesProvider() error {
 	m.additionalPropertiesProvider = additional.NewText2VecProvider()
-	return nil
-}
-
-func (m *DatabricksModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

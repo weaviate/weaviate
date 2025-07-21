@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package traverser
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -260,6 +259,10 @@ func (f *fakeSchemaGetter) Statistics() map[string]any {
 	panic("not implemented")
 }
 
+func (f *fakeSchemaGetter) ResolveAlias(string) string {
+	return ""
+}
+
 type fakeInterpretation struct{}
 
 func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
@@ -366,10 +369,6 @@ func (m *fakeText2vecContextionaryModule) Name() string {
 }
 
 func (m *fakeText2vecContextionaryModule) Init(params moduletools.ModuleInitParams) error {
-	return nil
-}
-
-func (m *fakeText2vecContextionaryModule) RootHandler() http.Handler {
 	return nil
 }
 
@@ -480,10 +479,6 @@ func (m *nearCustomTextModule) Name() string {
 }
 
 func (m *nearCustomTextModule) Init(params moduletools.ModuleInitParams) error {
-	return nil
-}
-
-func (m *nearCustomTextModule) RootHandler() http.Handler {
 	return nil
 }
 

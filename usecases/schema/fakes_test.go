@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,7 +17,6 @@ import (
 	"fmt"
 
 	"github.com/stretchr/testify/mock"
-
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -74,6 +73,10 @@ func (f *fakeSchemaManager) UpdateTenants(_ context.Context, class string, req *
 func (f *fakeSchemaManager) DeleteTenants(_ context.Context, class string, req *command.DeleteTenantsRequest) (uint64, error) {
 	args := f.Called(class, req)
 	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) ResolveAlias(alias string) string {
+	return ""
 }
 
 func (f *fakeSchemaManager) Join(ctx context.Context, nodeID, raftAddr string, voter bool) error {
@@ -158,9 +161,9 @@ func (f *fakeSchemaManager) QueryClassVersions(classes ...string) (map[string]ui
 	return models.(map[string]uint64), nil
 }
 
-func (f *fakeSchemaManager) QueryTenants(class string, tenants []string) ([]*models.TenantResponse, uint64, error) {
+func (f *fakeSchemaManager) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
 	args := f.Called(class, tenants)
-	return args.Get(0).([]*models.TenantResponse), 0, args.Error(2)
+	return args.Get(0).([]*models.Tenant), 0, args.Error(2)
 }
 
 func (f *fakeSchemaManager) QueryShardOwner(class, shard string) (string, uint64, error) {
@@ -209,6 +212,10 @@ func (f *fakeSchemaManager) ReadOnlyClassWithVersion(ctx context.Context, class 
 func (f *fakeSchemaManager) ReadOnlySchema() models.Schema {
 	args := f.Called()
 	return args.Get(0).(models.Schema)
+}
+
+func (f *fakeSchemaManager) Aliases() map[string]string {
+	return nil
 }
 
 func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
@@ -268,6 +275,26 @@ func (f *fakeSchemaManager) GetShardsStatus(class, tenant string) (models.ShardS
 
 func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
 	return nil
+}
+
+func (f *fakeSchemaManager) CreateAlias(ctx context.Context, alias string, class *models.Class) (uint64, error) {
+	args := f.Called(ctx, alias, class)
+	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) ReplaceAlias(ctx context.Context, alias *models.Alias, newClass *models.Class) (uint64, error) {
+	args := f.Called(ctx, alias, newClass)
+	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) DeleteAlias(ctx context.Context, alias string) (uint64, error) {
+	args := f.Called(ctx, alias)
+	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) GetAliases(ctx context.Context, alias string, class *models.Class) ([]*models.Alias, error) {
+	args := f.Called(ctx, alias, class)
+	return args.Get(0).([]*models.Alias), args.Error(1)
 }
 
 type fakeStore struct {

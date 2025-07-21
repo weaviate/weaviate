@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -47,6 +47,16 @@ func (a *ApiKey) ValidateAndExtract(token string, scopes []string) (*models.Prin
 			return nil, errors.New(401, "unauthorized: %v", err)
 		}
 		return principal, nil
+	}
+	principal, err := a.Dynamic.ValidateImportedKey(token)
+	if err != nil {
+		return nil, errors.New(401, "unauthorized: %v", err)
+	}
+	if principal != nil {
+		return principal, nil
+	} else if a.Dynamic.IsBlockedKey(token) {
+		// make sure static keys do not work after import and key rotation
+		return nil, errors.New(401, "unauthorized: invalid token")
 	} else {
 		return a.static.ValidateAndExtract(token, scopes)
 	}

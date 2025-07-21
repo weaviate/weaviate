@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,14 +24,16 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
+var blockMaxBufferSize = 4096
+
 func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
 	var buf []byte
-	if s.mmapContents {
+	if s.readFromMemory {
 		buf = s.contents[node.Start : node.Start+uint64(8+12*terms.ENCODE_AS_FULL_BYTES)]
 	} else {
 		// read first 8 bytes to get
 		buf = make([]byte, 8+12*terms.ENCODE_AS_FULL_BYTES)
-		r, err := s.newNodeReader(nodeOffset{node.Start, node.Start + uint64(8+12*terms.ENCODE_AS_FULL_BYTES)})
+		r, err := s.newNodeReader(nodeOffset{node.Start, node.Start + uint64(8+12*terms.ENCODE_AS_FULL_BYTES)}, "loadBMW")
 		if err != nil {
 			return nil, 0, nil, err
 		}
@@ -62,10 +64,10 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	blockCount := (docCount + uint64(terms.BLOCK_SIZE-1)) / uint64(terms.BLOCK_SIZE)
 
 	entries := make([]*terms.BlockEntry, blockCount)
-	if s.mmapContents {
+	if s.readFromMemory {
 		buf = s.contents[node.Start+16 : node.Start+16+uint64(blockCount*20)]
 	} else {
-		r, err := s.newNodeReader(nodeOffset{node.Start + 16, node.Start + 16 + uint64(blockCount*20)})
+		r, err := s.newNodeReader(nodeOffset{node.Start + 16, node.Start + 16 + uint64(blockCount*20)}, "loadBMW")
 		if err != nil {
 			return nil, 0, nil, err
 		}
@@ -85,24 +87,28 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 }
 
 // todo: check if there is a performance impact of starting to sectionReader at offset and not have to pass offset here
-func (s *segment) loadBlockDataReusable(sectionReader *io.SectionReader, offset, offsetStart, offsetEnd uint64, buf []byte, encoded *terms.BlockData) error {
-	if s.mmapContents {
+func (s *segment) loadBlockDataReusable(sectionReader *io.SectionReader, blockDataBufferOffset, offset, offsetStart, offsetEnd uint64, buf []byte, encoded *terms.BlockData) (uint64, error) {
+	if s.readFromMemory {
 		terms.DecodeBlockDataReusable(s.contents[offsetStart:offsetEnd], encoded)
-		return nil
+		return offsetStart, nil
 	} else {
-
-		_, err := sectionReader.Seek(int64(offsetStart-offset), io.SeekStart)
-		if err != nil {
-			return err
+		if offsetStart < blockDataBufferOffset || offsetEnd > blockDataBufferOffset+uint64(len(buf)) {
+			sectionReader.Seek(int64(offsetStart-offset), io.SeekStart)
+			_, err := sectionReader.Read(buf)
+			// EOF is expected when the last block + tree are smaller than the buffer
+			if err != nil && err.Error() != "EOF" {
+				return 0, err
+			}
+			// readBytes += int64(n)
+			// readCounts++
+			blockDataBufferOffset = offsetStart
 		}
 
-		_, err = sectionReader.Read(buf[:offsetEnd-offsetStart])
-		if err != nil {
-			return err
-		}
-		terms.DecodeBlockDataReusable(buf[:offsetEnd-offsetStart], encoded)
+		bufOffsetStart := offsetStart - blockDataBufferOffset
+		bufOffsetEnd := offsetEnd - blockDataBufferOffset
+		terms.DecodeBlockDataReusable(buf[bufOffsetStart:bufOffsetEnd], encoded)
+		return blockDataBufferOffset, nil
 	}
-	return nil
 }
 
 type BlockMetrics struct {
@@ -118,29 +124,30 @@ type BlockMetrics struct {
 }
 
 type SegmentBlockMax struct {
-	segment              *segment
-	node                 segmentindex.Node
-	docCount             uint64
-	blockEntries         []*terms.BlockEntry
-	blockEntryIdx        int
-	blockDataBuffer      []byte
-	blockDataEncoded     *terms.BlockData
-	blockDataDecoded     *terms.BlockDataDecoded
-	blockDataIdx         int
-	blockDataSize        int
-	blockDataStartOffset uint64
-	blockDataEndOffset   uint64
-	idPointer            uint64
-	idf                  float64
-	exhausted            bool
-	decoded              bool
-	freqDecoded          bool
-	queryTermIndex       int
-	Metrics              BlockMetrics
-	averagePropLength    float32
-	b                    float32
-	k1                   float32
-	propertyBoost        float32
+	segment               *segment
+	node                  segmentindex.Node
+	docCount              uint64
+	blockEntries          []*terms.BlockEntry
+	blockEntryIdx         int
+	blockDataBufferOffset uint64
+	blockDataBuffer       []byte
+	blockDataEncoded      *terms.BlockData
+	blockDataDecoded      *terms.BlockDataDecoded
+	blockDataIdx          int
+	blockDataSize         int
+	blockDataStartOffset  uint64
+	blockDataEndOffset    uint64
+	idPointer             uint64
+	idf                   float64
+	exhausted             bool
+	decoded               bool
+	freqDecoded           bool
+	queryTermIndex        int
+	Metrics               BlockMetrics
+	averagePropLength     float64
+	b                     float64
+	k1                    float64
+	propertyBoost         float64
 
 	currentBlockImpact float32
 	currentBlockMaxId  uint64
@@ -201,7 +208,7 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 
 	var sectionReader *io.SectionReader
 
-	if !s.mmapContents {
+	if !s.readFromMemory {
 		sectionReader = io.NewSectionReader(s.contentFile, int64(node.Start), int64(node.End))
 	}
 
@@ -210,14 +217,15 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 		node:              node,
 		idf:               idf,
 		queryTermIndex:    queryTermIndex,
-		averagePropLength: float32(averagePropLength),
-		b:                 float32(config.B),
-		k1:                float32(config.K1),
-		decoders:          decoders,
-		propertyBoost:     propertyBoost,
-		filterDocIds:      filterSroar,
-		tombstones:        tombstones,
-		sectionReader:     sectionReader,
+		averagePropLength: averagePropLength,
+
+		b:             config.B,
+		k1:            config.K1,
+		decoders:      decoders,
+		propertyBoost: float64(propertyBoost),
+		filterDocIds:  filterSroar,
+		tombstones:    tombstones,
+		sectionReader: sectionReader,
 	}
 
 	err = output.reset()
@@ -251,11 +259,11 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 		node:              segmentindex.Node{Key: key},
 		idf:               idf,
 		queryTermIndex:    queryTermIndex,
-		averagePropLength: float32(averagePropLength),
-		b:                 float32(config.B),
-		k1:                float32(config.K1),
+		averagePropLength: averagePropLength,
+		b:                 config.B,
+		k1:                config.K1,
 		decoders:          decoders,
-		propertyBoost:     propertyBoost,
+		propertyBoost:     float64(propertyBoost),
 		filterDocIds:      filterSroar,
 		tombstones:        tombstones,
 		propLengths:       propLengths,
@@ -286,10 +294,10 @@ func NewSegmentBlockMaxDecoded(key []byte, queryTermIndex int, propertyBoost flo
 	output := &SegmentBlockMax{
 		queryTermIndex:    queryTermIndex,
 		node:              segmentindex.Node{Key: key},
-		averagePropLength: float32(averagePropLength),
-		b:                 float32(config.B),
-		k1:                float32(config.K1),
-		propertyBoost:     propertyBoost,
+		averagePropLength: averagePropLength,
+		b:                 config.B,
+		k1:                config.K1,
+		propertyBoost:     float64(propertyBoost),
 		filterDocIds:      filterSroar,
 		blockEntryIdx:     0,
 		blockDataIdx:      0,
@@ -346,7 +354,7 @@ func (s *SegmentBlockMax) reset() error {
 	}
 
 	if s.blockDataDecoded == nil {
-		s.blockDataBuffer = make([]byte, terms.BLOCK_SIZE*8+terms.BLOCK_SIZE*4+terms.BLOCK_SIZE*4)
+		s.blockDataBuffer = make([]byte, blockMaxBufferSize)
 		s.blockDataDecoded = &terms.BlockDataDecoded{
 			DocIds: make([]uint64, terms.BLOCK_SIZE),
 			Tfs:    make([]uint64, terms.BLOCK_SIZE),
@@ -359,6 +367,7 @@ func (s *SegmentBlockMax) reset() error {
 	s.blockDataStartOffset = s.node.Start + 16 + uint64(len(s.blockEntries)*20)
 	s.blockDataEndOffset = s.node.End - uint64(len(s.node.Key)+4)
 
+	s.blockDataBufferOffset = s.blockDataStartOffset + 1
 	s.decodeBlock()
 
 	s.advanceOnTombstoneOrFilter()
@@ -398,7 +407,7 @@ func (s *SegmentBlockMax) decodeBlock() error {
 		if s.blockEntryIdx < len(s.blockEntries)-1 {
 			endOffset = uint64(s.blockEntries[s.blockEntryIdx+1].Offset) + s.blockDataStartOffset
 		}
-		err = s.segment.loadBlockDataReusable(s.sectionReader, s.node.Start, startOffset, endOffset, s.blockDataBuffer, s.blockDataEncoded)
+		s.blockDataBufferOffset, err = s.segment.loadBlockDataReusable(s.sectionReader, s.blockDataBufferOffset, s.node.Start, startOffset, endOffset, s.blockDataBuffer, s.blockDataEncoded)
 		if err != nil {
 			return err
 		}
@@ -513,9 +522,9 @@ func (s *SegmentBlockMax) Score(averagePropLength float64, additionalExplanation
 		s.freqDecoded = true
 	}
 
-	freq := float32(s.blockDataDecoded.Tfs[s.blockDataIdx])
+	freq := float64(s.blockDataDecoded.Tfs[s.blockDataIdx])
 	propLength := s.propLengths[s.idPointer]
-	tf := freq / (freq + s.k1*(1-s.b+s.b*(float32(propLength)/s.averagePropLength)))
+	tf := freq / (freq + s.k1*((1-s.b)+s.b*(float64(propLength)/s.averagePropLength)))
 	s.Metrics.DocCountScored++
 	if s.blockEntryIdx != s.Metrics.LastAddedBlock {
 		s.Metrics.BlockCountDecodedFreqs++
@@ -526,11 +535,12 @@ func (s *SegmentBlockMax) Score(averagePropLength float64, additionalExplanation
 	if additionalExplanation {
 		doc = &terms.DocPointerWithScore{
 			Id:         s.idPointer,
-			Frequency:  freq,
+			Frequency:  float32(freq),
 			PropLength: float32(propLength),
 		}
 	}
-	return s.idPointer, float64(tf) * s.idf * float64(s.propertyBoost), doc
+	score := tf * s.idf * s.propertyBoost
+	return s.idPointer, score, doc
 }
 
 func (s *SegmentBlockMax) Advance() {
@@ -564,9 +574,9 @@ func (s *SegmentBlockMax) computeCurrentBlockImpact() float32 {
 	if len(s.blockEntries) == 0 {
 		return float32(s.idf)
 	}
-	freq := float32(s.blockEntries[s.blockEntryIdx].MaxImpactTf)
-	propLength := float32(s.blockEntries[s.blockEntryIdx].MaxImpactPropLength)
-	return float32(s.idf) * (freq / (freq + s.k1*(1-s.b+s.b*(propLength/float32(s.averagePropLength))))) * s.propertyBoost
+	freq := float64(s.blockEntries[s.blockEntryIdx].MaxImpactTf)
+	propLength := float64(s.blockEntries[s.blockEntryIdx].MaxImpactPropLength)
+	return float32(s.idf * (freq / (freq + s.k1*(1-s.b+s.b*(propLength/s.averagePropLength)))) * s.propertyBoost)
 }
 
 func (s *SegmentBlockMax) CurrentBlockImpact() float32 {

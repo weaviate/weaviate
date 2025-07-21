@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,12 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+)
+
+const (
+	maxConnectionsPerNode = 4096 // max number of connections per node, used to truncate links
 )
 
 type Deserializer struct {
@@ -39,6 +45,9 @@ type DeserializationResult struct {
 	EntrypointChanged bool
 	CompressionPQData *compressionhelpers.PQData
 	CompressionSQData *compressionhelpers.SQData
+	CompressionRQData *compressionhelpers.RQData
+	MuveraEnabled     bool
+	EncoderMuvera     *multivector.MuveraData
 	Compressed        bool
 
 	// If there is no entry for the links at a level to be replaced, we must
@@ -96,7 +105,7 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 	}
 
 	for {
-		ct, err := d.ReadCommitType(fd)
+		ct, err := ReadCommitType(fd)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
@@ -151,6 +160,14 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 		case AddSQ:
 			err = d.ReadSQ(fd, out)
 			readThisRound = 10
+		case AddMuvera:
+			var totalRead int
+			totalRead, err = d.ReadMuvera(fd, out)
+			readThisRound = 20 + totalRead
+		case AddRQ:
+			var totalRead int
+			totalRead, err = d.ReadRQ(fd, out)
+			readThisRound = 16 + totalRead
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
@@ -173,7 +190,7 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
-	level, err := d.readUint16(r)
+	level, err := readUint16(r)
 	if err != nil {
 		return err
 	}
@@ -188,9 +205,20 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 	}
 
 	if res.Nodes[id] == nil {
-		res.Nodes[id] = &vertex{level: int(level), id: id, connections: make([][]uint64, level+1)}
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
+		res.Nodes[id] = &vertex{level: int(level), id: id, connections: conns}
 	} else {
-		maybeGrowConnectionsForLevel(&res.Nodes[id].connections, level)
+		if res.Nodes[id].connections == nil {
+			res.Nodes[id].connections, err = packedconn.NewWithMaxLayer(uint8(level))
+			if err != nil {
+				return err
+			}
+		} else {
+			res.Nodes[id].connections.GrowLayersTo(uint8(level))
+		}
 		res.Nodes[id].level = int(level)
 	}
 	return nil
@@ -202,7 +230,7 @@ func (d *Deserializer) ReadEP(r io.Reader) (uint64, uint16, error) {
 		return 0, 0, err
 	}
 
-	level, err := d.readUint16(r)
+	level, err := readUint16(r)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -216,7 +244,7 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
-	level, err := d.readUint16(r)
+	level, err := readUint16(r)
 	if err != nil {
 		return err
 	}
@@ -236,12 +264,23 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
+		res.Nodes[int(source)] = &vertex{id: source, connections: conns}
 	}
 
-	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
-
-	res.Nodes[int(source)].connections[int(level)] = append(res.Nodes[int(source)].connections[int(level)], target)
+	if res.Nodes[source].connections == nil {
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
+		res.Nodes[source].connections = conns
+	} else {
+		res.Nodes[source].connections.GrowLayersTo(uint8(level))
+	}
+	res.Nodes[source].connections.InsertAtLayer(target, uint8(level))
 	return nil
 }
 
@@ -263,6 +302,12 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 		return 0, err
 	}
 
+	if len(targets) >= maxConnectionsPerNode {
+		d.logger.Warnf("read ReplaceLinksAtLevel with %v (>= %d) connections for node %d at level %d, truncating to %d", len(targets), maxConnectionsPerNode, source, level, maxConnectionsPerNode)
+		targets = targets[:maxConnectionsPerNode]
+		length = uint16(len(targets))
+	}
+
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
 	if err != nil {
 		return 0, err
@@ -273,12 +318,15 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
+		res.Nodes[int(source)] = &vertex{id: source}
 	}
 
-	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
-	res.Nodes[int(source)].connections[int(level)] = make([]uint64, len(targets))
-	copy(res.Nodes[int(source)].connections[int(level)], targets)
+	if res.Nodes[source].connections == nil {
+		res.Nodes[source].connections = &packedconn.Connections{}
+	} else {
+		res.Nodes[source].connections.GrowLayersTo(uint8(level))
+	}
+	res.Nodes[source].connections.ReplaceLayer(uint8(level), targets)
 
 	if keepReplaceInfo {
 		// mark the replace flag for this node and level, so that new commit logs
@@ -312,6 +360,12 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 		return 0, err
 	}
 
+	if len(targets) >= maxConnectionsPerNode {
+		d.logger.Warnf("read AddLinksAtLevel with %v (>= %d) connections for node %d at level %d, truncating to %d", len(targets), maxConnectionsPerNode, source, level, maxConnectionsPerNode)
+		targets = targets[:maxConnectionsPerNode]
+		length = uint16(len(targets))
+	}
+
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
 	if err != nil {
 		return 0, err
@@ -322,13 +376,15 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
+		res.Nodes[int(source)] = &vertex{id: source}
+	}
+	if res.Nodes[source].connections == nil {
+		res.Nodes[source].connections = &packedconn.Connections{}
+	} else {
+		res.Nodes[source].connections.GrowLayersTo(uint8(level))
 	}
 
-	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
-
-	res.Nodes[int(source)].connections[int(level)] = append(
-		res.Nodes[int(source)].connections[int(level)], targets...)
+	res.Nodes[source].connections.BulkInsertAtLayer(targets, uint8(level))
 
 	return 12 + int(length)*8, nil
 }
@@ -385,8 +441,8 @@ func (d *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult,
 		return nil
 	}
 
-	res.Nodes[id].connections = make([][]uint64, len(res.Nodes[id].connections))
-	return nil
+	res.Nodes[id].connections, err = packedconn.NewWithMaxLayer(uint8(res.Nodes[id].level))
+	return err
 }
 
 func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationResult,
@@ -397,7 +453,7 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		return err
 	}
 
-	level, err := d.readUint16(r)
+	level, err := readUint16(r)
 	if err != nil {
 		return err
 	}
@@ -432,17 +488,28 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		// we need to keep the replace info, meaning we have to explicitly create
 		// this node in order to be able to store the "clear links" information for
 		// it
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
 		res.Nodes[id] = &vertex{
 			id:          id,
-			connections: make([][]uint64, level+1),
+			connections: conns,
 		}
 	}
 
 	if res.Nodes[id].connections == nil {
-		res.Nodes[id].connections = make([][]uint64, level+1)
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
+		res.Nodes[id].connections = conns
 	} else {
-		maybeGrowConnectionsForLevel(&res.Nodes[id].connections, level)
-		res.Nodes[id].connections[int(level)] = []uint64{}
+		res.Nodes[id].connections.GrowLayersTo(uint8(level))
+		// Only clear if the layer is not already empty
+		if res.Nodes[id].connections.LenAtLayer(uint8(level)) > 0 {
+			res.Nodes[id].connections.ClearLayer(uint8(level))
+		}
 	}
 
 	if keepReplaceInfo {
@@ -479,49 +546,49 @@ func (d *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult, n
 	return nil
 }
 
-func (d *Deserializer) ReadTileEncoder(r io.Reader, res *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error) {
-	bins, err := d.readFloat64(r)
+func ReadTileEncoder(r io.Reader, res *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error) {
+	bins, err := readFloat64(r)
 	if err != nil {
 		return nil, err
 	}
-	mean, err := d.readFloat64(r)
+	mean, err := readFloat64(r)
 	if err != nil {
 		return nil, err
 	}
-	stdDev, err := d.readFloat64(r)
+	stdDev, err := readFloat64(r)
 	if err != nil {
 		return nil, err
 	}
-	size, err := d.readFloat64(r)
+	size, err := readFloat64(r)
 	if err != nil {
 		return nil, err
 	}
-	s1, err := d.readFloat64(r)
+	s1, err := readFloat64(r)
 	if err != nil {
 		return nil, err
 	}
-	s2, err := d.readFloat64(r)
+	s2, err := readFloat64(r)
 	if err != nil {
 		return nil, err
 	}
-	segment, err := d.readUint16(r)
+	segment, err := readUint16(r)
 	if err != nil {
 		return nil, err
 	}
-	encDistribution, err := d.readByte(r)
+	encDistribution, err := readByte(r)
 	if err != nil {
 		return nil, err
 	}
 	return compressionhelpers.RestoreTileEncoder(bins, mean, stdDev, size, s1, s2, segment, encDistribution), nil
 }
 
-func (d *Deserializer) ReadKMeansEncoder(r io.Reader, data *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error) {
+func ReadKMeansEncoder(r io.Reader, data *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error) {
 	ds := int(data.Dimensions / data.M)
 	centers := make([][]float32, 0, data.Ks)
 	for k := uint16(0); k < data.Ks; k++ {
 		center := make([]float32, 0, ds)
 		for i := 0; i < ds; i++ {
-			c, err := d.readFloat32(r)
+			c, err := readFloat32(r)
 			if err != nil {
 				return nil, err
 			}
@@ -539,27 +606,27 @@ func (d *Deserializer) ReadKMeansEncoder(r io.Reader, data *compressionhelpers.P
 }
 
 func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) (int, error) {
-	dims, err := d.readUint16(r)
+	dims, err := readUint16(r)
 	if err != nil {
 		return 0, err
 	}
-	enc, err := d.readByte(r)
+	enc, err := readByte(r)
 	if err != nil {
 		return 0, err
 	}
-	ks, err := d.readUint16(r)
+	ks, err := readUint16(r)
 	if err != nil {
 		return 0, err
 	}
-	m, err := d.readUint16(r)
+	m, err := readUint16(r)
 	if err != nil {
 		return 0, err
 	}
-	dist, err := d.readByte(r)
+	dist, err := readByte(r)
 	if err != nil {
 		return 0, err
 	}
-	useBitsEncoding, err := d.readByte(r)
+	useBitsEncoding, err := readByte(r)
 	if err != nil {
 		return 0, err
 	}
@@ -573,14 +640,13 @@ func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) (int, err
 		UseBitsEncoding:     useBitsEncoding != 0,
 	}
 	var encoderReader func(io.Reader, *compressionhelpers.PQData, uint16) (compressionhelpers.PQEncoder, error)
-	// var encoderReader func(io.Reader, *DeserializationResult, uint16) (compressionhelpers.PQEncoder, error)
 	var totalRead int
 	switch encoder {
 	case compressionhelpers.UseTileEncoder:
-		encoderReader = d.ReadTileEncoder
+		encoderReader = ReadTileEncoder
 		totalRead = 51 * int(pqData.M)
 	case compressionhelpers.UseKMeansEncoder:
-		encoderReader = d.ReadKMeansEncoder
+		encoderReader = ReadKMeansEncoder
 		totalRead = int(pqData.Dimensions) * int(pqData.Ks) * 4
 	default:
 		return 0, errors.New("Unsuported encoder type")
@@ -601,15 +667,15 @@ func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) (int, err
 }
 
 func (d *Deserializer) ReadSQ(r io.Reader, res *DeserializationResult) error {
-	a, err := d.readFloat32(r)
+	a, err := readFloat32(r)
 	if err != nil {
 		return err
 	}
-	b, err := d.readFloat32(r)
+	b, err := readFloat32(r)
 	if err != nil {
 		return err
 	}
-	dims, err := d.readUint16(r)
+	dims, err := readUint16(r)
 	if err != nil {
 		return err
 	}
@@ -621,6 +687,144 @@ func (d *Deserializer) ReadSQ(r io.Reader, res *DeserializationResult) error {
 	res.Compressed = true
 
 	return nil
+}
+
+/*
+buf.WriteByte(byte(AddRQ))                                       // 1
+binary.Write(&buf, binary.LittleEndian, data.Dimension)          // 4
+binary.Write(&buf, binary.LittleEndian, data.DataBits)           // 1
+binary.Write(&buf, binary.LittleEndian, data.QueryBits)          // 1
+binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4
+binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4
+*/
+func (d *Deserializer) ReadRQ(r io.Reader, res *DeserializationResult) (int, error) {
+	inputDim, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	bits, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	outputDim, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	rounds, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+
+	swapSize := 2 * rounds * (outputDim / 2) * 2
+	signSize := 4 * rounds * outputDim
+	totalRead := int(swapSize) + int(signSize)
+
+	swaps := make([][]compressionhelpers.Swap, rounds)
+	for i := uint32(0); i < rounds; i++ {
+		swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+		for j := uint32(0); j < outputDim/2; j++ {
+			swaps[i][j].I, err = readUint16(r)
+			if err != nil {
+				return 0, err
+			}
+			swaps[i][j].J, err = readUint16(r)
+			if err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	signs := make([][]float32, rounds)
+	for i := uint32(0); i < rounds; i++ {
+		signs[i] = make([]float32, outputDim)
+		for j := uint32(0); j < outputDim; j++ {
+			sign, err := readFloat32(r)
+			if err != nil {
+				return 0, err
+			}
+			signs[i][j] = sign
+		}
+	}
+
+	res.CompressionRQData = &compressionhelpers.RQData{
+		InputDim: inputDim,
+		Bits:     bits,
+		Rotation: compressionhelpers.FastRotation{
+			OutputDim: outputDim,
+			Rounds:    rounds,
+			Swaps:     swaps,
+			Signs:     signs,
+		},
+	}
+	res.Compressed = true
+
+	return totalRead, nil
+}
+
+func (d *Deserializer) ReadMuvera(r io.Reader, res *DeserializationResult) (int, error) {
+	kSim, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	numClusters, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	dimensions, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	dProjections, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	repetitions, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+
+	totalRead := int(repetitions)*int(kSim)*int(dimensions)*4 +
+		int(repetitions)*int(dProjections)*int(dimensions)*4
+
+	gaussians := make([][][]float32, repetitions)
+	for i := uint32(0); i < repetitions; i++ {
+		gaussians[i] = make([][]float32, kSim)
+		for j := uint32(0); j < kSim; j++ {
+			gaussians[i][j] = make([]float32, dimensions)
+			for k := uint32(0); k < dimensions; k++ {
+				gaussians[i][j][k], err = readFloat32(r)
+				if err != nil {
+					return 0, err
+				}
+			}
+		}
+	}
+
+	s := make([][][]float32, repetitions)
+	for i := uint32(0); i < repetitions; i++ {
+		s[i] = make([][]float32, dProjections)
+		for j := uint32(0); j < dProjections; j++ {
+			s[i][j] = make([]float32, dimensions)
+			for k := uint32(0); k < dimensions; k++ {
+				s[i][j][k], err = readFloat32(r)
+				if err != nil {
+					return 0, err
+				}
+			}
+		}
+	}
+	muveraData := multivector.MuveraData{
+		KSim:         kSim,
+		NumClusters:  numClusters,
+		Dimensions:   dimensions,
+		DProjections: dProjections,
+		Repetitions:  repetitions,
+		Gaussians:    gaussians,
+		S:            s,
+	}
+	res.EncoderMuvera = &muveraData
+	res.MuveraEnabled = true
+	return totalRead, nil
 }
 
 func (d *Deserializer) readUint64(r io.Reader) (uint64, error) {
@@ -636,64 +840,65 @@ func (d *Deserializer) readUint64(r io.Reader) (uint64, error) {
 	return value, nil
 }
 
-func (d *Deserializer) readFloat64(r io.Reader) (float64, error) {
-	var value float64
-	d.resetResusableBuffer(8)
-	_, err := io.ReadFull(r, d.reusableBuffer)
+func readFloat64(r io.Reader) (float64, error) {
+	var b [8]byte
+	_, err := io.ReadFull(r, b[:])
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to read float64")
 	}
 
-	bits := binary.LittleEndian.Uint64(d.reusableBuffer)
-	value = math.Float64frombits(bits)
-
-	return value, nil
+	bits := binary.LittleEndian.Uint64(b[:])
+	return math.Float64frombits(bits), nil
 }
 
-func (d *Deserializer) readFloat32(r io.Reader) (float32, error) {
-	var value float32
-	d.resetResusableBuffer(4)
-	_, err := io.ReadFull(r, d.reusableBuffer)
+func readFloat32(r io.Reader) (float32, error) {
+	var b [4]byte
+	_, err := io.ReadFull(r, b[:])
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to read float32")
 	}
 
-	bits := binary.LittleEndian.Uint32(d.reusableBuffer)
-	value = math.Float32frombits(bits)
-
-	return value, nil
+	bits := binary.LittleEndian.Uint32(b[:])
+	return math.Float32frombits(bits), nil
 }
 
-func (d *Deserializer) readUint16(r io.Reader) (uint16, error) {
-	var value uint16
-	d.resetResusableBuffer(2)
-	_, err := io.ReadFull(r, d.reusableBuffer)
+func readUint16(r io.Reader) (uint16, error) {
+	var b [2]byte
+	_, err := io.ReadFull(r, b[:])
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to read uint16")
 	}
 
-	value = binary.LittleEndian.Uint16(d.reusableBuffer)
-
-	return value, nil
+	return binary.LittleEndian.Uint16(b[:]), nil
 }
 
-func (d *Deserializer) readByte(r io.Reader) (byte, error) {
-	d.resetResusableBuffer(1)
-	_, err := io.ReadFull(r, d.reusableBuffer)
+func readUint32(r io.Reader) (uint32, error) {
+	var b [4]byte
+	_, err := io.ReadFull(r, b[:])
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to read uint32")
+	}
+
+	return binary.LittleEndian.Uint32(b[:]), nil
+}
+
+func readByte(r io.Reader) (byte, error) {
+	var b [1]byte
+	_, err := io.ReadFull(r, b[:])
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to read byte")
 	}
 
-	return d.reusableBuffer[0], nil
+	return b[0], nil
 }
 
-func (d *Deserializer) ReadCommitType(r io.Reader) (HnswCommitType, error) {
-	d.resetResusableBuffer(1)
-	if _, err := io.ReadFull(r, d.reusableBuffer); err != nil {
+func ReadCommitType(r io.Reader) (HnswCommitType, error) {
+	var b [1]byte
+	if _, err := io.ReadFull(r, b[:]); err != nil {
 		return 0, errors.Wrap(err, "failed to read commit type")
 	}
 
-	return HnswCommitType(d.reusableBuffer[0]), nil
+	return HnswCommitType(b[0]), nil
 }
 
 func (d *Deserializer) readUint64Slice(r io.Reader, length int) ([]uint64, error) {
@@ -709,16 +914,4 @@ func (d *Deserializer) readUint64Slice(r io.Reader, length int) ([]uint64, error
 	}
 
 	return d.reusableConnectionsSlice, nil
-}
-
-// If the connections array is to small to contain the current target-levelit
-// will be grown. Otherwise, nothing happens.
-func maybeGrowConnectionsForLevel(connsPtr *[][]uint64, level uint16) {
-	conns := *connsPtr
-	if len(conns) <= int(level) {
-		// we need to grow the connections slice
-		newConns := make([][]uint64, level+1)
-		copy(newConns, conns)
-		*connsPtr = newConns
-	}
 }
