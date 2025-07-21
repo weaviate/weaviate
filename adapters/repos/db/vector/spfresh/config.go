@@ -15,6 +15,7 @@ package spfresh
 type UserConfig struct {
 	MaxPostingSize         int `json:"maxPostingSize,omitempty"`         // Maximum number of vectors in a posting
 	MinPostingSize         int `json:"minPostingSize,omitempty"`         // Minimum number of vectors in a posting
-	Workers                int `json:"workers,omitempty"`                // Number of concurrent workers for background operations
+	SplitWorkers           int `json:"splitWorkers,omitempty"`           // Number of concurrent workers for split operations
+	ReassignWorkers        int `json:"reassignWorkers,omitempty"`        // Number of concurrent workers for reassign operations
 	MergePostingCandidates int `json:"mergePostingCandidates,omitempty"` // Number of candidates to consider for merging postings
 }
