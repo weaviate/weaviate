@@ -46,6 +46,7 @@ const (
 	CompressionPQ = "pq"
 	CompressionSQ = "sq"
 	CompressionRQ = "rq"
+	NoCompression = "uncompressed"
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
@@ -137,7 +138,7 @@ func (u *UserConfig) SetDefaults() {
 	}
 
 	defaultCompression := os.Getenv("DEFAULT_COMPRESSION")
-	if defaultCompression != "" {
+	if defaultCompression != "" && defaultCompression != NoCompression {
 		switch defaultCompression {
 		case CompressionBQ:
 			u.BQ.Enabled = true
@@ -307,16 +308,16 @@ func (u *UserConfig) validate() error {
 		enabled++
 	}
 	defaultCompression := os.Getenv("DEFAULT_COMPRESSION")
-	if enabled == 2 && defaultCompression != "" {
+	if enabled == 2 && defaultCompression != "" && defaultCompression != NoCompression {
 		switch defaultCompression {
 		case CompressionBQ:
-			u.BQ.Enabled = DefaultBQEnabled
+			u.BQ.Enabled = false
 		case CompressionPQ:
-			u.PQ.Enabled = DefaultPQEnabled
+			u.PQ.Enabled = false
 		case CompressionSQ:
-			u.SQ.Enabled = DefaultSQEnabled
+			u.SQ.Enabled = false
 		case CompressionRQ:
-			u.RQ.Enabled = DefaultRQEnabled
+			u.RQ.Enabled = false
 		}
 		enabled--
 	}
