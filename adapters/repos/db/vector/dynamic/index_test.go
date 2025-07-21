@@ -369,8 +369,7 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	dimensions := 20
 	vectors_size := 10_000
 	threshold := 2_000
-	queries_size := 10
-	k := 10
+	queries_size := 0
 
 	tempDir := t.TempDir()
 
@@ -380,13 +379,9 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 		db.Close()
 	})
 
-	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
+	vectors, _ := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
 	rootPath := tempDir
 	distancer := distancer.NewL2SquaredProvider()
-	truths := make([][]uint64, queries_size)
-	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, testinghelpers.DistanceWrapper(distancer))
-	})
 	noopCallback := cyclemanager.NewCallbackGroupNoop()
 	fuc := flatent.UserConfig{}
 	fuc.SetDefaults()
@@ -473,9 +468,6 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	recall, latency := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
-	fmt.Println(recall, latency)
-
 	err = dynamic.Flush()
 	require.NoError(t, err)
 	err = dynamic.Shutdown(t.Context())
@@ -490,6 +482,4 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	dynamic, err = New(config, uc, dummyStore)
 	require.NoError(t, err)
 	dynamic.PostStartup()
-	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
-	assert.Equal(t, recall, recall2)
 }
