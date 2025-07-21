@@ -218,24 +218,38 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	desc.Status = string(backup.Transferring)
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes)
 	defer func() {
+		//  release indexes under all conditions
+		u.releaseIndexes(classes, desc.ID)
+
 		//  make sure context is not cancelled when uploading metadata
 		ctx := context.Background()
-		if err != nil {
-			desc.Error = err.Error()
-			if errors.Is(err, context.Canceled) {
-				u.setStatus(backup.Cancelled)
-				desc.Status = string(backup.Cancelled)
-				u.releaseIndexes(classes, desc.ID)
-			}
-			err = fmt.Errorf("upload %w: %w", err, u.backend.PutMeta(ctx, desc, overrideBucket, overridePath))
-		} else {
-			u.log.Info("start uploading meta data")
+
+		// Handle success case first
+		if err == nil {
+			u.log.Info("start uploading metadata")
 			if err = u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); err != nil {
 				desc.Status = string(backup.Transferred)
 			}
 			u.setStatus(backup.Success)
-			u.log.Info("finish uploading meta data")
+			u.log.Info("finish uploading metadata")
+			return
 		}
+
+		desc.Error = err.Error()
+
+		// Handle error cases
+		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+			u.setStatus(backup.Cancelled)
+			desc.Status = string(backup.Cancelled)
+		}
+
+		u.log.Info("start uploading metadata for cancelled or failed backup")
+		if metaErr := u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); metaErr != nil {
+			// combine errors for shadowing the original error in case
+			// of putMeta failure
+			err = fmt.Errorf("upload %w: %w", err, metaErr)
+		}
+		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
 
 	contextChecker := func(ctx context.Context) error {
