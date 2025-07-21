@@ -674,6 +674,7 @@ type IndexConfig struct {
 	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
+	TrackVectorDimensionsInterval       time.Duration
 	ShardLoadLimiter                    ShardLoadLimiter
 
 	HNSWMaxLogSize                               int64
