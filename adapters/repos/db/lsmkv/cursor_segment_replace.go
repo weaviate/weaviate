@@ -263,6 +263,7 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byt
 	}
 
 	r, err := s.segment.newNodeReader(offset, "segmentCursorReplace")
+	defer r.Release()
 	if err != nil {
 		return err
 	}
