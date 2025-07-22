@@ -20,7 +20,8 @@ export TRACK_VECTOR_DIMENSIONS=true
 export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"weaviate-0"}
 export GPT4ALL_INFERENCE_API="http://localhost:8010"
 export DISABLE_TELEMETRY=true # disable telemetry for local development
-
+export PERSISTENCE_HNSW_DISABLE_SNAPSHOTS=${PERSISTENCE_HNSW_DISABLE_SNAPSHOTS:-"false"}
+export PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS=${PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS:-"300"}
 # inject build info into binaries.
 GIT_REVISION=$(git rev-parse --short HEAD)
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -915,7 +916,7 @@ local-usage-gcs)
       BACKUP_GCS_BUCKET=weaviate-backups \
       USAGE_GCS_BUCKET=weaviate-usage \
       USAGE_GCS_PREFIX=billing-usage \
-      USAGE_GCS_USE_AUTH=false \
+      TRACK_VECTOR_DIMENSIONS=true \
       USAGE_SCRAPE_INTERVAL=1s \
       USAGE_POLICY_VERSION=2025-06-01 \
       RUNTIME_OVERRIDES_LOAD_INTERVAL=3s \
@@ -934,6 +935,48 @@ local-usage-gcs)
         --write-timeout=600s
       ;;
 
+create-s3-bucket)
+      echo "make sure that you ran docker-compose up backup-s3 or have MinIO running on port 9000"
+      AWS_ACCESS_KEY_ID=aws_access_key \
+      AWS_SECRET_ACCESS_KEY=aws_secret_key \
+      aws --endpoint-url=http://localhost:9000 s3 mb s3://weaviate-usage
+      AWS_ACCESS_KEY_ID=aws_access_key \
+      AWS_SECRET_ACCESS_KEY=aws_secret_key \      
+      aws --endpoint-url=http://localhost:9000 s3 mb s3://weaviate-backups
+      ;;
+
+local-usage-s3)
+      CONTEXTIONARY_URL=localhost:9999 \
+      LOG_LEVEL=debug \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      AWS_ACCESS_KEY_ID=aws_access_key \
+      AWS_SECRET_ACCESS_KEY=aws_secret_key \
+      AWS_REGION=us-east-1 \
+      AWS_ENDPOINT=http://localhost:9000 \
+      BACKUP_S3_ENDPOINT=localhost:9000 \
+      BACKUP_S3_BUCKET=weaviate-backups \
+      BACKUP_S3_USE_SSL=false \
+      TRACK_VECTOR_DIMENSIONS=true \
+      USAGE_S3_BUCKET=weaviate-usage \
+      USAGE_S3_PREFIX=billing-usage \
+      USAGE_SCRAPE_INTERVAL=1s \
+      USAGE_POLICY_VERSION=2025-06-01 \
+      RUNTIME_OVERRIDES_LOAD_INTERVAL=3s \
+      ENABLE_MODULES="text2vec-contextionary,backup-s3,usage-s3" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      RUNTIME_OVERRIDES_ENABLED=true \
+      RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
+      RUNTIME_OVERRIDES_LOAD_INTERVAL=30s \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+      ;;
 
   local-cohere)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \

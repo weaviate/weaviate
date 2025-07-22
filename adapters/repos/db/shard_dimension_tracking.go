@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/cluster/usage/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -51,30 +52,40 @@ func (c DimensionCategory) String() string {
 }
 
 // DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
-func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (int, int) {
-	return s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
-		return dimLength, len(v)
+func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (types.Dimensionality, error) {
+	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
+		return len(v), dimLength
 	})
+	if err != nil {
+		return types.Dimensionality{}, err
+	}
+	return dimensionality, nil
 }
 
 // Dimensions returns the total number of dimensions for a given vector
-func (s *Shard) Dimensions(ctx context.Context, targetVector string) int {
-	sum, _ := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
+func (s *Shard) Dimensions(ctx context.Context, targetVector string) (int, error) {
+	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
 		return dimLength * len(v), dimLength
 	})
-	return sum
+	if err != nil {
+		return 0, err
+	}
+	return dimensionality.Count, nil
 }
 
 func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
-	sum, dimensions := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
+	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
 		return len(v), dimLength
 	})
+	if err != nil {
+		return 0
+	}
 
-	return sum * correctEmptySegments(segments, dimensions)
+	return dimensionality.Count * correctEmptySegments(segments, dimensionality.Dimensions)
 }
 
-func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) (sum int, dimensions int) {
-	return calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, calcEntry)
+func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) (types.Dimensionality, error) {
+	return calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, calcEntry), nil
 }
 
 func (s *Shard) initDimensionTracking() {
@@ -136,9 +147,9 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 		)
 
 		for targetVector, config := range configs {
-			dimensions, segments := s.calcDimensionsAndSegments(ctx, config, targetVector)
-			sumDimensions += dimensions
-			sumSegments += segments
+			metrics := s.calcDimensionMetrics(ctx, config, targetVector)
+			sumDimensions += metrics.Uncompressed
+			sumSegments += metrics.Compressed
 		}
 
 		sendVectorSegmentsMetric(s.promMetrics, className, s.name, sumSegments)
@@ -146,17 +157,37 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 	}
 }
 
-func (s *Shard) calcDimensionsAndSegments(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig, vecName string) (dims int, segs int) {
+// DimensionMetrics represents the dimension tracking metrics for a vector.
+// The metrics are used to track memory usage and performance characteristics
+// of different vector compression methods.
+//
+// Usage patterns:
+// - Standard vectors: Only Uncompressed is set (4 bytes per dimension)
+// - PQ (Product Quantization): Only Compressed is set (1 byte per segment)
+// - BQ (Binary Quantization): Only Compressed is set (1 bit per dimension, packed in uint64 blocks)
+//
+// The metrics are aggregated across all vectors in a shard and published
+// to Prometheus for monitoring and capacity planning.
+type DimensionMetrics struct {
+	Uncompressed int // Uncompressed dimensions count (for standard vectors)
+	Compressed   int // Compressed dimensions count (for PQ/BQ vectors)
+}
+
+func (s *Shard) calcDimensionMetrics(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig, vecName string) DimensionMetrics {
 	switch category, segments := GetDimensionCategory(vecCfg); category {
 	case DimensionCategoryPQ:
-		count := s.QuantizedDimensions(ctx, vecName, segments)
-		return 0, count
+		return DimensionMetrics{Uncompressed: 0, Compressed: s.QuantizedDimensions(ctx, vecName, segments)}
 	case DimensionCategoryBQ:
-		count := s.Dimensions(ctx, vecName) / 8 // BQ has a flat 8x reduction in the dimensions metric
-		return 0, count
+		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
+		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
+		// Roundup is required because BQ packs bits into uint64 blocks - you can't have
+		// a partial uint64 block. Even 1 dimension needs a full 8-byte uint64 block.
+		count, _ := s.Dimensions(ctx, vecName)
+		bytes := (count + 63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
+		return DimensionMetrics{Uncompressed: 0, Compressed: bytes}
 	default:
-		count := s.Dimensions(ctx, vecName)
-		return count, 0
+		count, _ := s.Dimensions(ctx, vecName)
+		return DimensionMetrics{Uncompressed: count, Compressed: 0}
 	}
 }
 

@@ -262,6 +262,9 @@ func (r *singleTenantRouter) getReadWriteReplicasLocation(collection string, sha
 
 // targetShards returns either all shards or a single one, depending on input.
 func (r *singleTenantRouter) targetShards(collection, shard string) ([]string, error) {
+	if r.schemaReader == nil {
+		return []string{}, fmt.Errorf("schema reader is nil")
+	}
 	shardingState := r.schemaReader.CopyShardingState(collection)
 	if shardingState == nil {
 		return []string{}, nil
@@ -288,6 +291,9 @@ func (r *singleTenantRouter) targetShards(collection, shard string) ([]string, e
 func (r *singleTenantRouter) replicasForShard(collection, shard string) (
 	read, write, additional []types.Replica, err error,
 ) {
+	if r.schemaReader == nil {
+		return nil, nil, nil, fmt.Errorf("error while getting replicas for collection %q shard %q: schema reader is nil", collection, shard)
+	}
 	replicas, err := r.schemaReader.ShardReplicas(collection, shard)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("error while getting replicas for collection %q shard %q: %w", collection, shard, err)

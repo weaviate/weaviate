@@ -133,6 +133,12 @@ func (rs SchemaReader) ReadOnlySchema() models.Schema {
 	return rs.schema.ReadOnlySchema()
 }
 
+func (rs SchemaReader) ResolveAlias(alias string) string {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ResolveAlias"))
+	defer t.ObserveDuration()
+	return rs.schema.ResolveAlias(alias)
+}
+
 func (rs SchemaReader) Aliases() map[string]string {
 	return rs.schema.getAliases("", "")
 }

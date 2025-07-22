@@ -22,11 +22,16 @@ import (
 )
 
 func (s *Raft) CreateAlias(ctx context.Context, alias string, class *models.Class) (uint64, error) {
-	if class == nil || class.Class == "" {
-		return 0, fmt.Errorf("nil class or empty class name: %w", schema.ErrBadRequest)
-	}
 	if alias == "" {
 		return 0, fmt.Errorf("empty alias name: %w", schema.ErrBadRequest)
+	}
+
+	if class == nil {
+		return 0, fmt.Errorf("class does not exist: %w", schema.ErrBadRequest)
+	}
+
+	if class.Class == "" {
+		return 0, fmt.Errorf("empty class name: %w", schema.ErrBadRequest)
 	}
 
 	req := cmd.CreateAliasRequest{Collection: class.Class, Alias: alias}
@@ -45,8 +50,13 @@ func (s *Raft) ReplaceAlias(ctx context.Context, alias *models.Alias, newClass *
 	if alias == nil {
 		return 0, fmt.Errorf("empty alias: %w", schema.ErrBadRequest)
 	}
-	if newClass == nil || newClass.Class == "" {
-		return 0, fmt.Errorf("nil new class or empty class name: %w", schema.ErrBadRequest)
+
+	if newClass == nil {
+		return 0, fmt.Errorf("class does not exist: %w", schema.ErrBadRequest)
+	}
+
+	if newClass.Class == "" {
+		return 0, fmt.Errorf("empty class name: %w", schema.ErrBadRequest)
 	}
 
 	req := cmd.ReplaceAliasRequest{Collection: newClass.Class, Alias: alias.Alias}

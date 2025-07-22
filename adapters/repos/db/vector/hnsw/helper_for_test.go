@@ -35,7 +35,9 @@ func dumpIndex(index *hnsw, labels ...string) {
 		}
 
 		fmt.Printf("  Node %d\n", node.id)
-		for level, conns := range node.connections {
+		iter := node.connections.Iterator()
+		for iter.Next() {
+			level, conns := iter.Current()
 			fmt.Printf("    Level %d: Connections: %v\n", level, conns)
 		}
 	}

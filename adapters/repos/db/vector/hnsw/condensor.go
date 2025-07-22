@@ -82,7 +82,8 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		}
 	}
 
-	for _, node := range res.Nodes {
+	for i := len(res.Nodes) - 1; i >= 0; i-- {
+		node := res.Nodes[i]
 		if node == nil {
 			// nil nodes occur when we've grown, but not inserted anything yet
 			continue
@@ -97,9 +98,11 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			}
 		}
 
-		for level, links := range node.connections {
+		iter := node.connections.Iterator()
+		for iter.Next() {
+			level, links := iter.Current()
 			if res.ReplaceLinks(node.id, uint16(level)) {
-				if err := c.SetLinksAtLevel(node.id, level, links); err != nil {
+				if err := c.SetLinksAtLevel(node.id, int(level), links); err != nil {
 					return errors.Wrapf(err,
 						"write links for node %d at level %d to commit log", node.id, level)
 				}

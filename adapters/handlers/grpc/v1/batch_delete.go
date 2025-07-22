@@ -38,7 +38,7 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass c
 		return objects.BatchDeleteParams{}, fmt.Errorf("could not find class %s in schema", req.Collection)
 	}
 
-	params.ClassName = schema.ClassName(req.Collection)
+	params.ClassName = schema.ClassName(class.Class)
 
 	if req.Verbose {
 		params.Output = "verbose"

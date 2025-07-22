@@ -21,7 +21,12 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+)
+
+const (
+	maxConnectionsPerNode = 4096 // max number of connections per node, used to truncate links
 )
 
 type Deserializer struct {
@@ -155,14 +160,14 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 		case AddSQ:
 			err = d.ReadSQ(fd, out)
 			readThisRound = 10
-		case AddRQ:
-			var totalRead int
-			totalRead, err = d.ReadRQ(fd, out)
-			readThisRound = 16 + totalRead
 		case AddMuvera:
 			var totalRead int
 			totalRead, err = d.ReadMuvera(fd, out)
 			readThisRound = 20 + totalRead
+		case AddRQ:
+			var totalRead int
+			totalRead, err = d.ReadRQ(fd, out)
+			readThisRound = 16 + totalRead
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
@@ -200,9 +205,20 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 	}
 
 	if res.Nodes[id] == nil {
-		res.Nodes[id] = &vertex{level: int(level), id: id, connections: make([][]uint64, level+1)}
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
+		res.Nodes[id] = &vertex{level: int(level), id: id, connections: conns}
 	} else {
-		maybeGrowConnectionsForLevel(&res.Nodes[id].connections, level)
+		if res.Nodes[id].connections == nil {
+			res.Nodes[id].connections, err = packedconn.NewWithMaxLayer(uint8(level))
+			if err != nil {
+				return err
+			}
+		} else {
+			res.Nodes[id].connections.GrowLayersTo(uint8(level))
+		}
 		res.Nodes[id].level = int(level)
 	}
 	return nil
@@ -248,12 +264,23 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
+		res.Nodes[int(source)] = &vertex{id: source, connections: conns}
 	}
 
-	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
-
-	res.Nodes[int(source)].connections[int(level)] = append(res.Nodes[int(source)].connections[int(level)], target)
+	if res.Nodes[source].connections == nil {
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
+		res.Nodes[source].connections = conns
+	} else {
+		res.Nodes[source].connections.GrowLayersTo(uint8(level))
+	}
+	res.Nodes[source].connections.InsertAtLayer(target, uint8(level))
 	return nil
 }
 
@@ -275,6 +302,12 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 		return 0, err
 	}
 
+	if len(targets) >= maxConnectionsPerNode {
+		d.logger.Warnf("read ReplaceLinksAtLevel with %v (>= %d) connections for node %d at level %d, truncating to %d", len(targets), maxConnectionsPerNode, source, level, maxConnectionsPerNode)
+		targets = targets[:maxConnectionsPerNode]
+		length = uint16(len(targets))
+	}
+
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
 	if err != nil {
 		return 0, err
@@ -285,12 +318,15 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
+		res.Nodes[int(source)] = &vertex{id: source}
 	}
 
-	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
-	res.Nodes[int(source)].connections[int(level)] = make([]uint64, len(targets))
-	copy(res.Nodes[int(source)].connections[int(level)], targets)
+	if res.Nodes[source].connections == nil {
+		res.Nodes[source].connections = &packedconn.Connections{}
+	} else {
+		res.Nodes[source].connections.GrowLayersTo(uint8(level))
+	}
+	res.Nodes[source].connections.ReplaceLayer(uint8(level), targets)
 
 	if keepReplaceInfo {
 		// mark the replace flag for this node and level, so that new commit logs
@@ -324,6 +360,12 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 		return 0, err
 	}
 
+	if len(targets) >= maxConnectionsPerNode {
+		d.logger.Warnf("read AddLinksAtLevel with %v (>= %d) connections for node %d at level %d, truncating to %d", len(targets), maxConnectionsPerNode, source, level, maxConnectionsPerNode)
+		targets = targets[:maxConnectionsPerNode]
+		length = uint16(len(targets))
+	}
+
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
 	if err != nil {
 		return 0, err
@@ -334,13 +376,15 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
+		res.Nodes[int(source)] = &vertex{id: source}
+	}
+	if res.Nodes[source].connections == nil {
+		res.Nodes[source].connections = &packedconn.Connections{}
+	} else {
+		res.Nodes[source].connections.GrowLayersTo(uint8(level))
 	}
 
-	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
-
-	res.Nodes[int(source)].connections[int(level)] = append(
-		res.Nodes[int(source)].connections[int(level)], targets...)
+	res.Nodes[source].connections.BulkInsertAtLayer(targets, uint8(level))
 
 	return 12 + int(length)*8, nil
 }
@@ -397,8 +441,8 @@ func (d *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult,
 		return nil
 	}
 
-	res.Nodes[id].connections = make([][]uint64, len(res.Nodes[id].connections))
-	return nil
+	res.Nodes[id].connections, err = packedconn.NewWithMaxLayer(uint8(res.Nodes[id].level))
+	return err
 }
 
 func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationResult,
@@ -444,17 +488,28 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		// we need to keep the replace info, meaning we have to explicitly create
 		// this node in order to be able to store the "clear links" information for
 		// it
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
 		res.Nodes[id] = &vertex{
 			id:          id,
-			connections: make([][]uint64, level+1),
+			connections: conns,
 		}
 	}
 
 	if res.Nodes[id].connections == nil {
-		res.Nodes[id].connections = make([][]uint64, level+1)
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
+		res.Nodes[id].connections = conns
 	} else {
-		maybeGrowConnectionsForLevel(&res.Nodes[id].connections, level)
-		res.Nodes[id].connections[int(level)] = []uint64{}
+		res.Nodes[id].connections.GrowLayersTo(uint8(level))
+		// Only clear if the layer is not already empty
+		if res.Nodes[id].connections.LenAtLayer(uint8(level)) > 0 {
+			res.Nodes[id].connections.ClearLayer(uint8(level))
+		}
 	}
 
 	if keepReplaceInfo {
@@ -859,16 +914,4 @@ func (d *Deserializer) readUint64Slice(r io.Reader, length int) ([]uint64, error
 	}
 
 	return d.reusableConnectionsSlice, nil
-}
-
-// If the connections array is to small to contain the current target-levelit
-// will be grown. Otherwise, nothing happens.
-func maybeGrowConnectionsForLevel(connsPtr *[][]uint64, level uint16) {
-	conns := *connsPtr
-	if len(conns) <= int(level) {
-		// we need to grow the connections slice
-		newConns := make([][]uint64, level+1)
-		copy(newConns, conns)
-		*connsPtr = newConns
-	}
 }

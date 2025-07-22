@@ -41,6 +41,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 
 	ctx = classcache.ContextWithClassCache(ctx)
 	input.Class = schema.UppercaseClassName(input.Class)
+	input.Class, _ = m.resolveAlias(input.Class)
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}

@@ -15,6 +15,8 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
@@ -27,6 +29,7 @@ const (
 	Extension           ModuleType = "Extension"
 	Img2Vec             ModuleType = "Img2Vec"
 	Multi2Vec           ModuleType = "Multi2Vec"
+	Multi2Multivec      ModuleType = "Multi2Multivec"
 	Ref2Vec             ModuleType = "Ref2Vec"
 	Text2ManyVec        ModuleType = "Text2ManyVec"
 	Text2Multivec       ModuleType = "Text2Multivec"
@@ -81,5 +84,6 @@ type ModuleHasAltNames interface {
 // ModuleWithUsageService is an optional capability interface for modules that need a usage service
 type ModuleWithUsageService interface {
 	Module
+	Logger() logrus.FieldLogger
 	SetUsageService(usageService any) // Using interface{} to avoid circular dependency
 }
