@@ -175,7 +175,7 @@ func TestSegmentGroup_MetadataSize(t *testing.T) {
 					bloomFilter: createTestBloomFilter(),
 				},
 			},
-			expectedSize: 48, // actual bloom filter size with 0.001 false positive rate
+			expectedSize: 60, // actual bloom filter size with 0.001 false positive rate
 			description:  "should handle segment with bloom filter",
 		},
 		{
@@ -186,7 +186,7 @@ func TestSegmentGroup_MetadataSize(t *testing.T) {
 					path:                  "/tmp/test.dat",
 				},
 			},
-			expectedSize: 0, // .cna files are always 12 bytes
+			expectedSize: 12, // .cna files are always 12 bytes
 			description:  "should return 12 bytes for .cna file",
 		},
 		{
@@ -196,7 +196,7 @@ func TestSegmentGroup_MetadataSize(t *testing.T) {
 				&segment{calcCountNetAdditions: true, path: "/tmp/test2.dat"},
 				&segment{calcCountNetAdditions: true, path: "/tmp/test3.dat"},
 			},
-			expectedSize: 0, // 3 * 12 bytes
+			expectedSize: 36, // 3 * 12 bytes
 			description:  "should return sum of all .cna file sizes",
 		},
 		{
@@ -207,7 +207,7 @@ func TestSegmentGroup_MetadataSize(t *testing.T) {
 					secondaryBloomFilters: []*bloom.BloomFilter{createTestBloomFilter(), createTestBloomFilter()},
 				},
 			},
-			expectedSize: 96, // 2 * 54 bytes
+			expectedSize: 108, // 2 * 54 bytes
 			description:  "should handle secondary bloom filters",
 		},
 		{
@@ -217,7 +217,7 @@ func TestSegmentGroup_MetadataSize(t *testing.T) {
 				&segment{calcCountNetAdditions: true, path: "/tmp/test2.dat"},                                          // 12 bytes
 				&segment{secondaryIndexCount: 1, secondaryBloomFilters: []*bloom.BloomFilter{createTestBloomFilter()}}, // 60 bytes
 			},
-			expectedSize: 48, // 12 + 12 + 60 bytes
+			expectedSize: 84, // 12 + 12 + 60 bytes
 			description:  "should handle mixed metadata types correctly",
 		},
 		{
@@ -229,7 +229,7 @@ func TestSegmentGroup_MetadataSize(t *testing.T) {
 					path:                  "/tmp/test.dat",
 				},
 			},
-			expectedSize: 0,
+			expectedSize: 12,
 			description:  "should handle nil bloom filter gracefully",
 		},
 		{
@@ -242,7 +242,7 @@ func TestSegmentGroup_MetadataSize(t *testing.T) {
 					path:                  "/tmp/test.dat",
 				},
 			},
-			expectedSize: 0,
+			expectedSize: 12,
 			description:  "should handle nil secondary bloom filters gracefully",
 		},
 		{
@@ -255,7 +255,7 @@ func TestSegmentGroup_MetadataSize(t *testing.T) {
 					path:                  "/tmp/test.dat",
 				},
 			},
-			expectedSize: 48, // 12 + 48
+			expectedSize: 60, // 12 + 48
 			description:  "should handle mixed nil and non-nil secondary bloom filters",
 		},
 	}
@@ -285,7 +285,7 @@ func TestSegmentGroup_MetadataSize_WithEnqueuedSegments(t *testing.T) {
 		},
 	}
 
-	expectedSize := int64(0) // 4 * 12 bytes
+	expectedSize := int64(48) // 4 * 12 bytes
 
 	result := sg.MetadataSize()
 	assert.Equal(t, expectedSize, result, "should include metadata from both regular and enqueued segments")
@@ -333,7 +333,7 @@ func TestSegmentGroup_MetadataSize_ComplexScenarios(t *testing.T) {
 				createMockSegmentWithMetadata(false, 200, []int{}),       // 60
 				createMockSegmentWithMetadata(true, 0, []int{25, 0, 30}), // 12 + 48 + 0 + 48 = 108
 			},
-			expectedSize: 288, // 168 + 60 + 96
+			expectedSize: 324, // 168 + 60 + 96
 			description:  "should handle complex scenarios with mixed metadata types",
 		},
 		{
@@ -345,7 +345,7 @@ func TestSegmentGroup_MetadataSize_ComplexScenarios(t *testing.T) {
 				createMockSegmentWithMetadata(true, 0, []int{}),
 				createMockSegmentWithMetadata(true, 0, []int{}),
 			},
-			expectedSize: 0, // 5 * 12 bytes
+			expectedSize: 60, // 5 * 12 bytes
 			description:  "should handle segments with only .cna files",
 		},
 		{
@@ -355,7 +355,7 @@ func TestSegmentGroup_MetadataSize_ComplexScenarios(t *testing.T) {
 				createMockSegmentWithMetadata(false, 250, []int{}),
 				createMockSegmentWithMetadata(false, 350, []int{}),
 			},
-			expectedSize: 144, // 3 * 60 bytes
+			expectedSize: 180, // 3 * 60 bytes
 			description:  "should handle segments with only bloom filters",
 		},
 	}
