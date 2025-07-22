@@ -81,7 +81,7 @@ func validateMapPairListVsBlockMaxSearch(ctx context.Context, bucket *Bucket, ex
 
 		expectedSet := make(map[uint64][]*terms.DocPointerWithScore, len(expected))
 		for _, diskTerm := range diskTerms {
-			topKHeap := DoBlockMaxWand(N, diskTerm, avgPropLen, true, 1, 1)
+			topKHeap := DoBlockMaxWand(ctx, N, diskTerm, avgPropLen, true, 1, 1, bucket.logger)
 			if err != nil {
 				return fmt.Errorf("failed to create disk term: %w", err)
 			}

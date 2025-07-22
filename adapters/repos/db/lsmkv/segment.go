@@ -41,36 +41,18 @@ type Segment interface {
 	setPath(path string)
 	getStrategy() segmentindex.Strategy
 	getSecondaryIndexCount() uint16
-	getCountNetAdditions() int
 	getLevel() uint16
 	getSize() int64
 	setSize(size int64)
-	getIndexSize() int
 
 	PayloadSize() int
-	Size() int
-	bloomFilterPath() string
-	bloomFilterSecondaryPath(pos int) string
-	bufferedReaderAt(offset uint64, operation string) (io.Reader, error)
-	bytesReaderFrom(in []byte) (*bytes.Reader, error)
 	close() error
-	collectionStratParseData(in []byte) ([]value, error)
-	computeAndStoreBloomFilter(path string) error
-	computeAndStoreSecondaryBloomFilter(path string, pos int) error
-	copyNode(b []byte, offset nodeOffset) error
-	countNetPath() string
-	dropImmediately() error
-	dropMarked() error
-	exists(key []byte) (bool, error)
 	get(key []byte) ([]byte, error)
 	getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
 	getCollection(key []byte) ([]value, error)
 	getInvertedData() *segmentInvertedData
 	getSegment() *segment
 	isLoaded() bool
-	loadBloomFilterFromDisk() error
-	loadBloomFilterSecondaryFromDisk(pos int) error
-	loadCountNetFromDisk() error
 	markForDeletion() error
 	MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error)
 	newCollectionCursor() *segmentCursorCollection
@@ -82,18 +64,10 @@ type Segment interface {
 	newRoaringSetCursor() *roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor
 	newRoaringSetRangeReader() *roaringsetrange.SegmentReader
-	precomputeBloomFilter() error
-	precomputeBloomFilters() ([]string, error)
-	precomputeCountNetAdditions(updatedCountNetAdditions int) ([]string, error)
-	precomputeSecondaryBloomFilter(pos int) error
 	quantileKeys(q int) [][]byte
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	replaceStratParseData(in []byte) ([]byte, []byte, error)
 	roaringSetGet(key []byte) (roaringset.BitmapLayer, error)
-	segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentNode, bool, error)
-	storeBloomFilterOnDisk(path string) error
-	storeBloomFilterSecondaryOnDisk(path string, pos int) error
-	storeCountNetOnDisk() error
 }
 
 type segment struct {
@@ -162,6 +136,7 @@ type segmentConfig struct {
 	allocChecker                 memwatch.AllocChecker
 	fileList                     map[string]int64
 	precomputedCountNetAdditions *int
+	writeMetadata                bool
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -348,14 +323,21 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}
 
-	if seg.useBloomFilter {
-		if err := seg.initBloomFilters(metrics, cfg.overwriteDerived, cfg.fileList); err != nil {
-			return nil, err
-		}
+	metadataRead, err := seg.initMetadata(metrics, cfg.overwriteDerived, existsLower, cfg.precomputedCountNetAdditions, cfg.fileList, cfg.writeMetadata)
+	if err != nil {
+		return nil, fmt.Errorf("init metadata: %w", err)
 	}
-	if seg.calcCountNetAdditions {
-		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived, cfg.precomputedCountNetAdditions, cfg.fileList); err != nil {
-			return nil, err
+
+	if !metadataRead {
+		if seg.useBloomFilter {
+			if err := seg.initBloomFilters(metrics, cfg.overwriteDerived, cfg.fileList); err != nil {
+				return nil, err
+			}
+		}
+		if seg.calcCountNetAdditions {
+			if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived, cfg.precomputedCountNetAdditions, cfg.fileList); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -416,6 +398,10 @@ func (s *segment) dropImmediately() error {
 		return fmt.Errorf("drop count net additions file: %w", err)
 	}
 
+	if err := os.RemoveAll(s.metadataPath()); err != nil {
+		return fmt.Errorf("drop metadata file: %w", err)
+	}
+
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
 	// was a NotExists error here, something would be seriously wrong, and we
 	// don't want to ignore it.
@@ -443,6 +429,10 @@ func (s *segment) dropMarked() error {
 
 	if err := os.RemoveAll(s.countNetPath() + DeleteMarkerSuffix); err != nil {
 		return fmt.Errorf("drop previously marked count net additions file: %w", err)
+	}
+
+	if err := os.RemoveAll(s.metadataPath() + DeleteMarkerSuffix); err != nil {
+		return fmt.Errorf("drop previously marked metadata file: %w", err)
 	}
 
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
@@ -482,6 +472,12 @@ func (s *segment) markForDeletion() error {
 	if err := markDeleted(s.countNetPath()); err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("mark count net additions file deleted: %w", err)
+		}
+	}
+
+	if err := markDeleted(s.metadataPath()); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("mark metadata file deleted: %w", err)
 		}
 	}
 
@@ -531,10 +527,6 @@ func (s *segment) getSize() int64 {
 
 func (s *segment) setSize(size int64) {
 	s.size = size
-}
-
-func (s *segment) getIndexSize() int {
-	return s.index.Size()
 }
 
 func (s *segment) getInvertedData() *segmentInvertedData {

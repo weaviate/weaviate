@@ -224,6 +224,8 @@ type Config struct {
 	ResourceUsage                       config.ResourceUsage
 	MaxImportGoroutinesFactor           float64
 	LazySegmentsDisabled                bool
+	SegmentInfoIntoFileNameEnabled      bool
+	WriteMetadataFilesEnabled           bool
 	MemtablesFlushDirtyAfter            int
 	MemtablesInitialSizeMB              int
 	MemtablesMaxSizeMB                  int
@@ -235,6 +237,8 @@ type Config struct {
 	SeparateObjectsCompactions          bool
 	MaxSegmentSize                      int64
 	TrackVectorDimensions               bool
+	TrackVectorDimensionsInterval       time.Duration
+	UsageEnabled                        bool
 	ServerVersion                       string
 	GitHash                             string
 	AvoidMMap                           bool
