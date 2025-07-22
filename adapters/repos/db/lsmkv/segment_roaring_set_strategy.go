@@ -61,11 +61,12 @@ func (s *segment) segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentN
 		contents = s.contents[offset.start:offset.end]
 	} else {
 		contents = make([]byte, offset.end-offset.start)
-		r, _, err := s.bufferedReaderAt(offset.start, "roaringSetRead")
-		// TODO: handle release!!!!!!!!!!!!!!!!!!!!!!!!
+		r, release, err := s.bufferedReaderAt(offset.start, "roaringSetRead")
 		if err != nil {
 			return nil, false, err
 		}
+		defer release()
+
 		_, err = r.Read(contents)
 		if err != nil {
 			return nil, false, err
