@@ -51,6 +51,8 @@ type LocalRebuilder struct {
 
 	splitList *deduplicator // Prevents duplicate split operations
 	mergeList *deduplicator // Prevents duplicate merge operations
+
+	postingLocks *common.HashedLocks
 }
 
 func (l *LocalRebuilder) Start(ctx context.Context) {
@@ -78,6 +80,7 @@ func (l *LocalRebuilder) Start(ctx context.Context) {
 		l.Logger = l.Logger.WithField("component", "LocalRebuilder")
 	}
 
+	l.postingLocks = common.NewHashedLocks32k()
 	l.splitCh = make(chan SplitOperation, l.UserConfig.SplitWorkers*100) // TODO: fine-tune buffer size
 	l.mergeCh = xsync.NewUMPSCQueue[MergeOperation]()
 
@@ -209,6 +212,9 @@ func (l *LocalRebuilder) Close(ctx context.Context) error {
 func (l *LocalRebuilder) doSplit(postingID uint64) error {
 	defer l.splitList.done(postingID) // Ensure we mark the operation as done
 
+	l.postingLocks.Lock(postingID)
+	defer l.postingLocks.Unlock(postingID)
+
 	p, err := l.Store.Get(l.ctx, postingID)
 	if err != nil {
 		if err == ErrPostingNotFound {
@@ -275,6 +281,18 @@ func (l *LocalRebuilder) doSplit(postingID uint64) error {
 }
 
 func (l *LocalRebuilder) doMerge(op MergeOperation) error {
+	defer l.mergeList.done(op.PostingID) // Ensure we mark the operation as done
+
+	l.postingLocks.Lock(op.PostingID)
+	defer l.postingLocks.Unlock(op.PostingID)
+
+	// Ensure the posting exists in the index
+	if !l.SPTAG.Exists(op.PostingID) {
+		l.Logger.WithField("postingID", op.PostingID).
+			Debug("Posting not found, skipping merge operation")
+		return nil // Nothing to merge
+	}
+
 	p, err := l.Store.Get(l.ctx, op.PostingID)
 	if err != nil {
 		if err == ErrPostingNotFound {
@@ -361,7 +379,14 @@ func (l *LocalRebuilder) doMerge(op MergeOperation) error {
 			continue // Skip this candidate
 		}
 
-		// TODO: ensure posting is not already being merged/split
+		// lock the candidate posting to ensure no concurrent modifications
+		// note: the candidate lock might be the same as the current posting lock
+		// so we need to ensure we don't deadlock
+		if l.postingLocks.Hash(op.PostingID) != l.postingLocks.Hash(nearest[i]) {
+			// lock the candidate posting
+			l.postingLocks.Lock(nearest[i])
+			defer l.postingLocks.Unlock(nearest[i])
+		}
 
 		// get the candidate posting
 		candidate, err := l.Store.Get(l.ctx, nearest[i])

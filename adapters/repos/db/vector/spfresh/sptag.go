@@ -20,6 +20,7 @@ import (
 
 type SPTAG interface {
 	Get(id uint64) []byte
+	Exists(id uint64) bool
 	Upsert(id uint64, centroid []byte) error
 	Delete(id uint64) error
 	Search(query []byte, k int) ([]uint64, error)

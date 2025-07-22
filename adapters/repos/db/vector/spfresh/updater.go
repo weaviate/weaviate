@@ -64,6 +64,12 @@ func (u *Updater) Insert(ctx context.Context, id uint64, vector []float32) error
 		if err != nil {
 			return errors.Wrapf(err, "failed to persist new posting %d", postingID)
 		}
+
+		// use the vector as the centroid and register it in the SPTAG
+		err = u.SPTAG.Upsert(postingID, compressed)
+		if err != nil {
+			return errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
+		}
 	} else {
 		postingID = ps[0]
 
@@ -72,12 +78,6 @@ func (u *Updater) Insert(ctx context.Context, id uint64, vector []float32) error
 		if err != nil {
 			return errors.Wrapf(err, "failed to append vector %d to posting %d", id, postingID)
 		}
-	}
-
-	// use the vector as the centroid and register it in the SPTAG
-	err = u.SPTAG.Upsert(postingID, compressed)
-	if err != nil {
-		return errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
 	}
 
 	// ensure the posting size is within the configured limits
