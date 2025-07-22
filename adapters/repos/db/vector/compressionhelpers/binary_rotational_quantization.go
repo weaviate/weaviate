@@ -252,7 +252,7 @@ func (rq *BinaryRotationalQuantizer) encodeQuery(x []float32) RQMultiBitCode {
 	for i, v := range rx {
 		c := uint64((v-lower)/step + rq.rounding[i] + 0.5)
 		block := i >> 6
-		var bitPos uint64 = uint64(i) & ((1 << 6) - 1)
+		bitPos := uint64(i) & ((1 << 6) - 1)
 		for j := range queryBits {
 			bit := extractBit(c, j)
 			blockPos := j*blocksPerBit + block
@@ -328,9 +328,9 @@ func (d *BinaryRQDistancer) DistanceToFloat(x []float32) (float32, error) {
 }
 
 func (brq *BinaryRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []uint64) (float32, error) { // TODO: Compute the distance between compressed vectors.
-	//cx, cy := RQOneBitCode(x), RQOneBitCode(y)
-	//dotEstimate := estimateDotProduct(cx, cy)
-	//return d.l2*(cx.SquaredNorm()+d.cq.SquaredNorm) + d.cos - (1.0+d.l2)*dotEstimate, nil
+	// cx, cy := RQOneBitCode(x), RQOneBitCode(y)
+	// dotEstimate := estimateDotProduct(cx, cy)
+	// return d.l2*(cx.SquaredNorm()+d.cq.SquaredNorm) + d.cos - (1.0+d.l2)*dotEstimate, nil
 	return binaryDot(x, y), nil
 }
 
