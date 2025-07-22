@@ -21,6 +21,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -106,7 +107,11 @@ func (s *Shard) initDimensionTracking() {
 		s.publishDimensionMetrics(ctx)
 		// start tracking vector dimensions goroutine only when tracking is enabled
 		f := func() {
-			t := time.NewTicker(5 * time.Minute)
+			interval := config.DefaultTrackVectorDimensionsInterval
+			if s.index.Config.TrackVectorDimensionsInterval != 0 {
+				interval = s.index.Config.TrackVectorDimensionsInterval
+			}
+			t := time.NewTicker(interval)
 			defer t.Stop()
 			for {
 				select {

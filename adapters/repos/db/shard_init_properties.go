@@ -101,6 +101,8 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
 		s.segmentCleanupConfig(),
+		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
+		lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
 	}
 
 	if inverted.HasFilterableIndex(prop) {
@@ -193,6 +195,8 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
+		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
+		lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
 		s.segmentCleanupConfig(),
 	)
 }
@@ -212,6 +216,8 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
+		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
+		lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
 		s.segmentCleanupConfig(),
 	)
 }
@@ -232,6 +238,8 @@ func (s *Shard) addIDProperty(ctx context.Context, lazyLoadSegments bool) error 
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
+		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
+		lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
 		s.segmentCleanupConfig(),
 	)
 	if err != nil {
@@ -255,6 +263,8 @@ func (s *Shard) createDimensionsBucket(ctx context.Context, name string) error {
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
+		lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
 		s.segmentCleanupConfig(),
 	)
 	if err != nil {
@@ -306,6 +316,8 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context, lazyLoadSegment
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
+		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
+		lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
 		s.segmentCleanupConfig(),
 	)
 }
@@ -322,6 +334,8 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context, lazyLoadSegme
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
+		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
+		lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
 		s.segmentCleanupConfig(),
 	)
 }

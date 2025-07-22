@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"testing"
 	"time"
 
@@ -486,4 +488,166 @@ func testBucketContent(t *testing.T, strategy string, b *Bucket, maxObject int) 
 			require.Equal(t, val, get[0].Value)
 		}
 	}
+}
+
+func TestBucketInfoInFileName(t *testing.T) {
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+
+	for _, segmentInfo := range []bool{true, false} {
+		t.Run(fmt.Sprintf("%t", segmentInfo), func(t *testing.T) {
+			dirName := t.TempDir()
+			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(segmentInfo),
+			)
+			require.NoError(t, err)
+			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
+			require.NoError(t, b.FlushMemtable())
+			dbFiles, _ := countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 1)
+		})
+	}
+}
+
+func TestBucketCompactionFileName(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	tests := []struct {
+		firstSegment  bool
+		secondSegment bool
+		compaction    bool
+	}{
+		{firstSegment: false, secondSegment: false, compaction: true},
+		{firstSegment: false, secondSegment: true, compaction: true},
+		{firstSegment: true, secondSegment: false, compaction: true},
+		{firstSegment: true, secondSegment: true, compaction: true},
+		{firstSegment: true, secondSegment: true, compaction: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("firstSegment: %t", tt.firstSegment), func(t *testing.T) {
+			dirName := t.TempDir()
+			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.firstSegment),
+			)
+			require.NoError(t, err)
+			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
+			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.Shutdown(ctx))
+			dbFiles, _ := countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 1)
+			oldNames := verifyFileInfo(t, dirName, nil, tt.firstSegment, 0)
+
+			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.secondSegment),
+			)
+			require.NoError(t, err)
+			require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
+			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.Shutdown(ctx))
+
+			dbFiles, _ = countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 2)
+			oldNames = verifyFileInfo(t, dirName, oldNames, tt.secondSegment, 0)
+
+			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.compaction),
+			)
+			require.NoError(t, err)
+			compact, err := b.disk.compactOnce()
+			require.NoError(t, err)
+			require.True(t, compact)
+			dbFiles, _ = countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 1)
+			verifyFileInfo(t, dirName, oldNames, tt.compaction, 1)
+		})
+	}
+}
+
+func countDbAndWalFiles(t *testing.T, path string) (int, int) {
+	t.Helper()
+	fileTypes := map[string]int{}
+	entries, err := os.ReadDir(path)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		fileTypes[filepath.Ext(entry.Name())] += 1
+	}
+	return fileTypes[".db"], fileTypes[".wal"]
+}
+
+func verifyFileInfo(t *testing.T, path string, oldEntries []string, segmentInfo bool, level int) []string {
+	t.Helper()
+	entries, err := os.ReadDir(path)
+	require.NoError(t, err)
+	fileNames := []string{}
+	for _, entry := range entries {
+		fileNames = append(fileNames, entry.Name())
+		if oldEntries != nil && slices.Contains(oldEntries, entry.Name()) {
+			continue
+		}
+		if filepath.Ext(entry.Name()) == ".db" {
+			if segmentInfo {
+				require.Contains(t, entry.Name(), fmt.Sprintf(".l%d.", level))
+				require.Contains(t, entry.Name(), ".s0.")
+			} else {
+				require.NotRegexp(t, regexp.MustCompile(`\.l\d+\.`), entry.Name())
+				require.NotContains(t, entry.Name(), ".s0.")
+			}
+		}
+	}
+	return fileNames
+}
+
+func TestBucketRecovery(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	ctx := context.Background()
+	dirName := t.TempDir()
+	tmpDir := t.TempDir()
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+	)
+	require.NoError(t, err)
+	require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
+	require.NoError(t, b.Shutdown(ctx))
+	dbFiles, walFiles := countDbAndWalFiles(t, dirName)
+	require.Equal(t, dbFiles, 0)
+	require.Equal(t, walFiles, 1)
+
+	// move .wal file somewhere else to recover later
+	var oldPath, tmpPath string
+	entries, err := os.ReadDir(dirName)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".wal" {
+			oldPath = dirName + "/" + entry.Name()
+			tmpPath = tmpDir + "/" + entry.Name()
+			require.NoError(t, os.Rename(oldPath, tmpPath))
+		}
+	}
+	_, walFiles = countDbAndWalFiles(t, dirName)
+	require.Equal(t, walFiles, 0)
+
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+	)
+	require.NoError(t, err)
+	require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
+	require.NoError(t, b.Shutdown(ctx))
+	dbFiles, walFiles = countDbAndWalFiles(t, dirName)
+	require.Equal(t, dbFiles, 0)
+	require.Equal(t, walFiles, 1)
+
+	// move .wal file back so we can recover one
+	require.NoError(t, os.Rename(tmpPath, oldPath))
+
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+	)
+	require.NoError(t, err)
+	get, err := b.Get([]byte("hello1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("world1"), get)
 }

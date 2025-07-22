@@ -52,6 +52,8 @@ const (
 	DefaultReplicationEngineFileCopyWorkers = 10
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
+
+	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -87,6 +89,16 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
 		config.TrackVectorDimensions = true
+	}
+
+	if v := os.Getenv("TRACK_VECTOR_DIMENSIONS_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse TRACK_VECTOR_DIMENSIONS_INTERVAL as duration: %w", err)
+		}
+		config.TrackVectorDimensionsInterval = interval
+	} else {
+		config.TrackVectorDimensionsInterval = DefaultTrackVectorDimensionsInterval
 	}
 
 	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
@@ -279,12 +291,12 @@ func FromEnv(config *Config) error {
 
 		viewerGroupString, ok := os.LookupEnv("AUTHORIZATION_RBAC_READONLY_GROUPS")
 		if ok {
-			config.Authorization.Rbac.ViewerGroups = strings.Split(viewerGroupString, ",")
+			config.Authorization.Rbac.ReadOnlyGroups = strings.Split(viewerGroupString, ",")
 		} else {
 			// delete this after 1.30.11 + 1.31.3 is the minimum version in WCD
 			viewerGroupString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_ROOT_GROUPS")
 			if ok {
-				config.Authorization.Rbac.ViewerGroups = strings.Split(viewerGroupString, ",")
+				config.Authorization.Rbac.ReadOnlyGroups = strings.Split(viewerGroupString, ",")
 			}
 		}
 
@@ -349,6 +361,14 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("PERSISTENCE_LAZY_SEGMENTS_DISABLED")) {
 		config.Persistence.LazySegmentsDisabled = true
+	}
+
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_SEGMENT_INFO_FROM_FILE_ENABLED")) {
+		config.Persistence.SegmentInfoIntoFileNameEnabled = true
+	}
+
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_WRITE_METADATA_FILES_ENABLED")) {
+		config.Persistence.WriteMetadataFilesEnabled = true
 	}
 
 	if v := os.Getenv("PERSISTENCE_MAX_REUSE_WAL_SIZE"); v != "" {
