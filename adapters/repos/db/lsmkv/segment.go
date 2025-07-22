@@ -612,22 +612,12 @@ func (s *segment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
 	return bytes.NewReader(in), nil
 }
 
-var bufReaderPool *sync.Pool
-
-func init() {
-	bufReaderPool = &sync.Pool{
-		New: func() interface{} {
-			return bufio.NewReader(nil)
-		},
-	}
-}
-
 func (s *segment) bufferedReaderAt(offset uint64, operation string) (io.Reader, func(), error) {
 	if s.contentFile == nil {
 		return nil, nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
 	}
 
-	meteredF := diskio.NewMeteredReader(s.contentFile, diskio.MeteredReaderCallback(s.metrics.ReadObserver(operation)))
+	meteredF := diskio.NewMeteredReader(s.contentFile, diskio.MeteredReaderCallback(readObserver.GetOrCreate(operation, s.metrics)))
 	r := io.NewSectionReader(meteredF, int64(offset), s.size)
 
 	bufioR := bufReaderPool.Get().(*bufio.Reader)
@@ -638,4 +628,39 @@ func (s *segment) bufferedReaderAt(offset uint64, operation string) (io.Reader, 
 	}
 
 	return bufioR, releaseFn, nil
+}
+
+var (
+	bufReaderPool *sync.Pool
+	readObserver  *readObserverCache
+)
+
+func init() {
+	bufReaderPool = &sync.Pool{
+		New: func() interface{} {
+			return bufio.NewReader(nil)
+		},
+	}
+
+	readObserver = &readObserverCache{}
+}
+
+type readObserverCache struct {
+	sync.Map
+}
+
+// GetOrCreate returns a BytesReadObserver for the given key if it exists or
+// creates one if it doesn't.
+//
+// Note that the design is not atomic, so it is possible that a single key will
+// be initialize multiple times. This is not a problem, it only adds a slight
+// re-allocation penalty, but does not alter the behavior
+func (c *readObserverCache) GetOrCreate(key string, metrics *Metrics) BytesReadObserver {
+	if v, ok := c.Load(key); ok {
+		return v.(BytesReadObserver)
+	}
+
+	observer := metrics.ReadObserver(key)
+	c.Store(key, observer)
+	return observer
 }
