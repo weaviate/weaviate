@@ -20,6 +20,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	clusterusage "github.com/weaviate/weaviate/cluster/usage"
@@ -214,7 +215,6 @@ func TestModule_SetUsageService(t *testing.T) {
 
 	mod := New()
 	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
 
 	// Initialize module first
 	testConfig := config.Config{
@@ -237,6 +237,8 @@ func TestModule_SetUsageService(t *testing.T) {
 
 	// Test with valid service after initialization
 	usageService := clusterusage.NewMockService(t)
+	usageService.EXPECT().SetJitterInterval(mock.Anything).Return()
+
 	assert.NotPanics(t, func() {
 		mod.SetUsageService(usageService)
 	})

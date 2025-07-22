@@ -1013,6 +1013,10 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 	return &stats, nil
 }
 
+func (h *hnsw) Type() common.IndexType {
+	return common.IndexTypeHNSW
+}
+
 func (h *hnsw) CompressionStats() compressionhelpers.CompressionStats {
 	if h.compressed.Load() {
 		return h.compressor.Stats()

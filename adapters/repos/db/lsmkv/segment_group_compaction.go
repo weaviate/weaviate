@@ -195,7 +195,8 @@ func (sg *SegmentGroup) segmentAtPos(pos int) *segment {
 
 func segmentID(path string) string {
 	filename := filepath.Base(path)
-	return strings.TrimSuffix(strings.TrimPrefix(filename, "segment-"), ".db")
+	filename, _, _ = strings.Cut(filename, ".")
+	return strings.TrimPrefix(filename, "segment-")
 }
 
 func (sg *SegmentGroup) compactOnce() (bool, error) {

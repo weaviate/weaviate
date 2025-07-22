@@ -104,7 +104,7 @@ func (o *nodeWideMetricsObserver) observeUnlocked() {
 		index.ForEachShard(func(name string, shard ShardLike) error {
 			objectCount, err := shard.ObjectCountAsync(context.Background())
 			if err != nil {
-				o.db.logger.Errorf("error while getting object count for shard %s: %w", shard.Name(), err)
+				o.db.logger.Warnf("error while getting object count for shard %s: %w", shard.Name(), err)
 			}
 			totalObjectCount += objectCount
 			return nil
