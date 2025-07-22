@@ -394,13 +394,19 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	return nil
 }
 
-func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storobj.Object) error) error {
+func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
+	afterInMemCallback func(), f func(object *storobj.Object) error,
+) error {
 	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
 	onDiskCursor := b.CursorOnDisk()
 	defer onDiskCursor.Close()
 
+	inmemProcessedDocIDs := make(map[uint64]struct{})
+
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
 	err := func() error {
+		defer afterInMemCallback()
+
 		inMemCursor := b.CursorInMem()
 		defer inMemCursor.Close()
 
@@ -416,6 +422,8 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 				if err := f(obj); err != nil {
 					return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
 				}
+
+				inmemProcessedDocIDs[obj.DocID] = struct{}{}
 			}
 		}
 
@@ -434,6 +442,11 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 			if err != nil {
 				return fmt.Errorf("cannot unmarshal object: %w", err)
 			}
+
+			if _, ok := inmemProcessedDocIDs[obj.DocID]; ok {
+				continue
+			}
+
 			if err := f(obj); err != nil {
 				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
 			}

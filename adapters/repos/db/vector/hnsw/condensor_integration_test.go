@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -651,7 +652,8 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
 		require.Nil(t, err)
 
-		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: make([][]uint64, 4)})
+		conns, _ := packedconn.NewWithMaxLayer(3)
+		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: conns})
 		assert.Equal(t, uint64(17), res.Entrypoint)
 		assert.Equal(t, uint16(3), res.Level)
 	})

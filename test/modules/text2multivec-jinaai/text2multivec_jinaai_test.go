@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/companies"
 )
@@ -50,7 +51,8 @@ func testText2MultivecJinaAI(host, grpc, vectorizerName string) func(t *testing.
 								"dimensions":         64,
 							},
 						},
-						VectorIndexType: "hnsw",
+						VectorIndexType:   "hnsw",
+						VectorIndexConfig: hnsw.MultivectorConfig{Enabled: true},
 					},
 				}
 				// create schema

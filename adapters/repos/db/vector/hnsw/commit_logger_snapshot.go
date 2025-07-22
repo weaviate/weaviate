@@ -29,6 +29,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -46,6 +47,12 @@ const (
 	SnapshotCompressionTypeSQ
 	SnapshotEncoderTypeMuvera
 	SnapshotCompressionTypeRQ
+)
+
+// version of the snapshot file format
+const (
+	snapshotVersionV1 = 1 // initial version
+	snapshotVersionV2 = 2 // added packed connections support
 )
 
 func snapshotName(path string) string {
@@ -445,6 +452,12 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 }
 
 func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state *DeserializationResult, metrics *Metrics) (*DeserializationResult, error) {
+	start := time.Now()
+	defer func() {
+		logger.WithField("commitlog_files", len(fileNames)).
+			WithField("took", time.Since(start)).
+			Debug("commit log files loaded")
+	}()
 	var err error
 
 	fileNames, err = NewCorruptedCommitLogFixer().Do(fileNames)
@@ -476,7 +489,7 @@ func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state 
 				fdMetered = diskio.NewMeteredReader(fd,
 					metrics.TrackStartupReadCommitlogDiskIO)
 			}
-			fdBuf := bufio.NewReaderSize(fdMetered, 256*1024)
+			fdBuf := bufio.NewReaderSize(fdMetered, 512*1024)
 
 			var valid int
 			state, valid, err = NewDeserializer(logger).Do(fdBuf, state, false)
@@ -570,6 +583,11 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 }
 
 func (l *hnswCommitLogger) readSnapshot(path string) (*DeserializationResult, error) {
+	start := time.Now()
+	defer func() {
+		l.logger.WithField("snapshot", path).WithField("took", time.Since(start).String()).Info("snapshot loaded")
+	}()
+
 	checkpoints, err := readCheckpoints(path)
 	if err != nil {
 		// if for any reason the checkpoints file is not found or corrupted
@@ -665,24 +683,17 @@ func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writ
 		}
 		offset += writeUint32Size
 
-		if err := writeUint32(w, uint32(len(n.connections))); err != nil {
+		connData := n.connections.Data()
+		if err := writeUint32(w, uint32(len(connData))); err != nil {
 			return nil, err
 		}
 		offset += writeUint32Size
 
-		for _, ls := range n.connections {
-			if err := writeUint32(w, uint32(len(ls))); err != nil {
-				return nil, err
-			}
-			offset += writeUint32Size
-
-			for _, c := range ls {
-				if err := writeUint64(w, c); err != nil {
-					return nil, err
-				}
-				offset += writeUint64Size
-			}
+		_, err = w.Write(connData)
+		if err != nil {
+			return nil, errors.Wrapf(err, "write connections data for node %d", n.id)
 		}
+		offset += len(connData)
 
 		nonNilNodes++
 	}
@@ -703,7 +714,7 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 
 	// version
 	offset = 0
-	if err := writeByte(w, 0); err != nil {
+	if err := writeByte(w, snapshotVersionV2); err != nil {
 		return 0, err
 	}
 	offset += writeByteSize
@@ -718,9 +729,9 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 	}
 	offset += writeUint16Size
 
-	isEncoded := state.Compressed || state.MuveraEnabled
+	isCompressed := state.Compressed
 
-	if err := writeBool(w, isEncoded); err != nil {
+	if err := writeBool(w, isCompressed); err != nil {
 		return 0, err
 	}
 	offset += writeByteSize
@@ -841,7 +852,16 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 			}
 		}
 
-	} else if state.MuveraEnabled && state.EncoderMuvera != nil { // Muvera
+	}
+
+	isEncoded := state.MuveraEnabled
+
+	if err := writeBool(w, isEncoded); err != nil {
+		return 0, err
+	}
+	offset += writeByteSize
+
+	if state.MuveraEnabled && state.EncoderMuvera != nil { // Muvera
 		// first byte is the encoder type
 		if err := writeByte(w, byte(SnapshotEncoderTypeMuvera)); err != nil {
 			return 0, err
@@ -934,8 +954,9 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 	if err != nil {
 		return nil, errors.Wrapf(err, "read version")
 	}
-	if b[0] != 0 {
-		return nil, fmt.Errorf("unsupported version %d", b[0])
+	version := int(b[0])
+	if version < 0 || version > snapshotVersionV2 {
+		return nil, fmt.Errorf("unsupported snapshot version %d", version)
 	}
 
 	_, err = ReadAndHash(r, hasher, b[:8]) // entrypoint
@@ -954,16 +975,18 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 	if err != nil {
 		return nil, errors.Wrapf(err, "read compressed")
 	}
-	isEncoded := b[0] == 1
+	isCompressed := b[0] == 1
 
 	// Compressed data
-	if isEncoded {
+	if isCompressed {
 		_, err = ReadAndHash(r, hasher, b[:1]) // encoding type
 		if err != nil {
 			return nil, errors.Wrapf(err, "read compressed")
 		}
 
 		switch b[0] {
+		case SnapshotEncoderTypeMuvera: // legacy Muvera snapshot
+			return nil, errors.New("discarding v1 Muvera snapshot")
 		case SnapshotCompressionTypePQ:
 			res.Compressed = true
 			_, err = ReadAndHash(r, hasher, b[:2]) // PQData.Dimensions
@@ -1123,6 +1146,26 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 					Signs:     signs,
 				},
 			}
+		default:
+			return nil, fmt.Errorf("unsupported compression type %d", b[0])
+		}
+	}
+
+	isEncoded := false
+	if version >= 2 {
+		_, err = ReadAndHash(r, hasher, b[:1]) // isEncoded
+		if err != nil {
+			return nil, errors.Wrapf(err, "read isEncoded")
+		}
+		isEncoded = b[0] == 1
+	}
+
+	if isEncoded {
+		_, err = ReadAndHash(r, hasher, b[:1]) // encoding type
+		if err != nil {
+			return nil, errors.Wrapf(err, "read encoding type")
+		}
+		switch b[0] {
 		case SnapshotEncoderTypeMuvera:
 			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.Dimensions
 			if err != nil {
@@ -1197,7 +1240,7 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 				S:            s,
 			}
 		default:
-			return nil, fmt.Errorf("unsupported compression type %d", b[0])
+			return nil, fmt.Errorf("unsupported encoder type %d", b[0])
 		}
 	}
 
@@ -1281,29 +1324,44 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 				connCount := int(binary.LittleEndian.Uint32(b[:4]))
 
 				if connCount > 0 {
-					node.connections = make([][]uint64, connCount)
-
-					for l := 0; l < connCount; l++ {
-						n, err = io.ReadFull(r, b[:4]) // connections count at level
+					if version < snapshotVersionV2 {
+						pconn, err := packedconn.NewWithMaxLayer(uint8(connCount))
 						if err != nil {
-							return errors.Wrapf(err, "read node connections count at level")
+							return errors.Wrapf(err, "create packed connections for node %d", node.id)
 						}
-						read += n
-						connCountAtLevel := int(binary.LittleEndian.Uint32(b[:4]))
 
-						if connCountAtLevel > 0 {
-							node.connections[l] = make([]uint64, connCountAtLevel)
+						for l := uint8(0); l < uint8(connCount); l++ {
+							n, err = io.ReadFull(r, b[:4]) // connections count at level
+							if err != nil {
+								return errors.Wrapf(err, "read node connections count at level")
+							}
+							read += n
+							connCountAtLevel := uint64(binary.LittleEndian.Uint32(b[:4]))
 
-							for c := 0; c < connCountAtLevel; c++ {
-								n, err = io.ReadFull(r, b[:8]) // connection at level
-								if err != nil {
-									return errors.Wrapf(err, "read node connection at level")
+							if connCountAtLevel > 0 {
+								for c := uint64(0); c < connCountAtLevel; c++ {
+									n, err = io.ReadFull(r, b[:8]) // connection at level
+									if err != nil {
+										return errors.Wrapf(err, "read node connection at level")
+									}
+									connID := binary.LittleEndian.Uint64(b[:8])
+									pconn.InsertAtLayer(connID, l)
+									read += n
 								}
-								node.connections[l][c] = binary.LittleEndian.Uint64(b[:8])
-								read += n
 							}
 						}
 
+						node.connections = pconn
+					} else {
+						// read the connections data
+						connData := make([]byte, connCount)
+						n, err = io.ReadFull(r, connData)
+						if err != nil {
+							return errors.Wrapf(err, "read node connections data")
+						}
+						read += n
+
+						node.connections = packedconn.NewWithData(connData)
 					}
 				}
 

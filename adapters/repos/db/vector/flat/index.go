@@ -1050,18 +1050,25 @@ func (index *flat) Stats() (common.IndexStats, error) {
 	return &FlatStats{}, errors.New("Stats() is not implemented for flat index")
 }
 
-func (index *flat) VectorStorageSize() int64 {
-	// TODO-usage: Implement this
-	return 0
-}
-
-func (index *flat) CompressionStats() (compressionhelpers.CompressionStats, error) {
+func (index *flat) CompressionStats() compressionhelpers.CompressionStats {
 	// Flat index doesn't have detailed compression stats, return uncompressed stats
-	return compressionhelpers.UncompressedStats{}, nil
+	return compressionhelpers.UncompressedStats{}
 }
 
 type FlatStats struct{}
 
 func (s *FlatStats) IndexType() common.IndexType {
 	return common.IndexTypeFlat
+}
+
+func (h *flat) ShouldUpgrade() (bool, int) {
+	return false, 0
+}
+
+func (h *flat) Upgrade(callback func()) error {
+	return nil
+}
+
+func (h *flat) Upgraded() bool {
+	return false
 }

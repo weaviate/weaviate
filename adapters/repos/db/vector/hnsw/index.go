@@ -222,8 +222,8 @@ type CommitLogger interface {
 	SwitchCommitLogs(bool) error
 	AddPQCompression(compressionhelpers.PQData) error
 	AddSQCompression(compressionhelpers.SQData) error
-	AddRQCompression(compressionhelpers.RQData) error
 	AddMuvera(multivector.MuveraData) error
+	AddRQCompression(compressionhelpers.RQData) error
 	InitMaintenance()
 
 	CreateSnapshot() (bool, int64, error)
@@ -980,7 +980,7 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 			node.Lock()
 			defer node.Unlock()
 			l := node.level
-			if l == 0 && len(node.connections) == 0 {
+			if l == 0 && node.connections.Layers() == 0 {
 				return
 			}
 			c, ok := distributionLayers[l]
@@ -1013,14 +1013,9 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 	return &stats, nil
 }
 
-func (h *hnsw) VectorStorageSize() int64 {
-	// TODO-usage: Implement this
-	return 0
-}
-
-func (h *hnsw) CompressionStats() (compressionhelpers.CompressionStats, error) {
+func (h *hnsw) CompressionStats() compressionhelpers.CompressionStats {
 	if h.compressed.Load() {
-		return h.compressor.Stats(), nil
+		return h.compressor.Stats()
 	}
-	return compressionhelpers.UncompressedStats{}, nil
+	return compressionhelpers.UncompressedStats{}
 }

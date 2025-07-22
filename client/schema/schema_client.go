@@ -43,7 +43,7 @@ type ClientOption func(*runtime.ClientOperation)
 type ClientService interface {
 	AliasesCreate(params *AliasesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesCreateOK, error)
 
-	AliasesDelete(params *AliasesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesDeleteOK, error)
+	AliasesDelete(params *AliasesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesDeleteNoContent, error)
 
 	AliasesGet(params *AliasesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesGetOK, error)
 
@@ -128,7 +128,7 @@ AliasesDelete deletes an alias
 
 Remove an existing alias from the system. This will delete the alias mapping but will not affect the underlying collection (class).
 */
-func (a *Client) AliasesDelete(params *AliasesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesDeleteOK, error) {
+func (a *Client) AliasesDelete(params *AliasesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesDeleteNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewAliasesDeleteParams()
@@ -154,7 +154,7 @@ func (a *Client) AliasesDelete(params *AliasesDeleteParams, authInfo runtime.Cli
 	if err != nil {
 		return nil, err
 	}
-	success, ok := result.(*AliasesDeleteOK)
+	success, ok := result.(*AliasesDeleteNoContent)
 	if ok {
 		return success, nil
 	}

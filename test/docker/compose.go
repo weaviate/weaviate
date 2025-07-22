@@ -38,6 +38,7 @@ import (
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativexai "github.com/weaviate/weaviate/modules/generative-xai"
+	modmulti2multivecjinaai "github.com/weaviate/weaviate/modules/multi2multivec-jinaai"
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
@@ -271,6 +272,12 @@ func (d *Compose) WithMulti2VecVoyageAI(apiKey string) *Compose {
 func (d *Compose) WithMulti2VecJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modmulti2vecjinaai.Name)
+	return d
+}
+
+func (d *Compose) WithMulti2MultivecJinaAI(apiKey string) *Compose {
+	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2multivecjinaai.Name)
 	return d
 }
 

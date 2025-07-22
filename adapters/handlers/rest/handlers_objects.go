@@ -20,7 +20,6 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
-
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"

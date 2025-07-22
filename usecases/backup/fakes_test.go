@@ -15,12 +15,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"sync"
 
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
@@ -107,8 +107,14 @@ func (fb *fakeBackend) HomeDir(backupID, overrideBucket, overridePath string) st
 	return args.String(0)
 }
 
-func (fb *fakeBackend) AllBackups(context.Context) ([]*backup.DistributedBackupDescriptor, error) {
-	return nil, fmt.Errorf("not implemented")
+func (fb *fakeBackend) AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error) {
+	fb.RLock()
+	defer fb.RUnlock()
+	args := fb.Called(ctx)
+	if args.Get(0) != nil {
+		return args.Get(0).([]*backup.DistributedBackupDescriptor), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 func (fb *fakeBackend) PutFile(ctx context.Context, backupID, key, srcPath, overrideBucket, overridePath string) error {
