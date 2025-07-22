@@ -135,18 +135,18 @@ func (m *module) buildGCSConfig(config *config.Config) common.StorageConfig {
 
 func parseGCSConfig(config *config.Config) error {
 	gcsBucket := ""
-	if config.Usage.GCSBucket != nil {
-		gcsBucket = config.Usage.GCSBucket.Get()
-	} else if v := os.Getenv("USAGE_GCS_BUCKET"); v != "" {
+	if v := os.Getenv("USAGE_GCS_BUCKET"); v != "" {
 		gcsBucket = v
+	} else if config.Usage.GCSBucket != nil {
+		gcsBucket = config.Usage.GCSBucket.Get()
 	}
 	config.Usage.GCSBucket = runtime.NewDynamicValue(gcsBucket)
 
 	gcsPrefix := ""
-	if config.Usage.GCSPrefix != nil {
-		gcsPrefix = config.Usage.GCSPrefix.Get()
-	} else if v := os.Getenv("USAGE_GCS_PREFIX"); v != "" {
+	if v := os.Getenv("USAGE_GCS_PREFIX"); v != "" {
 		gcsPrefix = v
+	} else if config.Usage.GCSPrefix != nil {
+		gcsPrefix = config.Usage.GCSPrefix.Get()
 	}
 	config.Usage.GCSPrefix = runtime.NewDynamicValue(gcsPrefix)
 
