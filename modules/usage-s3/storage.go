@@ -134,6 +134,10 @@ func (s *S3Storage) UpdateConfig(config common.StorageConfig) (bool, error) {
 	// Update the configuration
 	configChanged := s.UpdateCommonConfig(config)
 
+	if !configChanged {
+		return configChanged, nil
+	}
+
 	// If bucket name changed, verify permissions
 	if oldBucketName != s.BucketName {
 		s.Logger.WithFields(logrus.Fields{

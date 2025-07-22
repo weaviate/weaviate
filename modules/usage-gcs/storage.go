@@ -161,9 +161,12 @@ func (g *GCSStorage) UpdateConfig(config common.StorageConfig) (bool, error) {
 
 	// Update the configuration
 	configChanged := g.UpdateCommonConfig(config)
+	if !configChanged {
+		return configChanged, nil
+	}
 
 	// If bucket name changed, verify permissions
-	if oldBucketName != g.BucketName {
+	if oldBucketName != g.BucketName && oldBucketName != "" {
 		g.Logger.WithFields(logrus.Fields{
 			"old_bucket": oldBucketName,
 			"new_bucket": g.BucketName,
