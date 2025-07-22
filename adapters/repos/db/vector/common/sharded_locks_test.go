@@ -12,6 +12,7 @@
 package common
 
 import (
+	"math/rand"
 	"sync"
 	"testing"
 	"time"
@@ -606,5 +607,131 @@ func TestShardedRWLocks(t *testing.T) {
 		<-ch2
 
 		m.Unlock(1)
+	})
+}
+
+func TestHashedLocks(t *testing.T) {
+	t.Run("Lock", func(t *testing.T) {
+		t.Parallel()
+		m := NewHashedLocks512()
+
+		m.Lock(1)
+
+		ch := make(chan struct{})
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			m.Unlock(1)
+
+			close(ch)
+		}()
+
+		m.Lock(1)
+
+		select {
+		case <-ch:
+		case <-time.After(1 * time.Second):
+			require.Fail(t, "should be unlocked")
+		}
+
+		m.Unlock(1)
+	})
+
+	t.Run("unlock should wake up next waiting lock", func(t *testing.T) {
+		t.Parallel()
+		m := NewHashedLocks512()
+
+		m.Lock(1)
+
+		ch1 := make(chan struct{})
+		ch2 := make(chan struct{})
+
+		go func() {
+			defer close(ch1)
+
+			m.Lock(1)
+		}()
+
+		go func() {
+			defer close(ch2)
+
+			time.Sleep(100 * time.Millisecond)
+			m.Lock(1)
+		}()
+
+		time.Sleep(10 * time.Millisecond)
+		m.Unlock(1)
+
+		<-ch1
+
+		m.Unlock(1)
+
+		<-ch2
+
+		m.Unlock(1)
+	})
+}
+
+type lockable interface {
+	Lock(id uint64)
+	Unlock(id uint64)
+	LockAll()
+	UnlockAll()
+}
+
+func BenchmarkLocksHighContention(b *testing.B) {
+	const (
+		numGoroutines = 4096 // increase goroutines to scale up contention
+		numOps        = 1000 // keep ops per goroutine constant
+		hotKeySpace   = 4096 // touch more locks (¼ of 32k)
+		hotFraction   = 0.8  // 80% of keys are clustered
+		hotRange      = 64   // 80% of keys in this tight cluster
+	)
+
+	keys := make([]uint64, numGoroutines)
+	for i := range keys {
+		if rand.Float64() < hotFraction {
+			keys[i] = uint64(rand.Intn(hotRange)) // hot cluster
+		} else {
+			keys[i] = uint64(rand.Intn(hotKeySpace)) + 10000 // spread cold keys
+		}
+	}
+
+	run := func(b *testing.B, l lockable) {
+		b.Helper()
+
+		results := make([]int, numGoroutines*10)
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			var wg sync.WaitGroup
+			wg.Add(numGoroutines)
+
+			for j := 0; j < numGoroutines; j++ {
+				id := keys[j]
+				go func() {
+					for k := 0; k < numOps; k++ {
+						l.Lock(id)
+						// Simulate some real work under the lock
+						x := 0
+						for i := 0; i < 1000; i++ {
+							x += i * int(id%10)
+						}
+						results[id] = x
+						l.Unlock(id)
+					}
+					wg.Done()
+				}()
+			}
+
+			wg.Wait()
+		}
+	}
+
+	b.Run("ShardedLocks_512", func(b *testing.B) {
+		run(b, NewShardedLocks(512))
+	})
+
+	b.Run("ShardedRWLocks_512", func(b *testing.B) {
+		run(b, NewShardedRWLocks(512))
 	})
 }
