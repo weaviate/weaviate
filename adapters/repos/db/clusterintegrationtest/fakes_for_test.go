@@ -71,9 +71,21 @@ func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
 	for _, node := range *allNodes {
 		names = append(names, node.name)
 	}
-	nodeSelector := mocks.NewMockNodeSelector(names...)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return(n.name).Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).RunAndReturn(func(nodeName string) (string, bool) {
+		for _, node := range *allNodes {
+			if node.name == nodeName {
+				if node.hostname == "" {
+					return "", false
+				}
+				return node.hostname, true
+			}
+		}
+		return "", false
+	}).Maybe()
 	nodeResolver := &nodeResolver{
-		NodeSelector: nodeSelector,
+		NodeSelector: mockNodeSelector,
 		nodes:        allNodes,
 		local:        n.name,
 	}
@@ -97,9 +109,6 @@ func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return(names).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return(names, nil).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return(n.name).Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).RunAndReturn(func(node string) (string, bool) { return node, true }).Maybe()
 
 	n.repo, err = db.New(logger, n.name, db.Config{
 		MemtablesFlushDirtyAfter:  60,
