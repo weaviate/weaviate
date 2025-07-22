@@ -686,6 +686,8 @@ type IndexConfig struct {
 	QueryNestedRefLimit                 int64
 	ResourceUsage                       config.ResourceUsage
 	LazySegmentsDisabled                bool
+	SegmentInfoIntoFileNameEnabled      bool
+	WriteMetadataFilesEnabled           bool
 	MemtablesFlushDirtyAfter            int
 	MemtablesInitialSizeMB              int
 	MemtablesMaxSizeMB                  int
@@ -707,6 +709,7 @@ type IndexConfig struct {
 	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
+	TrackVectorDimensionsInterval       time.Duration
 	UsageEnabled                        bool
 	ShardLoadLimiter                    ShardLoadLimiter
 
