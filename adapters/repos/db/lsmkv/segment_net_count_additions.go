@@ -149,16 +149,3 @@ func ReadCountNetAdditionsFile(path string) (int64, error) {
 
 	return count, nil
 }
-
-func (s *segment) precomputeCountNetAdditions(updatedCountNetAdditions int) ([]string, error) {
-	if s.strategy != segmentindex.StrategyReplace {
-		// only "replace" has count net additions, so we are done
-		return []string{}, nil
-	}
-
-	cnaPath := fmt.Sprintf("%s.tmp", s.countNetPath())
-	if err := storeCountNetOnDisk(cnaPath, updatedCountNetAdditions, s.observeMetaWrite); err != nil {
-		return nil, err
-	}
-	return []string{cnaPath}, nil
-}

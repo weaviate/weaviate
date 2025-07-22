@@ -916,7 +916,7 @@ local-usage-gcs)
       BACKUP_GCS_BUCKET=weaviate-backups \
       USAGE_GCS_BUCKET=weaviate-usage \
       USAGE_GCS_PREFIX=billing-usage \
-      TRACK_VECTOR_DIMENSIONS=true \
+      TRACK_VECTOR_DIMENSIONS=false \
       USAGE_SCRAPE_INTERVAL=1s \
       USAGE_POLICY_VERSION=2025-06-01 \
       RUNTIME_OVERRIDES_LOAD_INTERVAL=3s \
@@ -957,7 +957,7 @@ local-usage-s3)
       BACKUP_S3_ENDPOINT=localhost:9000 \
       BACKUP_S3_BUCKET=weaviate-backups \
       BACKUP_S3_USE_SSL=false \
-      TRACK_VECTOR_DIMENSIONS=true \
+      TRACK_VECTOR_DIMENSIONS=false \
       USAGE_S3_BUCKET=weaviate-usage \
       USAGE_S3_PREFIX=billing-usage \
       USAGE_SCRAPE_INTERVAL=1s \

@@ -50,7 +50,7 @@ func (m *Memtable) flushWAL() error {
 	return nil
 }
 
-func (m *Memtable) flush() (rerr error) {
+func (m *Memtable) flush() (segmentPath string, rerr error) {
 	// close the commit log first, this also forces it to be fsynced. If
 	// something fails there, don't proceed with flushing. The commit log will
 	// only be deleted at the very end, if the flush was successful
@@ -58,7 +58,7 @@ func (m *Memtable) flush() (rerr error) {
 	// successful fsync)
 
 	if err := m.commitlog.close(); err != nil {
-		return errors.Wrap(err, "close commit log file")
+		return "", errors.Wrap(err, "close commit log file")
 	}
 
 	if m.Size() == 0 {
@@ -66,16 +66,21 @@ func (m *Memtable) flush() (rerr error) {
 		// however, we still have to cleanup the commit log, otherwise we will
 		// attempt to recover from it on the next cycle
 		if err := m.commitlog.delete(); err != nil {
-			return errors.Wrap(err, "delete commit log file")
+			return "", errors.Wrap(err, "delete commit log file")
 		}
-		return nil
+		return "", nil
 	}
-
-	tmpSegmentPath := m.path + ".db.tmp"
+	var tmpSegmentPath string
+	if m.writeSegmentInfoIntoFileName {
+		// new segments are always level 0
+		tmpSegmentPath = m.path + segmentExtraInfo(0, SegmentStrategyFromString(m.strategy)) + ".db.tmp"
+	} else {
+		tmpSegmentPath = m.path + ".db.tmp"
+	}
 
 	f, err := os.OpenFile(tmpSegmentPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer func() {
 		if rerr != nil {
@@ -102,35 +107,35 @@ func (m *Memtable) flush() (rerr error) {
 	switch m.strategy {
 	case StrategyReplace:
 		if keys, err = m.flushDataReplace(segmentFile); err != nil {
-			return err
+			return "", err
 		}
 
 	case StrategySetCollection:
 		if keys, err = m.flushDataSet(segmentFile); err != nil {
-			return err
+			return "", err
 		}
 
 	case StrategyRoaringSet:
 		if keys, err = m.flushDataRoaringSet(segmentFile); err != nil {
-			return err
+			return "", err
 		}
 
 	case StrategyRoaringSetRange:
 		if keys, err = m.flushDataRoaringSetRange(segmentFile); err != nil {
-			return err
+			return "", err
 		}
 		skipIndices = true
 
 	case StrategyMapCollection:
 		if keys, err = m.flushDataMap(segmentFile); err != nil {
-			return err
+			return "", err
 		}
 	case StrategyInverted:
 		if keys, _, err = m.flushDataInverted(bufw, f); err != nil {
-			return err
+			return "", err
 		}
 	default:
-		return fmt.Errorf("cannot flush strategy %s", m.strategy)
+		return "", fmt.Errorf("cannot flush strategy %s", m.strategy)
 	}
 
 	if !skipIndices {
@@ -142,18 +147,19 @@ func (m *Memtable) flush() (rerr error) {
 				"strategy":  m.strategy,
 				"operation": "writeIndices",
 			}),
+			AllocChecker: m.allocChecker,
 		}
 
 		// TODO: Currently no checksum validation support for StrategyInverted.
 		//       This condition can be removed once support is added, and for
 		//       all strategies we can simply `segmentFile.WriteIndexes(indexes)`
 		if m.strategy == StrategyInverted {
-			if _, err := indexes.WriteTo(bufw); err != nil {
-				return err
+			if _, err := indexes.WriteTo(bufw, m.size); err != nil {
+				return "", err
 			}
 		} else {
-			if _, err := segmentFile.WriteIndexes(indexes); err != nil {
-				return err
+			if _, err := segmentFile.WriteIndexes(indexes, int64(m.size)); err != nil {
+				return "", err
 			}
 		}
 	}
@@ -163,37 +169,38 @@ func (m *Memtable) flush() (rerr error) {
 	//       all strategies we can simply `segmentFile.WriteChecksum()`
 	if m.strategy != StrategyInverted {
 		if _, err := segmentFile.WriteChecksum(); err != nil {
-			return err
+			return "", err
 		}
 	} else {
 		if err := bufw.Flush(); err != nil {
-			return err
+			return "", err
 		}
 	}
 
 	if err := f.Sync(); err != nil {
-		return err
+		return "", err
 	}
 
 	if err := f.Close(); err != nil {
-		return err
+		return "", err
 	}
 
-	err = os.Rename(tmpSegmentPath, strings.TrimSuffix(tmpSegmentPath, ".tmp"))
+	segmentPath = strings.TrimSuffix(tmpSegmentPath, ".tmp")
+	err = os.Rename(tmpSegmentPath, segmentPath)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// fsync parent directory
 	err = diskio.Fsync(filepath.Dir(m.path))
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// only now that the file has been flushed is it safe to delete the commit log
 	// TODO: there might be an interest in keeping the commit logs around for
 	// longer as they might come in handy for replication
-	return m.commitlog.delete()
+	return segmentPath, m.commitlog.delete()
 }
 
 func (m *Memtable) flushDataReplace(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {

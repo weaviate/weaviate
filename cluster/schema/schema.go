@@ -667,8 +667,12 @@ func (s *schema) replaceAlias(newClass, alias string) error {
 
 // unsafeAliasExists is not concurrency-safe! Lock s.aliases before calling
 func (s *schema) unsafeAliasExists(alias string) bool {
-	_, ok := s.aliases[alias]
-	return ok
+	for v := range s.aliases {
+		if strings.EqualFold(v, alias) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *schema) canonicalAlias(alias string) string {

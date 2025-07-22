@@ -47,6 +47,9 @@ type ShardUsage struct {
 	// The name of the shard
 	Name string `json:"name"`
 
+	// The status of the shard (ACTIVE, INACTIVE)
+	Status string `json:"status"`
+
 	// The number of objects in the shard
 	ObjectsCount int64 `json:"objects_count"`
 
@@ -65,17 +68,17 @@ type VectorUsage struct {
 	// The name of the vector
 	Name string `json:"name"`
 
-	// The type of vector index
-	VectorIndexType string `json:"vectorIndexType"`
+	// The type of vector index (for dynamic indexes, this shows the underlying type: flat/hnsw)
+	VectorIndexType string `json:"vector_index_type"`
+
+	// Indicates if this index originated from a dynamic index configuration
+	IsDynamic bool `json:"is_dynamic"`
 
 	// The compression type used
 	Compression string `json:"compression"`
 
 	// The compression ratio achieved
 	VectorCompressionRatio float64 `json:"vector_compression_ratio"`
-
-	// The actual memory storage bytes used by vectors
-	VectorStorageBytes int64 `json:"vector_storage_bytes"`
 
 	// List of dimensionalities and their metrics
 	Dimensionalities []*Dimensionality `json:"dimensionalities"`

@@ -234,7 +234,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, visited, allowList)
 
-	isMultivec := h.multivector.Load()
+	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	var worstResultDistance float32
 	var err error
 	if h.compressed.Load() {
@@ -538,7 +538,7 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue[any], level int,
 	visitedList visited.ListSet, allowList helpers.AllowList,
 ) {
-	isMultivec := h.multivector.Load()
+	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
 		visitedList.Visit(ep.ID)
@@ -775,7 +775,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	entryPointNode := h.nodes[entryPointID]
 	h.shardedNodeLocks.RUnlock(entryPointID)
 	useAcorn := h.acornEnabled(allowList)
-	isMultivec := h.multivector.Load()
+	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	if useAcorn {
 		if entryPointNode == nil {
 			strategy = RRE

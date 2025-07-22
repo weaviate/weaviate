@@ -20,8 +20,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	clusterusage "github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -272,9 +274,12 @@ func TestModule_SetUsageService(t *testing.T) {
 	err := m.Init(context.Background(), params)
 	require.NoError(t, err)
 
-	// Now test SetUsageService works with initialized BaseModule
+	// Test with valid service after initialization
+	usageService := clusterusage.NewMockService(t)
+	usageService.EXPECT().SetJitterInterval(mock.Anything).Return()
+
 	assert.NotPanics(t, func() {
-		m.SetUsageService("test-service")
+		m.SetUsageService(usageService)
 	})
 	assert.NotNil(t, m.BaseModule)
 }
