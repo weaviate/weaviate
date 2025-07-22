@@ -20,6 +20,8 @@ import (
 	"maps"
 	"math"
 
+	"github.com/weaviate/weaviate/usecases/memwatch"
+
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/sroar"
@@ -61,13 +63,16 @@ type compactorInverted struct {
 	docIdEncoder varenc.VarEncEncoder[uint64]
 	tfEncoder    varenc.VarEncEncoder[uint64]
 
+	allocChecker memwatch.AllocChecker
+
 	k1, b, avgPropLen float64
+	maxNewFileSize    int64
 }
 
 func newCompactorInverted(w io.WriteSeeker,
 	c1, c2 *segmentCursorInvertedReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
-	k1, b, avgPropLen float64,
+	k1, b, avgPropLen float64, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
 ) *compactorInverted {
 	return &compactorInverted{
 		c1:                  c1,
@@ -82,6 +87,8 @@ func newCompactorInverted(w io.WriteSeeker,
 		k1:                  k1,
 		b:                   b,
 		avgPropLen:          avgPropLen,
+		maxNewFileSize:      maxNewFileSize,
+		allocChecker:        allocChecker,
 	}
 }
 
@@ -374,9 +381,10 @@ func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {
 			"strategy":  StrategyInverted,
 			"operation": "writeIndices",
 		}),
+		AllocChecker: c.allocChecker,
 	}
 
-	_, err := indices.WriteTo(c.bufw)
+	_, err := indices.WriteTo(c.bufw, uint64(c.maxNewFileSize))
 	return err
 }
 

@@ -19,14 +19,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
-
-	"github.com/go-openapi/strfmt"
-	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -68,8 +68,6 @@ type Finder struct {
 	// control the op backoffs in the coordinator's Pull
 	coordinatorPullBackoffInitialInterval time.Duration
 	coordinatorPullBackoffMaxElapsedTime  time.Duration
-
-	rand *rand.Rand // random number generator for shufflings
 }
 
 // NewFinder constructs a new finder instance
@@ -97,7 +95,6 @@ func NewFinder(className string,
 		},
 		coordinatorPullBackoffInitialInterval: coordinatorPullBackoffInitialInterval,
 		coordinatorPullBackoffMaxElapsedTime:  coordinatorPullBackoffMaxElapsedTime,
-		rand:                                  rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -403,7 +400,8 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 	// shuffle the replicas to randomize the order in which we look for differences
 	if len(replicasHostAddrs) > 1 {
-		f.rand.Shuffle(len(replicasHostAddrs), func(i, j int) {
+		// Use the global rand package which is thread-safe
+		rand.Shuffle(len(replicasHostAddrs), func(i, j int) {
 			replicasHostAddrs[i], replicasHostAddrs[j] = replicasHostAddrs[j], replicasHostAddrs[i]
 		})
 	}
