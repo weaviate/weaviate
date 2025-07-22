@@ -184,7 +184,13 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 		)
 
 		for _, config := range configs {
-			dimensions, segments := s.calcDimensionsAndSegments(ctx, config)
+			dimensions, segments, err := s.calcDimensionsAndSegments(ctx, config)
+			if err != nil {
+				panic(err)
+				s.index.logger.WithField("shard", s.name).
+					Errorf("error while getting dimensions and segments for shard %s: %v", s.name, err)
+				continue
+			}
 			sumDimensions += dimensions
 			sumSegments += segments
 		}
@@ -194,12 +200,12 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 }
 
 
-func (s *Shard) calcDimensionsAndSegments(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig) (dims int64, segs int64) {
+func (s *Shard) calcDimensionsAndSegments(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig) (dims int64, segs int64, err error) {
 	switch category, segments := GetDimensionCategory(vecCfg); category {
 	case DimensionCategoryPQ:
 
 		count := s.QuantizedDimensions(ctx, "PQ", int64(segments))
-		return 0, count
+		return 0, count, nil
 	case DimensionCategoryBQ:
 		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
 		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
@@ -210,18 +216,18 @@ func (s *Shard) calcDimensionsAndSegments(ctx context.Context, vecCfg schemaConf
 		if err != nil {
 			s.index.logger.WithField("shard", s.name).
 				Errorf("error while getting dimensions for shard %s: %v", s.name, err)
-			return 0, 0
+			return 0, 0, fmt.Errorf("get dimensions for shard %q: %w", s.name, err)
 		}
-		return 0, count
+		return 0, count, nil
 	default:
 
 		count, err := s.Dimensions(ctx, "NN")
 		if err != nil {
 			s.index.logger.WithField("shard", s.name).
 				Errorf("error while getting dimensions for shard %s: %v", s.name, err)
-			return 0, 0
+			return 0, 0, fmt.Errorf("get dimensions for shard %q: %w", s.name, err)
 		}
-		return count, 0
+		return count, 0, nil
 	}
 }
 
