@@ -770,6 +770,13 @@ func (sg *SegmentGroup) MetadataSize() int64 {
 		}
 	}
 
+	// Count .cna files (12 bytes each)
+	for _, segment := range segments {
+		if segment.getSegment().countNetPath() != "" {
+			cnaCount++
+		}
+	}
+
 	// .cna files: uint64 count (8 bytes) + uint32 checksum (4 bytes) = 12 bytes
 	return totalSize + 12*cnaCount
 }
