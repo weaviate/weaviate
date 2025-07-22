@@ -99,6 +99,49 @@ func TestNoWriteIfBloomPresent(t *testing.T) {
 	require.Equal(t, fileTypes[".bloom"], 1)
 }
 
+func TestCnaNoBloomPresent(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	dirName := t.TempDir()
+
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithUseBloomFilter(false), WithWriteMetadata(true), WithCalcCountNetAdditions(true))
+	require.NoError(t, err)
+	require.NoError(t, b.Put([]byte("key"), []byte("value")))
+	require.NoError(t, b.FlushMemtable())
+	fileTypes := countFileTypes(t, dirName)
+	require.Len(t, fileTypes, 2)
+	require.Equal(t, fileTypes[".db"], 1)
+	require.Equal(t, fileTypes[".metadata"], 1)
+
+	require.Equal(t, b.disk.segments[0].getSegment().getCountNetAdditions(), 1)
+	require.NoError(t, b.Shutdown(ctx))
+}
+
+func TestSecondaryBloomNoCna(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	dirName := t.TempDir()
+
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithUseBloomFilter(true), WithWriteMetadata(true), WithCalcCountNetAdditions(false), WithSecondaryIndices(2))
+	require.NoError(t, err)
+	require.NoError(t, b.Put([]byte("key"), []byte("value"), WithSecondaryKey(0, []byte("key0")), WithSecondaryKey(1, []byte("key1"))))
+	require.NoError(t, b.FlushMemtable())
+	fileTypes := countFileTypes(t, dirName)
+	require.Len(t, fileTypes, 2)
+	require.Equal(t, fileTypes[".db"], 1)
+	require.Equal(t, fileTypes[".metadata"], 1)
+
+	require.True(t, b.disk.segments[0].getSegment().secondaryBloomFilters[0].Test([]byte("key0")))
+	require.False(t, b.disk.segments[0].getSegment().secondaryBloomFilters[0].Test([]byte("key1")))
+	require.True(t, b.disk.segments[0].getSegment().secondaryBloomFilters[1].Test([]byte("key1")))
+	require.False(t, b.disk.segments[0].getSegment().secondaryBloomFilters[1].Test([]byte("key0")))
+	require.NoError(t, b.Shutdown(ctx))
+}
+
 func TestCorruptFile(t *testing.T) {
 	dirName := t.TempDir()
 	ctx := context.Background()
