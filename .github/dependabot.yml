@@ -24,12 +24,4 @@ updates:
     schedule:
       interval: "monthly"
     commit-message:
-      prefix: "dependencies(update)"  
-  - package-ecosystem: "docker-compose" 
-    directories:
-      - "/"
-    labels: ["security-update", "dependencies"]
-    schedule:
-      interval: "monthly"
-    commit-message:
       prefix: "dependencies(update)"

@@ -43,7 +43,7 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 
 ###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)
-FROM alpine AS weaviate
+FROM alpine:3.22.1 AS weaviate
 ENTRYPOINT ["/bin/weaviate"]
 COPY --from=server_builder /weaviate-server /bin/weaviate
 RUN mkdir -p /go/pkg/mod/github.com/go-ego
