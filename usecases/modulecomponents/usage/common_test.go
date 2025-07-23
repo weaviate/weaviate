@@ -250,6 +250,7 @@ func TestCollectAndUploadPeriodically_ConfigChangesAndStop(t *testing.T) {
 
 	// Set up expectations
 	mockUsageService.EXPECT().Usage(mock.Anything).Return(&types.Report{Node: "test-node"}, nil).Maybe()
+	mockUsageService.EXPECT().SetJitterInterval(mock.Anything).Return().Maybe()
 	mockStorage.EXPECT().UploadUsageData(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockStorage.EXPECT().UpdateConfig(mock.Anything).Return(true, nil).Maybe()
 

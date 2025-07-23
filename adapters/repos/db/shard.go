@@ -145,7 +145,6 @@ type ShardLike interface {
 	// Dimensions returns the total number of dimensions for a given vector
 	Dimensions(ctx context.Context, targetVector string) (int, error)
 	// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
-	// TODO: rename to DimensionsUsage struct and find a better way because of import cycle
 	DimensionsUsage(ctx context.Context, targetVector string) (usagetypes.Dimensionality, error)
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
 

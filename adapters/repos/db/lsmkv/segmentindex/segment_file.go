@@ -169,17 +169,17 @@ func (f *SegmentFile) WriteHeader(header *Header) (int64, error) {
 
 // WriteIndexes writes the indexes struct to the underlying writer.
 // This method uses the written data to further calculate the checksum.
-func (f *SegmentFile) WriteIndexes(indexes *Indexes) (int64, error) {
+func (f *SegmentFile) WriteIndexes(indexes *Indexes, expectedSize int64) (int64, error) {
 	if f.writer == nil {
 		return 0, fmt.Errorf(" SegmentFile not initialized with a reader, " +
 			"try adding one with segmentindex.WithBufferedWriter(*bufio.Writer)")
 	}
 
 	if f.checksumsDisabled {
-		return indexes.WriteTo(f.writer)
+		return indexes.WriteTo(f.writer, uint64(expectedSize))
 	}
 
-	n, err := indexes.WriteTo(f.checksumWriter)
+	n, err := indexes.WriteTo(f.checksumWriter, uint64(expectedSize))
 	if err != nil {
 		return n, fmt.Errorf("write segment file indexes: %w", err)
 	}
