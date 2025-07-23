@@ -14,11 +14,13 @@ package hnsw
 import "github.com/weaviate/weaviate/entities/vectorindex/common"
 
 const (
-	DefaultBQEnabled = false
+	DefaultBQEnabled      = false
+	DefaultBQRescoreLimit = 512
 )
 
 type BQConfig struct {
-	Enabled bool `json:"enabled"`
+	Enabled      bool `json:"enabled"`
+	RescoreLimit int  `json:"rescoreLimit"`
 }
 
 func parseBQMap(in map[string]interface{}, bq *BQConfig) error {
@@ -36,6 +38,18 @@ func parseBQMap(in map[string]interface{}, bq *BQConfig) error {
 		bq.Enabled = v
 	}); err != nil {
 		return err
+	}
+
+	if rescoreLimit, ok := bqConfigMap["rescoreLimit"]; ok {
+		if v, ok := rescoreLimit.(int); ok {
+			bq.RescoreLimit = v
+		} else if v, ok := rescoreLimit.(float64); ok {
+			bq.RescoreLimit = int(v)
+		} else {
+			bq.RescoreLimit = DefaultBQRescoreLimit
+		}
+	} else {
+		bq.RescoreLimit = DefaultBQRescoreLimit
 	}
 
 	return nil

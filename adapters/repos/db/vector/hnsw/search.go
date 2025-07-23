@@ -159,11 +159,11 @@ func (h *hnsw) SearchByMultiVectorDistance(ctx context.Context, vector [][]float
 
 func (h *hnsw) shouldRescore() bool {
 	if h.compressed.Load() {
-		if (h.sqConfig.Enabled && h.sqConfig.RescoreLimit == 0) || (h.rqConfig.Enabled && h.rqConfig.RescoreLimit == 0) {
-			return false
+		if h.rescoreLimit() > 0 {
+			return true
 		}
 	}
-	return h.compressed.Load() && !h.doNotRescore
+	return false
 }
 
 func (h *hnsw) cacheSize() int64 {
@@ -1010,17 +1010,31 @@ func (h *hnsw) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVe
 	return common.QueryVectorDistancer{DistanceFunc: f}
 }
 
+func (h *hnsw) rescoreLimit() int {
+	if h.sqConfig.Enabled {
+		return h.sqConfig.RescoreLimit
+	} else if h.rqConfig.Enabled {
+		return h.rqConfig.RescoreLimit
+	} else if h.pqConfig.Enabled {
+		return h.pqConfig.RescoreLimit
+	} else if h.bqConfig.Enabled {
+		return h.bqConfig.RescoreLimit
+	} else {
+		return 0
+	}
+}
+
 func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int, compressorDistancer compressionhelpers.CompressorDistancer) error {
-	if h.sqConfig.Enabled && h.sqConfig.RescoreLimit >= k {
-		for res.Len() > h.sqConfig.RescoreLimit {
+
+	// Determine the rescore limit
+	rescoreLimit := h.rescoreLimit()
+
+	if rescoreLimit >= k {
+		for res.Len() > rescoreLimit {
 			res.Pop()
 		}
 	}
-	if h.rqConfig.Enabled && h.rqConfig.RescoreLimit >= k {
-		for res.Len() > h.rqConfig.RescoreLimit {
-			res.Pop()
-		}
-	}
+
 	ids := make([]uint64, res.Len())
 	i := len(ids) - 1
 	for res.Len() > 0 {
