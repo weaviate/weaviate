@@ -93,5 +93,7 @@ func (s *segmentCursorCollection) parseCollectionNode(offset nodeOffset) (segmen
 		return segmentCollectionNode{}, err
 	}
 
+	defer r.Release()
+
 	return ParseCollectionNode(r)
 }

@@ -250,6 +250,7 @@ func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentRepla
 	if err != nil {
 		return segmentReplaceNode{}, err
 	}
+	defer r.Release()
 	out, err := ParseReplaceNode(r, s.segment.secondaryIndexCount)
 	if out.tombstone {
 		return out, lsmkv.Deleted
@@ -263,6 +264,7 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byt
 	}
 
 	r, err := s.segment.newNodeReader(offset, "segmentCursorReplace")
+	defer r.Release()
 	if err != nil {
 		return err
 	}
