@@ -196,15 +196,9 @@ func (sl *ShardedRWLocks) RLocked(id uint64, callback func()) {
 }
 
 // HashedLocks provides fine-grained in-memory locking by mapping keys to a fixed pool of mutexes using a high-entropy hash.
-// It trades some raw speed for stronger key distribution guarantees under biased or adversarial input patterns.
-// Compared to naive modulo-based sharding, HashedLocks reduces contention under sequential or clustered key patterns.
+// It trades some raw speed for stronger key distribution guarantees.
+// Compared to modulo-based sharding, HashedLocks reduces contention under sequential or clustered key patterns.
 // It uses multiplicative hashing with bit rotation and perturbation to evenly spread lock acquisition across the pool.
-//
-// This approach ensures:
-// - Low collision rates even with sequential or biased input keys
-// - Predictable and deterministic lock mapping
-// - Fast key-to-lock resolution using only arithmetic and bitwise operations
-//
 // The lock pool size must be a power of two to enable efficient masking. Use 32k shards for maximum distribution or 512 for lower memory use.
 type HashedLocks struct {
 	// sharded locks
