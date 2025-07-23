@@ -63,11 +63,6 @@ func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
 ) {
 	localDir := path.Join(dirName, n.name)
 	logger, _ := test.NewNullLogger()
-
-	var names []string
-	for _, node := range *allNodes {
-		names = append(names, node.name)
-	}
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return(n.name).Maybe()
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).RunAndReturn(func(nodeName string) (string, bool) {
