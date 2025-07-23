@@ -99,7 +99,6 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(bufw),
 		segmentindex.WithChecksumsDisabled(!m.enableChecksumValidation),
-		segmentindex.WithHeaderSize(segmentindex.HeaderSize),
 	)
 
 	var keys []segmentindex.Key

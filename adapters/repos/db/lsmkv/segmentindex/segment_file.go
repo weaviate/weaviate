@@ -67,7 +67,6 @@ type SegmentFile struct {
 	// when it is later re-written
 	writtenTo         bool
 	checksumsDisabled bool
-	headerSize        int64
 }
 
 type SegmentFileOption func(*SegmentFile)
@@ -90,12 +89,6 @@ func WithReader(reader io.Reader) SegmentFileOption {
 	}
 }
 
-func WithHeaderSize(size int64) SegmentFileOption {
-	return func(segmentFile *SegmentFile) {
-		segmentFile.headerSize = size
-	}
-}
-
 // WithChecksumsDisabled configures the segment file
 // to be written without checksums
 func WithChecksumsDisabled(disable bool) SegmentFileOption {
@@ -109,7 +102,6 @@ func WithChecksumsDisabled(disable bool) SegmentFileOption {
 func NewSegmentFile(opts ...SegmentFileOption) *SegmentFile {
 	s := &SegmentFile{
 		checksumsDisabled: true,
-		headerSize:        HeaderSize,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -270,7 +262,7 @@ func (f *SegmentFile) WriteChecksum() (int64, error) {
 }
 
 // ValidateChecksum determines if a segment's content matches its checksum
-func (f *SegmentFile) ValidateChecksum(size int64) error {
+func (f *SegmentFile) ValidateChecksum(size, headerSize int64) error {
 	start := time.Now()
 	read := 0
 
@@ -290,7 +282,7 @@ func (f *SegmentFile) ValidateChecksum(size int64) error {
 
 	f.checksumReader = integrity.NewCRC32Reader(f.reader)
 
-	header := make([]byte, f.headerSize)
+	header := make([]byte, headerSize)
 	n, err := f.reader.Read(header[:])
 	if err != nil {
 		return fmt.Errorf("read segment file header: %w", err)
@@ -299,7 +291,7 @@ func (f *SegmentFile) ValidateChecksum(size int64) error {
 
 	var (
 		buffer    = make([]byte, 4096) // Buffer for chunked reads
-		dataSize  = size - f.headerSize - ChecksumSize
+		dataSize  = size - headerSize - ChecksumSize
 		remaining = dataSize
 	)
 
@@ -326,7 +318,7 @@ func (f *SegmentFile) ValidateChecksum(size int64) error {
 	read += n
 
 	f.reader.Reset(bytes.NewReader(header[:]))
-	n, err = f.checksumReader.Read(make([]byte, f.headerSize))
+	n, err = f.checksumReader.Read(make([]byte, headerSize))
 	if err != nil {
 		return fmt.Errorf("add header to checksum: %w", err)
 	}

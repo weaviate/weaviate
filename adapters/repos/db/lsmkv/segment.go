@@ -243,8 +243,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		if header.Strategy == segmentindex.StrategyInverted {
 			headerSize += int64(segmentindex.HeaderInvertedSize)
 		}
-		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file), segmentindex.WithHeaderSize(headerSize))
-		if err := segmentFile.ValidateChecksum(size); err != nil {
+		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
+		if err := segmentFile.ValidateChecksum(size, headerSize); err != nil {
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)
 		}
 	}
