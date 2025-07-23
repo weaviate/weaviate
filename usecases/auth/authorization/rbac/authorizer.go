@@ -57,7 +57,7 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 	}
 	permResults := make([]logrus.Fields, 0, len(resourceCounts))
 
-	for resource, count := range resourceCounts {
+	for resource := range resourceCounts {
 		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
@@ -75,7 +75,6 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 			permResults = append(permResults, logrus.Fields{
 				"resource": prettyPermissionsResources(perm),
 				"results":  prettyStatus(allowed),
-				"count":    count,
 			})
 		}
 
@@ -138,7 +137,7 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 
 	permResults := make([]logrus.Fields, 0, len(resourceCounts))
 
-	for resource, count := range resourceCounts {
+	for resource := range resourceCounts {
 		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
 			logger.WithError(err).WithField("resource", resource).Error("failed to enforce policy")
@@ -154,7 +153,6 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 			permResults = append(permResults, logrus.Fields{
 				"resource": prettyPermissionsResources(perm),
 				"results":  prettyStatus(allowed),
-				"count":    count,
 			})
 			allowedResources = append(allowedResources, resource)
 		}
