@@ -343,7 +343,8 @@ func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildO
 	orderedReplicas := sort(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
 
 	plan := types.ReadRoutingPlan{
-		Shard: params.Shard,
+		Shard:  params.Shard,
+		Tenant: params.Tenant,
 		ReplicaSet: types.ReadReplicaSet{
 			Replicas: orderedReplicas,
 		},
@@ -381,7 +382,8 @@ func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuild
 	sortedWriteReplicas := sort(writeReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
 
 	plan := types.WriteRoutingPlan{
-		Shard: params.Shard,
+		Shard:  params.Shard,
+		Tenant: params.Tenant,
 		ReplicaSet: types.WriteReplicaSet{
 			Replicas:           sortedWriteReplicas,
 			AdditionalReplicas: writeReplicas.AdditionalReplicas,
@@ -530,7 +532,8 @@ func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildO
 	orderedReplicas := sort(writeReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
 
 	plan := types.WriteRoutingPlan{
-		Shard: params.Shard,
+		Shard:  params.Shard,
+		Tenant: params.Tenant,
 		ReplicaSet: types.WriteReplicaSet{
 			Replicas:           orderedReplicas,
 			AdditionalReplicas: writeReplicas.AdditionalReplicas,
@@ -572,7 +575,8 @@ func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOp
 	orderedReplicas := sort(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
 
 	return types.ReadRoutingPlan{
-		Shard: params.Shard,
+		Shard:  params.Shard,
+		Tenant: params.Tenant,
 		ReplicaSet: types.ReadReplicaSet{
 			Replicas: orderedReplicas,
 		},
