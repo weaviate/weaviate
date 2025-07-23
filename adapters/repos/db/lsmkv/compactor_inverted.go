@@ -84,7 +84,7 @@ func newCompactorInverted(w io.WriteSeeker,
 ) *compactorInverted {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
-		"strategy":  StrategyMapCollection,
+		"strategy":  StrategyInverted,
 	})
 	writeCB := func(written int64) {
 		observeWrite.Observe(float64(written))
@@ -412,7 +412,7 @@ func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {
 		AllocChecker: c.allocChecker,
 	}
 
-	_, err := indices.WriteTo(c.bufw, uint64(c.maxNewFileSize))
+	_, err := indices.WriteTo(c.segmentFile.BodyWriter(), uint64(c.maxNewFileSize))
 	return err
 }
 
