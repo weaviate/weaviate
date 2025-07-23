@@ -22,6 +22,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -492,11 +493,11 @@ func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string
 	defer bucket.Shutdown(ctx)
 
 
-	dimensions, count := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v int64) (int64, int64) {
+	dimensions, count, err := sumByVectorType(ctx, bucket,  l.Index().GetVectorIndexConfigs(), targetVector, func(dimLen int, v int64) (int64, int64) {
 		return v, int64(dimLen)
 	})
 
-	return dimensions, count, nil
+	return dimensions, count, err
 }
 
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int64, error) {
@@ -817,5 +818,39 @@ func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) (int64, error) {
 
 	// For unloaded shards, use the existing cold tenant calculation method
 	// This avoids complex disk file calculations and uses the same logic as the index
-	return l.shardOpts.index.CalculateUnloadedVectorsMetrics(ctx, l.shardOpts.name)
+	totalSize := int64(0)
+
+	// For each target vector, calculate storage size using dimensions bucket and config-based compression
+	for targetVector, config := range l.Index().GetVectorIndexConfigs() {
+		// Get dimensions and object count from the dimensions bucket
+		bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
+			shardPathDimensionsLSM( l.Index().path(), l.shard.tenant()),
+			l.Index().path(),
+			l.Index().logger,
+			nil,
+			cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(),
+		)
+		if err != nil {
+			return 0, err
+		}
+
+		dimensions, count := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v int64) (int64, int64) {
+			return v, int64(dimLen)
+		})
+		bucket.Shutdown(ctx)
+
+		if count == 0 || dimensions == 0 {
+			continue
+		}
+
+		// Calculate uncompressed size (float32 = 4 bytes per dimension)
+		uncompressedSize := int64(count) * int64(dimensions) * 4
+
+		// For inactive tenants, use vector index config for dimension tracking
+		// This is similar to the original shard dimension tracking approach
+		totalSize += int64(float64(uncompressedSize) * helpers.CompressionRatioFromConfig(config, dimensions))
+	}
+
+	return totalSize, nil
 }

@@ -45,7 +45,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -3018,48 +3017,23 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName
 
 // CalculateUnloadedVectorsMetrics calculates vector storage size for a cold tenant without loading it into memory
 func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) (int64, error) {
-	// Obtain a lock that prevents tenant activation
-	i.shardCreateLocks.Lock(tenantName)
-	defer i.shardCreateLocks.Unlock(tenantName)
-
-	// check if created in the meantime by concurrent call
-	if shard := i.shards.Loaded(tenantName); shard != nil {
+	i.LoadLocalShard(ctx, tenantName, true)
+	if shard, releaseShard, err := i.GetShard(ctx, tenantName); shard != nil {
+		defer releaseShard()
 		return shard.VectorStorageSize(ctx)
-	}
-
-	totalSize := int64(0)
-
-	// For each target vector, calculate storage size using dimensions bucket and config-based compression
-	for targetVector, config := range i.GetVectorIndexConfigs() {
-		// Get dimensions and object count from the dimensions bucket
-		bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
-			shardPathDimensionsLSM(i.path(), tenantName),
-			i.path(),
-			i.logger,
-			nil,
-			cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(),
-		)
+	} else {
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("get shard %q: %w", tenantName, err)
 		}
-
-		dimensions, count := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v int64) (int64, int64) {
-			return v, int64(dimLen)
-		})
-		bucket.Shutdown(ctx)
-
-		if count == 0 || dimensions == 0 {
-			continue
-		}
-
-		// Calculate uncompressed size (float32 = 4 bytes per dimension)
-		uncompressedSize := int64(count) * int64(dimensions) * 4
-
-		// For inactive tenants, use vector index config for dimension tracking
-		// This is similar to the original shard dimension tracking approach
-		totalSize += int64(float64(uncompressedSize) * helpers.CompressionRatioFromConfig(config, dimensions))
 	}
+	var sharList []string
+	// Check shard list for the tenant
+	i.shards.Range(func(name string, shard ShardLike) error {
+		sharList = append(sharList, name)
+		return nil // continue iterating
+	})
 
-	return totalSize, nil
+	return 0, fmt.Errorf("shard %q not found or unable to access for vectors metrics, known shards: %v", tenantName, sharList)
+
+
 }

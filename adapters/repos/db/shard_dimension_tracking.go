@@ -54,16 +54,12 @@ func (c DimensionCategory) String() string {
 	}
 }
 
-func (s *Shard) sumByVectorType(ctx context.Context, targetVectorType string, f func(dimLength int, v int64) (int64, int64)) (int64, int64, error) {
-	//Iterate over all vectors in the dimensions bucket and calculate the total dimensions and object count for a given type
-	if s.store == nil {
-		return 0, 0, fmt.Errorf("dimensions bucket not initialized for shard %q", s.ID())
-	}
-	if s.store.Bucket(helpers.DimensionsBucketLSM) == nil {
-		return 0, 0, fmt.Errorf("dimensions bucket not found for shard %q", s.ID())
+func sumByVectorType(ctx context.Context, bucket *lsmkv.Bucket, configs map[string]schemaConfig.VectorIndexConfig,targetVectorType string, f func(dimLength int, v int64) (int64, int64)) (int64, int64, error) {
+
+	if bucket == nil {
+		return 0, 0, fmt.Errorf("dimensions bucket not found for dimensions sum by vector type %s", targetVectorType)
 	}
 	var (
-		configs       = s.index.GetVectorIndexConfigs()
 		sumDimensions = int64(0)
 		sumCount      = int64(0)
 	)
@@ -73,7 +69,7 @@ func (s *Shard) sumByVectorType(ctx context.Context, targetVectorType string, f 
 		if targetVectorType != "" && vectorType != targetVectorType {
 			continue
 		}
-		dims, count := calcTargetVectorDimensionsFromStore(ctx, s.store, vecName, f)
+		dims, count := calcTargetVectorDimensionsFromBucket(ctx, bucket, vecName, f)
 		sumDimensions += dims
 		sumCount += count
 	}
@@ -81,15 +77,16 @@ func (s *Shard) sumByVectorType(ctx context.Context, targetVectorType string, f 
 }
 
 // DimensionsUsage returns the total number of dimensions and the number of objects for a given vector type
-func (s *Shard) DimensionsUsage(ctx context.Context, targetVectorType string) (int64, int64, error) {
-	return s.sumByVectorType(ctx, targetVectorType, func(dimLength int, v int64) (int64, int64) {
+func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, error) {
+	dims, count := calcTargetVectorDimensionsFromBucket(ctx, s.store.Bucket(helpers.DimensionsBucketLSM), targetVector,  func(dimLength int, v int64) (int64, int64) {
 			return v, int64(dimLength)
 		})
+	return dims, count, nil
 }
 
 // Dimensions returns the total number of dimensions for a given vector type
 func (s *Shard) Dimensions(ctx context.Context, targetVectorType string) (int64, error) {
-	dims, count, err := s.sumByVectorType(ctx, targetVectorType, func(dimLength int, v int64) (int64, int64) {
+	dims, count, err := sumByVectorType(ctx, s.store.Bucket(helpers.DimensionsBucketLSM), s.index.GetVectorIndexConfigs(), targetVectorType, func(dimLength int, v int64) (int64, int64) {
 		return v, int64(dimLength)
 	})
 
@@ -97,7 +94,7 @@ func (s *Shard) Dimensions(ctx context.Context, targetVectorType string) (int64,
 }
 
 func (s *Shard) QuantizedDimensions(ctx context.Context, targetVectorType string, segments int64) int64 {
-	dims, count, _ := s.sumByVectorType(ctx, targetVectorType, func(dimLength int, v int64) (int64, int64) {
+	dims, count, _ := sumByVectorType(ctx,s.store.Bucket(helpers.DimensionsBucketLSM), s.index.GetVectorIndexConfigs(),  targetVectorType, func(dimLength int, v int64) (int64, int64) {
 		return v, int64(dimLength)
 	})
 
