@@ -98,7 +98,15 @@ func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
 	replicaClient := clients.NewReplicationClient(&http.Client{})
 	mockSchemaReader := types.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return(names, nil).Maybe()
+	mockSchemaReader.EXPECT().
+		ShardReplicas(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ string, shard string) ([]string, error) {
+			phys, ok := shardState.Physical[shard]
+			if !ok {
+				return nil, fmt.Errorf("shard %q not found", shard)
+			}
+			return phys.BelongsToNodes, nil
+		}).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return(names).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return(names, nil).Maybe()
