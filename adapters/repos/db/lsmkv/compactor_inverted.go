@@ -72,14 +72,15 @@ type compactorInverted struct {
 
 	enableChecksumValidation bool
 
-	segmentFile *segmentindex.SegmentFile
-	maxNewFileSize    int64
+	segmentFile    *segmentindex.SegmentFile
+	maxNewFileSize int64
 }
 
 func newCompactorInverted(w io.WriteSeeker,
 	c1, c2 *segmentCursorInvertedReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
-	k1, b, avgPropLen float64, maxNewFileSize int64, allocChecker memwatch.AllocChecker, enableChecksumValidation bool
+	k1, b, avgPropLen float64, maxNewFileSize int64,
+	allocChecker memwatch.AllocChecker, enableChecksumValidation bool,
 ) *compactorInverted {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
@@ -410,7 +411,6 @@ func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {
 		}),
 		AllocChecker: c.allocChecker,
 	}
-
 
 	_, err := indices.WriteTo(c.bufw, uint64(c.maxNewFileSize))
 	return err

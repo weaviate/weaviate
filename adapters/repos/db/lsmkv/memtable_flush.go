@@ -153,8 +153,9 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 		}
 
 		if _, err := segmentFile.WriteIndexes(indexes, int64(m.size)); err != nil {
-				return "", err
+			return "", err
 		}
+	}
 
 	if _, err := segmentFile.WriteChecksum(); err != nil {
 		return "", err
