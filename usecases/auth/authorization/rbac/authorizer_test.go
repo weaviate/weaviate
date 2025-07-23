@@ -18,8 +18,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/weaviate/weaviate/usecases/config"
-
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -30,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	authzErrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestAuthorize(t *testing.T) {
@@ -468,6 +467,257 @@ func TestFilterAuthorizedResourcesLogging(t *testing.T) {
 	// Verify the final result matches the logged permissions
 	assert.ElementsMatch(t, testResources, allowedResources,
 		"Allowed resources should match input resources")
+}
+
+func TestAuthorizeResourceAggregation(t *testing.T) {
+	tests := []struct {
+		name          string
+		principal     *models.Principal
+		verb          string
+		resources     []string
+		setupPolicies func(*Manager) error
+		expectedLogs  map[string]int // resource -> expected count
+	}{
+		{
+			name: "aggregates duplicate resources with count",
+			principal: &models.Principal{
+				Username: "admin-user",
+				Groups:   []string{"admin-group"},
+				UserType: models.UserTypeInputDb,
+			},
+			verb: authorization.READ,
+			resources: []string{
+				"data/collections/ContactRecommendations/shards/*/objects/*",
+				"data/collections/ContactRecommendations/shards/*/objects/*",
+				"data/collections/ContactRecommendations/shards/*/objects/*",
+				"data/collections/ContactRecommendations/shards/*/objects/*",
+				"data/collections/ContactRecommendations/shards/*/objects/*",
+			},
+			setupPolicies: func(m *Manager) error {
+				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.DataDomain)
+				if err != nil {
+					return err
+				}
+				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("admin-user", models.UserTypeInputDb),
+					conv.PrefixRoleName("admin"))
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return fmt.Errorf("failed to add role for user")
+				}
+				return nil
+			},
+			expectedLogs: map[string]int{
+				"[Domain: data, Collection: ContactRecommendations, Tenant: *, Object: *]": 5,
+			},
+		},
+		{
+			name: "aggregates multiple different resources",
+			principal: &models.Principal{
+				Username: "admin-user",
+				Groups:   []string{"admin-group"},
+				UserType: models.UserTypeInputDb,
+			},
+			verb: authorization.READ,
+			resources: []string{
+				"data/collections/ContactRecommendations/shards/*/objects/*",
+				"data/collections/ContactRecommendations/shards/*/objects/*",
+				"data/collections/UserProfile/shards/*/objects/*",
+				"data/collections/UserProfile/shards/*/objects/*",
+				"data/collections/UserProfile/shards/*/objects/*",
+				"data/collections/ProductCatalog/shards/*/objects/*",
+			},
+			setupPolicies: func(m *Manager) error {
+				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.DataDomain)
+				if err != nil {
+					return err
+				}
+				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("admin-user", models.UserTypeInputDb),
+					conv.PrefixRoleName("admin"))
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return fmt.Errorf("failed to add role for user")
+				}
+				return nil
+			},
+			expectedLogs: map[string]int{
+				"[Domain: data, Collection: ContactRecommendations, Tenant: *, Object: *]": 2,
+				"[Domain: data, Collection: UserProfile, Tenant: *, Object: *]":            3,
+				"[Domain: data, Collection: ProductCatalog, Tenant: *, Object: *]":         1,
+			},
+		},
+		{
+			name: "handles single resource without aggregation",
+			principal: &models.Principal{
+				Username: "admin-user",
+				Groups:   []string{"admin-group"},
+				UserType: models.UserTypeInputDb,
+			},
+			verb: authorization.READ,
+			resources: []string{
+				"data/collections/ContactRecommendations/shards/*/objects/*",
+			},
+			setupPolicies: func(m *Manager) error {
+				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.DataDomain)
+				if err != nil {
+					return err
+				}
+				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("admin-user", models.UserTypeInputDb),
+					conv.PrefixRoleName("admin"))
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return fmt.Errorf("failed to add role for user")
+				}
+				return nil
+			},
+			expectedLogs: map[string]int{
+				"[Domain: data, Collection: ContactRecommendations, Tenant: *, Object: *]": 1,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup logger with hook for testing
+			logger := logrus.New()
+			logger.SetLevel(logrus.InfoLevel)
+
+			// Create a hook to capture log entries
+			hook := &test.Hook{}
+			logger.AddHook(hook)
+			m, err := setupTestManager(t, logger)
+			require.NoError(t, err)
+
+			// Setup policies if needed
+			if tt.setupPolicies != nil {
+				err := tt.setupPolicies(m)
+				require.NoError(t, err)
+			}
+
+			// Execute
+			err = m.authorize(context.Background(), tt.principal, tt.verb, false, tt.resources...)
+			require.NoError(t, err)
+
+			// Verify logging behavior
+			require.NotEmpty(t, hook.AllEntries())
+			lastEntry := hook.LastEntry()
+			require.NotNil(t, lastEntry)
+
+			// Verify log fields
+			assert.Equal(t, "authorize", lastEntry.Data["action"])
+			assert.Equal(t, tt.principal.Username, lastEntry.Data["user"])
+			assert.Equal(t, authorization.ComponentName, lastEntry.Data["component"])
+			assert.Equal(t, tt.verb, lastEntry.Data["request_action"])
+
+			// Verify permissions field exists
+			permissions, ok := lastEntry.Data["permissions"].([]logrus.Fields)
+			require.True(t, ok, "permissions field should be present")
+
+			// Verify aggregation
+			assert.Len(t, permissions, len(tt.expectedLogs), "number of logged permissions should match expected")
+
+			// Create a map of actual logged resources and counts
+			actualLogs := make(map[string]int)
+			for _, perm := range permissions {
+				resource, ok := perm["resource"].(string)
+				require.True(t, ok, "resource should be a string")
+				count, ok := perm["count"].(int)
+				require.True(t, ok, "count should be an int")
+				actualLogs[resource] = count
+			}
+
+			// Verify expected resources and counts
+			for expectedResource, expectedCount := range tt.expectedLogs {
+				actualCount, exists := actualLogs[expectedResource]
+				assert.True(t, exists, "expected resource %s should be present in logs", expectedResource)
+				assert.Equal(t, expectedCount, actualCount, "count for resource %s should match expected", expectedResource)
+			}
+
+			// Verify no unexpected resources
+			for actualResource := range actualLogs {
+				_, exists := tt.expectedLogs[actualResource]
+				assert.True(t, exists, "unexpected resource %s found in logs", actualResource)
+			}
+		})
+	}
+}
+
+func TestAuthorizeResourceAggregationExample(t *testing.T) {
+	// Setup proper logger with hook for testing
+	logger := logrus.New()
+	logger.SetLevel(logrus.InfoLevel)
+
+	// Create a hook to capture log entries
+	hook := &test.Hook{}
+	logger.AddHook(hook)
+
+	m, err := setupTestManager(t, logger)
+	require.NoError(t, err)
+
+	// Setup admin policy
+	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.DataDomain)
+	require.NoError(t, err)
+	ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("admin-user", models.UserTypeInputDb),
+		conv.PrefixRoleName("admin"))
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	principal := &models.Principal{
+		Username: "admin-user",
+		Groups:   []string{"admin-group"},
+		UserType: models.UserTypeInputDb,
+	}
+
+	// Test with 1000 duplicate resources (simulating the original issue)
+	resources := make([]string, 1000)
+	for i := 0; i < 1000; i++ {
+		resources[i] = "data/collections/ContactRecommendations/shards/*/objects/*"
+	}
+
+	// Execute authorization
+	err = m.authorize(context.Background(), principal, authorization.READ, false, resources...)
+	require.NoError(t, err)
+
+	// Verify logging behavior
+	require.NotEmpty(t, hook.AllEntries())
+	lastEntry := hook.LastEntry()
+	require.NotNil(t, lastEntry)
+
+	// Verify log fields
+	assert.Equal(t, "authorize", lastEntry.Data["action"])
+	assert.Equal(t, "admin-user", lastEntry.Data["user"])
+	assert.Equal(t, authorization.ComponentName, lastEntry.Data["component"])
+	assert.Equal(t, authorization.READ, lastEntry.Data["request_action"])
+
+	// Verify permissions field exists
+	permissions, ok := lastEntry.Data["permissions"].([]logrus.Fields)
+	require.True(t, ok, "permissions field should be present")
+
+	// Verify aggregation - should only have 1 entry instead of 1000
+	assert.Len(t, permissions, 1, "should aggregate 1000 duplicate resources into 1 entry")
+
+	// Verify the single entry has the correct resource and count
+	require.Len(t, permissions, 1)
+	perm := permissions[0]
+
+	resource, ok := perm["resource"].(string)
+	require.True(t, ok, "resource should be a string")
+	assert.Equal(t, "[Domain: data, Collection: ContactRecommendations, Tenant: *, Object: *]", resource)
+
+	count, ok := perm["count"].(int)
+	require.True(t, ok, "count should be an int")
+	assert.Equal(t, 1000, count, "count should be 1000 for the aggregated resources")
+
+	results, ok := perm["results"].(string)
+	require.True(t, ok, "results should be a string")
+	assert.Equal(t, "success", results)
+
+	t.Logf("Successfully aggregated 1000 duplicate resources into 1 log entry with count: %d", count)
 }
 
 func setupTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {
