@@ -54,35 +54,57 @@ func (c DimensionCategory) String() string {
 	}
 }
 
+func (s *Shard) sumByVectorType(ctx context.Context, targetVectorType string, f func(dimLength int, v int64) (int64, int64)) (int64, int64, error) {
+	//Iterate over all vectors in the dimensions bucket and calculate the total dimensions and object count for a given type
+	if s.store == nil {
+		return 0, 0, fmt.Errorf("dimensions bucket not initialized for shard %q", s.ID())
+	}
+	if s.store.Bucket(helpers.DimensionsBucketLSM) == nil {
+		return 0, 0, fmt.Errorf("dimensions bucket not found for shard %q", s.ID())
+	}
+	var (
+		configs       = s.index.GetVectorIndexConfigs()
+		sumDimensions = int64(0)
+		sumCount      = int64(0)
+	)
+
+	for vecName, config := range configs {
+		vectorType := GetDimensionCategoryStr(config)
+		if targetVectorType != "" && vectorType != targetVectorType {
+			continue
+		}
+		dims, count := calcTargetVectorDimensionsFromStore(ctx, s.store, vecName, f)
+		sumDimensions += dims
+		sumCount += count
+	}
+	return sumDimensions, sumCount, nil
+}
+
 // DimensionsUsage returns the total number of dimensions and the number of objects for a given vector type
 func (s *Shard) DimensionsUsage(ctx context.Context, targetVectorType string) (int64, int64, error) {
-	dims, count := calcTargetVectorDimensionsFromStore(ctx, s.store,targetVectorType, func(dimLength int, v int64) (int64, int64) {
-		return v, int64(dimLength)
-	})
-	return  dims, count, nil
+	return s.sumByVectorType(ctx, targetVectorType, func(dimLength int, v int64) (int64, int64) {
+			return v, int64(dimLength)
+		})
 }
 
 // Dimensions returns the total number of dimensions for a given vector type
 func (s *Shard) Dimensions(ctx context.Context, targetVectorType string) (int64, error) {
-	dims, count := calcTargetVectorDimensionsFromStore(ctx, s.store, targetVectorType, func(dimLength int, v int64) (int64, int64) {
-		return  v, int64(dimLength)
-	})
-
-	return dims*count, nil
-}
-
-func (s *Shard) QuantizedDimensions(ctx context.Context, targetVectorType string, segments int64) int64 {
-	dims, _ := calcTargetVectorDimensionsFromStore(ctx, s.store,targetVectorType, func(dimLength int, v int64) (int64, int64) {
+	dims, count, err := s.sumByVectorType(ctx, targetVectorType, func(dimLength int, v int64) (int64, int64) {
 		return v, int64(dimLength)
 	})
 
-
-	return dims * correctEmptySegments(int(segments), dims)
+	return dims * count, err
 }
 
+func (s *Shard) QuantizedDimensions(ctx context.Context, targetVectorType string, segments int64) int64 {
+	dims, count, _ := s.sumByVectorType(ctx, targetVectorType, func(dimLength int, v int64) (int64, int64) {
+		return v, int64(dimLength)
+	})
 
+	return count * correctEmptySegments(int(segments), dims)
+}
 
-// calcTargetVectorDimensionsFromStore calculates dimensions and object count for a target vector from an LSMKV store
+// calcTargetVectorDimensionsFromStore sums dimensions and object count for a target vector from an LSMKV store
 func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store, targetVector string, calcEntry func(dimLen int, v int64) (int64, int64)) (int64, int64) {
 	b := store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
@@ -91,23 +113,23 @@ func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store
 	return calcTargetVectorDimensionsFromBucket(ctx, b, targetVector, calcEntry)
 }
 
-// calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
-func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string, calcEntry func(dimLen int, v int64) (int64, int64)) (int64, int64) {
+// calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector type from an LSMKV bucket
+func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, vectorName string, calcEntry func(dimLen int, v int64) (int64, int64)) (int64, int64) {
 
 	c := b.Cursor()
 	defer c.Close()
 
 	var (
-		dimensions     = int64(0)
-		count          = int64(0)
+		dimensions = int64(0)
+		count      = int64(0)
 	)
 
 	for k, vb := c.First(); k != nil; k, vb = c.Next() {
 		vecName := string(k[4:])
-		fmt.Printf("calcTargetVectorDimensionsFromBucket: vecName=%s, targetVector=%s\n", vecName, targetVector)
+		fmt.Printf("calcTargetVectorDimensionsFromBucket: vecName=%s, targetVector=%s\n", vecName, vectorName)
 		// for named vectors we have to additionally check if the key is prefixed with the vector name
 
-		if vecName != targetVector {
+		if vectorName != "" && vecName != vectorName {
 			continue
 		}
 
@@ -119,12 +141,12 @@ func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, 
 			dimensions = dim
 		}
 		count += cnt
-		fmt.Printf("calcTargetVectorDimensionsFromBucket: targetVector=%s, dimLength=%d, dimensions=%d, count=%d\n", targetVector, dimLength, dimensions, count)
+		fmt.Printf("calcTargetVectorDimensionsFromBucket: targetVector=%s, dimLength=%d, dimensions=%d, count=%d\n", vectorName, dimLength, dimensions, count)
 	}
 
+	fmt.Printf("calcTargetVectorDimensionsFromBucket: (finished) targetVector=%s, total dimensions=%d, total count=%d\n", vectorName, dimensions, count)
 	return dimensions, count
 }
-
 
 func (s *Shard) initDimensionTracking() {
 	// do not use the context passed from NewShard, as that one is only meant for
@@ -177,8 +199,8 @@ func (s *Shard) initDimensionTracking() {
 func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 	if s.promMetrics != nil {
 		var (
-			className = s.index.Config.ClassName.String()
-			configs   = s.index.GetVectorIndexConfigs()
+			className     = s.index.Config.ClassName.String()
+			configs       = s.index.GetVectorIndexConfigs()
 			sumSegments   = int64(0)
 			sumDimensions = int64(0)
 		)
@@ -196,9 +218,10 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 		}
 		sendVectorSegmentsMetric(s.promMetrics, className, s.name, sumSegments)
 		sendVectorDimensionsMetric(s.promMetrics, className, s.name, sumDimensions)
+	} else {
+		fmt.Printf("No Prometheus metrics configured, skipping dimension tracking for shard %s\n", s.name) //FIXME
 	}
 }
-
 
 func (s *Shard) calcDimensionsAndSegments(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig) (dims int64, segs int64, err error) {
 	switch category, segments := GetDimensionCategory(vecCfg); category {
@@ -212,7 +235,7 @@ func (s *Shard) calcDimensionsAndSegments(ctx context.Context, vecCfg schemaConf
 		// Roundup is required because BQ packs bits into uint64 blocks - you can't have
 		// a partial uint64 block. Even 1 dimension needs a full 8-byte uint64 block.
 		count, err := s.Dimensions(ctx, "BQ")
-		count = (count +63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
+		count = (count + 63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
 		if err != nil {
 			s.index.logger.WithField("shard", s.name).
 				Errorf("error while getting dimensions for shard %s: %v", s.name, err)
@@ -286,11 +309,10 @@ func (s *Shard) resetDimensionsLSM() error {
 // The metrics are aggregated across all vectors in a shard and published
 // to Prometheus for monitoring and capacity planning.
 
-
 func (s *Shard) calcDimensionMetrics(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig, vecName string) (int64, int64) {
 	switch category, segments := GetDimensionCategory(vecCfg); category {
 	case DimensionCategoryPQ:
-		return  0, s.QuantizedDimensions(ctx, vecName, int64(segments))
+		return 0, s.QuantizedDimensions(ctx, vecName, int64(segments))
 	case DimensionCategoryBQ:
 		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
 		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
@@ -322,7 +344,11 @@ func sendVectorSegmentsMetric(promMetrics *monitoring.PrometheusMetrics,
 	metric, err := promMetrics.VectorSegmentsSum.
 		GetMetricWithLabelValues(className, shardName)
 	if err == nil {
+		fmt.Printf("sendVectorSegmentsMetric: className=%s, shardName=%s, count=%d\n", className, shardName, count)
 		metric.Set(float64(count))
+	} else {
+		fmt.Printf("Error getting metric for VectorSegmentsSum: %v\n", err) //FIXME
+		return
 	}
 }
 
@@ -340,7 +366,12 @@ func sendVectorDimensionsMetric(promMetrics *monitoring.PrometheusMetrics,
 	metric, err := promMetrics.VectorDimensionsSum.
 		GetMetricWithLabelValues(className, shardName)
 	if err == nil {
+		fmt.Printf("sendVectorDimensionsMetric: className=%s, shardName=%s, count=%d\n", className, shardName, count)
 		metric.Set(float64(count))
+	} else {
+		fmt.Printf("Error getting metric for VectorDimensionsSum: %v\n", err) //FIXME
+
+		return
 	}
 }
 
@@ -362,6 +393,21 @@ func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory
 		}
 	}
 	return DimensionCategoryStandard, 0
+}
+
+func GetDimensionCategoryStr(cfg schemaConfig.VectorIndexConfig) string {
+	switch category, _ := GetDimensionCategory(cfg); category {
+	case DimensionCategoryPQ:
+		return "PQ"
+	case DimensionCategoryBQ:
+		return "BQ"
+	case DimensionCategorySQ:
+		return "SQ"
+	case DimensionCategoryRQ:
+		return "RQ"
+	default:
+		return "NN"
+	}
 }
 
 func correctEmptySegments(segments int, dimensions int64) int64 {

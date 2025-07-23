@@ -327,6 +327,8 @@ func (s *Shard) addToDimensionBucket(
 	} else {
 		count = count + 1
 	}
+
+	fmt.Printf("add dimension bucket: key %s, count %d\n", string(vecName), count)
 	binary.LittleEndian.PutUint64(countbuff, count)
 	if err := b.Put(keybuff, countbuff); err != nil {
 		return errors.Wrapf(err, "add dimension bucket: set key %s", string(countbuff))
