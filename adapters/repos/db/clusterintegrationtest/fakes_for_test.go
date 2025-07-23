@@ -100,16 +100,32 @@ func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
 	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
 	mockSchemaReader.EXPECT().
 		ShardReplicas(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ string, shard string) ([]string, error) {
+		RunAndReturn(func(class string, shard string) ([]string, error) {
 			phys, ok := shardState.Physical[shard]
 			if !ok {
-				return nil, fmt.Errorf("shard %q not found", shard)
+				return nil, fmt.Errorf("shard %q not found for class %q", shard, class)
 			}
 			return phys.BelongsToNodes, nil
 		}).Maybe()
+	mockSchemaReader.EXPECT().ShardOwner(mock.Anything, mock.Anything).RunAndReturn(func(class string, shard string) (string, error) {
+		x, ok := shardState.Physical[shard]
+		if !ok {
+			return "", fmt.Errorf("shard %q not found for class %q", shard, class)
+		}
+		if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
+			return "", fmt.Errorf("owner node not found for shard %q and class %q", shard, class)
+		}
+		return shardState.Physical[shard].BelongsToNodes[0], nil
+	}).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return(names).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return(names, nil).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(class string, shard string, replicas []string) []string {
+			return replicas
+		}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(class string, shard string, replicas []string) ([]string, []string) {
+			return replicas, []string{}
+		}).Maybe()
 
 	n.repo, err = db.New(logger, n.name, db.Config{
 		MemtablesFlushDirtyAfter:  60,

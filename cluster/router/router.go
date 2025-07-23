@@ -137,10 +137,6 @@ func sort(replicas []types.Replica, preferredNodeName string) []types.Replica {
 		return replicas
 	}
 
-	if replicas[0].NodeName == preferredNodeName {
-		return replicas
-	}
-
 	var orderedReplicas []types.Replica
 	var otherReplicas []types.Replica
 
