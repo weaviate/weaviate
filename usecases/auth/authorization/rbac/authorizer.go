@@ -50,8 +50,9 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 		logger = logger.WithField("groups", principal.Groups)
 	}
 
-	// Create a slice to store all permission results
-	permResults := make([]logrus.Fields, 0, len(resources))
+	// Create a map to aggregate resources and their counts
+	resourceCounts := make(map[string]int)
+	var permResults []logrus.Fields
 
 	for _, resource := range resources {
 		allowed, err := m.checkPermissions(principal, resource, verb)
@@ -68,10 +69,9 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 		}
 
 		if allowed {
-			permResults = append(permResults, logrus.Fields{
-				"resource": prettyPermissionsResources(perm),
-				"results":  prettyStatus(allowed),
-			})
+			// Aggregate resources by their pretty-printed representation
+			prettyResource := prettyPermissionsResources(perm)
+			resourceCounts[prettyResource]++
 		}
 
 		if !allowed {
@@ -80,6 +80,15 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 			}
 			return fmt.Errorf("rbac: %w", errors.NewForbidden(principal, prettyPermissionsActions(perm), prettyPermissionsResources(perm)))
 		}
+	}
+
+	// Convert aggregated resources to log format
+	for resource, count := range resourceCounts {
+		permResults = append(permResults, logrus.Fields{
+			"resource": resource,
+			"results":  prettyStatus(true),
+			"count":    count,
+		})
 	}
 
 	// Log all results at once if audit is enabled
