@@ -52,11 +52,10 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 
 	// Create a map to aggregate resources and their counts
 	resourceCounts := make(map[string]int)
-	var permResults []logrus.Fields
-
 	for _, resource := range resources {
 		resourceCounts[resource]++
 	}
+	permResults := make([]logrus.Fields, 0, len(resourceCounts))
 
 	for resource, count := range resourceCounts {
 		allowed, err := m.checkPermissions(principal, resource, verb)
@@ -129,7 +128,6 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 		logger = logger.WithField("groups", principal.Groups)
 	}
 
-	permResults := make([]logrus.Fields, 0, len(resources))
 	allowedResources := make([]string, 0, len(resources))
 
 	// Create a map to aggregate resources and their counts
@@ -137,6 +135,8 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 	for _, resource := range resources {
 		resourceCounts[resource]++
 	}
+
+	permResults := make([]logrus.Fields, 0, len(resourceCounts))
 
 	for resource, count := range resourceCounts {
 		allowed, err := m.checkPermissions(principal, resource, verb)
