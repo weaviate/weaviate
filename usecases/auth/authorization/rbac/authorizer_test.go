@@ -531,15 +531,85 @@ func TestAuthorizeResourceAggregation(t *testing.T) {
 	require.True(t, ok, "resource should be a string")
 	assert.Equal(t, "[Domain: data, Collection: ContactRecommendations, Tenant: *, Object: *]", resource)
 
-	count, ok := perm["count"].(int)
-	require.True(t, ok, "count should be an int")
-	assert.Equal(t, 1000, count, "count should be 1000 for the aggregated resources")
+	// Verify that all 1000 resources are returned in allowedResources
+	assert.Len(t, resources, 1, "should return 1 unique resource (duplicates are aggregated)")
+
+	results, ok := perm["results"].(string)
+	require.True(t, ok, "results should be a string")
+	assert.Equal(t, "success", results)
+}
+
+func TestFilterAuthorizedResourcesAggregation(t *testing.T) {
+	// Setup proper logger with hook for testing
+	logger := logrus.New()
+	logger.SetLevel(logrus.InfoLevel)
+
+	// Create a hook to capture log entries
+	hook := &test.Hook{}
+	logger.AddHook(hook)
+
+	m, err := setupTestManager(t, logger)
+	require.NoError(t, err)
+
+	// Setup admin policy
+	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.DataDomain)
+	require.NoError(t, err)
+	ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("admin-user", models.UserTypeInputDb),
+		conv.PrefixRoleName("admin"))
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	principal := &models.Principal{
+		Username: "admin-user",
+		Groups:   []string{"admin-group"},
+		UserType: models.UserTypeInputDb,
+	}
+
+	// Test with 1000 duplicate resources (simulating the original issue)
+	resources := make([]string, 1000)
+	for i := 0; i < 1000; i++ {
+		resources[i] = "data/collections/ContactRecommendations/shards/*/objects/*"
+	}
+
+	// Execute FilterAuthorizedResources
+	allowedResources, err := m.FilterAuthorizedResources(context.Background(), principal, authorization.READ, resources...)
+	require.NoError(t, err)
+
+	// Verify logging behavior
+	require.NotEmpty(t, hook.AllEntries())
+	lastEntry := hook.LastEntry()
+	require.NotNil(t, lastEntry)
+
+	// Verify log fields
+	assert.Equal(t, "authorize", lastEntry.Data["action"])
+	assert.Equal(t, "admin-user", lastEntry.Data["user"])
+	assert.Equal(t, authorization.ComponentName, lastEntry.Data["component"])
+	assert.Equal(t, authorization.READ, lastEntry.Data["request_action"])
+
+	// Verify permissions field exists
+	permissions, ok := lastEntry.Data["permissions"].([]logrus.Fields)
+	require.True(t, ok, "permissions field should be present")
+
+	// Verify aggregation - should only have 1 entry instead of 1000
+	assert.Len(t, permissions, 1, "should aggregate 1000 duplicate resources into 1 entry")
+
+	// Verify the single entry has the correct resource and count
+	require.Len(t, permissions, 1)
+	perm := permissions[0]
+
+	resource, ok := perm["resource"].(string)
+	require.True(t, ok, "resource should be a string")
+	assert.Equal(t, "[Domain: data, Collection: ContactRecommendations, Tenant: *, Object: *]", resource)
 
 	results, ok := perm["results"].(string)
 	require.True(t, ok, "results should be a string")
 	assert.Equal(t, "success", results)
 
-	t.Logf("Successfully aggregated 1000 duplicate resources into 1 log entry with count: %d", count)
+	// Verify that all 1000 resources are returned in allowedResources
+	assert.Len(t, allowedResources, 1, "should return 1 unique resource (duplicates are aggregated)")
+
+	// Verify the returned resource is correct
+	assert.Equal(t, "data/collections/ContactRecommendations/shards/*/objects/*", allowedResources[0], "returned resource should be the same as input")
 }
 
 func setupTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {
