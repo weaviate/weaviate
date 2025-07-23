@@ -77,6 +77,10 @@ packages:
       IndexGetter:
       IndexLike:
       VectorIndex:
+  github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic:
+    interfaces:
+      Index:
+      VectorIndex:
   github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers:
     interfaces:
       CompressionStats:

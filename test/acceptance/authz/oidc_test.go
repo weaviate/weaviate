@@ -353,12 +353,20 @@ func TestRbacWithOIDCViewerGroups(t *testing.T) {
 	// can list collection
 	classes := helper.GetClassAuth(t, className, tokenCustom)
 	require.Equal(t, classes.Class, className)
+
+	// cannot modify assignment
+	_, err = helper.Client(t).Authz.RevokeRoleFromGroup(
+		authz.NewRevokeRoleFromGroupParams().WithID("custom-group").WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{"read-only"}}),
+		helper.CreateAuth(tokenAdmin),
+	)
+	require.Error(t, err)
 }
 
 const AuthCode = "auth"
 
 // This test starts an oidc mock server with the same settings as the containerized one. Helpful if you want to know
 // why a OIDC request fails
+// use docker.GetTokensFromMockOIDCWithHelperManualTest(t, "127.0.0.1:48001") to get the tokens
 func TestRbacWithOIDCManual(t *testing.T) {
 	t.Skip("This is for testing/debugging only")
 	rsaKey, _ := rsa.GenerateKey(rand.Reader, 2048)
@@ -369,13 +377,16 @@ func TestRbacWithOIDCManual(t *testing.T) {
 	m.ClientSecret = "Secret"
 	m.ClientID = "mock-oidc-test"
 
-	admin := &mockoidc.MockUser{Subject: "admin-user"}
-	m.QueueUser(admin)
-	m.QueueCode(AuthCode)
+	// allow many runs without restart
+	for i := 0; i < 1000; i++ {
+		admin := &mockoidc.MockUser{Subject: "admin-user"}
+		m.QueueUser(admin)
+		m.QueueCode(AuthCode)
 
-	custom := &mockoidc.MockUser{Subject: "custom-user", Groups: []string{"custom-group"}}
-	m.QueueUser(custom)
-	m.QueueCode(AuthCode)
+		custom := &mockoidc.MockUser{Subject: "custom-user", Groups: []string{"custom-group"}}
+		m.QueueUser(custom)
+		m.QueueCode(AuthCode)
+	}
 
 	// this should just run until we are done with testing
 	for {

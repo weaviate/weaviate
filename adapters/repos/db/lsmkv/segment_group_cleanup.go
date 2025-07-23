@@ -467,7 +467,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 
 	oldSegment := c.sg.segmentAtPos(candidateIdx)
 	segmentId := segmentID(oldSegment.path)
-	tmpSegmentPath := filepath.Join(c.sg.dir, "segment-"+segmentId+".db.tmp")
+	tmpSegmentPath := filepath.Join(c.sg.dir, "segment-"+segmentId+segmentExtraInfo(oldSegment.level, oldSegment.strategy)+".db.tmp")
 	scratchSpacePath := oldSegment.path + "cleanup.scratch.d"
 
 	start := time.Now()
@@ -595,6 +595,7 @@ func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 			MinMMapSize:                  sg.MinMMapSize,
 			allocChecker:                 sg.allocChecker,
 			precomputedCountNetAdditions: &countNetAdditions,
+			writeMetadata:                sg.writeMetadata,
 		})
 	if err != nil {
 		return nil, fmt.Errorf("precompute segment meta: %w", err)
