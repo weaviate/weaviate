@@ -1025,7 +1025,6 @@ func (h *hnsw) rescoreLimit() int {
 }
 
 func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int, compressorDistancer compressionhelpers.CompressorDistancer) error {
-
 	// Determine the rescore limit
 	rescoreLimit := h.rescoreLimit()
 

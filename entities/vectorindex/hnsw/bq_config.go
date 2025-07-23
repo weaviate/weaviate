@@ -40,13 +40,11 @@ func parseBQMap(in map[string]interface{}, bq *BQConfig) error {
 		return err
 	}
 
-	if rescoreLimit, ok := bqConfigMap["rescoreLimit"]; ok {
-		if v, ok := rescoreLimit.(int); ok {
+	if _, ok := bqConfigMap["rescoreLimit"]; ok {
+		if err := common.OptionalIntFromMap(bqConfigMap, "rescoreLimit", func(v int) {
 			bq.RescoreLimit = v
-		} else if v, ok := rescoreLimit.(float64); ok {
-			bq.RescoreLimit = int(v)
-		} else {
-			bq.RescoreLimit = DefaultBQRescoreLimit
+		}); err != nil {
+			return err
 		}
 	} else {
 		bq.RescoreLimit = DefaultBQRescoreLimit
