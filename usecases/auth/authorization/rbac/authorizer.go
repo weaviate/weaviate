@@ -55,6 +55,10 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 	var permResults []logrus.Fields
 
 	for _, resource := range resources {
+		resourceCounts[resource]++
+	}
+
+	for resource, count := range resourceCounts {
 		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
@@ -69,9 +73,11 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 		}
 
 		if allowed {
-			// Aggregate resources by their pretty-printed representation
-			prettyResource := prettyPermissionsResources(perm)
-			resourceCounts[prettyResource]++
+			permResults = append(permResults, logrus.Fields{
+				"resource": prettyPermissionsResources(perm),
+				"results":  prettyStatus(allowed),
+				"count":    count,
+			})
 		}
 
 		if !allowed {
@@ -80,15 +86,6 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 			}
 			return fmt.Errorf("rbac: %w", errors.NewForbidden(principal, prettyPermissionsActions(perm), prettyPermissionsResources(perm)))
 		}
-	}
-
-	// Convert aggregated resources to log format
-	for resource, count := range resourceCounts {
-		permResults = append(permResults, logrus.Fields{
-			"resource": resource,
-			"results":  prettyStatus(true),
-			"count":    count,
-		})
 	}
 
 	// Log all results at once if audit is enabled
@@ -135,7 +132,13 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 	permResults := make([]logrus.Fields, 0, len(resources))
 	allowedResources := make([]string, 0, len(resources))
 
+	// Create a map to aggregate resources and their counts
+	resourceCounts := make(map[string]int)
 	for _, resource := range resources {
+		resourceCounts[resource]++
+	}
+
+	for resource, count := range resourceCounts {
 		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
 			logger.WithError(err).WithField("resource", resource).Error("failed to enforce policy")
@@ -151,6 +154,7 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 			permResults = append(permResults, logrus.Fields{
 				"resource": prettyPermissionsResources(perm),
 				"results":  prettyStatus(allowed),
+				"count":    count,
 			})
 			allowedResources = append(allowedResources, resource)
 		}
