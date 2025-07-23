@@ -29,12 +29,21 @@ type BinaryRotationalQuantizer struct {
 	distancer distancer.Provider
 	queryBits int
 	rounding  []float32
+	l2        float32
+	cos       float32
 }
 
-func NewBinaryRotationalQuantizer(inputDim int, queryBits int, seed uint64, distancer distancer.Provider) *BinaryRotationalQuantizer {
+const (
+	DefaultRQQueryBits = 4
+)
+
+func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer.Provider) *BinaryRotationalQuantizer {
 	rotationRounds := 5 // 4 might be sufficient, but 3 is probably not enough.
 	rotation := NewFastRotation(inputDim, rotationRounds, seed)
-
+	cos, l2, err := distancerIndicatorsAndError(distancer)
+	if err != nil {
+		return nil
+	}
 	// Randomized rounding for the query quantization to make the estimator unbiased.
 	// It may produce better recall to not use randomized rounding since adding the random noise increases the quantization error.
 	// With 8-bit RQ we are not using randomized rounding.
@@ -48,8 +57,10 @@ func NewBinaryRotationalQuantizer(inputDim int, queryBits int, seed uint64, dist
 		inputDim:  uint32(inputDim),
 		rotation:  rotation,
 		distancer: distancer,
-		queryBits: queryBits,
+		queryBits: DefaultRQQueryBits,
 		rounding:  rounding,
+		l2:        l2,
+		cos:       cos,
 	}
 	return rq
 }
@@ -328,10 +339,12 @@ func (d *BinaryRQDistancer) DistanceToFloat(x []float32) (float32, error) {
 }
 
 func (brq *BinaryRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []uint64) (float32, error) { // TODO: Compute the distance between compressed vectors.
-	// cx, cy := RQOneBitCode(x), RQOneBitCode(y)
-	// dotEstimate := estimateDotProduct(cx, cy)
-	// return d.l2*(cx.SquaredNorm()+d.cq.SquaredNorm) + d.cos - (1.0+d.l2)*dotEstimate, nil
-	return binaryDot(x, y), nil
+	cx, cy := RQOneBitCode(x), RQOneBitCode(y)
+	dots := cy.OnesCount() * cx.OnesCount()
+	dots += cy.Step() * float32(int(1)<<0) * binaryDot(cy.Bits(), cx.Bits())
+	dotEstimate := cy.Step() * (cx.SquaredNorm() - 2*dots)
+	return brq.l2*(cx.SquaredNorm()+cy.SquaredNorm()) + brq.cos - (1.0+brq.l2)*dotEstimate, nil
+	//return binaryDot(x, y), nil
 }
 
 func (brq *BinaryRotationalQuantizer) CompressedBytes(compressed []uint64) []byte {
