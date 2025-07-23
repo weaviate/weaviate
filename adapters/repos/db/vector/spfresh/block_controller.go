@@ -12,14 +12,11 @@
 package spfresh
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"sync"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
@@ -38,7 +35,7 @@ var ErrPostingNotFound = errors.New("posting not found")
 // BlockController manages I/O of postings on disk.
 type BlockController struct {
 	store       Store
-	encoder     *BlockEncoder
+	encoder     *PostingEncoder
 	metadata    *common.FlatBuffer[PostingMetadata]
 	blockPool   *BlockProvider
 	bufPool     sync.Pool // holds byte slices for reading blocks
@@ -276,96 +273,6 @@ func NewPostingMetadata(offsets []uint64, vectorCount uint64) PostingMetadata {
 	}
 }
 
-// BlockEncoder encodes and decodes vectors to and from blocks.
-type BlockEncoder struct {
-	Dimensions int // Number of dimensions of the vectors to encode/decode
-
-	bufPool sync.Pool // Buffer pool for reusing byte slices
-}
-
-func NewBlockEncoder(dimensions int) *BlockEncoder {
-	return &BlockEncoder{
-		Dimensions: dimensions,
-		bufPool: sync.Pool{
-			New: func() any {
-				return new(bytes.Buffer)
-			},
-		},
-	}
-}
-
-func (e *BlockEncoder) getBuffer() *bytes.Buffer {
-	return e.bufPool.Get().(*bytes.Buffer)
-}
-
-func (e *BlockEncoder) putBuffer(buf *bytes.Buffer) {
-	buf.Reset()
-	e.bufPool.Put(buf)
-}
-
-func (e *BlockEncoder) Encode(vectors []Vector) ([]byte, func(), error) {
-	buf := e.getBuffer()
-
-	for _, vector := range vectors {
-		err := e.encodeVector(buf, &vector)
-		if err != nil {
-			return nil, nil, errors.Wrapf(err, "failed to encode vector %d", vector.ID)
-		}
-	}
-
-	return buf.Bytes(), func() { e.putBuffer(buf) }, nil
-}
-
-func (e *BlockEncoder) encodeVector(out *bytes.Buffer, vector *Vector) error {
-	if len(vector.Data) != e.Dimensions {
-		return errors.Errorf("vector %d has %d dimensions, expected %d", vector.ID, len(vector.Data), e.Dimensions)
-	}
-
-	_ = binary.Write(out, binary.LittleEndian, vector.ID)
-	_ = binary.Write(out, binary.LittleEndian, vector.Version)
-	_, _ = out.Write(vector.Data)
-	return nil
-}
-
-func (e *BlockEncoder) EncodeVector(vector *Vector) ([]byte, func(), error) {
-	buf := e.getBuffer()
-
-	err := e.encodeVector(buf, vector)
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "failed to encode vector %d", vector.ID)
-	}
-	return buf.Bytes(), func() { e.putBuffer(buf) }, nil
-}
-
-func (e *BlockEncoder) Decode(block []byte) ([]Vector, error) {
-	var vectors []Vector
-
-	for len(block) < 8+1+e.Dimensions {
-		var id uint64
-		var version VectorVersion
-		err := binary.Read(bytes.NewReader(block[:8]), binary.LittleEndian, &id)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to read vector ID")
-		}
-		err = binary.Read(bytes.NewReader(block[8:9]), binary.LittleEndian, &version)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to read vector version")
-		}
-
-		data := block[9 : 9+e.Dimensions]
-
-		vectors = append(vectors, Vector{
-			ID:      id,
-			Version: version,
-			Data:    data,
-		})
-
-		block = block[9+e.Dimensions:] // move to the next vector
-	}
-
-	return vectors, nil
-}
-
 type BlockProvider struct {
 	// freeBlockPool holds free block offsets/IDs for reuse.
 	freeBlockPool *common.Pool[uint64]
@@ -390,71 +297,4 @@ func (b *BlockProvider) getFreeBlockOffset() uint64 {
 
 	// if the pool is empty, generate a new offset
 	return b.offsetGenerator.Next()
-}
-
-// Store defines the interface for a storage backend that can retrieve blocks by their ID.
-// It is used by the BlockController to read blocks from disk.
-type Store interface {
-	Get(ctx context.Context, offset uint64) ([]byte, error)
-	// Put writes a block to the store at the given offset.
-	// It overwrites the full block.
-	Put(ctx context.Context, offset uint64, block []byte) error
-}
-
-type MemoryStore struct {
-	data *common.FlatBuffer[[]byte]
-}
-
-func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{
-		data: common.NewFlatBuffer[[]byte](1024),
-	}
-}
-
-func (m *MemoryStore) Get(ctx context.Context, offset uint64) ([]byte, error) {
-	block := m.data.Get(offset)
-	if block == nil {
-		return nil, ErrPostingNotFound
-	}
-
-	return block, nil
-}
-
-func (m *MemoryStore) Put(ctx context.Context, offset uint64, block []byte) error {
-	if len(block) == 0 {
-		return errors.New("block cannot be empty")
-	}
-
-	cp := make([]byte, len(block), blockSize)
-	copy(cp, block)
-	m.data.Set(offset, cp)
-
-	return nil
-}
-
-type LSMStore struct {
-	store *lsmkv.Store
-}
-
-func NewLSMStore(store *lsmkv.Store) *LSMStore {
-	return &LSMStore{
-		store: store,
-	}
-}
-
-func (l *LSMStore) Get(ctx context.Context, offset uint64) ([]byte, error) {
-	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], offset)
-	return l.store.Bucket(bucketName).Get(buf[:])
-}
-
-// Put writes a block to the store at the given offset.
-// It overwrites the full block.
-func (l *LSMStore) Put(ctx context.Context, offset uint64, block []byte) error {
-	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], offset)
-	// data must be copied
-	cp := make([]byte, len(block), blockSize)
-	copy(cp, block)
-	return l.store.Bucket(bucketName).Put(buf[:], cp)
 }
