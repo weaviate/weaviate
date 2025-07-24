@@ -732,7 +732,6 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	}))
 	newIndex.shards.LoadAndDelete(shardName)
 
-	fmt.Printf("Config.DisableLazyLoadShards: %v\n", newIndex.Config.DisableLazyLoadShards)
 	inactiveVectorStorageSize, err := newIndex.CalculateUnloadedVectorsMetrics(ctx, shardName)
 	require.NoError(t, err)
 	dimensionality, count, err = newIndex.CalculateUnloadedDimensionsUsage(ctx, shardName, "")

@@ -36,7 +36,7 @@ import (
 )
 
 func Benchmark_Migration(b *testing.B) {
-	fmt.Printf("Running benchmark %v times\n", b.N)
+	b.Logf("Running benchmark %v times\n", b.N)
 	for i := 0; i < b.N; i++ {
 		func() {
 			r := getRandomSeed()
@@ -93,11 +93,11 @@ func Benchmark_Migration(b *testing.B) {
 				}
 			}
 
-			fmt.Printf("Added vectors, now migrating\n")
+			b.Logf("Added vectors, now migrating\n")
 
 			repo.config.TrackVectorDimensions = true
 			migrator.RecalculateVectorDimensions(context.TODO())
-			fmt.Printf("Benchmark complete")
+			b.Logf("Benchmark complete")
 		}()
 	}
 }

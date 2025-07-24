@@ -121,7 +121,6 @@ func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, 
 		count      = int64(0)
 	)
 
-	fmt.Printf("Starting bucket iteration for vector %s\n", vectorName)
 	seenKeys := make(map[string]bool)
 	for k, vb := c.First(); k != nil; k, vb = c.Next() {
 		if seenKeys[string(k)] {
@@ -129,7 +128,6 @@ func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, 
 		}
 		seenKeys[string(k)] = true
 		vecName := string(k[4:])
-		fmt.Printf("calcTargetVectorDimensionsFromBucket: vecName=%s, key=%s, key as hex=%x\n", vecName, k, k)
 		// for named vectors we have to additionally check if the key is prefixed with the vector name
 
 		if  vecName != vectorName {
@@ -144,10 +142,8 @@ func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, 
 			dimensions = dim
 		}
 		count += cnt
-		//fmt.Printf("calcTargetVectorDimensionsFromBucket: targetVector=%s, dimLength=%d, dimensions=%d, count=%d\n", vectorName, dimLength, dimensions, count)
 	}
 
-	//fmt.Printf("calcTargetVectorDimensionsFromBucket: (finished) targetVector=%s, total dimensions=%d, total count=%d\n", vectorName, dimensions, count)
 	return dimensions, count
 }
 
@@ -221,8 +217,6 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 		}
 		sendVectorSegmentsMetric(s.promMetrics, className, s.name, sumSegments)
 		sendVectorDimensionsMetric(s.promMetrics, className, s.name, sumDimensions)
-	} else {
-		fmt.Printf("No Prometheus metrics configured, skipping dimension tracking for shard %s\n", s.name) //FIXME
 	}
 }
 
@@ -347,7 +341,6 @@ func sendVectorSegmentsMetric(promMetrics *monitoring.PrometheusMetrics,
 	metric, err := promMetrics.VectorSegmentsSum.
 		GetMetricWithLabelValues(className, shardName)
 	if err == nil {
-		fmt.Printf("sendVectorSegmentsMetric: className=%s, shardName=%s, count=%d\n", className, shardName, count)
 		metric.Set(float64(count))
 	} else {
 		fmt.Printf("Error getting metric for VectorSegmentsSum: %v\n", err) //FIXME
@@ -369,7 +362,6 @@ func sendVectorDimensionsMetric(promMetrics *monitoring.PrometheusMetrics,
 	metric, err := promMetrics.VectorDimensionsSum.
 		GetMetricWithLabelValues(className, shardName)
 	if err == nil {
-		fmt.Printf("sendVectorDimensionsMetric: className=%s, shardName=%s, count=%d\n", className, shardName, count)
 		metric.Set(float64(count))
 	} else {
 		fmt.Printf("Error getting metric for VectorDimensionsSum: %v\n", err) //FIXME

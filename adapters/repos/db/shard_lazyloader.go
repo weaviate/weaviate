@@ -820,7 +820,6 @@ func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) (int64, error) {
 	// This avoids complex disk file calculations and uses the same logic as the index
 	totalSize := int64(0)
 
-	fmt.Printf("lazyshard.vectorstoragesize: Calculating vector storage size for shard %s\n", l.shardOpts.name)
 	// For each target vector, calculate storage size using dimensions bucket and config-based compression
 	for targetVector, config := range l.Index().GetVectorIndexConfigs() {
 		// Get dimensions and object count from the dimensions bucket
@@ -836,7 +835,6 @@ func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) (int64, error) {
 			return 0, err
 		}
 
-		fmt.Printf("lazyshard.vectorstoragesize: Calculating vector storage size for target vector %s in shard %s\n", targetVector, l.shardOpts.name)
 		dimensions, count := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector,  func(dimLen int, v int64) (int64, int64) {
 			return v, int64(dimLen)
 		})
@@ -849,12 +847,10 @@ func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) (int64, error) {
 		// Calculate uncompressed size (float32 = 4 bytes per dimension)
 		uncompressedSize := int64(count) * int64(dimensions) * 4
 
-		fmt.Printf("lazyshard.vectorstoragesize: Scaling uncompressed size for target vector %s in shard %s: %d bytes by factor %v\n", targetVector, l.shardOpts.name, uncompressedSize, helpers.CompressionRatioFromConfig(config, dimensions))
 		// For inactive tenants, use vector index config for dimension tracking
 		// This is similar to the original shard dimension tracking approach
 		totalSize += int64(float64(uncompressedSize) * helpers.CompressionRatioFromConfig(config, dimensions))
 	}
 
-	fmt.Printf("lazyshard.vectorstoragesize: Total vector storage size for shard %s: %d bytes\n", l.shardOpts.name, totalSize)
 	return totalSize, nil
 }
