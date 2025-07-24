@@ -51,6 +51,10 @@ func NewErrorGroupWrapper(logger logrus.FieldLogger, vars ...interface{}) *Error
 		cancelCtx: func() {},
 	}
 	egw.setDeferFunc()
+
+	if entcfg.Enabled(os.Getenv("LOG_STACK_TRACE_ON_ERROR_GROUP")) {
+		egw.includeStack = true
+	}
 	return egw
 }
 
@@ -117,7 +121,9 @@ func (egw *ErrorGroupWrapper) Wait() error {
 
 	if egw.includeStack {
 		stackBuf := make([]byte, 4096)
-		runtime.Stack(stackBuf, false)
+		n := runtime.Stack(stackBuf, false)
+		stackBuf = stackBuf[:n]
+
 		logBase = logBase.WithField("stack", string(stackBuf))
 	}
 
