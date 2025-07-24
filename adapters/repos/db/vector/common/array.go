@@ -150,16 +150,16 @@ func nextPow2(v uint64) uint64 {
 
 // Get returns the element at the given index.
 // If the page does not exist, it returns both zero value and false.
-func (p *PagedArray[T]) Get(id uint64) (T, bool) {
+func (p *PagedArray[T]) Get(id uint64) T {
 	pageID := id >> p.pageBits
 	slotID := id & p.pageMask
 
 	if int(pageID) >= len(p.buf) || p.buf[pageID] == nil {
 		var zero T
-		return zero, false
+		return zero
 	}
 
-	return p.buf[pageID][slotID], true
+	return p.buf[pageID][slotID]
 }
 
 // GetPageFor takes an ID and returns the associated page and its index.
