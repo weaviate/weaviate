@@ -45,20 +45,13 @@ else
   echo_yellow "Found no --include-slow flag, skipping the slow ones"
 fi
 
-# slow packages
-vector="adapters/repos/db/vector"
-clusterintegrationtest="adapters/repos/db/clusterintegrationtest"
-lsmkv="adapters/repos/db/lsmkv"
-helpers="adapters/repos/db/helpers"
-inverted="adapters/repos/db/inverted"
-
 pkgs=""
 if [ $onlyfastpkgs = true ]; then
-  echo_yellow "Running integration tests without adapters/repos/db/vector package"
-  pkgs=$(go list ./adapters/repos/... | grep -v $vector | grep -v $clusterintegrationtest | grep -v $lsmkv | grep -v $helpers | grep -v $inverted)
+  echo_yellow "Running integration tests without /adapters/repos/db package"
+  pkgs=$(go list ./adapters/repos/... | grep -v "/adapters/repos/db$")
 elif [ $onlyslowpkgs = true ]; then
   echo_yellow "Running only slow integration tests"
-  pkgs=$(to_pkgs_string $vector $clusterintegrationtest $lsmkv $helpers $inverted)
+  pkgs=$(go list ./adapters/repos/... | grep "/adapters/repos/db$")
 fi
 
 
