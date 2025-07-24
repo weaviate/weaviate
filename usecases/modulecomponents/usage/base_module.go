@@ -232,7 +232,7 @@ func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
 	// Set version on usage data
 	usage.Version = b.policyVersion
 
-	usage.CollectionTime = collectionTime
+	usage.CollectingTIme = collectionTime
 	return b.storage.UploadUsageData(ctx, usage)
 }
 

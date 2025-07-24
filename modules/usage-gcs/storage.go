@@ -126,7 +126,7 @@ func (g *GCSStorage) UploadUsageData(ctx context.Context, usage *types.Report) e
 		return err
 	}
 
-	obj := g.storageClient.Bucket(g.BucketName).Object(g.ConstructObjectKey())
+	obj := g.storageClient.Bucket(g.BucketName).Object(g.ConstructObjectKey(usage.CollectingTIme))
 	writer := obj.NewWriter(ctx)
 	writer.ContentType = "application/json"
 	writer.Metadata = map[string]string{

@@ -26,8 +26,8 @@ type Report struct {
 	// List of backups and their metrics
 	Backups []*BackupUsage `json:"backups,omitempty"`
 
-	// The time of the collection
-	CollectionTime string `json:"-"`
+	// CollectingTIme The time of the collection of the metric
+	CollectingTIme string `json:"-"`
 }
 
 // CollectionUsage represents metrics for a single collection
