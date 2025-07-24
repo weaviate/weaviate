@@ -205,6 +205,9 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 }
 
 func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	// Collect usage data and update metrics
 	usage, err := b.collectUsageData(ctx)
 	if err != nil {
@@ -214,9 +217,6 @@ func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
 	// Set version on usage data
 	usage.Version = b.policyVersion
 
-	// Upload the collected data - protect with write lock since storage may not be thread-safe
-	b.mu.Lock()
-	defer b.mu.Unlock()
 	return b.storage.UploadUsageData(ctx, usage)
 }
 
