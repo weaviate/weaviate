@@ -14,6 +14,7 @@ package usage
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -46,6 +47,7 @@ type BaseModule struct {
 	metrics       *Metrics
 	usageService  clusterusage.Service
 	logger        logrus.FieldLogger
+	mu            sync.RWMutex // Add mutex to protect shared fields
 }
 
 // NewBaseModule creates a new base module instance
@@ -198,6 +200,9 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 }
 
 func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
 	// Collect usage data and update metrics
 	usage, err := b.collectUsageData(ctx)
 	if err != nil {
