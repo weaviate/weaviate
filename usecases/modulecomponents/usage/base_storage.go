@@ -58,7 +58,7 @@ func (b *BaseStorage) ConstructObjectKey() string {
 
 // MarshalUsageData converts usage data to JSON
 func (b *BaseStorage) MarshalUsageData(usage *types.Report) ([]byte, error) {
-	data, err := json.MarshalIndent(usage, "", "  ")
+	data, err := json.Marshal(usage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal usage data: %w", err)
 	}
