@@ -50,10 +50,18 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 		logger = logger.WithField("groups", principal.Groups)
 	}
 
-	// Create a slice to store all permission results
-	permResults := make([]logrus.Fields, 0, len(resources))
-
+	// Create a map to aggregate resources and their counts while preserving order
+	resourceCounts := make(map[string]int)
+	var uniqueResources []string
 	for _, resource := range resources {
+		if _, exists := resourceCounts[resource]; !exists {
+			uniqueResources = append(uniqueResources, resource)
+		}
+		resourceCounts[resource]++
+	}
+	permResults := make([]logrus.Fields, 0, len(uniqueResources))
+
+	for _, resource := range uniqueResources {
 		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
@@ -123,10 +131,21 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 		logger = logger.WithField("groups", principal.Groups)
 	}
 
-	permResults := make([]logrus.Fields, 0, len(resources))
 	allowedResources := make([]string, 0, len(resources))
 
+	// Create a map to aggregate resources and their counts while preserving order
+	resourceCounts := make(map[string]int)
+	var uniqueResources []string
 	for _, resource := range resources {
+		if _, exists := resourceCounts[resource]; !exists {
+			uniqueResources = append(uniqueResources, resource)
+		}
+		resourceCounts[resource]++
+	}
+
+	permResults := make([]logrus.Fields, 0, len(uniqueResources))
+
+	for _, resource := range uniqueResources {
 		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
 			logger.WithError(err).WithField("resource", resource).Error("failed to enforce policy")
