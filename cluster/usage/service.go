@@ -85,7 +85,6 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 			Name:              collection.Class,
 			ReplicationFactor: int(collection.ReplicationConfig.Factor),
 			UniqueShardCount:  int(len(shardingState.Physical)),
-			Shards:            make([]*types.ShardUsage, 0),
 		}
 		// Get shard usage
 		index := m.db.GetIndexLike(entschema.ClassName(collection.Class))
@@ -121,7 +120,6 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 						Status:              strings.ToLower(models.TenantActivityStatusINACTIVE),
 						ObjectsStorageBytes: uint64(objectUsage.StorageBytes),
 						VectorStorageBytes:  uint64(vectorStorageSize),
-						NamedVectors:        make([]*types.VectorUsage, 0),
 					}
 
 					// Get named vector data for cold shards from schema configuration
@@ -137,8 +135,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 								Compression:            category.String(),
 								VectorIndexType:        indexType,
 								IsDynamic:              common.IsDynamic(common.IndexType(indexType)),
-								VectorCompressionRatio: 1.0,                       // Default ratio for cold shards
-								Dimensionalities:       []*types.Dimensionality{}, // Empty for cold shards
+								VectorCompressionRatio: 1.0, // Default ratio for cold shards
 							}
 
 							shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
@@ -181,7 +178,6 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 					ObjectsCount:        objectCount,
 					ObjectsStorageBytes: uint64(objectStorageSize),
 					VectorStorageBytes:  uint64(vectorStorageSize),
-					NamedVectors:        make([]*types.VectorUsage, 0),
 				}
 
 				// Get vector usage for each named vector
@@ -212,10 +208,13 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 						VectorCompressionRatio: vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions),
 					}
 
-					vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &types.Dimensionality{
-						Dimensions: dimensionality.Dimensions,
-						Count:      dimensionality.Count,
-					})
+					// Only add dimensionalities if there's valid data
+					if dimensionality.Count != 0 || dimensionality.Dimensions != 0 {
+						vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &types.Dimensionality{
+							Dimensions: dimensionality.Dimensions,
+							Count:      dimensionality.Count,
+						})
+					}
 
 					shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
 					return nil
