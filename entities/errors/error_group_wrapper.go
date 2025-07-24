@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"runtime/debug"
 
 	"github.com/sirupsen/logrus"
@@ -27,11 +28,14 @@ import (
 // ErrorGroupWrapper is a custom type that embeds errgroup.Group.
 type ErrorGroupWrapper struct {
 	*errgroup.Group
-	returnError error
-	variables   []interface{}
-	logger      logrus.FieldLogger
-	deferFunc   func(localVars ...interface{})
-	cancelCtx   func()
+	returnError    error
+	variables      []interface{}
+	logger         logrus.FieldLogger
+	deferFunc      func(localVars ...interface{})
+	cancelCtx      func()
+	routineCounter int
+	includeStack   bool
+	limitSet       int
 }
 
 // NewErrorGroupWrapper creates a new ErrorGroupWrapper.
@@ -63,6 +67,10 @@ func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Cont
 	}
 	egw.setDeferFunc()
 
+	if entcfg.Enabled(os.Getenv("LOG_STACK_TRACE_ON_ERROR_GROUP")) {
+		egw.includeStack = true
+	}
+
 	return egw, ctx
 }
 
@@ -89,10 +97,32 @@ func (egw *ErrorGroupWrapper) Go(f func() error, localVars ...interface{}) {
 		defer egw.deferFunc(localVars)
 		return f()
 	})
+	egw.routineCounter++
+}
+
+// SetLimit overrides the SetLimit method to set a limit on the number of
+// goroutines and track what's set.
+func (egw *ErrorGroupWrapper) SetLimit(limit int) {
+	egw.Group.SetLimit(limit)
+	egw.limitSet = limit
 }
 
 // Wait waits for all goroutines to finish and returns the first non-nil error.
 func (egw *ErrorGroupWrapper) Wait() error {
+	logBase := egw.logger.WithFields(logrus.Fields{
+		"action":     "error_group_wait_initiated",
+		"jobs_count": egw.routineCounter,
+		"limit":      egw.limitSet,
+	})
+
+	if egw.includeStack {
+		stackBuf := make([]byte, 4096)
+		runtime.Stack(stackBuf, false)
+		logBase = logBase.WithField("stack", string(stackBuf))
+	}
+
+	logBase.Debugf("Waiting for %d jobs to finish with limit %d", egw.routineCounter, egw.limitSet)
+
 	if err := egw.Group.Wait(); err != nil {
 		return err
 	}
