@@ -47,7 +47,9 @@ type BaseModule struct {
 	metrics       *Metrics
 	usageService  clusterusage.Service
 	logger        logrus.FieldLogger
-	mu            sync.RWMutex // Add mutex to protect shared fields
+	// mu mutex to protect shared fields to run concurrently the collection and upload
+	// to avoid interval overlap for the tickers
+	mu sync.RWMutex
 }
 
 // NewBaseModule creates a new base module instance
