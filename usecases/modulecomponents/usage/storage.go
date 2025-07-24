@@ -19,10 +19,11 @@ import (
 
 // StorageConfig contains common configuration fields for storage backends
 type StorageConfig struct {
-	Bucket  string
-	Prefix  string
-	NodeID  string
-	Version string
+	Bucket            string
+	Prefix            string
+	NodeID            string
+	Version           string
+	VerifyPermissions bool
 }
 
 // StorageBackend defines the interface that storage implementations must implement
