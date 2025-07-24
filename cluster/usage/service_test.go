@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	modulecapabilities "github.com/weaviate/weaviate/entities/modulecapabilities"
 	entschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	backupusecase "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -87,6 +88,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
+	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
 	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -213,6 +215,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
+	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
 	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(hotObjectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(hotStorageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -431,6 +434,7 @@ func TestService_Usage_WithNamedVectors(t *testing.T) {
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
+	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
 	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -644,6 +648,7 @@ func TestService_Usage_VectorIndexError(t *testing.T) {
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
+	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
 	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -746,6 +751,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
+	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
 	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -877,6 +883,7 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 
 	// Mock hot tenant shard
 	mockHotShard := db.NewMockShardLike(t)
+	mockHotShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
 	mockHotShard.EXPECT().ObjectCountAsync(ctx).Return(int64(hotObjectCount), nil)
 	mockHotShard.EXPECT().ObjectStorageSize(ctx).Return(hotStorageSize, nil)
 	mockHotShard.EXPECT().VectorStorageSize(ctx).Return(hotVectorStorageSize, nil) // Test actual vector storage size
@@ -1125,6 +1132,7 @@ func TestService_JitterFunctionality(t *testing.T) {
 
 		// Simple shard mock
 		mockShard := db.NewMockShardLike(t)
+		mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
 		mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(100), nil).Times(2)
 		mockShard.EXPECT().ObjectStorageSize(ctx).Return(int64(1000), nil).Times(2)
 		mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil).Times(2)
@@ -1217,6 +1225,7 @@ func TestService_JitterFunctionality(t *testing.T) {
 
 		// Simple shard mock
 		mockShard := db.NewMockShardLike(t)
+		mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
 		mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(100), nil)
 		mockShard.EXPECT().ObjectStorageSize(ctx).Return(int64(1000), nil)
 		mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
