@@ -186,7 +186,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 					}
 
 					// Only add dimensionalities if there's valid data
-					if dimensionality.Count > 0 && dimensionality.Dimensions > 0 {
+					if dimensionality.Count > 0 || dimensionality.Dimensions > 0 {
 						vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &types.Dimensionality{
 							Dimensions: dimensionality.Dimensions,
 							Count:      dimensionality.Count,
