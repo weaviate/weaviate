@@ -210,11 +210,11 @@ func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	now := time.Now().UTC()
+	start := time.Now()
+	now := start.UTC()
 	collectionTime := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), 0, 0, time.UTC).Format("2006-01-02T15-04-05Z")
 
 	// Collect usage data and update metrics with timing
-	start := time.Now()
 	usage, err := b.collectUsageData(ctx)
 	collectionDuration := time.Since(start)
 
