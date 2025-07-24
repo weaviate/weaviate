@@ -300,36 +300,6 @@ func (s *Shard) resetDimensionsLSM() error {
 	return nil
 }
 
-// DimensionMetrics represents the dimension tracking metrics for a vector.
-// The metrics are used to track memory usage and performance characteristics
-// of different vector compression methods.
-//
-// Usage patterns:
-// - Standard vectors: Only Uncompressed is set (4 bytes per dimension)
-// - PQ (Product Quantization): Only Compressed is set (1 byte per segment)
-// - BQ (Binary Quantization): Only Compressed is set (1 bit per dimension, packed in uint64 blocks)
-//
-// The metrics are aggregated across all vectors in a shard and published
-// to Prometheus for monitoring and capacity planning.
-
-func (s *Shard) calcDimensionMetrics(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig, vecName string) (int64, int64) {
-	switch category, segments := GetDimensionCategory(vecCfg); category {
-	case DimensionCategoryPQ:
-		return 0, s.QuantizedDimensions(ctx, vecName, int64(segments))
-	case DimensionCategoryBQ:
-		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
-		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
-		// Roundup is required because BQ packs bits into uint64 blocks - you can't have
-		// a partial uint64 block. Even 1 dimension needs a full 8-byte uint64 block.
-		count, _ := s.Dimensions(ctx, vecName)
-		bytes := (count + 63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
-		return 0, bytes
-	default:
-		count, _ := s.Dimensions(ctx, vecName)
-		return count, 0
-	}
-}
-
 func (s *Shard) clearDimensionMetrics() {
 	clearDimensionMetrics(s.promMetrics, s.index.Config.ClassName.String(), s.name)
 }

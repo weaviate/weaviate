@@ -1193,7 +1193,7 @@ func TestService_JitterFunctionality(t *testing.T) {
 		mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(100), nil)
 		mockShard.EXPECT().ObjectStorageSize(ctx).Return(int64(1000), nil)
 		mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
-		mockShard.EXPECT().DimensionsUsage(ctx, "default").Return( 1536,   100, nil)
+		mockShard.EXPECT().DimensionsUsage(ctx, "default").Return(1536, 100, nil)
 
 		// Simple vector index mock
 		mockVectorIndex := db.NewMockVectorIndex(t)
