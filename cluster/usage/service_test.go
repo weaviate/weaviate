@@ -1198,7 +1198,7 @@ func TestService_JitterFunctionality(t *testing.T) {
 		// Simple vector index mock
 		mockVectorIndex := db.NewMockVectorIndex(t)
 		mockCompressionStats := compressionhelpers.NewMockCompressionStats(t)
-		mockCompressionStats.EXPECT().CompressionRatio(1536).Return(0.75)
+		mockCompressionStats.EXPECT().CompressionRatio(int64(1536)).Return(0.75)
 		mockVectorIndex.EXPECT().CompressionStats().Return(mockCompressionStats)
 
 		// Mock the shard iteration
