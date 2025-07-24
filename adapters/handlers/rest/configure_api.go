@@ -1909,6 +1909,7 @@ func initRuntimeOverrides(appState *state.State) {
 			registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
 			registered.UsageShardJitterInterval = appState.ServerConfig.Config.Usage.ShardJitterInterval
 			registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
+			registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
 		}
 
 		hooks := make(map[string]func() error)
