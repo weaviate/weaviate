@@ -343,7 +343,6 @@ func sendVectorSegmentsMetric(promMetrics *monitoring.PrometheusMetrics,
 	if err == nil {
 		metric.Set(float64(count))
 	} else {
-		fmt.Printf("Error getting metric for VectorSegmentsSum: %v\n", err) //FIXME
 		return
 	}
 }
@@ -364,8 +363,6 @@ func sendVectorDimensionsMetric(promMetrics *monitoring.PrometheusMetrics,
 	if err == nil {
 		metric.Set(float64(count))
 	} else {
-		fmt.Printf("Error getting metric for VectorDimensionsSum: %v\n", err) //FIXME
-
 		return
 	}
 }
