@@ -27,7 +27,7 @@ type LSMStore struct {
 	encoder *PostingEncoder
 }
 
-func NewLSMStore(store *lsmkv.Store, dims int) *LSMStore {
+func NewLSMStore(store *lsmkv.Store, dims int, bucketName string) *LSMStore {
 	return &LSMStore{
 		store:   store,
 		bucket:  store.Bucket(bucketName),
