@@ -477,8 +477,7 @@ func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string
 	}
 	l.mutex.Unlock()
 
-
-	path :=l.Index().path()
+	path := l.Index().path()
 	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
 		shardPathDimensionsLSM(path, l.Name()),
 		path,
@@ -492,8 +491,7 @@ func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string
 	}
 	defer bucket.Shutdown(ctx)
 
-
-	dimensions, count, err := sumByVectorType(ctx, bucket,  l.Index().GetVectorIndexConfigs(), targetVector, func(dimLen int, v int64) (int64, int64) {
+	dimensions, count, err := sumByVectorType(ctx, bucket, l.Index().GetVectorIndexConfigs(), targetVector, func(dimLen int, v int64) (int64, int64) {
 		return v, int64(dimLen)
 	})
 
@@ -505,7 +503,7 @@ func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (in
 	if err != nil {
 		return 0, fmt.Errorf("error while getting dimensions for shard %s: %w", l.shardOpts.name, err)
 	}
-	return dimensions*count, nil
+	return dimensions * count, nil
 }
 
 func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int64) int64 {
@@ -824,7 +822,7 @@ func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) (int64, error) {
 	for targetVector, config := range l.Index().GetVectorIndexConfigs() {
 		// Get dimensions and object count from the dimensions bucket
 		bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
-			shardPathDimensionsLSM( l.Index().path(), l.Name()),
+			shardPathDimensionsLSM(l.Index().path(), l.Name()),
 			l.Index().path(),
 			l.Index().logger,
 			nil,
@@ -835,7 +833,7 @@ func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) (int64, error) {
 			return 0, err
 		}
 
-		dimensions, count := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector,  func(dimLen int, v int64) (int64, int64) {
+		dimensions, count := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v int64) (int64, int64) {
 			return v, int64(dimLen)
 		})
 		bucket.Shutdown(ctx)

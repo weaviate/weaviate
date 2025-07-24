@@ -56,7 +56,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 		expectedVectorStorageSize int64
 		setupData                 bool
 	}{
-				{
+		{
 			name:      "shard with named vectors",
 			className: "TestClass",
 			shardName: "test-shard-named",
@@ -539,7 +539,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				index.shards.LoadAndDelete(tt.shardName)
 			} else {
 				// Test empty shard
-				shard, err := index.GetShardLike( tt.shardName)
+				shard, err := index.GetShardLike(tt.shardName)
 				require.NoError(t, err)
 				require.NotNil(t, shard)
 
@@ -677,7 +677,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	})
 
 	// Test active shard vector storage size
-	activeShard,  err := index.GetShardLike(shardName)
+	activeShard, err := index.GetShardLike(shardName)
 	require.NoError(t, err)
 	require.NotNil(t, activeShard)
 

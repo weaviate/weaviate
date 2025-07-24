@@ -302,8 +302,6 @@ func (s *Shard) addToDimensionBucket(
 		return errors.Errorf("add dimension bucket: no bucket dimensions")
 	}
 
-
-
 	keybuff := make([]byte, 4+len(vecName))
 	copy(keybuff[4:], vecName)
 	binary.LittleEndian.PutUint32(keybuff[:4], uint32(dimLength))

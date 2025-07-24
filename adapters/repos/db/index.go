@@ -258,15 +258,14 @@ type Index struct {
 	router router.Router
 }
 
-
 func (index *Index) ClassName() string {
 	return index.Config.ClassName.String()
 }
 
 func (index *Index) Class() *models.Class {
 	className := index.Config.ClassName.String()
-		class := index.getSchema.ReadOnlyClass(className)
-		return class
+	class := index.getSchema.ReadOnlyClass(className)
+	return class
 }
 
 func (i *Index) ID() string {
@@ -3128,7 +3127,7 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName
 	if err != nil {
 		return 0, 0, fmt.Errorf("get shard %q: %w", tenantName, err)
 	}
-		return shard.DimensionsUsage(ctx, targetVector)
+	return shard.DimensionsUsage(ctx, targetVector)
 }
 
 // CalculateUnloadedVectorsMetrics calculates vector storage size for a cold tenant without loading it into memory

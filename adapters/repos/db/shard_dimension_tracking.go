@@ -55,7 +55,6 @@ func (c DimensionCategory) String() string {
 }
 
 func sumByVectorType(ctx context.Context, bucket *lsmkv.Bucket, configs map[string]schemaConfig.VectorIndexConfig, targetVectorType string, f func(dimLength int, v int64) (int64, int64)) (int64, int64, error) {
-
 	if bucket == nil {
 		return 0, 0, fmt.Errorf("dimensions bucket not found for dimensions sum by vector type %s", targetVectorType)
 	}
@@ -112,7 +111,6 @@ func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store
 
 // calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector type from an LSMKV bucket
 func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, vectorName string, calcEntry func(dimLen int, v int64) (int64, int64)) (int64, int64) {
-
 	c := b.Cursor()
 	defer c.Close()
 
