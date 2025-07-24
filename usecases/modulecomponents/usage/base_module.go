@@ -210,8 +210,21 @@ func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Collect usage data and update metrics
+	now := time.Now().UTC()
+	collectionTime := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), 0, 0, time.UTC).Format("2006-01-02T15-04-05Z")
+
+	// Collect usage data and update metrics with timing
+	start := time.Now()
 	usage, err := b.collectUsageData(ctx)
+	collectionDuration := time.Since(start)
+
+	// Record collection latency in Prometheus histogram
+	b.metrics.OperationLatency.WithLabelValues("collect").Observe(collectionDuration.Seconds())
+
+	b.logger.WithFields(logrus.Fields{
+		"collection_duration_s": collectionDuration.Seconds(),
+	}).Debug("usage data collection completed")
+
 	if err != nil {
 		return err
 	}
@@ -219,6 +232,7 @@ func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
 	// Set version on usage data
 	usage.Version = b.policyVersion
 
+	usage.CollectionTime = collectionTime
 	return b.storage.UploadUsageData(ctx, usage)
 }
 
