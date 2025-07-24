@@ -121,8 +121,30 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 						Status:              strings.ToLower(models.TenantActivityStatusINACTIVE),
 						ObjectsStorageBytes: uint64(objectUsage.StorageBytes),
 						VectorStorageBytes:  uint64(vectorStorageSize),
-						NamedVectors:        make([]*types.VectorUsage, 0), // Empty for cold tenants
+						NamedVectors:        make([]*types.VectorUsage, 0),
 					}
+
+					// Get named vector data for cold shards from schema configuration
+					for targetVector, vectorConfig := range collection.VectorConfig {
+						if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+							category, _ := db.GetDimensionCategory(vectorIndexConfig)
+							indexType := vectorIndexConfig.IndexType()
+
+							// For cold shards, we can't get actual dimensionality from disk without loading
+							// So we'll use a placeholder or estimate based on the schema
+							vectorUsage := &types.VectorUsage{
+								Name:                   targetVector,
+								Compression:            category.String(),
+								VectorIndexType:        indexType,
+								IsDynamic:              common.IsDynamic(common.IndexType(indexType)),
+								VectorCompressionRatio: 1.0,                       // Default ratio for cold shards
+								Dimensionalities:       []*types.Dimensionality{}, // Empty for cold shards
+							}
+
+							shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
+						}
+					}
+
 					collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
 				}
 			}
