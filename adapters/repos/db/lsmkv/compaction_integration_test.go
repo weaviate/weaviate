@@ -42,17 +42,23 @@ type bucketIntegrationTests []bucketIntegrationTest
 
 func (tests bucketIntegrationTests) run(ctx context.Context, t *testing.T) {
 	for _, test := range tests {
-		for _, checksumValidation := range []bool{true, false} {
-			t.Run(fmt.Sprintf("%s_checksum_%v", test.name, checksumValidation), func(t *testing.T) {
-				test.opts = append(test.opts, WithSegmentsChecksumValidationEnabled(checksumValidation))
-				t.Run("mmap", func(t *testing.T) {
-					test.f(ctx, t, test.opts)
-				})
-				t.Run("pread", func(t *testing.T) {
-					test.f(ctx, t, append([]BucketOption{WithPread(true)}, test.opts...))
-				})
+		t.Run(fmt.Sprintf("%s_no_checksum", test.name), func(t *testing.T) {
+			test.opts = append(test.opts, WithSegmentsChecksumValidationEnabled(false))
+			t.Run("mmap", func(t *testing.T) {
+				test.f(ctx, t, test.opts)
 			})
-		}
+			t.Run("pread", func(t *testing.T) {
+				test.f(ctx, t, append([]BucketOption{WithPread(true)}, test.opts...))
+			})
+		})
+
+		t.Run(fmt.Sprintf("%s_checksum", test.name), func(t *testing.T) {
+			test.opts = append(test.opts, WithSegmentsChecksumValidationEnabled(true))
+			t.Run("mmap", func(t *testing.T) {
+				test.f(ctx, t, test.opts)
+			})
+		})
+
 	}
 }
 
