@@ -11,7 +11,9 @@
 
 package spfresh
 
-import "sync"
+import (
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+)
 
 const (
 	counterMask   = 0x7F // 0111 1111, masks out the lower 7 bits
@@ -33,23 +35,33 @@ func (ve VectorVersion) Deleted() bool {
 
 // VersionMap maps vector IDs to their latest version number.
 type VersionMap struct {
-	mu sync.RWMutex
+	locks    *common.ShardedRWLocks
+	versions *common.PagedArray[VectorVersion]
+}
 
-	versions map[uint64]VectorVersion
+func NewVersionMap(pages, pageSize uint64) *VersionMap {
+	return &VersionMap{
+		locks:    common.NewShardedRWLocks(512),
+		versions: common.NewPagedArray[VectorVersion](pages, pageSize),
+	}
 }
 
 func (v *VersionMap) Get(vectorID uint64) VectorVersion {
-	v.mu.RLock()
-	defer v.mu.RUnlock()
-
-	return v.versions[vectorID]
+	v.locks.RLock(vectorID)
+	ve, _ := v.versions.Get(vectorID)
+	v.locks.RUnlock(vectorID)
+	return ve
 }
 
-func (v *VersionMap) Increment(vectorID uint64) VectorVersion {
-	v.mu.Lock()
-	defer v.mu.Unlock()
+func (v *VersionMap) Increment(vectorID uint64) (VectorVersion, bool) {
+	v.locks.Lock(vectorID)
+	defer v.locks.Unlock(vectorID)
 
-	ve := v.versions[vectorID]          // zero value if unseen
+	ve, _ := v.versions.Get(vectorID)
+	if ve.Deleted() {
+		return 0, false
+	}
+
 	delBit := uint8(ve) & tombstoneMask // 0x00 or 0x80
 	counter := uint8(ve) & counterMask  // 0-127
 
@@ -60,22 +72,32 @@ func (v *VersionMap) Increment(vectorID uint64) VectorVersion {
 	}
 
 	newVE := VectorVersion(delBit | counter)
-	v.versions[vectorID] = newVE
-	return newVE
+	v.versions.Set(vectorID, newVE)
+
+	return newVE, true
 }
 
 func (v *VersionMap) MarkDeleted(vectorID uint64) VectorVersion {
-	v.mu.Lock()
-	defer v.mu.Unlock()
+	v.locks.Lock(vectorID)
+	defer v.locks.Unlock(vectorID)
 
-	ve := v.versions[vectorID] // zero value if unseen
+	ve, _ := v.versions.Get(vectorID)
 	if ve == 0 {
-		return 0 // return 0 if the vector was never seen
+		return 0
+	}
+	if ve.Deleted() {
+		return ve // already deleted
 	}
 
 	counter := uint8(ve) & counterMask // 0-127
 
 	newVE := VectorVersion(tombstoneMask | counter)
-	v.versions[vectorID] = newVE
+	v.versions.Set(vectorID, newVE)
 	return newVE
+}
+
+// AllocPageFor ensures that the version map has a page allocated for the given ID.
+// This call is not thread-safe and should be protected by the caller.
+func (v *VersionMap) AllocPageFor(id uint64) {
+	v.versions.AllocPageFor(id)
 }
