@@ -191,10 +191,13 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 
 					// Get the actual vector index config from the shard instead of schema
 					vectorIndexConfig := shard.Index().GetVectorIndexConfig(targetVector)
-					if vectorIndexConfig != nil {
-						category, _ = db.GetDimensionCategory(vectorIndexConfig)
-						indexType = vectorIndexConfig.IndexType()
+					if vectorIndexConfig == nil {
+						// shall not happen, but just in case
+						vectorIndexConfig = collection.VectorConfig[targetVector].VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 					}
+
+					category, _ = db.GetDimensionCategory(vectorIndexConfig)
+					indexType = vectorIndexConfig.IndexType()
 
 					dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
 					if err != nil {
