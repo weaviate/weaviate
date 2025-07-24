@@ -170,12 +170,15 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 				"current_time": time.Now(),
 			}).Debug("ticker fired - starting collection cycle")
 
-			if err := b.collectAndUploadUsage(ctx); err != nil {
-				b.logger.WithError(err).Error("Failed to collect and upload usage data")
-				b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "error").Inc()
-			} else {
-				b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "success").Inc()
-			}
+			enterrors.GoWrapper(func() {
+				if err := b.collectAndUploadUsage(ctx); err != nil {
+					b.logger.WithError(err).Error("Failed to collect and upload usage data")
+					b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "error").Inc()
+				} else {
+					b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "success").Inc()
+				}
+			}, b.logger)
+
 			// ticker is used to reset the interval
 			b.reloadConfig(ticker)
 
