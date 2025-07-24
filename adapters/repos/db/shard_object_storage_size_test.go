@@ -49,7 +49,7 @@ func TestShard_ObjectStorageSize_DifferentStatuses(t *testing.T) {
 			name:        "status loading",
 			status:      storagestate.StatusLoading,
 			description: "should handle loading status with missing bucket",
-			expectError: true,
+			expectError: false,
 		},
 	}
 

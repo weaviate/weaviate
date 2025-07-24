@@ -106,9 +106,19 @@ func (b *BaseModule) InitializeCommon(ctx context.Context, config *config.Config
 		}
 	}
 
-	// Verify storage permissions
-	if err := b.storage.VerifyPermissions(ctx); err != nil {
-		return fmt.Errorf("failed to verify storage permissions: %w", err)
+	// Verify storage permissions (opt-in)
+	var shouldVerifyPermissions bool
+	if b.config.Usage.VerifyPermissions != nil {
+		shouldVerifyPermissions = b.config.Usage.VerifyPermissions.Get()
+	}
+
+	if shouldVerifyPermissions {
+		if err := b.storage.VerifyPermissions(ctx); err != nil {
+			return fmt.Errorf("failed to verify storage permissions: %w", err)
+		}
+		b.logger.Info("storage permissions verified successfully")
+	} else {
+		b.logger.Info("storage permission verification skipped (disabled by configuration)")
 	}
 
 	// Start periodic collection and upload
@@ -267,20 +277,27 @@ func (b *BaseModule) reloadConfig(ticker *time.Ticker) {
 
 func (b *BaseModule) buildStorageConfig() StorageConfig {
 	config := StorageConfig{
-		NodeID:  b.nodeID,
-		Version: b.policyVersion,
+		NodeID:            b.nodeID,
+		Version:           b.policyVersion,
+		VerifyPermissions: false,
+	}
+
+	// Set verification setting from configuration
+	if b.config.Usage.VerifyPermissions != nil {
+		config.VerifyPermissions = b.config.Usage.VerifyPermissions.Get()
 	}
 
 	if b.config.Usage.S3Bucket != nil {
 		config.Bucket = b.config.Usage.S3Bucket.Get()
 	}
+	if b.config.Usage.S3Prefix != nil {
+		config.Prefix = b.config.Usage.S3Prefix.Get()
+	}
+
 	if b.config.Usage.GCSBucket != nil {
 		config.Bucket = b.config.Usage.GCSBucket.Get()
 	}
 
-	if b.config.Usage.S3Prefix != nil {
-		config.Prefix = b.config.Usage.S3Prefix.Get()
-	}
 	if b.config.Usage.GCSPrefix != nil {
 		config.Prefix = b.config.Usage.GCSPrefix.Get()
 	}
