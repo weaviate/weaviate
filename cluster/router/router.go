@@ -161,6 +161,10 @@ func preferredNode(directCandidate string, localNodeName string) string {
 }
 
 func buildReplicas(nodeNames []string, shard string, hostnameResolver func(nodeName string) (string, bool)) []types.Replica {
+	if len(nodeNames) == 0 {
+		return nil
+	}
+
 	replicas := make([]types.Replica, 0, len(nodeNames))
 	for _, nodeName := range nodeNames {
 		if hostAddr, ok := hostnameResolver(nodeName); ok {
@@ -291,26 +295,11 @@ func (r *singleTenantRouter) replicasForShard(collection, tenant, shard string) 
 	readNodeNames := r.replicationFSMReader.FilterOneShardReplicasRead(collection, shard, replicas)
 	writeNodeNames, additionalWriteNodeNames := r.replicationFSMReader.FilterOneShardReplicasWrite(collection, shard, replicas)
 
-	read = r.resolveNodeNamesToReplicas(readNodeNames, shard)
-	write = r.resolveNodeNamesToReplicas(writeNodeNames, shard)
-	additional = r.resolveNodeNamesToReplicas(additionalWriteNodeNames, shard)
+	read = buildReplicas(readNodeNames, shard, r.nodeSelector.NodeHostname)
+	write = buildReplicas(writeNodeNames, shard, r.nodeSelector.NodeHostname)
+	additional = buildReplicas(additionalWriteNodeNames, shard, r.nodeSelector.NodeHostname)
 
 	return read, write, additional, nil
-}
-
-// resolveNodeNamesToReplicas builds Replica objects from node names and shard name.
-func (r *singleTenantRouter) resolveNodeNamesToReplicas(nodeNames []string, shard string) []types.Replica {
-	var replicas []types.Replica
-	for _, nodeName := range nodeNames {
-		if hostAddr, ok := r.nodeSelector.NodeHostname(nodeName); ok {
-			replicas = append(replicas, types.Replica{
-				NodeName:  nodeName,
-				ShardName: shard,
-				HostAddr:  hostAddr,
-			})
-		}
-	}
-	return replicas
 }
 
 // BuildReadRoutingPlan constructs a read routing plan for single-tenant collections.
