@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package types
 
 import (
@@ -206,6 +217,20 @@ func TestVectorUsage_OmitsEmptyFields(t *testing.T) {
 				},
 			},
 			expected: `{"name":"default","vector_index_type":"hnsw","compression":"standard","vector_compression_ratio":0.75,"dimensionalities":[{"dimensionality":1536,"count":1000}]}`,
+		},
+		{
+			name: "vector usage with is_dynamic true",
+			usage: VectorUsage{
+				Name:                   "default",
+				VectorIndexType:        "hnsw",
+				IsDynamic:              true,
+				Compression:            "standard",
+				VectorCompressionRatio: 0.75,
+				Dimensionalities: []*Dimensionality{
+					{Dimensions: 1536, Count: 1000},
+				},
+			},
+			expected: `{"name":"default","vector_index_type":"hnsw","is_dynamic":true,"compression":"standard","vector_compression_ratio":0.75,"dimensionalities":[{"dimensionality":1536,"count":1000}]}`,
 		},
 	}
 
