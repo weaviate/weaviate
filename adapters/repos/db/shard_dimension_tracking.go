@@ -78,7 +78,7 @@ func sumByVectorType(ctx context.Context, bucket *lsmkv.Bucket, configs map[stri
 
 // DimensionsUsage returns the total number of dimensions and the number of objects for a given vector type
 func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, error) {
-	dims, count := calcTargetVectorDimensionsFromBucket(ctx, s.store.Bucket(helpers.DimensionsBucketLSM), targetVector,  func(dimLength int, v int64) (int64, int64) {
+	dims, count := calcTargetVectorDimensionsFromBucket(ctx, s.store.Bucket(helpers.DimensionsBucketLSM), targetVector,   func(dimLength int, v int64) (int64, int64) {
 			return v, int64(dimLength)
 		})
 	return dims, count, nil
@@ -121,12 +121,18 @@ func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, 
 		count      = int64(0)
 	)
 
+	fmt.Printf("Starting bucket iteration for vector %s\n", vectorName)
+	seenKeys := make(map[string]bool)
 	for k, vb := c.First(); k != nil; k, vb = c.Next() {
+		if seenKeys[string(k)] {
+			continue // skip duplicate keys
+		}
+		seenKeys[string(k)] = true
 		vecName := string(k[4:])
-		fmt.Printf("calcTargetVectorDimensionsFromBucket: vecName=%s, targetVector=%s\n", vecName, vectorName)
+		fmt.Printf("calcTargetVectorDimensionsFromBucket: vecName=%s, key=%s, key as hex=%x\n", vecName, k, k)
 		// for named vectors we have to additionally check if the key is prefixed with the vector name
 
-		if vectorName != "" && vecName != vectorName {
+		if  vecName != vectorName {
 			continue
 		}
 
@@ -138,10 +144,10 @@ func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, 
 			dimensions = dim
 		}
 		count += cnt
-		fmt.Printf("calcTargetVectorDimensionsFromBucket: targetVector=%s, dimLength=%d, dimensions=%d, count=%d\n", vectorName, dimLength, dimensions, count)
+		//fmt.Printf("calcTargetVectorDimensionsFromBucket: targetVector=%s, dimLength=%d, dimensions=%d, count=%d\n", vectorName, dimLength, dimensions, count)
 	}
 
-	fmt.Printf("calcTargetVectorDimensionsFromBucket: (finished) targetVector=%s, total dimensions=%d, total count=%d\n", vectorName, dimensions, count)
+	//fmt.Printf("calcTargetVectorDimensionsFromBucket: (finished) targetVector=%s, total dimensions=%d, total count=%d\n", vectorName, dimensions, count)
 	return dimensions, count
 }
 

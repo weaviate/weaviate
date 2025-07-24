@@ -437,6 +437,7 @@ func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {
 func (s *Shard) VectorStorageSize(ctx context.Context) (int64, error) {
 	totalSize := int64(0)
 
+	fmt.Printf("shard.VectorStorageSize: Calculating vector storage size for shard %s\n", s.name)
 	// Iterate over all vector indexes to calculate storage size for both default and targeted vectors
 	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// Get dimensions and object count from the dimensions bucket for this specific target vector
@@ -455,6 +456,9 @@ func (s *Shard) VectorStorageSize(ctx context.Context) (int64, error) {
 		// For active tenants, always use the direct vector index compression rate
 		compressionRate := index.CompressionStats().CompressionRatio(dimensionality)
 
+		fmt.Printf("shard.VectorStorageSize: targetVector=%s, count=%d, dimensionality=%d, uncompressedSize=%d, compressionRate=%v\n",
+			targetVector, count, dimensionality, uncompressedSize, compressionRate)
+
 		// Calculate total size using actual compression rate
 		totalSize += int64(float64(uncompressedSize) * compressionRate)
 
@@ -463,6 +467,7 @@ func (s *Shard) VectorStorageSize(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 
+	fmt.Printf("shard.VectorStorageSize: Total vector storage size for shard %s: %d bytes\n", s.name, totalSize)
 	return totalSize, nil
 }
 

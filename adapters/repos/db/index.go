@@ -255,6 +255,17 @@ type Index struct {
 	shardReindexer ShardReindexerV3
 }
 
+
+func (index *Index) ClassName() string {
+	return index.Config.ClassName.String()
+}
+
+func (index *Index) Class() *models.Class {
+	className := index.Config.ClassName.String()
+		class := index.getSchema.ReadOnlyClass(className)
+		return class
+}
+
 func (i *Index) ID() string {
 	return indexID(i.Config.ClassName)
 }
@@ -476,6 +487,24 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 	}
 
 	return nil
+}
+
+func (i *Index) GetShardLike(name string) (ShardLike, error) {
+	shard := i.shards.Load(name)
+	if shard != nil {
+		fmt.Printf("GetShardLike: found cached shard shard=%s, type=%T\n", name, shard)
+		return shard, nil
+	}
+
+	shard, err := i.initShard(i.closingCtx, name, i.Class(),
+		monitoring.GetMetrics(), false, false)
+	if err != nil {
+		return nil, err
+	}
+
+	fmt.Printf("GetShardLike: created new shard shard=%s, type=%T, addr=%p\n", name, shard, shard)
+
+	return shard, nil
 }
 
 // used to init/create shard in different moments of index's lifecycle, therefore it needs to be called
@@ -3017,23 +3046,9 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName
 
 // CalculateUnloadedVectorsMetrics calculates vector storage size for a cold tenant without loading it into memory
 func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) (int64, error) {
-	i.LoadLocalShard(ctx, tenantName, true)
-	if shard, releaseShard, err := i.GetShard(ctx, tenantName); shard != nil {
-		defer releaseShard()
-		return shard.VectorStorageSize(ctx)
-	} else {
-		if err != nil {
-			return 0, fmt.Errorf("get shard %q: %w", tenantName, err)
-		}
+	shard, err := i.GetShardLike(tenantName)
+	if err != nil {
+		return 0, fmt.Errorf("get shard %q: %w", tenantName, err)
 	}
-	var sharList []string
-	// Check shard list for the tenant
-	i.shards.Range(func(name string, shard ShardLike) error {
-		sharList = append(sharList, name)
-		return nil // continue iterating
-	})
-
-	return 0, fmt.Errorf("shard %q not found or unable to access for vectors metrics, known shards: %v", tenantName, sharList)
-
-
+	return shard.VectorStorageSize(ctx)
 }
