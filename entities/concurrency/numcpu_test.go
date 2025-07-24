@@ -169,3 +169,51 @@ func TestTimesFloatNumcpu(t *testing.T) {
 		})
 	}
 }
+
+func TestFractionOf(t *testing.T) {
+	type testCase struct {
+		original int
+		factor   int
+		expected int
+	}
+
+	testCases := []testCase{
+		{
+			original: 10,
+			factor:   -1,
+			expected: 10,
+		},
+		{
+			original: 10,
+			factor:   0,
+			expected: 10,
+		},
+		{
+			original: 10,
+			factor:   1,
+			expected: 10,
+		},
+		{
+			original: 10,
+			factor:   2,
+			expected: 5,
+		},
+		{
+			original: 10,
+			factor:   3,
+			expected: 3,
+		},
+		{
+			original: 10,
+			factor:   24,
+			expected: 1,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("fraction of %d factor %d", tc.original, tc.factor), func(t *testing.T) {
+			n := FractionOf(tc.original, tc.factor)
+			assert.Equal(t, tc.expected, n)
+		})
+	}
+}
