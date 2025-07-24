@@ -92,6 +92,7 @@ func (ve VectorVersion) Deleted() bool {
 
 // VersionMap maps vector IDs to their latest version number.
 type VersionMap struct {
+	m        sync.Mutex
 	locks    *common.ShardedRWLocks
 	versions *common.PagedArray[VectorVersion]
 }
@@ -154,9 +155,10 @@ func (v *VersionMap) MarkDeleted(vectorID uint64) VectorVersion {
 }
 
 // AllocPageFor ensures that the version map has a page allocated for the given ID.
-// This call is not thread-safe and should be protected by the caller.
 func (v *VersionMap) AllocPageFor(id uint64) {
+	v.m.Lock()
 	v.versions.AllocPageFor(id)
+	v.m.Unlock()
 }
 
 type PostingSizes struct {
