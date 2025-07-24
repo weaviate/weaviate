@@ -170,7 +170,9 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 		case <-ticker.C:
 			b.logger.WithFields(logrus.Fields{
 				"current_time": time.Now(),
-			}).Debug("ticker fired - starting collection cycle")
+				"ticker_type":  "collection",
+				"interval":     b.interval.String(),
+			}).Debug("collection ticker fired - starting collection cycle")
 
 			enterrors.GoWrapper(func() {
 				if err := b.collectAndUploadUsage(ctx); err != nil {
@@ -185,7 +187,10 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 			b.reloadConfig(ticker)
 
 		case <-loadTicker.C:
-			b.logger.Debug("runtime overrides reloaded")
+			b.logger.WithFields(logrus.Fields{
+				"ticker_type": "runtime_overrides",
+				"interval":    loadInterval.String(),
+			}).Debug("runtime overrides reloaded")
 			// ticker is used to reset the interval
 			b.reloadConfig(ticker)
 
