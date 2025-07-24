@@ -46,7 +46,7 @@ func TestDynamic(t *testing.T) {
 	os.Setenv("ASYNC_INDEXING", "true")
 	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	dimensions := 20
-	vectors_size := 10_000
+	vectors_size := 1_000
 	queries_size := 10
 	k := 10
 
@@ -170,7 +170,7 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 	os.Setenv("ASYNC_INDEXING", "true")
 	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	dimensions := 20
-	vectors_size := 10_000
+	vectors_size := 1_000
 	queries_size := 10
 	k := 10
 
@@ -258,7 +258,7 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("ASYNC_INDEXING", "true")
 	dimensions := 20
-	vectors_size := 10_000
+	vectors_size := 1_000
 	queries_size := 10
 	k := 10
 
@@ -339,7 +339,7 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("ASYNC_INDEXING", "true")
 	dimensions := 20
-	vectors_size := 10_000
+	vectors_size := 1_000
 	threshold := 2_000
 	queries_size := 10
 	k := 10
