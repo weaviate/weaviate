@@ -257,7 +257,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	// if there are no secondary indices and checksum validation is enabled,
 	// we need to remove the checksum bytes from the primary index
 	// See below for the same logic if there are secondary indices
-	if cfg.enableChecksumValidation && header.SecondaryIndices == 0 {
+	if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation && header.SecondaryIndices == 0 {
 		primaryIndex = primaryIndex[:len(primaryIndex)-segmentindex.ChecksumSize]
 	}
 
@@ -332,7 +332,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			}
 			// if we are on the last secondary index and checksum validation is enabled,
 			// we need to remove the checksum bytes from the secondary index
-			if cfg.enableChecksumValidation && i == int(seg.secondaryIndexCount-1) {
+			if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation && i == int(seg.secondaryIndexCount-1) {
 				secondary = secondary[:len(secondary)-segmentindex.ChecksumSize]
 			}
 			seg.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
