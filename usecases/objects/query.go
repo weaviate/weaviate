@@ -121,7 +121,7 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 	}
 
 	objects := res.ObjectsWithVector(q.Additional.Vector)
-	
+
 	// Ensure responses use original user input
 	if originalClassName != "" {
 		objects = m.restoreOriginalClassNames(objects, originalClassName)

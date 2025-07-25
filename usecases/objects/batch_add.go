@@ -70,7 +70,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Ensure responses use original user inputs
 	return b.restoreOriginalClassNamesInBatch(batchObjects, originalClassNames), nil
 }

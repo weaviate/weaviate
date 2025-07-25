@@ -55,7 +55,7 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Ensure response uses original user input
 	return b.restoreOriginalClassNameInBatchDelete(response, originalClassName), nil
 }

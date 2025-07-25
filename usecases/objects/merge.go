@@ -50,12 +50,12 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	if err := m.validateInputs(updates); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}
-	
+
 	// Store original user input for response
 	originalClassName := schema.UppercaseClassName(updates.Class)
 	updates.Class = originalClassName
 	cls, id := updates.Class, updates.ID
-	
+
 	// RBAC will resolve alias internally using its configured resolver
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
@@ -124,7 +124,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		updates.Properties = map[string]interface{}{}
 	}
 
-	// Ensure response uses original user input  
+	// Ensure response uses original user input
 	pathErr := m.patchObject(ctx, prevObj, updates, repl, propertiesToDelete, updates.Tenant, fetchedClass, maxSchemaVersion)
 	if pathErr == nil {
 		m.restoreOriginalClassName(updates, originalClassName)

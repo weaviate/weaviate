@@ -62,7 +62,7 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Ensure response uses original user input
 	return m.restoreOriginalClassName(obj, originalClassName), nil
 }

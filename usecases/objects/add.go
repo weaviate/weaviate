@@ -41,7 +41,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	// Store original user input for response
 	originalClassName := schema.UppercaseClassName(object.Class)
 	object.Class = originalClassName
-	
+
 	// RBAC will resolve alias internally - pass class name as-is
 	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(originalClassName, object.Tenant)...); err != nil {
 		return nil, err
@@ -66,7 +66,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Ensure response uses original user input
 	return m.restoreOriginalClassName(obj, originalClassName), nil
 }
