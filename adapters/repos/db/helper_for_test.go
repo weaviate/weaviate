@@ -42,7 +42,7 @@ func parkingGaragesSchema() schema.Schema {
 			Classes: []*models.Class{
 				{
 					Class:               "MultiRefParkingGarage",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -58,7 +58,7 @@ func parkingGaragesSchema() schema.Schema {
 				},
 				{
 					Class:               "MultiRefParkingLot",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -70,7 +70,7 @@ func parkingGaragesSchema() schema.Schema {
 				},
 				{
 					Class:               "MultiRefCar",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -86,7 +86,7 @@ func parkingGaragesSchema() schema.Schema {
 				},
 				{
 					Class:               "MultiRefDriver",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -102,7 +102,7 @@ func parkingGaragesSchema() schema.Schema {
 				},
 				{
 					Class:               "MultiRefPerson",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -118,7 +118,7 @@ func parkingGaragesSchema() schema.Schema {
 				},
 				{
 					Class:               "MultiRefSociety",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -136,7 +136,7 @@ func parkingGaragesSchema() schema.Schema {
 				// for classifications test
 				{
 					Class:               "ExactCategory",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -148,7 +148,7 @@ func parkingGaragesSchema() schema.Schema {
 				},
 				{
 					Class:               "MainCategory",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -169,7 +169,7 @@ func cityCountryAirportSchema() schema.Schema {
 			Classes: []*models.Class{
 				{
 					Class:               "Country",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
@@ -177,7 +177,7 @@ func cityCountryAirportSchema() schema.Schema {
 				},
 				{
 					Class:               "City",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
@@ -188,7 +188,7 @@ func cityCountryAirportSchema() schema.Schema {
 				},
 				{
 					Class:               "Airport",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{Name: "code", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},

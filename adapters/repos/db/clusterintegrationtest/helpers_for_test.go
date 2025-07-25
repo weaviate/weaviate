@@ -128,7 +128,7 @@ func multiShardState(nodeCount int) *sharding.State {
 }
 
 func class() *models.Class {
-	cfg := enthnsw.NewDefaultUserConfig()
+	cfg := enthnsw.NewDefaultUserConfig(nil)
 	cfg.EF = 500
 	return &models.Class{
 		Class:               distributedClass,
@@ -185,7 +185,7 @@ func multiVectorClass(asyncIndexing bool) *models.Class {
 }
 
 func secondClassWithRef() *models.Class {
-	cfg := enthnsw.NewDefaultUserConfig()
+	cfg := enthnsw.NewDefaultUserConfig(nil)
 	cfg.EF = 500
 	return &models.Class{
 		Class:               "SecondDistributed",

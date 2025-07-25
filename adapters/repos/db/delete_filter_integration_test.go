@@ -44,7 +44,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
 		Class:               className,
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{{
 			Name:         "unrelatedProp",
@@ -164,7 +164,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	class := &models.Class{
 		Class:               className,
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{{
 			Name:         "author",

@@ -60,7 +60,7 @@ func Test_MergingObjects(t *testing.T) {
 			Classes: []*models.Class{
 				{
 					Class:               "MergeTestTarget",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -72,7 +72,7 @@ func Test_MergingObjects(t *testing.T) {
 				},
 				{
 					Class:               "MergeTestSource",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{ // tries to have "one of each property type"
 						{
@@ -108,7 +108,7 @@ func Test_MergingObjects(t *testing.T) {
 				},
 				{
 					Class:               "MergeTestNoVector",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -423,7 +423,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
-	hnswConfig := enthnsw.NewDefaultUserConfig()
+	hnswConfig := enthnsw.NewDefaultUserConfig(nil)
 	hnswConfig.Skip = true
 	sch := schema.Schema{
 		Objects: &models.Schema{
@@ -697,7 +697,7 @@ func Test_MergeDocIdPreserved_PropsCorrectlyIndexed(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
-	hnswConfig := enthnsw.NewDefaultUserConfig()
+	hnswConfig := enthnsw.NewDefaultUserConfig(nil)
 	hnswConfig.Skip = true
 	sch := schema.Schema{
 		Objects: &models.Schema{
@@ -945,11 +945,11 @@ func TestMerge_ObjectWithNamedVectors(t *testing.T) {
 			VectorConfig: map[string]models.VectorConfig{
 				namedVecName: {
 					Vectorizer:        noopVectorizerConfig(),
-					VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil),
 				},
 				multiVecName: {
 					Vectorizer:        noopVectorizerConfig(),
-					VectorIndexConfig: enthnsw.NewDefaultMultiVectorUserConfig(),
+					VectorIndexConfig: enthnsw.NewDefaultMultiVectorUserConfig(nil),
 				},
 			},
 		}

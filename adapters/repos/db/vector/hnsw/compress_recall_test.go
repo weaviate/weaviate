@@ -108,7 +108,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 			Enabled:   true,
 			Segments:  dimensions / segments,
 			Centroids: 256,
-			Encoder:   ent.NewDefaultUserConfig().PQ.Encoder,
+			Encoder:   ent.NewDefaultUserConfig(nil).PQ.Encoder,
 		}
 		uc.EF = 256
 		wg := sync.WaitGroup{}

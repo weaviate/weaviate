@@ -180,17 +180,17 @@ func testSchema() schema.Schema {
 			Classes: []*models.Class{
 				{
 					Class:               "ExactCategory",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 				},
 				{
 					Class:               "MainCategory",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 				},
 				{
 					Class:               "Article",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -350,7 +350,7 @@ func testSchemaForZeroShot() schema.Schema {
 			Classes: []*models.Class{
 				{
 					Class:               "FoodType",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -361,7 +361,7 @@ func testSchemaForZeroShot() schema.Schema {
 				},
 				{
 					Class:               "Recipes",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{

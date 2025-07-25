@@ -18,6 +18,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/schema/config"
 	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -79,7 +80,7 @@ func (u UserConfig) IsMultiVector() bool {
 }
 
 // SetDefaults in the user-specifyable part of the config
-func (u *UserConfig) SetDefaults() {
+func (u *UserConfig) SetDefaults(defaultCompression *configRuntime.DynamicValue[string]) {
 	u.MaxConnections = DefaultMaxConnections
 	u.EFConstruction = DefaultEFConstruction
 	u.CleanupIntervalSeconds = DefaultCleanupIntervalSeconds
@@ -130,13 +131,27 @@ func (u *UserConfig) SetDefaults() {
 			Repetitions:  DefaultMultivectorRepetitions,
 		},
 	}
+
+	compression := defaultCompression.Get()
+	if compression != "" && compression != vectorIndexCommon.NoCompression {
+		switch compression {
+		case vectorIndexCommon.CompressionBQ:
+			u.BQ.Enabled = true
+		case vectorIndexCommon.CompressionPQ:
+			u.PQ.Enabled = true
+		case vectorIndexCommon.CompressionSQ:
+			u.SQ.Enabled = true
+		case vectorIndexCommon.CompressionRQ:
+			u.RQ.Enabled = true
+		}
+	}
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.VectorIndexConfig, error) {
+func ParseAndValidateConfig(input interface{}, isMultiVector bool, defaultCompression *configRuntime.DynamicValue[string]) (config.VectorIndexConfig, error) {
 	uc := UserConfig{}
-	uc.SetDefaults()
+	uc.SetDefaults(defaultCompression)
 
 	if input == nil {
 		return uc, nil
@@ -239,10 +254,10 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.Vecto
 		return uc, err
 	}
 
-	return uc, uc.validate()
+	return uc, uc.validate(defaultCompression)
 }
 
-func (u *UserConfig) validate() error {
+func (u *UserConfig) validate(defaultCompression *configRuntime.DynamicValue[string]) error {
 	var errMsgs []string
 	if u.MaxConnections < MinmumMaxConnections {
 		errMsgs = append(errMsgs, fmt.Sprintf(
@@ -287,6 +302,20 @@ func (u *UserConfig) validate() error {
 	if u.RQ.Enabled {
 		enabled++
 	}
+	compression := defaultCompression.Get()
+	if enabled == 2 && compression != "" && compression != vectorIndexCommon.NoCompression {
+		switch compression {
+		case vectorIndexCommon.CompressionBQ:
+			u.BQ.Enabled = false
+		case vectorIndexCommon.CompressionPQ:
+			u.PQ.Enabled = false
+		case vectorIndexCommon.CompressionSQ:
+			u.SQ.Enabled = false
+		case vectorIndexCommon.CompressionRQ:
+			u.RQ.Enabled = DefaultRQEnabled
+		}
+		enabled--
+	}
 	if enabled > 1 {
 		return fmt.Errorf("invalid hnsw config: more than a single compression methods enabled")
 	}
@@ -298,15 +327,15 @@ func (u *UserConfig) validate() error {
 	return nil
 }
 
-func NewDefaultUserConfig() UserConfig {
+func NewDefaultUserConfig(defaultCompression *configRuntime.DynamicValue[string]) UserConfig {
 	uc := UserConfig{}
-	uc.SetDefaults()
+	uc.SetDefaults(defaultCompression)
 	return uc
 }
 
-func NewDefaultMultiVectorUserConfig() UserConfig {
+func NewDefaultMultiVectorUserConfig(defaultCompression *configRuntime.DynamicValue[string]) UserConfig {
 	uc := UserConfig{}
-	uc.SetDefaults()
+	uc.SetDefaults(defaultCompression)
 	uc.Multivector = MultivectorConfig{Enabled: true}
 	return uc
 }

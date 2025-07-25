@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -29,14 +30,14 @@ const (
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseAndValidateConfig(input interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error) {
+func ParseAndValidateConfig(input interface{}, vectorIndexType string, isMultiVector bool, defaultCompression *configRuntime.DynamicValue[string]) (schemaConfig.VectorIndexConfig, error) {
 	if len(vectorIndexType) == 0 {
 		vectorIndexType = DefaultVectorIndexType
 	}
 
 	switch vectorIndexType {
 	case VectorIndexTypeHNSW:
-		return hnsw.ParseAndValidateConfig(input, isMultiVector)
+		return hnsw.ParseAndValidateConfig(input, isMultiVector, defaultCompression)
 	case VectorIndexTypeFLAT:
 		return flat.ParseAndValidateConfig(input)
 	case VectorIndexTypeDYNAMIC:

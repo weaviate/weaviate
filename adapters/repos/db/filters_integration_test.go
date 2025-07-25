@@ -766,7 +766,7 @@ func filterOr(operands ...*filters.LocalFilter) *filters.LocalFilter {
 // test data
 var carClass = &models.Class{
 	Class:               "FilterTestCar",
-	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
@@ -834,7 +834,7 @@ var carClass = &models.Class{
 // test data
 var carClassNoLengthIndex = &models.Class{
 	Class:             "FilterTestCar",
-	VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+	VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil),
 	InvertedIndexConfig: &models.InvertedIndexConfig{
 		CleanupIntervalSeconds: 60,
 		Stopwords: &models.StopwordConfig{
@@ -1047,7 +1047,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 	t.Run("import schema", func(t *testing.T) {
 		class := &models.Class{
 			Class:               "GeoUpdateTestClass",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
@@ -1154,7 +1154,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 
 	class := &models.Class{
 		Class:               "FilterCasingBug",
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
@@ -1557,7 +1557,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 	class := &models.Class{
 		Class:               "DeletionClass",
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
