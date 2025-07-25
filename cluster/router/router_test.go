@@ -217,10 +217,6 @@ func TestSingleTenantRouter_GetWriteReplicasLocation(t *testing.T) {
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2"}, nil)
 
 	mockReplicationFSM.EXPECT().
-		FilterOneShardReplicasRead("TestClass", "shard1", []string{"node1", "node2"}).
-		Return([]string{"node1", "node2"})
-
-	mockReplicationFSM.EXPECT().
 		FilterOneShardReplicasWrite("TestClass", "shard1", []string{"node1", "node2"}).
 		Return([]string{"node1"}, []string{"node2"})
 
@@ -260,8 +256,6 @@ func TestSingleTenantRouter_GetReadReplicasLocation(t *testing.T) {
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2"}, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "shard1", []string{"node1", "node2"}).
 		Return([]string{"node1", "node2"})
-	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "shard1", []string{"node1", "node2"}).
-		Return([]string{"node1"}, []string{"node2"})
 
 	r := router.NewBuilder(
 		"TestClass",
@@ -295,9 +289,6 @@ func TestSingleTenantRouter_ErrorInMiddleOfShardProcessing(t *testing.T) {
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1"}, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "shard1", []string{"node1"}).
 		Return([]string{"node1"})
-	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "shard1", []string{"node1"}).
-		Return([]string{"node1"}, []string{})
-
 	// Second shard failure
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard2").Return([]string{}, errors.New("shard2 error"))
 
@@ -468,10 +459,6 @@ func TestMultiTenantRouter_GetWriteReplicasLocation(t *testing.T) {
 	mockSchemaGetter.EXPECT().
 		OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
 		Return(tenantStatus, nil)
-
-	mockReplicationFSM.EXPECT().
-		FilterOneShardReplicasRead("TestClass", "luke", []string{"node1"}).
-		Return([]string{"node1", "node2"})
 	mockReplicationFSM.EXPECT().
 		FilterOneShardReplicasWrite("TestClass", "luke", []string{"node1"}).
 		Return([]string{"node1"}, []string{"node2"})
@@ -506,20 +493,15 @@ func TestMultiTenantRouter_GetReadReplicasLocation(t *testing.T) {
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "luke").Return([]string{"node1"}, nil)
-
 	tenantStatus := map[string]string{
 		"luke": models.TenantActivityStatusHOT,
 	}
 	mockSchemaGetter.EXPECT().
 		OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
 		Return(tenantStatus, nil)
-
 	mockReplicationFSM.EXPECT().
 		FilterOneShardReplicasRead("TestClass", "luke", []string{"node1"}).
 		Return([]string{"node1"})
-	mockReplicationFSM.EXPECT().
-		FilterOneShardReplicasWrite("TestClass", "luke", []string{"node1"}).
-		Return([]string{"node1"}, []string{})
 
 	r := router.NewBuilder(
 		"TestClass",
@@ -555,10 +537,13 @@ func TestMultiTenantRouter_TenantStatusChangeDuringOperation(t *testing.T) {
 
 	mockSchemaGetter.EXPECT().
 		OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
-		Return(tenantStatusFirst, nil).Once()
+		Return(tenantStatusFirst, nil).Once() // first tenant read replicas
 	mockSchemaGetter.EXPECT().
 		OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
-		Return(tenantStatusSecond, nil).Once()
+		Return(tenantStatusFirst, nil).Once() // first tenant write replicas
+	mockSchemaGetter.EXPECT().
+		OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
+		Return(tenantStatusSecond, nil).Once() // second tenant read replica (error)
 
 	mockReplicationFSM.EXPECT().
 		FilterOneShardReplicasRead("TestClass", "luke", []string{"node1"}).
@@ -673,10 +658,6 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 		FilterOneShardReplicasRead("TestClass", "shard1", []string{}).
 		Return([]string{})
 
-	mockReplicationFSM.EXPECT().
-		FilterOneShardReplicasWrite("TestClass", "shard1", []string{}).
-		Return([]string{}, []string{})
-
 	r := router.NewBuilder(
 		"TestClass",
 		false,
@@ -698,21 +679,15 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 	mockNodeSelector := mocks.NewMockNodeSelector("node1")
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "luke").Return([]string{}, nil)
-
 	tenantStatus := map[string]string{
 		"luke": models.TenantActivityStatusHOT,
 	}
 	mockSchemaGetter.EXPECT().
 		OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
 		Return(tenantStatus, nil)
-
 	mockReplicationFSM.EXPECT().
 		FilterOneShardReplicasRead("TestClass", "luke", []string{}).
 		Return([]string{})
-
-	mockReplicationFSM.EXPECT().
-		FilterOneShardReplicasWrite("TestClass", "luke", []string{}).
-		Return([]string{}, []string{})
 
 	r := router.NewBuilder(
 		"TestClass",
@@ -742,8 +717,6 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_Success(t *testing.T) {
 
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "luke", []string{"node1"}).
 		Return([]string{"node1"})
-	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "luke", []string{"node1"}).
-		Return([]string{"node1"}, []string{})
 
 	r := router.NewBuilder(
 		"TestClass",
@@ -1141,8 +1114,6 @@ func TestSingleTenantRouter_BroadcastVsTargeted(t *testing.T) {
 				mockSchemaReader.EXPECT().ShardReplicas("TestClass", shard).Return([]string{"node1"}, nil)
 				mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", shard, []string{"node1"}).
 					Return([]string{"node1"})
-				mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", shard, []string{"node1"}).
-					Return([]string{"node1"}, []string{})
 				mockNodeSelector.EXPECT().NodeHostname("node1").Return("host1.example.com", true)
 			}
 
@@ -1171,13 +1142,8 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_NoWriteReplicas(t *testing.T) 
 	emptyState := createShardingStateWithShards([]string{"shard1"})
 	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(emptyState)
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2", "node3"}, nil)
-	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "shard1", []string{"node1", "node2", "node3"}).
-		Return([]string{"node1", "node2", "node3"})
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "shard1", []string{"node1", "node2", "node3"}).
 		Return([]string{}, []string{})
-	mockNodeSelector.EXPECT().NodeHostname("node1").Return("host1.example.com", true)
-	mockNodeSelector.EXPECT().NodeHostname("node2").Return("host2.example.com", true)
-	mockNodeSelector.EXPECT().NodeHostname("node3").Return("host3.example.com", true)
 
 	r := router.NewBuilder(
 		"TestClass",
@@ -1202,11 +1168,7 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_MultipleShards(t *testing.T) {
 	shards := []string{"shard1", "shard2", "shard3"}
 	state := createShardingStateWithShards(shards)
 	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
-
-	// Setup expectations for all shards
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2"}, nil)
-	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "shard1", []string{"node1", "node2"}).
-		Return([]string{"node1", "node2"})
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "shard1", []string{"node1", "node2"}).
 		Return([]string{"node1"}, []string{"node2"})
 
@@ -1245,18 +1207,13 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_Success(t *testing.T) {
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "alice").Return([]string{"node1", "node2"}, nil)
-
 	tenantStatus := map[string]string{
 		"alice": models.TenantActivityStatusHOT,
 	}
 	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice").
 		Return(tenantStatus, nil)
-
-	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "alice", []string{"node1", "node2"}).
-		Return([]string{"node1", "node2"})
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "alice", []string{"node1", "node2"}).
 		Return([]string{"node1"}, []string{"node2"})
-
 	mockNodeSelector.EXPECT().NodeHostname("node1").Return("host1.example.com", true)
 	mockNodeSelector.EXPECT().NodeHostname("node2").Return("host2.example.com", true)
 
@@ -1288,15 +1245,11 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_NoWriteReplicas(t *testing.T) {
 	mockNodeSelector := mocks.NewMockNodeSelector("node1")
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "alice").Return([]string{}, nil)
-
 	tenantStatus := map[string]string{
 		"alice": models.TenantActivityStatusHOT,
 	}
 	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice").
 		Return(tenantStatus, nil)
-
-	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "alice", []string{}).
-		Return([]string{})
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "alice", []string{}).
 		Return([]string{}, []string{})
 

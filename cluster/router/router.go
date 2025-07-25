@@ -131,7 +131,7 @@ var (
 	_ types.Router = (*singleTenantRouter)(nil)
 )
 
-// sort orders replicas with the preferred node first, followed by the remaining replicas
+// sort orders replicas with the preferred node first, followed by the remaining replicas.
 func sort(replicas []types.Replica, preferredNodeName string) []types.Replica {
 	if len(replicas) == 0 {
 		return replicas
@@ -151,6 +151,8 @@ func sort(replicas []types.Replica, preferredNodeName string) []types.Replica {
 	return append(orderedReplicas, otherReplicas...)
 }
 
+// preferredNode determines the preferred node for replica ordering by selecting
+// the direct candidate if specified, otherwise falling back to the local node.
 func preferredNode(directCandidate string, localNodeName string) string {
 	if directCandidate != "" {
 		return directCandidate
@@ -158,6 +160,8 @@ func preferredNode(directCandidate string, localNodeName string) string {
 	return localNodeName
 }
 
+// buildReplicas constructs a slice of replicas from node names, resolving hostnames
+// for each node and filtering out nodes that cannot be resolved.
 func buildReplicas(nodeNames []string, shard string, hostnameResolver func(nodeName string) (string, bool)) []types.Replica {
 	if len(nodeNames) == 0 {
 		return []types.Replica{}
@@ -195,11 +199,20 @@ func (r *singleTenantRouter) AllHostnames() []string {
 }
 
 // GetReadWriteReplicasLocation returns read and write replicas for single-tenant collections.
-func (r *singleTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (readReplicas types.ReadReplicaSet, writeReplicas types.WriteReplicaSet, err error) {
+func (r *singleTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (types.ReadReplicaSet, types.WriteReplicaSet, error) {
 	if err := r.validateTenant(tenant); err != nil {
 		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
 	}
-	return r.getReadWriteReplicasLocation(collection, tenant, shard)
+
+	readReplicas, err := r.getReadReplicasLocation(collection, tenant, shard)
+	if err != nil {
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
+	}
+	writeReplicas, err := r.getWriteReplicasLocation(collection, tenant, shard)
+	if err != nil {
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
+	}
+	return readReplicas, writeReplicas, nil
 }
 
 // GetWriteReplicasLocation returns write replicas for single-tenant collections.
@@ -207,7 +220,7 @@ func (r *singleTenantRouter) GetWriteReplicasLocation(collection string, tenant 
 	if err := r.validateTenant(tenant); err != nil {
 		return types.WriteReplicaSet{}, err
 	}
-	_, writeReplicas, err := r.getReadWriteReplicasLocation(collection, tenant, shard)
+	writeReplicas, err := r.getWriteReplicasLocation(collection, tenant, shard)
 	if err != nil {
 		return types.WriteReplicaSet{}, err
 	}
@@ -219,36 +232,11 @@ func (r *singleTenantRouter) GetReadReplicasLocation(collection string, tenant s
 	if err := r.validateTenant(tenant); err != nil {
 		return types.ReadReplicaSet{}, err
 	}
-	readReplicas, _, err := r.getReadWriteReplicasLocation(collection, tenant, shard)
+	readReplicas, err := r.getReadReplicasLocation(collection, tenant, shard)
 	if err != nil {
 		return types.ReadReplicaSet{}, err
 	}
 	return readReplicas, nil
-}
-
-func (r *singleTenantRouter) getReadWriteReplicasLocation(collection string, tenant string, shard string) (readReplicas types.ReadReplicaSet, writeReplicas types.WriteReplicaSet, err error,
-) {
-	targetShards, err := r.targetShards(collection, shard)
-	if err != nil {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
-	}
-
-	var allReadReplicas []types.Replica
-	var allWriteReplicas []types.Replica
-	var allAdditionalWriteReplicas []types.Replica
-
-	for _, shardName := range targetShards {
-		read, write, additional, err := r.replicasForShard(collection, tenant, shardName)
-		if err != nil {
-			return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
-		}
-
-		allReadReplicas = append(allReadReplicas, read...)
-		allWriteReplicas = append(allWriteReplicas, write...)
-		allAdditionalWriteReplicas = append(allAdditionalWriteReplicas, additional...)
-	}
-
-	return types.ReadReplicaSet{Replicas: allReadReplicas}, types.WriteReplicaSet{Replicas: allWriteReplicas, AdditionalReplicas: allAdditionalWriteReplicas}, nil
 }
 
 // getReadReplicasLocation returns only read replicas for single-tenant collections.
@@ -258,18 +246,18 @@ func (r *singleTenantRouter) getReadReplicasLocation(collection string, tenant s
 		return types.ReadReplicaSet{}, err
 	}
 
-	var allReadReplicas []types.Replica
+	var replicas []types.Replica
 
 	for _, shardName := range targetShards {
-		read, err := r.readReplicasForShard(collection, tenant, shardName)
+		readReplica, err := r.readReplicasForShard(collection, tenant, shardName)
 		if err != nil {
 			return types.ReadReplicaSet{}, err
 		}
 
-		allReadReplicas = append(allReadReplicas, read...)
+		replicas = append(replicas, readReplica...)
 	}
 
-	return types.ReadReplicaSet{Replicas: allReadReplicas}, nil
+	return types.ReadReplicaSet{Replicas: replicas}, nil
 }
 
 // getWriteReplicasLocation returns only write replicas for single-tenant collections.
@@ -279,27 +267,24 @@ func (r *singleTenantRouter) getWriteReplicasLocation(collection string, tenant 
 		return types.WriteReplicaSet{}, err
 	}
 
-	var allWriteReplicas []types.Replica
-	var allAdditionalWriteReplicas []types.Replica
+	var replicas []types.Replica
+	var additionalReplicas []types.Replica
 
 	for _, shardName := range targetShards {
-		write, additional, err := r.writeReplicasForShard(collection, tenant, shardName)
+		writeReplica, additionalReplica, err := r.writeReplicasForShard(collection, tenant, shardName)
 		if err != nil {
 			return types.WriteReplicaSet{}, err
 		}
 
-		allWriteReplicas = append(allWriteReplicas, write...)
-		allAdditionalWriteReplicas = append(allAdditionalWriteReplicas, additional...)
+		replicas = append(replicas, writeReplica...)
+		additionalReplicas = append(additionalReplicas, additionalReplica...)
 	}
 
-	return types.WriteReplicaSet{Replicas: allWriteReplicas, AdditionalReplicas: allAdditionalWriteReplicas}, nil
+	return types.WriteReplicaSet{Replicas: replicas, AdditionalReplicas: additionalReplicas}, nil
 }
 
 // targetShards returns either all shards or a single one, depending on the value of the shard parameter.
 func (r *singleTenantRouter) targetShards(collection, shard string) ([]string, error) {
-	if r.schemaReader == nil {
-		return []string{}, fmt.Errorf("schema reader is nil")
-	}
 	shardingState := r.schemaReader.CopyShardingState(collection)
 	if shardingState == nil {
 		return []string{}, nil
@@ -320,25 +305,6 @@ func (r *singleTenantRouter) targetShards(collection, shard string) ([]string, e
 		return nil, fmt.Errorf("error while trying to find shard: %s in collection: %s", shard, collection)
 	}
 	return []string{shard}, nil
-}
-
-// replicasForShard gathers read/write/additional replicas for one shard.
-func (r *singleTenantRouter) replicasForShard(collection, tenant, shard string) (
-	read, write, additional []types.Replica, err error,
-) {
-	replicas, err := r.schemaReader.ShardReplicas(collection, shard)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("error while getting replicas for collection %q shard %q: %w", collection, shard, err)
-	}
-
-	readNodeNames := r.replicationFSMReader.FilterOneShardReplicasRead(collection, shard, replicas)
-	writeNodeNames, additionalWriteNodeNames := r.replicationFSMReader.FilterOneShardReplicasWrite(collection, shard, replicas)
-
-	read = buildReplicas(readNodeNames, shard, r.nodeSelector.NodeHostname)
-	write = buildReplicas(writeNodeNames, shard, r.nodeSelector.NodeHostname)
-	additional = buildReplicas(additionalWriteNodeNames, shard, r.nodeSelector.NodeHostname)
-
-	return read, write, additional, nil
 }
 
 // readReplicasForShard gathers only read replicas for one shard.
@@ -472,7 +438,7 @@ func (r *multiTenantRouter) AllHostnames() []string {
 }
 
 // GetReadWriteReplicasLocation returns read and write replicas for multi-tenant collections.
-func (r *multiTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (readReplicas types.ReadReplicaSet, writeReplicas types.WriteReplicaSet, err error) {
+func (r *multiTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (types.ReadReplicaSet, types.WriteReplicaSet, error) {
 	shard = tenantShard(shard, tenant)
 	if err := r.validateTenant(tenant); err != nil {
 		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
@@ -480,7 +446,16 @@ func (r *multiTenantRouter) GetReadWriteReplicasLocation(collection string, tena
 	if err := r.validateTenantShard(tenant, shard); err != nil {
 		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
 	}
-	return r.getReadWriteReplicasLocation(collection, tenant, shard)
+
+	readReplicas, err := r.getReadReplicasLocation(collection, tenant, shard)
+	if err != nil {
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
+	}
+	writeReplicas, err := r.getWriteReplicasLocation(collection, tenant, shard)
+	if err != nil {
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
+	}
+	return readReplicas, writeReplicas, nil
 }
 
 // GetWriteReplicasLocation returns write replicas for multi-tenant collections.
@@ -492,8 +467,7 @@ func (r *multiTenantRouter) GetWriteReplicasLocation(collection string, tenant s
 	if err := r.validateTenantShard(tenant, shard); err != nil {
 		return types.WriteReplicaSet{}, err
 	}
-	_, writeReplicas, err := r.getReadWriteReplicasLocation(collection, tenant, shard)
-	return writeReplicas, err
+	return r.getWriteReplicasLocation(collection, tenant, shard)
 }
 
 // GetReadReplicasLocation returns read replicas for multi-tenant collections.
@@ -505,33 +479,7 @@ func (r *multiTenantRouter) GetReadReplicasLocation(collection string, tenant st
 	if err := r.validateTenantShard(tenant, shard); err != nil {
 		return types.ReadReplicaSet{}, err
 	}
-	readReplicas, _, err := r.getReadWriteReplicasLocation(collection, tenant, shard)
-	return readReplicas, err
-}
-
-func (r *multiTenantRouter) getReadWriteReplicasLocation(collection string, tenant, shard string) (types.ReadReplicaSet, types.WriteReplicaSet, error) {
-	tenantStatus, err := r.schemaGetter.OptimisticTenantStatus(context.TODO(), collection, tenant)
-	if err != nil {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, objects.NewErrMultiTenancy(err)
-	}
-
-	if err = r.tenantExistsAndIsActive(tenantStatus, tenant); err != nil {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
-	}
-
-	replicas, err := r.schemaReader.ShardReplicas(collection, shard)
-	if err != nil {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
-	}
-
-	readNodeNames := r.replicationFSMReader.FilterOneShardReplicasRead(collection, shard, replicas)
-	readReplicas := buildReplicas(readNodeNames, shard, r.nodeSelector.NodeHostname)
-
-	writeNodeNames, additionalWriteNodeNames := r.replicationFSMReader.FilterOneShardReplicasWrite(collection, shard, replicas)
-	writeReplicas := buildReplicas(writeNodeNames, shard, r.nodeSelector.NodeHostname)
-	additionalWriteReplicas := buildReplicas(additionalWriteNodeNames, shard, r.nodeSelector.NodeHostname)
-
-	return types.ReadReplicaSet{Replicas: readReplicas}, types.WriteReplicaSet{Replicas: writeReplicas, AdditionalReplicas: additionalWriteReplicas}, nil
+	return r.getReadReplicasLocation(collection, tenant, shard)
 }
 
 // getReadReplicasLocation returns only read replicas for multi-tenant collections.
@@ -606,7 +554,7 @@ func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildO
 	}
 
 	if len(writeReplicas.Replicas) == 0 {
-		return types.WriteRoutingPlan{}, fmt.Errorf("no read replica found")
+		return types.WriteRoutingPlan{}, fmt.Errorf("no write replica found")
 	}
 
 	cl, err := writeReplicas.ValidateConsistencyLevel(params.ConsistencyLevel)
@@ -614,7 +562,6 @@ func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildO
 		return types.WriteRoutingPlan{}, err
 	}
 
-	// Order replicas with direct candidate first
 	orderedReplicas := sort(writeReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
 
 	plan := types.WriteRoutingPlan{
@@ -655,7 +602,6 @@ func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOp
 		return types.ReadRoutingPlan{}, err
 	}
 
-	// Order replicas with direct candidate first
 	orderedReplicas := sort(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
 
 	return types.ReadRoutingPlan{
@@ -686,6 +632,8 @@ func (r *multiTenantRouter) BuildRoutingPlanOptions(tenant, shard string, cl typ
 	}
 }
 
+// tenantShard normalizes the shard parameter by using the tenant name as the shard
+// if no explicit shard is provided, as required in multi-tenant mode.
 func tenantShard(shard string, tenant string) string {
 	if shard == "" {
 		shard = tenant
