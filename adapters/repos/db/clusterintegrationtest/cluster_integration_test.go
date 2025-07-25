@@ -82,7 +82,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		}
 
 		for _, node := range nodes {
-			node.init(t, dirName, shardStateSerialized, &nodes, overallShardState)
+			node.init(t, dirName, &nodes, overallShardState)
 		}
 	})
 
@@ -711,7 +711,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 			}
 
 			for _, node := range nodes {
-				node.init(t, dirName, shardStateSerialized, &nodes, overallShardState)
+				node.init(t, dirName, &nodes, overallShardState)
 			}
 
 			for i := range nodes {

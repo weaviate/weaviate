@@ -60,8 +60,7 @@ type node struct {
 	hostname      string
 }
 
-func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
-	allNodes *[]*node, shardingState *sharding.State,
+func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingState *sharding.State,
 ) {
 	var err error
 	localDir := path.Join(dirName, n.name)
