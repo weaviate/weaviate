@@ -15,7 +15,6 @@ package clusterintegrationtest
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -41,9 +40,6 @@ func TestDistributedBackupsOverride(t *testing.T) {
 
 	t.Run("setup", func(t *testing.T) {
 		overallShardState := multiShardState(numNodes)
-		shardStateSerialized, err := json.Marshal(overallShardState)
-		require.Nil(t, err)
-
 		backend = &fakeBackupBackend{
 			backupsPath: dirName,
 			backupID:    backupID,
@@ -57,7 +53,7 @@ func TestDistributedBackupsOverride(t *testing.T) {
 			nodes = append(nodes, node)
 		}
 		for _, node := range nodes {
-			node.init(t, dirName, shardStateSerialized, &nodes, overallShardState)
+			node.init(t, dirName, &nodes, overallShardState)
 		}
 	})
 

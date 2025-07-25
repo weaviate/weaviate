@@ -58,9 +58,9 @@ type node struct {
 	hostname      string
 }
 
-func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
-	allNodes *[]*node, shardingState *sharding.State,
+func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingState *sharding.State,
 ) {
+	var err error
 	localDir := path.Join(dirName, n.name)
 	logger, _ := test.NewNullLogger()
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
@@ -83,9 +83,13 @@ func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
 	}
 
 	os.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1s")
+	shardStateRaw, err := json.Marshal(shardingState)
+	if err != nil {
+		panic(fmt.Sprintf("Error marshalling sharding state: %v", err))
+	}
 	shardState, err := sharding.StateFromJSON(shardStateRaw, nodeResolver)
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("Error unmarshalling sharding state: %v", err))
 	}
 
 	client := clients.NewRemoteIndex(&http.Client{})
