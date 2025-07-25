@@ -148,21 +148,19 @@ func sort(replicas []types.Replica, preferredNodeName string) []types.Replica {
 		}
 	}
 
-	orderedReplicas = append(orderedReplicas, otherReplicas...)
-	return orderedReplicas
+	return append(orderedReplicas, otherReplicas...)
 }
 
 func preferredNode(directCandidate string, localNodeName string) string {
-	preferredNodeName := directCandidate
-	if preferredNodeName == "" {
-		preferredNodeName = localNodeName
+	if directCandidate != "" {
+		return directCandidate
 	}
-	return preferredNodeName
+	return localNodeName
 }
 
 func buildReplicas(nodeNames []string, shard string, hostnameResolver func(nodeName string) (string, bool)) []types.Replica {
 	if len(nodeNames) == 0 {
-		return nil
+		return []types.Replica{}
 	}
 
 	replicas := make([]types.Replica, 0, len(nodeNames))
@@ -353,7 +351,6 @@ func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuild
 		return types.WriteRoutingPlan{}, err
 	}
 
-	// Order replicas with direct candidate first
 	sortedWriteReplicas := sort(writeReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
 
 	plan := types.WriteRoutingPlan{
