@@ -185,6 +185,7 @@ func FromEnv(config *Config) error {
 			userClaim       string
 			groupsClaim     string
 			certificate     string
+			jwksUrl         string
 		)
 
 		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
@@ -215,6 +216,10 @@ func FromEnv(config *Config) error {
 			certificate = v
 		}
 
+		if v := os.Getenv("AUTHENTICATION_OIDC_JWKS_URL"); v != "" {
+			jwksUrl = v
+		}
+
 		config.Authentication.OIDC.SkipClientIDCheck = runtime.NewDynamicValue(skipClientCheck)
 		config.Authentication.OIDC.Issuer = runtime.NewDynamicValue(issuer)
 		config.Authentication.OIDC.ClientID = runtime.NewDynamicValue(clientID)
@@ -222,6 +227,7 @@ func FromEnv(config *Config) error {
 		config.Authentication.OIDC.UsernameClaim = runtime.NewDynamicValue(userClaim)
 		config.Authentication.OIDC.GroupsClaim = runtime.NewDynamicValue(groupsClaim)
 		config.Authentication.OIDC.Certificate = runtime.NewDynamicValue(certificate)
+		config.Authentication.OIDC.JWKSUrl = runtime.NewDynamicValue(jwksUrl)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
