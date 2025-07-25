@@ -1552,7 +1552,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_NoReplicas(t *testing.T) {
 
 	plan, err := r.BuildWriteRoutingPlan(opts)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "no read replica found")
+	require.Contains(t, err.Error(), "no write replica found")
 	require.Empty(t, plan.ReplicaSet.Replicas)
 }
 
