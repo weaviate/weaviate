@@ -302,22 +302,9 @@ func (u *UserConfig) validate(defaultCompression *configRuntime.DynamicValue[str
 	if u.RQ.Enabled {
 		enabled++
 	}
-<<<<<<< HEAD
 	compression := defaultCompression.Get()
 	if enabled == 2 && compression != "" && compression != vectorIndexCommon.NoCompression {
 		switch compression {
-		case vectorIndexCommon.CompressionBQ:
-			u.BQ.Enabled = false
-		case vectorIndexCommon.CompressionPQ:
-			u.PQ.Enabled = false
-		case vectorIndexCommon.CompressionSQ:
-			u.SQ.Enabled = false
-		case vectorIndexCommon.CompressionRQ:
-			u.RQ.Enabled = false
-=======
-	defaultCompression := os.Getenv("DEFAULT_COMPRESSION")
-	if enabled == 2 && defaultCompression != "" && defaultCompression != vectorIndexCommon.NoCompression {
-		switch defaultCompression {
 		case vectorIndexCommon.CompressionBQ:
 			u.BQ.Enabled = false
 		case vectorIndexCommon.CompressionPQ:
