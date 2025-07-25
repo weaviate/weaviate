@@ -143,7 +143,7 @@ func TestHybridOffsets(t *testing.T) {
 	require.NotNil(t, idx)
 
 	part := 0
-	fmt.Printf("%d took %v\n", part, time.Since(start))
+	t.Logf("%d took %v\n", part, time.Since(start))
 	start = time.Now()
 	part++
 
@@ -152,7 +152,7 @@ func TestHybridOffsets(t *testing.T) {
 		{"a b", generateVector(seed)},
 	}
 
-	fmt.Printf("%d took %v\n", part, time.Since(start))
+	t.Logf("%d took %v\n", part, time.Since(start))
 	start = time.Now()
 	part++
 
@@ -195,7 +195,7 @@ func TestHybridOffsets(t *testing.T) {
 				{Offset: pageSize, Limit: int(queryHybridMaximumResult)},
 			}
 
-			fmt.Printf("%s %d started %v\n", storageType, part, time.Since(start))
+			t.Logf("%s %d started %v\n", storageType, part, time.Since(start))
 			start = time.Now()
 			part++
 			for _, queryAndVector := range queries {
@@ -251,12 +251,12 @@ func TestHybridOffsets(t *testing.T) {
 					}
 				}
 			}
-			fmt.Printf("%s %d took %v\n", storageType, part, time.Since(start))
+			t.Logf("%s %d took %v\n", storageType, part, time.Since(start))
 			start = time.Now()
 			part++
 
 		}
-		fmt.Printf("%s %d before flush %v\n", storageType, part, time.Since(start))
+		t.Logf("%s %d before flush %v\n", storageType, part, time.Since(start))
 		start = time.Now()
 		part++
 		idx.ForEachShard(func(name string, shard ShardLike) error {
@@ -264,8 +264,9 @@ func TestHybridOffsets(t *testing.T) {
 			require.Nil(t, err)
 			return nil
 		})
-		fmt.Printf("%s %d flushed %v\n", storageType, part, time.Since(start))
+		t.Logf("%s %d flushed %v\n", storageType, part, time.Since(start))
 		start = time.Now()
 		part++
 	}
+	require.Fail(t, "for logging")
 }
