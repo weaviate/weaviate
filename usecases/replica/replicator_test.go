@@ -740,7 +740,7 @@ func (f *fakeFactory) AddShard(shard string, nodes []string) {
 	f.Shard2replicas[shard] = nodes
 }
 
-func (f *fakeFactory) newRouter(thisNode string) clusterRouter.Router {
+func (f *fakeFactory) newRouter(thisNode string) types.Router {
 	nodes := make([]string, 0, len(f.Nodes))
 	for _, n := range f.Nodes {
 		if n == thisNode {
@@ -765,6 +765,7 @@ func (f *fakeFactory) newRouter(thisNode string) clusterRouter.Router {
 			physical := sharding.Physical{
 				Name:           shard,
 				BelongsToNodes: replicaNodes,
+				Status:         models.TenantActivityStatusHOT,
 			}
 			state.Physical[shard] = physical
 		}
@@ -779,13 +780,22 @@ func (f *fakeFactory) newRouter(thisNode string) clusterRouter.Router {
 		return v, nil
 	}).Maybe()
 	replicationFsmMock := replicationTypes.NewMockReplicationFSMReader(f.t)
-	replicationFsmMock.On("FilterOneShardReplicasRead", mock.Anything, mock.Anything, mock.Anything).Return(func(collection string, shard string, shardReplicasLocation []string) []string {
-		return shardReplicasLocation
-	}).Maybe()
-	replicationFsmMock.On("FilterOneShardReplicasWrite", mock.Anything, mock.Anything, mock.Anything).Return(func(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
-		return shardReplicasLocation, []string{}
-	}).Maybe()
-	return clusterRouter.NewBuilder("TestClass", false, clusterState, schemaGetterMock, schemaReaderMock, replicationFsmMock).Build()
+	replicationFsmMock.On("FilterOneShardReplicasRead", mock.Anything, mock.Anything, mock.Anything).Return(
+		func(collection string, shard string, shardReplicasLocation []string) []string {
+			if replicas, ok := f.Shard2replicas[shard]; ok {
+				return replicas
+			}
+			return shardReplicasLocation
+		}).Maybe()
+
+	replicationFsmMock.On("FilterOneShardReplicasWrite", mock.Anything, mock.Anything, mock.Anything).Return(
+		func(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
+			if replicas, ok := f.Shard2replicas[shard]; ok {
+				return replicas, []string{}
+			}
+			return shardReplicasLocation, []string{}
+		}).Maybe()
+	return clusterRouter.NewBuilder(f.CLS, false, clusterState, schemaGetterMock, schemaReaderMock, replicationFsmMock).Build()
 }
 
 func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Replicator {
