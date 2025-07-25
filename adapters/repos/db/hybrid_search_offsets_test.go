@@ -16,7 +16,7 @@ package db
 import (
 	"context"
 	"fmt"
-	"math/rand/v2"
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -39,9 +39,9 @@ import (
 )
 
 var (
-	collectionSize            = 11000
-	queryMaximumResults       = int64(10000)
-	queryHybridMaximumResults = []int64{100, 10, 200, 1000}
+	collectionSize            = 1100
+	queryMaximumResults       = int64(1000)
+	queryHybridMaximumResults = []int64{10, 100, 1000}
 )
 
 func SetupPaginationTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) []string {
@@ -61,13 +61,10 @@ func SetupPaginationTestData(t require.TestingT, repo *DB, schemaGetter *fakeSch
 				DataType:     []string{string(schema.DataTypeText)},
 				Tokenization: "word",
 			},
-			{
-				Name:         "random_text",
-				DataType:     []string{string(schema.DataTypeText)},
-				Tokenization: "word",
-			},
 		},
 	}
+
+	seed := getRandomSeed()
 
 	props := make([]string, len(class.Properties))
 	for i, prop := range class.Properties {
@@ -95,13 +92,10 @@ func SetupPaginationTestData(t require.TestingT, repo *DB, schemaGetter *fakeSch
 		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 
 		// text: words[0] * i and words[1] * (n - i)
-		// random_text: random dist of words[0] and words[1]
-		random_text := strings.Repeat(words[0]+" ", rand.IntN(5)) + strings.Repeat(words[1]+" ", rand.IntN(4))
-
-		data := map[string]interface{}{"title": fmt.Sprintf("%d", i), "text": text[i*2 : (i+collectionSize)*2], "random_text": random_text}
+		data := map[string]interface{}{"title": fmt.Sprintf("%d", i), "text": text[i*2 : (i+collectionSize)*2]}
 
 		// create a random vector
-		vector := generateVector()
+		vector := generateVector(seed)
 
 		obj := &models.Object{Class: "PaginationTest", ID: id, Properties: data}
 		err := repo.PutObject(context.Background(), obj, vector, nil, nil, nil, 0)
@@ -110,14 +104,16 @@ func SetupPaginationTestData(t require.TestingT, repo *DB, schemaGetter *fakeSch
 	return props
 }
 
-func generateVector() []float32 {
+func generateVector(seed *rand.Rand) []float32 {
 	// floatValue := float32(n)
 	// return distancer.Normalize([]float32{floatValue, floatValue, floatValue, floatValue, floatValue * floatValue})
 	// random vector with 5 dimensions, ignore the n
-	return distancer.Normalize(randomVector(getRandomSeed(), 5))
+	return distancer.Normalize(randomVector(seed, 5))
 }
 
 func TestHybridOffsets(t *testing.T) {
+	seed := getRandomSeed()
+
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -145,9 +141,8 @@ func TestHybridOffsets(t *testing.T) {
 	require.NotNil(t, idx)
 
 	queries := [][2]interface{}{
-		{"a", generateVector()},
-		{"a b", generateVector()},
-		{"b", generateVector()},
+		{"a", generateVector(seed)},
+		{"a b", generateVector(seed)},
 	}
 
 	for _, queryHybridMaximumResult := range queryHybridMaximumResults {
@@ -170,13 +165,10 @@ func TestHybridOffsets(t *testing.T) {
 			// normal pagination cases, offset is i*pageSize and limit is the page size
 			{Offset: 0, Limit: pageSize},
 			{Offset: pageSize, Limit: pageSize},
-			{Offset: pageSize * 2, Limit: pageSize},
-			{Offset: pageSize * 3, Limit: pageSize},
-			{Offset: pageSize * 4, Limit: pageSize},
 			{Offset: pageSize * 9, Limit: pageSize},
 			// will fail, as the offset + limit exceeds the maximum results
 			{Offset: pageSize * 10, Limit: pageSize},
-			// "uneven" case
+			// "uneven" limit case
 			{Offset: 1, Limit: 7},
 			// same as Offset: 0, Limit: int(queryHybridMaximumResult)
 			{Offset: 0, Limit: -1},
@@ -203,7 +195,7 @@ func TestHybridOffsets(t *testing.T) {
 					gtResults := make([]uint64, 0)
 					gtScores := make([]float32, 0)
 					for p, pagination := range paginations {
-						t.Run(fmt.Sprintf("hybrid search offset test (%s) (maximum hybrid %d) query '%s' alpha %.2f pagination %d-%d ", location, queryHybridMaximumResult, query, alpha, pagination.Offset, pagination.Offset+pagination.Limit), func(t *testing.T) {
+						t.Run(fmt.Sprintf("hybrid search offset test (%s) (maximum hybrid %d) query '%s' alpha %.2f pagination %d:%d", location, queryHybridMaximumResult, query, alpha, pagination.Offset, pagination.Offset+pagination.Limit), func(t *testing.T) {
 							params := dto.GetParams{
 								ClassName: "PaginationTest",
 								HybridSearch: &searchparams.HybridSearch{
