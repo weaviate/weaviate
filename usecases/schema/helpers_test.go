@@ -31,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
-	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -285,7 +284,7 @@ func (f fakeVectorConfig) IsMultiVector() bool {
 	return false
 }
 
-func dummyParseVectorConfig(in interface{}, vectorIndexType string, isMultiVector bool, defaultCompression *configRuntime.DynamicValue[string]) (schemaConfig.VectorIndexConfig, error) {
+func dummyParseVectorConfig(in interface{}, vectorIndexType string, isMultiVector bool, defaultCompression *runtime.DynamicValue[string]) (schemaConfig.VectorIndexConfig, error) {
 	return fakeVectorConfig{raw: in}, nil
 }
 

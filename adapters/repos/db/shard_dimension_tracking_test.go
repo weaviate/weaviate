@@ -608,7 +608,7 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 			for i := range classes {
 				classes[i] = &models.Class{
 					Class:               fmt.Sprintf("%s_%d", tc.name, i),
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					MultiTenancyConfig: &models.MultiTenancyConfig{
 						Enabled:              shardsPerClass > 1,

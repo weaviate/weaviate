@@ -311,9 +311,8 @@ func (u *UserConfig) validate(defaultCompression *configRuntime.DynamicValue[str
 			u.PQ.Enabled = false
 		case vectorIndexCommon.CompressionSQ:
 			u.SQ.Enabled = false
-		case CompressionRQ:
+		case vectorIndexCommon.CompressionRQ:
 			u.RQ.Enabled = DefaultRQEnabled
->>>>>>> 8610e9d92b (check number of quantization algorithms enabled)
 		}
 		enabled--
 	}
