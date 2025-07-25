@@ -19,6 +19,7 @@ import (
 	"math/rand"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -112,6 +113,7 @@ func generateVector(seed *rand.Rand) []float32 {
 }
 
 func TestHybridOffsets(t *testing.T) {
+	start := time.Now()
 	seed := getRandomSeed()
 
 	dirName := t.TempDir()
@@ -140,50 +142,62 @@ func TestHybridOffsets(t *testing.T) {
 	idx := repo.GetIndex("PaginationTest")
 	require.NotNil(t, idx)
 
+	part := 0
+	fmt.Printf("%d took %v\n", part, time.Since(start))
+	start = time.Now()
+	part++
+
 	queries := [][2]interface{}{
 		{"a", generateVector(seed)},
 		{"a b", generateVector(seed)},
 	}
 
-	for _, queryHybridMaximumResult := range queryHybridMaximumResults {
-		repo.config.QueryHybridMaximumResults = queryHybridMaximumResult
-		repo.config.QueryMaximumResults = queryMaximumResults
+	fmt.Printf("%d took %v\n", part, time.Since(start))
+	start = time.Now()
+	part++
 
-		myConfig := config.Config{
-			QueryDefaults: config.QueryDefaults{
-				Limit: queryMaximumResults,
-			},
-			QueryMaximumResults:       queryMaximumResults,
-			QueryHybridMaximumResults: queryHybridMaximumResult,
-		}
+	for _, storageType := range []string{"memory", "disk"} {
+		for _, queryHybridMaximumResult := range queryHybridMaximumResults {
+			repo.config.QueryHybridMaximumResults = queryHybridMaximumResult
+			repo.config.QueryMaximumResults = queryMaximumResults
 
-		pageSize := int(queryHybridMaximumResult / 10)
-		paginations := []filters.Pagination{
-			// base case, no offset, limit is the maximum results. This is the ground truth for the other cases
-			// must be at paginations index 0, as it is the base case and used to compare the other cases against
-			{Offset: 0, Limit: int(queryHybridMaximumResult)},
-			// normal pagination cases, offset is i*pageSize and limit is the page size
-			{Offset: 0, Limit: pageSize},
-			{Offset: pageSize, Limit: pageSize},
-			{Offset: pageSize * 9, Limit: pageSize},
-			// will fail, as the offset + limit exceeds the maximum results
-			{Offset: pageSize * 10, Limit: pageSize},
-			// "uneven" limit case
-			{Offset: 1, Limit: 7},
-			// same as Offset: 0, Limit: int(queryHybridMaximumResult)
-			{Offset: 0, Limit: -1},
-			// will NOT fail, as the offset is 0 and the limit is the maximum results.
-			// This is a special case, where we override the maximum results with an offset of zero.
-			// May return different results than the base case, as the offset is 0 and the limit is the maximum results.
-			{Offset: 0, Limit: int(queryHybridMaximumResult) * 10},
-			// will NOT fail, but may return results after queryHybridMaximumResult
-			// May return different results than the base case, and will not be evaluated against the ground trut
-			{Offset: 1, Limit: -1},
-			// will fail with an error, as it exceeds the maximum results
-			{Offset: pageSize, Limit: int(queryHybridMaximumResult)},
-		}
+			myConfig := config.Config{
+				QueryDefaults: config.QueryDefaults{
+					Limit: queryMaximumResults,
+				},
+				QueryMaximumResults:       queryMaximumResults,
+				QueryHybridMaximumResults: queryHybridMaximumResult,
+			}
 
-		for range []string{"memory", "disk"} {
+			pageSize := int(queryHybridMaximumResult / 10)
+			paginations := []filters.Pagination{
+				// base case, no offset, limit is the maximum results. This is the ground truth for the other cases
+				// must be at paginations index 0, as it is the base case and used to compare the other cases against
+				{Offset: 0, Limit: int(queryHybridMaximumResult)},
+				// normal pagination cases, offset is i*pageSize and limit is the page size
+				{Offset: 0, Limit: pageSize},
+				{Offset: pageSize, Limit: pageSize},
+				{Offset: pageSize * 9, Limit: pageSize},
+				// will fail, as the offset + limit exceeds the maximum results
+				{Offset: pageSize * 10, Limit: pageSize},
+				// "uneven" limit case
+				{Offset: 1, Limit: 7},
+				// same as Offset: 0, Limit: int(queryHybridMaximumResult)
+				{Offset: 0, Limit: -1},
+				// will NOT fail, as the offset is 0 and the limit is the maximum results.
+				// This is a special case, where we override the maximum results with an offset of zero.
+				// May return different results than the base case, as the offset is 0 and the limit is the maximum results.
+				{Offset: 0, Limit: int(queryHybridMaximumResult) * 10},
+				// will NOT fail, but may return results after queryHybridMaximumResult
+				// May return different results than the base case, and will not be evaluated against the ground trut
+				{Offset: 1, Limit: -1},
+				// will fail with an error, as it exceeds the maximum results
+				{Offset: pageSize, Limit: int(queryHybridMaximumResult)},
+			}
+
+			fmt.Printf("%s %d started %v\n", storageType, part, time.Since(start))
+			start = time.Now()
+			part++
 			for _, queryAndVector := range queries {
 				log, _ := test.NewNullLogger()
 				explorer := traverser.NewExplorer(repo, log, nil, nil, myConfig)
@@ -237,11 +251,21 @@ func TestHybridOffsets(t *testing.T) {
 					}
 				}
 			}
-			idx.ForEachShard(func(name string, shard ShardLike) error {
-				err := shard.Store().FlushMemtables(context.Background())
-				require.Nil(t, err)
-				return nil
-			})
+			fmt.Printf("%s %d took %v\n", storageType, part, time.Since(start))
+			start = time.Now()
+			part++
+
 		}
+		fmt.Printf("%s %d before flush %v\n", storageType, part, time.Since(start))
+		start = time.Now()
+		part++
+		idx.ForEachShard(func(name string, shard ShardLike) error {
+			err := shard.Store().FlushMemtables(context.Background())
+			require.Nil(t, err)
+			return nil
+		})
+		fmt.Printf("%s %d flushed %v\n", storageType, part, time.Since(start))
+		start = time.Now()
+		part++
 	}
 }
