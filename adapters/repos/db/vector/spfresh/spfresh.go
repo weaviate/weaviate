@@ -23,11 +23,15 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-const reassignThreshold = 3 // Fine-tuned threshold to avoid unnecessary splits during reassign operations
+const (
+	reassignThreshold = 3        // Fine-tuned threshold to avoid unnecessary splits during reassign operations
+	splitReuseEpsilon = 0.000001 // Epsilon to determine if a split can reuse the existing posting
+)
 
 var (
-	ErrPostingNotFound = errors.New("posting not found")
-	ErrVectorNotFound  = errors.New("vector not found")
+	ErrPostingNotFound  = errors.New("posting not found")
+	ErrVectorNotFound   = errors.New("vector not found")
+	ErrIdenticalVectors = errors.New("posting list contains identical or near-identical vectors")
 )
 
 type SplitOperation struct {
@@ -372,31 +376,69 @@ func (s *SPFresh) doSplit(postingID uint64) error {
 
 	// split the vectors into two clusters
 	result, err := s.Splitter.Split(filtered)
-	if err != nil {
-		return errors.Wrapf(err, "failed to split vectors for posting %d", postingID)
+	if err != nil || len(result) < 2 {
+		if !errors.Is(err, ErrIdenticalVectors) {
+			return errors.Wrapf(err, "failed to split vectors for posting %d", postingID)
+		}
+
+		// If the split fails because the posting contains identical vectors,
+		// we override the posting with a single vector
+		s.Logger.WithField("postingID", postingID).
+			WithError(err).
+			Debug("Cannot split posting: contains identical vectors, keeping only one vector")
+
+		s.PostingSizes.Set(postingID, 1)
+
+		err = s.Store.Put(s.ctx, postingID, Posting{filtered[0]})
+		if err != nil {
+			return errors.Wrapf(err, "failed to put single vector posting %d after split operation", postingID)
+		}
+
+		return nil
 	}
 
-	// persist the new postings first
-	leftID, rightID := s.IDs.NextN(2)
-	err = s.Store.Put(s.ctx, leftID, result.LeftPosting)
-	if err != nil {
-		return errors.Wrapf(err, "failed to put left posting %d for split operation on posting %d", leftID, postingID)
-	}
-	err = s.Store.Put(s.ctx, rightID, result.RightPosting)
-	if err != nil {
-		// cleanup will be handled by the snapshot process
-		return errors.Wrapf(err, "failed to put right posting %d for split operation on posting %d", rightID, postingID)
+	var postingReused bool
+	for i := range 2 {
+		// if the centroid of the existing posting is close enough to one of the new centroids
+		// we can reuse the existing posting
+		existingCentroid := s.SPTAG.Get(postingID)
+		dist, err := s.SPTAG.ComputeDistance(existingCentroid, result[i].Centroid)
+		if err != nil {
+			return errors.Wrapf(err, "failed to compute distance for split operation on posting %d", postingID)
+		}
+		if !postingReused && dist < splitReuseEpsilon {
+			postingReused = true
+			s.PostingSizes.Set(postingID, uint32(len(result[i].Posting)))
+			err = s.Store.Put(s.ctx, postingID, result[i].Posting)
+			if err != nil {
+				return errors.Wrapf(err, "failed to put reused posting %d after split operation", postingID)
+			}
+
+			continue
+		}
+
+		// otherwise, we need to create a new posting for the new centroid
+		newPostingID := s.IDs.Next()
+		err = s.Store.Put(s.ctx, newPostingID, result[i].Posting)
+		if err != nil {
+			return errors.Wrapf(err, "failed to put new posting %d after split operation", newPostingID)
+		}
+		s.PostingSizes.AllocPageFor(newPostingID)
+		s.PostingSizes.Set(newPostingID, uint32(len(result[i].Posting)))
+
+		// add the new centroid to the SPTAG index
+		err = s.SPTAG.Upsert(newPostingID, result[i].Centroid)
+		if err != nil {
+			return errors.Wrapf(err, "failed to upsert new centroid %d after split operation", newPostingID)
+		}
 	}
 
-	// register the new posting sizes:
-	s.PostingSizes.AllocPageFor(leftID, rightID)
-	s.PostingSizes.Set(leftID, uint32(len(result.LeftPosting)))
-	s.PostingSizes.Set(rightID, uint32(len(result.RightPosting)))
-
-	// atomically add new centroids to the SPTAG index and delete the old one
-	err = s.SPTAG.Split(postingID, leftID, rightID, result.LeftCentroid, result.RightCentroid)
-	if err != nil {
-		return errors.Wrapf(err, "failed to split centroid for posting %d into %d and %d", postingID, leftID, rightID)
+	if !postingReused {
+		err = s.SPTAG.Delete(postingID)
+		if err != nil {
+			return errors.Wrapf(err, "failed to delete old centroid %d after split operation", postingID)
+		}
+		s.PostingSizes.Set(postingID, 0) // Mark the old posting as deleted
 	}
 
 	// TODO: enqueue reassign operations
