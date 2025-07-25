@@ -121,8 +121,8 @@ jobs:
       fail-fast: false
       matrix:
         test: [
-          "--integration-vector-package-only",
-          "--integration-without-vector-package"
+          "--integration-slow-packages-only",
+          "--integration-fast-packages-only"
         ]
     steps:
       - uses: actions/checkout@v4
@@ -436,18 +436,18 @@ jobs:
       - name: Download coverage integration without vector package
         uses: actions/download-artifact@v4
         with:
-          name: coverage-report-integration--integration-without-vector-package
-          path: coverage-integration-without-vector-package.txt
+          name: coverage-report-integration--integration-fast-packages-only
+          path: coverage-integration--integration-fast-packages-only.txt
       - name: Download coverage integration vector package only
         uses: actions/download-artifact@v4
         with:
-          name: coverage-report-integration--integration-vector-package-only
-          path: coverage-integration-vector-package-only.txt
+          name: coverage-report-integration--integration-slow-packages-only
+          path: coverage-integration--integration-slow-packages-only.txt
       - name: Codecov
         uses: codecov/codecov-action@v5
         with:
           fail_ci_if_error: false
-          files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit.txt
+          files: ./coverage-integration--integration-fast-packages-only.txt, ./coverage-integration--integration-slow-packages-only.txt, ./coverage-unit.txt
           verbose: true
   Compile-and-upload-binaries:
     name: compile-and-upload-binaries
