@@ -341,6 +341,7 @@ func (r *singleTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildO
 	return r.buildReadRoutingPlan(params)
 }
 
+// buildReadRoutingPlan constructs a read routing plan for single-tenant collections.
 func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
 	readReplicas, err := r.getReadReplicasLocation(r.collection, params.Tenant, params.Shard)
 	if err != nil {
@@ -379,6 +380,7 @@ func (r *singleTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuild
 	return r.buildWriteRoutingPlan(params)
 }
 
+// buildWriteRoutingPlan constructs a write routing plan for single-tenant collections.
 func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
 	writeReplicas, err := r.getWriteReplicasLocation(r.collection, params.Tenant, params.Shard)
 	if err != nil {
@@ -410,6 +412,7 @@ func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuild
 	return plan, nil
 }
 
+// BuildRoutingPlanOptions constructs routing plan options for single-tenant collections.
 func (r *singleTenantRouter) BuildRoutingPlanOptions(_, shard string, cl types.ConsistencyLevel, directCandidate string) types.RoutingPlanBuildOptions {
 	return types.RoutingPlanBuildOptions{
 		Shard:               shard,
@@ -527,6 +530,7 @@ func (r *multiTenantRouter) getWriteReplicasLocation(collection string, tenant, 
 	return types.WriteReplicaSet{Replicas: writeReplicas, AdditionalReplicas: additionalWriteReplicas}, nil
 }
 
+// tenantExistsAndIsActive validates that the tenant exists and is in HOT status.
 func (r *multiTenantRouter) tenantExistsAndIsActive(tenantStatus map[string]string, tenant string) error {
 	status, ok := tenantStatus[tenant]
 	if !ok {
@@ -547,6 +551,7 @@ func (r *multiTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildO
 	return r.buildWriteRoutingPlan(params)
 }
 
+// buildWriteRoutingPlan constructs a write routing plan for multi-tenant collections.
 func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
 	writeReplicas, err := r.getWriteReplicasLocation(r.collection, params.Tenant, params.Shard)
 	if err != nil {
@@ -587,6 +592,7 @@ func (r *multiTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildOp
 	return r.buildReadRoutingPlan(params)
 }
 
+// buildReadRoutingPlan constructs a read routing plan for multi-tenant collections.
 func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
 	readReplicas, err := r.getReadReplicasLocation(r.collection, params.Tenant, params.Shard)
 	if err != nil {
@@ -615,6 +621,7 @@ func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOp
 	}, nil
 }
 
+// validateTenantShard validates that the tenant and shard are consistent.
 func (r *multiTenantRouter) validateTenantShard(tenant, shard string) error {
 	if shard != "" && tenant != "" && shard != tenant {
 		return fmt.Errorf("invalid tenant shard %q, expected %q", shard, tenant)
@@ -623,6 +630,7 @@ func (r *multiTenantRouter) validateTenantShard(tenant, shard string) error {
 	return nil
 }
 
+// BuildRoutingPlanOptions constructs routing plan options for multi-tenant collections.
 func (r *multiTenantRouter) BuildRoutingPlanOptions(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) types.RoutingPlanBuildOptions {
 	return types.RoutingPlanBuildOptions{
 		Shard:               shard,
