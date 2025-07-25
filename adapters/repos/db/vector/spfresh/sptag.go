@@ -26,6 +26,7 @@ type SPTAG interface {
 	Search(query []byte, k int) ([]uint64, error)
 	Split(oldID uint64, newID1, newID2 uint64, c1, c2 []byte) error
 	Merge(oldID1, oldID2, newID uint64, newCentroid []byte) error
+	ComputeDistance(a, b []byte) (float64, error)
 }
 
 type BruteForceSPTAG struct {
@@ -41,36 +42,36 @@ func NewBruteForceSPTAG(quantizer *compressionhelpers.RotationalQuantizer) *Brut
 	}
 }
 
-func (d *BruteForceSPTAG) Get(id uint64) []byte {
-	d.m.RLock()
-	defer d.m.RUnlock()
+func (b *BruteForceSPTAG) Get(id uint64) []byte {
+	b.m.RLock()
+	defer b.m.RUnlock()
 
-	return d.Centroids[id]
+	return b.Centroids[id]
 }
 
-func (d *BruteForceSPTAG) Upsert(id uint64, centroid []byte) error {
-	d.m.Lock()
-	defer d.m.Unlock()
+func (b *BruteForceSPTAG) Upsert(id uint64, centroid []byte) error {
+	b.m.Lock()
+	defer b.m.Unlock()
 
-	d.Centroids[id] = centroid
+	b.Centroids[id] = centroid
 	return nil
 }
 
-func (d *BruteForceSPTAG) Delete(id uint64) error {
-	d.m.Lock()
-	defer d.m.Unlock()
+func (b *BruteForceSPTAG) Delete(id uint64) error {
+	b.m.Lock()
+	defer b.m.Unlock()
 
-	delete(d.Centroids, id)
+	delete(b.Centroids, id)
 	return nil
 }
 
-func (d *BruteForceSPTAG) Search(query []byte, k int) ([]uint64, error) {
-	d.m.RLock()
-	defer d.m.RUnlock()
+func (b *BruteForceSPTAG) Search(query []byte, k int) ([]uint64, error) {
+	b.m.RLock()
+	defer b.m.RUnlock()
 
 	q := priorityqueue.NewMinWithId[byte](k)
-	for id, centroid := range d.Centroids {
-		dist, err := d.quantizer.DistanceBetweenCompressedVectors(query, centroid)
+	for id, centroid := range b.Centroids {
+		dist, err := b.quantizer.DistanceBetweenCompressedVectors(query, centroid)
 		if err != nil {
 			return nil, err
 		}
@@ -90,22 +91,22 @@ func (d *BruteForceSPTAG) Search(query []byte, k int) ([]uint64, error) {
 	return results, nil
 }
 
-func (d *BruteForceSPTAG) Split(oldID uint64, newID1, newID2 uint64, c1, c2 []byte) error {
-	d.m.Lock()
-	defer d.m.Unlock()
+func (b *BruteForceSPTAG) Split(oldID uint64, newID1, newID2 uint64, c1, c2 []byte) error {
+	b.m.Lock()
+	defer b.m.Unlock()
 
-	delete(d.Centroids, oldID)
-	d.Centroids[newID1] = c1
-	d.Centroids[newID2] = c2
+	delete(b.Centroids, oldID)
+	b.Centroids[newID1] = c1
+	b.Centroids[newID2] = c2
 	return nil
 }
 
-func (d *BruteForceSPTAG) Merge(oldID1, oldID2, newID uint64, newCentroid []byte) error {
-	d.m.Lock()
-	defer d.m.Unlock()
+func (b *BruteForceSPTAG) Merge(oldID1, oldID2, newID uint64, newCentroid []byte) error {
+	b.m.Lock()
+	defer b.m.Unlock()
 
-	delete(d.Centroids, oldID1)
-	delete(d.Centroids, oldID2)
-	d.Centroids[newID] = newCentroid
+	delete(b.Centroids, oldID1)
+	delete(b.Centroids, oldID2)
+	b.Centroids[newID] = newCentroid
 	return nil
 }

@@ -65,16 +65,15 @@ func (p Posting) Dimensions() int {
 
 // A PostingSplitter splits a posting into two evenly distributed groups.
 type PostingSplitter interface {
-	// Split takes a posting and returns two centroids and a list of groups.
-	// Each group contains the indices of vectors that belong to the corresponding centroid.
-	Split(vectors Posting) (*SplitResult, error)
+	// Split takes a posting and returns two groups.
+	// If the clustering fails because of the content of the posting,
+	// it must return ErrIdenticalVectors.
+	Split(vectors Posting) ([]SplitResult, error)
 }
 
 type SplitResult struct {
-	LeftCentroid  []byte
-	LeftPosting   Posting
-	RightCentroid []byte
-	RightPosting  Posting
+	Centroid []byte
+	Posting  Posting
 }
 
 // A VectorVersion is a 1-byte value structured as follows:
@@ -162,7 +161,7 @@ func (v *VersionMap) AllocPageFor(id uint64) {
 }
 
 type PostingSizes struct {
-	m     sync.Mutex // Ensures pages are allocated atomically
+	m     sync.RWMutex // Ensures pages are allocated atomically
 	sizes *common.PagedArray[uint32]
 }
 
@@ -173,17 +172,23 @@ func NewPostingSizes(pages, pageSize uint64) *PostingSizes {
 }
 
 func (v *PostingSizes) Get(postingID uint64) uint32 {
+	v.m.RLock()
 	page, slot := v.sizes.GetPageFor(postingID)
+	v.m.RUnlock()
 	return atomic.LoadUint32(&page[slot])
 }
 
 func (v *PostingSizes) Set(postingID uint64, newSize uint32) {
+	v.m.RLock()
 	page, slot := v.sizes.GetPageFor(postingID)
+	v.m.RUnlock()
 	atomic.StoreUint32(&page[slot], newSize)
 }
 
 func (v *PostingSizes) Inc(postingID uint64, delta uint32) uint32 {
+	v.m.RLock()
 	page, slot := v.sizes.GetPageFor(postingID)
+	v.m.RUnlock()
 	return atomic.AddUint32(&page[slot], delta)
 }
 
