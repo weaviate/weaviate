@@ -146,12 +146,12 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 			VectorConfig: map[string]models.VectorConfig{
 				"bringYourOwnVector": {
 					Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
-					VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil),
 					VectorIndexType:   "hnsw",
 				},
 				"colbert": {
 					Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
-					VectorIndexConfig: enthnsw.NewDefaultMultiVectorUserConfig(),
+					VectorIndexConfig: enthnsw.NewDefaultMultiVectorUserConfig(nil),
 					VectorIndexType:   "hnsw",
 				},
 			},
@@ -542,7 +542,7 @@ func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 	return func(t *testing.T) {
 		class := &models.Class{
 			Class:               "ThingForBatching",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{

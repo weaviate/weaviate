@@ -30,7 +30,7 @@ func TestParser(t *testing.T) {
 	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{})
 
 	sc := config.Config{DesiredCount: 1, VirtualPerPhysical: 128, ActualCount: 1, DesiredVirtualCount: 128, Key: "_id", Strategy: "hash", Function: "murmur3"}
-	vic := enthnsw.NewDefaultUserConfig()
+	vic := enthnsw.NewDefaultUserConfig(nil)
 	emptyMap := map[string]interface{}{}
 	valueMap := map[string]interface{}{"something": emptyMap}
 
@@ -43,9 +43,9 @@ func TestParser(t *testing.T) {
 	}{
 		{
 			name:     "update description",
-			old:      &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: enthnsw.NewDefaultUserConfig(), ShardingConfig: sc},
-			update:   &models.Class{Class: "Test", Description: "NEW", VectorIndexType: hnswT, VectorIndexConfig: enthnsw.NewDefaultUserConfig()},
-			expected: &models.Class{Class: "Test", Description: "NEW", VectorIndexType: hnswT, VectorIndexConfig: enthnsw.NewDefaultUserConfig(), ShardingConfig: sc},
+			old:      &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil), ShardingConfig: sc},
+			update:   &models.Class{Class: "Test", Description: "NEW", VectorIndexType: hnswT, VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil)},
+			expected: &models.Class{Class: "Test", Description: "NEW", VectorIndexType: hnswT, VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil), ShardingConfig: sc},
 			error:    false,
 		},
 		{

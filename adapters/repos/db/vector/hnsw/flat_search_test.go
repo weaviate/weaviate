@@ -97,7 +97,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 					Enabled:       true,
 					Segments:      dimensions / segments,
 					Centroids:     256,
-					Encoder:       ent.NewDefaultUserConfig().PQ.Encoder,
+					Encoder:       ent.NewDefaultUserConfig(nil).PQ.Encoder,
 					TrainingLimit: 5_000,
 				}
 				uc.EF = 256

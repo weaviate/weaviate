@@ -59,7 +59,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Class:               "AddingBatchReferencesTestTarget",
 					Properties: []*models.Property{
@@ -71,7 +71,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 					},
 				},
 				{
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 					InvertedIndexConfig: invertedConfig(),
 					Class:               "AddingBatchReferencesTestSource",
 					Properties: []*models.Property{

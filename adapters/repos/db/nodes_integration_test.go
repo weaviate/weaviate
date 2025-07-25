@@ -70,7 +70,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	// import 2 objects
 	class := &models.Class{
 		Class:               "ClassNodesAPI",
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{

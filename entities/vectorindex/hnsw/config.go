@@ -18,6 +18,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/schema/config"
 	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -79,7 +80,7 @@ func (u UserConfig) IsMultiVector() bool {
 }
 
 // SetDefaults in the user-specifyable part of the config
-func (u *UserConfig) SetDefaults() {
+func (u *UserConfig) SetDefaults(defaultCompression *configRuntime.DynamicValue[string]) {
 	u.MaxConnections = DefaultMaxConnections
 	u.EFConstruction = DefaultEFConstruction
 	u.CleanupIntervalSeconds = DefaultCleanupIntervalSeconds
@@ -131,9 +132,9 @@ func (u *UserConfig) SetDefaults() {
 		},
 	}
 
-	defaultCompression := os.Getenv("DEFAULT_COMPRESSION")
-	if defaultCompression != "" && defaultCompression != vectorIndexCommon.NoCompression {
-		switch defaultCompression {
+	compression := defaultCompression.Get()
+	if compression != "" && compression != vectorIndexCommon.NoCompression {
+		switch compression {
 		case vectorIndexCommon.CompressionBQ:
 			u.BQ.Enabled = true
 		case vectorIndexCommon.CompressionPQ:
@@ -148,9 +149,9 @@ func (u *UserConfig) SetDefaults() {
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.VectorIndexConfig, error) {
+func ParseAndValidateConfig(input interface{}, isMultiVector bool, defaultCompression *configRuntime.DynamicValue[string]) (config.VectorIndexConfig, error) {
 	uc := UserConfig{}
-	uc.SetDefaults()
+	uc.SetDefaults(defaultCompression)
 
 	if input == nil {
 		return uc, nil
@@ -326,15 +327,15 @@ func (u *UserConfig) validate() error {
 	return nil
 }
 
-func NewDefaultUserConfig() UserConfig {
+func NewDefaultUserConfig(defaultCompression *configRuntime.DynamicValue[string]) UserConfig {
 	uc := UserConfig{}
-	uc.SetDefaults()
+	uc.SetDefaults(defaultCompression)
 	return uc
 }
 
-func NewDefaultMultiVectorUserConfig() UserConfig {
+func NewDefaultMultiVectorUserConfig(defaultCompression *configRuntime.DynamicValue[string]) UserConfig {
 	uc := UserConfig{}
-	uc.SetDefaults()
+	uc.SetDefaults(defaultCompression)
 	uc.Multivector = MultivectorConfig{Enabled: true}
 	return uc
 }

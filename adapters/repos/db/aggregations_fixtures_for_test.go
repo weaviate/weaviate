@@ -25,7 +25,7 @@ import (
 
 var productClass = &models.Class{
 	Class:               "AggregationsTestProduct",
-	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
@@ -42,7 +42,7 @@ func boolRef(b bool) *bool {
 
 var notIndexedClass = &models.Class{
 	Class:               "NotIndexedClass",
-	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
@@ -57,7 +57,7 @@ var notIndexedClass = &models.Class{
 
 var companyClass = &models.Class{
 	Class:               "AggregationsTestCompany",
-	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
@@ -92,7 +92,7 @@ var companyClass = &models.Class{
 
 var arrayTypesClass = &models.Class{
 	Class:               "AggregationsTestArrayTypes",
-	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
@@ -109,7 +109,7 @@ var arrayTypesClass = &models.Class{
 
 var customerClass = &models.Class{
 	Class:               "AggregationsTestCustomer",
-	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{

@@ -51,7 +51,7 @@ type Manager struct {
 	SchemaReader
 }
 
-type VectorConfigParser func(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error)
+type VectorConfigParser func(in interface{}, vectorIndexType string, isMultiVector bool, defaultCompression *configRuntime.DynamicValue[string]) (schemaConfig.VectorIndexConfig, error)
 
 type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 

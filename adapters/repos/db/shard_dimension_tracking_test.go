@@ -62,7 +62,7 @@ func Benchmark_Migration(b *testing.B) {
 
 			class := &models.Class{
 				Class:               "Test",
-				VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+				VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 				InvertedIndexConfig: invertedConfig(),
 			}
 			schema := schema.Schema{
@@ -128,7 +128,7 @@ func Test_Migration(t *testing.T) {
 	t.Run("set schema", func(t *testing.T) {
 		class := &models.Class{
 			Class:               "Test",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 			InvertedIndexConfig: invertedConfig(),
 		}
 		schema := schema.Schema{
@@ -196,7 +196,7 @@ func Test_DimensionTracking(t *testing.T) {
 	t.Run("set schema", func(t *testing.T) {
 		class := &models.Class{
 			Class:               "Test",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
 			InvertedIndexConfig: invertedConfig(),
 		}
 		schema := schema.Schema{
@@ -406,33 +406,33 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 	}{
 		{
 			name:         "legacy",
-			vectorConfig: enthnsw.NewDefaultUserConfig,
+			vectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig(nil) },
 
 			expectDimensions: dimensionsPerVector * objectCount,
 		},
 		{
 			name:              "named",
-			namedVectorConfig: enthnsw.NewDefaultUserConfig,
+			namedVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig(nil) },
 
 			expectDimensions: dimensionsPerVector * objectCount,
 		},
 		{
 			name:              "multi",
-			multiVectorConfig: enthnsw.NewDefaultUserConfig,
+			multiVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig(nil) },
 
 			expectDimensions: multiVecCard * dimensionsPerVector * objectCount,
 		},
 		{
 			name:              "mixed",
-			vectorConfig:      enthnsw.NewDefaultUserConfig,
-			namedVectorConfig: enthnsw.NewDefaultUserConfig,
+			vectorConfig:      func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig(nil) },
+			namedVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig(nil) },
 
 			expectDimensions: 2 * dimensionsPerVector * objectCount,
 		},
 		{
 			name: "named_with_bq",
 			namedVectorConfig: func() enthnsw.UserConfig {
-				cfg := enthnsw.NewDefaultUserConfig()
+				cfg := enthnsw.NewDefaultUserConfig(nil)
 				cfg.BQ.Enabled = true
 				return cfg
 			},
@@ -442,7 +442,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 		{
 			name: "named_with_pq",
 			namedVectorConfig: func() enthnsw.UserConfig {
-				cfg := enthnsw.NewDefaultUserConfig()
+				cfg := enthnsw.NewDefaultUserConfig(nil)
 				cfg.PQ.Enabled = true
 				cfg.PQ.Segments = 10
 				return cfg
@@ -453,7 +453,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 		{
 			name: "named_with_pq_zero_segments",
 			namedVectorConfig: func() enthnsw.UserConfig {
-				cfg := enthnsw.NewDefaultUserConfig()
+				cfg := enthnsw.NewDefaultUserConfig(nil)
 				cfg.PQ.Enabled = true
 				return cfg
 			},
@@ -462,11 +462,11 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 		{
 			name: "multi_and_bq_named",
 			namedVectorConfig: func() enthnsw.UserConfig {
-				cfg := enthnsw.NewDefaultUserConfig()
+				cfg := enthnsw.NewDefaultUserConfig(nil)
 				cfg.BQ.Enabled = true
 				return cfg
 			},
-			multiVectorConfig: enthnsw.NewDefaultUserConfig,
+			multiVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig(nil) },
 			expectDimensions:  multiVecCard * dimensionsPerVector * objectCount,
 			expectSegments:    (dimensionsPerVector / 8) * objectCount,
 		},

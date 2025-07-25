@@ -25,6 +25,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
@@ -207,7 +208,7 @@ func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 }
 
 func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
-	vectorIndexConfig interface{}, isMultiVector bool,
+	vectorIndexConfig interface{}, isMultiVector bool, defaultCompression *configRuntime.DynamicValue[string],
 ) (schemaConfig.VectorIndexConfig, error) {
 	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC {
 		return nil, errors.Errorf(
@@ -221,7 +222,7 @@ func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 			vectorIndexType)
 	}
 
-	parsed, err := p.configParser(vectorIndexConfig, vectorIndexType, isMultiVector)
+	parsed, err := p.configParser(vectorIndexConfig, vectorIndexType, isMultiVector, defaultCompression)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse vector index config")
 	}

@@ -129,7 +129,7 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 	noopCallback := cyclemanager.NewCallbackGroupNoop()
 	fuc := flatent.UserConfig{}
 	fuc.SetDefaults()
-	hnswuc := hnswent.NewDefaultUserConfig()
+	hnswuc := hnswent.NewDefaultUserConfig(nil)
 	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() {

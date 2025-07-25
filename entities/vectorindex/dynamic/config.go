@@ -49,7 +49,7 @@ func (u UserConfig) IsMultiVector() bool {
 func (u *UserConfig) SetDefaults() {
 	u.Threshold = DefaultThreshold
 	u.Distance = common.DefaultDistanceMetric
-	u.HnswUC = hnsw.NewDefaultUserConfig()
+	u.HnswUC = hnsw.NewDefaultUserConfig(nil)
 	u.FlatUC = flat.NewDefaultUserConfig()
 }
 
@@ -88,7 +88,7 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 
 	hnswConfig, ok := asMap["hnsw"]
 	if ok && hnswConfig != nil {
-		hnswUC, err := hnsw.ParseAndValidateConfig(hnswConfig, isMultiVector)
+		hnswUC, err := hnsw.ParseAndValidateConfig(hnswConfig, isMultiVector, nil)
 		if err != nil {
 			return uc, err
 		}

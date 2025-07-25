@@ -810,7 +810,7 @@ func (h *Handler) validateVectorSettings(class *models.Class) error {
 		}
 
 		if asMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && len(asMap) > 0 {
-			parsed, err := h.parser.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, h.parser.modules.IsMultiVector(class.Vectorizer))
+			parsed, err := h.parser.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, h.parser.modules.IsMultiVector(class.Vectorizer), h.config.DefaultCompression)
 			if err != nil {
 				return fmt.Errorf("class.VectorIndexConfig can not parse: %w", err)
 			}
