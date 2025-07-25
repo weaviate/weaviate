@@ -183,7 +183,7 @@ func TestHybridOffsets(t *testing.T) {
 			{Offset: pageSize, Limit: int(queryHybridMaximumResult)},
 		}
 
-		for _, location := range []string{"memory", "disk"} {
+		for range []string{"memory", "disk"} {
 			for _, queryAndVector := range queries {
 				log, _ := test.NewNullLogger()
 				explorer := traverser.NewExplorer(repo, log, nil, nil, myConfig)
@@ -192,10 +192,9 @@ func TestHybridOffsets(t *testing.T) {
 					query := queryAndVector[0].(string)
 					vector := queryAndVector[1].([]float32)
 
-					gtResults := make([]uint64, 0)
-					gtScores := make([]float32, 0)
+					gtResults := make(map[uint64]float32, 0)
 					for p, pagination := range paginations {
-						t.Run(fmt.Sprintf("hybrid search offset test (%s) (maximum hybrid %d) query '%s' alpha %.2f pagination %d:%d", location, queryHybridMaximumResult, query, alpha, pagination.Offset, pagination.Offset+pagination.Limit), func(t *testing.T) {
+						func() {
 							params := dto.GetParams{
 								ClassName: "PaginationTest",
 								HybridSearch: &searchparams.HybridSearch{
@@ -219,8 +218,7 @@ func TestHybridOffsets(t *testing.T) {
 
 							if p == 0 {
 								for _, res := range hybridResults {
-									gtResults = append(gtResults, *res.DocID)
-									gtScores = append(gtScores, res.Score)
+									gtResults[*res.DocID] = res.Score
 								}
 							} else {
 								if pagination.Limit != -1 && pagination.Offset+pagination.Limit > int(queryHybridMaximumResult) {
@@ -231,12 +229,11 @@ func TestHybridOffsets(t *testing.T) {
 
 								for rank, res := range hybridResults {
 									innerRank := rank + pagination.Offset
-									require.Equal(t, gtResults[innerRank], *res.DocID, "DocID mismatch at rank %d", innerRank+1)
-									require.Equal(t, gtScores[innerRank], res.Score, "Score mismatch at rank %d", innerRank+1)
+									require.Equal(t, gtResults[*res.DocID], res.Score, "Score mismatch at rank %d", innerRank+1)
 								}
 
 							}
-						})
+						}()
 					}
 				}
 			}
