@@ -192,19 +192,24 @@ var (
 )
 
 var (
-	Viewer       = "viewer"
-	Admin        = "admin"
+	// build-in roles that can be assigned via API
+	Viewer = "viewer"
+	Admin  = "admin"
+	// build-in roles that can be assigned via env vars and cannot be changed via APIS
 	Root         = "root"
-	BuiltInRoles = []string{Viewer, Admin, Root}
+	ReadOnly     = "read-only"
+	BuiltInRoles = []string{Viewer, Admin, Root, ReadOnly}
 
 	// viewer : can view everything , roles, users, schema, data
 	// editor : can create/read/update everything , roles, users, schema, data
 	// Admin : aka basically super Admin or root
 	BuiltInPermissions = map[string][]*models.Permission{
-		Viewer: viewerPermissions(),
-		Admin:  adminPermissions(),
-		Root:   adminPermissions(),
+		Viewer:   viewerPermissions(),
+		Admin:    adminPermissions(),
+		Root:     adminPermissions(),
+		ReadOnly: viewerPermissions(),
 	}
+	EnvVarRoles = []string{ReadOnly, Root}
 )
 
 type Policy struct {

@@ -402,6 +402,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MemtablesMaxActiveSeconds:           appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
 		MinMMapSize:                         appState.ServerConfig.Config.Persistence.MinMMapSize,
 		LazySegmentsDisabled:                appState.ServerConfig.Config.Persistence.LazySegmentsDisabled,
+		SegmentInfoIntoFileNameEnabled:      appState.ServerConfig.Config.Persistence.SegmentInfoIntoFileNameEnabled,
+		WriteMetadataFilesEnabled:           appState.ServerConfig.Config.Persistence.WriteMetadataFilesEnabled,
 		MaxReuseWalSize:                     appState.ServerConfig.Config.Persistence.MaxReuseWalSize,
 		SegmentsCleanupIntervalSeconds:      appState.ServerConfig.Config.Persistence.LSMSegmentsCleanupIntervalSeconds,
 		SeparateObjectsCompactions:          appState.ServerConfig.Config.Persistence.LSMSeparateObjectsCompactions,
@@ -414,7 +416,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		QueryHybridMaximumResults:           appState.ServerConfig.Config.QueryHybridMaximumResults,
 		QueryNestedRefLimit:                 appState.ServerConfig.Config.QueryNestedCrossReferenceLimit,
 		MaxImportGoroutinesFactor:           appState.ServerConfig.Config.MaxImportGoroutinesFactor,
-		TrackVectorDimensions:               appState.ServerConfig.Config.TrackVectorDimensions,
+		TrackVectorDimensions:               appState.ServerConfig.Config.TrackVectorDimensions || appState.Modules.UsageEnabled(),
+		TrackVectorDimensionsInterval:       appState.ServerConfig.Config.TrackVectorDimensionsInterval,
+		UsageEnabled:                        appState.Modules.UsageEnabled(),
 		ResourceUsage:                       appState.ServerConfig.Config.ResourceUsage,
 		AvoidMMap:                           appState.ServerConfig.Config.AvoidMmap,
 		DisableLazyLoadShards:               appState.ServerConfig.Config.DisableLazyLoadShards,
@@ -730,7 +734,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	configureServer = makeConfigureServer(appState)
 
 	// Add dimensions to all the objects in the database, if requested by the user
-	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup {
+	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && repo.GetConfig().TrackVectorDimensions {
 		appState.Logger.
 			WithField("action", "startup").
 			Info("Reindexing dimensions")
@@ -1903,7 +1907,9 @@ func initRuntimeOverrides(appState *state.State) {
 			registered.UsageS3Prefix = appState.ServerConfig.Config.Usage.S3Prefix
 			// common config
 			registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
+			registered.UsageShardJitterInterval = appState.ServerConfig.Config.Usage.ShardJitterInterval
 			registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
+			registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
 		}
 
 		hooks := make(map[string]func() error)

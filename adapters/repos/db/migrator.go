@@ -17,8 +17,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -28,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -131,6 +130,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			MemtablesMaxActiveSeconds:                    m.db.config.MemtablesMaxActiveSeconds,
 			MinMMapSize:                                  m.db.config.MinMMapSize,
 			LazySegmentsDisabled:                         m.db.config.LazySegmentsDisabled,
+			SegmentInfoIntoFileNameEnabled:               m.db.config.SegmentInfoIntoFileNameEnabled,
+			WriteMetadataFilesEnabled:                    m.db.config.WriteMetadataFilesEnabled,
 			MaxReuseWalSize:                              m.db.config.MaxReuseWalSize,
 			SegmentsCleanupIntervalSeconds:               m.db.config.SegmentsCleanupIntervalSeconds,
 			SeparateObjectsCompactions:                   m.db.config.SeparateObjectsCompactions,
@@ -138,6 +139,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			IndexRangeableInMemory:                       m.db.config.IndexRangeableInMemory,
 			MaxSegmentSize:                               m.db.config.MaxSegmentSize,
 			TrackVectorDimensions:                        m.db.config.TrackVectorDimensions,
+			TrackVectorDimensionsInterval:                m.db.config.TrackVectorDimensionsInterval,
+			UsageEnabled:                                 m.db.config.UsageEnabled,
 			AvoidMMap:                                    m.db.config.AvoidMMap,
 			DisableLazyLoadShards:                        m.db.config.DisableLazyLoadShards,
 			ForceFullReplicasSearch:                      m.db.config.ForceFullReplicasSearch,

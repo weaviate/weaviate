@@ -1116,6 +1116,8 @@ func (t *ShardReindexTask_MapToBlockmax) bucketOptions(shard ShardLike, strategy
 		lsmkv.WithStrategy(strategy),
 		lsmkv.WithKeepLevelCompaction(keepLevelCompaction),
 		lsmkv.WithKeepTombstones(keepTombstones),
+		lsmkv.WithWriteSegmentInfoIntoFileName(index.Config.SegmentInfoIntoFileNameEnabled),
+		lsmkv.WithWriteMetadata(index.Config.WriteMetadataFilesEnabled),
 	}
 
 	if strategy == lsmkv.StrategyMapCollection && shard.Versioner().Version() < 2 {

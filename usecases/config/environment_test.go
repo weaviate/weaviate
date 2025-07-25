@@ -727,6 +727,7 @@ func TestEnvironmentAuthentication(t *testing.T) {
 					GroupsClaim:       runtime.NewDynamicValue(""),
 					Scopes:            runtime.NewDynamicValue([]string(nil)),
 					Certificate:       runtime.NewDynamicValue(""),
+					JWKSUrl:           runtime.NewDynamicValue(""),
 				},
 			},
 		},

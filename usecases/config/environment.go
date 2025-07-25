@@ -52,6 +52,8 @@ const (
 	DefaultReplicationEngineFileCopyWorkers = 10
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
+
+	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -89,10 +91,18 @@ func FromEnv(config *Config) error {
 		config.TrackVectorDimensions = true
 	}
 
-	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
-		if config.TrackVectorDimensions {
-			config.ReindexVectorDimensionsAtStartup = true
+	if v := os.Getenv("TRACK_VECTOR_DIMENSIONS_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse TRACK_VECTOR_DIMENSIONS_INTERVAL as duration: %w", err)
 		}
+		config.TrackVectorDimensionsInterval = interval
+	} else {
+		config.TrackVectorDimensionsInterval = DefaultTrackVectorDimensionsInterval
+	}
+
+	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
+		config.ReindexVectorDimensionsAtStartup = true
 	}
 
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
@@ -175,6 +185,7 @@ func FromEnv(config *Config) error {
 			userClaim       string
 			groupsClaim     string
 			certificate     string
+			jwksUrl         string
 		)
 
 		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
@@ -205,6 +216,10 @@ func FromEnv(config *Config) error {
 			certificate = v
 		}
 
+		if v := os.Getenv("AUTHENTICATION_OIDC_JWKS_URL"); v != "" {
+			jwksUrl = v
+		}
+
 		config.Authentication.OIDC.SkipClientIDCheck = runtime.NewDynamicValue(skipClientCheck)
 		config.Authentication.OIDC.Issuer = runtime.NewDynamicValue(issuer)
 		config.Authentication.OIDC.ClientID = runtime.NewDynamicValue(clientID)
@@ -212,6 +227,7 @@ func FromEnv(config *Config) error {
 		config.Authentication.OIDC.UsernameClaim = runtime.NewDynamicValue(userClaim)
 		config.Authentication.OIDC.GroupsClaim = runtime.NewDynamicValue(groupsClaim)
 		config.Authentication.OIDC.Certificate = runtime.NewDynamicValue(certificate)
+		config.Authentication.OIDC.JWKSUrl = runtime.NewDynamicValue(jwksUrl)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
@@ -281,12 +297,12 @@ func FromEnv(config *Config) error {
 
 		viewerGroupString, ok := os.LookupEnv("AUTHORIZATION_RBAC_READONLY_GROUPS")
 		if ok {
-			config.Authorization.Rbac.ViewerGroups = strings.Split(viewerGroupString, ",")
+			config.Authorization.Rbac.ReadOnlyGroups = strings.Split(viewerGroupString, ",")
 		} else {
 			// delete this after 1.30.11 + 1.31.3 is the minimum version in WCD
 			viewerGroupString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_ROOT_GROUPS")
 			if ok {
-				config.Authorization.Rbac.ViewerGroups = strings.Split(viewerGroupString, ",")
+				config.Authorization.Rbac.ReadOnlyGroups = strings.Split(viewerGroupString, ",")
 			}
 		}
 
@@ -351,6 +367,14 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("PERSISTENCE_LAZY_SEGMENTS_DISABLED")) {
 		config.Persistence.LazySegmentsDisabled = true
+	}
+
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_SEGMENT_INFO_FROM_FILE_ENABLED")) {
+		config.Persistence.SegmentInfoIntoFileNameEnabled = true
+	}
+
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_WRITE_METADATA_FILES_ENABLED")) {
+		config.Persistence.WriteMetadataFilesEnabled = true
 	}
 
 	if v := os.Getenv("PERSISTENCE_MAX_REUSE_WAL_SIZE"); v != "" {

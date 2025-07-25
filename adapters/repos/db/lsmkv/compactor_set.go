@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/weaviate/weaviate/usecases/memwatch"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 
 	"github.com/pkg/errors"
@@ -43,6 +45,9 @@ type compactorSet struct {
 	bufw compactor.Writer
 	mw   *compactor.MemoryWriter
 
+	maxNewFileSize int64
+	allocChecker   memwatch.AllocChecker
+
 	scratchSpacePath string
 
 	enableChecksumValidation bool
@@ -51,7 +56,7 @@ type compactorSet struct {
 func newCompactorSetCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollection, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
-	enableChecksumValidation bool, maxNewFileSize int64,
+	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
 ) *compactorSet {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
@@ -74,6 +79,8 @@ func newCompactorSetCollection(w io.WriteSeeker,
 		secondaryIndexCount:      secondaryIndexCount,
 		scratchSpacePath:         scratchSpacePath,
 		enableChecksumValidation: enableChecksumValidation,
+		allocChecker:             allocChecker,
+		maxNewFileSize:           maxNewFileSize,
 	}
 }
 
@@ -215,8 +222,9 @@ func (c *compactorSet) writeIndexes(f *segmentindex.SegmentFile,
 			"strategy":  StrategySetCollection,
 			"operation": "writeIndices",
 		}),
+		AllocChecker: c.allocChecker,
 	}
-	_, err := f.WriteIndexes(indexes)
+	_, err := f.WriteIndexes(indexes, c.maxNewFileSize)
 	return err
 }
 

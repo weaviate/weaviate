@@ -135,18 +135,18 @@ func (m *module) buildS3Config(config *config.Config) common.StorageConfig {
 
 func parseS3Config(config *config.Config) error {
 	s3Bucket := ""
-	if config.Usage.S3Bucket != nil {
-		s3Bucket = config.Usage.S3Bucket.Get()
-	} else if v := os.Getenv("USAGE_S3_BUCKET"); v != "" {
+	if v := os.Getenv("USAGE_S3_BUCKET"); v != "" {
 		s3Bucket = v
+	} else if config.Usage.S3Bucket != nil {
+		s3Bucket = config.Usage.S3Bucket.Get()
 	}
 	config.Usage.S3Bucket = runtime.NewDynamicValue(s3Bucket)
 
 	s3Prefix := ""
-	if config.Usage.S3Prefix != nil {
-		s3Prefix = config.Usage.S3Prefix.Get()
-	} else if v := os.Getenv("USAGE_S3_PREFIX"); v != "" {
+	if v := os.Getenv("USAGE_S3_PREFIX"); v != "" {
 		s3Prefix = v
+	} else if config.Usage.S3Prefix != nil {
+		s3Prefix = config.Usage.S3Prefix.Get()
 	}
 	config.Usage.S3Prefix = runtime.NewDynamicValue(s3Prefix)
 

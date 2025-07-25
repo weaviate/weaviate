@@ -20,8 +20,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	clusterusage "github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -148,8 +150,8 @@ func TestModule_Init_ConfigurationParsing(t *testing.T) {
 			Hostname: "test-node",
 		},
 		Usage: usagetypes.UsageConfig{
-			ScrapeInterval: runtime.NewDynamicValue(5 * time.Minute), // existing config takes priority
-			PolicyVersion:  runtime.NewDynamicValue("2025-01-01"),    // existing config takes priority
+			ScrapeInterval: runtime.NewDynamicValue(5 * time.Minute), // env vars take priority
+			PolicyVersion:  runtime.NewDynamicValue("2025-01-01"),    // env vars take priority
 		},
 	}
 
@@ -165,13 +167,13 @@ func TestModule_Init_ConfigurationParsing(t *testing.T) {
 	err := m.Init(context.Background(), params)
 	require.NoError(t, err)
 
-	// Verify that existing config values are preserved (have priority over env vars)
+	// Verify that environment variables take priority over existing config values
 	// S3 bucket and prefix will use env vars since config has no existing values for them
 	assert.Equal(t, "env-bucket", config.Usage.S3Bucket.Get())
 	assert.Equal(t, "env-prefix", config.Usage.S3Prefix.Get())
-	// Scrape interval and policy version preserve existing config values
-	assert.Equal(t, 5*time.Minute, config.Usage.ScrapeInterval.Get())
-	assert.Equal(t, "2025-01-01", config.Usage.PolicyVersion.Get())
+	// Environment variables take priority over existing config values
+	assert.Equal(t, 10*time.Minute, config.Usage.ScrapeInterval.Get())
+	assert.Equal(t, "2025-06-01", config.Usage.PolicyVersion.Get())
 }
 
 func TestModule_Init_InvalidScrapeInterval(t *testing.T) {
@@ -272,9 +274,12 @@ func TestModule_SetUsageService(t *testing.T) {
 	err := m.Init(context.Background(), params)
 	require.NoError(t, err)
 
-	// Now test SetUsageService works with initialized BaseModule
+	// Test with valid service after initialization
+	usageService := clusterusage.NewMockService(t)
+	usageService.EXPECT().SetJitterInterval(mock.Anything).Return()
+
 	assert.NotPanics(t, func() {
-		m.SetUsageService("test-service")
+		m.SetUsageService(usageService)
 	})
 	assert.NotNil(t, m.BaseModule)
 }
@@ -296,8 +301,8 @@ func TestParseS3Config(t *testing.T) {
 			},
 			existingS3Bucket: "existing-bucket",
 			existingS3Prefix: "existing-prefix",
-			expectedS3Bucket: "existing-bucket", // existing config takes priority
-			expectedS3Prefix: "existing-prefix", // existing config takes priority
+			expectedS3Bucket: "env-bucket", // env vars take priority
+			expectedS3Prefix: "env-prefix", // env vars take priority
 		},
 		{
 			name:             "no environment variables, empty config",
@@ -323,8 +328,8 @@ func TestParseS3Config(t *testing.T) {
 			},
 			existingS3Bucket: "existing-bucket",
 			existingS3Prefix: "existing-prefix",
-			expectedS3Bucket: "existing-bucket", // existing config takes priority
-			expectedS3Prefix: "existing-prefix", // existing config takes priority
+			expectedS3Bucket: "env-bucket",      // env var takes priority
+			expectedS3Prefix: "existing-prefix", // no env var, use existing config
 		},
 		{
 			name: "environment variables with no existing config",
@@ -344,9 +349,9 @@ func TestParseS3Config(t *testing.T) {
 				"USAGE_S3_PREFIX": "env-prefix",
 			},
 			existingS3Bucket: "existing-bucket",
-			existingS3Prefix: "",                // no existing prefix
-			expectedS3Bucket: "existing-bucket", // existing config takes priority
-			expectedS3Prefix: "env-prefix",      // no existing config, use env var
+			existingS3Prefix: "",           // no existing prefix
+			expectedS3Bucket: "env-bucket", // env var takes priority
+			expectedS3Prefix: "env-prefix", // env var takes priority
 		},
 	}
 
@@ -407,8 +412,8 @@ func TestParseCommonUsageConfig(t *testing.T) {
 			},
 			existingInterval: 5 * time.Minute,
 			existingVersion:  "2025-01-01",
-			expectedInterval: 5 * time.Minute, // existing config takes priority
-			expectedVersion:  "2025-01-01",    // existing config takes priority
+			expectedInterval: 2 * time.Hour, // env vars take priority
+			expectedVersion:  "2025-06-01",  // env vars take priority
 		},
 		{
 			name:             "no environment variables, preserve existing values",
@@ -451,9 +456,9 @@ func TestParseCommonUsageConfig(t *testing.T) {
 				"USAGE_POLICY_VERSION":  "2025-06-01",
 			},
 			existingInterval: 5 * time.Minute,
-			existingVersion:  "",              // no existing version
-			expectedInterval: 5 * time.Minute, // existing config takes priority
-			expectedVersion:  "2025-06-01",    // no existing config, use env var
+			existingVersion:  "",            // no existing version
+			expectedInterval: 3 * time.Hour, // env var takes priority
+			expectedVersion:  "2025-06-01",  // no existing config, use env var
 		},
 	}
 
@@ -546,5 +551,56 @@ func TestModule_MetricsPrefixGeneration(t *testing.T) {
 
 	for _, expectedName := range expectedPrefixes {
 		assert.True(t, foundMetrics[expectedName], "Expected metric %s not found", expectedName)
+	}
+}
+
+func TestModule_VerifyPermissions_OptIn(t *testing.T) {
+	tests := []struct {
+		name                 string
+		envVar               string
+		expectedVerification bool
+		wantErr              bool
+	}{
+		{
+			name:                 "default behavior when env var not set",
+			envVar:               "",
+			expectedVerification: false,
+			wantErr:              false,
+		},
+		{
+			name:                 "explicitly enable verification",
+			envVar:               "true",
+			expectedVerification: true,
+			wantErr:              false,
+		},
+		{
+			name:                 "explicitly disable verification",
+			envVar:               "false",
+			expectedVerification: false,
+			wantErr:              false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set environment variable
+			if tt.envVar != "" {
+				t.Setenv("USAGE_VERIFY_PERMISSIONS", tt.envVar)
+			}
+
+			config := &config.Config{
+				Usage: usagetypes.UsageConfig{},
+			}
+
+			err := common.ParseCommonUsageConfig(config)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			assert.NoError(t, err)
+			require.NotNil(t, config.Usage.VerifyPermissions)
+			assert.Equal(t, tt.expectedVerification, config.Usage.VerifyPermissions.Get())
+		})
 	}
 }

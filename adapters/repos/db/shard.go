@@ -145,7 +145,6 @@ type ShardLike interface {
 	// Dimensions returns the total number of dimensions for a given vector
 	Dimensions(ctx context.Context, targetVector string) (int, error)
 	// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
-	// TODO: rename to DimensionsUsage struct and find a better way because of import cycle
 	DimensionsUsage(ctx context.Context, targetVector string) (usagetypes.Dimensionality, error)
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
 
@@ -416,7 +415,9 @@ func (s *Shard) ObjectCount() int {
 func (s *Shard) ObjectCountAsync(_ context.Context) (int64, error) {
 	b := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
-		return 0, fmt.Errorf("bucket %s not found", helpers.ObjectsBucketLSM)
+		// we return no error, because we could have shards without the objects bucket
+		// the error is needed to satisfy the interface for lazy loaded shards possible errors
+		return 0, nil
 	}
 
 	return int64(b.CountAsync()), nil
@@ -425,7 +426,9 @@ func (s *Shard) ObjectCountAsync(_ context.Context) (int64, error) {
 func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
-		return 0, fmt.Errorf("bucket %s not found", helpers.ObjectsBucketLSM)
+		// we return no error, because we could have shards without the objects bucket
+		// the error is needed to satisfy the interface for lazy loaded shards possible errors
+		return 0, nil
 	}
 
 	return bucket.DiskSize() + bucket.MetadataSize(), nil
