@@ -38,9 +38,12 @@ import (
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	className := schema.UppercaseClassName(object.Class)
+	// Store original user input for response
+	originalClassName := schema.UppercaseClassName(object.Class)
+	object.Class = originalClassName
+	
 	// RBAC will resolve alias internally - pass class name as-is
-	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(originalClassName, object.Tenant)...); err != nil {
 		return nil, err
 	}
 
@@ -49,7 +52,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 
 	ctx = classcache.ContextWithClassCache(ctx)
 	// we don't reveal any info that the end users cannot get through the structure of the data anyway
-	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
+	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, originalClassName)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +62,14 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, fmt.Errorf("cannot process add object: %w", err)
 	}
 
-	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl, fetchedClasses)
+	obj, err := m.addObjectToConnectorAndSchema(ctx, principal, object, repl, fetchedClasses)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Ensure response uses original user input
+	obj.Class = originalClassName
+	return obj, nil
 }
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,

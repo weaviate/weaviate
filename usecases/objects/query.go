@@ -69,8 +69,10 @@ func (q *QueryParams) inputs(m *Manager) (*QueryInput, error) {
 func (m *Manager) Query(ctx context.Context, principal *models.Principal, params *QueryParams,
 ) ([]*models.Object, *Error) {
 	class := "*"
+	var originalClassName string
 
 	if params != nil && params.Class != "" {
+		originalClassName = params.Class
 		class = params.Class
 	}
 
@@ -118,5 +120,16 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 		m.trackUsageList(res)
 	}
 
-	return res.ObjectsWithVector(q.Additional.Vector), nil
+	objects := res.ObjectsWithVector(q.Additional.Vector)
+	
+	// Ensure responses use original user input
+	if originalClassName != "" {
+		for _, obj := range objects {
+			if obj != nil {
+				obj.Class = originalClassName
+			}
+		}
+	}
+
+	return objects, nil
 }

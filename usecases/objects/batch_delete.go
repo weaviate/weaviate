@@ -34,7 +34,9 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	repl *additional.ReplicationProperties, tenant string,
 ) (*BatchDeleteResponse, error) {
 	class := "*"
+	var originalClassName string
 	if match != nil {
+		originalClassName = match.Class
 		class = match.Class
 	}
 
@@ -49,7 +51,17 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
-	return b.deleteObjects(ctx, principal, match, deletionTimeUnixMilli, dryRun, output, repl, tenant)
+	response, err := b.deleteObjects(ctx, principal, match, deletionTimeUnixMilli, dryRun, output, repl, tenant)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Ensure response uses original user input
+	if response != nil && response.Match != nil && originalClassName != "" {
+		response.Match.Class = originalClassName
+	}
+	
+	return response, nil
 }
 
 // DeleteObjectsFromGRPCAfterAuth deletes objects in batch based on the match filter

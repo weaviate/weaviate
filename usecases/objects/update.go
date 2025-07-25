@@ -34,8 +34,9 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	className := schema.UppercaseClassName(updates.Class)
-	updates.Class = className
+	// Store original user input for response
+	originalClassName := schema.UppercaseClassName(updates.Class)
+	updates.Class = originalClassName
 
 	// RBAC will resolve alias internally using its configured resolver
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
@@ -44,7 +45,7 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 
 	ctx = classcache.ContextWithClassCache(ctx)
 	// we don't reveal any info that the end users cannot get through the structure of the data anyway
-	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
+	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, originalClassName)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +58,14 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 		return nil, fmt.Errorf("cannot process update object: %w", err)
 	}
 
-	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl, fetchedClasses)
+	obj, err := m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl, fetchedClasses)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Ensure response uses original user input
+	obj.Class = originalClassName
+	return obj, nil
 }
 
 func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,

@@ -36,9 +36,13 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 ) (BatchObjects, error) {
 	ctx = classcache.ContextWithClassCache(ctx)
 
+	// Store original user inputs for response
+	originalClassNames := make(map[int]string)
 	classesShards := make(map[string][]string)
-	for _, obj := range objects {
-		obj.Class = schema.UppercaseClassName(obj.Class)
+	for i, obj := range objects {
+		originalClassName := schema.UppercaseClassName(obj.Class)
+		originalClassNames[i] = originalClassName
+		obj.Class = originalClassName
 		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
 	}
 	knownClasses := map[string]versioned.Class{}
@@ -62,7 +66,21 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		}
 	}
 
-	return b.addObjects(ctx, principal, objects, repl, knownClasses)
+	batchObjects, err := b.addObjects(ctx, principal, objects, repl, knownClasses)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Ensure responses use original user inputs
+	for i := range batchObjects {
+		if batchObjects[i].Object != nil {
+			if originalName, exists := originalClassNames[batchObjects[i].OriginalIndex]; exists {
+				batchObjects[i].Object.Class = originalName
+			}
+		}
+	}
+	
+	return batchObjects, nil
 }
 
 // AddObjectsGRPCAfterAuth bypasses the authentication in the REST endpoint as GRPC has its own checking
