@@ -46,7 +46,7 @@ require (
 	github.com/hashicorp/memberlist v0.5.2
 	github.com/hashicorp/raft v1.7.2
 	github.com/hashicorp/raft-boltdb/v2 v2.3.1
-	github.com/ikawaha/kagome-dict-ko v0.2.1
+	github.com/ikawaha/kagome-dict-ko v1.1.0
 	github.com/ikawaha/kagome-dict/ipa v1.2.5
 	github.com/ikawaha/kagome/v2 v2.10.2
 	github.com/jessevdk/go-flags v1.6.1
