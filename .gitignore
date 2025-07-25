@@ -129,3 +129,6 @@ test/modules/backup-filesystem/bucketPath
 
 # go test coverage output files
 *.out
+
+# go temp test binary files
+*.test

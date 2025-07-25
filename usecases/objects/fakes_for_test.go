@@ -135,6 +135,11 @@ func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
 	return c
 }
 
+func (f *fakeSchemaManager) ReadOnlyClassResolvingAlias(classOrAlias string) *models.Class {
+	// For tests, we don't need complex alias resolution - just delegate to ReadOnlyClass
+	return f.ReadOnlyClass(classOrAlias)
+}
+
 func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
 ) (*models.Class, uint64, error) {
