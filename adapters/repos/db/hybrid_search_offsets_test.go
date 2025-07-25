@@ -19,7 +19,6 @@ import (
 	"math/rand"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -113,7 +112,6 @@ func generateVector(seed *rand.Rand) []float32 {
 }
 
 func TestHybridOffsets(t *testing.T) {
-	start := time.Now()
 	seed := getRandomSeed()
 
 	dirName := t.TempDir()
@@ -142,21 +140,12 @@ func TestHybridOffsets(t *testing.T) {
 	idx := repo.GetIndex("PaginationTest")
 	require.NotNil(t, idx)
 
-	part := 0
-	t.Logf("%d took %v\n", part, time.Since(start))
-	start = time.Now()
-	part++
-
 	queries := [][2]interface{}{
 		{"a", generateVector(seed)},
 		{"a b", generateVector(seed)},
 	}
 
-	t.Logf("%d took %v\n", part, time.Since(start))
-	start = time.Now()
-	part++
-
-	for _, storageType := range []string{"memory", "disk"} {
+	for _, location := range []string{"memory", "disk"} {
 		for _, queryHybridMaximumResult := range queryHybridMaximumResults {
 			repo.config.QueryHybridMaximumResults = queryHybridMaximumResult
 			repo.config.QueryMaximumResults = queryMaximumResults
@@ -194,10 +183,6 @@ func TestHybridOffsets(t *testing.T) {
 				// will fail with an error, as it exceeds the maximum results
 				{Offset: pageSize, Limit: int(queryHybridMaximumResult)},
 			}
-
-			t.Logf("%s %d started %v\n", storageType, part, time.Since(start))
-			start = time.Now()
-			part++
 			for _, queryAndVector := range queries {
 				log, _ := test.NewNullLogger()
 				explorer := traverser.NewExplorer(repo, log, nil, nil, myConfig)
@@ -208,7 +193,7 @@ func TestHybridOffsets(t *testing.T) {
 
 					gtResults := make(map[uint64]float32, 0)
 					for p, pagination := range paginations {
-						func() {
+						t.Run(fmt.Sprintf("hybrid search offset test (%s) (maximum hybrid %d) query '%s' alpha %.2f pagination %d:%d", location, queryHybridMaximumResult, query, alpha, pagination.Offset, pagination.Offset+pagination.Limit), func(t *testing.T) {
 							params := dto.GetParams{
 								ClassName: "PaginationTest",
 								HybridSearch: &searchparams.HybridSearch{
@@ -225,7 +210,7 @@ func TestHybridOffsets(t *testing.T) {
 
 							hybridResults, err := explorer.Hybrid(context.TODO(), params)
 							if pagination.Offset+pagination.Limit > int(queryHybridMaximumResult) {
-								t.Logf("Not validating the results for pagination as offset %d + limit %d > %d: results %d", pagination.Offset, pagination.Limit, int(queryHybridMaximumResult), len(hybridResults))
+								// t.Logf("Not validating the results for pagination as offset %d + limit %d > %d: results %d", pagination.Offset, pagination.Limit, int(queryHybridMaximumResult), len(hybridResults))
 								return
 							}
 							require.Nil(t, err)
@@ -237,7 +222,7 @@ func TestHybridOffsets(t *testing.T) {
 							} else {
 								if pagination.Limit != -1 && pagination.Offset+pagination.Limit > int(queryHybridMaximumResult) {
 									// no need to check the results, as this is the exception where we override the maximum results with an offset of zero
-									t.Logf("Skipping result check for pagination offset %d + limit %d > %d", pagination.Offset, pagination.Limit, int(queryHybridMaximumResult))
+									// t.Logf("Skipping result check for pagination offset %d + limit %d > %d", pagination.Offset, pagination.Limit, int(queryHybridMaximumResult))
 									return
 								}
 
@@ -247,26 +232,16 @@ func TestHybridOffsets(t *testing.T) {
 								}
 
 							}
-						}()
+						})
 					}
 				}
 			}
-			t.Logf("%s %d took %v\n", storageType, part, time.Since(start))
-			start = time.Now()
-			part++
 
 		}
-		t.Logf("%s %d before flush %v\n", storageType, part, time.Since(start))
-		start = time.Now()
-		part++
 		idx.ForEachShard(func(name string, shard ShardLike) error {
 			err := shard.Store().FlushMemtables(context.Background())
 			require.Nil(t, err)
 			return nil
 		})
-		t.Logf("%s %d flushed %v\n", storageType, part, time.Since(start))
-		start = time.Now()
-		part++
 	}
-	require.Fail(t, "for logging")
 }
