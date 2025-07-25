@@ -59,15 +59,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, fmt.Errorf("cannot process add object: %w", err)
 	}
 
-	obj, err := m.addObjectToConnectorAndSchema(ctx, principal, object, repl, fetchedClasses)
-	if err != nil {
-		return nil, err
-	}
-
-	if aliasName != "" {
-		return m.classNameToAlias(obj, aliasName), nil
-	}
-	return obj, nil
+	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl, fetchedClasses)
 }
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,

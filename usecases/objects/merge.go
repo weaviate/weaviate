@@ -50,9 +50,9 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	if err := m.validateInputs(updates); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}
-	className, aliasName := m.resolveAlias(schema.UppercaseClassName(updates.Class))
-	updates.Class = className
+	updates.Class = schema.UppercaseClassName(updates.Class)
 	cls, id := updates.Class, updates.ID
+	// RBAC will resolve alias internally using its configured resolver
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
@@ -60,7 +60,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	// we don't reveal any info that the end users cannot get through the structure of the data anyway
-	fetchedClass, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
+	fetchedClass, err := m.schemaManager.GetCachedClassNoAuth(ctx, cls)
 	if err != nil {
 		if errors.As(err, &authzerrs.Forbidden{}) {
 			return &Error{err.Error(), StatusForbidden, err}
@@ -120,11 +120,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		updates.Properties = map[string]interface{}{}
 	}
 
-	pathErr := m.patchObject(ctx, prevObj, updates, repl, propertiesToDelete, updates.Tenant, fetchedClass, maxSchemaVersion)
-	if aliasName != "" {
-		updates.Class = aliasName
-	}
-	return pathErr
+	return m.patchObject(ctx, prevObj, updates, repl, propertiesToDelete, updates.Tenant, fetchedClass, maxSchemaVersion)
 }
 
 // patchObject patches an existing object obj with updates

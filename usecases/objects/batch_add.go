@@ -36,14 +36,9 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 ) (BatchObjects, error) {
 	ctx = classcache.ContextWithClassCache(ctx)
 
-	classAlias := make(map[string]string)
 	classesShards := make(map[string][]string)
 	for _, obj := range objects {
 		obj.Class = schema.UppercaseClassName(obj.Class)
-		if cls, aliasName := b.resolveAlias(obj.Class); aliasName != "" {
-			classAlias[cls] = aliasName
-			obj.Class = cls
-		}
 		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
 	}
 	knownClasses := map[string]versioned.Class{}
@@ -57,6 +52,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		}
 		knownClasses[className] = vClass[className]
 
+		// RBAC will resolve alias internally using its configured resolver
 		if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
@@ -66,10 +62,6 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		}
 	}
 
-	if len(classAlias) > 0 {
-		batchObjects, err := b.addObjects(ctx, principal, objects, repl, knownClasses)
-		return b.batchInsertWithAliases(batchObjects, classAlias), err
-	}
 	return b.addObjects(ctx, principal, objects, repl, knownClasses)
 }
 
