@@ -51,10 +51,10 @@ func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Auth
 	}
 
 	return &Manager{
-		casbin:        csbin, 
-		logger:        logger, 
-		authNconf:     authNconf, 
-		rbacConf:      rbacConf, 
+		casbin:        csbin,
+		logger:        logger,
+		authNconf:     authNconf,
+		rbacConf:      rbacConf,
 		backupLock:    sync.RWMutex{},
 		aliasResolver: nil,
 	}, nil
@@ -71,7 +71,7 @@ func (m *Manager) resolveClassNames(classNames []string) []string {
 	if m.aliasResolver == nil {
 		return classNames // No resolver configured, return as-is
 	}
-	
+
 	resolvedNames := make([]string, len(classNames))
 	for i, name := range classNames {
 		if resolved := m.aliasResolver(name); resolved != "" {
@@ -88,7 +88,7 @@ func (m *Manager) resolveAliasesInResources(resources []string) []string {
 	if m.aliasResolver == nil {
 		return resources // No resolver configured, return as-is
 	}
-	
+
 	resolvedResources := make([]string, len(resources))
 	for i, resource := range resources {
 		resolvedResources[i] = m.resolveAliasInResourcePath(resource)
@@ -104,9 +104,9 @@ func (m *Manager) resolveAliasInResourcePath(resource string) string {
 	// "aliases/collections/ClassName/aliases/aliasName"
 	// "backups/collections/ClassName"
 	// etc.
-	
+
 	parts := strings.Split(resource, "/")
-	
+
 	// Look for "/collections/{className}" pattern and resolve the className
 	for i := 0; i < len(parts)-1; i++ {
 		if parts[i] == "collections" && i+1 < len(parts) {
@@ -119,7 +119,7 @@ func (m *Manager) resolveAliasInResourcePath(resource string) string {
 			break // Only resolve the first occurrence
 		}
 	}
-	
+
 	return strings.Join(parts, "/")
 }
 

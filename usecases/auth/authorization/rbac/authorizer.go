@@ -52,7 +52,7 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 
 	// Resolve aliases in resource paths before authorization
 	resolvedResources := m.resolveAliasesInResources(resources)
-	
+
 	// Create a map to aggregate resources and their counts while preserving order
 	resourceCounts := make(map[string]int)
 	var uniqueResources []string

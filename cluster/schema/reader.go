@@ -201,7 +201,7 @@ func (rs SchemaReader) Len() int { return rs.schema.len() }
 func (rs SchemaReader) ReadOnlyClassResolvingAlias(classOrAlias string) *models.Class {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ReadOnlyClassResolvingAlias"))
 	defer t.ObserveDuration()
-	
+
 	// First try to resolve as alias
 	if resolved := rs.schema.ResolveAlias(classOrAlias); resolved != "" {
 		class, _ := rs.schema.ReadOnlyClass(resolved)
@@ -216,7 +216,7 @@ func (rs SchemaReader) ReadOnlyClassResolvingAlias(classOrAlias string) *models.
 func (rs SchemaReader) ClassInfoResolvingAlias(classOrAlias string) ClassInfo {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ClassInfoResolvingAlias"))
 	defer t.ObserveDuration()
-	
+
 	// First try to resolve as alias
 	if resolved := rs.schema.ResolveAlias(classOrAlias); resolved != "" {
 		return rs.schema.ClassInfo(resolved)
@@ -229,7 +229,7 @@ func (rs SchemaReader) ClassInfoResolvingAlias(classOrAlias string) ClassInfo {
 func (rs SchemaReader) ClassExistsResolvingAlias(classOrAlias string) bool {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ClassExistsResolvingAlias"))
 	defer t.ObserveDuration()
-	
+
 	// First try to resolve as alias
 	if resolved := rs.schema.ResolveAlias(classOrAlias); resolved != "" {
 		return rs.schema.ClassInfo(resolved).Exists
@@ -242,7 +242,7 @@ func (rs SchemaReader) ClassExistsResolvingAlias(classOrAlias string) bool {
 func (rs SchemaReader) ReadResolvingAlias(classOrAlias string, reader func(*models.Class, *sharding.State) error) error {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ReadResolvingAlias"))
 	defer t.ObserveDuration()
-	
+
 	// First try to resolve as alias
 	if resolved := rs.schema.ResolveAlias(classOrAlias); resolved != "" {
 		return rs.retry(func(s *schema) error {
@@ -259,7 +259,7 @@ func (rs SchemaReader) ReadResolvingAlias(classOrAlias string, reader func(*mode
 func (rs SchemaReader) MultiTenancyResolvingAlias(classOrAlias string) models.MultiTenancyConfig {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("MultiTenancyResolvingAlias"))
 	defer t.ObserveDuration()
-	
+
 	// First try to resolve as alias
 	if resolved := rs.schema.ResolveAlias(classOrAlias); resolved != "" {
 		return rs.schema.MultiTenancy(resolved)
