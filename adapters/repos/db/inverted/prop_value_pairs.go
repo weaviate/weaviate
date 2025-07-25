@@ -93,12 +93,14 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 		pv.docIDs = dbm
 	} else {
 		eg := enterrors.NewErrorGroupWrapper(s.logger)
-		// prevent unbounded concurrency, see
-		// https://github.com/weaviate/weaviate/issues/3179 for details
-		eg.SetLimit(2 * _NUMCPU)
+		outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.NUMCPU)
+		eg.SetLimit(outerConcurrencyLimit)
+
+		concurrencyReductionFactor := min(len(pv.children), outerConcurrencyLimit)
 		for i, child := range pv.children {
 			i, child := i, child
 			eg.Go(func() error {
+				ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.NUMCPU)
 				// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
 				// otherwise we run into situations where each subfilter on their own
 				// runs into the limit, possibly yielding in "less than limit" results

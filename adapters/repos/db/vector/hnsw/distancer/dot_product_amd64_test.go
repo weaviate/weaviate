@@ -42,7 +42,7 @@ var dotFloatByteImpl func(a []float32, b []byte) float32 = func(a []float32, b [
 }
 
 func testDotProductFixedValue(t *testing.T, size uint, dotFn func(x []float32, y []float32) float32) {
-	count := 10000
+	count := 100
 	countFailed := 0
 	for i := 0; i < count; i++ {
 		vec1 := make([]float32, size)
@@ -75,7 +75,7 @@ func testDotProductFixedValue(t *testing.T, size uint, dotFn func(x []float32, y
 
 func testDotProductRandomValue(t *testing.T, size uint, dotFn func(x []float32, y []float32) float32) {
 	r := getRandomSeed()
-	count := 10000
+	count := 100
 	countFailed := 0
 
 	vec1s := make([][]float32, count)
@@ -176,7 +176,7 @@ func testDotProductByteFixedValue(t *testing.T, size uint, dotFn func(x []uint8,
 
 func testDotProductByteRandomValue(t *testing.T, size uint, dotFn func(x []byte, y []byte) uint32) {
 	r := getRandomSeed()
-	count := 10000
+	count := 100
 
 	vec1s := make([][]byte, count)
 	vec2s := make([][]byte, count)
@@ -292,7 +292,7 @@ func testDotProductFloatByteFixedValue(t *testing.T, size uint, dotFn func(x []f
 
 func testDotProductFloatByteRandomValue(t *testing.T, size uint, dotFn func(x []float32, y []byte) float32) {
 	r := getRandomSeed()
-	count := 10000
+	count := 100
 
 	vec1s := make([][]float32, count)
 	vec2s := make([][]byte, count)

@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -171,6 +172,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams,
 	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (objects.BatchDeleteResult, error) {
+	start := time.Now()
 	// get index for a given class
 	className := params.ClassName
 	idx := db.GetIndex(className)
@@ -200,6 +202,15 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 		matches += docIDsLength
 	}
 
+	db.logger.WithFields(logrus.Fields{
+		"action":  "batch_delete_objects_post_find_ids",
+		"params":  params,
+		"tenant":  tenant,
+		"matches": matches,
+		"dry_run": params.DryRun,
+		"took":    time.Since(start),
+	}).Debugf("batch delete: identified %v objects to delete", matches)
+
 	if err := db.memMonitor.CheckAlloc(memwatch.EstimateObjectDeleteMemory() * matches); err != nil {
 		db.logger.WithError(err).Errorf("memory pressure: cannot process batch delete object")
 		return objects.BatchDeleteResult{}, fmt.Errorf("cannot process batch delete object: %w", err)
@@ -218,6 +229,15 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 		DryRun:       params.DryRun,
 		Objects:      deletedObjects,
 	}
+
+	db.logger.WithFields(logrus.Fields{
+		"action":  "batch_delete_objects_completed",
+		"params":  params,
+		"tenant":  tenant,
+		"matches": matches,
+		"took":    time.Since(start),
+		"dry_run": params.DryRun,
+	}).Debugf("batch delete completed in %s", time.Since(start))
 	return result, nil
 }
 

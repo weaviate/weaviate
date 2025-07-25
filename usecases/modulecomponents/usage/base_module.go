@@ -14,6 +14,7 @@ package usage
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -46,6 +47,9 @@ type BaseModule struct {
 	metrics       *Metrics
 	usageService  clusterusage.Service
 	logger        logrus.FieldLogger
+	// mu mutex to protect shared fields to run concurrently the collection and upload
+	// to avoid interval overlap for the tickers
+	mu sync.RWMutex
 }
 
 // NewBaseModule creates a new base module instance
@@ -168,19 +172,27 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 		case <-ticker.C:
 			b.logger.WithFields(logrus.Fields{
 				"current_time": time.Now(),
-			}).Debug("ticker fired - starting collection cycle")
+				"ticker_type":  "collection",
+				"interval":     b.interval.String(),
+			}).Debug("collection ticker fired - starting collection cycle")
 
-			if err := b.collectAndUploadUsage(ctx); err != nil {
-				b.logger.WithError(err).Error("Failed to collect and upload usage data")
-				b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "error").Inc()
-			} else {
-				b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "success").Inc()
-			}
+			enterrors.GoWrapper(func() {
+				if err := b.collectAndUploadUsage(ctx); err != nil {
+					b.logger.WithError(err).Error("Failed to collect and upload usage data")
+					b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "error").Inc()
+				} else {
+					b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "success").Inc()
+				}
+			}, b.logger)
+
 			// ticker is used to reset the interval
 			b.reloadConfig(ticker)
 
 		case <-loadTicker.C:
-			b.logger.Debug("runtime overrides reloaded")
+			b.logger.WithFields(logrus.Fields{
+				"ticker_type": "runtime_overrides",
+				"interval":    loadInterval.String(),
+			}).Debug("runtime overrides reloaded")
 			// ticker is used to reset the interval
 			b.reloadConfig(ticker)
 
@@ -195,8 +207,24 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 }
 
 func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
-	// Collect usage data and update metrics
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	start := time.Now()
+	now := start.UTC()
+	collectionTime := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), 0, 0, time.UTC).Format("2006-01-02T15-04-05Z")
+
+	// Collect usage data and update metrics with timing
 	usage, err := b.collectUsageData(ctx)
+	collectionDuration := time.Since(start)
+
+	// Record collection latency in Prometheus histogram
+	b.metrics.OperationLatency.WithLabelValues("collect").Observe(collectionDuration.Seconds())
+
+	b.logger.WithFields(logrus.Fields{
+		"collection_duration_s": collectionDuration.Seconds(),
+	}).Debug("usage data collection completed")
+
 	if err != nil {
 		return err
 	}
@@ -204,7 +232,7 @@ func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
 	// Set version on usage data
 	usage.Version = b.policyVersion
 
-	// Upload the collected data
+	usage.CollectingTIme = collectionTime
 	return b.storage.UploadUsageData(ctx, usage)
 }
 
@@ -237,6 +265,9 @@ func (b *BaseModule) collectUsageData(ctx context.Context) (*types.Report, error
 }
 
 func (b *BaseModule) reloadConfig(ticker *time.Ticker) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	// Check for interval updates
 	if interval := b.config.Usage.ScrapeInterval.Get(); interval > 0 && b.interval != interval {
 		b.logger.WithFields(logrus.Fields{

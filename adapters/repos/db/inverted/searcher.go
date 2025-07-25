@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/google/uuid"
@@ -81,6 +82,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	className schema.ClassName, properties []string,
 	disableInvertedSorter *runtime.DynamicValue[bool],
 ) ([]*storobj.Object, error) {
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesNUMCPU(2))
 	beforeFilters := time.Now()
 	allowList, err := s.docIDs(ctx, filter, additional, className, limit)
 	if err != nil {
@@ -202,6 +204,7 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesNUMCPU(2))
 	return s.docIDs(ctx, filter, additional, className, 0)
 }
 
@@ -209,7 +212,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 	limit int,
 ) (helpers.AllowList, error) {
-	pv, err := s.extractPropValuePair(filter.Root, className)
+	pv, err := s.extractPropValuePair(ctx, filter.Root, className)
 	if err != nil {
 		return nil, err
 	}
@@ -229,8 +232,8 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
 }
 
-func (s *Searcher) extractPropValuePair(filter *filters.Clause,
-	className schema.ClassName,
+func (s *Searcher) extractPropValuePair(
+	ctx context.Context, filter *filters.Clause, className schema.ClassName,
 ) (*propValuePair, error) {
 	class := s.getClass(className.String())
 	if class == nil {
@@ -242,7 +245,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 	if filter.Operands != nil {
 		// nested filter
-		children, err := s.extractPropValuePairs(filter.Operands, className)
+		children, err := s.extractPropValuePairs(ctx, filter.Operands, className)
 		if err != nil {
 			return nil, err
 		}
@@ -252,7 +255,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 
 	if filter.Operator == filters.ContainsAny || filter.Operator == filters.ContainsAll {
-		return s.extractContains(filter.On, filter.Value.Type, filter.Value.Value, filter.Operator, class)
+		return s.extractContains(ctx, filter.On, filter.Value.Type, filter.Value.Value, filter.Operator, class)
 	}
 
 	// on value or non-nested filter
@@ -310,17 +313,21 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	return s.extractPrimitiveProp(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
 }
 
-func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className schema.ClassName) ([]*propValuePair, error) {
+func (s *Searcher) extractPropValuePairs(ctx context.Context,
+	operands []filters.Clause, className schema.ClassName,
+) ([]*propValuePair, error) {
 	children := make([]*propValuePair, len(operands))
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
-	// prevent unbounded concurrency, see
-	// https://github.com/weaviate/weaviate/issues/3179 for details
-	eg.SetLimit(2 * _NUMCPU)
+	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.NUMCPU)
+	eg.SetLimit(outerConcurrencyLimit)
+
+	concurrencyReductionFactor := min(len(operands), outerConcurrencyLimit)
 
 	for i, clause := range operands {
 		i, clause := i, clause
 		eg.Go(func() error {
-			child, err := s.extractPropValuePair(&clause, className)
+			ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.NUMCPU)
+			child, err := s.extractPropValuePair(ctx, &clause, className)
 			if err != nil {
 				return fmt.Errorf("nested clause at pos %d: %w", i, err)
 			}
@@ -672,7 +679,8 @@ func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.Da
 	}, nil
 }
 
-func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType, value interface{},
+func (s *Searcher) extractContains(ctx context.Context,
+	path *filters.Path, propType schema.DataType, value interface{},
 	operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
 	var operands []filters.Clause
@@ -711,7 +719,7 @@ func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType,
 		return nil, fmt.Errorf("unsupported type '%T' for '%v' operator", propType, operator)
 	}
 
-	children, err := s.extractPropValuePairs(operands, schema.ClassName(class.Class))
+	children, err := s.extractPropValuePairs(ctx, operands, schema.ClassName(class.Class))
 	if err != nil {
 		return nil, err
 	}

@@ -3120,6 +3120,16 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 				}
 				totalObjectCount += count
 			}
+
+			// Look for .metadata files (bloom filters + count net additions)
+			if strings.HasSuffix(info.Name(), lsmkv.MetadataFileSuffix) {
+				count, err := lsmkv.ReadObjectCountFromMetadataFile(path)
+				if err != nil {
+					i.logger.WithField("path", path).WithError(err).Warn("failed to read .metadata file")
+					return err
+				}
+				totalObjectCount += count
+			}
 		}
 
 		return nil

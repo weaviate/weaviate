@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/entities/models"
@@ -109,6 +110,8 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
 
+		waitForRestore(t, backupID, backend, adminKey)
+
 		role := helper.GetRoleByName(t, adminKey, testRoleName)
 		require.NotNil(t, role)
 		require.Equal(t, *role.Name, testRoleName)
@@ -161,6 +164,8 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
 
+		waitForRestore(t, backupID, backend, adminKey)
+
 		respRole, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRoleName), helper.CreateAuth(adminKey))
 		require.Nil(t, respRole)
 		require.Error(t, err)
@@ -182,5 +187,29 @@ func waitForBackup(t *testing.T, backupID, backend, adminKey string) {
 			t.Fatalf("backup failed: %s", resp.Payload.Error)
 		}
 		time.Sleep(time.Second / 10)
+	}
+}
+
+func waitForRestore(t *testing.T, backupID, backend, adminKey string) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+wait:
+	for {
+		select {
+		case <-ticker.C:
+			t.Fatalf("restore timeout after 30 seconds")
+		default:
+			resp, err := helper.RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(adminKey))
+			require.Nil(t, err)
+			require.NotNil(t, resp.Payload)
+			if *resp.Payload.Status == "SUCCESS" {
+				break wait
+			}
+			if *resp.Payload.Status == "FAILED" {
+				t.Fatalf("restore failed: %s", resp.Payload.Error)
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
 }

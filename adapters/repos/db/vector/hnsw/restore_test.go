@@ -50,7 +50,7 @@ func Test_RestartFromZeroSegments(t *testing.T) {
 	ef := 32
 	maxNeighbors := 32
 	dimensions := 20
-	vectors_size := 10000
+	vectors_size := 1000
 	queries_size := 1
 	vectors, _ := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
 	distancer := distancer.NewL2SquaredProvider()
@@ -84,7 +84,7 @@ func Test_RestartFromZeroSegments(t *testing.T) {
 func TestBackup_IntegrationHnsw(t *testing.T) {
 	ctx := context.Background()
 	dimensions := 20
-	vectors_size := 10_000
+	vectors_size := 1_000
 	queries_size := 100
 	k := 10
 

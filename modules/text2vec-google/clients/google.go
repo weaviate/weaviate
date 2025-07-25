@@ -43,7 +43,7 @@ func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID string) strin
 			// legacy PaLM API
 			return "https://generativelanguage.googleapis.com/v1beta3/models/embedding-gecko-001:batchEmbedText"
 		}
-		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1/models/%s:batchEmbedContents", modelID)
+		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:batchEmbedContents", modelID)
 	}
 	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/publishers/google/models/%s:predict"
 	return fmt.Sprintf(urlTemplate, apiEndoint, projectID, modelID)
