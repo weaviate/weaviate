@@ -66,23 +66,6 @@ func (m *Manager) SetAliasResolver(resolver authorization.AliasResolver) {
 	m.aliasResolver = resolver
 }
 
-// resolveClassNames resolves aliases to actual class names using the configured resolver
-func (m *Manager) resolveClassNames(classNames []string) []string {
-	if m.aliasResolver == nil {
-		return classNames // No resolver configured, return as-is
-	}
-
-	resolvedNames := make([]string, len(classNames))
-	for i, name := range classNames {
-		if resolved := m.aliasResolver(name); resolved != "" {
-			resolvedNames[i] = resolved
-		} else {
-			resolvedNames[i] = name
-		}
-	}
-	return resolvedNames
-}
-
 // resolveAliasesInResources parses resource paths, resolves class name aliases, and rebuilds the paths
 func (m *Manager) resolveAliasesInResources(resources []string) []string {
 	if m.aliasResolver == nil {

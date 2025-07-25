@@ -203,18 +203,6 @@ func (m *Manager) restoreOriginalClassNames(objects []*models.Object, originalCl
 	return objects
 }
 
-// restoreOriginalClassNamesInBatch sets the original class names back on batch object responses
-func (m *Manager) restoreOriginalClassNamesInBatch(batchObjects BatchObjects, originalClassNames map[int]string) BatchObjects {
-	for i := range batchObjects {
-		if batchObjects[i].Object != nil {
-			if originalName, exists := originalClassNames[batchObjects[i].OriginalIndex]; exists {
-				batchObjects[i].Object.Class = originalName
-			}
-		}
-	}
-	return batchObjects
-}
-
 func generateUUID() (strfmt.UUID, error) {
 	id, err := uuid.NewRandom()
 	if err != nil {
