@@ -35,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
-	"github.com/weaviate/weaviate/usecases/objects/alias"
 )
 
 type schemaManager interface {
@@ -44,6 +43,8 @@ type schemaManager interface {
 	GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error)
 	// ReadOnlyClass return class model.
 	ReadOnlyClass(name string) *models.Class
+	// ReadOnlyClassResolvingAlias returns class model, resolving alias internally if needed.
+	ReadOnlyClassResolvingAlias(classOrAlias string) *models.Class
 	// AddClassProperty it is upsert operation. it adds properties to a class and updates
 	// existing properties if the merge bool passed true.
 	AddClassProperty(ctx context.Context, principal *models.Principal, class *models.Class, className string, merge bool, prop ...*models.Property) (*models.Class, uint64, error)
@@ -182,17 +183,36 @@ func NewManager(schemaManager schemaManager,
 	}
 }
 
-// Alias
-func (m *Manager) resolveAlias(class string) (className, aliasName string) {
-	return alias.ResolveAlias(m.schemaManager, class)
+// Response helpers for preserving original user input in responses
+
+// restoreOriginalClassName sets the original class name back on a single object response
+func (m *Manager) restoreOriginalClassName(obj *models.Object, originalClassName string) *models.Object {
+	if obj != nil {
+		obj.Class = originalClassName
+	}
+	return obj
 }
 
-func (m *Manager) classNameToAlias(obj *models.Object, aliasName string) *models.Object {
-	return alias.ClassNameToAlias(obj, aliasName)
+// restoreOriginalClassNames sets the original class names back on multiple object responses
+func (m *Manager) restoreOriginalClassNames(objects []*models.Object, originalClassName string) []*models.Object {
+	for _, obj := range objects {
+		if obj != nil {
+			obj.Class = originalClassName
+		}
+	}
+	return objects
 }
 
-func (m *Manager) classNamesToAliases(objs []*models.Object, aliasName string) []*models.Object {
-	return alias.ClassNamesToAliases(objs, aliasName)
+// restoreOriginalClassNamesInBatch sets the original class names back on batch object responses
+func (m *Manager) restoreOriginalClassNamesInBatch(batchObjects BatchObjects, originalClassNames map[int]string) BatchObjects {
+	for i := range batchObjects {
+		if batchObjects[i].Object != nil {
+			if originalName, exists := originalClassNames[batchObjects[i].OriginalIndex]; exists {
+				batchObjects[i].Object.Class = originalName
+			}
+		}
+	}
+	return batchObjects
 }
 
 func generateUUID() (strfmt.UUID, error) {

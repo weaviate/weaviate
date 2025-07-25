@@ -34,12 +34,13 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	repl *additional.ReplicationProperties, tenant string,
 ) (*BatchDeleteResponse, error) {
 	class := "*"
-	aliasName := ""
+	var originalClassName string
 	if match != nil {
-		match.Class, aliasName = b.resolveAlias(match.Class)
+		originalClassName = match.Class
 		class = match.Class
 	}
 
+	// RBAC will resolve alias internally using its configured resolver
 	err := b.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsData(class, tenant)...)
 	if err != nil {
 		return nil, err
@@ -50,11 +51,13 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
-	if aliasName != "" {
-		batchDeleteResponse, err := b.deleteObjects(ctx, principal, match, deletionTimeUnixMilli, dryRun, output, repl, tenant)
-		return b.batchDeleteWithAlias(batchDeleteResponse, aliasName), err
+	response, err := b.deleteObjects(ctx, principal, match, deletionTimeUnixMilli, dryRun, output, repl, tenant)
+	if err != nil {
+		return nil, err
 	}
-	return b.deleteObjects(ctx, principal, match, deletionTimeUnixMilli, dryRun, output, repl, tenant)
+
+	// Ensure response uses original user input
+	return b.restoreOriginalClassNameInBatchDelete(response, originalClassName), nil
 }
 
 // DeleteObjectsFromGRPCAfterAuth deletes objects in batch based on the match filter
@@ -171,7 +174,7 @@ func (b *BatchManager) classGetterFunc(ctx context.Context, principal *models.Pr
 		if err := b.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Collections(name)...); err != nil {
 			return nil, err
 		}
-		class := b.schemaManager.ReadOnlyClass(name)
+		class := b.schemaManager.ReadOnlyClassResolvingAlias(name)
 		if class == nil {
 			return nil, fmt.Errorf("could not find class %s in schema", name)
 		}

@@ -31,9 +31,9 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	obj *models.Object, repl *additional.ReplicationProperties,
 ) error {
 	className := schema.UppercaseClassName(obj.Class)
-	className, _ = m.resolveAlias(className)
 	obj.Class = className
 
+	// RBAC will resolve alias internally using its configured resolver
 	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID))
 	if err != nil {
 		return err

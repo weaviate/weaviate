@@ -26,7 +26,7 @@ import (
 func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, className string,
 	id strfmt.UUID, repl *additional.ReplicationProperties, tenant string,
 ) (bool, *Error) {
-	className, _ = m.resolveAlias(className)
+	// RBAC will resolve alias internally using its configured resolver
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, tenant, id)); err != nil {
 		return false, &Error{err.Error(), StatusForbidden, err}
 	}
@@ -34,10 +34,7 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 	m.metrics.HeadObjectInc()
 	defer m.metrics.HeadObjectDec()
 
-	if cls := m.schemaManager.ResolveAlias(className); cls != "" {
-		className = cls
-	}
-
+	// Pass class as-is to repository - schema layer will resolve alias internally
 	ok, err := m.vectorRepo.Exists(ctx, className, id, repl, tenant)
 	if err != nil {
 		switch {

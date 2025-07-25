@@ -79,6 +79,37 @@ func (f *fakeSchemaManager) ResolveAlias(alias string) string {
 	return ""
 }
 
+// Alias-resolving methods for testing - delegate to regular methods
+func (f *fakeSchemaManager) ReadOnlyClassResolvingAlias(classOrAlias string) *models.Class {
+	args := f.Called(classOrAlias)
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*models.Class)
+}
+
+func (f *fakeSchemaManager) ClassInfoResolvingAlias(classOrAlias string) clusterSchema.ClassInfo {
+	return clusterSchema.ClassInfo{}
+}
+
+func (f *fakeSchemaManager) ClassExistsResolvingAlias(classOrAlias string) bool {
+	args := f.Called(classOrAlias)
+	return args.Bool(0)
+}
+
+func (f *fakeSchemaManager) ReadResolvingAlias(classOrAlias string, reader func(*models.Class, *sharding.State) error) error {
+	args := f.Called(classOrAlias, reader)
+	return args.Error(0)
+}
+
+func (f *fakeSchemaManager) MultiTenancyResolvingAlias(classOrAlias string) models.MultiTenancyConfig {
+	return models.MultiTenancyConfig{}
+}
+
+func (f *fakeSchemaManager) GetRealClassName(classOrAlias string) string {
+	return classOrAlias
+}
+
 func (f *fakeSchemaManager) Join(ctx context.Context, nodeID, raftAddr string, voter bool) error {
 	args := f.Called(ctx, nodeID, raftAddr, voter)
 	return args.Error(0)
