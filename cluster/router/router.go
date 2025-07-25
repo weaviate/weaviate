@@ -290,18 +290,18 @@ func (r *singleTenantRouter) getReadReplicasLocation(collection string, tenant s
 		return types.ReadReplicaSet{}, err
 	}
 
-	var allReadReplicas []types.Replica
+	var replicas []types.Replica
 
 	for _, shardName := range targetShards {
-		read, err := r.readReplicasForShard(collection, tenant, shardName)
+		readReplica, err := r.readReplicasForShard(collection, tenant, shardName)
 		if err != nil {
 			return types.ReadReplicaSet{}, err
 		}
 
-		allReadReplicas = append(allReadReplicas, read...)
+		replicas = append(replicas, readReplica...)
 	}
 
-	return types.ReadReplicaSet{Replicas: allReadReplicas}, nil
+	return types.ReadReplicaSet{Replicas: replicas}, nil
 }
 
 // getWriteReplicasLocation returns only write replicas for single-tenant collections.
@@ -311,20 +311,20 @@ func (r *singleTenantRouter) getWriteReplicasLocation(collection string, tenant 
 		return types.WriteReplicaSet{}, err
 	}
 
-	var allWriteReplicas []types.Replica
-	var allAdditionalWriteReplicas []types.Replica
+	var replicas []types.Replica
+	var additionalReplicas []types.Replica
 
 	for _, shardName := range targetShards {
-		write, additional, err := r.writeReplicasForShard(collection, tenant, shardName)
+		writeReplica, additionalReplica, err := r.writeReplicasForShard(collection, tenant, shardName)
 		if err != nil {
 			return types.WriteReplicaSet{}, err
 		}
 
-		allWriteReplicas = append(allWriteReplicas, write...)
-		allAdditionalWriteReplicas = append(allAdditionalWriteReplicas, additional...)
+		replicas = append(replicas, writeReplica...)
+		additionalReplicas = append(additionalReplicas, additionalReplica...)
 	}
 
-	return types.WriteReplicaSet{Replicas: allWriteReplicas, AdditionalReplicas: allAdditionalWriteReplicas}, nil
+	return types.WriteReplicaSet{Replicas: replicas, AdditionalReplicas: additionalReplicas}, nil
 }
 
 // targetShards returns either all shards or a single one, depending on the value of the shard parameter.
