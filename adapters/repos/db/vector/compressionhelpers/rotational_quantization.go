@@ -298,7 +298,7 @@ func (rq RQStats) CompressionType() string {
 	return "rq"
 }
 
-func (rq RQStats) CompressionRatio(dimensionality int) float64 {
+func (rq RQStats) CompressionRatio(dimensionality int64) float64 {
 	// RQ compression: original size = inputDim * 4 bytes (float32)
 	// compressed size = 16 bytes (metadata) + outputDim * 1 byte (compressed data)
 	// where outputDim is typically the same as inputDim after rotation

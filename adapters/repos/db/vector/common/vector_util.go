@@ -38,7 +38,7 @@ func vectorsEqual[T []C, C float32 | []float32](vecA, vecB T, valuesEqual func(v
 	return true
 }
 
-func CalculateOptimalSegments(dims int) int {
+func CalculateOptimalSegments(dims int64) int64 {
 	if dims >= 2048 && dims%8 == 0 {
 		return dims / 8
 	} else if dims >= 768 && dims%6 == 0 {

@@ -141,7 +141,7 @@ func TestHybrid(t *testing.T) {
 		addit := additional.Properties{}
 		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
 
-		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
+		t.Logf("query for %s returned %d results\n", query.Query, len(res))
 
 	}
 }
@@ -181,19 +181,6 @@ func TestBIER(t *testing.T) {
 		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
-		// fmt.Printf("Results: %v\n", res)
-
-		//for j, doc := range res {
-		//	fmt.Printf("res %v, %v\n", j, doc.Object.GetAdditionalProperty("code"))
-		//}
-
-		//Check the docIDs are the same
-		//for j, doc := range res[0:10] {
-		//	fmt.Printf("Result: rank %v, docID %v, score %v (%v)\n", j, doc.Object.GetAdditionalProperty("code"), doc.Score(), doc.Object.GetAdditionalProperty("document"))
-		//	fmt.Printf("Expected: rank %v, docID %v\n", j, query.MatchingDocIDs[j].Object.GetAdditionalProperty("code"))
-		//	require.Equal(t, query.MatchingDocIDs[j], doc.Object.GetAdditionalProperty("code").(string))
-		//}
-
 	}
 }
 
@@ -463,7 +450,7 @@ func TestRFJourney(t *testing.T) {
 			schema := r.Schema.(map[string]interface{})
 			title := schema["title"].(string)
 			description := schema["description"].(string)
-			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
 		}
 
 		require.Equal(t, "00000000-0000-0000-0000-000000000001", string(res[0].ID))

@@ -700,7 +700,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	t.Run("count dimensions before insert", func(t *testing.T) {
 		dims, err := shd.Dimensions(ctx, "")
 		require.NoError(t, err)
-		require.Equal(t, 0, dims)
+		require.Equal(t, int64(0), dims)
 	})
 
 	t.Run("insert data into shard", func(t *testing.T) {
@@ -720,7 +720,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	t.Run("count dimensions", func(t *testing.T) {
 		dims, err := shd.Dimensions(ctx, "")
 		require.NoError(t, err)
-		require.Equal(t, 3*amount, dims)
+		require.Equal(t, int64(3*amount), dims)
 	})
 
 	t.Run("reset dimensions lsm", func(t *testing.T) {
@@ -731,7 +731,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	t.Run("count dimensions after reset", func(t *testing.T) {
 		dims, err := shd.Dimensions(ctx, "")
 		require.NoError(t, err)
-		require.Equal(t, 0, dims)
+		require.Equal(t, int64(0), dims)
 	})
 
 	t.Run("insert data into shard after reset", func(t *testing.T) {
@@ -751,7 +751,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	t.Run("count dimensions after reset and insert", func(t *testing.T) {
 		dims, err := shd.Dimensions(ctx, "")
 		require.NoError(t, err)
-		require.Equal(t, 3*amount, dims)
+		require.Equal(t, int64(3*amount), dims)
 	})
 
 	require.Nil(t, idx.drop())

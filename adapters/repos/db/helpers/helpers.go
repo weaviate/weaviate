@@ -77,7 +77,7 @@ func BucketRangeableFromPropNameLSM(propName string) string {
 
 // CompressionRatioFromConfig calculates the compression ratio from vector index config
 // This is used for inactive tenants where we don't have access to the actual vector index
-func CompressionRatioFromConfig(config schemaConfig.VectorIndexConfig, dimensions int) float64 {
+func CompressionRatioFromConfig(config schemaConfig.VectorIndexConfig, dimensions int64) float64 {
 	// Check for different compression types in config by type asserting
 	if hnswConfig, ok := config.(hnsw.UserConfig); ok {
 		// Check for different compression types in HNSW config
