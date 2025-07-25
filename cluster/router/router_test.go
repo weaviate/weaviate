@@ -658,10 +658,6 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 		FilterOneShardReplicasRead("TestClass", "shard1", []string{}).
 		Return([]string{})
 
-	mockReplicationFSM.EXPECT().
-		FilterOneShardReplicasWrite("TestClass", "shard1", []string{}).
-		Return([]string{}, []string{})
-
 	r := router.NewBuilder(
 		"TestClass",
 		false,
@@ -1172,11 +1168,7 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_MultipleShards(t *testing.T) {
 	shards := []string{"shard1", "shard2", "shard3"}
 	state := createShardingStateWithShards(shards)
 	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
-
-	// Setup expectations for all shards
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2"}, nil)
-	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "shard1", []string{"node1", "node2"}).
-		Return([]string{"node1", "node2"})
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "shard1", []string{"node1", "node2"}).
 		Return([]string{"node1"}, []string{"node2"})
 
