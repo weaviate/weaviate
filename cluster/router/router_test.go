@@ -1720,3 +1720,342 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_ConsistencyLevelValidation(t *te
 	require.NoError(t, err)
 	require.Equal(t, 1, plan.IntConsistencyLevel)
 }
+
+func TestMultiTenantRouter_BuildReadRoutingPlan_NoReplicasError(t *testing.T) {
+	mockSchemaGetter := schema.NewMockSchemaGetter(t)
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+
+	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "alice").Return([]string{}, nil)
+	tenantStatus := map[string]string{
+		"alice": models.TenantActivityStatusHOT,
+	}
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice").
+		Return(tenantStatus, nil)
+	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "alice", []string{}).
+		Return([]string{}) // No read replicas
+
+	r := router.NewBuilder(
+		"TestClass",
+		true,
+		mockNodeSelector,
+		mockSchemaGetter,
+		mockSchemaReader,
+		mockReplicationFSM,
+	).Build()
+
+	opts := types.RoutingPlanBuildOptions{
+		Tenant:           "alice",
+		Shard:            "",
+		ConsistencyLevel: types.ConsistencyLevelOne,
+	}
+
+	plan, err := r.BuildReadRoutingPlan(opts)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no read replica found")
+	require.Empty(t, plan.ReplicaSet.Replicas)
+}
+
+func TestSingleTenantRouter_BuildReadRoutingPlan_ConsistencyLevelValidation(t *testing.T) {
+	mockSchemaGetter := schema.NewMockSchemaGetter(t)
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+
+	state := createShardingStateWithShards([]string{"shard1"})
+	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2"}, nil)
+	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "shard1", []string{"node1", "node2"}).
+		Return([]string{"node1", "node2"})
+
+	r := router.NewBuilder(
+		"TestClass",
+		false,
+		mockNodeSelector,
+		mockSchemaGetter,
+		mockSchemaReader,
+		mockReplicationFSM,
+	).Build()
+
+	opts := types.RoutingPlanBuildOptions{
+		Tenant:           "",
+		Shard:            "shard1",
+		ConsistencyLevel: "INVALID_LEVEL",
+	}
+
+	plan, err := r.BuildReadRoutingPlan(opts)
+	require.NoError(t, err)
+	require.Equal(t, 1, plan.IntConsistencyLevel)
+}
+
+func TestSingleTenantRouter_BuildReadRoutingPlan_ReplicaOrdering(t *testing.T) {
+	mockSchemaGetter := schema.NewMockSchemaGetter(t)
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3")
+
+	state := createShardingStateWithShards([]string{"shard1"})
+	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2", "node3"}, nil)
+	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "shard1", []string{"node1", "node2", "node3"}).
+		Return([]string{"node1", "node2", "node3"})
+
+	r := router.NewBuilder(
+		"TestClass",
+		false,
+		mockNodeSelector,
+		mockSchemaGetter,
+		mockSchemaReader,
+		mockReplicationFSM,
+	).Build()
+
+	opts := types.RoutingPlanBuildOptions{
+		Tenant:              "",
+		Shard:               "shard1",
+		ConsistencyLevel:    types.ConsistencyLevelOne,
+		DirectCandidateNode: "node3",
+	}
+
+	plan, err := r.BuildReadRoutingPlan(opts)
+	require.NoError(t, err)
+	require.Equal(t, "node3", plan.ReplicaSet.Replicas[0].NodeName, "DirectCandidateNode should be first")
+}
+
+func TestMultiTenantRouter_BuildReadRoutingPlan_ReplicaOrdering(t *testing.T) {
+	mockSchemaGetter := schema.NewMockSchemaGetter(t)
+	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3")
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+
+	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "alice").Return([]string{"node1", "node2", "node3"}, nil)
+	tenantStatus := map[string]string{
+		"alice": models.TenantActivityStatusHOT,
+	}
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice").
+		Return(tenantStatus, nil)
+	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "alice", []string{"node1", "node2", "node3"}).
+		Return([]string{"node1", "node2", "node3"})
+
+	r := router.NewBuilder(
+		"TestClass",
+		true,
+		mockNodeSelector,
+		mockSchemaGetter,
+		mockSchemaReader,
+		mockReplicationFSM,
+	).Build()
+
+	opts := types.RoutingPlanBuildOptions{
+		Tenant:              "alice",
+		Shard:               "",
+		ConsistencyLevel:    types.ConsistencyLevelOne,
+		DirectCandidateNode: "node2",
+	}
+
+	plan, err := r.BuildReadRoutingPlan(opts)
+	require.NoError(t, err)
+	require.Equal(t, "node2", plan.ReplicaSet.Replicas[0].NodeName, "DirectCandidateNode should be first")
+}
+
+func TestMultiTenantRouter_BuildReadRoutingPlan_TenantValidation(t *testing.T) {
+	mockSchemaGetter := schema.NewMockSchemaGetter(t)
+	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+
+	r := router.NewBuilder(
+		"TestClass",
+		true,
+		mockNodeSelector,
+		mockSchemaGetter,
+		mockSchemaReader,
+		mockReplicationFSM,
+	).Build()
+
+	opts := types.RoutingPlanBuildOptions{
+		Tenant:           "", // Empty tenant should fail for multi-tenant
+		Shard:            "",
+		ConsistencyLevel: types.ConsistencyLevelOne,
+	}
+
+	plan, err := r.BuildReadRoutingPlan(opts)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "class TestClass has multi-tenancy enabled, but request was without tenant")
+	require.Empty(t, plan.ReplicaSet.Replicas)
+}
+
+func TestSingleTenantRouter_BuildRoutingPlanOptions(t *testing.T) {
+	mockSchemaGetter := schema.NewMockSchemaGetter(t)
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+
+	r := router.NewBuilder(
+		"TestClass",
+		false,
+		mockNodeSelector,
+		mockSchemaGetter,
+		mockSchemaReader,
+		mockReplicationFSM,
+	).Build()
+
+	opts := r.BuildRoutingPlanOptions("ignored-tenant", "shard1", types.ConsistencyLevelQuorum, "node2")
+
+	expected := types.RoutingPlanBuildOptions{
+		Shard:               "shard1",
+		Tenant:              "",
+		ConsistencyLevel:    types.ConsistencyLevelQuorum,
+		DirectCandidateNode: "node2",
+	}
+
+	require.Equal(t, expected, opts)
+}
+
+func TestMultiTenantRouter_BuildRoutingPlanOptions(t *testing.T) {
+	mockSchemaGetter := schema.NewMockSchemaGetter(t)
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+
+	r := router.NewBuilder(
+		"TestClass",
+		true,
+		mockNodeSelector,
+		mockSchemaGetter,
+		mockSchemaReader,
+		mockReplicationFSM,
+	).Build()
+
+	opts := r.BuildRoutingPlanOptions("alice", "shard1", types.ConsistencyLevelAll, "node3")
+
+	expected := types.RoutingPlanBuildOptions{
+		Shard:               "shard1",
+		Tenant:              "alice",
+		ConsistencyLevel:    types.ConsistencyLevelAll,
+		DirectCandidateNode: "node3",
+	}
+
+	require.Equal(t, expected, opts)
+}
+
+func TestSingleTenantRouter_BuildRoutingPlanOptions_EmptyInputs(t *testing.T) {
+	mockSchemaGetter := schema.NewMockSchemaGetter(t)
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+
+	r := router.NewBuilder(
+		"TestClass",
+		false,
+		mockNodeSelector,
+		mockSchemaGetter,
+		mockSchemaReader,
+		mockReplicationFSM,
+	).Build()
+
+	opts := r.BuildRoutingPlanOptions("", "", types.ConsistencyLevelOne, "")
+
+	expected := types.RoutingPlanBuildOptions{
+		Shard:               "",
+		Tenant:              "",
+		ConsistencyLevel:    types.ConsistencyLevelOne,
+		DirectCandidateNode: "",
+	}
+
+	require.Equal(t, expected, opts)
+}
+
+func TestMultiTenantRouter_BuildRoutingPlanOptions_EmptyInputs(t *testing.T) {
+	mockSchemaGetter := schema.NewMockSchemaGetter(t)
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+
+	r := router.NewBuilder(
+		"TestClass",
+		true,
+		mockNodeSelector,
+		mockSchemaGetter,
+		mockSchemaReader,
+		mockReplicationFSM,
+	).Build()
+
+	opts := r.BuildRoutingPlanOptions("", "", types.ConsistencyLevelOne, "")
+
+	expected := types.RoutingPlanBuildOptions{
+		Shard:               "",
+		Tenant:              "",
+		ConsistencyLevel:    types.ConsistencyLevelOne,
+		DirectCandidateNode: "",
+	}
+
+	require.Equal(t, expected, opts)
+}
+
+func TestMultiTenantRouter_GetReadWriteReplicasLocation_ShardMismatch(t *testing.T) {
+	mockSchemaGetter := schema.NewMockSchemaGetter(t)
+	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+
+	r := router.NewBuilder(
+		"TestClass",
+		true,
+		mockNodeSelector,
+		mockSchemaGetter,
+		mockSchemaReader,
+		mockReplicationFSM,
+	).Build()
+
+	rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", "alice", "bob")
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid tenant shard")
+	require.Empty(t, rs.Replicas)
+	require.Empty(t, ws.Replicas)
+	require.Empty(t, ws.AdditionalReplicas)
+}
+
+func TestSingleTenantRouter_BuildReadRoutingPlan_AllShards(t *testing.T) {
+	mockSchemaGetter := schema.NewMockSchemaGetter(t)
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+
+	shards := []string{"shard1", "shard2"}
+	state := createShardingStateWithShards(shards)
+	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+
+	for _, shard := range shards {
+		mockSchemaReader.EXPECT().ShardReplicas("TestClass", shard).Return([]string{"node1"}, nil)
+		mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", shard, []string{"node1"}).
+			Return([]string{"node1"})
+	}
+
+	r := router.NewBuilder(
+		"TestClass",
+		false,
+		mockNodeSelector,
+		mockSchemaGetter,
+		mockSchemaReader,
+		mockReplicationFSM,
+	).Build()
+
+	opts := types.RoutingPlanBuildOptions{
+		Tenant:           "",
+		Shard:            "",
+		ConsistencyLevel: types.ConsistencyLevelOne,
+	}
+
+	plan, err := r.BuildReadRoutingPlan(opts)
+	require.NoError(t, err)
+	require.Len(t, plan.ReplicaSet.Replicas, 2, "should have replicas from all shards")
+
+	shardNames := make(map[string]bool)
+	for _, replica := range plan.ReplicaSet.Replicas {
+		shardNames[replica.ShardName] = true
+	}
+	require.True(t, shardNames["shard1"], "should have replica from shard1")
+	require.True(t, shardNames["shard2"], "should have replica from shard2")
+}
