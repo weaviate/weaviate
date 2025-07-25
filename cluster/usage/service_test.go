@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	modulecapabilities "github.com/weaviate/weaviate/entities/modulecapabilities"
 	entschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	backupusecase "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -87,6 +88,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
+	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
 	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -213,6 +215,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
+	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
 	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(hotObjectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(hotStorageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -431,6 +434,7 @@ func TestService_Usage_WithNamedVectors(t *testing.T) {
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
+	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
 	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -644,6 +648,7 @@ func TestService_Usage_VectorIndexError(t *testing.T) {
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
+	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
 	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -746,6 +751,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
+	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
 	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -877,6 +883,7 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 
 	// Mock hot tenant shard
 	mockHotShard := db.NewMockShardLike(t)
+	mockHotShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
 	mockHotShard.EXPECT().ObjectCountAsync(ctx).Return(int64(hotObjectCount), nil)
 	mockHotShard.EXPECT().ObjectStorageSize(ctx).Return(hotStorageSize, nil)
 	mockHotShard.EXPECT().VectorStorageSize(ctx).Return(hotVectorStorageSize, nil) // Test actual vector storage size
@@ -1125,6 +1132,7 @@ func TestService_JitterFunctionality(t *testing.T) {
 
 		// Simple shard mock
 		mockShard := db.NewMockShardLike(t)
+		mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
 		mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(100), nil).Times(2)
 		mockShard.EXPECT().ObjectStorageSize(ctx).Return(int64(1000), nil).Times(2)
 		mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil).Times(2)
@@ -1217,6 +1225,7 @@ func TestService_JitterFunctionality(t *testing.T) {
 
 		// Simple shard mock
 		mockShard := db.NewMockShardLike(t)
+		mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
 		mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(100), nil)
 		mockShard.EXPECT().ObjectStorageSize(ctx).Return(int64(1000), nil)
 		mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -1267,4 +1276,107 @@ func TestService_JitterFunctionality(t *testing.T) {
 		mockCompressionStats.AssertExpectations(t)
 		mockBackupProvider.AssertExpectations(t)
 	})
+}
+
+func TestService_Usage_HotTenantWithLoadingStatus(t *testing.T) {
+	ctx := context.Background()
+
+	nodeName := "test-node"
+	className := "LoadingHotTenantClass"
+	replication := 1
+	shardName := "hot-tenant"
+	objectCount := 1000
+	storageSize := int64(5000000)
+	vectorName := "abcd"
+	vectorType := "hnsw"
+	compression := "standard"
+
+	mockSchema := schema.NewMockSchemaGetter(t)
+	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:             className,
+					VectorIndexConfig: &hnsw.UserConfig{},
+					ReplicationConfig: &models.ReplicationConfig{Factor: int64(replication)},
+					VectorConfig: map[string]models.VectorConfig{
+						vectorName: {
+							VectorIndexType:   vectorType,
+							VectorIndexConfig: &hnsw.UserConfig{},
+						},
+					},
+				},
+			},
+		},
+	})
+	mockSchema.EXPECT().NodeName().Return(nodeName)
+
+	shardingState := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			shardName: {
+				Name:           shardName,
+				BelongsToNodes: []string{nodeName},
+				Status:         models.TenantActivityStatusHOT,
+			},
+		},
+	}
+	shardingState.SetLocalName(nodeName)
+	mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+
+	mockDB := db.NewMockIndexGetter(t)
+	mockIndex := db.NewMockIndexLike(t)
+	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
+
+	// Mock shard that returns StatusLoading
+	mockShard := db.NewMockShardLike(t)
+	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusLoading)
+
+	// Mock the unloaded shard usage calculation
+	mockIndex.EXPECT().CalculateUnloadedObjectsMetrics(ctx, shardName).Return(types.ObjectUsage{
+		Count:        int64(objectCount),
+		StorageBytes: storageSize,
+	}, nil)
+	mockIndex.EXPECT().CalculateUnloadedVectorsMetrics(ctx, shardName).Return(int64(0), nil)
+
+	mockIndex.On("ForEachShard", mock.AnythingOfType("func(string, db.ShardLike) error")).Return(nil).Run(func(args mock.Arguments) {
+		f := args.Get(0).(func(string, db.ShardLike) error)
+		f(shardName, mockShard)
+	})
+
+	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
+	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
+
+	logger, _ := logrus.NewNullLogger()
+	service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+
+	result, err := service.Usage(ctx)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, nodeName, result.Node)
+	assert.Len(t, result.Collections, 1)
+
+	collection := result.Collections[0]
+	assert.Equal(t, className, collection.Name)
+	assert.Len(t, collection.Shards, 1)
+
+	shard := collection.Shards[0]
+	assert.Equal(t, shardName, shard.Name)
+	assert.Equal(t, int64(objectCount), shard.ObjectsCount)
+	assert.Equal(t, uint64(storageSize), shard.ObjectsStorageBytes)
+	// Verify that the shard is treated as inactive (cold) even though it's a hot tenant
+	assert.Equal(t, strings.ToLower(models.TenantActivityStatusINACTIVE), shard.Status)
+	assert.Len(t, shard.NamedVectors, 1)
+
+	vector := shard.NamedVectors[0]
+	assert.Equal(t, vectorName, vector.Name)
+	assert.Equal(t, vectorType, vector.VectorIndexType)
+	assert.Equal(t, compression, vector.Compression)
+	assert.Equal(t, 1.0, vector.VectorCompressionRatio) // Default ratio for cold shards
+
+	mockSchema.AssertExpectations(t)
+	mockDB.AssertExpectations(t)
+	mockIndex.AssertExpectations(t)
+	mockShard.AssertExpectations(t)
+	mockBackupProvider.AssertExpectations(t)
 }
