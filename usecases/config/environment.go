@@ -608,6 +608,12 @@ func FromEnv(config *Config) error {
 	}
 	config.TenantActivityWriteLogLevel = runtime.NewDynamicValue(tenantActivityWriteLogLevel)
 
+	shardInitLogLevel := "debug"
+	if v := os.Getenv("SHARD_INIT_LOG_LEVEL"); v != "" {
+		shardInitLogLevel = v
+	}
+	config.ShardInitLogLevel = runtime.NewDynamicValue(shardInitLogLevel)
+
 	ru, err := parseResourceUsageEnvVars()
 	if err != nil {
 		return err

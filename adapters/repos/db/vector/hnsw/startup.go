@@ -380,13 +380,13 @@ func (h *hnsw) prefillCache() {
 		h.logger.WithFields(logrus.Fields{
 			"action":                 "hnsw_prefill_cache_sync",
 			"wait_for_cache_prefill": true,
-		}).Info("waiting for vector cache prefill to complete")
+		}).Logf(h.initLogLevel, "waiting for vector cache prefill to complete")
 		f()
 	} else {
 		h.logger.WithFields(logrus.Fields{
 			"action":                 "hnsw_prefill_cache_async",
 			"wait_for_cache_prefill": false,
-		}).Info("not waiting for vector cache prefill, running in background")
+		}).Logf(h.initLogLevel, "not waiting for vector cache prefill, running in background")
 		enterrors.GoWrapper(f, h.logger)
 	}
 }
