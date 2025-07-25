@@ -1,6 +1,8 @@
 package concurrency
 
-import "context"
+import (
+	"context"
+)
 
 type budgetKey struct{}
 
