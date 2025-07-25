@@ -11,7 +11,11 @@
 
 package config
 
-import "strings"
+import (
+	"os"
+	"strings"
+	"time"
+)
 
 func Enabled(value string) bool {
 	switch strings.ToLower(value) {
@@ -20,4 +24,20 @@ func Enabled(value string) bool {
 	default:
 		return false
 	}
+}
+
+var defaultMinimumTimeout = -1 * time.Second
+
+func MinimumTimeout() time.Duration {
+	if defaultMinimumTimeout > 0 {
+		return defaultMinimumTimeout
+	}
+	defaultMinimumTimeout = 30 * time.Second // default minimum timeout is 30 seconds
+	opt := os.Getenv("WEAVIATE_MINIMUM_TIMEOUT")
+	if opt != "" {
+		if parsed, err := time.ParseDuration(opt); err == nil {
+			defaultMinimumTimeout = parsed
+		}
+	}
+	return defaultMinimumTimeout
 }
