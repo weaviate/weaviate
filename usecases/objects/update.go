@@ -64,8 +64,7 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	}
 	
 	// Ensure response uses original user input
-	obj.Class = originalClassName
-	return obj, nil
+	return m.restoreOriginalClassName(obj, originalClassName), nil
 }
 
 func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,

@@ -124,10 +124,10 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		updates.Properties = map[string]interface{}{}
 	}
 
-	// Ensure response uses original user input
+	// Ensure response uses original user input  
 	pathErr := m.patchObject(ctx, prevObj, updates, repl, propertiesToDelete, updates.Tenant, fetchedClass, maxSchemaVersion)
 	if pathErr == nil {
-		updates.Class = originalClassName
+		m.restoreOriginalClassName(updates, originalClassName)
 	}
 	return pathErr
 }

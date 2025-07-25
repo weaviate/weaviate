@@ -57,11 +57,7 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	}
 	
 	// Ensure response uses original user input
-	if response != nil && response.Match != nil && originalClassName != "" {
-		response.Match.Class = originalClassName
-	}
-	
-	return response, nil
+	return b.restoreOriginalClassNameInBatchDelete(response, originalClassName), nil
 }
 
 // DeleteObjectsFromGRPCAfterAuth deletes objects in batch based on the match filter

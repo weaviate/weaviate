@@ -183,6 +183,37 @@ func NewManager(schemaManager schemaManager,
 	}
 }
 
+// Response helpers for preserving original user input in responses
+
+// restoreOriginalClassName sets the original class name back on a single object response
+func (m *Manager) restoreOriginalClassName(obj *models.Object, originalClassName string) *models.Object {
+	if obj != nil {
+		obj.Class = originalClassName
+	}
+	return obj
+}
+
+// restoreOriginalClassNames sets the original class names back on multiple object responses
+func (m *Manager) restoreOriginalClassNames(objects []*models.Object, originalClassName string) []*models.Object {
+	for _, obj := range objects {
+		if obj != nil {
+			obj.Class = originalClassName
+		}
+	}
+	return objects
+}
+
+// restoreOriginalClassNamesInBatch sets the original class names back on batch object responses
+func (m *Manager) restoreOriginalClassNamesInBatch(batchObjects BatchObjects, originalClassNames map[int]string) BatchObjects {
+	for i := range batchObjects {
+		if batchObjects[i].Object != nil {
+			if originalName, exists := originalClassNames[batchObjects[i].OriginalIndex]; exists {
+				batchObjects[i].Object.Class = originalName
+			}
+		}
+	}
+	return batchObjects
+}
 
 func generateUUID() (strfmt.UUID, error) {
 	id, err := uuid.NewRandom()

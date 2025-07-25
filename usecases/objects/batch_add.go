@@ -72,15 +72,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	}
 	
 	// Ensure responses use original user inputs
-	for i := range batchObjects {
-		if batchObjects[i].Object != nil {
-			if originalName, exists := originalClassNames[batchObjects[i].OriginalIndex]; exists {
-				batchObjects[i].Object.Class = originalName
-			}
-		}
-	}
-	
-	return batchObjects, nil
+	return b.restoreOriginalClassNamesInBatch(batchObjects, originalClassNames), nil
 }
 
 // AddObjectsGRPCAfterAuth bypasses the authentication in the REST endpoint as GRPC has its own checking

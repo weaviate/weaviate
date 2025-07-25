@@ -68,8 +68,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	}
 	
 	// Ensure response uses original user input
-	obj.Class = originalClassName
-	return obj, nil
+	return m.restoreOriginalClassName(obj, originalClassName), nil
 }
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,

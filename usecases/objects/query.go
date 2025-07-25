@@ -124,11 +124,7 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 	
 	// Ensure responses use original user input
 	if originalClassName != "" {
-		for _, obj := range objects {
-			if obj != nil {
-				obj.Class = originalClassName
-			}
-		}
+		objects = m.restoreOriginalClassNames(objects, originalClassName)
 	}
 
 	return objects, nil

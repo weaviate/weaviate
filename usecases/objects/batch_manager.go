@@ -70,3 +70,24 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 	}
 }
 
+// Response helpers for preserving original user input in responses
+
+// restoreOriginalClassNamesInBatch sets the original class names back on batch object responses
+func (b *BatchManager) restoreOriginalClassNamesInBatch(batchObjects BatchObjects, originalClassNames map[int]string) BatchObjects {
+	for i := range batchObjects {
+		if batchObjects[i].Object != nil {
+			if originalName, exists := originalClassNames[batchObjects[i].OriginalIndex]; exists {
+				batchObjects[i].Object.Class = originalName
+			}
+		}
+	}
+	return batchObjects
+}
+
+// restoreOriginalClassNameInBatchDelete sets the original class name back on batch delete response
+func (b *BatchManager) restoreOriginalClassNameInBatchDelete(response *BatchDeleteResponse, originalClassName string) *BatchDeleteResponse {
+	if response != nil && response.Match != nil && originalClassName != "" {
+		response.Match.Class = originalClassName
+	}
+	return response
+}
