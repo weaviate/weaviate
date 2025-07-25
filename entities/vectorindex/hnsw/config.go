@@ -97,13 +97,15 @@ func (u *UserConfig) SetDefaults() {
 		Segments:       DefaultPQSegments,
 		Centroids:      DefaultPQCentroids,
 		TrainingLimit:  DefaultPQTrainingLimit,
+		RescoreLimit:   DefaultPQRescoreLimit,
 		Encoder: PQEncoder{
 			Type:         DefaultPQEncoderType,
 			Distribution: DefaultPQEncoderDistribution,
 		},
 	}
 	u.BQ = BQConfig{
-		Enabled: DefaultBQEnabled,
+		Enabled:      DefaultBQEnabled,
+		RescoreLimit: DefaultBQRescoreLimit,
 	}
 	u.SQ = SQConfig{
 		Enabled:       DefaultSQEnabled,
