@@ -27,7 +27,7 @@ const hnswT = vectorindex.VectorIndexTypeHNSW
 
 func TestParser(t *testing.T) {
 	cs := fakes.NewFakeClusterState()
-	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{})
+	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil)
 
 	sc := config.Config{DesiredCount: 1, VirtualPerPhysical: 128, ActualCount: 1, DesiredVirtualCount: 128, Key: "_id", Strategy: "hash", Function: "murmur3"}
 	vic := enthnsw.NewDefaultUserConfig(nil)

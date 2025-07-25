@@ -254,10 +254,10 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool, defaultCompre
 		return uc, err
 	}
 
-	return uc, uc.validate()
+	return uc, uc.validate(defaultCompression)
 }
 
-func (u *UserConfig) validate() error {
+func (u *UserConfig) validate(defaultCompression *configRuntime.DynamicValue[string]) error {
 	var errMsgs []string
 	if u.MaxConnections < MinmumMaxConnections {
 		errMsgs = append(errMsgs, fmt.Sprintf(
@@ -302,9 +302,9 @@ func (u *UserConfig) validate() error {
 	if u.RQ.Enabled {
 		enabled++
 	}
-	defaultCompression := os.Getenv("DEFAULT_COMPRESSION")
-	if enabled == 2 && defaultCompression != "" && defaultCompression != vectorIndexCommon.NoCompression {
-		switch defaultCompression {
+	compression := defaultCompression.Get()
+	if enabled == 2 && compression != "" && compression != vectorIndexCommon.NoCompression {
+		switch compression {
 		case vectorIndexCommon.CompressionBQ:
 			u.BQ.Enabled = false
 		case vectorIndexCommon.CompressionPQ:

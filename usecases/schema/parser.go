@@ -41,18 +41,20 @@ type modulesProvider interface {
 }
 
 type Parser struct {
-	clusterState clusterState
-	configParser VectorConfigParser
-	validator    validator
-	modules      modulesProvider
+	clusterState       clusterState
+	configParser       VectorConfigParser
+	validator          validator
+	modules            modulesProvider
+	defaultCompression *configRuntime.DynamicValue[string]
 }
 
-func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider) *Parser {
+func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider, defaultCompression *configRuntime.DynamicValue[string]) *Parser {
 	return &Parser{
-		clusterState: cs,
-		configParser: vCfg,
-		validator:    v,
-		modules:      modules,
+		clusterState:       cs,
+		configParser:       vCfg,
+		validator:          v,
+		modules:            modules,
+		defaultCompression: defaultCompression,
 	}
 }
 
@@ -154,7 +156,7 @@ func (p *Parser) moduleConfig(moduleConfig map[string]any) (map[string]any, erro
 
 func (p *Parser) parseVectorIndexConfig(class *models.Class) error {
 	if !hasTargetVectors(class) || class.VectorIndexType != "" {
-		parsed, err := p.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, p.modules.IsMultiVector(class.Vectorizer))
+		parsed, err := p.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, p.modules.IsMultiVector(class.Vectorizer), p.defaultCompression)
 		if err != nil {
 			return err
 		}
@@ -194,7 +196,7 @@ func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 				vectorizerModuleName = name
 			}
 		}
-		parsed, err := p.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig, isMultiVector)
+		parsed, err := p.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig, isMultiVector, p.defaultCompression)
 		if err != nil {
 			return fmt.Errorf("parse vector config for %s: %w", targetVector, err)
 		}
