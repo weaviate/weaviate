@@ -356,3 +356,82 @@ func TestConcurrentReads(t *testing.T) {
 		})
 	}
 }
+
+func TestFlatIndex_RQ_Compression(t *testing.T) {
+	// Test that RQ compression works end-to-end
+	ctx := context.Background()
+
+	// Create a temporary directory for the test
+	tmpDir := t.TempDir()
+
+	// Create a simple store
+	store, err := lsmkv.New(tmpDir, tmpDir, logrus.New(), nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+	defer store.Shutdown(ctx)
+
+	// Create RQ configuration
+	userConfig := flatent.UserConfig{
+		Distance: "cosine",
+		RQ: flatent.CompressionUserConfig{
+			Enabled:      true,
+			Cache:        false, // Disable cache for simplicity
+			RescoreLimit: 10,
+		},
+	}
+
+	// Create flat index with RQ
+	index, err := New(Config{
+		ID:                           "test-rq-index",
+		RootPath:                     tmpDir,
+		Logger:                       logrus.New(),
+		DistanceProvider:             distancer.NewCosineDistanceProvider(),
+		AllocChecker:                 nil,
+		MinMMapSize:                  0,
+		LazyLoadSegments:             false,
+		WriteSegmentInfoIntoFileName: false,
+		WriteMetadataFilesEnabled:    false,
+	}, userConfig, store)
+	require.NoError(t, err)
+
+	// Test that the index is compressed
+	assert.True(t, index.Compressed())
+	assert.True(t, index.isRQ())
+	assert.False(t, index.isBQ())
+
+	// Add some test vectors
+	testVectors := [][]float32{
+		{1.0, 0.0, 0.0, 0.0},
+		{0.0, 1.0, 0.0, 0.0},
+		{0.0, 0.0, 1.0, 0.0},
+		{0.0, 0.0, 0.0, 1.0},
+	}
+
+	for i, vector := range testVectors {
+		err := index.Add(ctx, uint64(i+1), vector)
+		require.NoError(t, err)
+	}
+
+	// Test search
+	queryVector := []float32{1.0, 0.0, 0.0, 0.0}
+	ids, distances, err := index.SearchByVector(ctx, queryVector, 2, nil)
+	require.NoError(t, err)
+	require.Len(t, ids, 2)
+	require.Len(t, distances, 2)
+
+	// The first result should be the most similar vector (ID 1)
+	assert.Equal(t, uint64(1), ids[0])
+	assert.Less(t, distances[0], distances[1])
+
+	// Test that compression stats work
+	stats := index.CompressionStats()
+	assert.Equal(t, "rq", stats.CompressionType())
+
+	// Test that the index can be queried
+	distancer := index.QueryVectorDistancer(queryVector)
+	dist, err := distancer.DistanceFunc(1)
+	require.NoError(t, err)
+	assert.Less(t, dist, float32(1.0)) // Should be close to 0 for identical vectors
+}

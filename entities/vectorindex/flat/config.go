@@ -38,6 +38,7 @@ type UserConfig struct {
 	PQ                    CompressionUserConfig `json:"pq"`
 	BQ                    CompressionUserConfig `json:"bq"`
 	SQ                    CompressionUserConfig `json:"sq"`
+	RQ                    CompressionUserConfig `json:"rq"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -58,6 +59,8 @@ func (u UserConfig) IsMultiVector() bool {
 func (u *UserConfig) SetDefaults() {
 	u.PQ.Cache = DefaultVectorCache
 	u.BQ.Cache = DefaultVectorCache
+	u.SQ.Cache = DefaultVectorCache
+	u.RQ.Cache = DefaultVectorCache
 	u.VectorCacheMaxObjects = DefaultVectorCacheMaxObjects
 	u.Distance = vectorindexcommon.DefaultDistanceMetric
 	u.PQ.Enabled = DefaultCompressionEnabled
@@ -66,6 +69,8 @@ func (u *UserConfig) SetDefaults() {
 	u.BQ.RescoreLimit = DefaultCompressionRescore
 	u.SQ.Enabled = DefaultCompressionEnabled
 	u.SQ.RescoreLimit = DefaultCompressionRescore
+	u.RQ.Enabled = DefaultCompressionEnabled
+	u.RQ.RescoreLimit = DefaultCompressionRescore
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -130,8 +135,9 @@ func parseCompression(in map[string]interface{}, uc *UserConfig) error {
 	pqConfigValue, pqOk := in["pq"]
 	bqConfigValue, bqOk := in["bq"]
 	sqConfigValue, sqOk := in["sq"]
+	rqConfigValue, rqOk := in["rq"]
 
-	if !pqOk && !bqOk && !sqOk {
+	if !pqOk && !bqOk && !sqOk && !rqOk {
 		return nil
 	}
 
@@ -156,7 +162,14 @@ func parseCompression(in map[string]interface{}, uc *UserConfig) error {
 		}
 	}
 
-	compressionConfigs := []CompressionUserConfig{uc.PQ, uc.BQ, uc.SQ}
+	if rqOk {
+		err := parseCompressionMap(rqConfigValue, &uc.RQ)
+		if err != nil {
+			return err
+		}
+	}
+
+	compressionConfigs := []CompressionUserConfig{uc.PQ, uc.BQ, uc.SQ, uc.RQ}
 	totalEnabled := 0
 
 	for _, compressionConfig := range compressionConfigs {

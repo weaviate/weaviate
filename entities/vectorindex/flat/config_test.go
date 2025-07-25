@@ -50,6 +50,11 @@ func Test_FlatUserConfig(t *testing.T) {
 					RescoreLimit: DefaultCompressionRescore,
 					Cache:        DefaultVectorCache,
 				},
+				RQ: CompressionUserConfig{
+					Enabled:      DefaultCompressionEnabled,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+				},
 			},
 		},
 		{
@@ -77,6 +82,11 @@ func Test_FlatUserConfig(t *testing.T) {
 					Cache:        true,
 				},
 				SQ: CompressionUserConfig{
+					Enabled:      DefaultCompressionEnabled,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+				},
+				RQ: CompressionUserConfig{
 					Enabled:      DefaultCompressionEnabled,
 					RescoreLimit: DefaultCompressionRescore,
 					Cache:        DefaultVectorCache,
@@ -145,4 +155,62 @@ func Test_FlatUserConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseAndValidateConfig_RQ(t *testing.T) {
+	// Test RQ configuration
+	config := map[string]interface{}{
+		"rq": map[string]interface{}{
+			"enabled":      true,
+			"cache":        true,
+			"rescoreLimit": float64(20),
+		},
+		"distance": "cosine",
+	}
+
+	parsed, err := ParseAndValidateConfig(config)
+	require.NoError(t, err)
+
+	userConfig, ok := parsed.(UserConfig)
+	require.True(t, ok)
+
+	assert.True(t, userConfig.RQ.Enabled)
+	assert.True(t, userConfig.RQ.Cache)
+	assert.Equal(t, 20, userConfig.RQ.RescoreLimit)
+	assert.Equal(t, "cosine", userConfig.Distance)
+}
+
+func TestParseAndValidateConfig_RQ_DefaultValues(t *testing.T) {
+	// Test RQ configuration with default values
+	config := map[string]interface{}{
+		"rq": map[string]interface{}{
+			"enabled": true,
+		},
+	}
+
+	parsed, err := ParseAndValidateConfig(config)
+	require.NoError(t, err)
+
+	userConfig, ok := parsed.(UserConfig)
+	require.True(t, ok)
+
+	assert.True(t, userConfig.RQ.Enabled)
+	assert.False(t, userConfig.RQ.Cache)            // default value
+	assert.Equal(t, -1, userConfig.RQ.RescoreLimit) // default value
+}
+
+func TestParseAndValidateConfig_MultipleCompressionMethods(t *testing.T) {
+	// Test that enabling multiple compression methods returns an error
+	config := map[string]interface{}{
+		"bq": map[string]interface{}{
+			"enabled": true,
+		},
+		"rq": map[string]interface{}{
+			"enabled": true,
+		},
+	}
+
+	_, err := ParseAndValidateConfig(config)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot enable multiple quantization methods")
 }
