@@ -433,6 +433,13 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 		expectSegments   float64
 	}{
 		{
+			name:              "mixed",
+			vectorConfig:      enthnsw.NewDefaultUserConfig,
+			namedVectorConfig: enthnsw.NewDefaultUserConfig,
+
+			expectDimensions: 2 * dimensionsPerVector * objectCount,
+		},
+		{
 			name:         "legacy",
 			vectorConfig: enthnsw.NewDefaultUserConfig,
 
@@ -450,13 +457,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 
 			expectDimensions: multiVecCard * dimensionsPerVector * objectCount,
 		},
-		{
-			name:              "mixed",
-			vectorConfig:      enthnsw.NewDefaultUserConfig,
-			namedVectorConfig: enthnsw.NewDefaultUserConfig,
 
-			expectDimensions: 2 * dimensionsPerVector * objectCount,
-		},
 		{
 			name: "named_with_bq",
 			namedVectorConfig: func() enthnsw.UserConfig {
@@ -500,6 +501,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			fmt.Printf("Running test %s with expectDimensions: %f, expectSegments: %f\n", tt.name, tt.expectDimensions, tt.expectSegments)
 			var (
 				class = &models.Class{
 					Class:               tt.name,

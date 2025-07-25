@@ -145,6 +145,55 @@ func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, 
 	return dimensions, count
 }
 
+func (s *Shard) sumAllDimensions(ctx context.Context) (sumDimensions int64, sumSegments int64) {
+
+	b := s.Store().Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return 0, 0
+	}
+	c := b.Cursor()
+	defer c.Close()
+
+	var (
+
+
+		shardName     = s.name
+		configs       = s.index.GetVectorIndexConfigs()
+	)
+
+	seenKeys := make(map[string]bool)
+	for k, vb := c.First(); k != nil; k, vb = c.Next() {
+		if seenKeys[string(k)] {
+			continue // skip duplicate keys
+		}
+		seenKeys[string(k)] = true
+		vecName := string(k[4:])
+		thisCount := int64(binary.LittleEndian.Uint64(vb))
+		thisDims := int64(binary.LittleEndian.Uint32(k[:4]))
+		// for named vectors we have to additionally check if the key is prefixed with the vector name
+
+		fmt.Printf("vector name: %s, dimensions: %d, value: %d\n", vecName, thisDims, thisCount)
+		cfg := configs[vecName]
+		if cfg == nil {
+			fmt.Printf("no vector config for %s in shard %s\n", vecName, shardName)
+			sumDimensions += thisDims
+			sumSegments += thisCount
+			continue
+		}
+		dims, segs, err := s.discountDimensions(thisDims, thisCount, cfg)
+		if err != nil {
+			s.index.logger.WithField("shard", s.name).
+				Errorf("error while discounting dimensions for shard %s: %v", s.name, err)
+			continue
+		}
+		fmt.Printf("vector name: %s, discounted dimensions: %d, discounted segments: %d\n", vecName, dims, segs)
+		sumDimensions += dims
+		sumSegments += segs
+	}
+
+	return sumDimensions, sumSegments
+}
+
 // initDimensionTracking initializes the dimension tracking for a shard.
 // it's no op if the trackVectorDimensions is disabled or the usage is enabled
 func (s *Shard) initDimensionTracking() {
@@ -196,7 +245,6 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 		var (
 			className     = s.index.Config.ClassName.String()
 			shardName     = s.name
-			configs       = s.index.GetVectorIndexConfigs()
 			sumSegments   = int64(0)
 			sumDimensions = int64(0)
 		)
@@ -207,22 +255,32 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 			shardName = "n/a"
 		}
 
-		for _, config := range configs {
-			dimensions, segments, err := s.calcDimensionsAndSegments(ctx, config)
-			if err != nil {
-				s.index.logger.WithField("shard", s.name).
-					Errorf("error while getting dimensions and segments for shard %s: %v", s.name, err)
-				continue
-			}
-			sumDimensions += dimensions
-			sumSegments += segments
-		}
+		sumDimensions, sumSegments = s.sumAllDimensions(ctx)
 		sendVectorSegmentsMetric(s.promMetrics, className, shardName, sumSegments)
 		sendVectorDimensionsMetric(s.promMetrics, className, shardName, sumDimensions)
 	}
 }
 
-func (s *Shard) calcDimensionsAndSegments(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig) (dims int64, segs int64, err error) {
+func (s *Shard) discountDimensions(dimensions int64, count int64, vecCfg schemaConfig.VectorIndexConfig) (dims int64, segs int64, err error) {
+	dims = dimensions
+	switch category, segments := GetDimensionCategory(vecCfg); category {
+	case DimensionCategoryPQ:
+		count := count * correctEmptySegments(int(segments), dims)
+		return 0, count, nil
+	case DimensionCategoryBQ:
+		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
+		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
+		// Roundup is required because BQ packs bits into uint64 blocks - you can't have
+		// a partial uint64 block. Even 1 dimension needs a full 8-byte uint64 block.
+
+		dims = (dims + 63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
+		return 0, dims*count, nil
+	default:
+		return count * dimensions, 0, nil
+	}
+}
+
+func (s *Shard) calcDimensionsAndSegments(ctx context.Context, compressionType DimensionCategory, vecCfg schemaConfig.VectorIndexConfig) (dims int64, segs int64, err error) {
 	switch category, segments := GetDimensionCategory(vecCfg); category {
 	case DimensionCategoryPQ:
 
@@ -242,7 +300,6 @@ func (s *Shard) calcDimensionsAndSegments(ctx context.Context, vecCfg schemaConf
 		}
 		return 0, count, nil
 	default:
-
 		count, err := s.Dimensions(ctx, "NN")
 		if err != nil {
 			s.index.logger.WithField("shard", s.name).
