@@ -50,10 +50,13 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 		logger = logger.WithField("groups", principal.Groups)
 	}
 
+	// Resolve aliases in resource paths before authorization
+	resolvedResources := m.resolveAliasesInResources(resources)
+	
 	// Create a map to aggregate resources and their counts while preserving order
 	resourceCounts := make(map[string]int)
 	var uniqueResources []string
-	for _, resource := range resources {
+	for _, resource := range resolvedResources {
 		if _, exists := resourceCounts[resource]; !exists {
 			uniqueResources = append(uniqueResources, resource)
 		}
@@ -131,12 +134,14 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 		logger = logger.WithField("groups", principal.Groups)
 	}
 
-	allowedResources := make([]string, 0, len(resources))
+	// Resolve aliases in resource paths before authorization
+	resolvedResources := m.resolveAliasesInResources(resources)
+	allowedResources := make([]string, 0, len(resolvedResources))
 
 	// Create a map to aggregate resources and their counts while preserving order
 	resourceCounts := make(map[string]int)
 	var uniqueResources []string
-	for _, resource := range resources {
+	for _, resource := range resolvedResources {
 		if _, exists := resourceCounts[resource]; !exists {
 			uniqueResources = append(uniqueResources, resource)
 		}

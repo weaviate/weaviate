@@ -1073,6 +1073,11 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		logger.Exit(1)
 	}
 
+	// Configure RBAC alias resolver if RBAC is enabled
+	if appState.RBAC != nil && appState.SchemaManager != nil {
+		appState.RBAC.SetAliasResolver(appState.SchemaManager.ResolveAlias)
+	}
+
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("configured OIDC and anonymous access client")
 

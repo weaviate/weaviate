@@ -33,6 +33,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, additional additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*models.Object, error) {
+	// RBAC will resolve alias internally using its configured resolver
 	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant, id))
 	if err != nil {
 		return nil, err
@@ -41,6 +42,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
 
+	// Pass class as-is to repository - schema layer will resolve alias internally
 	res, err := m.getObjectFromRepo(ctx, class, id, additional, replProps, tenant)
 	if err != nil {
 		return nil, err
@@ -127,9 +129,7 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 	adds additional.Properties, repl *additional.ReplicationProperties, tenant string,
 ) (res *search.Result, err error) {
 	if class != "" {
-		if cls := m.schemaManager.ResolveAlias(class); cls != "" {
-			class = cls
-		}
+		// class is expected to be already resolved by the caller
 		res, err = m.vectorRepo.Object(ctx, class, id, search.SelectProperties{}, adds, repl, tenant)
 	} else {
 		res, err = m.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, adds, tenant)

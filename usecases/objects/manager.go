@@ -44,6 +44,8 @@ type schemaManager interface {
 	GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error)
 	// ReadOnlyClass return class model.
 	ReadOnlyClass(name string) *models.Class
+	// ReadOnlyClassResolvingAlias returns class model, resolving alias internally if needed.
+	ReadOnlyClassResolvingAlias(classOrAlias string) *models.Class
 	// AddClassProperty it is upsert operation. it adds properties to a class and updates
 	// existing properties if the merge bool passed true.
 	AddClassProperty(ctx context.Context, principal *models.Principal, class *models.Class, className string, merge bool, prop ...*models.Property) (*models.Class, uint64, error)

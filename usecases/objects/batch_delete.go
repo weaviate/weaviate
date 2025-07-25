@@ -171,7 +171,7 @@ func (b *BatchManager) classGetterFunc(ctx context.Context, principal *models.Pr
 		if err := b.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Collections(name)...); err != nil {
 			return nil, err
 		}
-		class := b.schemaManager.ReadOnlyClass(name)
+		class := b.schemaManager.ReadOnlyClassResolvingAlias(name)
 		if class == nil {
 			return nil, fmt.Errorf("could not find class %s in schema", name)
 		}

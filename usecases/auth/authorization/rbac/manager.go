@@ -36,11 +36,12 @@ const (
 )
 
 type Manager struct {
-	casbin     *casbin.SyncedCachedEnforcer
-	logger     logrus.FieldLogger
-	authNconf  config.Authentication
-	rbacConf   rbacconf.Config
-	backupLock sync.RWMutex
+	casbin        *casbin.SyncedCachedEnforcer
+	logger        logrus.FieldLogger
+	authNconf     config.Authentication
+	rbacConf      rbacconf.Config
+	backupLock    sync.RWMutex
+	aliasResolver authorization.AliasResolver
 }
 
 func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, logger logrus.FieldLogger) (*Manager, error) {
@@ -49,7 +50,77 @@ func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Auth
 		return nil, err
 	}
 
-	return &Manager{csbin, logger, authNconf, rbacConf, sync.RWMutex{}}, nil
+	return &Manager{
+		casbin:        csbin, 
+		logger:        logger, 
+		authNconf:     authNconf, 
+		rbacConf:      rbacConf, 
+		backupLock:    sync.RWMutex{},
+		aliasResolver: nil,
+	}, nil
+}
+
+// SetAliasResolver configures the alias resolver function for this RBAC manager.
+// This should be called after the schema manager is available.
+func (m *Manager) SetAliasResolver(resolver authorization.AliasResolver) {
+	m.aliasResolver = resolver
+}
+
+// resolveClassNames resolves aliases to actual class names using the configured resolver
+func (m *Manager) resolveClassNames(classNames []string) []string {
+	if m.aliasResolver == nil {
+		return classNames // No resolver configured, return as-is
+	}
+	
+	resolvedNames := make([]string, len(classNames))
+	for i, name := range classNames {
+		if resolved := m.aliasResolver(name); resolved != "" {
+			resolvedNames[i] = resolved
+		} else {
+			resolvedNames[i] = name
+		}
+	}
+	return resolvedNames
+}
+
+// resolveAliasesInResources parses resource paths, resolves class name aliases, and rebuilds the paths
+func (m *Manager) resolveAliasesInResources(resources []string) []string {
+	if m.aliasResolver == nil {
+		return resources // No resolver configured, return as-is
+	}
+	
+	resolvedResources := make([]string, len(resources))
+	for i, resource := range resources {
+		resolvedResources[i] = m.resolveAliasInResourcePath(resource)
+	}
+	return resolvedResources
+}
+
+// resolveAliasInResourcePath resolves alias in a single resource path
+func (m *Manager) resolveAliasInResourcePath(resource string) string {
+	// Resource paths are like:
+	// "data/collections/ClassName/shards/shard/objects/id"
+	// "collections/ClassName/shards/shard"
+	// "aliases/collections/ClassName/aliases/aliasName"
+	// "backups/collections/ClassName"
+	// etc.
+	
+	parts := strings.Split(resource, "/")
+	
+	// Look for "/collections/{className}" pattern and resolve the className
+	for i := 0; i < len(parts)-1; i++ {
+		if parts[i] == "collections" && i+1 < len(parts) {
+			className := parts[i+1]
+			if className != "*" && className != "#" { // Skip wildcards
+				if resolved := m.aliasResolver(className); resolved != "" {
+					parts[i+1] = resolved
+				}
+			}
+			break // Only resolve the first occurrence
+		}
+	}
+	
+	return strings.Join(parts, "/")
 }
 
 // there is no different between UpdateRolesPermissions and CreateRolesPermissions, purely to satisfy an interface

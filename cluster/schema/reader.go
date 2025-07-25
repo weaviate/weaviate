@@ -195,6 +195,88 @@ func (rs SchemaReader) GetShardsStatus(class, tenant string) (models.ShardStatus
 
 func (rs SchemaReader) Len() int { return rs.schema.len() }
 
+// ReadOnlyClassResolvingAlias returns a class by name, resolving aliases automatically.
+// If classOrAlias is an alias, it resolves to the actual class. If it's already a class name, returns that class.
+// Returns nil if neither the class nor alias exists.
+func (rs SchemaReader) ReadOnlyClassResolvingAlias(classOrAlias string) *models.Class {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ReadOnlyClassResolvingAlias"))
+	defer t.ObserveDuration()
+	
+	// First try to resolve as alias
+	if resolved := rs.schema.ResolveAlias(classOrAlias); resolved != "" {
+		class, _ := rs.schema.ReadOnlyClass(resolved)
+		return class
+	}
+	// If not an alias, try as direct class name
+	class, _ := rs.schema.ReadOnlyClass(classOrAlias)
+	return class
+}
+
+// ClassInfoResolvingAlias returns class info by name, resolving aliases automatically.
+func (rs SchemaReader) ClassInfoResolvingAlias(classOrAlias string) ClassInfo {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ClassInfoResolvingAlias"))
+	defer t.ObserveDuration()
+	
+	// First try to resolve as alias
+	if resolved := rs.schema.ResolveAlias(classOrAlias); resolved != "" {
+		return rs.schema.ClassInfo(resolved)
+	}
+	// If not an alias, try as direct class name
+	return rs.schema.ClassInfo(classOrAlias)
+}
+
+// ClassExistsResolvingAlias checks if a class exists by name, resolving aliases automatically.
+func (rs SchemaReader) ClassExistsResolvingAlias(classOrAlias string) bool {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ClassExistsResolvingAlias"))
+	defer t.ObserveDuration()
+	
+	// First try to resolve as alias
+	if resolved := rs.schema.ResolveAlias(classOrAlias); resolved != "" {
+		return rs.schema.ClassInfo(resolved).Exists
+	}
+	// If not an alias, try as direct class name
+	return rs.schema.ClassInfo(classOrAlias).Exists
+}
+
+// ReadResolvingAlias executes the reader function on a class, resolving aliases automatically.
+func (rs SchemaReader) ReadResolvingAlias(classOrAlias string, reader func(*models.Class, *sharding.State) error) error {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ReadResolvingAlias"))
+	defer t.ObserveDuration()
+	
+	// First try to resolve as alias
+	if resolved := rs.schema.ResolveAlias(classOrAlias); resolved != "" {
+		return rs.retry(func(s *schema) error {
+			return s.Read(resolved, reader)
+		})
+	}
+	// If not an alias, try as direct class name
+	return rs.retry(func(s *schema) error {
+		return s.Read(classOrAlias, reader)
+	})
+}
+
+// MultiTenancyResolvingAlias returns multi-tenancy config for a class, resolving aliases automatically.
+func (rs SchemaReader) MultiTenancyResolvingAlias(classOrAlias string) models.MultiTenancyConfig {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("MultiTenancyResolvingAlias"))
+	defer t.ObserveDuration()
+	
+	// First try to resolve as alias
+	if resolved := rs.schema.ResolveAlias(classOrAlias); resolved != "" {
+		return rs.schema.MultiTenancy(resolved)
+	}
+	// If not an alias, try as direct class name
+	return rs.schema.MultiTenancy(classOrAlias)
+}
+
+// GetRealClassName resolves an alias to the real class name, or returns the original name if it's not an alias.
+// This is a utility method for API layers that need to know the resolved class name.
+func (rs SchemaReader) GetRealClassName(classOrAlias string) string {
+	if resolved := rs.schema.ResolveAlias(classOrAlias); resolved != "" {
+		return resolved
+	}
+	return classOrAlias
+}
+
 func (rs SchemaReader) retry(f func(*schema) error) error {
 	return backoff.Retry(func() error {
 		return f(rs.schema)

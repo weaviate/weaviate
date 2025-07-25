@@ -218,35 +218,36 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	// - to pass down the stack to reuse, index by classname so it can be found easily
 	knownClasses := map[string]versioned.Class{}
 	knownClassesAuthCheck := map[string]*models.Class{}
-	classGetter := func(classname, shard string) (*models.Class, error) {
-		// classname might be an alias
-		if cls := s.schemaManager.ResolveAlias(classname); cls != "" {
-			classname = cls
-		}
+	classGetter := func(classOrAlias, shard string) (*models.Class, error) {
+		// RBAC will resolve alias internally - pass class name as-is
 		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
-		classTenantName := classname + "#" + shard
+		classTenantName := classOrAlias + "#" + shard
 		class, ok := knownClassesAuthCheck[classTenantName]
 		if ok {
 			return class, nil
 		}
 
-		// batch is upsert
-		if err := s.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(classname, shard)...); err != nil {
+		// batch is upsert - RBAC will handle alias resolution internally
+		if err := s.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(classOrAlias, shard)...); err != nil {
 			return nil, err
 		}
 
-		if err := s.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
+		if err := s.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(classOrAlias, shard)...); err != nil {
 			return nil, err
 		}
 
 		// we don't leak any info that someone who inserts data does not have anyway
-		vClass, err := s.schemaManager.GetCachedClassNoAuth(ctx, classname)
+		vClass, err := s.schemaManager.GetCachedClassNoAuth(ctx, classOrAlias)
 		if err != nil {
 			return nil, err
 		}
-		knownClasses[classname] = vClass[classname]
-		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
-		return vClass[classname].Class, nil
+		// schema manager returns resolved class data - use the first (and only) key
+		for realClassName, class := range vClass {
+			knownClasses[realClassName] = class
+			knownClassesAuthCheck[classTenantName] = class.Class
+			return class.Class, nil
+		}
+		return nil, fmt.Errorf("class not found: %s", classOrAlias)
 	}
 	objs, objOriginalIndex, objectParsingErrors := BatchFromProto(req, classGetter)
 
