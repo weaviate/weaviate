@@ -20,30 +20,28 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 type BinaryRotationalQuantizer struct {
-	inputDim  uint32
-	rotation  *FastRotation
-	distancer distancer.Provider
-	queryBits int
-	rounding  []float32
-	l2        float32
-	cos       float32
+	inputDim     uint32
+	rotation     *FastRotation
+	distancer    distancer.Provider
+	queryBits    int
+	rounding     []float32
+	distanceType string
 }
 
 const (
-	DefaultRQQueryBits = 4
+	DataBits              = 1
+	DefaultRQQueryBits    = 4
+	DefaultRotationRounds = 5
 )
 
 func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer.Provider) *BinaryRotationalQuantizer {
-	rotationRounds := 5 // 4 might be sufficient, but 3 is probably not enough.
-	rotation := NewFastRotation(inputDim, rotationRounds, seed)
-	cos, l2, err := distancerIndicatorsAndError(distancer)
-	if err != nil {
-		return nil
-	}
+	rotation := NewFastRotation(inputDim, DefaultRotationRounds, seed)
+
 	// Randomized rounding for the query quantization to make the estimator unbiased.
 	// It may produce better recall to not use randomized rounding since adding the random noise increases the quantization error.
 	// With 8-bit RQ we are not using randomized rounding.
@@ -54,16 +52,38 @@ func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer
 	}
 
 	rq := &BinaryRotationalQuantizer{
-		inputDim:  uint32(inputDim),
-		rotation:  rotation,
-		distancer: distancer,
-		queryBits: DefaultRQQueryBits,
-		rounding:  rounding,
-		l2:        l2,
-		cos:       cos,
+		inputDim:     uint32(inputDim),
+		rotation:     rotation,
+		distancer:    distancer,
+		queryBits:    DefaultRQQueryBits,
+		rounding:     rounding,
+		distanceType: distancer.Type(),
 	}
 	return rq
 }
+
+/*func RestoreBinaryRotationalQuantizer(inputDim int, outputDim int, rounds int, swaps [][]Swap, signs [][]float32, distancer distancer.Provider, seed uint64) (*BinaryRotationalQuantizer, error) {
+	cos, l2, err := distancerIndicatorsAndError(distancer)
+	if err != nil {
+		return nil, err
+	}
+
+	rounding := make([]float32, outputDim)
+	rng := rand.New(rand.NewPCG(seed, 0x4f8ebf70e130707f))
+	for i := range rounding {
+		rounding[i] = 0.5 - rng.Float32()
+	}
+	rq := &BinaryRotationalQuantizer{
+		inputDim:  uint32(inputDim),
+		rotation:  RestoreFastRotation(outputDim, rounds, swaps, signs),
+		distancer: distancer,
+		queryBits: DefaultRQQueryBits,
+		rounding:  rounding,
+		cos:       cos,
+		l2:        l2,
+	}
+	return rq, nil
+}*/
 
 func putFloat32Upper(v uint64, x float32) uint64 {
 	const upper32 uint64 = ((1 << 32) - 1) << 32
@@ -293,12 +313,11 @@ func estimateDotProduct(cq RQMultiBitCode, cx RQOneBitCode) float32 {
 }
 
 type BinaryRQDistancer struct {
-	query     []float32
-	distancer distancer.Provider
-	rq        *BinaryRotationalQuantizer
-	cos       float32
-	l2        float32
-	cq        RQMultiBitCode
+	query        []float32
+	distancer    distancer.Provider
+	rq           *BinaryRotationalQuantizer
+	distanceType string
+	cq           RQMultiBitCode
 }
 
 func (d *BinaryRQDistancer) QueryCode() RQMultiBitCode {
@@ -306,28 +325,28 @@ func (d *BinaryRQDistancer) QueryCode() RQMultiBitCode {
 }
 
 func (rq *BinaryRotationalQuantizer) NewDistancer(q []float32) *BinaryRQDistancer {
-	var cos float32
-	if rq.distancer.Type() == "cosine-dot" {
-		cos = 1.0
-	}
-	var l2 float32
-	if rq.distancer.Type() == "l2-squared" {
-		l2 = 1.0
-	}
 	return &BinaryRQDistancer{
-		query:     q,
-		distancer: rq.distancer,
-		rq:        rq,
-		cos:       cos,
-		l2:        l2,
-		cq:        rq.encodeQuery(q),
+		query:        q,
+		distancer:    rq.distancer,
+		rq:           rq,
+		distanceType: rq.distanceType,
+		cq:           rq.encodeQuery(q),
 	}
 }
 
 func (d *BinaryRQDistancer) Distance(x []uint64) (float32, error) {
 	cx := RQOneBitCode(x)
 	dotEstimate := estimateDotProduct(d.cq, cx)
-	return d.l2*(cx.SquaredNorm()+d.cq.SquaredNorm) + d.cos - (1.0+d.l2)*dotEstimate, nil
+	switch d.distanceType {
+	case "cosine-dot":
+		return 1.0 - dotEstimate, nil
+	case "l2-squared":
+		return cx.SquaredNorm() + d.cq.SquaredNorm - 2.0*dotEstimate, nil
+	case "dot":
+		return dotEstimate, nil
+	default:
+		return 0, errors.Errorf("Distance not supported yet %s", d.distanceType)
+	}
 }
 
 func (d *BinaryRQDistancer) DistanceToFloat(x []float32) (float32, error) {
@@ -343,8 +362,16 @@ func (brq *BinaryRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []ui
 	dots := cy.OnesCount() * cx.OnesCount()
 	dots += cy.Step() * float32(int(1)<<0) * binaryDot(cy.Bits(), cx.Bits())
 	dotEstimate := cy.Step() * (cx.SquaredNorm() - 2*dots)
-	return brq.l2*(cx.SquaredNorm()+cy.SquaredNorm()) + brq.cos - (1.0+brq.l2)*dotEstimate, nil
-	//return binaryDot(x, y), nil
+	switch brq.distanceType {
+	case "cosine-dot":
+		return 1.0 - dotEstimate, nil
+	case "l2-squared":
+		return cx.SquaredNorm() + cy.SquaredNorm() - 2.0*dotEstimate, nil
+	case "dot":
+		return dotEstimate, nil
+	default:
+		return 0, errors.Errorf("Distance not supported yet %s", brq.distanceType)
+	}
 }
 
 func (brq *BinaryRotationalQuantizer) CompressedBytes(compressed []uint64) []byte {
@@ -401,7 +428,11 @@ func (brq *BinaryRotationalQuantizer) ReturnQuantizerDistancer(distancer quantiz
 }
 
 func (brq *BinaryRotationalQuantizer) PersistCompression(logger CommitLogger) {
-	panic("PersistCompression not implemented")
+	logger.AddRQCompression(RQData{
+		InputDim: brq.inputDim,
+		Bits:     DataBits,
+		Rotation: *brq.rotation,
+	})
 }
 
 type BinaryRQStats struct {
@@ -424,7 +455,7 @@ func (brq BinaryRQStats) CompressionRatio(dimensionality int) float64 {
 
 func (brq *BinaryRotationalQuantizer) Stats() CompressionStats {
 	return BinaryRQStats{
-		dataBits:  1,
+		dataBits:  DataBits,
 		queryBits: uint32(brq.queryBits),
 	}
 }
