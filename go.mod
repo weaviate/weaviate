@@ -238,6 +238,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.36.0 // indirect
 	go.opentelemetry.io/otel/trace v1.36.0 // indirect
 	go.uber.org/mock v0.4.0 // indirect
+	gonum.org/v1/hdf5 v0.0.0-20210714002203-8c5d23bc6946 // indirect
 	golang.org/x/crypto v0.40.0 // indirect
 	google.golang.org/genproto v0.0.0-20250505200425-f936aa4a68b2 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250505200425-f936aa4a68b2 // indirect
