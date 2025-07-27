@@ -128,20 +128,26 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	n.graph.RUnlock()
 	var pending []uint64
 	// Check if already completed (not just started)
-	if _, alreadyProcessed := n.processedIDs.Load(from); alreadyProcessed {
-		return nil
+	if n.processedIDs != nil {
+		if _, alreadyProcessed := n.processedIDs.Load(from); alreadyProcessed {
+			return nil
+		}
 	}
 
 	// lock the nodes slice
 	n.graph.shardedNodeLocks.Lock(from)
 	// Double-check after acquiring lock
-	if _, alreadyProcessed := n.processedIDs.Load(from); alreadyProcessed {
-		n.graph.shardedNodeLocks.Unlock(from)
-		return nil
+	if n.processedIDs != nil {
+		if _, alreadyProcessed := n.processedIDs.Load(from); alreadyProcessed {
+			n.graph.shardedNodeLocks.Unlock(from)
+			return nil
+		}
 	}
 	if nodesLen < from || n.graph.nodes[from] == nil {
 		n.graph.handleDeletedNode(from, "processRecursively")
-		n.processedIDs.Store(from, struct{}{})
+		if n.processedIDs != nil {
+			n.processedIDs.Store(from, struct{}{})
+		}
 		n.graph.shardedNodeLocks.Unlock(from)
 		return nil
 	}
@@ -149,13 +155,13 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	n.graph.nodes[from].Lock()
 	if level >= len(n.graph.nodes[from].connections) {
 		n.graph.nodes[from].Unlock()
-		n.graph.shardedNodeLocks.RUnlock(from)
+		n.graph.shardedNodeLocks.Unlock(from)
 		return nil
 	}
 	connections := make([]uint64, len(n.graph.nodes[from].connections[level]))
 	copy(connections, n.graph.nodes[from].connections[level])
 	n.graph.nodes[from].Unlock()
-	n.graph.shardedNodeLocks.RUnlock(from)
+	n.graph.shardedNodeLocks.Unlock(from)
 	for _, id := range connections {
 		if visited.Visited(id) {
 			continue
