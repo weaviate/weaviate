@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/objects/alias"
 )
 
 // DeleteObjects deletes objects in batch based on the match filter
@@ -38,6 +39,10 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	if match != nil {
 		originalClassName = match.Class
 		class = match.Class
+		
+		// Resolve alias to get the actual class name
+		resolvedClassName, _ := alias.ResolveAlias(b.schemaManager, class)
+		match.Class = resolvedClassName
 	}
 
 	// RBAC will resolve alias internally using its configured resolver

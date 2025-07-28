@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/objects/alias"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -36,14 +37,19 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 ) (BatchObjects, error) {
 	ctx = classcache.ContextWithClassCache(ctx)
 
-	// Store original user inputs for response
+	// Store original user inputs for response and resolve aliases
 	originalClassNames := make(map[int]string)
+	resolvedClassNames := make(map[int]string)
 	classesShards := make(map[string][]string)
 	for i, obj := range objects {
 		originalClassName := schema.UppercaseClassName(obj.Class)
 		originalClassNames[i] = originalClassName
-		obj.Class = originalClassName
-		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
+		
+		// Resolve alias to get the actual class name
+		resolvedClassName, _ := alias.ResolveAlias(b.schemaManager, originalClassName)
+		resolvedClassNames[i] = resolvedClassName
+		obj.Class = resolvedClassName
+		classesShards[resolvedClassName] = append(classesShards[resolvedClassName], obj.Tenant)
 	}
 	knownClasses := map[string]versioned.Class{}
 
@@ -56,12 +62,24 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		}
 		knownClasses[className] = vClass[className]
 
+		// Use original class names for authorization (aliases)
+		originalClassName := ""
+		for i, resolvedName := range resolvedClassNames {
+			if resolvedName == className {
+				originalClassName = originalClassNames[i]
+				break
+			}
+		}
+		if originalClassName == "" {
+			originalClassName = className
+		}
+
 		// RBAC will resolve alias internally using its configured resolver
-		if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(className, shards...)...); err != nil {
+		if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(originalClassName, shards...)...); err != nil {
 			return nil, err
 		}
 
-		if err := b.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, shards...)...); err != nil {
+		if err := b.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(originalClassName, shards...)...); err != nil {
 			return nil, err
 		}
 	}

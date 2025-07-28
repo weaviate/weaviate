@@ -30,6 +30,7 @@ import (
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/objects/alias"
 )
 
 type MergeDocument struct {
@@ -53,11 +54,14 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 
 	// Store original user input for response
 	originalClassName := schema.UppercaseClassName(updates.Class)
-	updates.Class = originalClassName
-	cls, id := updates.Class, updates.ID
+	
+	// Resolve alias to get the actual class name
+	resolvedClassName, _ := alias.ResolveAlias(m.schemaManager, originalClassName)
+	updates.Class = resolvedClassName
+	cls, id := resolvedClassName, updates.ID
 
 	// RBAC will resolve alias internally using its configured resolver
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(originalClassName, updates.Tenant, id)); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 

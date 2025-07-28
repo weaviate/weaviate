@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/objects/alias"
 )
 
 // ValidateObject without adding it to the database. Can be used in UIs for
@@ -30,11 +31,14 @@ import (
 func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principal,
 	obj *models.Object, repl *additional.ReplicationProperties,
 ) error {
-	className := schema.UppercaseClassName(obj.Class)
-	obj.Class = className
+	originalClassName := schema.UppercaseClassName(obj.Class)
+	
+	// Resolve alias to get the actual class name
+	resolvedClassName, _ := alias.ResolveAlias(m.schemaManager, originalClassName)
+	obj.Class = resolvedClassName
 
 	// RBAC will resolve alias internally using its configured resolver
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID))
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(originalClassName, obj.Tenant, obj.ID))
 	if err != nil {
 		return err
 	}
@@ -42,7 +46,7 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	// we don't reveal any info that the end users cannot get through the structure of the data anyway
-	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
+	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, resolvedClassName)
 	if err != nil {
 		return err
 	}

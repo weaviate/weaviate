@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
+	"github.com/weaviate/weaviate/usecases/objects/alias"
 )
 
 // GetObject Class from the connected DB
@@ -33,8 +34,14 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, additional additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*models.Object, error) {
+	// Store original class name for response (could be alias)
+	originalClassName := class
+	
+	// Resolve alias to get the actual class name
+	resolvedClassName, _ := alias.ResolveAlias(m.schemaManager, class)
+	
 	// RBAC will resolve alias internally using its configured resolver
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant, id))
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(originalClassName, tenant, id))
 	if err != nil {
 		return nil, err
 	}
@@ -42,15 +49,10 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
 
-	// Pass class as-is to repository - schema layer will resolve alias internally
-	res, err := m.getObjectFromRepo(ctx, class, id, additional, replProps, tenant)
+	// Pass resolved class name to repository
+	res, err := m.getObjectFromRepo(ctx, resolvedClassName, id, additional, replProps, tenant)
 	if err != nil {
 		return nil, err
-	}
-
-	var alias string
-	if res.ClassName != class {
-		alias = class
 	}
 
 	if additional.Vector {
@@ -58,9 +60,8 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	}
 
 	obj := res.ObjectWithVector(additional.Vector)
-	if alias != "" {
-		obj.Class = alias
-	}
+	// Always return the original input (alias if provided, otherwise class name)
+	obj.Class = originalClassName
 	return obj, nil
 }
 

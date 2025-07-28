@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/objects/alias"
 )
 
 // UpdateObject updates object of class.
@@ -34,18 +35,21 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	// Store original user input for response
-	originalClassName := schema.UppercaseClassName(updates.Class)
-	updates.Class = originalClassName
+	// Store original user input for response - use the class from URL path
+	originalClassName := schema.UppercaseClassName(class)
+	
+	// Resolve alias to get the actual class name
+	resolvedClassName, aliasName := alias.ResolveAlias(m.schemaManager, originalClassName)
+	updates.Class = resolvedClassName
 
 	// RBAC will resolve alias internally using its configured resolver
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(originalClassName, updates.Tenant, updates.ID)); err != nil {
 		return nil, err
 	}
 
 	ctx = classcache.ContextWithClassCache(ctx)
 	// we don't reveal any info that the end users cannot get through the structure of the data anyway
-	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, originalClassName)
+	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, resolvedClassName)
 	if err != nil {
 		return nil, err
 	}
@@ -63,8 +67,12 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 		return nil, err
 	}
 
-	// Ensure response uses original user input
-	return m.restoreOriginalClassName(obj, originalClassName), nil
+	// Ensure response uses original user input (alias if provided, otherwise class name)
+	responseClassName := originalClassName
+	if aliasName != "" {
+		responseClassName = aliasName
+	}
+	return m.restoreOriginalClassName(obj, responseClassName), nil
 }
 
 func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
@@ -75,8 +83,8 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	// Pass original class name to repo - schema layer will resolve internally
-	obj, err := m.getObjectFromRepo(ctx, className, id, additional.Properties{}, repl, updates.Tenant)
+	// Pass resolved class name to repo
+	obj, err := m.getObjectFromRepo(ctx, updates.Class, id, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		return nil, err
 	}
