@@ -1516,11 +1516,8 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		replProps = defaultConsistency()
 	}
 	cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
-	planOptions := routerTypes.RoutingPlanBuildOptions{
-		Tenant:           tenant,
-		ConsistencyLevel: cl,
-	}
-	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
+	options := routerTypes.NewRoutingPlanBuildOptions().WithTenant(tenant).WithConsistencyLevel(cl).Build()
+	readPlan, err := i.router.BuildReadRoutingPlan(options)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1887,11 +1884,8 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		replProps = defaultConsistency()
 	}
 	cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
-	planOptions := routerTypes.RoutingPlanBuildOptions{
-		Tenant:           tenant,
-		ConsistencyLevel: cl,
-	}
-	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
+	options := routerTypes.NewRoutingPlanBuildOptions().WithTenant(tenant).WithConsistencyLevel(cl).Build()
+	readPlan, err := i.router.BuildReadRoutingPlan(options)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2352,11 +2346,8 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 		replProps = defaultConsistency()
 	}
 	cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
-	planOptions := routerTypes.RoutingPlanBuildOptions{
-		Tenant:           tenant,
-		ConsistencyLevel: cl,
-	}
-	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
+	options := routerTypes.NewRoutingPlanBuildOptions().WithTenant(tenant).WithConsistencyLevel(cl).Build()
+	readPlan, err := i.router.BuildReadRoutingPlan(options)
 	if err != nil {
 		return nil, err
 	}
