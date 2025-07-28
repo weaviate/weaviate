@@ -57,6 +57,8 @@ type Router interface {
 	//   - error: if an error occurs while retrieving Replicas.
 	GetReadReplicasLocation(collection string, tenant string, shard string) (ReadReplicaSet, error)
 
+	BuildRoutingPlanOptions(tenant, shard string, cl ConsistencyLevel, directCandidate string) RoutingPlanBuildOptions
+
 	// BuildWriteRoutingPlan constructs a routing plan for a write operation based on the provided options.
 	BuildWriteRoutingPlan(params RoutingPlanBuildOptions) (WriteRoutingPlan, error)
 

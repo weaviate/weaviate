@@ -190,8 +190,10 @@ func TestReadRoutingWithFSM(t *testing.T) {
 				tenant = "shard1"
 			}
 			// Build the routing plan
-			options := types.NewRoutingPlanBuildOptions().WithShard("shard1").WithTenant(tenant).Build()
-			readPlan, err := myRouter.BuildReadRoutingPlan(options)
+			readPlan, err := myRouter.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
+				Shard:  "shard1",
+				Tenant: tenant,
+			})
 			if testCase.expectedErrorStr != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), testCase.expectedErrorStr)
