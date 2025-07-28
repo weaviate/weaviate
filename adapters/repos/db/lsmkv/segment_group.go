@@ -750,33 +750,69 @@ func (sg *SegmentGroup) Size() int64 {
 }
 
 // MetadataSize returns the total size of metadata files (.bloom and .cna) from segments in memory
+// MetadataSize returns the total size of metadata files for all segments.
+// The calculation differs based on the writeMetadata setting:
+//
+// When writeMetadata is enabled:
+//   - Counts the actual file size of .metadata files on disk
+//   - Each .metadata file contains: header + bloom filters + count net additions
+//   - Header includes: checksum (4 bytes) + version (1 byte) + bloom len (4 bytes) + cna len (4 bytes) = 13 bytes
+//   - Bloom filters are serialized and stored inline
+//   - CNA data includes: uint64 count (8 bytes) + length indicator (4 bytes) = 12 bytes
+//
+// When writeMetadata is disabled:
+//   - Counts bloom filters in memory (getBloomFilterSize)
+//   - Counts .cna files separately (12 bytes each: 8 bytes data + 4 bytes checksum)
+//   - This represents the legacy behavior where metadata was stored separately
+//
+// The total size should be equivalent between both modes, accounting for the
+// metadata file header overhead when writeMetadata is enabled.
 func (sg *SegmentGroup) MetadataSize() int64 {
 	segments, release := sg.getAndLockSegments()
 	defer release()
 
-	var totalSize, cnaCount int64
+	var totalSize int64
 	for _, segment := range segments {
-		// Count bloom filters in memory
-		if seg := segment.getSegment(); seg != nil {
-			if seg.bloomFilter != nil {
-				totalSize += int64(getBloomFilterSize(seg.bloomFilter))
-			}
-			// Count secondary bloom filters
-			for _, bf := range seg.secondaryBloomFilters {
-				if bf != nil {
-					totalSize += int64(getBloomFilterSize(bf))
+		if sg.writeMetadata {
+			// When writeMetadata is enabled, count .metadata files
+			// Each .metadata file contains bloom filters + count net additions
+			if seg := segment.getSegment(); seg != nil {
+				// Check if segment has metadata file
+				metadataPath := seg.metadataPath()
+				if metadataPath != "" {
+					exists, err := fileExists(metadataPath)
+					if err == nil && exists {
+						// Get the actual file size of the metadata file
+						if info, err := os.Stat(metadataPath); err == nil {
+							totalSize += info.Size()
+						}
+					}
 				}
 			}
-		}
+		} else {
+			// When writeMetadata is disabled, count bloom filters and .cna files separately
+			if seg := segment.getSegment(); seg != nil {
+				// Count bloom filters in memory
+				if seg.bloomFilter != nil {
+					totalSize += int64(getBloomFilterSize(seg.bloomFilter))
+				}
+				// Count secondary bloom filters
+				for _, bf := range seg.secondaryBloomFilters {
+					if bf != nil {
+						totalSize += int64(getBloomFilterSize(bf))
+					}
+				}
+			}
 
-		// Count .cna files (12 bytes each)
-		if segment.getSegment().countNetPath() != "" {
-			cnaCount++
+			// Count .cna files (12 bytes each)
+			if segment.getSegment().countNetPath() != "" {
+				// .cna files: uint64 count (8 bytes) + uint32 checksum (4 bytes) = 12 bytes
+				totalSize += 12
+			}
 		}
 	}
 
-	// .cna files: uint64 count (8 bytes) + uint32 checksum (4 bytes) = 12 bytes
-	return totalSize + 12*cnaCount
+	return totalSize
 }
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {
