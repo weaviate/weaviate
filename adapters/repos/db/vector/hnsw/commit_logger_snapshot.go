@@ -736,6 +736,10 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 	}
 	offset += writeByteSize
 
+	if state.MuveraEnabled {
+		return 0, errors.New("muvera is not supported in snapshots")
+	}
+
 	if state.Compressed && state.CompressionPQData != nil { // PQ
 		// first byte is the compression type
 		if err := writeByte(w, byte(SnapshotCompressionTypePQ)); err != nil {
