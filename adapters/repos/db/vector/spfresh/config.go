@@ -18,4 +18,5 @@ type UserConfig struct {
 	SplitWorkers           int    `json:"splitWorkers,omitempty"`           // Number of concurrent workers for split operations
 	ReassignWorkers        int    `json:"reassignWorkers,omitempty"`        // Number of concurrent workers for reassign operations
 	MergePostingCandidates int    `json:"mergePostingCandidates,omitempty"` // Number of candidates to consider for merging postings
+	ReassignNeighbors      int    `json:"reassignNeighbors,omitempty"`      // Number of neighboring centroids to consider for reassigning vectors
 }

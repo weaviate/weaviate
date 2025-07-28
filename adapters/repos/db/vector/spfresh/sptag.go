@@ -23,10 +23,15 @@ type SPTAG interface {
 	Exists(id uint64) bool
 	Upsert(id uint64, centroid []byte) error
 	Delete(id uint64) error
-	Search(query []byte, k int) ([]uint64, error)
+	Search(query []byte, k int) ([]SearchResult, error)
 	Split(oldID uint64, newID1, newID2 uint64, c1, c2 []byte) error
 	Merge(oldID1, oldID2, newID uint64, newCentroid []byte) error
 	ComputeDistance(a, b []byte) (float64, error)
+}
+
+type SearchResult struct {
+	ID       uint64
+	Distance float64
 }
 
 type BruteForceSPTAG struct {
