@@ -41,7 +41,6 @@ const (
 
 type (
 	router interface {
-		BuildRoutingPlanOptions(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) types.RoutingPlanBuildOptions
 		BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error)
 		BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error)
 		NodeHostname(nodeName string) (string, bool)
