@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
@@ -563,11 +564,20 @@ func (s *segment) PayloadSize() int {
 }
 
 type nodeReader struct {
-	r io.Reader
+	r         io.Reader
+	releaseFn func()
 }
 
 func (n *nodeReader) Read(b []byte) (int, error) {
+	if n.r == nil {
+		panic("nodeReader.Read called after Release")
+	}
 	return n.r.Read(b)
+}
+
+func (n *nodeReader) Release() {
+	n.r = nil
+	n.releaseFn()
 }
 
 type nodeOffset struct {
@@ -576,9 +586,11 @@ type nodeOffset struct {
 
 func (s *segment) newNodeReader(offset nodeOffset, operation string) (*nodeReader, error) {
 	var (
-		r   io.Reader
-		err error
+		r       io.Reader
+		err     error
+		release = func() {} // no-op function for un-pooled readers
 	)
+
 	if s.readFromMemory {
 		contents := s.contents[offset.start:]
 		if offset.end != 0 {
@@ -586,12 +598,12 @@ func (s *segment) newNodeReader(offset nodeOffset, operation string) (*nodeReade
 		}
 		r, err = s.bytesReaderFrom(contents)
 	} else {
-		r, err = s.bufferedReaderAt(offset.start, "ReadFromSegment"+operation)
+		r, release, err = s.bufferedReaderAt(offset.start, "ReadFromSegment"+operation)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("new nodeReader: %w", err)
 	}
-	return &nodeReader{r: r}, nil
+	return &nodeReader{r: r, releaseFn: release}, nil
 }
 
 func (s *segment) copyNode(b []byte, offset nodeOffset) error {
@@ -603,6 +615,8 @@ func (s *segment) copyNode(b []byte, offset nodeOffset) error {
 	if err != nil {
 		return fmt.Errorf("copy node: %w", err)
 	}
+	defer n.Release()
+
 	_, err = io.ReadFull(n, b)
 	return err
 }
@@ -614,13 +628,55 @@ func (s *segment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
 	return bytes.NewReader(in), nil
 }
 
-func (s *segment) bufferedReaderAt(offset uint64, operation string) (io.Reader, error) {
+func (s *segment) bufferedReaderAt(offset uint64, operation string) (io.Reader, func(), error) {
 	if s.contentFile == nil {
-		return nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
+		return nil, nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
 	}
 
-	meteredF := diskio.NewMeteredReader(s.contentFile, diskio.MeteredReaderCallback(s.metrics.ReadObserver(operation)))
+	meteredF := diskio.NewMeteredReader(s.contentFile, diskio.MeteredReaderCallback(readObserver.GetOrCreate(operation, s.metrics)))
 	r := io.NewSectionReader(meteredF, int64(offset), s.size)
 
-	return bufio.NewReader(r), nil
+	bufioR := bufReaderPool.Get().(*bufio.Reader)
+	bufioR.Reset(r)
+
+	releaseFn := func() {
+		bufReaderPool.Put(bufioR)
+	}
+
+	return bufioR, releaseFn, nil
+}
+
+var (
+	bufReaderPool *sync.Pool
+	readObserver  *readObserverCache
+)
+
+func init() {
+	bufReaderPool = &sync.Pool{
+		New: func() interface{} {
+			return bufio.NewReader(nil)
+		},
+	}
+
+	readObserver = &readObserverCache{}
+}
+
+type readObserverCache struct {
+	sync.Map
+}
+
+// GetOrCreate returns a BytesReadObserver for the given key if it exists or
+// creates one if it doesn't.
+//
+// Note that the design is not atomic, so it is possible that a single key will
+// be initialize multiple times. This is not a problem, it only adds a slight
+// re-allocation penalty, but does not alter the behavior
+func (c *readObserverCache) GetOrCreate(key string, metrics *Metrics) BytesReadObserver {
+	if v, ok := c.Load(key); ok {
+		return v.(BytesReadObserver)
+	}
+
+	observer := metrics.ReadObserver(key)
+	c.Store(key, observer)
+	return observer
 }
