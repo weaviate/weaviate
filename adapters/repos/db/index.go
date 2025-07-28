@@ -2732,8 +2732,15 @@ func (i *Index) findUUIDs(ctx context.Context,
 ) (map[string][]strfmt.UUID, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
-	cl := i.consistencyLevel(repl)
-	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
+	if repl == nil {
+		repl = defaultConsistency()
+	}
+	cl := routerTypes.ConsistencyLevel(repl.ConsistencyLevel)
+	planOptions := routerTypes.RoutingPlanBuildOptions{
+		Tenant:           tenant,
+		ConsistencyLevel: cl,
+	}
+	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -2745,11 +2752,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 		var release func()
 		var err error
 
-		if i.replicationEnabled() {
-			if repl == nil {
-				repl = defaultConsistency()
-			}
-
+		if i.shardHasMultipleReplicasRead(tenant, shardName) {
 			results[shardName], err = i.replicator.FindUUIDs(ctx, className, shardName, filters, routerTypes.ConsistencyLevel(repl.ConsistencyLevel))
 		} else {
 			// anonymous func is here to ensure release is executed after each loop iteration

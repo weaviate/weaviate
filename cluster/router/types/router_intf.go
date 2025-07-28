@@ -83,9 +83,25 @@ type Router interface {
 	BuildRoutingPlanOptions(tenant, shard string, cl ConsistencyLevel, directCandidate string) RoutingPlanBuildOptions
 
 	// BuildWriteRoutingPlan constructs a routing plan for a write operation based on the provided options.
+	//
+	// Parameters:
+	//   - params: the routing plan build options containing tenant, shard, consistency level,
+	//     and direct candidate preferences for constructing the write routing plan.
+	//
+	// Returns:
+	//   - WriteRoutingPlan: a routing plan optimized for write operations.
+	//   - error: if an error occurs while building the routing plan.
 	BuildWriteRoutingPlan(params RoutingPlanBuildOptions) (WriteRoutingPlan, error)
 
-	// BuildReadRoutingPlan constructs a routing plan for a write operation based on the provided options.
+	// BuildReadRoutingPlan constructs a routing plan for a read operation based on the provided options.
+	//
+	// Parameters:
+	//   - params: the routing plan build options containing tenant, shard, consistency level,
+	//     and direct candidate preferences for constructing the read routing plan.
+	//
+	// Returns:
+	//   - ReadRoutingPlan: a routing plan optimized for read operations.
+	//   - error: if an error occurs while building the routing plan.
 	BuildReadRoutingPlan(params RoutingPlanBuildOptions) (ReadRoutingPlan, error)
 
 	// NodeHostname returns the hostname for a given node name.
