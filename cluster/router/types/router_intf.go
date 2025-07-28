@@ -57,6 +57,29 @@ type Router interface {
 	//   - error: if an error occurs while retrieving Replicas.
 	GetReadReplicasLocation(collection string, tenant string, shard string) (ReadReplicaSet, error)
 
+	// BuildRoutingPlanOptions constructs routing plan build options with router-specific tenant handling.
+	//
+	// This method creates RoutingPlanBuildOptions configured appropriately for the router type:
+	//   - Single-tenant routers: ignore the tenant parameter and always set tenant to empty string
+	//   - Multi-tenant routers: preserve the tenant parameter as provided
+	//
+	// This allows callers to use the same code with different router types without needing to know
+	// the specific router implementation details.
+	//
+	// Parameters:
+	//   - tenant: the tenant identifier to target. For single-tenant routers, this parameter is
+	//     ignored and the resulting options will have an empty tenant. For multi-tenant routers,
+	//     this value is preserved in the resulting options.
+	//   - shard: the shard identifier to target. For multi-tenant collections, this should typically
+	//     match the tenant name due to partitioning constraints. For single-tenant collections,
+	//     this can be empty to target all shards or set to a specific shard name.
+	//   - cl: the desired consistency level for operations using these options.
+	//   - directCandidate: the preferred node name to contact first when executing routing plans.
+	//     If empty, the router will use the local node as the preferred candidate.
+	//
+	// Returns:
+	//   - RoutingPlanBuildOptions: configured routing plan build options with router-appropriate
+	//     tenant handling applied.
 	BuildRoutingPlanOptions(tenant, shard string, cl ConsistencyLevel, directCandidate string) RoutingPlanBuildOptions
 
 	// BuildWriteRoutingPlan constructs a routing plan for a write operation based on the provided options.
