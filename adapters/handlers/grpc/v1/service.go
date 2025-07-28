@@ -52,7 +52,7 @@ type Service struct {
 	authenticator       *authHandler
 	batchObjectsHandler *batch.ObjectsHandler
 	batchHandler        *batch.Handler
-	batchWorkers        []*batch.Worker
+	// batchWorkers        []*batch.Worker
 }
 
 func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
