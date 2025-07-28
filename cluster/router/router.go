@@ -427,7 +427,7 @@ func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildO
 		return types.ReadRoutingPlan{}, err
 	}
 
-	orderedReplicas := sort(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
+	orderedReplicas := sort(readReplicas.Replicas, preferredNode(params.DirectCandidate, r.nodeSelector.LocalName()))
 
 	plan := types.ReadRoutingPlan{
 		Shard:  params.Shard,
@@ -466,7 +466,7 @@ func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuild
 		return types.WriteRoutingPlan{}, err
 	}
 
-	sortedWriteReplicas := sort(writeReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
+	sortedWriteReplicas := sort(writeReplicas.Replicas, preferredNode(params.DirectCandidate, r.nodeSelector.LocalName()))
 
 	plan := types.WriteRoutingPlan{
 		Shard:  params.Shard,
@@ -480,16 +480,6 @@ func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuild
 	}
 
 	return plan, nil
-}
-
-// BuildRoutingPlanOptions constructs routing plan options for single-tenant collections.
-func (r *singleTenantRouter) BuildRoutingPlanOptions(_, shard string, cl types.ConsistencyLevel, directCandidate string) types.RoutingPlanBuildOptions {
-	return types.RoutingPlanBuildOptions{
-		Shard:               shard,
-		Tenant:              "",
-		ConsistencyLevel:    cl,
-		DirectCandidateNode: directCandidate,
-	}
 }
 
 // validateTenant for a multi-tenant router checks the tenant is not empty and returns an error if it is.
@@ -637,7 +627,7 @@ func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildO
 		return types.WriteRoutingPlan{}, err
 	}
 
-	orderedReplicas := sort(writeReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
+	orderedReplicas := sort(writeReplicas.Replicas, preferredNode(params.DirectCandidate, r.nodeSelector.LocalName()))
 
 	plan := types.WriteRoutingPlan{
 		Shard:  params.Shard,
@@ -684,7 +674,7 @@ func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOp
 		return types.ReadRoutingPlan{}, err
 	}
 
-	orderedReplicas := sort(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
+	orderedReplicas := sort(readReplicas.Replicas, preferredNode(params.DirectCandidate, r.nodeSelector.LocalName()))
 
 	return types.ReadRoutingPlan{
 		Shard:  params.Shard,
@@ -704,16 +694,6 @@ func (r *multiTenantRouter) validateTenantShard(tenant, shard string) error {
 	}
 
 	return nil
-}
-
-// BuildRoutingPlanOptions constructs routing plan options for multi-tenant collections.
-func (r *multiTenantRouter) BuildRoutingPlanOptions(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) types.RoutingPlanBuildOptions {
-	return types.RoutingPlanBuildOptions{
-		Shard:               shard,
-		Tenant:              tenant,
-		ConsistencyLevel:    cl,
-		DirectCandidateNode: directCandidate,
-	}
 }
 
 // tenantShard normalizes the shard parameter by using the tenant name as the shard
