@@ -1774,32 +1774,6 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	return res, resDists, nil
 }
 
-// to be called after validating multi-tenancy
-func (i *Index) targetShardNames(ctx context.Context, tenant string) ([]string, error) {
-	className := i.Config.ClassName.String()
-	if !i.partitioningEnabled {
-		return i.getSchema.CopyShardingState(className).AllPhysicalShards(), nil
-	}
-
-	if tenant == "" {
-		return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("tenant name is empty"))
-	}
-
-	tenantShards, err := i.getSchema.OptimisticTenantStatus(ctx, className, tenant)
-	if err != nil {
-		return nil, err
-	}
-
-	if tenantShards[tenant] != "" {
-		if tenantShards[tenant] == models.TenantActivityStatusHOT {
-			return []string{tenant}, nil
-		}
-		return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", enterrors.ErrTenantNotActive, tenant))
-	}
-	return []string{}, objects.NewErrMultiTenancy(
-		fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, tenant))
-}
-
 func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vector,
 	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
