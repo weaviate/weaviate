@@ -84,4 +84,9 @@ packages:
   github.com/weaviate/weaviate/usecases/modulecomponents/usage:
     interfaces:
       StorageBackend:
-
+  github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch:
+    interfaces:
+      Batcher:
+  github.com/weaviate/weaviate/grpc/generated/protocol/v1:
+    interfaces:
+      Weaviate_BatchStreamServer:

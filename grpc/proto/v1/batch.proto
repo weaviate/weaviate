@@ -14,6 +14,43 @@ message BatchObjectsRequest {
   optional ConsistencyLevel consistency_level = 2;
 }
 
+message BatchSend {
+  repeated BatchObject objects = 1;
+  optional ConsistencyLevel consistency_level = 2;
+  int64 index = 3;
+  string stream_id = 4;
+}
+
+message BatchSendRequest {
+  oneof message {
+    BatchSend send = 1;
+    BatchStop stop = 2;
+  }
+}
+
+message BatchSendReply {
+  int64 next = 1;
+}
+
+message BatchStreamRequest {
+}
+
+message BatchStart {
+  string stream_id = 1;
+}
+
+message BatchStop {
+  string stream_id = 1;
+}
+
+message BatchStreamMessage {
+  oneof message {
+    BatchStart start = 1;
+    BatchError error = 2;
+    BatchStop stop = 3;
+  }
+}
+
 message BatchObject {
   message Properties {
     google.protobuf.Struct non_ref_properties = 1;
@@ -50,6 +87,11 @@ message BatchObject {
   bytes vector_bytes = 6;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated Vectors vectors = 23;
+}
+
+message BatchError {
+  string error = 1;
+  BatchObject object = 2;
 }
 
 message BatchObjectsReply {

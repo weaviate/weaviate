@@ -18,4 +18,6 @@ service Weaviate {
   rpc BatchDelete(BatchDeleteRequest) returns (BatchDeleteReply) {};
   rpc TenantsGet(TenantsGetRequest) returns (TenantsGetReply) {};
   rpc Aggregate(AggregateRequest) returns (AggregateReply) {};
+  rpc BatchSend(BatchSendRequest) returns (BatchSendReply) {};
+  rpc BatchStream(BatchStreamRequest) returns (stream BatchStreamMessage) {};
 }
