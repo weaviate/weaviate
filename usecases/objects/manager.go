@@ -203,6 +203,15 @@ func (m *Manager) restoreOriginalClassNames(objects []*models.Object, originalCl
 	return objects
 }
 
+// resolveClassNameForRepo resolves alias to actual class name for repository operations
+// while preserving the original name for response mapping
+func (m *Manager) resolveClassNameForRepo(classOrAlias string) string {
+	if resolved := m.schemaManager.ResolveAlias(classOrAlias); resolved != "" {
+		return resolved
+	}
+	return classOrAlias
+}
+
 func generateUUID() (strfmt.UUID, error) {
 	id, err := uuid.NewRandom()
 	if err != nil {

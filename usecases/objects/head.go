@@ -20,28 +20,22 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/objects/alias"
 )
 
 // HeadObject check object's existence in the connected DB
 func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, className string,
 	id strfmt.UUID, repl *additional.ReplicationProperties, tenant string,
 ) (bool, *Error) {
-	// Store original class name for authorization (could be alias)
-	originalClassName := className
-	
-	// Resolve alias to get the actual class name
-	resolvedClassName, _ := alias.ResolveAlias(m.schemaManager, className)
-	
 	// RBAC will resolve alias internally using its configured resolver
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(originalClassName, tenant, id)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, tenant, id)); err != nil {
 		return false, &Error{err.Error(), StatusForbidden, err}
 	}
 
 	m.metrics.HeadObjectInc()
 	defer m.metrics.HeadObjectDec()
 
-	// Pass resolved class name to repository
+	// Resolve alias for repository operations
+	resolvedClassName := m.resolveClassNameForRepo(className)
 	ok, err := m.vectorRepo.Exists(ctx, resolvedClassName, id, repl, tenant)
 	if err != nil {
 		switch {

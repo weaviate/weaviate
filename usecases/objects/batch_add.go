@@ -25,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/objects/alias"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -37,49 +36,35 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 ) (BatchObjects, error) {
 	ctx = classcache.ContextWithClassCache(ctx)
 
-	// Store original user inputs for response and resolve aliases
+	// Store original user inputs for response
 	originalClassNames := make(map[int]string)
-	resolvedClassNames := make(map[int]string)
 	classesShards := make(map[string][]string)
 	for i, obj := range objects {
 		originalClassName := schema.UppercaseClassName(obj.Class)
 		originalClassNames[i] = originalClassName
-		
-		// Resolve alias to get the actual class name
-		resolvedClassName, _ := alias.ResolveAlias(b.schemaManager, originalClassName)
-		resolvedClassNames[i] = resolvedClassName
-		obj.Class = resolvedClassName
-		classesShards[resolvedClassName] = append(classesShards[resolvedClassName], obj.Tenant)
+
+		// Keep original class name - schema layer will resolve aliases transparently
+		obj.Class = originalClassName
+		classesShards[originalClassName] = append(classesShards[originalClassName], obj.Tenant)
 	}
 	knownClasses := map[string]versioned.Class{}
 
 	// whole request fails if permissions for any collection are not present
 	for className, shards := range classesShards {
 		// we don't leak any info that someone who inserts data does not have anyway
+		// Schema layer will resolve alias transparently
 		vClass, err := b.schemaManager.GetCachedClassNoAuth(ctx, className)
 		if err != nil {
 			return nil, err
 		}
 		knownClasses[className] = vClass[className]
 
-		// Use original class names for authorization (aliases)
-		originalClassName := ""
-		for i, resolvedName := range resolvedClassNames {
-			if resolvedName == className {
-				originalClassName = originalClassNames[i]
-				break
-			}
-		}
-		if originalClassName == "" {
-			originalClassName = className
-		}
-
 		// RBAC will resolve alias internally using its configured resolver
-		if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(originalClassName, shards...)...); err != nil {
+		if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
 
-		if err := b.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(originalClassName, shards...)...); err != nil {
+		if err := b.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
 	}
@@ -138,7 +123,20 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	if err := b.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
 	}
-	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl, maxSchemaVersion); err != nil {
+
+	// Create a copy of batch objects with resolved class names for repository operations
+	repoObjects := make(BatchObjects, len(batchObjects))
+	copy(repoObjects, batchObjects)
+	for i := range repoObjects {
+		if repoObjects[i].Object != nil {
+			// Create a copy of the object to avoid modifying the original
+			objCopy := *repoObjects[i].Object
+			objCopy.Class = b.resolveClassNameForRepo(objCopy.Class)
+			repoObjects[i].Object = &objCopy
+		}
+	}
+
+	if res, err = b.vectorRepo.BatchPutObjects(ctx, repoObjects, repl, maxSchemaVersion); err != nil {
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 

@@ -37,6 +37,15 @@ type BatchManager struct {
 	metrics           *Metrics
 }
 
+// resolveClassNameForRepo resolves alias to actual class name for repository operations
+// while preserving the original name for response mapping
+func (b *BatchManager) resolveClassNameForRepo(classOrAlias string) string {
+	if resolved := b.schemaManager.ResolveAlias(classOrAlias); resolved != "" {
+		return resolved
+	}
+	return classOrAlias
+}
+
 type BatchVectorRepo interface {
 	VectorRepo
 	batchRepoNew

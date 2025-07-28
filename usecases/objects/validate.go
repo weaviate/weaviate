@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/objects/alias"
 )
 
 // ValidateObject without adding it to the database. Can be used in UIs for
@@ -32,9 +31,9 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	obj *models.Object, repl *additional.ReplicationProperties,
 ) error {
 	originalClassName := schema.UppercaseClassName(obj.Class)
-	
-	// Resolve alias to get the actual class name
-	resolvedClassName, _ := alias.ResolveAlias(m.schemaManager, originalClassName)
+
+	// Resolve alias for internal operations
+	resolvedClassName := m.resolveClassNameForRepo(originalClassName)
 	obj.Class = resolvedClassName
 
 	// RBAC will resolve alias internally using its configured resolver
@@ -46,7 +45,8 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	// we don't reveal any info that the end users cannot get through the structure of the data anyway
-	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, resolvedClassName)
+	// Schema layer will resolve alias transparently
+	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, originalClassName)
 	if err != nil {
 		return err
 	}

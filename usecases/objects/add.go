@@ -31,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
-	"github.com/weaviate/weaviate/usecases/objects/alias"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -41,12 +40,9 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 ) (*models.Object, error) {
 	// Store original user input for response
 	originalClassName := schema.UppercaseClassName(object.Class)
-	
-	// Resolve alias to get the actual class name
-	resolvedClassName, aliasName := alias.ResolveAlias(m.schemaManager, originalClassName)
-	object.Class = resolvedClassName
+	object.Class = originalClassName
 
-	// RBAC will resolve alias internally - pass original class name for authorization
+	// RBAC will resolve alias internally - pass class name as-is
 	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(originalClassName, object.Tenant)...); err != nil {
 		return nil, err
 	}
@@ -56,7 +52,8 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 
 	ctx = classcache.ContextWithClassCache(ctx)
 	// we don't reveal any info that the end users cannot get through the structure of the data anyway
-	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, resolvedClassName)
+	// Schema layer will resolve alias transparently
+	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, originalClassName)
 	if err != nil {
 		return nil, err
 	}
@@ -71,12 +68,8 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, err
 	}
 
-	// Ensure response uses original user input (alias if provided, otherwise class name)
-	responseClassName := originalClassName
-	if aliasName != "" {
-		responseClassName = aliasName
-	}
-	return m.restoreOriginalClassName(obj, responseClassName), nil
+	// Ensure response uses original user input
+	return m.restoreOriginalClassName(obj, originalClassName), nil
 }
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,

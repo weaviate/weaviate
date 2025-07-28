@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/objects/alias"
 )
 
 // DeleteObjects deletes objects in batch based on the match filter
@@ -39,10 +38,8 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	if match != nil {
 		originalClassName = match.Class
 		class = match.Class
-		
-		// Resolve alias to get the actual class name
-		resolvedClassName, _ := alias.ResolveAlias(b.schemaManager, class)
-		match.Class = resolvedClassName
+
+		// Keep original class name - schema layer will resolve aliases transparently
 	}
 
 	// RBAC will resolve alias internally using its configured resolver
@@ -73,8 +70,12 @@ func (b *BatchManager) DeleteObjectsFromGRPCAfterAuth(ctx context.Context, princ
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
+	// Create a copy of params with resolved class name for repository operations
+	repoParams := params
+	repoParams.ClassName = schema.ClassName(b.resolveClassNameForRepo(string(params.ClassName)))
+
 	deletionTime := time.UnixMilli(b.timeSource.Now())
-	return b.vectorRepo.BatchDeleteObjects(ctx, params, deletionTime, repl, tenant, 0)
+	return b.vectorRepo.BatchDeleteObjects(ctx, repoParams, deletionTime, repl, tenant, 0)
 }
 
 func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Principal,
@@ -95,7 +96,11 @@ func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Prin
 		deletionTime = time.UnixMilli(*deletionTimeUnixMilli)
 	}
 
-	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, deletionTime, repl, tenant, schemaVersion)
+	// Create a copy of params with resolved class name for repository operations
+	repoParams := *params
+	repoParams.ClassName = schema.ClassName(b.resolveClassNameForRepo(string(params.ClassName)))
+
+	result, err := b.vectorRepo.BatchDeleteObjects(ctx, repoParams, deletionTime, repl, tenant, schemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete objects: %w", err)
 	}
