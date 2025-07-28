@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/authz"
@@ -96,7 +97,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		waitForBackup(t, backupID, backend, adminKey)
+		expectEventuallyRestored(t, backupID, backend, adminKey)
 
 		// delete role and assignment
 		helper.DeleteRole(t, adminKey, testRoleName)
@@ -110,7 +111,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
 
-		waitForRestore(t, backupID, backend, adminKey)
+		expectEventuallyRestored(t, backupID, backend, adminKey)
 
 		role := helper.GetRoleByName(t, adminKey, testRoleName)
 		require.NotNil(t, role)
@@ -145,7 +146,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		waitForBackup(t, backupID, backend, adminKey)
+		expectEventuallyCreated(t, backupID, backend, adminKey)
 
 		// delete role and assignment
 		helper.DeleteRole(t, adminKey, testRoleName)
@@ -164,7 +165,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
 
-		waitForRestore(t, backupID, backend, adminKey)
+		expectEventuallyRestored(t, backupID, backend, adminKey)
 
 		respRole, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRoleName), helper.CreateAuth(adminKey))
 		require.Nil(t, respRole)
@@ -175,41 +176,32 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 	})
 }
 
-func waitForBackup(t *testing.T, backupID, backend, adminKey string) {
-	for {
+// Expect the backup creation status to report SUCCESS within 30 seconds and 500ms polling interval.
+func expectEventuallyCreated(t *testing.T, backupID, backend, adminKey string) {
+	deadline := 30 * time.Second
+	require.EventuallyWithTf(t, func(check *assert.CollectT) {
 		resp, err := helper.CreateBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(adminKey))
-		require.Nil(t, err)
-		require.NotNil(t, resp.Payload)
-		if *resp.Payload.Status == "SUCCESS" {
-			break
-		}
-		if *resp.Payload.Status == "FAILED" {
-			t.Fatalf("backup failed: %s", resp.Payload.Error)
-		}
-		time.Sleep(time.Second / 10)
-	}
+
+		require.NoError(t, err, "fetch backup create status")
+		require.NotNil(t, resp.Payload, "empty response")
+
+		status := *resp.Payload.Status
+		require.NotEqualf(t, status, "FAILED", "create failed: %s", resp.Payload.Error)
+		require.Equal(t, status, "SUCCESS", "backup create status")
+	}, deadline, 500*time.Millisecond, "backup %s not created after %s", backupID, deadline)
 }
 
-func waitForRestore(t *testing.T, backupID, backend, adminKey string) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+// Expect the backup restore status to report SUCCESS within 30 seconds and 500ms polling interval.
+func expectEventuallyRestored(t *testing.T, backupID, backend, adminKey string) {
+	deadline := 30 * time.Second
+	require.EventuallyWithTf(t, func(check *assert.CollectT) {
+		resp, err := helper.RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(adminKey))
 
-wait:
-	for {
-		select {
-		case <-ticker.C:
-			t.Fatalf("restore timeout after 30 seconds")
-		default:
-			resp, err := helper.RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(adminKey))
-			require.Nil(t, err)
-			require.NotNil(t, resp.Payload)
-			if *resp.Payload.Status == "SUCCESS" {
-				break wait
-			}
-			if *resp.Payload.Status == "FAILED" {
-				t.Fatalf("restore failed: %s", resp.Payload.Error)
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-	}
+		require.NoError(t, err, "fetch backup restore status")
+		require.NotNil(t, resp.Payload, "empty response")
+
+		status := *resp.Payload.Status
+		require.NotEqualf(t, status, "FAILED", "restore failed: %s", resp.Payload.Error)
+		require.Equal(t, status, "SUCCESS", "backup restore status")
+	}, deadline, 500*time.Millisecond, "backup %s not restored after %s", backupID, deadline)
 }
