@@ -55,6 +55,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 		vectorDimensions          int
 		expectedVectorStorageSize int64
 		setupData                 bool
+		compressedLoaded          int64
 	}{
 		{
 			name:      "shard with named vectors",
@@ -268,11 +269,12 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				// Get active metrics BEFORE releasing the shard
 				vectorStorageSize, err := shard.VectorStorageSize(ctx)
 				require.NoError(t, err)
-				dimensions, err := shard.Dimensions(ctx, "")
+				dimensions, err := shard.Dimensions(ctx, DimensionCategoryAll)
 				require.NoError(t, err)
 				if len(tt.vectorConfigs) > 0 && tt.vectorConfigs["text"] != nil {
 					// Named vector
-					dimensions, err = shard.Dimensions(ctx, "text")
+					dims, count, _, err := shard.DimensionsUsage(ctx, "text")
+					dimensions = dims * count // Dimensions returns total across all objects
 					require.NoError(t, err)
 				}
 				objectCount := shard.ObjectCount()
@@ -317,7 +319,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				// Get active metrics BEFORE releasing the shard
 				vectorStorageSize, err := shard.VectorStorageSize(ctx)
 				require.NoError(t, err)
-				dimensions, err := shard.Dimensions(ctx, "")
+				dimensions, err := shard.Dimensions(ctx, DimensionCategoryAll)
 				require.NoError(t, err)
 				objectCount := shard.ObjectCount()
 
@@ -520,7 +522,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.NotNil(t, shard)
 
 				// Get active metrics BEFORE releasing the shard
-				dimensionality, count, err := shard.DimensionsUsage(ctx, tt.targetVector)
+				dimensionality, count, _, err := shard.DimensionsUsage(ctx, tt.targetVector)
 				require.NoError(t, err)
 
 				assert.Equal(t, tt.expectedCount, count)
@@ -544,7 +546,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.NotNil(t, shard)
 
 				// Get active metrics BEFORE releasing the shard
-				dimensionality, count, err := shard.DimensionsUsage(ctx, tt.targetVector)
+				dimensionality, count, _, err := shard.DimensionsUsage(ctx, tt.targetVector)
 				require.NoError(t, err)
 
 				assert.Equal(t, tt.expectedCount, count)
@@ -578,6 +580,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	shardName := "test-shard"
 	objectCount := 50
 	vectorDimensions := int64(defaultVectorDimensions)
+	compressedLoaded := int64(0)
 
 	// Create test class
 	class := &models.Class{
@@ -683,7 +686,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 
 	activeVectorStorageSize, err := activeShard.VectorStorageSize(ctx)
 	require.NoError(t, err)
-	dimensionality, count, err := activeShard.DimensionsUsage(ctx, "")
+	dimensionality, count, compressedLoaded, err := activeShard.DimensionsUsage(ctx, "")
 	require.NoError(t, err)
 	activeObjectCount := activeShard.ObjectCount()
 	assert.Greater(t, activeVectorStorageSize, int64(0), "Active shard calculation should have vector storage size > 0")
@@ -734,13 +737,15 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 
 	inactiveVectorStorageSize, err := newIndex.CalculateUnloadedVectorsMetrics(ctx, shardName)
 	require.NoError(t, err)
-	dimensionality, count, err = newIndex.CalculateUnloadedDimensionsUsage(ctx, shardName, "")
+	unloadedShard, err := newIndex.GetShardLike(shardName)
 	require.NoError(t, err)
+	unloadedDimensionality, count, compressedUnloaded, err := unloadedShard.DimensionsUsage(ctx, "")
 
 	// Compare active and inactive metrics
 	assert.Equal(t, activeVectorStorageSize, inactiveVectorStorageSize, "Active and inactive vector storage size should be very similar")
 	assert.Equal(t, int64(objectCount), count, "Active and inactive object count should match")
-	assert.Equal(t, vectorDimensions, dimensionality, "Active and inactive dimensions should match")
+	assert.Equal(t, unloadedDimensionality, dimensionality, "Active and inactive dimensions should match")
+	assert.Equal(t, compressedLoaded, compressedUnloaded, "Active and inactive compressed loaded should match")
 	// Verify all mock expectations were met
 	mockSchema.AssertExpectations(t)
 }

@@ -37,24 +37,27 @@ const (
 	DimensionCategoryBQ
 	DimensionCategorySQ
 	DimensionCategoryRQ
+	DimensionCategoryAll
 )
 
 func (c DimensionCategory) String() string {
 	switch c {
 	case DimensionCategoryPQ:
-		return "pq"
+		return "PQ"
 	case DimensionCategoryBQ:
-		return "bq"
+		return "BQ"
 	case DimensionCategorySQ:
-		return "sq"
+		return "SQ"
 	case DimensionCategoryRQ:
-		return "rq"
+		return "RQ"
+	case DimensionCategoryAll:
+		return ""
 	default:
-		return "standard"
+		return "NN"
 	}
 }
 
-func sumByVectorType(ctx context.Context, bucket *lsmkv.Bucket, configs map[string]schemaConfig.VectorIndexConfig, targetVectorType string, f func(dimLength int, v int64) (int64, int64)) (int64, int64, error) {
+func sumByVectorType(bucket *lsmkv.Bucket, configs map[string]schemaConfig.VectorIndexConfig, targetVectorType DimensionCategory, f func(dimLength int, v int64) (int64, int64)) (int64, int64, error) {
 	if bucket == nil {
 		return 0, 0, fmt.Errorf("dimensions bucket not found for dimensions sum by vector type %s", targetVectorType)
 	}
@@ -64,11 +67,11 @@ func sumByVectorType(ctx context.Context, bucket *lsmkv.Bucket, configs map[stri
 	)
 
 	for vecName, config := range configs {
-		vectorType := GetDimensionCategoryStr(config)
-		if targetVectorType != "" && vectorType != targetVectorType {
+		vectorType, _ := GetDimensionCategory(config)
+		if targetVectorType != DimensionCategoryAll && vectorType != targetVectorType {
 			continue
 		}
-		dims, count := calcTargetVectorDimensionsFromBucket(ctx, bucket, vecName, f)
+		dims, count := calcTargetVectorDimensionsFromBucket(bucket, vecName, f)
 		sumDimensions += dims
 		sumCount += count
 	}
@@ -76,28 +79,25 @@ func sumByVectorType(ctx context.Context, bucket *lsmkv.Bucket, configs map[stri
 }
 
 // DimensionsUsage returns the total number of dimensions and the number of objects for a given vector type
-func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, error) {
-	dims, count := calcTargetVectorDimensionsFromBucket(ctx, s.store.Bucket(helpers.DimensionsBucketLSM), targetVector, func(dimLength int, v int64) (int64, int64) {
+func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, int64, error) {
+	dims, count := calcTargetVectorDimensionsFromBucket(s.store.Bucket(helpers.DimensionsBucketLSM), targetVector, func(dimLength int, v int64) (int64, int64) {
 		return v, int64(dimLength)
 	})
-	return dims, count, nil
+
+	comp, _, err := discountDimensions(dims, count, s.index.GetVectorIndexConfig(targetVector))
+	if err != nil {
+		return 0, 0, 0, errors.Wrapf(err, "calculate dimensions usage for vector %s", targetVector)
+	}
+	return dims, count, comp, nil
 }
 
 // Dimensions returns the total number of dimensions for a given vector type
-func (s *Shard) Dimensions(ctx context.Context, targetVectorType string) (int64, error) {
-	dims, count, err := sumByVectorType(ctx, s.store.Bucket(helpers.DimensionsBucketLSM), s.index.GetVectorIndexConfigs(), targetVectorType, func(dimLength int, v int64) (int64, int64) {
+func (s *Shard) Dimensions(ctx context.Context, targetVectorType DimensionCategory) (int64, error) {
+	dims, count, err := sumByVectorType(s.store.Bucket(helpers.DimensionsBucketLSM), s.index.GetVectorIndexConfigs(), targetVectorType, func(dimLength int, v int64) (int64, int64) {
 		return v, int64(dimLength)
 	})
 
 	return dims * count, err
-}
-
-func (s *Shard) QuantizedDimensions(ctx context.Context, targetVectorType string, segments int64) int64 {
-	dims, count, _ := sumByVectorType(ctx, s.store.Bucket(helpers.DimensionsBucketLSM), s.index.GetVectorIndexConfigs(), targetVectorType, func(dimLength int, v int64) (int64, int64) {
-		return v, int64(dimLength)
-	})
-
-	return count * correctEmptySegments(int(segments), dims)
 }
 
 // calcTargetVectorDimensionsFromStore sums dimensions and object count for a target vector from an LSMKV store
@@ -106,11 +106,11 @@ func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store
 	if b == nil {
 		return 0, 0
 	}
-	return calcTargetVectorDimensionsFromBucket(ctx, b, targetVector, calcEntry)
+	return calcTargetVectorDimensionsFromBucket(b, targetVector, calcEntry)
 }
 
 // calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector type from an LSMKV bucket
-func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, vectorName string, calcEntry func(dimLen int, v int64) (int64, int64)) (int64, int64) {
+func calcTargetVectorDimensionsFromBucket(b *lsmkv.Bucket, vectorName string, calcEntry func(dimLen int, v int64) (int64, int64)) (int64, int64) {
 	c := b.Cursor()
 	defer c.Close()
 
@@ -146,27 +146,28 @@ func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, 
 }
 
 func (s *Shard) sumAllDimensions(ctx context.Context) (sumDimensions int64, sumSegments int64) {
-
 	b := s.Store().Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
 		return 0, 0
 	}
+
+	var (
+		shardName = s.name
+		configs   = s.index.GetVectorIndexConfigs()
+	)
+
+	sumDimensions, sumSegments = sumAllDimensionsInBucket(ctx, b, shardName, configs)
+	return sumDimensions, sumSegments
+}
+
+func sumAllDimensionsInBucket(ctx context.Context, b *lsmkv.Bucket, shardName string, configs map[string]schemaConfig.VectorIndexConfig) (sumDimensions int64, sumSegments int64) {
 	c := b.Cursor()
 	defer c.Close()
 
-	var (
-
-
-		shardName     = s.name
-		configs       = s.index.GetVectorIndexConfigs()
-	)
-
-	seenKeys := make(map[string]bool)
 	for k, vb := c.First(); k != nil; k, vb = c.Next() {
-		if seenKeys[string(k)] {
-			continue // skip duplicate keys
+		if ctx.Err() != nil {
+			return 0, 0
 		}
-		seenKeys[string(k)] = true
 		vecName := string(k[4:])
 		thisCount := int64(binary.LittleEndian.Uint64(vb))
 		thisDims := int64(binary.LittleEndian.Uint32(k[:4]))
@@ -180,10 +181,8 @@ func (s *Shard) sumAllDimensions(ctx context.Context) (sumDimensions int64, sumS
 			sumSegments += thisCount
 			continue
 		}
-		dims, segs, err := s.discountDimensions(thisDims, thisCount, cfg)
+		dims, segs, err := discountDimensions(thisDims, thisCount, cfg)
 		if err != nil {
-			s.index.logger.WithField("shard", s.name).
-				Errorf("error while discounting dimensions for shard %s: %v", s.name, err)
 			continue
 		}
 		fmt.Printf("vector name: %s, discounted dimensions: %d, discounted segments: %d\n", vecName, dims, segs)
@@ -261,7 +260,7 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 	}
 }
 
-func (s *Shard) discountDimensions(dimensions int64, count int64, vecCfg schemaConfig.VectorIndexConfig) (dims int64, segs int64, err error) {
+func discountDimensions(dimensions int64, count int64, vecCfg schemaConfig.VectorIndexConfig) (dims int64, segs int64, err error) {
 	dims = dimensions
 	switch category, segments := GetDimensionCategory(vecCfg); category {
 	case DimensionCategoryPQ:
@@ -274,39 +273,9 @@ func (s *Shard) discountDimensions(dimensions int64, count int64, vecCfg schemaC
 		// a partial uint64 block. Even 1 dimension needs a full 8-byte uint64 block.
 
 		dims = (dims + 63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
-		return 0, dims*count, nil
+		return 0, dims * count, nil
 	default:
 		return count * dimensions, 0, nil
-	}
-}
-
-func (s *Shard) calcDimensionsAndSegments(ctx context.Context, compressionType DimensionCategory, vecCfg schemaConfig.VectorIndexConfig) (dims int64, segs int64, err error) {
-	switch category, segments := GetDimensionCategory(vecCfg); category {
-	case DimensionCategoryPQ:
-
-		count := s.QuantizedDimensions(ctx, "PQ", int64(segments))
-		return 0, count, nil
-	case DimensionCategoryBQ:
-		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
-		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
-		// Roundup is required because BQ packs bits into uint64 blocks - you can't have
-		// a partial uint64 block. Even 1 dimension needs a full 8-byte uint64 block.
-		count, err := s.Dimensions(ctx, "BQ")
-		count = (count + 63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
-		if err != nil {
-			s.index.logger.WithField("shard", s.name).
-				Errorf("error while getting dimensions for shard %s: %v", s.name, err)
-			return 0, 0, fmt.Errorf("get dimensions for shard %q: %w", s.name, err)
-		}
-		return 0, count, nil
-	default:
-		count, err := s.Dimensions(ctx, "NN")
-		if err != nil {
-			s.index.logger.WithField("shard", s.name).
-				Errorf("error while getting dimensions for shard %s: %v", s.name, err)
-			return 0, 0, fmt.Errorf("get dimensions for shard %q: %w", s.name, err)
-		}
-		return count, 0, nil
 	}
 }
 

@@ -141,11 +141,10 @@ type ShardLike interface {
 	abortReplication(context.Context, string) replica.SimpleResponse
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
-	// Dimensions returns the total number of dimensions for a given vector
-	Dimensions(ctx context.Context, targetVector string) (int64, error)
-	// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
-	DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, error)
-	QuantizedDimensions(ctx context.Context, targetVector string, segments int64) int64
+	// Dimensions returns the total number of dimensions for a given vector type
+	Dimensions(ctx context.Context, compressionType DimensionCategory) (int64, error)
+	// DimensionsUsage returns the total number of dimensions, the number of objects, and the compressed dimensions for a given vector
+	DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, int64, error)
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
 	publishDimensionMetrics(ctx context.Context)
@@ -438,32 +437,12 @@ func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {
 // This ensures we get accurate counts regardless of cache size or shard state
 // This method is only called for active tenants, so we can always use direct vector index compression.
 func (s *Shard) VectorStorageSize(ctx context.Context) (int64, error) {
-	totalSize := int64(0)
-
-	// Iterate over all vector indexes to calculate storage size for both default and targeted vectors
-	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		// Get dimensions and object count from the dimensions bucket for this specific target vector
-		dimensionality, count := calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, func(dimLen int, v int64) (int64, int64) {
-			return int64(v), int64(dimLen)
-		})
-
-		if count == 0 || dimensionality == 0 {
-			return nil
-		}
-
-		// Calculate uncompressed size (float32 = 4 bytes per dimension)
-		uncompressedSize := int64(count) * int64(dimensionality) * 4
-
-		// For active tenants, always use the direct vector index compression rate
-		compressionRate := index.CompressionStats().CompressionRatio(dimensionality)
-
-		// Calculate total size using actual compression rate
-		totalSize += int64(float64(uncompressedSize) * compressionRate)
-
-		return nil
-	}); err != nil {
-		return 0, err
+	totalSize, err := s.Dimensions(ctx, DimensionCategoryAll)
+	if err != nil {
+		return 0, fmt.Errorf("calculating vector storage size: %w", err)
 	}
+	// The total size is the number of dimensions multiplied by the size of float32
+	totalSize *= 4 // float32 size in bytes
 
 	return totalSize, nil
 }

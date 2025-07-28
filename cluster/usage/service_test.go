@@ -49,7 +49,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	storageSize := int64(5000000)
 	vectorName := "abcd"
 	vectorType := "hnsw"
-	compression := "standard"
+	compression := db.DimensionCategoryStandard
 	compressionRatio := 0.75
 	dimensionality := int64(1536)
 	dimensionCount := int64(1000)
@@ -135,7 +135,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	vector := shard.NamedVectors[0]
 	assert.Equal(t, vectorName, vector.Name)
 	assert.Equal(t, vectorType, vector.VectorIndexType)
-	assert.Equal(t, compression, vector.Compression)
+	assert.Equal(t, compression.String(), vector.Compression)
 	assert.Equal(t, compressionRatio, vector.VectorCompressionRatio)
 	assert.Len(t, vector.Dimensionalities, 1)
 
@@ -167,7 +167,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	coldStorageSize := int64(2500000)
 	vectorName := "abcd"
 	vectorType := "hnsw"
-	compression := "standard"
+	compression := db.DimensionCategoryStandard
 	compressionRatio := 0.8
 	dimensionality := int64(1536)
 	dimensionCount := int64(1500)
@@ -279,7 +279,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	vector := hotShard.NamedVectors[0]
 	assert.Equal(t, vectorName, vector.Name)
 	assert.Equal(t, vectorType, vector.VectorIndexType)
-	assert.Equal(t, compression, vector.Compression)
+	assert.Equal(t, compression.String(), vector.Compression)
 	assert.Equal(t, compressionRatio, vector.VectorCompressionRatio)
 	assert.Len(t, vector.Dimensionalities, 1)
 	dim := vector.Dimensionalities[0]
@@ -385,7 +385,7 @@ func TestService_Usage_WithNamedVectors(t *testing.T) {
 	textVectorName := "text"
 	imageVectorName := "image"
 	vectorType := "hnsw"
-	compression := "standard"
+	compression := db.DimensionCategoryStandard
 	defaultCompressionRatio := 0.7
 	textCompressionRatio := 0.7
 	imageCompressionRatio := 0.8
@@ -486,21 +486,21 @@ func TestService_Usage_WithNamedVectors(t *testing.T) {
 	defaultVector := shard.NamedVectors[0]
 	assert.Equal(t, vectorName, defaultVector.Name)
 	assert.Equal(t, vectorType, defaultVector.VectorIndexType)
-	assert.Equal(t, compression, defaultVector.Compression)
+	assert.Equal(t, compression.String(), defaultVector.Compression)
 	assert.Equal(t, defaultCompressionRatio, defaultVector.VectorCompressionRatio)
 	assert.Len(t, defaultVector.Dimensionalities, 1)
 
 	textVector := shard.NamedVectors[1]
 	assert.Equal(t, textVectorName, textVector.Name)
 	assert.Equal(t, vectorType, textVector.VectorIndexType)
-	assert.Equal(t, compression, textVector.Compression)
+	assert.Equal(t, compression.String(), textVector.Compression)
 	assert.Equal(t, textCompressionRatio, textVector.VectorCompressionRatio)
 	assert.Len(t, textVector.Dimensionalities, 1)
 
 	imageVector := shard.NamedVectors[2]
 	assert.Equal(t, imageVectorName, imageVector.Name)
 	assert.Equal(t, vectorType, imageVector.VectorIndexType)
-	assert.Equal(t, compression, imageVector.Compression)
+	assert.Equal(t, compression.String(), imageVector.Compression)
 	assert.Equal(t, imageCompressionRatio, imageVector.VectorCompressionRatio)
 	assert.Len(t, imageVector.Dimensionalities, 1)
 
@@ -593,7 +593,7 @@ func TestService_Usage_VectorIndexError(t *testing.T) {
 	storageSize := int64(5000000)
 	vectorName := "abcd"
 	vectorType := "hnsw"
-	compression := "standard"
+	compression := db.DimensionCategoryStandard
 	compressionRatio := 1.0
 	dimensionality := int64(1536)
 	dimensionCount := int64(1000)
@@ -669,7 +669,7 @@ func TestService_Usage_VectorIndexError(t *testing.T) {
 	vector := shard.NamedVectors[0]
 	assert.Equal(t, vectorName, vector.Name)
 	assert.Equal(t, vectorType, vector.VectorIndexType)
-	assert.Equal(t, compression, vector.Compression)
+	assert.Equal(t, compression.String(), vector.Compression)
 	assert.Equal(t, compressionRatio, vector.VectorCompressionRatio)
 	assert.Len(t, vector.Dimensionalities, 1)
 
@@ -692,7 +692,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	storageSize := int64(5000000)
 	vectorName := "abcd"
 	vectorType := ""
-	compression := "standard"
+	compression := db.DimensionCategoryStandard
 	compressionRatio := 0.75
 	dimensionality := int64(1536)
 	dimensionCount := int64(1000)
@@ -774,7 +774,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	vector := shard.NamedVectors[0]
 	assert.Equal(t, vectorName, vector.Name)
 	assert.Equal(t, vectorType, vector.VectorIndexType)
-	assert.Equal(t, compression, vector.Compression)
+	assert.Equal(t, compression.String(), vector.Compression)
 	assert.Equal(t, compressionRatio, vector.VectorCompressionRatio)
 	assert.Len(t, vector.Dimensionalities, 1)
 	dim := vector.Dimensionalities[0]
@@ -812,7 +812,7 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 
 	vectorName := "default"
 	vectorType := "hnsw"
-	compression := "standard"
+	compression := db.DimensionCategoryStandard
 	compressionRatio := 0.75
 	dimensionality := int64(1536)
 	dimensionCount := int64(2000)
@@ -933,7 +933,7 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 	vector := hotShard.NamedVectors[0]
 	assert.Equal(t, vectorName, vector.Name)
 	assert.Equal(t, vectorType, vector.VectorIndexType)
-	assert.Equal(t, compression, vector.Compression)
+	assert.Equal(t, compression.String(), vector.Compression)
 	assert.Equal(t, compressionRatio, vector.VectorCompressionRatio)
 	assert.Len(t, vector.Dimensionalities, 1)
 	dim := vector.Dimensionalities[0]
@@ -1104,7 +1104,7 @@ func TestService_JitterFunctionality(t *testing.T) {
 		mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(100), nil).Times(2)
 		mockShard.EXPECT().ObjectStorageSize(ctx).Return(int64(1000), nil).Times(2)
 		mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil).Times(2)
-		mockShard.EXPECT().DimensionsUsage(ctx, "default").Return( 1536, 100, nil).Times(2)
+		mockShard.EXPECT().DimensionsUsage(ctx, "default").Return(1536, 100, nil).Times(2)
 
 		// Simple vector index mock
 		mockVectorIndex := db.NewMockVectorIndex(t)

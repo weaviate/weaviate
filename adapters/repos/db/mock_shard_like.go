@@ -554,8 +554,8 @@ func (_c *MockShardLike_DeleteObjectBatch_Call) RunAndReturn(run func(context.Co
 }
 
 // Dimensions provides a mock function with given fields: ctx, targetVector
-func (_m *MockShardLike) Dimensions(ctx context.Context, targetVector string) (int64, error) {
-	ret := _m.Called(ctx, targetVector)
+func (_m *MockShardLike) Dimensions(ctx context.Context, compressionType DimensionCategory) (int64, error) {
+	ret := _m.Called(ctx, compressionType)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Dimensions")
@@ -563,17 +563,17 @@ func (_m *MockShardLike) Dimensions(ctx context.Context, targetVector string) (i
 
 	var r0 int64
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) (int64, error)); ok {
-		return rf(ctx, targetVector)
+	if rf, ok := ret.Get(0).(func(context.Context, DimensionCategory) (int64, error)); ok {
+		return rf(ctx, compressionType)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) int64); ok {
-		r0 = rf(ctx, targetVector)
+	if rf, ok := ret.Get(0).(func(context.Context, DimensionCategory) int64); ok {
+		r0 = rf(ctx, compressionType)
 	} else {
 		r0 = ret.Get(0).(int64)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, targetVector)
+	if rf, ok := ret.Get(1).(func(context.Context, DimensionCategory) error); ok {
+		r1 = rf(ctx, compressionType)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -589,8 +589,8 @@ type MockShardLike_Dimensions_Call struct {
 // Dimensions is a helper method to define mock.On call
 //   - ctx context.Context
 //   - targetVector string
-func (_e *MockShardLike_Expecter) Dimensions(ctx interface{}, targetVector interface{}) *MockShardLike_Dimensions_Call {
-	return &MockShardLike_Dimensions_Call{Call: _e.mock.On("Dimensions", ctx, targetVector)}
+func (_e *MockShardLike_Expecter) Dimensions(ctx interface{}, compressionType interface{}) *MockShardLike_Dimensions_Call {
+	return &MockShardLike_Dimensions_Call{Call: _e.mock.On("Dimensions", ctx, compressionType)}
 }
 
 func (_c *MockShardLike_Dimensions_Call) Run(run func(ctx context.Context, targetVector string)) *MockShardLike_Dimensions_Call {
@@ -611,7 +611,7 @@ func (_c *MockShardLike_Dimensions_Call) RunAndReturn(run func(context.Context, 
 }
 
 // DimensionsUsage provides a mock function with given fields: ctx, targetVector
-func (_m *MockShardLike) DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, error) {
+func (_m *MockShardLike) DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, int64, error) {
 	ret := _m.Called(ctx, targetVector)
 
 	if len(ret) == 0 {
@@ -620,8 +620,9 @@ func (_m *MockShardLike) DimensionsUsage(ctx context.Context, targetVector strin
 
 	var r0 int64
 	var r1 int64
-	var r2 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) (int64, int64, error)); ok {
+	var r2 int64
+	var r3 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (int64, int64, int64, error)); ok {
 		return rf(ctx, targetVector)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string) int64); ok {
@@ -637,12 +638,12 @@ func (_m *MockShardLike) DimensionsUsage(ctx context.Context, targetVector strin
 	}
 
 	if rf, ok := ret.Get(2).(func(context.Context, string) error); ok {
-		r2 = rf(ctx, targetVector)
+		r3 = rf(ctx, targetVector)
 	} else {
-		r2 = ret.Error(2)
+		r3 = ret.Error(2)
 	}
 
-	return r0, r1, r2
+	return r0, r1, r2, r3
 }
 
 // MockShardLike_DimensionsUsage_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DimensionsUsage'
@@ -2421,54 +2422,6 @@ func (_c *MockShardLike_PutObjectBatch_Call) Return(_a0 []error) *MockShardLike_
 }
 
 func (_c *MockShardLike_PutObjectBatch_Call) RunAndReturn(run func(context.Context, []*storobj.Object) []error) *MockShardLike_PutObjectBatch_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// QuantizedDimensions provides a mock function with given fields: ctx, targetVector, segments
-func (_m *MockShardLike) QuantizedDimensions(ctx context.Context, targetVector string, segments int64) int64 {
-	ret := _m.Called(ctx, targetVector, segments)
-
-	if len(ret) == 0 {
-		panic("no return value specified for QuantizedDimensions")
-	}
-
-	var r0 int64
-	if rf, ok := ret.Get(0).(func(context.Context, string, int64) int64); ok {
-		r0 = rf(ctx, targetVector, segments)
-	} else {
-		r0 = ret.Get(0).(int64)
-	}
-
-	return r0
-}
-
-// MockShardLike_QuantizedDimensions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'QuantizedDimensions'
-type MockShardLike_QuantizedDimensions_Call struct {
-	*mock.Call
-}
-
-// QuantizedDimensions is a helper method to define mock.On call
-//   - ctx context.Context
-//   - targetVector string
-//   - segments int64
-func (_e *MockShardLike_Expecter) QuantizedDimensions(ctx interface{}, targetVector interface{}, segments interface{}) *MockShardLike_QuantizedDimensions_Call {
-	return &MockShardLike_QuantizedDimensions_Call{Call: _e.mock.On("QuantizedDimensions", ctx, targetVector, segments)}
-}
-
-func (_c *MockShardLike_QuantizedDimensions_Call) Run(run func(ctx context.Context, targetVector string, segments int64)) *MockShardLike_QuantizedDimensions_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(int64))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_QuantizedDimensions_Call) Return(_a0 int64) *MockShardLike_QuantizedDimensions_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_QuantizedDimensions_Call) RunAndReturn(run func(context.Context, string, int64) int64) *MockShardLike_QuantizedDimensions_Call {
 	_c.Call.Return(run)
 	return _c
 }

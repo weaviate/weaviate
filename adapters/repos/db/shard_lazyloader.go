@@ -469,16 +469,48 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
-func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, error) {
-	l.mutex.Lock()
-	if l.loaded {
-		l.mutex.Unlock()
+func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, int64, error) {
+	if l.isLoaded() {
 		return l.shard.DimensionsUsage(ctx, targetVector)
 	}
-	l.mutex.Unlock()
+	b, err := l.getDimensionsBucket()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	defer b.Shutdown(ctx)
 
+	dimensions, count := calcTargetVectorDimensionsFromBucket(b, targetVector, func(dimLen int, v int64) (int64, int64) {
+		return v, int64(dimLen)
+	})
+
+	comp, _, err := discountDimensions(dimensions, count, l.Index().GetVectorIndexConfig(targetVector))
+	if err != nil {
+		return 0, 0, 0, errors.Wrapf(err, "calculate dimensions usage for vector %s", targetVector)
+	}
+
+	return dimensions, count, comp, err
+}
+
+func (l *LazyLoadShard) Dimensions(ctx context.Context, compressionType DimensionCategory) (int64, error) {
+	if l.isLoaded() {
+		return l.shard.Dimensions(ctx, compressionType)
+	}
+	b, err := l.getDimensionsBucket()
+	if err != nil {
+		return 0, err
+	}
+	defer b.Shutdown(ctx)
+
+	dimensions, count, err := sumByVectorType(b, l.Index().GetVectorIndexConfigs(), compressionType, func(dimLen int, v int64) (int64, int64) {
+		return v, int64(dimLen)
+	})
+
+	return dimensions * count, nil
+}
+
+func (l *LazyLoadShard) getDimensionsBucket() (*lsmkv.Bucket, error) {
 	path := l.Index().path()
-	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
+	bucket, err := lsmkv.NewBucketCreator().NewBucket(context.Background(),
 		shardPathDimensionsLSM(path, l.Name()),
 		path,
 		l.Index().logger,
@@ -487,33 +519,41 @@ func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string
 		cyclemanager.NewCallbackGroupNoop(),
 	)
 	if err != nil {
-		return 0, 0, err
+		if err == lsmkv.ErrBucketAlreadyRegistered {
+			return bucket, nil
+		}
+		return nil, err
 	}
-	defer bucket.Shutdown(ctx)
-
-	dimensions, count, err := sumByVectorType(ctx, bucket, l.Index().GetVectorIndexConfigs(), targetVector, func(dimLen int, v int64) (int64, int64) {
-		return v, int64(dimLen)
-	})
-
-	return dimensions, count, err
-}
-
-func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int64, error) {
-	dimensions, count, err := l.DimensionsUsage(ctx, targetVector)
-	if err != nil {
-		return 0, fmt.Errorf("error while getting dimensions for shard %s: %w", l.shardOpts.name, err)
-	}
-	return dimensions * count, nil
-}
-
-func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int64) int64 {
-	l.mustLoad()
-	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
+	return bucket, nil
 }
 
 func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
-	l.mustLoad()
-	l.shard.publishDimensionMetrics(ctx)
+	if l.shardOpts.promMetrics != nil {
+		var (
+			className     = l.Index().Config.ClassName.String()
+			shardName     = l.Name()
+			sumSegments   = int64(0)
+			sumDimensions = int64(0)
+		)
+
+		// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled
+		if l.shardOpts.promMetrics.Group {
+			className = "n/a"
+			shardName = "n/a"
+		}
+
+		b, err := l.getDimensionsBucket()
+		if err != nil {
+			l.shardOpts.index.logger.WithField("shard", l.Name()).
+				Errorf("error while getting dimensions bucket for shard %s: %v", l.Name(), err)
+			return
+		}
+		defer b.Shutdown(ctx)
+
+		sumDimensions, sumSegments = sumAllDimensionsInBucket(ctx, b, l.Name(), l.Index().GetVectorIndexConfigs())
+		sendVectorSegmentsMetric(l.shardOpts.promMetrics, className, shardName, sumSegments)
+		sendVectorDimensionsMetric(l.shardOpts.promMetrics, className, shardName, sumDimensions)
+	}
 }
 
 func (l *LazyLoadShard) resetDimensionsLSM() error {
@@ -833,7 +873,7 @@ func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) (int64, error) {
 			return 0, err
 		}
 
-		dimensions, count := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v int64) (int64, int64) {
+		dimensions, count := calcTargetVectorDimensionsFromBucket(bucket, targetVector, func(dimLen int, v int64) (int64, int64) {
 			return v, int64(dimLen)
 		})
 		bucket.Shutdown(ctx)

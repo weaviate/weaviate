@@ -309,7 +309,7 @@ func (s *Shard) addToDimensionBucket(
 	if err != nil {
 		return err
 	}
-	var countbuff = make([]byte, len(countbuff_r))
+	countbuff := make([]byte, len(countbuff_r))
 	if countbuff_r == nil {
 		// if the bucket is empty, initialize the count to 0
 		countbuff = make([]byte, 8)

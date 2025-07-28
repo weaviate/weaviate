@@ -67,7 +67,7 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
 
 	simpleInsertObjects(t, repo, "ThingForBatching", 123)
-	time.Sleep(5*time.Second) // wait for dimensions to be flushed
+	time.Sleep(5 * time.Second) // wait for dimensions to be flushed
 
 	dimAfter := getDimensionsFromRepo(context.Background(), repo, "ThingForBatching")
 	require.Equal(t, 369, dimAfter, "Dimensions are present after import")

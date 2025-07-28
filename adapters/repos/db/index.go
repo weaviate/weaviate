@@ -492,14 +492,15 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 	return nil
 }
 
-func (i *Index) GetShardLike(name string) (ShardLike, error) {
-	// FiXME: lock here?
-	shard := i.shards.Load(name)
+func (i *Index) GetShardLike(shardName string) (ShardLike, error) {
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
+	shard := i.shards.Load(shardName)
 	if shard != nil {
 		return shard, nil
 	}
 
-	shard, err := i.initShard(i.closingCtx, name, i.Class(),
+	shard, err := i.initShard(i.closingCtx, shardName, i.Class(),
 		monitoring.GetMetrics(), false, false)
 	if err != nil {
 		return nil, err
@@ -3121,11 +3122,12 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 }
 
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
-func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName, targetVector string) (int64, int64, error) {
+func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName, targetVector string) (int64, int64, int64, error) {
 	// check if created in the meantime by concurrent call
 	shard, err := i.GetShardLike(tenantName)
+	_ = shard.(*LazyLoadShard)
 	if err != nil {
-		return 0, 0, fmt.Errorf("get shard %q: %w", tenantName, err)
+		return 0, 0, 0, fmt.Errorf("get shard %q: %w", tenantName, err)
 	}
 	return shard.DimensionsUsage(ctx, targetVector)
 }
