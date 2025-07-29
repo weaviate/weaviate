@@ -185,14 +185,13 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 						VectorCompressionRatio: vectorIndex.CompressionStats().CompressionRatio(dimensionality),
 					}
 
-
-          // Only add dimensionalities if there's valid data
-          if count > 0 || dimensionality > 0 {
-            vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &types.Dimensionality{
-              Dimensions: dimensionality,
-              Count:      count,
-            })
-          }
+					// Only add dimensionalities if there's valid data
+					if count > 0 || dimensionality > 0 {
+						vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &types.Dimensionality{
+							Dimensions: dimensionality,
+							Count:      count,
+						})
+					}
 
 					shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
 					return nil

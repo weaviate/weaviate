@@ -518,7 +518,7 @@ func getDimensionsFromRepo(ctx context.Context, repo *DB, className string) int 
 	index := repo.GetIndex(schema.ClassName(className))
 	sum := int64(0)
 	index.ForEachShard(func(name string, shard ShardLike) error {
-		dim, err := shard.Dimensions(ctx, "")
+		dim, err := shard.Dimensions(ctx, DimensionCategoryAll)
 		if err != nil {
 			return err
 		}
