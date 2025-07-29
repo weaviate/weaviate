@@ -8,23 +8,31 @@ function echo_yellow() {
   echo -e "${yellow}${*}${nc}"
 }
 
+function to_pkgs_string() {
+  local pkgs=""
+  for pkg in "$@"; do
+    pkgs="$pkgs ./$pkg/..."
+  done
+  echo "$pkgs"
+}
+
 export DISABLE_RECOVERY_ON_PANIC=true 
 
 includeslow=false
-onlyvectorpkg=false
-withoutvectorpkg=false
+onlyslowpkgs=false
+onlyfastpkgs=false
 
 for arg in "$@"; do
   if [[ $arg == --include-slow ]]; then
     includeslow=true
     shift
   fi
-  if [[ $arg == --only-vector-pkg ]]; then
-    onlyvectorpkg=true
+  if [[ $arg == --only-slow-pkgs ]]; then
+    onlyslowpkgs=true
     shift
   fi
-  if [[ $arg == --without-vector-pkg ]]; then
-    withoutvectorpkg=true
+  if [[ $arg == --only-fast-pkgs ]]; then
+    onlyfastpkgs=true
     shift
   fi
 done
@@ -38,12 +46,12 @@ else
 fi
 
 pkgs=""
-if [ $withoutvectorpkg = true ]; then
-  echo_yellow "Running integration tests without adapters/repos/db/vector package"
-  pkgs=$(go list ./adapters/repos/... | grep -v "adapters/repos/db/vector")
-elif [ $onlyvectorpkg = true ]; then
-  echo_yellow "Running only adapters/repos/db/vector package integration tests"
-  pkgs="./adapters/repos/db/vector/..."
+if [ $onlyfastpkgs = true ]; then
+  echo_yellow "Running integration tests without /adapters/repos/db package"
+  pkgs=$(go list ./adapters/repos/... | grep -v "/adapters/repos/db$")
+elif [ $onlyslowpkgs = true ]; then
+  echo_yellow "Running only slow integration tests"
+  pkgs=$(go list ./adapters/repos/... | grep "/adapters/repos/db$")
 fi
 
 

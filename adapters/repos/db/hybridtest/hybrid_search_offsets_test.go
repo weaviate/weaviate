@@ -11,7 +11,7 @@
 
 //go:build integrationTest
 
-package db
+package hybridtest
 
 import (
 	"context"
@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -44,7 +45,7 @@ var (
 	queryHybridMaximumResults = []int64{100, 10, 200, 1000}
 )
 
-func SetupPaginationTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) []string {
+func SetupPaginationTestData(t require.TestingT, repo *db.DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) []string {
 	class := &models.Class{
 		VectorIndexType:     "flat",
 		VectorIndexConfig:   flat.NewDefaultUserConfig(),
@@ -81,7 +82,7 @@ func SetupPaginationTestData(t require.TestingT, repo *DB, schemaGetter *fakeSch
 
 	schemaGetter.schema = schema
 
-	migrator := NewMigrator(repo, logger)
+	migrator := db.NewMigrator(repo, logger)
 	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 
 	// generate different ratios
@@ -125,7 +126,7 @@ func TestHybridOffsets(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := db.New(logger, db.Config{
 		MemtablesFlushDirtyAfter:  99999,
 		MemtablesMaxActiveSeconds: 99999,
 		MemtablesMaxSizeMB:        1000,
@@ -151,8 +152,9 @@ func TestHybridOffsets(t *testing.T) {
 	}
 
 	for _, queryHybridMaximumResult := range queryHybridMaximumResults {
-		repo.config.QueryHybridMaximumResults = queryHybridMaximumResult
-		repo.config.QueryMaximumResults = queryMaximumResults
+		cfg := repo.GetConfig()
+		cfg.QueryHybridMaximumResults = queryHybridMaximumResult
+		cfg.QueryMaximumResults = queryMaximumResults
 
 		myConfig := config.Config{
 			QueryDefaults: config.QueryDefaults{
@@ -248,11 +250,27 @@ func TestHybridOffsets(t *testing.T) {
 					}
 				}
 			}
-			idx.ForEachShard(func(name string, shard ShardLike) error {
+			idx.ForEachShard(func(name string, shard db.ShardLike) error {
 				err := shard.Store().FlushMemtables(context.Background())
 				require.Nil(t, err)
 				return nil
 			})
 		}
+	}
+}
+
+func BM25FinvertedConfig(k1, b float32, stopWordPreset string) *models.InvertedIndexConfig {
+	return &models.InvertedIndexConfig{
+		Bm25: &models.BM25Config{
+			K1: k1,
+			B:  b,
+		},
+		CleanupIntervalSeconds: 60,
+		Stopwords: &models.StopwordConfig{
+			Preset: stopWordPreset,
+		},
+		IndexNullState:      true,
+		IndexPropertyLength: true,
+		UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 	}
 }
