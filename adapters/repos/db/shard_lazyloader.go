@@ -533,8 +533,8 @@ func (l *LazyLoadShard) getDimensionsBucket() (*lsmkv.Bucket, error) {
 func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
 	if l.shardOpts.promMetrics != nil {
 		var (
-			className     = l.Index().Config.ClassName.String()
-			shardName     = l.Name()
+			className = l.Index().Config.ClassName.String()
+			shardName = l.Name()
 		)
 
 		// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled

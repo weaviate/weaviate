@@ -230,8 +230,8 @@ func (s *Shard) initDimensionTracking() {
 func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 	if s.promMetrics != nil {
 		var (
-			className     = s.index.Config.ClassName.String()
-			shardName     = s.name
+			className = s.index.Config.ClassName.String()
+			shardName = s.name
 		)
 
 		// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled
