@@ -1516,15 +1516,8 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	if replProps == nil {
-		replProps = defaultConsistency()
-	}
-	cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
-	planOptions := routerTypes.RoutingPlanBuildOptions{
-		Tenant:           tenant,
-		ConsistencyLevel: cl,
-	}
-	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
+	cl := i.consistencyLevel(replProps)
+	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1865,15 +1858,8 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	if replProps == nil {
-		replProps = defaultConsistency()
-	}
-	cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
-	planOptions := routerTypes.RoutingPlanBuildOptions{
-		Tenant:           tenant,
-		ConsistencyLevel: cl,
-	}
-	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
+	cl := i.consistencyLevel(replProps)
+	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2333,15 +2319,8 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
 	params aggregation.Params, modules *modules.Provider, tenant string,
 ) (*aggregation.Result, error) {
-	if replProps == nil {
-		replProps = defaultConsistency()
-	}
-	cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
-	planOptions := routerTypes.RoutingPlanBuildOptions{
-		Tenant:           tenant,
-		ConsistencyLevel: cl,
-	}
-	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
+	cl := i.consistencyLevel(replProps)
+	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -2732,15 +2711,8 @@ func (i *Index) findUUIDs(ctx context.Context,
 ) (map[string][]strfmt.UUID, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
-	if repl == nil {
-		repl = defaultConsistency()
-	}
-	cl := routerTypes.ConsistencyLevel(repl.ConsistencyLevel)
-	planOptions := routerTypes.RoutingPlanBuildOptions{
-		Tenant:           tenant,
-		ConsistencyLevel: cl,
-	}
-	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
+	cl := i.consistencyLevel(repl)
+	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -2781,7 +2753,8 @@ func (i *Index) consistencyLevel(repl *additional.ReplicationProperties) routerT
 	if repl == nil {
 		repl = defaultConsistency()
 	}
-	return routerTypes.ConsistencyLevel(repl.ConsistencyLevel)
+	cl := routerTypes.ConsistencyLevel(repl.ConsistencyLevel)
+	return cl
 }
 
 func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
