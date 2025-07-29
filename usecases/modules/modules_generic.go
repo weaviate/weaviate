@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func vectorFromSearchParam[T dto.Embedding](
@@ -28,6 +29,7 @@ func vectorFromSearchParam[T dto.Embedding](
 	params interface{},
 	findVectorFn modulecapabilities.FindVectorFn[T],
 	isModuleNameEqualFn func(module modulecapabilities.Module, targetModule string) bool,
+	dbConfig *config.Config,
 ) (bool, T, error) {
 	var moduleName string
 	var vectorSearches map[string]modulecapabilities.VectorForParams[T]
@@ -45,7 +47,7 @@ func vectorFromSearchParam[T dto.Embedding](
 	}
 	if vectorSearches != nil {
 		if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-			cfg := NewClassBasedModuleConfig(class, moduleName, tenant, targetVector)
+			cfg := NewClassBasedModuleConfig(class, moduleName, tenant, targetVector, dbConfig)
 			vector, err := searchVectorFn.VectorForParams(ctx, params, class.Class, findVectorFn, cfg)
 			if err != nil {
 				return true, nil, errors.Errorf("vectorize params: %v", err)
@@ -64,6 +66,7 @@ func crossClassVectorFromSearchParam[T dto.Embedding](
 	params interface{},
 	findVectorFn modulecapabilities.FindVectorFn[T],
 	getTargetVectorFn func(class *models.Class, params interface{}) ([]string, error),
+	dbConfig config.Config,
 ) (bool, T, string, error) {
 	if searcher, ok := mod.(modulecapabilities.Searcher[T]); ok {
 		if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
@@ -93,10 +96,11 @@ func vectorFromInput[T dto.Embedding](
 	mod modulecapabilities.Module,
 	class *models.Class,
 	input, targetVector string,
+	dbConfig *config.Config,
 ) (bool, T, error) {
 	if vectorizer, ok := mod.(modulecapabilities.InputVectorizer[T]); ok {
 		// does not access any objects, therefore tenant is irrelevant
-		cfg := NewClassBasedModuleConfig(class, mod.Name(), "", targetVector)
+		cfg := NewClassBasedModuleConfig(class, mod.Name(), "", targetVector, dbConfig)
 		vector, err := vectorizer.VectorizeInput(ctx, input, cfg)
 		return true, vector, err
 	}

@@ -123,7 +123,7 @@ func (s BaseClassSettings) VectorizeClassName() bool {
 }
 
 func (s BaseClassSettings) Properties() []string {
-	if s.cfg == nil || len(s.cfg.Class()) == 0 {
+	if s.cfg == nil || len(s.GetSettings()) == 0 {
 		return nil
 	}
 
@@ -132,7 +132,7 @@ func (s BaseClassSettings) Properties() []string {
 		return nil
 	}
 
-	asArray, ok := field.([]interface{})
+	asArray, ok := field.([]any)
 	if ok {
 		asStringArray := make([]string, len(asArray))
 		for i := range asArray {
@@ -150,7 +150,7 @@ func (s BaseClassSettings) Properties() []string {
 }
 
 func (s BaseClassSettings) Model() string {
-	if s.cfg == nil || len(s.cfg.Class()) == 0 {
+	if s.cfg == nil || len(s.GetSettings()) == 0 {
 		return ""
 	}
 
@@ -164,7 +164,7 @@ func (s BaseClassSettings) Model() string {
 }
 
 func (s BaseClassSettings) ValidateClassSettings() error {
-	if s.cfg != nil && len(s.cfg.Class()) > 0 {
+	if s.cfg != nil && len(s.GetSettings()) > 0 {
 		if field, ok := s.GetSettings()["properties"]; ok {
 			fieldsArray, fieldsArrayOk := field.([]interface{})
 			if fieldsArrayOk {
@@ -252,6 +252,9 @@ func (s BaseClassSettings) ValidateIndexState(class *models.Class) error {
 }
 
 func (s BaseClassSettings) GetSettings() map[string]interface{} {
+	if s.cfg == nil || s.propertyHelper == nil {
+		return nil
+	}
 	return s.propertyHelper.GetSettings(s.cfg)
 }
 
@@ -265,12 +268,21 @@ func (s BaseClassSettings) Validate(class *models.Class) error {
 		return err
 	}
 
-	err := s.ValidateIndexState(class)
-	if err != nil {
-		return err
+	if !s.isAutoSchemaEnabled() {
+		err := s.ValidateIndexState(class)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
+}
+
+func (s BaseClassSettings) isAutoSchemaEnabled() bool {
+	if s.cfg != nil && s.cfg.Config() != nil && s.cfg.Config().AutoSchema.Enabled != nil {
+		return s.cfg.Config().AutoSchema.Enabled.Get()
+	}
+	return false
 }
 
 func ValidateSetting[T string | int64](value T, availableValues []T) bool {
