@@ -523,9 +523,6 @@ func (l *LazyLoadShard) getDimensionsBucket() (*lsmkv.Bucket, error) {
 		cyclemanager.NewCallbackGroupNoop(),
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), lsmkv.ErrBucketAlreadyRegistered.Error()) {
-			return bucket, nil
-		}
 		return nil, err
 	}
 	return bucket, nil
@@ -874,11 +871,12 @@ func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) (int64, error) {
 		if err != nil {
 			return 0, err
 		}
+		defer bucket.Shutdown(ctx)
 
 		dimensions, count := calcTargetVectorDimensionsFromBucket(bucket, targetVector, func(dimLen int, v int64) (int64, int64) {
 			return v, int64(dimLen)
 		})
-		bucket.Shutdown(ctx)
+
 
 		if count == 0 || dimensions == 0 {
 			continue
