@@ -126,72 +126,54 @@ func (s *SPFresh) Start(ctx context.Context) {
 	enterrors.GoWrapper(s.mergeWorker, s.Logger)
 }
 
-func (s *SPFresh) Append(id uint64, vector []byte, reassigned bool) (bool, error) {
-	// search the nearest centroid
-	ps, err := s.SPTAG.Search(vector, 1)
+// Insert a vector into one or more postings.
+// The number of replicas is determined by the UserConfig.Replicas setting.
+func (s *SPFresh) Insert(id uint64, vector []byte) error {
+	replicas, _, err := s.selectReplicas(vector, 0)
 	if err != nil {
-		return false, errors.Wrap(err, "failed to search for nearest centroid")
+		return err
 	}
 
-	// register the vector in the version map
 	s.VersionMap.AllocPageFor(id)
-	version, _ := s.VersionMap.Increment(id)
 
-	v := Vector{
-		ID:      id,
-		Version: version,
-		Data:    vector,
+	for _, replica := range replicas {
+		_, err = s.Append(Vector{ID: id, Data: vector, Version: s.VersionMap.Get(id)}, replica, false)
+		if err != nil {
+			return errors.Wrapf(err, "failed to append vector %d to replica %d", id, replica)
+		}
 	}
 
-	var postingID uint64
+	return nil
+}
 
-	// if there are no postings, create a new one
-	if len(ps) == 0 {
-		postingID = s.IDs.Next()
+func (s *SPFresh) Append(vector Vector, postingID uint64, reassigned bool) (bool, error) {
+	s.postingLocks.Lock(postingID)
 
-		// persist the new posting first
-		err = s.Store.Put(s.ctx, postingID, Posting{v})
-		if err != nil {
-			return false, errors.Wrapf(err, "failed to persist new posting %d", postingID)
-		}
-
-		// use the vector as the centroid and register it in the SPTAG
-		err = s.SPTAG.Upsert(postingID, vector)
-		if err != nil {
-			return false, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
-		}
-	} else {
-		postingID = ps[0].ID
-
-		// lock the posting to ensure no concurrent modifications
-		s.postingLocks.Lock(postingID)
-
-		// check if the posting still exists
-		if !s.SPTAG.Exists(postingID) {
-			// the vector might have been deleted concurrently,
-			// might happen if we are reassigning
-			if s.VersionMap.Get(id) == version {
-				err = s.enqueueReassign(s.ctx, postingID, v)
-				if err != nil {
-					return false, errors.Wrapf(err, "failed to enqueue reassign for vector %d", id)
-				}
-			}
-
-			return false, nil
-		}
-
-		// append the new vector to the existing posting
-		err = s.Store.Merge(s.ctx, postingID, v)
-		if err != nil {
+	// check if the posting still exists
+	if !s.SPTAG.Exists(postingID) {
+		// the vector might have been deleted concurrently,
+		// might happen if we are reassigning
+		if s.VersionMap.Get(vector.ID) == vector.Version {
+			err := s.enqueueReassign(s.ctx, postingID, vector)
 			s.postingLocks.Unlock(postingID)
-			return false, err
+			if err != nil {
+				return false, err
+			}
 		}
 
-		// increment the size of the posting
-		s.PostingSizes.Inc(postingID, 1)
-
-		s.postingLocks.Unlock(postingID)
+		return false, nil
 	}
+
+	// append the new vector to the existing posting
+	err := s.Store.Merge(s.ctx, postingID, vector)
+	if err != nil {
+		s.postingLocks.Unlock(postingID)
+		return false, err
+	}
+	// increment the size of the posting
+	s.PostingSizes.Inc(postingID, 1)
+
+	s.postingLocks.Unlock(postingID)
 
 	// ensure the posting size is within the configured limits
 	count := s.PostingSizes.Get(postingID)
@@ -743,7 +725,7 @@ func (s *SPFresh) doMerge(op MergeOperation) error {
 		// get the candidate posting
 		candidate, err := s.Store.Get(s.ctx, nearest[i].ID)
 		if err != nil {
-			return errors.Wrapf(err, "failed to get candidate posting %d for merge operation on posting %d", nearest[i], op.PostingID)
+			return errors.Wrapf(err, "failed to get candidate posting %d for merge operation on posting %d", nearest[i].ID, op.PostingID)
 		}
 
 		var candidateLen int
@@ -841,7 +823,7 @@ func (s *SPFresh) doReassign(op ReassignOperation) error {
 
 	// perform a RNG selection to determine the postings where the vector should be
 	// reassigned to.
-	replicas, needsReassign, err := s.selectReplicas(op.Vector, op.PostingID)
+	replicas, needsReassign, err := s.selectReplicas(op.Vector.Data, op.PostingID)
 	if err != nil {
 		return errors.Wrap(err, "failed to select replicas")
 	}
@@ -860,7 +842,7 @@ func (s *SPFresh) doReassign(op ReassignOperation) error {
 
 	// append the vector to each replica
 	for _, replica := range replicas {
-		ok, err := s.Append(replica, op.Vector.Data, true)
+		ok, err := s.Append(op.Vector, replica, true)
 		if !ok {
 			s.Logger.WithField("vectorID", op.Vector.ID).
 				WithField("replicaID", replica).
@@ -875,8 +857,8 @@ func (s *SPFresh) doReassign(op ReassignOperation) error {
 	return nil
 }
 
-func (s *SPFresh) selectReplicas(query Vector, unless uint64) ([]uint64, bool, error) {
-	results, err := s.SPTAG.Search(query.Data, s.UserConfig.InternalPostingCandidates)
+func (s *SPFresh) selectReplicas(query []byte, unless uint64) ([]uint64, bool, error) {
+	results, err := s.SPTAG.Search(query, s.UserConfig.InternalPostingCandidates)
 	if err != nil {
 		return nil, false, errors.Wrap(err, "failed to search for nearest neighbors")
 	}
