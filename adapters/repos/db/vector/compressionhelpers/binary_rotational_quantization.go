@@ -65,6 +65,23 @@ func NewBinaryRotationalQuantizer(inputDim int, queryBits int, seed uint64, dist
 	return rq
 }
 
+func RestoreBinaryRotationalQuantizer(inputDim int, queryBits int, outputDim int, rounds int, swaps [][]Swap, signs [][]float32, rounding []float32, distancer distancer.Provider) (*BinaryRotationalQuantizer, error) {
+	cos, l2, err := distancerIndicatorsAndError(distancer)
+	if err != nil {
+		return nil, err
+	}
+	rq := &BinaryRotationalQuantizer{
+		inputDim:  uint32(inputDim),
+		rotation:  RestoreFastRotation(outputDim, rounds, swaps, signs),
+		queryBits: queryBits,
+		distancer: distancer,
+		rounding:  rounding,
+		cos:       cos,
+		l2:        l2,
+	}
+	return rq, nil
+}
+
 func putFloat32Upper(v uint64, x float32) uint64 {
 	const upper32 uint64 = ((1 << 32) - 1) << 32
 	return (v &^ upper32) | uint64(math.Float32bits(x))<<32

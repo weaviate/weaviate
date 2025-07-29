@@ -344,6 +344,7 @@ type RQData struct {
 	InputDim uint32
 	Bits     uint32
 	Rotation FastRotation
+	Rounding []float32
 }
 
 func (rq *RotationalQuantizer) PersistCompression(logger CommitLogger) {

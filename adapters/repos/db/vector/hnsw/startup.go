@@ -219,6 +219,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						int(data.Rotation.Rounds),
 						data.Rotation.Swaps,
 						data.Rotation.Signs,
+						data.Rounding,
 						h.store,
 						h.allocChecker,
 					)
