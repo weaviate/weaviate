@@ -16,18 +16,38 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/pkg/errors"
 	"golang.org/x/exp/slices"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 type RotationalQuantizer struct {
-	inputDim     uint32
-	rotation     *FastRotation
-	distancer    distancer.Provider
-	bits         uint32 // The number of bits per entry used by Encode() to encode data vectors.
-	distanceType string
+	inputDim  uint32
+	rotation  *FastRotation
+	distancer distancer.Provider
+	bits      uint32 // The number of bits per entry used by Encode() to encode data vectors.
+
+	// Precomputed for faster distance computations.
+	err error   // Precomputed error returned by DistanceBetweenCompressedVectors.
+	cos float32 // Indicator for the cosine-dot distancer.
+	l2  float32 // Indicator for the l2-squared distancer.
+}
+
+func distancerIndicatorsAndError(distancer distancer.Provider) (float32, float32, error) {
+	supportedDistances := []string{"cosine-dot", "l2-squared", "dot"}
+	if !slices.Contains(supportedDistances, distancer.Type()) {
+		return 0, 0, errors.Errorf("Distance not supported yet %s", distancer)
+	}
+
+	var cos, l2 float32
+	if distancer.Type() == "cosine-dot" {
+		cos = 1.0
+	}
+	if distancer.Type() == "l2-squared" {
+		l2 = 1.0
+	}
+	return cos, l2, nil
 }
 
 func NewRotationalQuantizer(inputDim int, seed uint64, bits int, distancer distancer.Provider) *RotationalQuantizer {
@@ -36,23 +56,30 @@ func NewRotationalQuantizer(inputDim int, seed uint64, bits int, distancer dista
 	// biased in some of the unit tests.
 	rotationRounds := 3
 	rotation := NewFastRotation(inputDim, rotationRounds, seed)
+	cos, l2, err := distancerIndicatorsAndError(distancer)
 	rq := &RotationalQuantizer{
-		inputDim:     uint32(inputDim),
-		rotation:     rotation,
-		bits:         uint32(bits),
-		distancer:    distancer,
-		distanceType: distancer.Type(),
+		inputDim:  uint32(inputDim),
+		rotation:  rotation,
+		bits:      uint32(bits),
+		distancer: distancer,
+		// Precomputed values for faster distance computation.
+		err: err,
+		cos: cos,
+		l2:  l2,
 	}
 	return rq
 }
 
 func RestoreRotationalQuantizer(inputDim int, bits int, outputDim int, rounds int, swaps [][]Swap, signs [][]float32, distancer distancer.Provider) (*RotationalQuantizer, error) {
+	cos, l2, err := distancerIndicatorsAndError(distancer)
 	rq := &RotationalQuantizer{
-		inputDim:     uint32(inputDim),
-		rotation:     RestoreFastRotation(outputDim, rounds, swaps, signs),
-		bits:         uint32(bits),
-		distancer:    distancer,
-		distanceType: distancer.Type(),
+		inputDim:  uint32(inputDim),
+		rotation:  RestoreFastRotation(outputDim, rounds, swaps, signs),
+		bits:      uint32(bits),
+		distancer: distancer,
+		err:       err,
+		cos:       cos,
+		l2:        l2,
 	}
 	return rq, nil
 }
@@ -203,15 +230,19 @@ type RQDistancer struct {
 	bytes   []byte
 	a       float32 // precomputed value from RQCode.
 
-	distanceType string
+	err error
+	cos float32
+	l2  float32
 }
 
 func (rq *RotationalQuantizer) newDistancer(q []float32, cq RQCode) *RQDistancer {
 	return &RQDistancer{
-		distancer:    rq.distancer,
-		rq:           rq,
-		query:        q,
-		distanceType: rq.distanceType,
+		distancer: rq.distancer,
+		rq:        rq,
+		query:     q,
+		err:       rq.err,
+		cos:       rq.cos,
+		l2:        rq.l2,
 		// RQCode fields.
 		lower:   cq.Lower(),
 		step:    cq.Step(),
@@ -232,16 +263,7 @@ func (rq *RotationalQuantizer) NewDistancer(q []float32) *RQDistancer {
 func (d *RQDistancer) Distance(x []byte) (float32, error) {
 	cx := RQCode(x)
 	dotEstimate := cx.Lower()*d.a + cx.CodeSum()*d.lower + cx.Step()*d.step*float32(dotByteImpl(cx.Bytes(), d.bytes))
-	switch d.distanceType {
-	case "cosine-dot":
-		return 1.0 - dotEstimate, nil
-	case "l2-squared":
-		return cx.Norm2() + d.norm2 - 2.0*dotEstimate, nil
-	case "dot":
-		return dotEstimate, nil
-	default:
-		return 0, errors.Errorf("Distance not supported yet %s", d.distanceType)
-	}
+	return d.l2*(cx.Norm2()+d.norm2) + d.cos - (1.0+d.l2)*dotEstimate, d.err
 }
 
 func (d *RQDistancer) DistanceToFloat(x []float32) (float32, error) {
@@ -260,16 +282,7 @@ func (rq RotationalQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (flo
 	c := cy.Lower() * cx.CodeSum()
 	d := cx.Step() * cy.Step() * float32(dotByteImpl(cx.Bytes(), cy.Bytes()))
 	dotEstimate := a + b + c + d
-	switch rq.distanceType {
-	case "cosine-dot":
-		return 1.0 - dotEstimate, nil
-	case "l2-squared":
-		return cx.Norm2() + cy.Norm2() - 2.0*dotEstimate, nil
-	case "dot":
-		return dotEstimate, nil
-	default:
-		return 0, errors.Errorf("Distance not supported yet %s", rq.distanceType)
-	}
+	return rq.l2*(cx.Norm2()+cy.Norm2()) + rq.cos - (1.0+rq.l2)*dotEstimate, rq.err
 }
 
 func (rq *RotationalQuantizer) NewCompressedQuantizerDistancer(c []byte) quantizerDistancer[byte] {
