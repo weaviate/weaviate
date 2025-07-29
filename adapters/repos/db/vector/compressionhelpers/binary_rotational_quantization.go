@@ -37,7 +37,7 @@ const (
 	DefaultRQQueryBits = 4
 )
 
-func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer.Provider) *BinaryRotationalQuantizer {
+func NewBinaryRotationalQuantizer(inputDim int, queryBits int, seed uint64, distancer distancer.Provider) *BinaryRotationalQuantizer {
 	rotationRounds := 5 // 4 might be sufficient, but 3 is probably not enough.
 	rotation := NewFastRotation(inputDim, rotationRounds, seed)
 	cos, l2, err := distancerIndicatorsAndError(distancer)
@@ -57,7 +57,7 @@ func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer
 		inputDim:  uint32(inputDim),
 		rotation:  rotation,
 		distancer: distancer,
-		queryBits: DefaultRQQueryBits,
+		queryBits: queryBits,
 		rounding:  rounding,
 		l2:        l2,
 		cos:       cos,
