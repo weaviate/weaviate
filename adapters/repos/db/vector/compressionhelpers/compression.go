@@ -792,7 +792,6 @@ func RestoreRQMultiCompressor(
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {
-
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
 	case 1:
