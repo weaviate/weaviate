@@ -551,7 +551,7 @@ func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
 		}
 		defer b.Shutdown(ctx)
 
-		sumDimensions, sumSegments = sumAllDimensionsInBucket(ctx, b, l.Name(), l.Index().GetVectorIndexConfigs())
+		sumDimensions, sumSegments := sumAllDimensionsInBucket(ctx, b, l.Name(), l.Index().GetVectorIndexConfigs())
 		sendVectorSegmentsMetric(l.shardOpts.promMetrics, className, shardName, sumSegments)
 		sendVectorDimensionsMetric(l.shardOpts.promMetrics, className, shardName, sumDimensions)
 	}
