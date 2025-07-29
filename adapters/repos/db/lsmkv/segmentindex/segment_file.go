@@ -311,7 +311,7 @@ func (f *SegmentFile) ValidateChecksum(size, headerSize int64) error {
 	}
 
 	var checksumBytes [ChecksumSize]byte
-	n, err = f.reader.Read(checksumBytes[:])
+	n, err = io.ReadFull(f.reader, checksumBytes[:])
 	if err != nil {
 		return fmt.Errorf("read segment file checksum: %w", err)
 	}
