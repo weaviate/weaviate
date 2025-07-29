@@ -145,6 +145,7 @@ type ShardLike interface {
 	Dimensions(ctx context.Context, compressionType DimensionCategory) (int64, error)
 	// DimensionsUsage returns the total number of dimensions, the number of objects, and the compressed dimensions for a given vector
 	DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, int64, error)
+	QuantizedDimensions(ctx context.Context, targetVector string, segments int64) int64
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
 	publishDimensionMetrics(ctx context.Context)
@@ -501,4 +502,13 @@ func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueInd
 
 func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) {
 	s.callbacksRemoveFromPropertyValueIndex = append(s.callbacksRemoveFromPropertyValueIndex, callback)
+}
+
+func (s *Shard) QuantizedDimensions(ctx context.Context, targetVectorType string, segments int64) int64 {
+       dims, _, _ := sumByVectorType(s.store.Bucket(helpers.DimensionsBucketLSM), s.index.GetVectorIndexConfigs(), DimensionCategoryPQ, func(dimLength int, v int64) (int64, int64) {
+		n := v * correctEmptySegments(int(segments), int64(dimLength))
+		return n, n
+	})
+
+	return dims
 }

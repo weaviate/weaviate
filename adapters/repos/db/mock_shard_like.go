@@ -703,6 +703,54 @@ func (_m *MockShardLike) Exists(ctx context.Context, id strfmt.UUID) (bool, erro
 	return r0, r1
 }
 
+// QuantizedDimensions provides a mock function with given fields: ctx, targetVector, segments
+func (_m *MockShardLike) QuantizedDimensions(ctx context.Context, targetVector string, segments int64) int64 {
+       ret := _m.Called(ctx, targetVector, segments)
+
+       if len(ret) == 0 {
+               panic("no return value specified for QuantizedDimensions")
+       }
+
+       var r0 int64
+       if rf, ok := ret.Get(0).(func(context.Context, string, int64) int64); ok {
+               r0 = rf(ctx, targetVector, segments)
+       } else {
+               r0 = ret.Get(0).(int64)
+       }
+
+       return r0
+}
+
+// MockShardLike_QuantizedDimensions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'QuantizedDimensions'
+type MockShardLike_QuantizedDimensions_Call struct {
+       *mock.Call
+}
+
+// QuantizedDimensions is a helper method to define mock.On call
+//   - ctx context.Context
+//   - targetVector string
+//   - segments int64
+func (_e *MockShardLike_Expecter) QuantizedDimensions(ctx interface{}, targetVector interface{}, segments interface{}) *MockShardLike_QuantizedDimensions_Call {
+       return &MockShardLike_QuantizedDimensions_Call{Call: _e.mock.On("QuantizedDimensions", ctx, targetVector, segments)}
+}
+
+func (_c *MockShardLike_QuantizedDimensions_Call) Run(run func(ctx context.Context, targetVector string, segments int64)) *MockShardLike_QuantizedDimensions_Call {
+       _c.Call.Run(func(args mock.Arguments) {
+               run(args[0].(context.Context), args[1].(string), args[2].(int64))
+       })
+       return _c
+}
+
+func (_c *MockShardLike_QuantizedDimensions_Call) Return(_a0 int64) *MockShardLike_QuantizedDimensions_Call {
+       _c.Call.Return(_a0)
+       return _c
+}
+
+func (_c *MockShardLike_QuantizedDimensions_Call) RunAndReturn(run func(context.Context, string, int64) int64) *MockShardLike_QuantizedDimensions_Call {
+       _c.Call.Return(run)
+       return _c
+}
+
 // MockShardLike_Exists_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Exists'
 type MockShardLike_Exists_Call struct {
 	*mock.Call

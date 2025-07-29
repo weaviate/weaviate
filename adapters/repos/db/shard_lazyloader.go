@@ -511,6 +511,25 @@ func (l *LazyLoadShard) Dimensions(ctx context.Context, compressionType Dimensio
 	return dimensions * count, nil
 }
 
+func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int64) int64 {
+	if l.isLoaded() {
+		return l.shard.QuantizedDimensions(ctx, targetVector, segments)
+	}
+	b, err := l.getDimensionsBucket()
+	if err != nil {
+		l.shardOpts.index.logger.WithField("shard", l.Name()).
+			Errorf("error while getting dimensions bucket for shard %s: %v", l.Name(), err)
+		return -1
+	}
+	defer b.Shutdown(ctx)
+	dims, _, _ := sumByVectorType(b, l.Index().GetVectorIndexConfigs(), DimensionCategoryPQ, func(dimLength int, v int64) (int64, int64) {
+		n := v * correctEmptySegments(int(segments), int64(dimLength))
+		return n, n
+	})
+
+	return dims
+}
+
 func (l *LazyLoadShard) getDimensionsBucket() (*lsmkv.Bucket, error) {
 	path := l.Index().path()
 	bucket, err := lsmkv.NewBucketCreator().NewBucket(context.Background(),
