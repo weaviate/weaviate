@@ -156,7 +156,7 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		waitForRestore(t, backupID, backend, adminKey)
+		helper.ExpectBackupEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
 	})
 
 	t.Run("successfully cancel an in-progress backup", func(t *testing.T) {

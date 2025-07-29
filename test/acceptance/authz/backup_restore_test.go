@@ -96,7 +96,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		waitForBackup(t, backupID, backend, adminKey)
+		helper.ExpectBackupEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey))
 
 		// delete role and assignment
 		helper.DeleteRole(t, adminKey, testRoleName)
@@ -110,7 +110,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
 
-		waitForRestore(t, backupID, backend, adminKey)
+		helper.ExpectBackupEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
 
 		role := helper.GetRoleByName(t, adminKey, testRoleName)
 		require.NotNil(t, role)
@@ -145,7 +145,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		waitForBackup(t, backupID, backend, adminKey)
+		helper.ExpectBackupEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 
 		// delete role and assignment
 		helper.DeleteRole(t, adminKey, testRoleName)
@@ -164,7 +164,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
 
-		waitForRestore(t, backupID, backend, adminKey)
+		helper.ExpectBackupEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
 
 		respRole, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRoleName), helper.CreateAuth(adminKey))
 		require.Nil(t, respRole)
@@ -173,43 +173,4 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		roles := helper.GetRolesForUser(t, customUser, adminKey, false)
 		require.Len(t, roles, 0)
 	})
-}
-
-func waitForBackup(t *testing.T, backupID, backend, adminKey string) {
-	for {
-		resp, err := helper.CreateBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(adminKey))
-		require.Nil(t, err)
-		require.NotNil(t, resp.Payload)
-		if *resp.Payload.Status == "SUCCESS" {
-			break
-		}
-		if *resp.Payload.Status == "FAILED" {
-			t.Fatalf("backup failed: %s", resp.Payload.Error)
-		}
-		time.Sleep(time.Second / 10)
-	}
-}
-
-func waitForRestore(t *testing.T, backupID, backend, adminKey string) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-wait:
-	for {
-		select {
-		case <-ticker.C:
-			t.Fatalf("restore timeout after 30 seconds")
-		default:
-			resp, err := helper.RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(adminKey))
-			require.Nil(t, err)
-			require.NotNil(t, resp.Payload)
-			if *resp.Payload.Status == "SUCCESS" {
-				break wait
-			}
-			if *resp.Payload.Status == "FAILED" {
-				t.Fatalf("restore failed: %s", resp.Payload.Error)
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-	}
 }
