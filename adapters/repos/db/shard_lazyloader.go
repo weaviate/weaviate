@@ -528,6 +528,10 @@ func (l *LazyLoadShard) getDimensionsBucket() (*lsmkv.Bucket, error) {
 }
 
 func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
+	if !l.isLoaded() {
+		l.shard.publishDimensionMetrics(ctx)
+		return
+	}
 	if l.shardOpts.promMetrics != nil {
 		var (
 			className = l.Index().Config.ClassName.String()
