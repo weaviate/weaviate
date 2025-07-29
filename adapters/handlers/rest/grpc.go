@@ -20,8 +20,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-func createGrpcServer(state *state.State, grpcBatchWorkersCtx context.Context, options ...grpc.ServerOption) *grpc.Server {
-	return grpcHandler.CreateGRPCServer(state, grpcBatchWorkersCtx, options...)
+func createGrpcServer(state *state.State, grpcShutdownCtx context.Context, options ...grpc.ServerOption) *grpc.Server {
+	return grpcHandler.CreateGRPCServer(state, grpcShutdownCtx, options...)
 }
 
 func startGrpcServer(server *grpc.Server, state *state.State) {

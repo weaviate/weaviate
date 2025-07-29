@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
@@ -29,8 +30,8 @@ func TestHandler(t *testing.T) {
 	readQueues := batch.NewBatchReadQueues()
 	logger := logrus.New()
 
-	handler := batch.NewHandler(writeQueue, readQueues, logger)
-	stream := pb.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
+	handler := batch.NewHandler(ctx, writeQueue, readQueues, logger)
+	stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
 
 	t.Run("Send", func(t *testing.T) {
 		// Arrange

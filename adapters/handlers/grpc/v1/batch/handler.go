@@ -26,16 +26,18 @@ type Batcher interface {
 }
 
 type Handler struct {
-	logger     logrus.FieldLogger
-	writeQueue writeQueue
-	readQueues *ReadQueues
+	grpcShutdownCtx context.Context
+	logger          logrus.FieldLogger
+	writeQueue      writeQueue
+	readQueues      *ReadQueues
 }
 
-func NewHandler(writeQueue writeQueue, readQueues *ReadQueues, logger logrus.FieldLogger) *Handler {
+func NewHandler(grpcShutdownCtx context.Context, writeQueue writeQueue, readQueues *ReadQueues, logger logrus.FieldLogger) *Handler {
 	return &Handler{
-		logger:     logger,
-		writeQueue: writeQueue,
-		readQueues: readQueues,
+		grpcShutdownCtx: grpcShutdownCtx,
+		logger:          logger,
+		writeQueue:      writeQueue,
+		readQueues:      readQueues,
 	}
 }
 
@@ -52,6 +54,7 @@ func (h *Handler) Stream(ctx context.Context, streamId string, stream pb.Weaviat
 				}
 				h.readQueues.Delete(streamId)
 				return nil
+			case <-h.grpcShutdownCtx.Done():
 			case errs := <-readQueue:
 				if errs.Shutdown {
 					if innerErr := stream.Send(newBatchStopMessage(streamId)); innerErr != nil {

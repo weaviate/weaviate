@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
@@ -36,7 +37,7 @@ func TestWorkerLoop(t *testing.T) {
 	logger := logrus.New()
 
 	t.Run("should process objects and send them without error", func(t *testing.T) {
-		mockBatcher := batch.NewMockBatcher(t)
+		mockBatcher := mocks.NewMockBatcher(t)
 
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
@@ -69,7 +70,7 @@ func TestWorkerLoop(t *testing.T) {
 	})
 
 	t.Run("should process objects and send them with a returned error", func(t *testing.T) {
-		mockBatcher := batch.NewMockBatcher(t)
+		mockBatcher := mocks.NewMockBatcher(t)
 
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()

@@ -58,13 +58,13 @@ type Service struct {
 func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	allowAnonymousAccess bool, schemaManager *schemaManager.Manager,
 	batchManager *objects.BatchManager, config *config.Config, authorization authorization.Authorizer,
-	logger logrus.FieldLogger, grpcBatchWorkersCtx context.Context,
+	logger logrus.FieldLogger, grpcShutdownCtx context.Context,
 ) *Service {
 	authenticator := NewAuthHandler(allowAnonymousAccess, authComposer)
 	batchWriteQueue := batch.NewBatchWriteQueue()
 	batchReadQueues := batch.NewBatchReadQueues()
 	batchObjectsHandler := batch.NewObjectsHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batch.StartBatchWorkers(grpcBatchWorkersCtx, 1, batchWriteQueue, batchReadQueues, batchObjectsHandler, logger)
+	batch.StartBatchWorkers(grpcShutdownCtx, 1, batchWriteQueue, batchReadQueues, batchObjectsHandler, logger)
 
 	return &Service{
 		traverser:            traverser,
@@ -77,7 +77,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		authorizer:           authorization,
 		authenticator:        authenticator,
 		batchObjectsHandler:  batchObjectsHandler,
-		batchHandler:         batch.NewHandler(batchWriteQueue, batchReadQueues, logger),
+		batchHandler:         batch.NewHandler(grpcShutdownCtx, batchWriteQueue, batchReadQueues, logger),
 	}
 }
 

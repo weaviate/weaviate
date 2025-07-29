@@ -910,8 +910,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
 
-	grpcBatchWorkersCtx, grpcBatchWorkersCtxCancel := context.WithCancel(context.Background())
-	grpcServer := createGrpcServer(appState, grpcBatchWorkersCtx, grpcInstrument...)
+	grpcShutdownCtx, grpcShutdownCtxCancel := context.WithCancel(context.Background())
+	grpcServer := createGrpcServer(appState, grpcShutdownCtx, grpcInstrument...)
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
 
@@ -954,8 +954,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			appState.DistributedTaskScheduler.Close()
 		}
 
-		// stop grpc batch insert workers on shutdown
-		grpcBatchWorkersCtxCancel()
+		// stop grpc server dependencies on shutdown
+		grpcShutdownCtxCancel()
 
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
