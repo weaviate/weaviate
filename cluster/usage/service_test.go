@@ -1259,7 +1259,7 @@ func TestService_Usage_HotTenantWithLoadingStatus(t *testing.T) {
 	storageSize := int64(5000000)
 	vectorName := "abcd"
 	vectorType := "hnsw"
-	compression := "standard"
+	compression := db.DimensionCategoryStandard
 
 	mockSchema := schema.NewMockSchemaGetter(t)
 	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
@@ -1341,7 +1341,7 @@ func TestService_Usage_HotTenantWithLoadingStatus(t *testing.T) {
 	vector := shard.NamedVectors[0]
 	assert.Equal(t, vectorName, vector.Name)
 	assert.Equal(t, vectorType, vector.VectorIndexType)
-	assert.Equal(t, compression, vector.Compression)
+	assert.Equal(t, compression.String(), vector.Compression)
 	assert.Equal(t, 1.0, vector.VectorCompressionRatio) // Default ratio for cold shards
 
 	mockSchema.AssertExpectations(t)
