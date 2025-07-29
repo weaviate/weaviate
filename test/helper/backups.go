@@ -190,17 +190,12 @@ func WithDeadline(d time.Duration) BackupExpectOpt {
 
 // Expect creation status to report SUCCESS within 30s and with 500ms polling interval (default).
 // Change polling configuration by passing [WithPollInterval] and [WithDeadline].
-func ExpectBackupEventuallyCreated(t *testing.T, backupID, backend string, auth runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
+func ExpectBackupEventuallyCreated(t *testing.T, backupID, backend string, authz runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
 	opt := defaultBackupExpect.WithOptions(opts...)
 
 	require.EventuallyWithTf(t, func(check *assert.CollectT) {
-		var resp *backups.BackupsCreateStatusOK
-		var err error
-		if auth != nil {
-			resp, err = CreateBackupStatusWithAuthz(t, backend, backupID, "", "", auth)
-		} else {
-			resp, err = CreateBackupStatus(t, backend, backupID, "", "")
-		}
+		// Calling -WithAuthz with nil-auth is equivalent to using its no-authz counterpart
+		resp, err := CreateBackupStatusWithAuthz(t, backend, backupID, "", "", authz)
 
 		require.NoError(t, err, "fetch backup create status")
 		require.NotNil(t, resp.Payload, "empty response")
@@ -213,17 +208,12 @@ func ExpectBackupEventuallyCreated(t *testing.T, backupID, backend string, auth 
 
 // Expect restore status to report SUCCESS within 30s and with 500ms polling interval (default).
 // Change polling configuration by passing [WithPollInterval] and [WithDeadline].
-func ExpectBackupEventuallyRestored(t *testing.T, backupID, backend string, auth runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
+func ExpectBackupEventuallyRestored(t *testing.T, backupID, backend string, authz runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
 	opt := defaultBackupExpect.WithOptions(opts...)
 
 	require.EventuallyWithTf(t, func(check *assert.CollectT) {
-		var resp *backups.BackupsRestoreStatusOK
-		var err error
-		if auth != nil {
-			resp, err = RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", auth)
-		} else {
-			resp, err = RestoreBackupStatus(t, backend, backupID, "", "")
-		}
+		// Calling -WithAuthz with nil-auth is equivalent to using its no-authz counterpart
+		resp, err := RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", authz)
 
 		require.NoError(t, err, "fetch backup restore status")
 		require.NotNil(t, resp.Payload, "empty response")
