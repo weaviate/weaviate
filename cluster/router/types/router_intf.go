@@ -30,7 +30,6 @@ type Router interface {
 	// Returns:
 	//   - readReplicas: a replica set serving as read Replicas.
 	//   - writeReplicas: a replica set serving as primary write Replicas.
-	//   - additionalWriteReplicas: a replica set serving as additional write Replicas.
 	//   - error: if an error occurs while retrieving Replicas.
 	GetReadWriteReplicasLocation(collection string, tenant string, shard string) (readReplicas ReadReplicaSet, writeReplicas WriteReplicaSet, err error)
 
@@ -42,7 +41,6 @@ type Router interface {
 	//
 	// Returns:
 	//   - writeReplicas: a replica set serving as primary write Replicas.
-	//   - additionalWriteReplicas: a replica set serving as additional write Replicas.
 	//   - error: if an error occurs while retrieving Replicas.
 	GetWriteReplicasLocation(collection string, tenant string, shard string) (WriteReplicaSet, error)
 
