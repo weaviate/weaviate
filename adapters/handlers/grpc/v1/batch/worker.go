@@ -13,6 +13,7 @@ package batch
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -58,21 +59,34 @@ func (w *Worker) Loop(consistencyLevel pb.ConsistencyLevel) error {
 	for {
 		select {
 		case <-w.ctx.Done():
-			return nil
-		case obj := <-w.writeQueue:
-			if obj.GetStop() != nil {
-				// Signal to the reply handler that we are done
-				if ch, ok := w.readQueues.Get(obj.GetStop().StreamId); ok {
-					ch <- errorsObject{Shutdown: true}
+			// Drain the write queue and process any remaining requests
+			for req := range w.writeQueue {
+				if err := w.process(req); err != nil {
+					return fmt.Errorf("failed to process batch request: %w", err)
 				}
 			}
-			if obj.GetSend() != nil {
-				if err := w.send(obj.GetSend()); err != nil {
-					return err
-				}
+			return nil
+		case req := <-w.writeQueue:
+			if err := w.process(req); err != nil {
+				return fmt.Errorf("failed to process batch request: %w", err)
 			}
 		}
 	}
+}
+
+func (w *Worker) process(req *pb.BatchSendRequest) error {
+	if req.GetStop() != nil {
+		// Signal to the reply handler that we are done
+		if ch, ok := w.readQueues.Get(req.GetStop().StreamId); ok {
+			ch <- errorsObject{Stop: true}
+		}
+	}
+	if req.GetSend() != nil {
+		if err := w.send(req.GetSend()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func StartBatchWorkers(ctx context.Context, concurrency int, writeQueue writeQueue, readQueues *ReadQueues, batcher Batcher, logger logrus.FieldLogger) {

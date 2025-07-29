@@ -14,7 +14,6 @@ package batch
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/sirupsen/logrus"
 
@@ -55,8 +54,13 @@ func (h *Handler) Stream(ctx context.Context, streamId string, stream pb.Weaviat
 				h.readQueues.Delete(streamId)
 				return nil
 			case <-h.grpcShutdownCtx.Done():
+				if innerErr := stream.Send(newBatchShutdownMessage(streamId)); innerErr != nil {
+					return innerErr
+				}
+				h.readQueues.Delete(streamId)
+				return nil
 			case errs := <-readQueue:
-				if errs.Shutdown {
+				if errs.Stop {
 					if innerErr := stream.Send(newBatchStopMessage(streamId)); innerErr != nil {
 						return innerErr
 					}
@@ -122,77 +126,10 @@ func newBatchStopMessage(streamId string) *pb.BatchStreamMessage {
 	}
 }
 
-type errorsObject struct {
-	Errors   []*pb.BatchError
-	Shutdown bool
-}
-
-type (
-	writeQueue chan *pb.BatchSendRequest
-	readQueue  chan errorsObject
-	readQueues map[string]readQueue
-)
-
-// NewBatchWriteQueue creates a buffered channel to store objects for batch writing.
-//
-// The buffer size can be adjusted based on expected load and performance requirements
-// to optimize throughput and resource usage. But is required so that there is a small buffer
-// that can be quickly flushed in the event of a shutdown.
-func NewBatchWriteQueue() writeQueue {
-	return make(chan *pb.BatchSendRequest, 10)
-}
-
-func NewBatchReadQueues() *ReadQueues {
-	return &ReadQueues{
-		queues: make(readQueues),
-	}
-}
-
-func NewBatchReadQueue() readQueue {
-	return make(readQueue)
-}
-
-func NewShutdownObject() errorsObject {
-	return errorsObject{
-		Errors:   nil,
-		Shutdown: true,
-	}
-}
-
-func NewErrorsObject(errs []*pb.BatchError) errorsObject {
-	return errorsObject{
-		Errors: errs,
-	}
-}
-
-type ReadQueues struct {
-	lock   sync.RWMutex
-	queues readQueues
-}
-
-// Get retrieves the read queue for the given stream ID.
-func (r *ReadQueues) Get(streamId string) (readQueue, bool) {
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-	queue, ok := r.queues[streamId]
-	if !ok {
-		return nil, false
-	}
-	return queue, true
-}
-
-// Delete removes the read queue for the given stream ID.
-func (r *ReadQueues) Delete(streamId string) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	delete(r.queues, streamId)
-}
-
-// Make initializes a read queue for the given stream ID if it does not already exist.
-func (r *ReadQueues) Make(streamId string) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	if _, ok := r.queues[streamId]; !ok {
-		r.queues[streamId] = make(readQueue)
+func newBatchShutdownMessage(streamId string) *pb.BatchStreamMessage {
+	return &pb.BatchStreamMessage{
+		Message: &pb.BatchStreamMessage_Shutdown{
+			Shutdown: &pb.BatchShutdown{StreamId: streamId},
+		},
 	}
 }

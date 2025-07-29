@@ -30,9 +30,6 @@ func TestHandler(t *testing.T) {
 	readQueues := batch.NewBatchReadQueues()
 	logger := logrus.New()
 
-	handler := batch.NewHandler(ctx, writeQueue, readQueues, logger)
-	stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
-
 	t.Run("Send", func(t *testing.T) {
 		// Arrange
 		req := &pb.BatchSendRequest{
@@ -43,6 +40,10 @@ func TestHandler(t *testing.T) {
 				},
 			},
 		}
+
+		shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+		defer shutdownCancel()
+		handler := batch.NewHandler(shutdownCtx, writeQueue, readQueues, logger)
 
 		// Act
 		howMany := handler.Send(ctx, req)
@@ -60,6 +61,7 @@ func TestHandler(t *testing.T) {
 			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 			defer cancel()
 
+			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
 				Message: &pb.BatchStreamMessage_Start{
 					Start: &pb.BatchStart{
@@ -75,7 +77,42 @@ func TestHandler(t *testing.T) {
 				},
 			}).Return(nil).Once()
 
+			handler := batch.NewHandler(context.Background(), writeQueue, readQueues, logger)
+
 			readQueues.Make(StreamId)
+			err := handler.Stream(ctx, StreamId, stream)
+			require.NoError(t, err, "Expected no error when streaming")
+		})
+
+		t.Run("start and stop due to sentinel", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+			defer cancel()
+
+			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
+			stream.EXPECT().Send(&pb.BatchStreamMessage{
+				Message: &pb.BatchStreamMessage_Start{
+					Start: &pb.BatchStart{
+						StreamId: StreamId,
+					},
+				},
+			}).Return(nil).Once()
+			stream.EXPECT().Send(&pb.BatchStreamMessage{
+				Message: &pb.BatchStreamMessage_Stop{
+					Stop: &pb.BatchStop{
+						StreamId: StreamId,
+					},
+				},
+			}).Return(nil).Once()
+
+			handler := batch.NewHandler(context.Background(), writeQueue, readQueues, logger)
+
+			readQueues.Make(StreamId)
+			ch, ok := readQueues.Get(StreamId)
+			require.True(t, ok, "Expected read queue to exist")
+			go func() {
+				ch <- batch.NewStopObject()
+			}()
+
 			err := handler.Stream(ctx, StreamId, stream)
 			require.NoError(t, err, "Expected no error when streaming")
 		})
@@ -84,6 +121,7 @@ func TestHandler(t *testing.T) {
 			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 			defer cancel()
 
+			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
 				Message: &pb.BatchStreamMessage_Start{
 					Start: &pb.BatchStart{
@@ -92,20 +130,17 @@ func TestHandler(t *testing.T) {
 				},
 			}).Return(nil).Once()
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				Message: &pb.BatchStreamMessage_Stop{
-					Stop: &pb.BatchStop{
+				Message: &pb.BatchStreamMessage_Shutdown{
+					Shutdown: &pb.BatchShutdown{
 						StreamId: StreamId,
 					},
 				},
 			}).Return(nil).Once()
 
+			shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+			handler := batch.NewHandler(shutdownCtx, writeQueue, readQueues, logger)
 			readQueues.Make(StreamId)
-			ch, ok := readQueues.Get(StreamId)
-			require.True(t, ok, "Expected read queue to exist")
-			go func() {
-				ch <- batch.NewShutdownObject()
-			}()
-
+			shutdownCancel() // Trigger shutdown
 			err := handler.Stream(ctx, StreamId, stream)
 			require.NoError(t, err, "Expected no error when streaming")
 		})
@@ -114,6 +149,7 @@ func TestHandler(t *testing.T) {
 			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 			defer cancel()
 
+			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
 				Message: &pb.BatchStreamMessage_Start{
 					Start: &pb.BatchStart{
@@ -136,6 +172,7 @@ func TestHandler(t *testing.T) {
 				},
 			}).Return(nil).Once()
 
+			handler := batch.NewHandler(context.Background(), writeQueue, readQueues, logger)
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
@@ -148,10 +185,11 @@ func TestHandler(t *testing.T) {
 			require.NoError(t, err, "Expected error when processing")
 		})
 
-		t.Run("start, process error, and stop due to shutdown", func(t *testing.T) {
+		t.Run("start, process error, and stop due to sentinel", func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 			defer cancel()
 
+			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
 				Message: &pb.BatchStreamMessage_Start{
 					Start: &pb.BatchStart{
@@ -174,12 +212,13 @@ func TestHandler(t *testing.T) {
 				},
 			}).Return(nil).Once()
 
+			handler := batch.NewHandler(context.Background(), writeQueue, readQueues, logger)
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
 			go func() {
 				ch <- batch.NewErrorsObject([]*pb.BatchError{{Error: "processing error"}})
-				ch <- batch.NewShutdownObject()
+				ch <- batch.NewStopObject()
 			}()
 
 			readQueues.Make(StreamId)

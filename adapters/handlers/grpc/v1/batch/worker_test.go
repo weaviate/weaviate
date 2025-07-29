@@ -31,7 +31,6 @@ func TestWorkerLoop(t *testing.T) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	writeQueue := batch.NewBatchWriteQueue()
 	readQueues := batch.NewBatchReadQueues()
 	readQueues.Make(StreamId)
 	logger := logrus.New()
@@ -42,6 +41,7 @@ func TestWorkerLoop(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 
+		writeQueue := batch.NewBatchWriteQueue()
 		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
 			Took:   float32(1),
 			Errors: nil,
@@ -66,7 +66,43 @@ func TestWorkerLoop(t *testing.T) {
 		ch, ok := readQueues.Get(StreamId)
 		require.True(t, ok, "Expected read queue to exist and to contain message")
 		stop := <-ch
-		require.True(t, stop.Shutdown, "Expected shutdown signal to be true")
+		require.True(t, stop.Stop, "Expected stop signal to be true")
+	})
+
+	t.Run("should process objects during shutdown", func(t *testing.T) {
+		mockBatcher := mocks.NewMockBatcher(t)
+
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+
+		writeQueue := batch.NewBatchWriteQueue()
+		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
+			Took:   float32(1),
+			Errors: nil,
+		}, nil).Times(1)
+		batch.StartBatchWorkers(ctx, 1, writeQueue, readQueues, mockBatcher, logger)
+
+		cancel() // Cancel the context to simulate shutdown
+		// Send data after context cancellatino to ensure that the worker processes it
+		// in its shutdown select-case
+		writeQueue <- &pb.BatchSendRequest{
+			Message: &pb.BatchSendRequest_Send{
+				Send: &pb.BatchSend{StreamId: StreamId},
+			},
+		}
+		// Send sentinel
+		writeQueue <- &pb.BatchSendRequest{
+			Message: &pb.BatchSendRequest_Stop{
+				Stop: &pb.BatchStop{StreamId: StreamId},
+			},
+		}
+		close(writeQueue) // Close the write queue to stop processing as part of the shutdown
+
+		// Accept the stop message
+		ch, ok := readQueues.Get(StreamId)
+		require.True(t, ok, "Expected read queue to exist and to contain message")
+		stop := <-ch
+		require.True(t, stop.Stop, "Expected stop signal to be true")
 	})
 
 	t.Run("should process objects and send them with a returned error", func(t *testing.T) {
@@ -75,6 +111,7 @@ func TestWorkerLoop(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 
+		writeQueue := batch.NewBatchWriteQueue()
 		errors := []*pb.BatchObjectsReply_BatchError{
 			{
 				Error: "batch error",
@@ -117,6 +154,6 @@ func TestWorkerLoop(t *testing.T) {
 
 		// Read sentinel
 		stop := <-ch
-		require.True(t, stop.Shutdown, "Expected shutdown signal to be true")
+		require.True(t, stop.Stop, "Expected stop signal to be true")
 	})
 }

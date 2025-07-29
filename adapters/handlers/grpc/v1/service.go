@@ -63,8 +63,25 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	authenticator := NewAuthHandler(allowAnonymousAccess, authComposer)
 	batchWriteQueue := batch.NewBatchWriteQueue()
 	batchReadQueues := batch.NewBatchReadQueues()
+
 	batchObjectsHandler := batch.NewObjectsHandler(authorization, batchManager, logger, authenticator, schemaManager)
+	batchHandler := batch.NewHandler(grpcShutdownCtx, batchWriteQueue, batchReadQueues, logger)
+
 	batch.StartBatchWorkers(grpcShutdownCtx, 1, batchWriteQueue, batchReadQueues, batchObjectsHandler, logger)
+	go func() {
+		for {
+			select {
+			case <-grpcShutdownCtx.Done():
+				logger.Info("shutting down grpc batch workers")
+				close(batchWriteQueue)
+				batchReadQueues.Close()
+				return
+			default:
+				// keep the goroutine alive to listen for shutdown signal
+				time.Sleep(100 * time.Millisecond) // sleep to avoid busy waiting
+			}
+		}
+	}()
 
 	return &Service{
 		traverser:            traverser,
@@ -77,7 +94,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		authorizer:           authorization,
 		authenticator:        authenticator,
 		batchObjectsHandler:  batchObjectsHandler,
-		batchHandler:         batch.NewHandler(grpcShutdownCtx, batchWriteQueue, batchReadQueues, logger),
+		batchHandler:         batchHandler,
 	}
 }
 

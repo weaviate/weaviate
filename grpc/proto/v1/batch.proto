@@ -25,7 +25,6 @@ message BatchSendRequest {
   oneof message {
     BatchSend send = 1;
     BatchStop stop = 2;
-    BatchShutdown shutdown = 3;
   }
 }
 
@@ -53,6 +52,7 @@ message BatchStreamMessage {
     BatchStart start = 1;
     BatchError error = 2;
     BatchStop stop = 3;
+    BatchShutdown shutdown = 4;
   }
 }
 

@@ -145,7 +145,6 @@ type BatchSendRequest struct {
 	//
 	//	*BatchSendRequest_Send
 	//	*BatchSendRequest_Stop
-	//	*BatchSendRequest_Shutdown
 	Message       isBatchSendRequest_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -206,15 +205,6 @@ func (x *BatchSendRequest) GetStop() *BatchStop {
 	return nil
 }
 
-func (x *BatchSendRequest) GetShutdown() *BatchShutdown {
-	if x != nil {
-		if x, ok := x.Message.(*BatchSendRequest_Shutdown); ok {
-			return x.Shutdown
-		}
-	}
-	return nil
-}
-
 type isBatchSendRequest_Message interface {
 	isBatchSendRequest_Message()
 }
@@ -227,15 +217,9 @@ type BatchSendRequest_Stop struct {
 	Stop *BatchStop `protobuf:"bytes,2,opt,name=stop,proto3,oneof"`
 }
 
-type BatchSendRequest_Shutdown struct {
-	Shutdown *BatchShutdown `protobuf:"bytes,3,opt,name=shutdown,proto3,oneof"`
-}
-
 func (*BatchSendRequest_Send) isBatchSendRequest_Message() {}
 
 func (*BatchSendRequest_Stop) isBatchSendRequest_Message() {}
-
-func (*BatchSendRequest_Shutdown) isBatchSendRequest_Message() {}
 
 type BatchSendReply struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -456,6 +440,7 @@ type BatchStreamMessage struct {
 	//	*BatchStreamMessage_Start
 	//	*BatchStreamMessage_Error
 	//	*BatchStreamMessage_Stop
+	//	*BatchStreamMessage_Shutdown
 	Message       isBatchStreamMessage_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -525,6 +510,15 @@ func (x *BatchStreamMessage) GetStop() *BatchStop {
 	return nil
 }
 
+func (x *BatchStreamMessage) GetShutdown() *BatchShutdown {
+	if x != nil {
+		if x, ok := x.Message.(*BatchStreamMessage_Shutdown); ok {
+			return x.Shutdown
+		}
+	}
+	return nil
+}
+
 type isBatchStreamMessage_Message interface {
 	isBatchStreamMessage_Message()
 }
@@ -541,11 +535,17 @@ type BatchStreamMessage_Stop struct {
 	Stop *BatchStop `protobuf:"bytes,3,opt,name=stop,proto3,oneof"`
 }
 
+type BatchStreamMessage_Shutdown struct {
+	Shutdown *BatchShutdown `protobuf:"bytes,4,opt,name=shutdown,proto3,oneof"`
+}
+
 func (*BatchStreamMessage_Start) isBatchStreamMessage_Message() {}
 
 func (*BatchStreamMessage_Error) isBatchStreamMessage_Message() {}
 
 func (*BatchStreamMessage_Stop) isBatchStreamMessage_Message() {}
+
+func (*BatchStreamMessage_Shutdown) isBatchStreamMessage_Message() {}
 
 type BatchObject struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1044,11 +1044,10 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\x11consistency_level\x18\x02 \x01(\x0e2\x1d.weaviate.v1.ConsistencyLevelH\x00R\x10consistencyLevel\x88\x01\x01\x12\x14\n" +
 	"\x05index\x18\x03 \x01(\x03R\x05index\x12\x1b\n" +
 	"\tstream_id\x18\x04 \x01(\tR\bstreamIdB\x14\n" +
-	"\x12_consistency_level\"\xb3\x01\n" +
+	"\x12_consistency_level\"y\n" +
 	"\x10BatchSendRequest\x12,\n" +
 	"\x04send\x18\x01 \x01(\v2\x16.weaviate.v1.BatchSendH\x00R\x04send\x12,\n" +
-	"\x04stop\x18\x02 \x01(\v2\x16.weaviate.v1.BatchStopH\x00R\x04stop\x128\n" +
-	"\bshutdown\x18\x03 \x01(\v2\x1a.weaviate.v1.BatchShutdownH\x00R\bshutdownB\t\n" +
+	"\x04stop\x18\x02 \x01(\v2\x16.weaviate.v1.BatchStopH\x00R\x04stopB\t\n" +
 	"\amessage\"$\n" +
 	"\x0eBatchSendReply\x12\x12\n" +
 	"\x04next\x18\x01 \x01(\x03R\x04next\"\x14\n" +
@@ -1059,11 +1058,12 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\tBatchStop\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\",\n" +
 	"\rBatchShutdown\x12\x1b\n" +
-	"\tstream_id\x18\x01 \x01(\tR\bstreamId\"\xaf\x01\n" +
+	"\tstream_id\x18\x01 \x01(\tR\bstreamId\"\xe9\x01\n" +
 	"\x12BatchStreamMessage\x12/\n" +
 	"\x05start\x18\x01 \x01(\v2\x17.weaviate.v1.BatchStartH\x00R\x05start\x12/\n" +
 	"\x05error\x18\x02 \x01(\v2\x17.weaviate.v1.BatchErrorH\x00R\x05error\x12,\n" +
-	"\x04stop\x18\x03 \x01(\v2\x16.weaviate.v1.BatchStopH\x00R\x04stopB\t\n" +
+	"\x04stop\x18\x03 \x01(\v2\x16.weaviate.v1.BatchStopH\x00R\x04stop\x128\n" +
+	"\bshutdown\x18\x04 \x01(\v2\x1a.weaviate.v1.BatchShutdownH\x00R\bshutdownB\t\n" +
 	"\amessage\"\xa4\n" +
 	"\n" +
 	"\vBatchObject\x12\x12\n" +
@@ -1158,10 +1158,10 @@ var file_v1_batch_proto_depIdxs = []int32{
 	16, // 3: weaviate.v1.BatchSend.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
 	1,  // 4: weaviate.v1.BatchSendRequest.send:type_name -> weaviate.v1.BatchSend
 	6,  // 5: weaviate.v1.BatchSendRequest.stop:type_name -> weaviate.v1.BatchStop
-	7,  // 6: weaviate.v1.BatchSendRequest.shutdown:type_name -> weaviate.v1.BatchShutdown
-	5,  // 7: weaviate.v1.BatchStreamMessage.start:type_name -> weaviate.v1.BatchStart
-	10, // 8: weaviate.v1.BatchStreamMessage.error:type_name -> weaviate.v1.BatchError
-	6,  // 9: weaviate.v1.BatchStreamMessage.stop:type_name -> weaviate.v1.BatchStop
+	5,  // 6: weaviate.v1.BatchStreamMessage.start:type_name -> weaviate.v1.BatchStart
+	10, // 7: weaviate.v1.BatchStreamMessage.error:type_name -> weaviate.v1.BatchError
+	6,  // 8: weaviate.v1.BatchStreamMessage.stop:type_name -> weaviate.v1.BatchStop
+	7,  // 9: weaviate.v1.BatchStreamMessage.shutdown:type_name -> weaviate.v1.BatchShutdown
 	12, // 10: weaviate.v1.BatchObject.properties:type_name -> weaviate.v1.BatchObject.Properties
 	17, // 11: weaviate.v1.BatchObject.vectors:type_name -> weaviate.v1.Vectors
 	9,  // 12: weaviate.v1.BatchError.object:type_name -> weaviate.v1.BatchObject
@@ -1193,12 +1193,12 @@ func file_v1_batch_proto_init() {
 	file_v1_batch_proto_msgTypes[2].OneofWrappers = []any{
 		(*BatchSendRequest_Send)(nil),
 		(*BatchSendRequest_Stop)(nil),
-		(*BatchSendRequest_Shutdown)(nil),
 	}
 	file_v1_batch_proto_msgTypes[8].OneofWrappers = []any{
 		(*BatchStreamMessage_Start)(nil),
 		(*BatchStreamMessage_Error)(nil),
 		(*BatchStreamMessage_Stop)(nil),
+		(*BatchStreamMessage_Shutdown)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
