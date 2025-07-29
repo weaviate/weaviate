@@ -15,8 +15,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/additional"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
@@ -26,7 +24,7 @@ import (
 
 // Aggregate resolves meta queries
 func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
-	params *aggregation.Params, replProps *additional.ReplicationProperties,
+	params *aggregation.Params,
 ) (interface{}, error) {
 	t.metrics.QueriesAggregateInc(params.ClassName.String())
 	defer t.metrics.QueriesAggregateDec(params.ClassName.String())
@@ -110,7 +108,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		mp = t.nearParamsVector.modulesProvider.(*modules.Provider)
 	}
 
-	res, err := t.vectorSearcher.Aggregate(ctx, *params, replProps, mp)
+	res, err := t.vectorSearcher.Aggregate(ctx, *params, mp)
 	if err != nil || res == nil {
 		return nil, err
 	}

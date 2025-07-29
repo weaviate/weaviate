@@ -99,7 +99,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 		return nil, fmt.Errorf("parse params: %w", err)
 	}
 
-	res, err := s.traverser.Aggregate(restCtx.AddPrincipalToContext(ctx, principal), principal, params, nil)
+	res, err := s.traverser.Aggregate(restCtx.AddPrincipalToContext(ctx, principal), principal, params)
 	if err != nil {
 		return nil, fmt.Errorf("aggregate: %w", err)
 	}

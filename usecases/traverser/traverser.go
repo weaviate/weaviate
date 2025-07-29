@@ -42,7 +42,7 @@ type Traverser struct {
 }
 
 type VectorSearcher interface {
-	Aggregate(ctx context.Context, params aggregation.Params, replProps *additional.ReplicationProperties, modules *modules.Provider) (*aggregation.Result, error)
+	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
 	Object(ctx context.Context, className string, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties,
 		properties *additional.ReplicationProperties, tenant string) (*search.Result, error)

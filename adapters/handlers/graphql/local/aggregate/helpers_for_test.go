@@ -15,8 +15,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/additional"
-
 	testhelper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
@@ -65,7 +63,7 @@ func newMockResolver(cfg config.Config) *mockResolver {
 }
 
 func (m *mockResolver) Aggregate(ctx context.Context, principal *models.Principal,
-	params *aggregation.Params, replProps *additional.ReplicationProperties,
+	params *aggregation.Params,
 ) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)

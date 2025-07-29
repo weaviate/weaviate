@@ -360,7 +360,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 					ClassName:        schema.ClassName(companyClass.Class),
 					Filters:          filter,
 					IncludeMetaCount: true,
-				}, nil, nil)
+				}, nil)
 
 			require.Nil(t, err)
 			require.Len(t, res.Groups, 1)
@@ -387,7 +387,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 					ClassName:        schema.ClassName(companyClass.Class),
 					Filters:          filter,
 					IncludeMetaCount: true,
-				}, nil, nil)
+				}, nil)
 
 			require.Nil(t, err)
 			require.Len(t, res.Groups, 1)
@@ -402,7 +402,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 					ClassName:        schema.ClassName(companyClass.Class),
 					Filters:          filter,
 					IncludeMetaCount: true,
-				}, nil, nil)
+				}, nil)
 
 			require.Nil(t, err)
 			require.Len(t, res.Groups, 1)

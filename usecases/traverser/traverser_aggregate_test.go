@@ -104,7 +104,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 		}
 
 		vectorRepo.On("Aggregate", params).Return(&agg, nil)
-		res, err := traverser.Aggregate(context.Background(), principal, &params, nil)
+		res, err := traverser.Aggregate(context.Background(), principal, &params)
 		require.Nil(t, err)
 		assert.Equal(t, &agg, res)
 	})
@@ -246,7 +246,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 		}
 
 		vectorRepo.On("Aggregate", params).Return(&agg, nil)
-		res, err := traverser.Aggregate(context.Background(), principal, &params, nil)
+		res, err := traverser.Aggregate(context.Background(), principal, &params)
 		require.Nil(t, err)
 		assert.Equal(t, &expectedResult, res)
 	})
@@ -325,7 +325,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 		}
 
 		vectorRepo.On("Aggregate", params).Return(&agg, nil)
-		res, err := traverser.Aggregate(context.Background(), principal, &params, nil)
+		res, err := traverser.Aggregate(context.Background(), principal, &params)
 		require.Nil(t, err)
 		assert.Equal(t, &agg, res)
 	})
