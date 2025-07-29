@@ -142,10 +142,7 @@ func (s *Shard) sumAllDimensions(ctx context.Context) (sumDimensions int64, sumS
 		return 0, 0
 	}
 
-	var (
-		configs   = s.index.GetVectorIndexConfigs()
-	)
-
+	configs := s.index.GetVectorIndexConfigs()
 	sumDimensions, sumSegments = sumAllDimensionsInBucket(ctx, b, configs)
 	return sumDimensions, sumSegments
 }
@@ -158,7 +155,7 @@ func sumAllDimensionsInBucket(ctx context.Context, b *lsmkv.Bucket, configs map[
 		if ctx.Err() != nil {
 			return 0, 0
 		}
-		vecName := string(k[4:])+""
+		vecName := string(k[4:]) + ""
 		thisCount := int64(binary.LittleEndian.Uint64(vb))
 		thisDims := int64(binary.LittleEndian.Uint32(k[:4]))
 		// for named vectors we have to additionally check if the key is prefixed with the vector name
