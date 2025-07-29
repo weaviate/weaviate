@@ -126,11 +126,11 @@ func (s *SPFresh) Start(ctx context.Context) {
 	enterrors.GoWrapper(s.mergeWorker, s.Logger)
 }
 
-func (s *SPFresh) Append(ctx context.Context, id uint64, vector []byte, reassigned bool) error {
+func (s *SPFresh) Append(id uint64, vector []byte, reassigned bool) (bool, error) {
 	// search the nearest centroid
 	ps, err := s.SPTAG.Search(vector, 1)
 	if err != nil {
-		return errors.Wrap(err, "failed to search for nearest centroid")
+		return false, errors.Wrap(err, "failed to search for nearest centroid")
 	}
 
 	// register the vector in the version map
@@ -150,15 +150,15 @@ func (s *SPFresh) Append(ctx context.Context, id uint64, vector []byte, reassign
 		postingID = s.IDs.Next()
 
 		// persist the new posting first
-		err = s.Store.Put(ctx, postingID, Posting{v})
+		err = s.Store.Put(s.ctx, postingID, Posting{v})
 		if err != nil {
-			return errors.Wrapf(err, "failed to persist new posting %d", postingID)
+			return false, errors.Wrapf(err, "failed to persist new posting %d", postingID)
 		}
 
 		// use the vector as the centroid and register it in the SPTAG
 		err = s.SPTAG.Upsert(postingID, vector)
 		if err != nil {
-			return errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
+			return false, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
 		}
 	} else {
 		postingID = ps[0].ID
@@ -168,20 +168,23 @@ func (s *SPFresh) Append(ctx context.Context, id uint64, vector []byte, reassign
 
 		// check if the posting still exists
 		if !s.SPTAG.Exists(postingID) {
-			// the vector might have been deleted concurrently
-			// if we are reassigning
+			// the vector might have been deleted concurrently,
+			// might happen if we are reassigning
 			if s.VersionMap.Get(id) == version {
-				// TODO: enqueue reassign operation
+				err = s.enqueueReassign(s.ctx, postingID, v)
+				if err != nil {
+					return false, errors.Wrapf(err, "failed to enqueue reassign for vector %d", id)
+				}
 			}
 
-			return nil
+			return false, nil
 		}
 
 		// append the new vector to the existing posting
-		err = s.Store.Merge(ctx, postingID, v)
+		err = s.Store.Merge(s.ctx, postingID, v)
 		if err != nil {
 			s.postingLocks.Unlock(postingID)
-			return errors.Wrapf(err, "failed to append vector %d to posting %d", id, postingID)
+			return false, err
 		}
 
 		// increment the size of the posting
@@ -206,14 +209,14 @@ func (s *SPFresh) Append(ctx context.Context, id uint64, vector []byte, reassign
 		if reassigned {
 			err = s.doSplit(postingID)
 		} else {
-			err = s.EnqueueSplit(ctx, postingID)
+			err = s.EnqueueSplit(s.ctx, postingID)
 		}
 		if err != nil {
-			return err
+			return false, err
 		}
 	}
 
-	return nil
+	return true, nil
 }
 
 // Delete marks a vector as deleted in the version map.
@@ -695,7 +698,7 @@ func (s *SPFresh) doMerge(op MergeOperation) error {
 	}
 
 	// search for the closest centroids
-	nearest, err := s.SPTAG.Search(oldCentroid, s.UserConfig.MergePostingCandidates)
+	nearest, err := s.SPTAG.Search(oldCentroid, s.UserConfig.InternalPostingCandidates)
 	if err != nil {
 		return errors.Wrapf(err, "failed to search for nearest centroid for posting %d", op.PostingID)
 	}
@@ -825,6 +828,87 @@ func (s *SPFresh) doMerge(op MergeOperation) error {
 	}
 
 	return nil
+}
+
+func (s *SPFresh) doReassign(op ReassignOperation) error {
+	// check if the vector is still valid
+	version := s.VersionMap.Get(op.Vector.ID)
+	if version.Deleted() || version.Version() > op.Vector.Version.Version() {
+		s.Logger.WithField("vectorID", op.Vector.ID).
+			Debug("Vector is deleted or has a newer version, skipping reassign operation")
+		return nil
+	}
+
+	// perform a RNG selection to determine the postings where the vector should be
+	// reassigned to.
+	replicas, needsReassign, err := s.selectReplicas(op.Vector, op.PostingID)
+	if err != nil {
+		return errors.Wrap(err, "failed to select replicas")
+	}
+	if !needsReassign {
+		s.Logger.WithField("vectorID", op.Vector.ID).
+			Debug("Vector is already assigned to the best posting, skipping reassign operation")
+		return nil
+	}
+	// check again if the version is still valid
+	version = s.VersionMap.Get(op.Vector.ID)
+	if version.Deleted() || version.Version() > op.Vector.Version.Version() {
+		s.Logger.WithField("vectorID", op.Vector.ID).
+			Debug("Vector is deleted or has a newer version, skipping reassign operation")
+		return nil
+	}
+
+	// append the vector to each replica
+	for _, replica := range replicas {
+		ok, err := s.Append(replica, op.Vector.Data, true)
+		if !ok {
+			s.Logger.WithField("vectorID", op.Vector.ID).
+				WithField("replicaID", replica).
+				Debug("Posting no longer exists, reassigning")
+			continue // Skip if the vector already exists in the replica
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *SPFresh) selectReplicas(query Vector, unless uint64) ([]uint64, bool, error) {
+	results, err := s.SPTAG.Search(query.Data, s.UserConfig.InternalPostingCandidates)
+	if err != nil {
+		return nil, false, errors.Wrap(err, "failed to search for nearest neighbors")
+	}
+
+	replicas := make([]uint64, 0, s.UserConfig.Replicas)
+
+LOOP:
+	for i := 0; i < len(results) && len(replicas) < s.UserConfig.Replicas; i++ {
+		candidate := results[i]
+
+		// determine if the candidate is too close to a pre-existing replica
+		for j := range replicas {
+			dist, err := s.SPTAG.ComputeDistance(s.SPTAG.Get(results[i].ID), s.SPTAG.Get(replicas[j]))
+			if err != nil {
+				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", results[i].ID, replicas[j])
+			}
+
+			if s.UserConfig.RNGFactor*dist <= candidate.Distance {
+				continue LOOP
+			}
+		}
+
+		// if unless is specified, abort the RNG selection if one of the replicas
+		// is the unless posting ID (i.e. the vector is already assigned to this posting)
+		if unless != 0 && candidate.ID == unless {
+			return nil, false, nil
+		}
+
+		replicas = append(replicas, candidate.ID)
+	}
+
+	return replicas, true, nil
 }
 
 // deduplicator ensures only one operation per posting ID can be enqueued at a time.
