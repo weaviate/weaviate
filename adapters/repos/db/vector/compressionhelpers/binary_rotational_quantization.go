@@ -189,6 +189,8 @@ func (rq *BinaryRotationalQuantizer) Encode(x []float32) []uint64 {
 	return code
 }
 
+// Restore -> NewCompressedQuantizerDistancer -> NewDistancerFromID -> reassignNeighbor in when deleting
+// distancer for PQ,SQ etc. use the compressed vector, in this case we can't use it because we have different encoding for the query and the data.
 func (rq *BinaryRotationalQuantizer) Restore(b []uint64) []float32 {
 	code := RQOneBitCode(b)
 	step := code.Step()
@@ -357,7 +359,10 @@ func (d *BinaryRQDistancer) DistanceToFloat(x []float32) (float32, error) {
 	return d.Distance(cx)
 }
 
-func (brq *BinaryRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []uint64) (float32, error) { // TODO: Compute the distance between compressed vectors.
+// DistanceBetweenCompressedVectors is used in:
+// 1. Distance in compression_distance_bag.go -> selectNeighborsHeuristic in compression_distance_bag.go
+// 2. DistanceBetweenCompressedVectorsFromIDs -> distBetweenNodes -> connectNeighborAtLevel
+func (brq *BinaryRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []uint64) (float32, error) {
 	cx, cy := RQOneBitCode(x), RQOneBitCode(y)
 	dots := cy.OnesCount() * cx.OnesCount()
 	dots += cy.Step() * float32(int(1)<<0) * binaryDot(cy.Bits(), cx.Bits())
