@@ -53,6 +53,7 @@ func (w *Worker) send(req *pb.BatchSend) error {
 	return nil
 }
 
+// Loop processes objects from the write queue, sending them to the batcher and handling shutdown signals.
 func (w *Worker) Loop(consistencyLevel pb.ConsistencyLevel) error {
 	for {
 		select {

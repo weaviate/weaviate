@@ -236,6 +236,7 @@ func (s *Service) BatchStream(req *pb.BatchStreamRequest, stream pb.Weaviate_Bat
 	}
 	streamId := id.String()
 	s.batchHandler.Setup(streamId)
+	defer s.batchHandler.Teardown(streamId)
 	return s.batchHandler.Stream(stream.Context(), streamId, stream)
 }
 

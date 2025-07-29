@@ -74,13 +74,25 @@ func (h *Handler) Stream(ctx context.Context, streamId string, stream pb.Weaviat
 	}
 }
 
+// Send adds a batch send request to the write queue and returns the number of objects in the request.
 func (h *Handler) Send(ctx context.Context, request *pb.BatchSendRequest) int64 {
 	h.writeQueue <- request
 	return int64(len(request.GetSend().GetObjects()))
 }
 
+// Setup initializes a read queue for the given stream ID and adds it to the read queues map.
 func (h *Handler) Setup(streamId string) {
 	h.readQueues.Make(streamId)
+}
+
+// Teardown closes the read queue for the given stream ID and removes it from the read queues map.
+func (h *Handler) Teardown(streamId string) {
+	if readQueue, ok := h.readQueues.Get(streamId); ok {
+		close(readQueue)
+		h.readQueues.Delete(streamId)
+	} else {
+		h.logger.WithField("streamId", streamId).Warn("teardown called for non-existing stream")
+	}
 }
 
 func newBatchStartMessage(streamId string) *pb.BatchStreamMessage {
@@ -155,6 +167,7 @@ type ReadQueues struct {
 	queues readQueues
 }
 
+// Get retrieves the read queue for the given stream ID.
 func (r *ReadQueues) Get(streamId string) (readQueue, bool) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
@@ -165,12 +178,14 @@ func (r *ReadQueues) Get(streamId string) (readQueue, bool) {
 	return queue, true
 }
 
+// Delete removes the read queue for the given stream ID.
 func (r *ReadQueues) Delete(streamId string) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	delete(r.queues, streamId)
 }
 
+// Make initializes a read queue for the given stream ID if it does not already exist.
 func (r *ReadQueues) Make(streamId string) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
