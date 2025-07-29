@@ -743,7 +743,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 }
 
 func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPool, close func()) {
-	return roaringset.NewBitmapBufPoolDefault(appState.Logger,
+	return roaringset.NewBitmapBufPoolDefault(appState.Logger, appState.Metrics,
 		appState.ServerConfig.Config.QueryBitmapBufsMaxBufSize,
 		appState.ServerConfig.Config.QueryBitmapBufsMaxMemory)
 }
