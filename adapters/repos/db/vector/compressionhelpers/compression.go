@@ -724,7 +724,6 @@ func NewRQMultiCompressor(
 	bits int,
 	dim int,
 ) (VectorCompressor, error) {
-
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
 	case 1:

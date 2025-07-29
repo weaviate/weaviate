@@ -349,7 +349,6 @@ func (brq *BinaryRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []ui
 	dots += cy.Step() * float32(int(1)<<0) * binaryDot(cy.Bits(), cx.Bits())
 	dotEstimate := cy.Step() * (cx.SquaredNorm() - 2*dots)
 	return brq.l2*(cx.SquaredNorm()+cy.SquaredNorm()) + brq.cos - (1.0+brq.l2)*dotEstimate, nil
-	//return binaryDot(x, y), nil
 }
 
 func (brq *BinaryRotationalQuantizer) CompressedBytes(compressed []uint64) []byte {
