@@ -504,6 +504,9 @@ func (l *LazyLoadShard) Dimensions(ctx context.Context, compressionType Dimensio
 	dimensions, count, err := sumByVectorType(b, l.Index().GetVectorIndexConfigs(), compressionType, func(dimLen int, v int64) (int64, int64) {
 		return v, int64(dimLen)
 	})
+	if err != nil {
+		return 0, errors.Wrapf(err, "calculate dimensions for shard %s", l.Name())
+	}
 
 	return dimensions * count, nil
 }
@@ -519,7 +522,7 @@ func (l *LazyLoadShard) getDimensionsBucket() (*lsmkv.Bucket, error) {
 		cyclemanager.NewCallbackGroupNoop(),
 	)
 	if err != nil {
-		if err == lsmkv.ErrBucketAlreadyRegistered {
+		if err.Error() == lsmkv.ErrBucketAlreadyRegistered.Error() {
 			return bucket, nil
 		}
 		return nil, err
@@ -532,8 +535,6 @@ func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
 		var (
 			className     = l.Index().Config.ClassName.String()
 			shardName     = l.Name()
-			sumSegments   = int64(0)
-			sumDimensions = int64(0)
 		)
 
 		// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled

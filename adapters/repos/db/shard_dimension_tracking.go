@@ -100,15 +100,6 @@ func (s *Shard) Dimensions(ctx context.Context, targetVectorType DimensionCatego
 	return dims * count, err
 }
 
-// calcTargetVectorDimensionsFromStore sums dimensions and object count for a target vector from an LSMKV store
-func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store, targetVector string, calcEntry func(dimLen int, v int64) (int64, int64)) (int64, int64) {
-	b := store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return 0, 0
-	}
-	return calcTargetVectorDimensionsFromBucket(b, targetVector, calcEntry)
-}
-
 // calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector type from an LSMKV bucket
 func calcTargetVectorDimensionsFromBucket(b *lsmkv.Bucket, vectorName string, calcEntry func(dimLen int, v int64) (int64, int64)) (int64, int64) {
 	c := b.Cursor()
@@ -173,10 +164,8 @@ func sumAllDimensionsInBucket(ctx context.Context, b *lsmkv.Bucket, shardName st
 		thisDims := int64(binary.LittleEndian.Uint32(k[:4]))
 		// for named vectors we have to additionally check if the key is prefixed with the vector name
 
-		fmt.Printf("vector name: %s, dimensions: %d, value: %d\n", vecName, thisDims, thisCount)
 		cfg := configs[vecName]
 		if cfg == nil {
-			fmt.Printf("no vector config for %s in shard %s\n", vecName, shardName)
 			sumDimensions += thisDims
 			sumSegments += thisCount
 			continue
@@ -185,7 +174,6 @@ func sumAllDimensionsInBucket(ctx context.Context, b *lsmkv.Bucket, shardName st
 		if err != nil {
 			continue
 		}
-		fmt.Printf("vector name: %s, discounted dimensions: %d, discounted segments: %d\n", vecName, dims, segs)
 		sumDimensions += dims
 		sumSegments += segs
 	}
@@ -244,8 +232,6 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 		var (
 			className     = s.index.Config.ClassName.String()
 			shardName     = s.name
-			sumSegments   = int64(0)
-			sumDimensions = int64(0)
 		)
 
 		// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled
@@ -254,7 +240,7 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 			shardName = "n/a"
 		}
 
-		sumDimensions, sumSegments = s.sumAllDimensions(ctx)
+		sumDimensions, sumSegments := s.sumAllDimensions(ctx)
 		sendVectorSegmentsMetric(s.promMetrics, className, shardName, sumSegments)
 		sendVectorDimensionsMetric(s.promMetrics, className, shardName, sumDimensions)
 	}
