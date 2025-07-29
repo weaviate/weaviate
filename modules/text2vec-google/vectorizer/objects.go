@@ -50,6 +50,7 @@ type ClassSettings interface {
 	ProjectID() string
 	ModelID() string
 	TitleProperty() string
+	Location() string
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
@@ -68,6 +69,7 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 		ApiEndpoint: icheck.ApiEndpoint(),
 		ProjectID:   icheck.ProjectID(),
 		Model:       icheck.ModelID(),
+		Location:    icheck.Location(),
 	}, titlePropertyValue)
 	if err != nil {
 		return nil, err
