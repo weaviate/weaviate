@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -522,7 +523,7 @@ func (l *LazyLoadShard) getDimensionsBucket() (*lsmkv.Bucket, error) {
 		cyclemanager.NewCallbackGroupNoop(),
 	)
 	if err != nil {
-		if err.Error() == lsmkv.ErrBucketAlreadyRegistered.Error() {
+		if strings.Contains(err.Error(), lsmkv.ErrBucketAlreadyRegistered.Error()) {
 			return bucket, nil
 		}
 		return nil, err
