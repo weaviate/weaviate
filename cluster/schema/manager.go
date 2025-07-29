@@ -125,9 +125,9 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 
 	// Discard adding class if the name already exists or a similar one exists
 	if req.Type == command.ApplyRequest_TYPE_ADD_CLASS {
-		other, is_alias := s.schema.ClassEqual(req.Class)
+		other, isAlias := s.schema.ClassEqual(req.Class)
 		item := "class"
-		if is_alias {
+		if isAlias {
 			item = "alias"
 		}
 

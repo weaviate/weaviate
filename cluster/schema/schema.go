@@ -645,9 +645,9 @@ func (s *schema) createAlias(class, alias string) error {
 		return fmt.Errorf("create alias: class %s does not exist", class)
 	}
 	// trying to check if any class exists with passed 'alias' name
-	other, is_alias := s.unsafeClassEqual(alias)
+	other, isAlias := s.unsafeClassEqual(alias)
 	item := "class"
-	if is_alias {
+	if isAlias {
 		item = "alias"
 	}
 
