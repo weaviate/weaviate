@@ -194,16 +194,16 @@ func WithDeadline(d time.Duration) BackupExpectOpt {
 func ExpectBackupEventuallyCreated(t *testing.T, backupID, backend string, authz runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
 	opt := defaultBackupExpect.WithOptions(opts...)
 
-	require.EventuallyWithTf(t, func(check *assert.CollectT) {
+	require.EventuallyWithTf(t, func(c *assert.CollectT) {
 		// Calling -WithAuthz with nil-auth is equivalent to using its no-authz counterpart
 		resp, err := CreateBackupStatusWithAuthz(t, backend, backupID, "", "", authz)
 
-		require.NoError(t, err, "fetch backup create status")
-		require.NotNil(t, resp.Payload, "empty response")
+		require.NoError(c, err, "fetch backup create status")
+		require.NotNil(c, resp.Payload, "empty response")
 
 		status := *resp.Payload.Status
-		require.NotEqualf(t, status, "FAILED", "create failed: %s", resp.Payload.Error)
-		require.Equal(t, status, "SUCCESS", "backup create status")
+		require.NotEqualf(c, "FAILED", status, "create failed: %s", resp.Payload.Error)
+		require.Equal(c, "SUCCESS", status, "backup create status")
 	}, opt.Deadline, opt.Interval, "backup %s not created after %s", backupID, opt.Deadline)
 }
 
@@ -213,15 +213,15 @@ func ExpectBackupEventuallyCreated(t *testing.T, backupID, backend string, authz
 func ExpectBackupEventuallyRestored(t *testing.T, backupID, backend string, authz runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
 	opt := defaultBackupExpect.WithOptions(opts...)
 
-	require.EventuallyWithTf(t, func(check *assert.CollectT) {
+	require.EventuallyWithTf(t, func(c *assert.CollectT) {
 		// Calling -WithAuthz with nil-auth is equivalent to using its no-authz counterpart
 		resp, err := RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", authz)
 
-		require.NoError(t, err, "fetch backup restore status")
-		require.NotNil(t, resp.Payload, "empty response")
+		require.NoError(c, err, "fetch backup restore status")
+		require.NotNil(c, resp.Payload, "empty response")
 
 		status := *resp.Payload.Status
-		require.NotEqualf(t, status, "FAILED", "restore failed: %s", resp.Payload.Error)
-		require.Equal(t, status, "SUCCESS", "backup restore status")
+		require.NotEqualf(c, "FAILED", status, "restore failed: %s", resp.Payload.Error)
+		require.Equal(c, "SUCCESS", status, "backup restore status")
 	}, opt.Deadline, opt.Interval, "backup %s not restored after %s", backupID, opt.Deadline)
 }
