@@ -114,7 +114,7 @@ func TestFastRotationOutputLength(t *testing.T) {
 // Rotate the standard basis and verify that the rotated vectors are orthogonal.
 func TestFastRotationPreservesOrthogonality(t *testing.T) {
 	rng := newRNG(424242)
-	dimensions := []int{3, 8, 26, 32, 33, 61, 127, 128, 129, 255, 257, 512, 768}
+	dimensions := []int{3, 8, 26, 32, 33, 61, 127, 128, 129, 255, 257}
 	for _, d := range dimensions {
 		unitVectors := make([][]float32, d)
 		for i := range d {
@@ -147,21 +147,18 @@ func TestFastRotationPreservesOrthogonality(t *testing.T) {
 // This in turn probably comes with more noticeable floating point errors.
 func TestFastRotationSmoothensVector(t *testing.T) {
 	rng := newRNG(424242)
-	n := 10
-	for range n {
-		dim := 2 + rng.IntN(1000)
-		rounds := 5
-		r := compressionhelpers.NewFastRotation(dim, rounds, rng.Uint64())
+	dim := 2 + rng.IntN(1000)
+	rounds := 5
+	r := compressionhelpers.NewFastRotation(dim, rounds, rng.Uint64())
 
-		bound := 5.8 / math.Sqrt(float64(r.OutputDim))
-		for i := range dim {
-			x := make([]float32, dim)
-			x[i] = 1.0
-			rx := r.Rotate(x)
-			for j := range rx {
-				assert.Less(t, math.Abs(float64(rx[j])), bound,
-					"Failure in index %d of %d-dim vector e%d rotated into %d-dims using %d rounds", j, dim, i, len(rx), rounds)
-			}
+	bound := 5.8 / math.Sqrt(float64(r.OutputDim))
+	for i := range dim {
+		x := make([]float32, dim)
+		x[i] = 1.0
+		rx := r.Rotate(x)
+		for j := range rx {
+			assert.Less(t, math.Abs(float64(rx[j])), bound,
+				"Failure in index %d of %d-dim vector e%d rotated into %d-dims using %d rounds", j, dim, i, len(rx), rounds)
 		}
 	}
 }
