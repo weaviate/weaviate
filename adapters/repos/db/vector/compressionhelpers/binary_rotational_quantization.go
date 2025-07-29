@@ -421,8 +421,20 @@ func (brq *BinaryRotationalQuantizer) NewQuantizerDistancer(vec []float32) quant
 func (brq *BinaryRotationalQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[uint64]) {
 }
 
+type BRQData struct {
+	InputDim  uint32
+	QueryBits uint32
+	Rotation  FastRotation
+	Rounding  []float32
+}
+
 func (brq *BinaryRotationalQuantizer) PersistCompression(logger CommitLogger) {
-	panic("PersistCompression not implemented")
+	logger.AddBRQCompression(BRQData{
+		InputDim:  brq.inputDim,
+		QueryBits: uint32(brq.queryBits),
+		Rotation:  *brq.rotation,
+		Rounding:  brq.rounding,
+	})
 }
 
 type BinaryRQStats struct {

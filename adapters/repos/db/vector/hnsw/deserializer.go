@@ -36,19 +36,20 @@ type Deserializer struct {
 }
 
 type DeserializationResult struct {
-	Nodes             []*vertex
-	NodesDeleted      map[uint64]struct{}
-	Entrypoint        uint64
-	Level             uint16
-	Tombstones        map[uint64]struct{}
-	TombstonesDeleted map[uint64]struct{}
-	EntrypointChanged bool
-	CompressionPQData *compressionhelpers.PQData
-	CompressionSQData *compressionhelpers.SQData
-	CompressionRQData *compressionhelpers.RQData
-	MuveraEnabled     bool
-	EncoderMuvera     *multivector.MuveraData
-	Compressed        bool
+	Nodes              []*vertex
+	NodesDeleted       map[uint64]struct{}
+	Entrypoint         uint64
+	Level              uint16
+	Tombstones         map[uint64]struct{}
+	TombstonesDeleted  map[uint64]struct{}
+	EntrypointChanged  bool
+	CompressionPQData  *compressionhelpers.PQData
+	CompressionSQData  *compressionhelpers.SQData
+	CompressionRQData  *compressionhelpers.RQData
+	CompressionBRQData *compressionhelpers.BRQData
+	MuveraEnabled      bool
+	EncoderMuvera      *multivector.MuveraData
+	Compressed         bool
 
 	// If there is no entry for the links at a level to be replaced, we must
 	// assume that all links were appended and prior state must exist
@@ -167,6 +168,10 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 		case AddRQ:
 			var totalRead int
 			totalRead, err = d.ReadRQ(fd, out)
+			readThisRound = 16 + totalRead
+		case AddBRQ:
+			var totalRead int
+			totalRead, err = d.ReadBRQ(fd, out)
 			readThisRound = 16 + totalRead
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
@@ -824,6 +829,80 @@ func (d *Deserializer) ReadMuvera(r io.Reader, res *DeserializationResult) (int,
 	}
 	res.EncoderMuvera = &muveraData
 	res.MuveraEnabled = true
+	return totalRead, nil
+}
+
+func (d *Deserializer) ReadBRQ(r io.Reader, res *DeserializationResult) (int, error) {
+	inputDim, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	queryBits, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	outputDim, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	rounds, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+
+	swapSize := 2 * rounds * (outputDim / 2) * 2
+	signSize := 4 * rounds * outputDim
+	roundingSize := 4 * outputDim
+	totalRead := int(swapSize) + int(signSize) + int(roundingSize)
+
+	swaps := make([][]compressionhelpers.Swap, rounds)
+	for i := uint32(0); i < rounds; i++ {
+		swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+		for j := uint32(0); j < outputDim/2; j++ {
+			swaps[i][j].I, err = readUint16(r)
+			if err != nil {
+				return 0, err
+			}
+			swaps[i][j].J, err = readUint16(r)
+			if err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	signs := make([][]float32, rounds)
+	for i := uint32(0); i < rounds; i++ {
+		signs[i] = make([]float32, outputDim)
+		for j := uint32(0); j < outputDim; j++ {
+			sign, err := readFloat32(r)
+			if err != nil {
+				return 0, err
+			}
+			signs[i][j] = sign
+		}
+	}
+
+	rounding := make([]float32, roundingSize)
+	for i := uint32(0); i < roundingSize; i++ {
+		rounding[i], err = readFloat32(r)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	res.CompressionBRQData = &compressionhelpers.BRQData{
+		InputDim:  inputDim,
+		QueryBits: queryBits,
+		Rotation: compressionhelpers.FastRotation{
+			OutputDim: outputDim,
+			Rounds:    rounds,
+			Swaps:     swaps,
+			Signs:     signs,
+		},
+		Rounding: rounding,
+	}
+	res.Compressed = true
+
 	return totalRead, nil
 }
 
