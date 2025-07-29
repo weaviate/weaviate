@@ -25,6 +25,7 @@ const (
 	apiEndpointProperty = "apiEndpoint"
 	projectIDProperty   = "projectId"
 	modelIDProperty     = "modelId"
+	modelProperty       = "model"
 	titleProperty       = "titleProperty"
 )
 
@@ -80,7 +81,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 
 	apiEndpoint := ic.ApiEndpoint()
-	model := ic.ModelID()
+	model := ic.Model()
 	if apiEndpoint == DefaultAIStudioEndpoint {
 		if model != "" && !ic.validateGoogleSetting(model, availableGenerativeAIModels) {
 			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available AI Studio model names are: %v", modelIDProperty, availableGenerativeAIModels))
@@ -126,7 +127,10 @@ func (ic *classSettings) ProjectID() string {
 	return ic.getStringProperty(projectIDProperty, "")
 }
 
-func (ic *classSettings) ModelID() string {
+func (ic *classSettings) Model() string {
+	if model := ic.getStringProperty(modelProperty, ""); model != "" {
+		return model
+	}
 	return ic.getStringProperty(modelIDProperty, ic.getDefaultModel(ic.ApiEndpoint()))
 }
 
