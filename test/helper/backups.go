@@ -13,8 +13,11 @@ package helper
 
 import (
 	"testing"
+	"time"
 
 	"github.com/go-openapi/runtime"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -144,4 +147,46 @@ func RestoreBackupStatusWithAuthz(t *testing.T, backend, backupID, overrideBucke
 		WithBucket(&overrideBucket).
 		WithPath(&overridePath)
 	return Client(t).Backups.BackupsRestoreStatus(params, authInfo)
+}
+
+// Expect the backup creation status to report SUCCESS within 30 seconds and 500ms polling interval.
+func ExpectEventuallyCreated(t *testing.T, backupID, backend string, auth runtime.ClientAuthInfoWriter) {
+	deadline := 30 * time.Second
+	require.EventuallyWithTf(t, func(check *assert.CollectT) {
+		var resp *backups.BackupsCreateStatusOK
+		var err error
+		if auth != nil {
+			resp, err = CreateBackupStatusWithAuthz(t, backend, backupID, "", "", auth)
+		} else {
+			resp, err = CreateBackupStatus(t, backend, backupID, "", "")
+		}
+
+		require.NoError(t, err, "fetch backup create status")
+		require.NotNil(t, resp.Payload, "empty response")
+
+		status := *resp.Payload.Status
+		require.NotEqualf(t, status, "FAILED", "create failed: %s", resp.Payload.Error)
+		require.Equal(t, status, "SUCCESS", "backup create status")
+	}, deadline, 500*time.Millisecond, "backup %s not created after %s", backupID, deadline)
+}
+
+// Expect the backup restore status to report SUCCESS within 30 seconds and 500ms polling interval.
+func ExpectEventuallyRestored(t *testing.T, backupID, backend string, auth runtime.ClientAuthInfoWriter) {
+	deadline := 30 * time.Second
+	require.EventuallyWithTf(t, func(check *assert.CollectT) {
+		var resp *backups.BackupsRestoreStatusOK
+		var err error
+		if auth != nil {
+			resp, err = RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", auth)
+		} else {
+			resp, err = RestoreBackupStatus(t, backend, backupID, "", "")
+		}
+
+		require.NoError(t, err, "fetch backup restore status")
+		require.NotNil(t, resp.Payload, "empty response")
+
+		status := *resp.Payload.Status
+		require.NotEqualf(t, status, "FAILED", "restore failed: %s", resp.Payload.Error)
+		require.Equal(t, status, "SUCCESS", "backup restore status")
+	}, deadline, 500*time.Millisecond, "backup %s not restored after %s", backupID, deadline)
 }

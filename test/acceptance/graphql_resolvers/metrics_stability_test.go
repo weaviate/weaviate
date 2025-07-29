@@ -38,11 +38,11 @@ func metricsCount(t *testing.T) {
 	defer cleanupMetricsClasses(t, 0, 20)
 	createImportQueryMetricsClasses(t, 0, 10)
 	backupID := startBackup(t, 0, 10)
-	waitForBackupToFinish(t, backupID)
+	helper.ExpectEventuallyCreated(t, backupID, "filesystem", nil)
 	metricsLinesBefore := countMetricsLines(t)
 	createImportQueryMetricsClasses(t, 10, 20)
 	backupID = startBackup(t, 0, 20)
-	waitForBackupToFinish(t, backupID)
+	helper.ExpectEventuallyCreated(t, backupID, "filesystem", nil)
 	metricsLinesAfter := countMetricsLines(t)
 	assert.Equal(t, metricsLinesBefore, metricsLinesAfter, "number of metrics should not have changed")
 }
@@ -228,19 +228,4 @@ func startBackup(t *testing.T, start, end int) string {
 	require.Nil(t, err)
 
 	return backupID
-}
-
-func waitForBackupToFinish(t *testing.T, id string) {
-	getStatus := func() *backups.BackupsCreateStatusOK {
-		res, err := helper.Client(t).Backups.BackupsCreateStatus(
-			backups.NewBackupsCreateStatusParams().WithBackend("filesystem").WithID(id),
-			nil)
-		require.Nil(t, err)
-		return res
-	}
-	assert.EventuallyWithT(t, func(t *assert.CollectT) {
-		res := getStatus()
-		require.NotNil(t, res.Payload.Status)
-		assert.Equal(t, "SUCCESS", *res.Payload.Status)
-	}, 10*time.Minute, 1*time.Second)
 }

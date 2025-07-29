@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/authz"
@@ -97,7 +96,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		expectEventuallyRestored(t, backupID, backend, adminKey)
+		helper.ExpectEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
 
 		// delete role and assignment
 		helper.DeleteRole(t, adminKey, testRoleName)
@@ -111,7 +110,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
 
-		expectEventuallyRestored(t, backupID, backend, adminKey)
+		helper.ExpectEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
 
 		role := helper.GetRoleByName(t, adminKey, testRoleName)
 		require.NotNil(t, role)
@@ -146,7 +145,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		expectEventuallyCreated(t, backupID, backend, adminKey)
+		helper.ExpectEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey))
 
 		// delete role and assignment
 		helper.DeleteRole(t, adminKey, testRoleName)
@@ -165,7 +164,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
 
-		expectEventuallyRestored(t, backupID, backend, adminKey)
+		helper.ExpectEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
 
 		respRole, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRoleName), helper.CreateAuth(adminKey))
 		require.Nil(t, respRole)
@@ -174,34 +173,4 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		roles := helper.GetRolesForUser(t, customUser, adminKey, false)
 		require.Len(t, roles, 0)
 	})
-}
-
-// Expect the backup creation status to report SUCCESS within 30 seconds and 500ms polling interval.
-func expectEventuallyCreated(t *testing.T, backupID, backend, adminKey string) {
-	deadline := 30 * time.Second
-	require.EventuallyWithTf(t, func(check *assert.CollectT) {
-		resp, err := helper.CreateBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(adminKey))
-
-		require.NoError(t, err, "fetch backup create status")
-		require.NotNil(t, resp.Payload, "empty response")
-
-		status := *resp.Payload.Status
-		require.NotEqualf(t, status, "FAILED", "create failed: %s", resp.Payload.Error)
-		require.Equal(t, status, "SUCCESS", "backup create status")
-	}, deadline, 500*time.Millisecond, "backup %s not created after %s", backupID, deadline)
-}
-
-// Expect the backup restore status to report SUCCESS within 30 seconds and 500ms polling interval.
-func expectEventuallyRestored(t *testing.T, backupID, backend, adminKey string) {
-	deadline := 30 * time.Second
-	require.EventuallyWithTf(t, func(check *assert.CollectT) {
-		resp, err := helper.RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(adminKey))
-
-		require.NoError(t, err, "fetch backup restore status")
-		require.NotNil(t, resp.Payload, "empty response")
-
-		status := *resp.Payload.Status
-		require.NotEqualf(t, status, "FAILED", "restore failed: %s", resp.Payload.Error)
-		require.Equal(t, status, "SUCCESS", "backup restore status")
-	}, deadline, 500*time.Millisecond, "backup %s not restored after %s", backupID, deadline)
 }
