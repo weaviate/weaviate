@@ -42,8 +42,9 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 		// Keep original class name - schema layer will resolve aliases transparently
 	}
 
-	// RBAC will resolve alias internally using its configured resolver
-	err := b.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsData(class, tenant)...)
+	// Use resolved class name for authorization
+	resolvedClass := b.resolveClassNameForRepo(class)
+	err := b.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsData(resolvedClass, tenant)...)
 	if err != nil {
 		return nil, err
 	}

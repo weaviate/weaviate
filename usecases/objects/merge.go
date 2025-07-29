@@ -58,8 +58,9 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	updates.Class = originalClassName
 	cls, id := originalClassName, updates.ID
 
-	// RBAC will resolve alias internally using its configured resolver
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(originalClassName, updates.Tenant, id)); err != nil {
+	// Use resolved class name for authorization
+	authClassName := m.resolveClassNameForRepo(originalClassName)
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(authClassName, updates.Tenant, id)); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 

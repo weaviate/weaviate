@@ -47,8 +47,8 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	resolvedClassName := m.resolveClassNameForRepo(originalClassName)
 	updates.Class = resolvedClassName
 
-	// RBAC will resolve alias internally using its configured resolver
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(originalClassName, updates.Tenant, updates.ID)); err != nil {
+	// Use resolved class name for authorization
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(resolvedClassName, updates.Tenant, updates.ID)); err != nil {
 		return nil, err
 	}
 

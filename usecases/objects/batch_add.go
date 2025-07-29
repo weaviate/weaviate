@@ -57,14 +57,16 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		if err != nil {
 			return nil, err
 		}
-		knownClasses[className] = vClass[className]
+		// Store class info using resolved class name for schema operations
+		resolvedClassName := b.resolveClassNameForRepo(className)
+		knownClasses[resolvedClassName] = vClass[className]
 
-		// RBAC will resolve alias internally using its configured resolver
-		if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(className, shards...)...); err != nil {
+		// Use resolved class name for authorization
+		if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(resolvedClassName, shards...)...); err != nil {
 			return nil, err
 		}
 
-		if err := b.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, shards...)...); err != nil {
+		if err := b.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(resolvedClassName, shards...)...); err != nil {
 			return nil, err
 		}
 	}
@@ -101,8 +103,16 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	}
 
 	var maxSchemaVersion uint64
-	batchObjects, maxSchemaVersion := b.validateAndGetVector(ctx, principal, objects, repl, fetchedClasses)
-	schemaVersion, tenantCount, err := b.autoSchemaManager.autoTenants(ctx, principal, objects, fetchedClasses)
+	// Create objects with resolved class names for schema operations
+	objectsForSchema := make([]*models.Object, len(objects))
+	for i, obj := range objects {
+		objCopy := *obj
+		objCopy.Class = b.resolveClassNameForRepo(obj.Class)
+		objectsForSchema[i] = &objCopy
+	}
+
+	batchObjects, maxSchemaVersion := b.validateAndGetVector(ctx, principal, objectsForSchema, repl, fetchedClasses)
+	schemaVersion, tenantCount, err := b.autoSchemaManager.autoTenants(ctx, principal, objectsForSchema, fetchedClasses)
 	if err != nil {
 		return nil, fmt.Errorf("auto create tenants: %w", err)
 	}

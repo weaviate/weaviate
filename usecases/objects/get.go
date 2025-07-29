@@ -36,8 +36,12 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	// Store original class name for response (could be alias)
 	originalClassName := class
 
-	// RBAC will resolve alias internally using its configured resolver
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(originalClassName, tenant, id))
+	// Use resolved class name for authorization when class is provided
+	authClassName := originalClassName
+	if originalClassName != "" {
+		authClassName = m.resolveClassNameForRepo(originalClassName)
+	}
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(authClassName, tenant, id))
 	if err != nil {
 		return nil, err
 	}

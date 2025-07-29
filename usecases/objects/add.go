@@ -42,8 +42,9 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	originalClassName := schema.UppercaseClassName(object.Class)
 	object.Class = originalClassName
 
-	// RBAC will resolve alias internally - pass class name as-is
-	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(originalClassName, object.Tenant)...); err != nil {
+	// Use resolved class name for authorization
+	authClassName := m.resolveClassNameForRepo(originalClassName)
+	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(authClassName, object.Tenant)...); err != nil {
 		return nil, err
 	}
 
