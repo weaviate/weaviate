@@ -740,6 +740,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	unloadedShard, err := newIndex.GetShardLike(shardName)
 	require.NoError(t, err)
 	unloadedDimensionality, count, compressedUnloaded, err := unloadedShard.DimensionsUsage(ctx, "")
+	require.NoError(t, err)
 
 	// Compare active and inactive metrics
 	assert.Equal(t, activeVectorStorageSize, inactiveVectorStorageSize, "Active and inactive vector storage size should be very similar")
