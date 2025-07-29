@@ -71,7 +71,7 @@ func TestBackupAndRestoreDynamicUsers(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		helper.ExpectEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey))
+		helper.ExpectEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 
 		// delete user
 		helper.DeleteUser(t, testUserName, adminKey)
@@ -85,7 +85,7 @@ func TestBackupAndRestoreDynamicUsers(t *testing.T) {
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
 
-		helper.ExpectEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
+		helper.ExpectEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 
 		user := helper.GetUser(t, testUserName, adminKey)
 		require.NotNil(t, user)
@@ -108,7 +108,7 @@ func TestBackupAndRestoreDynamicUsers(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		helper.ExpectEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey))
+		helper.ExpectEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 
 		// delete user
 		helper.DeleteUser(t, testUserName, adminKey)
@@ -122,7 +122,7 @@ func TestBackupAndRestoreDynamicUsers(t *testing.T) {
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
 
-		helper.ExpectEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
+		helper.ExpectEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 
 		respU, err := helper.Client(t).Users.GetUserInfo(users.NewGetUserInfoParams().WithUserID(testUserName), helper.CreateAuth(adminKey))
 		require.Nil(t, respU)
@@ -159,7 +159,7 @@ func TestBackupAndRestoreDynamicUsers(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		helper.ExpectEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey))
+		helper.ExpectEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 
 		// delete user and role
 		helper.DeleteUser(t, testUserName, adminKey)
@@ -175,7 +175,7 @@ func TestBackupAndRestoreDynamicUsers(t *testing.T) {
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
 
-		helper.ExpectEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
+		helper.ExpectEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 
 		user := helper.GetUser(t, testUserName, adminKey)
 		require.NotNil(t, user)

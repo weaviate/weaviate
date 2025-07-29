@@ -120,7 +120,7 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 				backupResp, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), books.DefaultClassName, backend, backupID)
 				assert.Nil(t, err)
 				assert.NotNil(t, backupResp)
-				helper.ExpectEventuallyCreated(t, backupID, backend, nil)
+				helper.ExpectEventuallyCreated(t, backupID, backend, nil, helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 			})
 
 			t.Run("delete collection", func(t *testing.T) {
@@ -189,7 +189,7 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 				restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), books.DefaultClassName, backend, backupID, map[string]string{})
 				assert.Nil(t, err)
 				assert.NotNil(t, restoreResp)
-				helper.ExpectEventuallyRestored(t, backupID, backend, nil)
+				helper.ExpectEventuallyRestored(t, backupID, backend, nil, helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 			})
 
 			t.Run("check class after restore", func(t *testing.T) {

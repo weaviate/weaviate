@@ -145,7 +145,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		helper.ExpectEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey))
+		helper.ExpectEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 
 		// delete role and assignment
 		helper.DeleteRole(t, adminKey, testRoleName)

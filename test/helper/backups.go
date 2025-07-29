@@ -149,9 +149,50 @@ func RestoreBackupStatusWithAuthz(t *testing.T, backend, backupID, overrideBucke
 	return Client(t).Backups.BackupsRestoreStatus(params, authInfo)
 }
 
-// Expect the backup creation status to report SUCCESS within 30 seconds and 500ms polling interval.
-func ExpectEventuallyCreated(t *testing.T, backupID, backend string, auth runtime.ClientAuthInfoWriter) {
-	deadline := 30 * time.Second
+const (
+	MinPollInterval = 100 * time.Millisecond
+	MaxDeadline     = 10 * time.Minute
+)
+
+// [backupExpectOpt.WithOptions] copies the struct, so it is safe to derive options
+// from defaultBackupExpect directly:
+//
+//	defaultBackupExpect.WithOptions(opts)
+var defaultBackupExpect = backupExpectOpt{
+	Interval: 500 * time.Millisecond,
+	Deadline: 30 * time.Second,
+}
+
+type backupExpectOpt struct {
+	Interval time.Duration
+	Deadline time.Duration
+}
+
+// WithOptions applies options to the copy of backupExpectOpt and returns it.
+func (b backupExpectOpt) WithOptions(opts ...BackupExpectOpt) *backupExpectOpt {
+	for _, opt := range opts {
+		opt(&b)
+	}
+	return &b
+}
+
+type BackupExpectOpt func(*backupExpectOpt)
+
+// Set the interval for polling backup create/restore status. Pass [helper.MinPollInterval] for rapid checks.
+func WithPollInterval(d time.Duration) BackupExpectOpt {
+	return func(opt *backupExpectOpt) { opt.Interval = max(d, MinPollInterval) }
+}
+
+// Set the deadline for receiving status SUCCESS. Waiting indefinitely is not allowed, use [helper.MaxDeadline] instead.
+func WithDeadline(d time.Duration) BackupExpectOpt {
+	return func(opt *backupExpectOpt) { opt.Deadline = min(d, MaxDeadline) }
+}
+
+// Expect the backup creation status to report SUCCESS within 30s and with 500ms polling interval (default).
+// Change polling configuration by passing [WithPollInterval] and [WithDeadline].
+func ExpectEventuallyCreated(t *testing.T, backupID, backend string, auth runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
+	opt := defaultBackupExpect.WithOptions(opts...)
+
 	require.EventuallyWithTf(t, func(check *assert.CollectT) {
 		var resp *backups.BackupsCreateStatusOK
 		var err error
@@ -167,12 +208,14 @@ func ExpectEventuallyCreated(t *testing.T, backupID, backend string, auth runtim
 		status := *resp.Payload.Status
 		require.NotEqualf(t, status, "FAILED", "create failed: %s", resp.Payload.Error)
 		require.Equal(t, status, "SUCCESS", "backup create status")
-	}, deadline, 500*time.Millisecond, "backup %s not created after %s", backupID, deadline)
+	}, opt.Deadline, opt.Interval, "backup %s not created after %s", backupID, opt.Deadline)
 }
 
-// Expect the backup restore status to report SUCCESS within 30 seconds and 500ms polling interval.
-func ExpectEventuallyRestored(t *testing.T, backupID, backend string, auth runtime.ClientAuthInfoWriter) {
-	deadline := 30 * time.Second
+// Expect the backup restore status to report SUCCESS within 30s and with 500ms polling interval (default).
+// Change polling configuration by passing [WithPollInterval] and [WithDeadline].
+func ExpectEventuallyRestored(t *testing.T, backupID, backend string, auth runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
+	opt := defaultBackupExpect.WithOptions(opts...)
+
 	require.EventuallyWithTf(t, func(check *assert.CollectT) {
 		var resp *backups.BackupsRestoreStatusOK
 		var err error
@@ -188,5 +231,5 @@ func ExpectEventuallyRestored(t *testing.T, backupID, backend string, auth runti
 		status := *resp.Payload.Status
 		require.NotEqualf(t, status, "FAILED", "restore failed: %s", resp.Payload.Error)
 		require.Equal(t, status, "SUCCESS", "backup restore status")
-	}, deadline, 500*time.Millisecond, "backup %s not restored after %s", backupID, deadline)
+	}, opt.Deadline, opt.Interval, "backup %s not restored after %s", backupID, opt.Deadline)
 }
