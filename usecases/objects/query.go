@@ -104,6 +104,7 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 		return nil, &Error{err.Error(), StatusForbidden, err}
 	}
 
+	filteredQuery[0].Class = m.resolveClassNameForRepo(filteredQuery[0].Class)
 	res, rerr := m.vectorRepo.Query(ctx, filteredQuery[0])
 	if rerr != nil {
 		return nil, rerr
