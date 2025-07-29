@@ -192,6 +192,7 @@ func WithDeadline(d time.Duration) BackupExpectOpt {
 // Change polling configuration by passing [WithPollInterval] and [WithDeadline].
 // To use in no-authz context, pass nil to the authz parameter.
 func ExpectBackupEventuallyCreated(t *testing.T, backupID, backend string, authz runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
+	t.Helper()
 	opt := defaultBackupExpect.WithOptions(opts...)
 
 	require.EventuallyWithTf(t, func(c *assert.CollectT) {
@@ -211,6 +212,7 @@ func ExpectBackupEventuallyCreated(t *testing.T, backupID, backend string, authz
 // Change polling configuration by passing [WithPollInterval] and [WithDeadline].
 // To use in no-authz context, pass nil to the authz parameter.
 func ExpectBackupEventuallyRestored(t *testing.T, backupID, backend string, authz runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
+	t.Helper()
 	opt := defaultBackupExpect.WithOptions(opts...)
 
 	require.EventuallyWithTf(t, func(c *assert.CollectT) {
