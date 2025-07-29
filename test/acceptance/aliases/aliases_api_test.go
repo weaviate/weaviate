@@ -252,18 +252,23 @@ func Test_AliasesAPI(t *testing.T) {
 					// trying to create class with existing class name.
 					name:             "with existing class name",
 					class:            books.ClassModel2VecVectorizerWithName(books.DefaultClassName),
-					expectedErrorMsg: fmt.Sprintf("create class: class %s already exists", books.DefaultClassName),
+					expectedErrorMsg: fmt.Sprintf("class name %s already exists", books.DefaultClassName),
 				},
 				// trying to create class with existing alias name.
 				{
 					name:             "with existing alias name",
 					class:            books.ClassModel2VecVectorizerWithName("BookAlias"),
-					expectedErrorMsg: fmt.Sprintf("create class: alias %s already exists", "BookAlias"),
+					expectedErrorMsg: fmt.Sprintf("alias name %s already exists", "BookAlias"),
 				},
 			}
 			for _, tt := range tests {
 				t.Run(tt.name, func(t *testing.T) {
-					helper.CreateClass(t, tt.class)
+					params := schema.NewSchemaObjectsCreateParams().WithObjectClass(tt.class)
+					resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+					require.Error(t, err)
+					assert.Nil(t, resp)
+					errorPayload, _ := json.MarshalIndent(err, "", " ")
+					assert.Contains(t, string(errorPayload), tt.expectedErrorMsg)
 				})
 			}
 		})
@@ -299,7 +304,7 @@ func Test_AliasesAPI(t *testing.T) {
 			require.Nil(t, resp)
 			require.Error(t, err)
 			errorPayload, _ := json.MarshalIndent(err, "", " ")
-			assert.Contains(t, string(errorPayload), fmt.Sprintf("class name %s already exists", class.Class))
+			assert.Contains(t, string(errorPayload), fmt.Sprintf("alias name %s already exists", class.Class))
 		})
 		t.Run("GraphQL Get query with alias", func(t *testing.T) {
 			getQuery := `

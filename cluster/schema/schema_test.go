@@ -38,8 +38,9 @@ func TestCollectionNameConflictWithAlias(t *testing.T) {
 	require.NoError(t, err)
 
 	// checking to see if class exists should consider the existing alias as well
-	got := sc.ClassEqual("MyCar")
+	got, is_alias := sc.ClassEqual("MyCar")
 	assert.NotEmpty(t, got)
+	assert.True(t, is_alias)
 }
 
 func Test_schemaCollectionMetrics(t *testing.T) {
