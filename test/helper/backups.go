@@ -178,18 +178,19 @@ func (b backupExpectOpt) WithOptions(opts ...BackupExpectOpt) *backupExpectOpt {
 
 type BackupExpectOpt func(*backupExpectOpt)
 
-// Set the interval for polling backup create/restore status. Pass [helper.MinPollInterval] for rapid checks.
+// Set the interval for polling backup create/restore status. Pass [MinPollInterval] for rapid checks.
 func WithPollInterval(d time.Duration) BackupExpectOpt {
 	return func(opt *backupExpectOpt) { opt.Interval = max(d, MinPollInterval) }
 }
 
-// Set the deadline for receiving status SUCCESS. Waiting indefinitely is not allowed, use [helper.MaxDeadline] instead.
+// Set the deadline for receiving status SUCCESS. Waiting indefinitely is not allowed, use [MaxDeadline] instead.
 func WithDeadline(d time.Duration) BackupExpectOpt {
 	return func(opt *backupExpectOpt) { opt.Deadline = min(d, MaxDeadline) }
 }
 
 // Expect creation status to report SUCCESS within 30s and with 500ms polling interval (default).
 // Change polling configuration by passing [WithPollInterval] and [WithDeadline].
+// To use in no-authz context, pass nil to the authz parameter.
 func ExpectBackupEventuallyCreated(t *testing.T, backupID, backend string, authz runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
 	opt := defaultBackupExpect.WithOptions(opts...)
 
@@ -208,6 +209,7 @@ func ExpectBackupEventuallyCreated(t *testing.T, backupID, backend string, authz
 
 // Expect restore status to report SUCCESS within 30s and with 500ms polling interval (default).
 // Change polling configuration by passing [WithPollInterval] and [WithDeadline].
+// To use in no-authz context, pass nil to the authz parameter.
 func ExpectBackupEventuallyRestored(t *testing.T, backupID, backend string, authz runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
 	opt := defaultBackupExpect.WithOptions(opts...)
 
