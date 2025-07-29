@@ -39,7 +39,7 @@ const (
 	DefaultRotationRounds = 5
 )
 
-func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer.Provider) *BinaryRotationalQuantizer {
+func NewBinaryRotationalQuantizer(inputDim int, queryBits int, seed uint64, distancer distancer.Provider) *BinaryRotationalQuantizer {
 	rotation := NewFastRotation(inputDim, DefaultRotationRounds, seed)
 
 	// Randomized rounding for the query quantization to make the estimator unbiased.
@@ -55,7 +55,7 @@ func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer
 		inputDim:     uint32(inputDim),
 		rotation:     rotation,
 		distancer:    distancer,
-		queryBits:    DefaultRQQueryBits,
+		queryBits:    queryBits,
 		rounding:     rounding,
 		distanceType: distancer.Type(),
 	}
