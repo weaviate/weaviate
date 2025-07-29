@@ -96,7 +96,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		helper.ExpectEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
+		helper.ExpectBackupEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
 
 		// delete role and assignment
 		helper.DeleteRole(t, adminKey, testRoleName)
@@ -110,7 +110,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
 
-		helper.ExpectEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
+		helper.ExpectBackupEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
 
 		role := helper.GetRoleByName(t, adminKey, testRoleName)
 		require.NotNil(t, role)
@@ -145,7 +145,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "", resp.Payload.Error)
 
-		helper.ExpectEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
+		helper.ExpectBackupEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 
 		// delete role and assignment
 		helper.DeleteRole(t, adminKey, testRoleName)
@@ -164,7 +164,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
 
-		helper.ExpectEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
+		helper.ExpectBackupEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
 
 		respRole, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRoleName), helper.CreateAuth(adminKey))
 		require.Nil(t, respRole)

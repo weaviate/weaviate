@@ -38,11 +38,11 @@ func metricsCount(t *testing.T) {
 	defer cleanupMetricsClasses(t, 0, 20)
 	createImportQueryMetricsClasses(t, 0, 10)
 	backupID := startBackup(t, 0, 10)
-	helper.ExpectEventuallyCreated(t, backupID, "filesystem", nil, helper.WithPollInterval(time.Second), helper.WithDeadline(helper.MaxDeadline))
+	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil, helper.WithPollInterval(time.Second), helper.WithDeadline(helper.MaxDeadline))
 	metricsLinesBefore := countMetricsLines(t)
 	createImportQueryMetricsClasses(t, 10, 20)
 	backupID = startBackup(t, 0, 20)
-	helper.ExpectEventuallyCreated(t, backupID, "filesystem", nil, helper.WithPollInterval(time.Second), helper.WithDeadline(helper.MaxDeadline))
+	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil, helper.WithPollInterval(time.Second), helper.WithDeadline(helper.MaxDeadline))
 	metricsLinesAfter := countMetricsLines(t)
 	assert.Equal(t, metricsLinesBefore, metricsLinesAfter, "number of metrics should not have changed")
 }

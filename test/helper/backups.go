@@ -150,8 +150,8 @@ func RestoreBackupStatusWithAuthz(t *testing.T, backend, backupID, overrideBucke
 }
 
 const (
-	MinPollInterval = 100 * time.Millisecond
-	MaxDeadline     = 10 * time.Minute
+	MinPollInterval = 100 * time.Millisecond // Minimun interval for polling backup status.
+	MaxDeadline     = 10 * time.Minute       // Maxium timeout for polling backup status.
 )
 
 // [backupExpectOpt.WithOptions] copies the struct, so it is safe to derive options
@@ -188,9 +188,9 @@ func WithDeadline(d time.Duration) BackupExpectOpt {
 	return func(opt *backupExpectOpt) { opt.Deadline = min(d, MaxDeadline) }
 }
 
-// Expect the backup creation status to report SUCCESS within 30s and with 500ms polling interval (default).
+// Expect creation status to report SUCCESS within 30s and with 500ms polling interval (default).
 // Change polling configuration by passing [WithPollInterval] and [WithDeadline].
-func ExpectEventuallyCreated(t *testing.T, backupID, backend string, auth runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
+func ExpectBackupEventuallyCreated(t *testing.T, backupID, backend string, auth runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
 	opt := defaultBackupExpect.WithOptions(opts...)
 
 	require.EventuallyWithTf(t, func(check *assert.CollectT) {
@@ -211,9 +211,9 @@ func ExpectEventuallyCreated(t *testing.T, backupID, backend string, auth runtim
 	}, opt.Deadline, opt.Interval, "backup %s not created after %s", backupID, opt.Deadline)
 }
 
-// Expect the backup restore status to report SUCCESS within 30s and with 500ms polling interval (default).
+// Expect restore status to report SUCCESS within 30s and with 500ms polling interval (default).
 // Change polling configuration by passing [WithPollInterval] and [WithDeadline].
-func ExpectEventuallyRestored(t *testing.T, backupID, backend string, auth runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
+func ExpectBackupEventuallyRestored(t *testing.T, backupID, backend string, auth runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
 	opt := defaultBackupExpect.WithOptions(opts...)
 
 	require.EventuallyWithTf(t, func(check *assert.CollectT) {
