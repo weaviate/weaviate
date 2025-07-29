@@ -2742,8 +2742,7 @@ func (i *Index) consistencyLevel(repl *additional.ReplicationProperties) routerT
 	if repl == nil {
 		repl = defaultConsistency()
 	}
-	cl := routerTypes.ConsistencyLevel(repl.ConsistencyLevel)
-	return cl
+	return routerTypes.ConsistencyLevel(repl.ConsistencyLevel)
 }
 
 func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
