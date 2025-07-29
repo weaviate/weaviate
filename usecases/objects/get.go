@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -33,6 +34,9 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, additional additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*models.Object, error) {
+	class = schema.UppercaseClassName(class)
+	class, _ = m.resolveAlias(class)
+
 	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant, id))
 	if err != nil {
 		return nil, err
