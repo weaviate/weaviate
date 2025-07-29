@@ -125,10 +125,16 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 
 	// Discard adding class if the name already exists or a similar one exists
 	if req.Type == command.ApplyRequest_TYPE_ADD_CLASS {
-		if other := s.schema.ClassEqual(req.Class); other == req.Class {
-			return fmt.Errorf("class name %s already exists", req.Class)
+		other, is_alias := s.schema.ClassEqual(req.Class)
+		item := "class"
+		if is_alias {
+			item = "alias"
+		}
+
+		if other == req.Class {
+			return fmt.Errorf("%s name %s already exists", item, req.Class)
 		} else if other != "" {
-			return fmt.Errorf("%w: found similar class %q", ErrClassExists, other)
+			return fmt.Errorf("%w: found similar %s %q", ErrClassExists, item, other)
 		}
 	}
 

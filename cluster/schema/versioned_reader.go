@@ -151,9 +151,3 @@ func (s VersionedSchemaReader) CopyShardingState(ctx context.Context,
 }
 
 func (s VersionedSchemaReader) Len() int { return s.schema.len() }
-
-// ClassEqual returns the name of an existing class with a similar name, and "" otherwise
-// strings.EqualFold is used to compare classes
-func (s VersionedSchemaReader) ClassEqual(name string) string {
-	return s.schema.ClassEqual(name)
-}
