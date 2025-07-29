@@ -528,7 +528,7 @@ func (l *LazyLoadShard) getDimensionsBucket() (*lsmkv.Bucket, error) {
 }
 
 func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
-	if !l.isLoaded() {
+	if l.isLoaded() {
 		l.shard.publishDimensionMetrics(ctx)
 		return
 	}
@@ -879,7 +879,6 @@ func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) (int64, error) {
 		dimensions, count := calcTargetVectorDimensionsFromBucket(bucket, targetVector, func(dimLen int, v int64) (int64, int64) {
 			return v, int64(dimLen)
 		})
-
 
 		if count == 0 || dimensions == 0 {
 			continue
