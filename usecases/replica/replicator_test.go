@@ -855,8 +855,6 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 				BelongsToNodes: replicaNodes,
 				Status:         models.TenantActivityStatusHOT,
 			}
-			state.Physical[shard] = physical
-		}
 
 		return state
 	}).Maybe()

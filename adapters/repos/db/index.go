@@ -27,6 +27,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/multitenancy"
+
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 
 	"github.com/go-openapi/strfmt"
@@ -199,11 +201,12 @@ type Index struct {
 	Config                  IndexConfig
 	globalreplicationConfig *replication.GlobalConfig
 
-	getSchema  schemaUC.SchemaGetter
-	logger     logrus.FieldLogger
-	remote     *sharding.RemoteIndex
-	stopwords  *stopwords.Detector
-	replicator *replica.Replicator
+	getSchema    schemaUC.SchemaGetter
+	schemaReader schemaUC.SchemaReader
+	logger       logrus.FieldLogger
+	remote       *sharding.RemoteIndex
+	stopwords    *stopwords.Detector
+	replicator   *replica.Replicator
 
 	vectorIndexUserConfigLock sync.Mutex
 	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
@@ -276,10 +279,10 @@ type nodeResolver interface {
 // NewIndex creates an index with the specified amount of shards, using only
 // the shards that are local to a node
 func NewIndex(ctx context.Context, cfg IndexConfig,
-	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
+	invertedIndexConfig schema.InvertedIndexConfig,
 	vectorIndexUserConfig schemaConfig.VectorIndexConfig,
 	vectorIndexUserConfigs map[string]schemaConfig.VectorIndexConfig,
-	router routerTypes.Router, sg schemaUC.SchemaGetter, cs inverted.ClassSearcher, logger logrus.FieldLogger,
+	router routerTypes.Router, sg schemaUC.SchemaGetter, schemaReader schemaUC.SchemaReader, cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
 	globalReplicationConfig *replication.GlobalConfig,
@@ -306,13 +309,14 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		Config:                  cfg,
 		globalreplicationConfig: globalReplicationConfig,
 		getSchema:               sg,
+		schemaReader:            schemaReader,
 		logger:                  logger,
 		classSearcher:           cs,
 		vectorIndexUserConfig:   vectorIndexUserConfig,
 		invertedIndexConfig:     invertedIndexConfig,
 		vectorIndexUserConfigs:  vectorIndexUserConfigs,
 		stopwords:               sd,
-		partitioningEnabled:     shardState.PartitioningEnabled,
+		partitioningEnabled:     multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
 		metrics:                 NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
 		centralJobQueue:         jobQueueCh,
@@ -345,7 +349,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		return nil, fmt.Errorf("init index %q: %w", index.ID(), err)
 	}
 
-	if err := index.initAndStoreShards(ctx, class, shardState, promMetrics); err != nil {
+	if err := index.initAndStoreShards(ctx, class, promMetrics); err != nil {
 		return nil, err
 	}
 
@@ -359,20 +363,47 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 // since called in Index's constructor there is no risk same shard will be inited/created in parallel,
 // therefore shardCreateLocks are not used here
 func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
-	shardState *sharding.State, promMetrics *monitoring.PrometheusMetrics,
+	promMetrics *monitoring.PrometheusMetrics,
 ) error {
+	type shardInfo struct {
+		name           string
+		activityStatus string
+	}
+
+	var localShards []shardInfo
+	className := i.Config.ClassName.String()
+
+	err := i.schemaReader.Read(className, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %q", className)
+		}
+
+		localShards = make([]shardInfo, 0, len(state.Physical))
+		for shardName, physical := range state.Physical {
+			if state.IsLocalShard(shardName) {
+				localShards = append(localShards, shardInfo{
+					name:           shardName,
+					activityStatus: physical.ActivityStatus(),
+				})
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to read sharding state: %w", err)
+	}
+
 	if i.Config.DisableLazyLoadShards {
 		eg := enterrors.NewErrorGroupWrapper(i.logger)
 		eg.SetLimit(_NUMCPU)
 
-		for _, shardName := range shardState.AllLocalPhysicalShards() {
-			physical := shardState.Physical[shardName]
-			if physical.ActivityStatus() != models.TenantActivityStatusHOT {
-				// do not instantiate inactive shard
+		for _, shard := range localShards {
+			if shard.activityStatus != models.TenantActivityStatusHOT {
 				continue
 			}
 
-			shardName := shardName // prevent loop variable capture
+			shardName := shard.name
 			eg.Go(func() error {
 				if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
 					return fmt.Errorf("acquiring permit to load shard: %w", err)
@@ -385,7 +416,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 				}
 
-				i.shards.Store(shardName, shard)
+				i.shards.Store(shardName, newShard)
 				return nil
 			}, shardName)
 		}
@@ -398,14 +429,10 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return nil
 	}
 
-	// shards to lazily initialize are fetch once and in the same goroutine the index is initialized
-	// so to avoid races if shards are deleted before being initialized
-	shards := shardState.AllLocalPhysicalShards()
+	activeShardNames := make([]string, 0, len(localShards))
 
-	for _, shardName := range shards {
-		physical := shardState.Physical[shardName]
-		if physical.ActivityStatus() != models.TenantActivityStatusHOT {
-			// do not instantiate inactive shard
+	for _, shard := range localShards {
+		if shard.activityStatus != models.TenantActivityStatusHOT {
 			continue
 		}
 
@@ -425,13 +452,9 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 		now := time.Now()
 
-		for _, shardName := range shards {
-			// prioritize closingCtx over ticker:
-			// check closing again in case of ticker was selected when both
-			// cases where available
+		for _, shardName := range activeShardNames {
 			select {
 			case <-i.closingCtx.Done():
-				// break loop by returning error
 				i.logger.
 					WithField("action", "load_all_shards").
 					Errorf("failed to load all shards: %v", i.closingCtx.Err())
@@ -439,7 +462,6 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			case <-ticker.C:
 				select {
 				case <-i.closingCtx.Done():
-					// break loop by returning error
 					i.logger.
 						WithField("action", "load_all_shards").
 						Errorf("failed to load all shards: %v", i.closingCtx.Err())
@@ -2565,16 +2587,21 @@ func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
 	return nil
 }
 
-func (i *Index) shardState() *sharding.State {
-	return i.getSchema.CopyShardingState(i.Config.ClassName.String())
-}
-
 func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[string]int64, error) {
+	var shardNames []string
+	className := i.Config.ClassName.String()
+	err := i.schemaReader.Read(className, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %q", className)
+		}
+		shardNames = state.AllPhysicalShards()
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	shardsQueueSize := make(map[string]int64)
-
-	// TODO-RAFT should be strongly consistent?
-	shardNames := i.shardState().AllPhysicalShards()
-
 	for _, shardName := range shardNames {
 		if tenant != "" && shardName != tenant {
 			continue
@@ -2629,15 +2656,21 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 }
 
 func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]string, error) {
-	shardsStatus := make(map[string]string)
+	var shardNames []string
+	className := i.Config.ClassName.String()
 
-	// TODO-RAFT should be strongly consistent?
-	shardState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
-	if shardState == nil {
-		return nil, fmt.Errorf("class %s not found in schema", i.Config.ClassName)
+	err := i.schemaReader.Read(className, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %q", className)
+		}
+		shardNames = state.AllPhysicalShards()
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	shardNames := shardState.AllPhysicalShards()
+	shardsStatus := make(map[string]string)
 
 	for _, shardName := range shardNames {
 		if tenant != "" && shardName != tenant {

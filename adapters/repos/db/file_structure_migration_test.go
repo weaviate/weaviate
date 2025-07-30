@@ -297,10 +297,6 @@ func (sg *fakeMigrationSchemaGetter) Statistics() map[string]any {
 	return nil
 }
 
-func (sg *fakeMigrationSchemaGetter) CopyShardingState(class string) *sharding.State {
-	return sg.states[class]
-}
-
 func (sg *fakeMigrationSchemaGetter) ShardOwner(class, shard string) (string, error) {
 	return "", nil
 }

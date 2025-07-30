@@ -12,34 +12,54 @@
 package db
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 
 	"github.com/pkg/errors"
 )
 
 func (i *Index) checkSingleShardMigration() error {
-	res, err := os.ReadDir(i.Config.RootPath)
+	dirEntries, err := os.ReadDir(i.Config.RootPath)
 	if err != nil {
 		return err
 	}
 
-	for _, entry := range res {
-		if !strings.HasPrefix(entry.Name(), i.ID()+"_single") {
-			// either not part of this index, or not a "_single" shard
+	singleIndexId := i.ID() + "_single"
+	if !needsSingleShardMigration(dirEntries, singleIndexId) {
+		return nil
+	}
+
+	var singleShardName string
+	className := i.Config.ClassName.String()
+
+	err = i.schemaReader.Read(className, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %q", className)
+		}
+
+		shards := state.AllPhysicalShards()
+		if len(shards) != 1 {
+			return errors.Errorf("cannot migrate '_single' shard into config with %d desired shards", len(shards))
+		}
+
+		singleShardName = shards[0]
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range dirEntries {
+		if !strings.HasPrefix(entry.Name(), singleIndexId) {
 			continue
 		}
 
-		// whatever is left now, needs to be migrated
-		shards := i.shardState().AllPhysicalShards()
-		if len(shards) != 1 {
-			return errors.Errorf("cannot migrate '_single' shard into config with %d "+
-				"desired shards", len(shards))
-		}
-
-		shardName := shards[0]
-		newName := i.ID() + "_" + shardName + strings.TrimPrefix(entry.Name(), i.ID()+"_single")
+		newName := i.ID() + "_" + singleShardName + strings.TrimPrefix(entry.Name(), singleIndexId)
 		oldPath := filepath.Join(i.Config.RootPath, entry.Name())
 		newPath := filepath.Join(i.Config.RootPath, newName)
 
@@ -50,9 +70,18 @@ func (i *Index) checkSingleShardMigration() error {
 		i.logger.WithField("action", "index_startup_migrate_shards_successful").
 			WithField("old_shard", oldPath).
 			WithField("new_shard", newPath).
-			Infof("successfully migrated shard file %q (created in an earlier version) to %q",
-				oldPath, newPath)
+			Infof("successfully migrated shard file %q to %q", oldPath, newPath)
 	}
 
 	return nil
+}
+
+func needsSingleShardMigration(dirEntries []os.DirEntry, indexID string) bool {
+	singleShardPrefix := indexID + "_single"
+	for _, dirEntry := range dirEntries {
+		if strings.HasPrefix(dirEntry.Name(), singleShardPrefix) {
+			return true
+		}
+	}
+	return false
 }

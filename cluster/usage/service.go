@@ -13,8 +13,11 @@ package usage
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/sharding"
 
 	"github.com/sirupsen/logrus"
 
@@ -38,18 +41,20 @@ type Service interface {
 }
 
 type service struct {
-	schemaManager  schema.SchemaGetter
+	schemaReader   schema.SchemaReader
 	db             db.IndexGetter
 	backups        backup.BackupBackendProvider
+	nodeName       string
 	logger         logrus.FieldLogger
 	jitterInterval time.Duration
 }
 
-func NewService(schemaManager schema.SchemaGetter, db db.IndexGetter, backups backup.BackupBackendProvider, logger logrus.FieldLogger) Service {
+func NewService(schemaReader schema.SchemaReader, db db.IndexGetter, backups backup.BackupBackendProvider, nodeName string, logger logrus.FieldLogger) Service {
 	return &service{
-		schemaManager:  schemaManager,
+		schemaReader:   schemaReader,
 		db:             db,
 		backups:        backups,
+		nodeName:       nodeName,
 		logger:         logger,
 		jitterInterval: 0, // Default to no jitter
 	}
@@ -73,39 +78,71 @@ func (s *service) addJitter() {
 // Usage service collects usage metrics for the node and shall return error in case of any error
 // to avoid reporting partial data
 func (m *service) Usage(ctx context.Context) (*types.Report, error) {
-	collections := m.schemaManager.GetSchemaSkipAuth().Objects.Classes
+	collections := m.schemaReader.ReadOnlySchema().Classes
 	usage := &types.Report{
-		Node:        m.schemaManager.NodeName(),
+		Node:        m.nodeName,
 		Collections: make([]*types.CollectionUsage, 0, len(collections)),
 		Backups:     make([]*types.BackupUsage, 0),
 	}
 
-	// Collect usage for each collection
 	for _, collection := range collections {
-		shardingState := m.schemaManager.CopyShardingState(collection.Class)
+		type shardInfo struct {
+			name           string
+			activityStatus string
+			isLocal        bool
+		}
+
+		var uniqueShardCount int
+		var localShards []shardInfo
+		var localShardNames map[string]bool // For quick lookup during ForEachShard
+
+		err := m.schemaReader.Read(collection.Class, func(_ *models.Class, state *sharding.State) error {
+			if state == nil {
+				return fmt.Errorf("unable to retrieve sharding state for class %q", collection.Class)
+			}
+
+			uniqueShardCount = len(state.Physical)
+			localShards = make([]shardInfo, 0, len(state.Physical))
+			localShardNames = make(map[string]bool)
+
+			for shardName, physical := range state.Physical {
+				isLocal := state.IsLocalShard(shardName)
+				if isLocal {
+					localShardNames[shardName] = true
+					localShards = append(localShards, shardInfo{
+						name:           shardName,
+						activityStatus: physical.ActivityStatus(),
+						isLocal:        isLocal,
+					})
+				}
+			}
+
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to read sharding state for collection %s: %w", collection.Class, err)
+		}
+
+		// Step 2: Process using extracted info (no schema lock)
 		collectionUsage := &types.CollectionUsage{
 			Name:              collection.Class,
 			ReplicationFactor: int(collection.ReplicationConfig.Factor),
-			UniqueShardCount:  int(len(shardingState.Physical)),
+			UniqueShardCount:  uniqueShardCount, // ✅ Use extracted count
 		}
+
 		// Get shard usage
 		index := m.db.GetIndexLike(entschema.ClassName(collection.Class))
 		if index != nil {
-			// First, collect cold tenants from sharding state
-			for shardName, physical := range shardingState.Physical {
-				// skip non-local shards
-				if !shardingState.IsLocalShard(shardName) {
-					continue
-				}
-
+			// First, collect cold tenants using extracted shard info
+			for _, shard := range localShards {
 				// Only process COLD tenants here
-				if physical.ActivityStatus() == models.TenantActivityStatusCOLD {
+				if shard.activityStatus == models.TenantActivityStatusCOLD {
 					// Add jitter between cold tenant processing (except for the first one)
 					if len(collectionUsage.Shards) > 0 {
 						m.addJitter()
 					}
 
-					shardUsage, err := calculateUnloadedShardUsage(ctx, index, shardName, collection.VectorConfig)
+					shardUsage, err := calculateUnloadedShardUsage(ctx, index, shard.name, collection.VectorConfig)
 					if err != nil {
 						return nil, err
 					}
@@ -116,8 +153,8 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 
 			// Then, collect hot tenants from loaded shards
 			index.ForEachShard(func(shardName string, shard db.ShardLike) error {
-				// skip non-local shards
-				if !shardingState.IsLocalShard(shardName) {
+				// skip non-local shards using extracted local shard names
+				if !localShardNames[shardName] { // ✅ Use extracted local shard map
 					return nil
 				}
 
@@ -211,7 +248,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 		usage.Collections = append(usage.Collections, collectionUsage)
 	}
 
-	// Get backup usage from all enabled backup backends
+	// Get backup usage from all enabled backup backends (unchanged)
 	for _, backend := range m.backups.EnabledBackupBackends() {
 		backups, err := backend.AllBackups(ctx)
 		if err != nil {

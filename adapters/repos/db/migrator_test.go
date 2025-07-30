@@ -18,6 +18,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
+
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 
 	"github.com/go-openapi/strfmt"
@@ -91,8 +93,11 @@ func TestUpdateIndexTenants(t *testing.T) {
 				PartitioningEnabled: true,
 			}
 
+			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				return readFunc(class, originalSS)
+			}).Maybe()
 			router := routerTypes.NewMockRouter(t)
-
 			index, err := NewIndex(context.Background(), IndexConfig{
 				ClassName:         schema.ClassName("TestClass"),
 				RootPath:          t.TempDir(),
@@ -314,6 +319,10 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	}
 
 	router := routerTypes.NewMockRouter(t)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		return readFunc(class, originalSS)
+	}).Maybe()
 	index, err := NewIndex(context.Background(), IndexConfig{
 		ClassName:         schema.ClassName("TestClass"),
 		RootPath:          t.TempDir(),

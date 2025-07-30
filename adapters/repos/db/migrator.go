@@ -17,7 +17,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router"
+	"github.com/weaviate/weaviate/multitenancy"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -110,11 +110,10 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
-	multiTenancyEnabled := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 	collection := schema.ClassName(class.Class).String()
 	indexRouter := router.NewBuilder(
 		collection,
-		multiTenancyEnabled,
+		multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		m.db.nodeSelector,
 		m.db.schemaGetter,
 		m.db.schemaReader,
@@ -169,13 +168,12 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			QuerySlowLogThreshold:                        m.db.config.QuerySlowLogThreshold,
 			InvertedSorterDisabled:                       m.db.config.InvertedSorterDisabled,
 		},
-		shardState,
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
-		indexRouter, m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
+		indexRouter, m.db.schemaGetter, m.db.schemaReader, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
 		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool)
 	if err != nil {

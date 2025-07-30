@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/sharding"
+
 	"github.com/stretchr/testify/mock"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
@@ -63,9 +65,11 @@ func TestBackup_DBLevel(t *testing.T) {
 		})
 
 		expectedNodeName := "node1"
-		expectedShardName := db.schemaGetter.
-			CopyShardingState(className).
-			AllPhysicalShards()[0]
+		var expectedShardName string
+		db.schemaReader.Read(className, func(class *models.Class, state *sharding.State) error {
+			expectedShardName = state.AllPhysicalShards()[0]
+			return nil
+		})
 		testShd := db.GetIndex(schema.ClassName(className)).
 			shards.Load(expectedShardName)
 		expectedCounterPath, _ := filepath.Rel(testShd.Index().Config.RootPath, testShd.Counter().FileName())
@@ -77,7 +81,12 @@ func TestBackup_DBLevel(t *testing.T) {
 		require.Nil(t, err)
 		expectedPropLength, err := os.ReadFile(testShd.GetPropertyLengthTracker().FileName())
 		require.Nil(t, err)
-		expectedShardState, err := testShd.Index().getSchema.CopyShardingState(className).JSON()
+		var expectedShardState []byte
+		err = testShd.Index().schemaReader.Read(className, func(class *models.Class, state *sharding.State) error {
+			var jsonErr error
+			expectedShardState, jsonErr = state.JSON()
+			return jsonErr
+		})
 		require.Nil(t, err)
 		expectedSchema, err := testShd.Index().getSchema.GetSchemaSkipAuth().
 			Objects.Classes[0].MarshalBinary()
@@ -268,7 +277,11 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: classes}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -301,6 +314,226 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 	}
 
 	return db
+}
+
+func TestDB_Shards(t *testing.T) {
+	ctx := testCtx()
+	logger, _ := test.NewNullLogger()
+
+	t.Run("single shard with single node", func(t *testing.T) {
+		className := "SingleShardClass"
+
+		shardState := &sharding.State{
+			Physical: map[string]sharding.Physical{
+				"shard1": {
+					Name:           "shard1",
+					BelongsToNodes: []string{"node1"},
+				},
+			},
+		}
+
+		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
+			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				class := &models.Class{Class: className}
+				return readFunc(class, shardState)
+			},
+		)
+
+		db := &DB{
+			logger:       logger,
+			schemaReader: mockSchemaReader,
+		}
+
+		nodes, err := db.Shards(ctx, className)
+		assert.NoError(t, err)
+		assert.Len(t, nodes, 1)
+		assert.Equal(t, "node1", nodes[0])
+	})
+
+	t.Run("single shard with multiple nodes", func(t *testing.T) {
+		className := "SingleShardMultiNodeClass"
+
+		shardState := &sharding.State{
+			Physical: map[string]sharding.Physical{
+				"shard1": {
+					Name:           "shard1",
+					BelongsToNodes: []string{"node1", "node2", "node3"},
+				},
+			},
+		}
+
+		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
+			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				class := &models.Class{Class: className}
+				return readFunc(class, shardState)
+			},
+		)
+
+		db := &DB{
+			logger:       logger,
+			schemaReader: mockSchemaReader,
+		}
+
+		nodes, err := db.Shards(ctx, className)
+		assert.NoError(t, err)
+		assert.Len(t, nodes, 3)
+		assert.Contains(t, nodes, "node1")
+		assert.Contains(t, nodes, "node2")
+		assert.Contains(t, nodes, "node3")
+	})
+
+	t.Run("multiple shards with overlapping nodes", func(t *testing.T) {
+		className := "MultiShardClass"
+
+		shardState := &sharding.State{
+			Physical: map[string]sharding.Physical{
+				"shard1": {
+					Name:           "shard1",
+					BelongsToNodes: []string{"node1", "node2"},
+				},
+				"shard2": {
+					Name:           "shard2",
+					BelongsToNodes: []string{"node2", "node3"},
+				},
+				"shard3": {
+					Name:           "shard3",
+					BelongsToNodes: []string{"node1", "node3"},
+				},
+			},
+		}
+
+		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
+			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				class := &models.Class{Class: className}
+				return readFunc(class, shardState)
+			},
+		)
+
+		db := &DB{
+			logger:       logger,
+			schemaReader: mockSchemaReader,
+		}
+
+		nodes, err := db.Shards(ctx, className)
+		assert.NoError(t, err)
+		assert.Len(t, nodes, 3)
+		assert.Contains(t, nodes, "node1")
+		assert.Contains(t, nodes, "node2")
+		assert.Contains(t, nodes, "node3")
+	})
+
+	t.Run("multiple shards with distinct nodes", func(t *testing.T) {
+		className := "MultiShardDistinctClass"
+
+		shardState := &sharding.State{
+			Physical: map[string]sharding.Physical{
+				"shard1": {
+					Name:           "shard1",
+					BelongsToNodes: []string{"node1"},
+				},
+				"shard2": {
+					Name:           "shard2",
+					BelongsToNodes: []string{"node2"},
+				},
+				"shard3": {
+					Name:           "shard3",
+					BelongsToNodes: []string{"node3"},
+				},
+			},
+		}
+
+		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
+			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				class := &models.Class{Class: className}
+				return readFunc(class, shardState)
+			},
+		)
+
+		db := &DB{
+			logger:       logger,
+			schemaReader: mockSchemaReader,
+		}
+
+		nodes, err := db.Shards(ctx, className)
+		assert.NoError(t, err)
+		assert.Len(t, nodes, 3)
+		assert.Contains(t, nodes, "node1")
+		assert.Contains(t, nodes, "node2")
+		assert.Contains(t, nodes, "node3")
+	})
+
+	t.Run("no shards for class", func(t *testing.T) {
+		className := "EmptyClass"
+
+		// Empty physical shards
+		shardState := &sharding.State{
+			Physical: map[string]sharding.Physical{},
+		}
+
+		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
+			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				class := &models.Class{Class: className}
+				return readFunc(class, shardState)
+			},
+		)
+
+		db := &DB{
+			logger:       logger,
+			schemaReader: mockSchemaReader,
+		}
+
+		nodes, err := db.Shards(ctx, className)
+		assert.NoError(t, err)
+		assert.Len(t, nodes, 0)
+		assert.Equal(t, []string{}, nodes)
+	})
+
+	t.Run("nil sharding state", func(t *testing.T) {
+		className := "NilStateClass"
+
+		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
+			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				class := &models.Class{Class: className}
+				return readFunc(class, nil)
+			},
+		)
+
+		db := &DB{
+			logger:       logger,
+			schemaReader: mockSchemaReader,
+		}
+
+		nodes, err := db.Shards(ctx, className)
+		assert.Error(t, err)
+		assert.Nil(t, nodes)
+		assert.Contains(t, err.Error(), "unable to retrieve sharding state")
+	})
+
+	t.Run("schema reader error", func(t *testing.T) {
+		className := "ErrorClass"
+
+		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().Read(className, mock.Anything).Return(
+			fmt.Errorf("schema read failed"),
+		)
+
+		db := &DB{
+			logger:       logger,
+			schemaReader: mockSchemaReader,
+		}
+
+		nodes, err := db.Shards(ctx, className)
+		assert.Error(t, err)
+		assert.Nil(t, nodes)
+		assert.Contains(t, err.Error(), "failed to read sharding state")
+		assert.Contains(t, err.Error(), "schema read failed")
+	})
 }
 
 func makeTestClass(className string) *models.Class {

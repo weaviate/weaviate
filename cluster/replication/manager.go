@@ -16,6 +16,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -242,14 +245,21 @@ func (m *Manager) QueryShardingStateByCollection(c *cmd.QueryRequest) ([]byte, e
 		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	shardingState := m.schemaReader.CopyShardingState(subCommand.Collection)
-	if shardingState == nil {
-		return nil, fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
-	}
+	var shards map[string][]string
+	err := m.schemaReader.Read(subCommand.Collection, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
+		}
 
-	shards := make(map[string][]string)
-	for _, shard := range shardingState.Physical {
-		shards[shard.Name] = shard.BelongsToNodes
+		shards = make(map[string][]string, len(state.Physical))
+		for _, shard := range state.Physical {
+			shards[shard.Name] = shard.BelongsToNodes
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	response := cmd.ShardingState{
@@ -270,20 +280,29 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	shardingState := m.schemaReader.CopyShardingState(subCommand.Collection)
-	if shardingState == nil {
-		return nil, fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
-	}
-
-	shards := make(map[string][]string)
-	for _, shard := range shardingState.Physical {
-		if shard.Name == subCommand.Shard {
-			shards[shard.Name] = shard.BelongsToNodes
+	var shards map[string][]string
+	err := m.schemaReader.Read(subCommand.Collection, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
 		}
-	}
 
-	if len(shards) == 0 {
-		return nil, fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Shard)
+		shards = make(map[string][]string)
+
+		for _, shard := range state.Physical {
+			if shard.Name == subCommand.Shard {
+				shards[shard.Name] = shard.BelongsToNodes
+				break
+			}
+		}
+
+		if len(shards) == 0 {
+			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Shard)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	response := cmd.ShardingState{

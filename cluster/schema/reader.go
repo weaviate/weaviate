@@ -179,14 +179,6 @@ func (rs SchemaReader) TenantsShards(class string, tenants ...string) (map[strin
 	return rs.TenantsShardsWithVersion(context.TODO(), 0, class, tenants...)
 }
 
-func (rs SchemaReader) CopyShardingState(class string) (ss *sharding.State) {
-	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("CopyShardingState"))
-	defer t.ObserveDuration()
-
-	res, _ := rs.CopyShardingStateWithVersion(context.TODO(), class, 0)
-	return res
-}
-
 func (rs SchemaReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("GetShardsStatus"))
 	defer t.ObserveDuration()

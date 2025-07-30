@@ -57,7 +57,10 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_NoShards(t *testing.T) 
 	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
 
 	emptyState := createShardingStateWithShards([]string{})
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(emptyState)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, emptyState)
+	})
 
 	r := router.NewBuilder(
 		"TestClass",
@@ -82,9 +85,11 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_OneShard(t *testing.T) 
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
 	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3")
 
-	shards := []string{"shard1"}
-	state := createShardingStateWithShards(shards)
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+	state := createShardingStateWithShards([]string{"shard1"})
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, state)
+	})
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2"}, nil)
 
@@ -147,9 +152,11 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_MultipleShards(t *testi
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
 	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3")
 
-	shards := []string{"shard1", "shard2", "shard3"}
-	state := createShardingStateWithShards(shards)
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+	state := createShardingStateWithShards([]string{"shard1", "shard2", "shard3"})
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, state)
+	})
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2"}, nil)
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard2").Return([]string{"node2", "node3"}, nil)
@@ -213,7 +220,10 @@ func TestSingleTenantRouter_GetWriteReplicasLocation(t *testing.T) {
 	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
 
 	state := createShardingStateWithShards([]string{"shard1"})
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, state)
+	})
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2"}, nil)
 
 	mockReplicationFSM.EXPECT().
@@ -251,7 +261,10 @@ func TestSingleTenantRouter_GetReadReplicasLocation(t *testing.T) {
 	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
 
 	state := createShardingStateWithShards([]string{"shard1"})
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, state)
+	})
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2"}, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "shard1", []string{"node1", "node2"}).
@@ -283,7 +296,10 @@ func TestSingleTenantRouter_ErrorInMiddleOfShardProcessing(t *testing.T) {
 	mockNodeSelector := mocks.NewMockNodeSelector("node1")
 
 	state := createShardingStateWithShards([]string{"shard1", "shard2", "shard3"})
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, state)
+	})
 
 	// First shard success
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1"}, nil)
@@ -652,7 +668,10 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
 	mockNodeSelector := mocks.NewMockNodeSelector("node1")
 	emptyState := createShardingStateWithShards([]string{"shard1"})
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(emptyState)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, emptyState)
+	})
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{}, nil)
 	mockReplicationFSM.EXPECT().
 		FilterOneShardReplicasRead("TestClass", "shard1", []string{}).
@@ -994,7 +1013,10 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_SpecificRandomShard(t *
 
 	allShards := []string{"shard1", "shard2", "shard3", "shard4", "shard5"}
 	state := createShardingStateWithShards(allShards)
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, state)
+	})
 	targetShard := allShards[rand.Intn(len(allShards))]
 	shardToNodes := map[string][]string{
 		"shard1": {"node1", "node2"},
@@ -1054,9 +1076,11 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_InvalidShard(t *testing
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
 	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
 
-	shards := []string{"shard1", "shard2"}
-	state := createShardingStateWithShards(shards)
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+	state := createShardingStateWithShards([]string{"shard1", "shard2"})
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, state)
+	})
 
 	r := router.NewBuilder(
 		"TestClass",
@@ -1108,7 +1132,10 @@ func TestSingleTenantRouter_BroadcastVsTargeted(t *testing.T) {
 			mockNodeSelector := cluster.NewMockNodeSelector(t)
 
 			state := createShardingStateWithShards(allShards)
-			mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				class := &models.Class{Class: className}
+				return readFunc(class, state)
+			})
 
 			for _, shard := range testCase.expectShards {
 				mockSchemaReader.EXPECT().ShardReplicas("TestClass", shard).Return([]string{"node1"}, nil)
@@ -1140,7 +1167,10 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_NoWriteReplicas(t *testing.T) 
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 
 	emptyState := createShardingStateWithShards([]string{"shard1"})
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(emptyState)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, emptyState)
+	})
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2", "node3"}, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "shard1", []string{"node1", "node2", "node3"}).
 		Return([]string{}, []string{})
@@ -1165,9 +1195,11 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_MultipleShards(t *testing.T) {
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 
-	shards := []string{"shard1", "shard2", "shard3"}
-	state := createShardingStateWithShards(shards)
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+	state := createShardingStateWithShards([]string{"shard1", "shard2", "shard3"})
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, state)
+	})
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2"}, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "shard1", []string{"node1", "node2"}).
 		Return([]string{"node1"}, []string{"node2"})
@@ -1233,7 +1265,6 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_Success(t *testing.T) {
 	expectedAdditionalWriteReplicas := []types.Replica{
 		{NodeName: "node2", ShardName: "alice", HostAddr: "host2.example.com"},
 	}
-	// Note: AdditionalReplicaSet should be empty in multi-tenant write plan based on the code
 	require.Equal(t, expectedWriteReplicas, ws.Replicas)
 	require.Equal(t, expectedAdditionalWriteReplicas, ws.AdditionalReplicas)
 }
@@ -1322,7 +1353,10 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_SpecifiedShard(t *testing.T) {
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 
 	state := createShardingStateWithShards([]string{"shardA"})
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, state)
+	})
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shardA").
 		Return([]string{"node1", "node2"}, nil)
 
@@ -1402,7 +1436,10 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_NoReplicas(t *testing.T) {
 	mockNodeSelector := mocks.NewMockNodeSelector("node1")
 
 	emptyState := createShardingStateWithShards([]string{"shard1"})
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(emptyState)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, emptyState)
+	})
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1"}, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "shard1", []string{"node1"}).
 		Return([]string{}, []string{}) // No write replicas
@@ -1462,7 +1499,10 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_ConsistencyLevelValidation(t *
 	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
 
 	state := createShardingStateWithShards([]string{"shard1"})
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, state)
+	})
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2"}, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "shard1", []string{"node1", "node2"}).
 		Return([]string{"node1"}, []string{"node2"})
@@ -1494,7 +1534,10 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_ReplicaOrdering(t *testing.T) 
 	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3")
 
 	state := createShardingStateWithShards([]string{"shard1"})
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, state)
+	})
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2", "node3"}, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "shard1", []string{"node1", "node2", "node3"}).
 		Return([]string{"node1", "node2"}, []string{"node3"})
@@ -1659,7 +1702,6 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_TenantNotFound(t *testing.T) {
 	require.Empty(t, plan.ReplicaSet.Replicas)
 }
 
-// You should also check if BuildReadRoutingPlan has similar gaps in coverage
 func TestSingleTenantRouter_BuildReadRoutingPlan_TenantValidation(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
@@ -1765,7 +1807,10 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_ConsistencyLevelValidation(t *t
 	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
 
 	state := createShardingStateWithShards([]string{"shard1"})
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, state)
+	})
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2"}, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "shard1", []string{"node1", "node2"}).
 		Return([]string{"node1", "node2"})
@@ -1797,7 +1842,10 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_ReplicaOrdering(t *testing.T) {
 	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2", "node3")
 
 	state := createShardingStateWithShards([]string{"shard1"})
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, state)
+	})
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2", "node3"}, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "shard1", []string{"node1", "node2", "node3"}).
 		Return([]string{"node1", "node2", "node3"})
@@ -2025,8 +2073,11 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_AllShards(t *testing.T) {
 	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
 
 	shards := []string{"shard1", "shard2"}
-	state := createShardingStateWithShards(shards)
-	mockSchemaReader.EXPECT().CopyShardingState("TestClass").Return(state)
+	state := createShardingStateWithShards([]string{"shard1", "shard2"})
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, state)
+	})
 
 	for _, shard := range shards {
 		mockSchemaReader.EXPECT().ShardReplicas("TestClass", shard).Return([]string{"node1"}, nil)

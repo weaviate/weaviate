@@ -17,7 +17,6 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func newFakeTargetVectorParamHelper() *fakeTargetVectorParamHelper {
@@ -46,10 +45,6 @@ func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
 
 func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {
 	return f.schema.GetClass(class)
-}
-
-func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
-	return nil
 }
 
 func (f *fakeSchemaManager) ShardOwner(class, shard string) (string, error) {

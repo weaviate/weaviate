@@ -124,26 +124,6 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create test class
-			class := &models.Class{
-				Class: tt.className,
-				Properties: []*models.Property{
-					{
-						Name:         "name",
-						DataType:     schema.DataTypeText.PropString(),
-						Tokenization: models.PropertyTokenizationWhitespace,
-					},
-				},
-				InvertedIndexConfig: &models.InvertedIndexConfig{},
-			}
-
-			// Create fake schema
-			fakeSchema := schema.Schema{
-				Objects: &models.Schema{
-					Classes: []*models.Class{class},
-				},
-			}
-
 			// Create sharding state
 			shardState := &sharding.State{
 				Physical: map[string]sharding.Physical{
@@ -155,6 +135,28 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				},
 			}
 			shardState.SetLocalName("test-node")
+			// Create test class
+			class := &models.Class{
+				Class: tt.className,
+				Properties: []*models.Property{
+					{
+						Name:         "name",
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
+					},
+				},
+				InvertedIndexConfig: &models.InvertedIndexConfig{},
+				MultiTenancyConfig: &models.MultiTenancyConfig{
+					Enabled: shardState.PartitioningEnabled,
+				},
+			}
+
+			// Create fake schema
+			fakeSchema := schema.Schema{
+				Objects: &models.Schema{
+					Classes: []*models.Class{class},
+				},
+			}
 
 			// Create scheduler
 			scheduler := queue.NewScheduler(queue.SchedulerOptions{
@@ -162,11 +164,18 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				Workers: 1,
 			})
 
+			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+				return readerFunc(class, shardState)
+			}).Maybe()
+
 			// Create mock schema getter
 			mockSchema := schemaUC.NewMockSchemaGetter(t)
 			mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 			mockSchema.EXPECT().ReadOnlyClass(tt.className).Maybe().Return(class)
-			mockSchema.EXPECT().CopyShardingState(tt.className).Maybe().Return(shardState)
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				return readFunc(class, shardState)
+			}).Maybe()
 			mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 			mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return(tt.shardName).Maybe()
 			// Add ShardOwner expectation for all test cases
@@ -411,26 +420,6 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create test class
-			class := &models.Class{
-				Class: tt.className,
-				Properties: []*models.Property{
-					{
-						Name:         "name",
-						DataType:     schema.DataTypeText.PropString(),
-						Tokenization: models.PropertyTokenizationWhitespace,
-					},
-				},
-				InvertedIndexConfig: &models.InvertedIndexConfig{},
-			}
-
-			// Create fake schema
-			fakeSchema := schema.Schema{
-				Objects: &models.Schema{
-					Classes: []*models.Class{class},
-				},
-			}
-
 			// Create sharding state
 			shardState := &sharding.State{
 				Physical: map[string]sharding.Physical{
@@ -442,6 +431,28 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				},
 			}
 			shardState.SetLocalName("test-node")
+			// Create test class
+			class := &models.Class{
+				Class: tt.className,
+				Properties: []*models.Property{
+					{
+						Name:         "name",
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
+					},
+				},
+				InvertedIndexConfig: &models.InvertedIndexConfig{},
+				MultiTenancyConfig: &models.MultiTenancyConfig{
+					Enabled: shardState.PartitioningEnabled,
+				},
+			}
+
+			// Create fake schema
+			fakeSchema := schema.Schema{
+				Objects: &models.Schema{
+					Classes: []*models.Class{class},
+				},
+			}
 
 			// Create scheduler
 			scheduler := queue.NewScheduler(queue.SchedulerOptions{
@@ -449,11 +460,18 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				Workers: 1,
 			})
 
+			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+				return readerFunc(class, shardState)
+			}).Maybe()
+
 			// Create mock schema getter
 			mockSchema := schemaUC.NewMockSchemaGetter(t)
 			mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 			mockSchema.EXPECT().ReadOnlyClass(tt.className).Maybe().Return(class)
-			mockSchema.EXPECT().CopyShardingState(tt.className).Maybe().Return(shardState)
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				return readFunc(class, shardState)
+			}).Maybe()
 			mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 			mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return("test-shard").Maybe()
 
@@ -475,7 +493,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				ReplicationFactor:     1,
 				ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 				TrackVectorDimensions: true,
-			}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
+			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
 				}, vectorConfigs, mockRouter, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
@@ -604,26 +622,6 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	objectCount := 50
 	vectorDimensions := defaultVectorDimensions
 
-	// Create test class
-	class := &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{
-				Name:         "name",
-				DataType:     schema.DataTypeText.PropString(),
-				Tokenization: models.PropertyTokenizationWhitespace,
-			},
-		},
-		InvertedIndexConfig: &models.InvertedIndexConfig{},
-	}
-
-	// Create fake schema
-	fakeSchema := schema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{class},
-		},
-	}
-
 	// Create sharding state
 	shardState := &sharding.State{
 		Physical: map[string]sharding.Physical{
@@ -636,17 +634,47 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	}
 	shardState.SetLocalName("test-node")
 
+	// Create test class
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+			},
+		},
+		InvertedIndexConfig: &models.InvertedIndexConfig{},
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: shardState.PartitioningEnabled,
+		},
+	}
+
+	// Create fake schema
+	fakeSchema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
 	// Create scheduler
 	scheduler := queue.NewScheduler(queue.SchedulerOptions{
 		Logger:  logger,
 		Workers: 1,
 	})
 
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+		return readerFunc(class, shardState)
+	}).Maybe()
+
 	// Create mock schema getter
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
 	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchema.EXPECT().CopyShardingState(className).Maybe().Return(shardState)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		return readFunc(class, shardState)
+	}).Maybe()
 	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 	mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return("test-shard").Maybe()
 
@@ -664,7 +692,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 		TrackVectorDimensions: true,
 		DisableLazyLoadShards: true, // we have to make sure lazyload shard disabled to load directly
-	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
+	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
 		}, nil, mockRouter, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
@@ -752,7 +780,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 		TrackVectorDimensions: true,
 		DisableLazyLoadShards: false, // we have to make sure lazyload enabled
-	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
+	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
 		}, index.GetVectorIndexConfigs(), mockRouter, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
