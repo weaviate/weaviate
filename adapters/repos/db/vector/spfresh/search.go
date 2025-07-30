@@ -51,7 +51,8 @@ func (s *SPFresh) Search(ctx context.Context, queryVector []byte, k int) ([]uint
 		return nil, err
 	}
 
-	dedup := newDeduplicator() // TODO: use a pool?
+	visited := s.visitedPool.Borrow()
+	defer s.visitedPool.Return(visited)
 
 	q := priorityqueue.NewMin[uint64](k)
 	for i, p := range postings {
@@ -70,9 +71,11 @@ func (s *SPFresh) Search(ctx context.Context, queryVector []byte, k int) ([]uint
 			}
 
 			// skip duplicates
-			if !dedup.tryAdd(v.ID) {
+			if visited.Visited(v.ID) {
 				continue
 			}
+
+			visited.Visit(v.ID)
 
 			dist, err := s.SPTAG.ComputeDistance(v.Data, queryVector)
 			if err != nil {

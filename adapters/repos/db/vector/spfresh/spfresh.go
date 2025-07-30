@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
@@ -60,6 +61,8 @@ type SPFresh struct {
 	splitList *deduplicator // Prevents duplicate split operations
 	mergeList *deduplicator // Prevents duplicate merge operations
 
+	visitedPool *visited.Pool
+
 	postingLocks *common.HashedLocks // Locks to prevent concurrent modifications to the same posting.
 }
 
@@ -97,6 +100,7 @@ func (s *SPFresh) Start(ctx context.Context) {
 	s.reassignCh = make(chan reassignOperation, s.UserConfig.ReassignWorkers*100) // TODO: fine-tune buffer size
 	s.splitList = newDeduplicator()
 	s.mergeList = newDeduplicator()
+	s.visitedPool = visited.NewPool(1, 512, -1)
 
 	// start N workers to process split operations
 	for i := 0; i < s.UserConfig.SplitWorkers; i++ {
