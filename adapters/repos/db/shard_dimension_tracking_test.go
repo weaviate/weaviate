@@ -233,7 +233,7 @@ func Test_DimensionTracking(t *testing.T) {
 		dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
 		require.Equal(t, 12800, dimAfter, "dimensions should not have changed")
 		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
-		require.Equal(t, int64(400), quantDimAfter, "quantized dimensions should not have changed")
+		require.Equal(t, int64(1600), quantDimAfter, "quantized dimensions should not have changed")
 	})
 
 	t.Run("import objects with d=0", func(t *testing.T) {
@@ -257,7 +257,7 @@ func Test_DimensionTracking(t *testing.T) {
 			dim, err := shard.Dimensions(context.Background(), DimensionCategoryAll)
 			assert.NoError(t, err)
 			assert.Equal(t, int64(12800), dim)
-			assert.Equal(t, int64(400), shard.QuantizedDimensions(context.Background(), "", 64))
+			assert.Equal(t, int64(1600), shard.QuantizedDimensions(context.Background(), "", 64))
 			return nil
 		})
 	})
@@ -282,7 +282,7 @@ func Test_DimensionTracking(t *testing.T) {
 			dim, err := shard.Dimensions(context.Background(), DimensionCategoryAll)
 			assert.NoError(t, err)
 			assert.Equal(t, int64(11520), dim)
-			assert.Equal(t, int64(360), shard.QuantizedDimensions(context.Background(), "", 64))
+			assert.Equal(t, int64(1440), shard.QuantizedDimensions(context.Background(), "", 64))
 			return nil
 		})
 	})
@@ -334,7 +334,7 @@ func Test_DimensionTracking(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, int64(6400), dim)
 			quantDim := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 32)
-			assert.Equal(t, int64(200), quantDim)
+			assert.Equal(t, int64(800), quantDim)
 			return nil
 		})
 	})
@@ -385,7 +385,7 @@ func Test_DimensionTracking(t *testing.T) {
 			dim, err := shard.Dimensions(context.Background(), DimensionCategoryAll)
 			assert.NoError(t, err)
 			assert.Equal(t, int64(12800), dim)
-			assert.Equal(t, int64(400), shard.QuantizedDimensions(context.Background(), "", 64))
+			assert.Equal(t, int64(1600), shard.QuantizedDimensions(context.Background(), "", 64))
 			return nil
 		})
 	})
@@ -433,6 +433,27 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 		expectDimensions float64
 		expectSegments   float64
 	}{
+{
+			name: "named_with_pq",
+			namedVectorConfig: func() enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.PQ.Enabled = true
+				cfg.PQ.Segments = 10
+				return cfg
+			},
+
+			expectSegments: 10 * objectCount,
+		},
+		{
+			name: "named_with_bq",
+			namedVectorConfig: func() enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.BQ.Enabled = true
+				return cfg
+			},
+
+			expectSegments: (dimensionsPerVector / 8) * objectCount,
+		},
 		{
 			name:              "mixed",
 			vectorConfig:      enthnsw.NewDefaultUserConfig,
@@ -459,27 +480,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 			expectDimensions: multiVecCard * dimensionsPerVector * objectCount,
 		},
 
-		{
-			name: "named_with_bq",
-			namedVectorConfig: func() enthnsw.UserConfig {
-				cfg := enthnsw.NewDefaultUserConfig()
-				cfg.BQ.Enabled = true
-				return cfg
-			},
 
-			expectSegments: (dimensionsPerVector / 8) * objectCount,
-		},
-		{
-			name: "named_with_pq",
-			namedVectorConfig: func() enthnsw.UserConfig {
-				cfg := enthnsw.NewDefaultUserConfig()
-				cfg.PQ.Enabled = true
-				cfg.PQ.Segments = 10
-				return cfg
-			},
-
-			expectSegments: 10 * objectCount,
-		},
 		{
 			name: "named_with_pq_zero_segments",
 			namedVectorConfig: func() enthnsw.UserConfig {

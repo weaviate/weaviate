@@ -144,7 +144,7 @@ type ShardLike interface {
 	// Dimensions returns the total number of dimensions for a given vector type
 	Dimensions(ctx context.Context, compressionType DimensionCategory) (int64, error)
 	// DimensionsUsage returns the total number of dimensions, the number of objects, and the compressed dimensions for a given vector
-	DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, int64, error)
+	DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, int64, int64, error)
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int64) int64
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
@@ -507,7 +507,7 @@ func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromProper
 func (s *Shard) QuantizedDimensions(ctx context.Context, targetVectorType string, segments int64) int64 {
 	var comp int64
 	for vecName, _ := range s.Index().GetVectorIndexConfigs() {
-		_ , count, compressed, err := s.DimensionsUsage(ctx, vecName)
+		_ , count, compressed, _, err := s.DimensionsUsage(ctx, vecName)
 		if err != nil {
 			s.index.logger.Errorf("failed to get dimensions usage for vector %q: %v", vecName, err)
 			return -1

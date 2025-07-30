@@ -3131,17 +3131,6 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 	}, nil
 }
 
-// CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
-func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName, targetVector string) (int64, int64, int64, error) {
-	// check if created in the meantime by concurrent call
-	shard, err := i.GetShardLike(tenantName)
-	_ = shard.(*LazyLoadShard)
-	if err != nil {
-		return 0, 0, 0, fmt.Errorf("get shard %q: %w", tenantName, err)
-	}
-	return shard.DimensionsUsage(ctx, targetVector)
-}
-
 // CalculateUnloadedVectorsMetrics calculates vector storage size for a cold tenant without loading it into memory
 func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) (int64, error) {
 	shard, err := i.GetShardLike(tenantName)

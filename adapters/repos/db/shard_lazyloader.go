@@ -469,13 +469,13 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
-func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, int64, error) {
+func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, int64, int64, error) {
 	if l.isLoaded() {
 		return l.shard.DimensionsUsage(ctx, targetVector)
 	}
 	b, err := l.getDimensionsBucket()
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, 0,err
 	}
 	defer b.Shutdown(ctx)
 
@@ -483,12 +483,10 @@ func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string
 		return v, int64(dimLen)
 	})
 
-	comp, _, err := discountDimensions(dimensions, count, l.Index().GetVectorIndexConfig(targetVector))
-	if err != nil {
-		return 0, 0, 0, errors.Wrapf(err, "calculate dimensions usage for vector %s", targetVector)
-	}
+	dims, comp, segs := discountDimensions(dimensions, count, l.Index().GetVectorIndexConfig(targetVector))
 
-	return dimensions, count, comp, err
+
+	return dims, count, comp, segs, err
 }
 
 func (l *LazyLoadShard) Dimensions(ctx context.Context, compressionType DimensionCategory) (int64, error) {
@@ -524,7 +522,7 @@ func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector st
 	defer b.Shutdown(ctx)
 		var comp int64
 	for vecName, _ := range l.Index().GetVectorIndexConfigs() {
-		_ ,count, compressed, err := l.DimensionsUsage(ctx, vecName)
+		_ ,count, compressed, _, err := l.DimensionsUsage(ctx, vecName)
 		if err != nil {
 			l.Index().logger.Errorf("failed to get dimensions usage for vector %q: %v", vecName, err)
 			return -1
@@ -575,8 +573,8 @@ func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
 		}
 		defer b.Shutdown(ctx)
 
-		sumDimensions, sumSegments := sumAllDimensionsInBucket(ctx, b, l.Index().GetVectorIndexConfigs())
-		sendVectorSegmentsMetric(l.shardOpts.promMetrics, className, shardName, sumSegments)
+		sumDimensions, _, sumSegments := sumAllDimensionsInBucket(ctx, b, l.Index().GetVectorIndexConfigs())
+		sendVectorSegmentsMetric(l.shardOpts.promMetrics, className, shardName, sumSegments) // sumSegments is the sum of segments, count is the number of vectors
 		sendVectorDimensionsMetric(l.shardOpts.promMetrics, className, shardName, sumDimensions)
 	}
 }

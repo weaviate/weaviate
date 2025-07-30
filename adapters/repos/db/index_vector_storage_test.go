@@ -273,7 +273,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				require.NoError(t, err)
 				if len(tt.vectorConfigs) > 0 && tt.vectorConfigs["text"] != nil {
 					// Named vector
-					dims, count, _, err := shard.DimensionsUsage(ctx, "text")
+					dims, count, _, _, err := shard.DimensionsUsage(ctx, "text")
 					dimensions = dims * count // Dimensions returns total across all objects
 					require.NoError(t, err)
 				}
@@ -522,7 +522,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.NotNil(t, shard)
 
 				// Get active metrics BEFORE releasing the shard
-				dimensionality, count, _, err := shard.DimensionsUsage(ctx, tt.targetVector)
+				dimensionality, count, _, _, err := shard.DimensionsUsage(ctx, tt.targetVector)
 				require.NoError(t, err)
 
 				assert.Equal(t, tt.expectedCount, count)
@@ -546,7 +546,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.NotNil(t, shard)
 
 				// Get active metrics BEFORE releasing the shard
-				dimensionality, count, _, err := shard.DimensionsUsage(ctx, tt.targetVector)
+				dimensionality, count, _, _, err := shard.DimensionsUsage(ctx, tt.targetVector)
 				require.NoError(t, err)
 
 				assert.Equal(t, tt.expectedCount, count)
@@ -686,7 +686,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 
 	activeVectorStorageSize, err := activeShard.VectorStorageSize(ctx)
 	require.NoError(t, err)
-	dimensionality, count, compressedLoaded, err := activeShard.DimensionsUsage(ctx, "")
+	dimensionality, count, compressedLoaded, _, err := activeShard.DimensionsUsage(ctx, "")
 	require.NoError(t, err)
 	activeObjectCount := activeShard.ObjectCount()
 	assert.Greater(t, activeVectorStorageSize, int64(0), "Active shard calculation should have vector storage size > 0")
@@ -739,7 +739,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	require.NoError(t, err)
 	unloadedShard, err := newIndex.GetShardLike(shardName)
 	require.NoError(t, err)
-	unloadedDimensionality, count, compressedUnloaded, err := unloadedShard.DimensionsUsage(ctx, "")
+	unloadedDimensionality, count, compressedUnloaded, _, err := unloadedShard.DimensionsUsage(ctx, "")
 	require.NoError(t, err)
 
 	// Compare active and inactive metrics
