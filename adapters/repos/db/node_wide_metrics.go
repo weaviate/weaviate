@@ -352,7 +352,6 @@ func (o *nodeWideMetricsObserver) observeDimensionMetrics() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		// TODO(dyma): should we publish metrics on startup regardless of i.Config.TrackVectorDimensions?
 		o.publishVectorMetrics(ctx)
 
 		tick := time.NewTicker(interval)
@@ -417,14 +416,6 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 			return nil
 		})
 	}
-
-	// NOTE(dyma): the way nodeWideMetricsObserver is used right now,
-	// o.db.promMetrics.Group is the *precondition* for initializing
-	// this object.
-	// In the absence of it, each shard is responsible for publishing
-	// it's own metrics (object_count + activity for now).
-	// Do we want follow this pattern or centralize metrics that _can_
-	// be grouped here?
 
 	// Report aggregate metrics for the node if grouping is enabled.
 	if o.db.promMetrics.Group {
