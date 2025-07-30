@@ -177,6 +177,14 @@ type DimensionMetrics struct {
 	Compressed   int // Compressed dimensions count (for PQ/BQ vectors)
 }
 
+// Add creates a new DimensionMetrics instance with total values summed pairwise.
+func (dm DimensionMetrics) Add(add DimensionMetrics) DimensionMetrics {
+	return DimensionMetrics{
+		Uncompressed: dm.Uncompressed + add.Uncompressed,
+		Compressed:   dm.Compressed + add.Compressed,
+	}
+}
+
 func (s *Shard) calcDimensionMetrics(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig, vecName string) DimensionMetrics {
 	switch category, segments := GetDimensionCategory(vecCfg); category {
 	case DimensionCategoryPQ:
@@ -195,8 +203,21 @@ func (s *Shard) calcDimensionMetrics(ctx context.Context, vecCfg schemaConfig.Ve
 	}
 }
 
-func (s *Shard) clearDimensionMetrics() {
-	clearDimensionMetrics(s.promMetrics, s.index.Config.ClassName.String(), s.name)
+func (s *Shard) getTotalDimensionMetrics(ctx context.Context) DimensionMetrics {
+	var total DimensionMetrics
+	for vectorName, config := range s.index.GetVectorIndexConfigs() {
+		metrics := s.calcDimensionMetrics(ctx, config, vectorName)
+		total = total.Add(metrics)
+	}
+	return total
+}
+
+func (s *Shard) clearDimensionMetrics(ctx context.Context) {
+	// s.dimensionMetricsCh <- taggedDimensionMetrics{
+	// 	ClassName: s.index.Config.ClassName.String(),
+	// 	ShardName: s.Name(),
+	// 	Dimensions: s.getTotalDimensionMetrics(ctx),
+	// }
 }
 
 func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics, className, shardName string) {

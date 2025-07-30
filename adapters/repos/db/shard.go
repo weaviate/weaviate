@@ -246,7 +246,7 @@ type Shard struct {
 	statusLock          sync.RWMutex
 	propertyIndicesLock sync.RWMutex
 
-	// TODO(dyma): cleanup unused
+	// TODO(dyma): cleanup unused fields / methods
 	stopDimensionTracking        chan struct{}
 	dimensionTrackingInitialized atomic.Bool
 

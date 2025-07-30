@@ -42,6 +42,12 @@ func (s *Shard) drop() (err error) {
 		"shard":  s.name,
 	}).Debug("dropping shard")
 
+	// vector_dimensions/segments metrics are not deleted in s.metrics.DeleteShardLabels
+	// we should reset them separately.
+	ctxClear, cancelClear := context.WithCancel(context.TODO())
+	defer cancelClear()
+	s.clearDimensionMetrics(ctxClear)
+
 	s.mayStopAsyncReplication()
 
 	s.haltForTransferMux.Lock()

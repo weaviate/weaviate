@@ -407,8 +407,7 @@ func publishVectorMetricsFromDB(t *testing.T, db *DB, className string) {
 		t.Logf("Vector dimensions tracking is disabled, returning 0")
 		return
 	}
-	index := db.GetIndex(schema.ClassName(className))
-	index.publishVectorMetrics(t.Context())
+	db.metricsObserver.publishVectorMetrics(t.Context())
 }
 
 func getSingleShardNameFromRepo(repo *DB, className string) string {
@@ -618,6 +617,11 @@ func createTestDatabaseWithClass(t *testing.T, class *models.Class) *DB {
 		shardState: singleShardState(),
 	})
 
+	// FIXME(dyma): this is not how DB is set up in ./init.go,
+	// see note in node_wide_metrics.go on it.
+	// Temporary fix to work around test failures.
+	db.metricsObserver = newNodeWideMetricsObserver(db)
+
 	require.Nil(t, db.WaitForStartup(testCtx()))
 	t.Cleanup(func() {
 		require.NoError(t, db.Shutdown(context.Background()))
@@ -684,7 +688,7 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 				}
 				vec := randVector(dimensionsPerVector)
 				err := db.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
-				require.Nil(t, err)
+				require.NoError(t, err, "put object")
 			}
 
 			// Publish metrics
@@ -693,12 +697,12 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 			// Verify dimension metrics
 			metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(tc.expectedLabels[0], tc.expectedLabels[1])
 			require.NoError(t, err)
-			require.Equal(t, float64(expectedDimensions), testutil.ToFloat64(metric))
+			require.Equal(t, float64(expectedDimensions), testutil.ToFloat64(metric), "dimensions")
 
 			// Verify segment metrics (should be 0 for standard vectors)
 			metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues(tc.expectedLabels[0], tc.expectedLabels[1])
 			require.NoError(t, err)
-			require.Equal(t, float64(0), testutil.ToFloat64(metric))
+			require.Equal(t, float64(0), testutil.ToFloat64(metric), "segments")
 		})
 	}
 }
@@ -754,8 +758,11 @@ func TestGroupedDimensionTrackingMultiShard(t *testing.T) {
 	publishVectorMetricsFromDB(t, db, class.Class)
 
 	// Verify dimension metrics
-	metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("n/a", "n/a")
+	gotDimensions, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("n/a", "n/a")
 	require.NoError(t, err, "get gauge for n/a:n/a")
-	require.Equal(t, float64(expectedDimensions), testutil.ToFloat64(metric))
+	require.Equal(t, float64(expectedDimensions), testutil.ToFloat64(gotDimensions), "dimensions")
 
+	gotSegments, err := metrics.VectorSegmentsSum.GetMetricWithLabelValues("n/a", "n/a")
+	require.NoError(t, err, "get gauge for n/a:n/a")
+	require.Equal(t, float64(0), testutil.ToFloat64(gotSegments), "segments")
 }

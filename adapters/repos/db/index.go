@@ -76,8 +76,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-const metricsLabelNA = "n/a"
-
 var (
 
 	// Use runtime.GOMAXPROCS instead of runtime.NumCPU because NumCPU returns
@@ -215,9 +213,6 @@ type Index struct {
 
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
-
-	// "Done" channel for goroutine that collects and publishes vector's metrics.
-	publishMetricsDone chan struct{}
 
 	// This lock should be used together with the db indexLock.
 	//
@@ -359,127 +354,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	index.cycleCallbacks.compactionAuxCycle.Start()
 	index.cycleCallbacks.flushCycle.Start()
 
-	index.startPublishingVectorMetrics()
-
 	return index, nil
-}
-
-// Start a goroutine to collect vector dimension/segment metrics from the shards,
-// and publish them at a regular interval. Only call this method in the constructor,
-// as it does not guard access with locks.
-// If vector dimension tracking is disabled, this method is a no-op: no goroutine will
-// be started and the "done" channel stays nil.
-func (i *Index) startPublishingVectorMetrics() {
-	if !i.Config.TrackVectorDimensions || i.Config.UsageEnabled {
-		// TODO(dyma): log that we won't track?
-		return
-	}
-
-	if i.metrics == nil || i.metrics.baseMetrics == nil{
-		// FIXME(dyma): this is a temprorary fix against all the tests that
-		// used to pass `nil` metrics and have now started to panic
-		return
-	}
-
-	// It is important to create this channel outside of the goroutine
-	// to make sure Index is initialized correctly.
-	i.publishMetricsDone = make(chan struct{})
-
-	enterrors.GoWrapper(func() {
-		interval := config.DefaultTrackVectorDimensionsInterval
-		if i.Config.TrackVectorDimensionsInterval > 0 { // duration must be > 0, or time.Timer will panic
-			interval = i.Config.TrackVectorDimensionsInterval
-		}
-
-		// This is a low-priority background process, which is not time-sensitive.
-		// Some downstream calls require a context, so we create one, but we needn't
-		// manage it beyond making sure it doesn't leak.
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		// TODO(dyma): should we publish metrics on startup regardless of i.Config.TrackVectorDimensions?
-		i.publishVectorMetrics(ctx)
-
-		tick := time.NewTicker(interval)
-		defer tick.Stop()
-
-		for {
-			select {
-			case <-tick.C:
-				i.publishVectorMetrics(ctx)
-			case <-i.publishMetricsDone:
-				return
-			}
-		}
-	}, i.logger)
-}
-
-func (i *Index) publishVectorMetrics(ctx context.Context) {
-	className := i.Config.ClassName.String()
-
-	var totalDimensions, totalSegments int
-	// Avoid loading cold shards, as it may create I/O spikes.
-	i.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
-		var shard *Shard
-		switch s := sl.(type) {
-		case *Shard:
-			shard = s
-		case *LazyLoadShard:
-			shard = s.shard // this shard
-		default:
-			// Actually we could calculate dimensions on any ShardLike
-			// but as Shard is currently the only implementation that
-			// reports vector metrics, we will pretend that we can't.
-			return nil
-		}
-
-		var dimensions, segments int
-		for vectorName, config := range i.GetVectorIndexConfigs() {
-			metrics := shard.calcDimensionMetrics(ctx, config, vectorName)
-			dimensions += metrics.Uncompressed
-			segments += metrics.Compressed
-		}
-
-		// Aggregate metrics instead of reporting them per-shard if grouping is enabled.
-		if i.metrics.baseMetrics.Group {
-			totalDimensions += dimensions
-			totalSegments += segments
-		} else {
-			sendVectorDimensionsMetric(i.metrics.baseMetrics, className, shardName, dimensions)
-			sendVectorSegmentsMetric(i.metrics.baseMetrics, className, shardName, segments)
-		}
-		return nil
-	})
-
-	// Report aggregate metrics for the node if grouping is enabled.
-	if i.metrics.baseMetrics.Group {
-		sendVectorDimensionsMetric(i.metrics.baseMetrics, metricsLabelNA, metricsLabelNA, totalDimensions)
-		sendVectorSegmentsMetric(i.metrics.baseMetrics, metricsLabelNA, metricsLabelNA, totalSegments)
-	}
-}
-
-// Reset vector_dimesions and vector_segments gauge to 0.
-func (i *Index) clearDimensionMetrics(shardName string) {
-	if i.metrics == nil || i.metrics.baseMetrics == nil{
-		// FIXME(dyma): temporary measure for panicking tests
-		return
-	}
-
-	className := i.Config.ClassName.String()
-	if i.metrics.baseMetrics.Group {
-		className, shardName = metricsLabelNA, metricsLabelNA
-	}
-
-	sendVectorDimensionsMetric(i.metrics.baseMetrics, className, shardName, 0)
-	sendVectorSegmentsMetric(i.metrics.baseMetrics, className, shardName, 0)
-}
-
-// Signal the metrics publishing goroutine to exit.
-// This method is safe to call without checking i.Config.TrackingVectorDimensions first.
-func (i *Index) stopPublishingVectorMetrics() {
-	if i.publishMetricsDone != nil {
-		close(i.publishMetricsDone)
-	}
 }
 
 // since called in Index's constructor there is no risk same shard will be inited/created in parallel,
@@ -540,6 +415,9 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		i.shards.Store(shardName, shard)
 	}
 
+	// NOTE(dyma):
+	// 1. So "lazy-loaded" shards are actually loaded "half-eagerly"?
+	// 2. If <-ctx.Done or we fail to load a shard, should allShardsReady still report true?
 	initLazyShardsInBackground := func() {
 		defer i.allShardsReady.Store(true)
 
@@ -2554,11 +2432,6 @@ func (i *Index) drop() error {
 				logrus.WithFields(fields).WithField("id", shard.ID()).Error(err)
 			}
 
-			// For grouped metrics, where class and shard labels are both
-			// reported as n/a this may mean updating the same gauge multiple times.
-			// Checking that it isn't 0 for every shard is not much better.
-			i.clearDimensionMetrics(shardName)
-
 			return nil
 		})
 		return nil
@@ -2581,8 +2454,6 @@ func (i *Index) drop() error {
 	if err := i.stopCycleManagers(ctx, "drop"); err != nil {
 		return err
 	}
-
-	i.stopPublishingVectorMetrics()
 
 	return os.RemoveAll(i.path())
 }
