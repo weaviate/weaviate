@@ -860,10 +860,6 @@ func (index *flat) PostStartup() {
 	}).Debugf("pre-loaded %d vectors in %s", count, took)
 }
 
-func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, error) {
-	return index.distancerProvider.SingleDist(x, y)
-}
-
 func (index *flat) ContainsDoc(id uint64) bool {
 	var bucketName string
 

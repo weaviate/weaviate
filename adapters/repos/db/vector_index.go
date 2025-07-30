@@ -48,7 +48,6 @@ type VectorIndex interface {
 	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
 	ValidateMultiBeforeInsert(vector [][]float32) error
-	DistanceBetweenVectors(x, y []float32) (float32, error)
 	// ContainsDoc returns true if the index has indexed document with a given id.
 	// It must return false if the document does not exist, or has a tombstone.
 	ContainsDoc(docID uint64) bool

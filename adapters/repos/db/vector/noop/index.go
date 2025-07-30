@@ -130,10 +130,6 @@ func (i *Index) PostStartup() {
 func (i *Index) Dump(labels ...string) {
 }
 
-func (i *Index) DistanceBetweenVectors(x, y []float32) (float32, error) {
-	return 0, nil
-}
-
 func (i *Index) ContainsDoc(docID uint64) bool {
 	return false
 }

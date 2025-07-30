@@ -740,10 +740,6 @@ func (h *hnsw) Entrypoint() uint64 {
 	return h.entryPointID
 }
 
-func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, error) {
-	return h.distancerProvider.SingleDist(x, y)
-}
-
 func (h *hnsw) ContainsDoc(docID uint64) bool {
 	if h.Multivector() && !h.muvera.Load() {
 		h.RLock()

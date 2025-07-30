@@ -81,7 +81,6 @@ type VectorIndex interface {
 	Compressed() bool
 	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
-	DistanceBetweenVectors(x, y []float32) (float32, error)
 	ContainsDoc(docID uint64) bool
 	DistancerProvider() distancer.Provider
 	AlreadyIndexed() uint64
@@ -449,12 +448,6 @@ func (dynamic *dynamic) PostStartup() {
 	dynamic.Lock()
 	defer dynamic.Unlock()
 	dynamic.index.PostStartup()
-}
-
-func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, error) {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.DistanceBetweenVectors(x, y)
 }
 
 func (dynamic *dynamic) ContainsDoc(docID uint64) bool {

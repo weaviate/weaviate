@@ -534,34 +534,6 @@ func (_c *MockVectorIndex_DeleteMulti_Call) RunAndReturn(run func(...uint64) err
 	return _c
 }
 
-// DistanceBetweenVectors provides a mock function with given fields: x, y
-func (_m *MockVectorIndex) DistanceBetweenVectors(x []float32, y []float32) (float32, error) {
-	ret := _m.Called(x, y)
-
-	if len(ret) == 0 {
-		panic("no return value specified for DistanceBetweenVectors")
-	}
-
-	var r0 float32
-	var r1 error
-	if rf, ok := ret.Get(0).(func([]float32, []float32) (float32, error)); ok {
-		return rf(x, y)
-	}
-	if rf, ok := ret.Get(0).(func([]float32, []float32) float32); ok {
-		r0 = rf(x, y)
-	} else {
-		r0 = ret.Get(0).(float32)
-	}
-
-	if rf, ok := ret.Get(1).(func([]float32, []float32) error); ok {
-		r1 = rf(x, y)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
 // MockVectorIndex_DistanceBetweenVectors_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DistanceBetweenVectors'
 type MockVectorIndex_DistanceBetweenVectors_Call struct {
 	*mock.Call
