@@ -646,7 +646,7 @@ func TestGroupedDimensionTrackingMultiShard(t *testing.T) {
 	defer func() { metrics.Group = originalGroup }()
 
 	class := &models.Class{
-		Class:               "Thigns",
+		Class:               "Things",
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 	}
