@@ -74,15 +74,15 @@ func (o *nodeWideMetricsObserver) Shutdown() {
 
 func (o *nodeWideMetricsObserver) observeShards() {
 	enterrors.GoWrapper(func() {
-		t30 := time.NewTicker(30 * time.Second)
-		t10 := time.NewTicker(10 * time.Second)
-
 		// make sure we start with a warm state, otherwise we delay the initial
 		// update. This only applies to tenant activity, other metrics wait
 		// for shard-readiness anyway.
 		o.observeActivity()
 
+		t30 := time.NewTicker(30 * time.Second)
 		defer t30.Stop()
+
+		t10 := time.NewTicker(10 * time.Second)
 		defer t10.Stop()
 
 		for {
