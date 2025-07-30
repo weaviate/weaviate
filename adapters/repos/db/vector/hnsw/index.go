@@ -867,11 +867,6 @@ func (h *hnsw) AlreadyIndexed() uint64 {
 	return uint64(h.cache.CountVectors())
 }
 
-func (h *hnsw) GetKeys(id uint64) (uint64, uint64, error) {
-	docID, relativeID := h.cache.GetKeys(id)
-	return docID, relativeID, nil
-}
-
 func (h *hnsw) normalizeVec(vec []float32) []float32 {
 	if h.distancerProvider.Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine

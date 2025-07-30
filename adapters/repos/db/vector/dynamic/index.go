@@ -54,7 +54,6 @@ type MultiVectorIndex interface {
 	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 	SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, targetDistance float32,
 		maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error)
-	GetKeys(id uint64) (uint64, uint64, error)
 	ValidateMultiBeforeInsert(vector [][]float32) error
 }
 
@@ -376,12 +375,6 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 		dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
 	}
 	return nil
-}
-
-func (dynamic *dynamic) GetKeys(id uint64) (uint64, uint64, error) {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.GetKeys(id)
 }
 
 func (dynamic *dynamic) Drop(ctx context.Context) error {

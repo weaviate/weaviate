@@ -793,10 +793,6 @@ func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, er
 	return files, nil
 }
 
-func (index *flat) GetKeys(id uint64) (uint64, uint64, error) {
-	return 0, 0, errors.Errorf("GetKeys is not supported for flat index")
-}
-
 func (i *flat) ValidateBeforeInsert(vector []float32) error {
 	return nil
 }

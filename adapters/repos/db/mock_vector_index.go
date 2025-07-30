@@ -775,41 +775,6 @@ func (_c *MockVectorIndex_Flush_Call) RunAndReturn(run func() error) *MockVector
 	return _c
 }
 
-// GetKeys provides a mock function with given fields: id
-func (_m *MockVectorIndex) GetKeys(id uint64) (uint64, uint64, error) {
-	ret := _m.Called(id)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetKeys")
-	}
-
-	var r0 uint64
-	var r1 uint64
-	var r2 error
-	if rf, ok := ret.Get(0).(func(uint64) (uint64, uint64, error)); ok {
-		return rf(id)
-	}
-	if rf, ok := ret.Get(0).(func(uint64) uint64); ok {
-		r0 = rf(id)
-	} else {
-		r0 = ret.Get(0).(uint64)
-	}
-
-	if rf, ok := ret.Get(1).(func(uint64) uint64); ok {
-		r1 = rf(id)
-	} else {
-		r1 = ret.Get(1).(uint64)
-	}
-
-	if rf, ok := ret.Get(2).(func(uint64) error); ok {
-		r2 = rf(id)
-	} else {
-		r2 = ret.Error(2)
-	}
-
-	return r0, r1, r2
-}
-
 // MockVectorIndex_GetKeys_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetKeys'
 type MockVectorIndex_GetKeys_Call struct {
 	*mock.Call
