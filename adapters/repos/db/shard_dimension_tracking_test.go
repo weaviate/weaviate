@@ -205,8 +205,7 @@ func Test_DimensionTracking(t *testing.T) {
 			},
 		}
 
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+		require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 
 		schemaGetter.schema = schema
 	})

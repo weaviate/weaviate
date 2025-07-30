@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -369,25 +370,21 @@ func (o *nodeWideMetricsObserver) observeDimensionMetrics() {
 }
 
 func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
-	// NOTE(dyma): can we copy the index map and release lock immediately?
-	// No new indices can be added while we're holding the lock anyways,
-	// there are no metrics to loose.
-	//
-	// If in case some indices are shut down / dropped after copy, we can
-	// always check something like:
-	//
-	// i.closeLock.Lock()
-	// defer i.closeLock.Unlock()
-	// if i.closed {
-	// 	continue // skip
-	// }
-	// maybe even TryLock(), because locked means it's about to be closed.
-
+	// We're a low-priority process, copy the index map to avoid blocking others.
+	// No new indices can be added while we're holding the lock anyways.
 	o.db.indexLock.RLock()
-	defer o.db.indexLock.RUnlock()
-
+	indices := make(map[string]*Index, len(o.db.indices))
+	maps.Copy(indices, o.db.indices)
+	o.db.indexLock.RUnlock()
+	
 	var total DimensionMetrics
-	for _, index := range o.db.indices {
+	for _, index := range indices {
+		index.closeLock.RLock()
+		if index.closed {
+			continue
+		}
+		index.closeLock.RUnlock()
+
 		className := index.Config.ClassName.String()
 
 		// Avoid loading cold shards, as it may create I/O spikes.
