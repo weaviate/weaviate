@@ -166,12 +166,12 @@ func sumAllDimensionsInBucket(ctx context.Context, b *lsmkv.Bucket, configs map[
 			sumSegments += thisCount
 			continue
 		}
-		dims, segs, err := discountDimensions(thisDims, thisCount, cfg)
+		dims, count, err := discountDimensions(thisDims, thisCount, cfg)
 		if err != nil {
 			continue
 		}
-		sumDimensions += dims
-		sumSegments += segs
+		sumDimensions += dims*count
+		sumSegments += count
 	}
 
 	return sumDimensions, sumSegments
@@ -244,22 +244,11 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 
 func discountDimensions(dimensions int64, count int64, vecCfg schemaConfig.VectorIndexConfig) (dims int64, segs int64, err error) {
 	dims = dimensions
-	switch category, segments := GetDimensionCategory(vecCfg); category {
-	case DimensionCategoryPQ:
-		count := count * correctEmptySegments(int(segments), dims)
-		return 0, count, nil
-	case DimensionCategoryBQ:
-		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
-		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
-		// Roundup is required because BQ packs bits into uint64 blocks - you can't have
-		// a partial uint64 block. Even 1 dimension needs a full 8-byte uint64 block.
-
-		dims = (dims + 63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
-		return 0, dims * count, nil
-	default:
-		return count * dimensions, 0, nil
-	}
+	ratio := helpers.CompressionRatioFromConfig(vecCfg, dimensions)
+	compressed := int64(float64(dimensions) * ratio)
+	return compressed, count, err
 }
+
 
 // Empty the dimensions bucket, quickly and efficiently
 func (s *Shard) resetDimensionsLSM() error {

@@ -522,12 +522,16 @@ func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector st
 		return -1
 	}
 	defer b.Shutdown(ctx)
-	dims, _, _ := sumByVectorType(b, l.Index().GetVectorIndexConfigs(), DimensionCategoryPQ, func(dimLength int, v int64) (int64, int64) {
-		n := v * correctEmptySegments(int(segments), int64(dimLength))
-		return n, n
-	})
-
-	return dims
+		var comp int64
+	for vecName, _ := range l.Index().GetVectorIndexConfigs() {
+		_ ,count, compressed, err := l.DimensionsUsage(ctx, vecName)
+		if err != nil {
+			l.Index().logger.Errorf("failed to get dimensions usage for vector %q: %v", vecName, err)
+			return -1
+		}
+		comp += compressed*count
+	}
+	return comp
 }
 
 func (l *LazyLoadShard) getDimensionsBucket() (*lsmkv.Bucket, error) {

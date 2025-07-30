@@ -505,10 +505,15 @@ func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromProper
 }
 
 func (s *Shard) QuantizedDimensions(ctx context.Context, targetVectorType string, segments int64) int64 {
-       dims, _, _ := sumByVectorType(s.store.Bucket(helpers.DimensionsBucketLSM), s.index.GetVectorIndexConfigs(), DimensionCategoryPQ, func(dimLength int, v int64) (int64, int64) {
-		n := v * correctEmptySegments(int(segments), int64(dimLength))
-		return n, n
-	})
+	var comp int64
+	for vecName, _ := range s.Index().GetVectorIndexConfigs() {
+		_ , count, compressed, err := s.DimensionsUsage(ctx, vecName)
+		if err != nil {
+			s.index.logger.Errorf("failed to get dimensions usage for vector %q: %v", vecName, err)
+			return -1
+		}
+		comp += compressed * count
+	}
+	return comp
 
-	return dims
 }
