@@ -20,7 +20,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswconf "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -135,10 +134,6 @@ func (i *Index) ContainsDoc(docID uint64) bool {
 }
 
 func (i *Index) Iterate(fn func(id uint64) bool) {}
-
-func (i *Index) DistancerProvider() distancer.Provider {
-	return nil
-}
 
 func (i *Index) ShouldCompress() (bool, int) {
 	return false, 0

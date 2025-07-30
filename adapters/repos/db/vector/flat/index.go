@@ -912,10 +912,6 @@ func (index *flat) Iterate(fn func(docID uint64) bool) {
 	}
 }
 
-func (index *flat) DistancerProvider() distancer.Provider {
-	return index.distancerProvider
-}
-
 func newSearchByDistParams(maxLimit int64) *common.SearchByDistParams {
 	initialOffset := 0
 	initialLimit := common.DefaultSearchByDistInitialLimit

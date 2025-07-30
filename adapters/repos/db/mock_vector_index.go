@@ -588,11 +588,6 @@ type MockVectorIndex_DistancerProvider_Call struct {
 	*mock.Call
 }
 
-// DistancerProvider is a helper method to define mock.On call
-func (_e *MockVectorIndex_Expecter) DistancerProvider() *MockVectorIndex_DistancerProvider_Call {
-	return &MockVectorIndex_DistancerProvider_Call{Call: _e.mock.On("DistancerProvider")}
-}
-
 func (_c *MockVectorIndex_DistancerProvider_Call) Run(run func()) *MockVectorIndex_DistancerProvider_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run()

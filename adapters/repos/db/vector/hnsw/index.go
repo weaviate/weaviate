@@ -822,10 +822,6 @@ func (h *hnsw) iterateMulti(fn func(docID uint64) bool) {
 	}
 }
 
-func (h *hnsw) DistancerProvider() distancer.Provider {
-	return h.distancerProvider
-}
-
 func (h *hnsw) ShouldUpgrade() (bool, int) {
 	if h.sqConfig.Enabled {
 		return h.sqConfig.Enabled, h.sqConfig.TrainingLimit

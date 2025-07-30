@@ -542,34 +542,9 @@ func (_c *MockVectorIndex_DistanceBetweenVectors_Call) RunAndReturn(run func([]f
 	return _c
 }
 
-// DistancerProvider provides a mock function with no fields
-func (_m *MockVectorIndex) DistancerProvider() distancer.Provider {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for DistancerProvider")
-	}
-
-	var r0 distancer.Provider
-	if rf, ok := ret.Get(0).(func() distancer.Provider); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(distancer.Provider)
-		}
-	}
-
-	return r0
-}
-
 // MockVectorIndex_DistancerProvider_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DistancerProvider'
 type MockVectorIndex_DistancerProvider_Call struct {
 	*mock.Call
-}
-
-// DistancerProvider is a helper method to define mock.On call
-func (_e *MockVectorIndex_Expecter) DistancerProvider() *MockVectorIndex_DistancerProvider_Call {
-	return &MockVectorIndex_DistancerProvider_Call{Call: _e.mock.On("DistancerProvider")}
 }
 
 func (_c *MockVectorIndex_DistancerProvider_Call) Run(run func()) *MockVectorIndex_DistancerProvider_Call {

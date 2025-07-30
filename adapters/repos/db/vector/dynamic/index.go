@@ -82,7 +82,6 @@ type VectorIndex interface {
 	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
 	ContainsDoc(docID uint64) bool
-	DistancerProvider() distancer.Provider
 	AlreadyIndexed() uint64
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 	QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer
@@ -460,12 +459,6 @@ func (dynamic *dynamic) AlreadyIndexed() uint64 {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.AlreadyIndexed()
-}
-
-func (dynamic *dynamic) DistancerProvider() distancer.Provider {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.DistancerProvider()
 }
 
 func (dynamic *dynamic) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
