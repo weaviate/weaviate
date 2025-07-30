@@ -68,7 +68,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	batchQueuesHandler := batch.NewQueuesHandler(grpcShutdownCtx, batchWriteQueue, batchReadQueues, logger)
 
 	batch.StartBatchWorkers(grpcShutdownCtx, 1, batchWriteQueue, batchReadQueues, batchHandler, logger)
-	enterrors.GoWrapperWithBlock(func() {
+	enterrors.GoWrapper(func() {
 		for {
 			select {
 			case <-grpcShutdownCtx.Done():
