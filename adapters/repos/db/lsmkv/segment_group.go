@@ -90,6 +90,7 @@ type SegmentGroup struct {
 	lastCompactionCall time.Time
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
+	bitmapBufPool                  roaringset.BitmapBufPool
 	bm25config                     *schema.BM25Config
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
@@ -119,6 +120,7 @@ type sgConfig struct {
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	compactionCallbacks cyclemanager.CycleCallbackGroup, cfg sgConfig,
 	allocChecker memwatch.AllocChecker, lazySegmentLoading bool, files map[string]int64,
+	bitmapBufPool roaringset.BitmapBufPool,
 ) (*SegmentGroup, error) {
 	now := time.Now()
 	sg := &SegmentGroup{
@@ -143,6 +145,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		MinMMapSize:                  cfg.MinMMapSize,
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 		writeMetadata:                cfg.writeMetadata,
+		bitmapBufPool:                bitmapBufPool,
 	}
 
 	segmentIndex := 0
@@ -701,27 +704,46 @@ func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []Segme
 	return out[:i], outSegments[:i], release, nil
 }
 
-func (sg *SegmentGroup) roaringSetGet(key []byte) (roaringset.BitmapLayers, error) {
-	segments, release := sg.getAndLockSegments()
-	defer release()
+func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, release func(), err error) {
+	segments, sgRelease := sg.getAndLockSegments()
+	defer sgRelease()
 
-	var out roaringset.BitmapLayers
-
-	// start with first and do not exit
-	for _, segment := range segments {
-		layer, err := segment.roaringSetGet(key)
-		if err != nil {
-			if errors.Is(err, lsmkv.NotFound) {
-				continue
-			}
-
-			return nil, err
-		}
-
-		out = append(out, layer)
+	ln := len(segments)
+	if ln == 0 {
+		return nil, noopRelease, nil
 	}
 
-	return out, nil
+	release = noopRelease
+	// use bigger buffer for first layer, to make space for further merges
+	// with following layers
+	bitmapBufPool := roaringset.NewBitmapBufPoolFactorWrapper(sg.bitmapBufPool, 1.25)
+
+	i := 0
+	for ; i < ln; i++ {
+		layer, layerRelease, err := segments[i].roaringSetGet(key, bitmapBufPool)
+		if err == nil {
+			out = append(out, layer)
+			release = layerRelease
+			i++
+			break
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return nil, noopRelease, err
+		}
+	}
+	defer func() {
+		if err != nil {
+			release()
+		}
+	}()
+
+	for ; i < ln; i++ {
+		if err := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool); err != nil {
+			return nil, noopRelease, err
+		}
+	}
+
+	return out, release, nil
 }
 
 func (sg *SegmentGroup) count() int {

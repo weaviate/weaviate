@@ -55,6 +55,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
@@ -622,6 +623,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("modules didn't initialize")
 	}
 
+	bitmapBufPool, bitmapBufPoolClose := configureBitmapBufPool(appState)
+	repo.WithBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
+
 	var reindexCtx context.Context
 	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(context.Background())
 	reindexer := configureReindexer(appState, reindexCtx)
@@ -736,6 +740,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	return appState
+}
+
+func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPool, close func()) {
+	return roaringset.NewBitmapBufPoolDefault(appState.Logger, appState.Metrics,
+		appState.ServerConfig.Config.QueryBitmapBufsMaxBufSize,
+		appState.ServerConfig.Config.QueryBitmapBufsMaxMemory)
 }
 
 func configureReindexer(appState *state.State, reindexCtx context.Context) db.ShardReindexerV3 {
