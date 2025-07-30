@@ -23,7 +23,7 @@ func (s *SPFresh) EnqueueSplit(ctx context.Context, postingID uint64) error {
 	}
 
 	// Check if the operation is already in progress
-	if !s.splitList.tryEnqueue(postingID) {
+	if !s.splitList.tryAdd(postingID) {
 		s.Logger.WithField("postingID", postingID).
 			Debug("Split operation already enqueued, skipping")
 		return nil

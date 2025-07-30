@@ -23,7 +23,7 @@ func (s *SPFresh) EnqueueMerge(ctx context.Context, postingID uint64) error {
 	}
 
 	// Check if the operation is already in progress
-	if !s.mergeList.tryEnqueue(postingID) {
+	if !s.mergeList.tryAdd(postingID) {
 		s.Logger.WithField("postingID", postingID).
 			Debug("Merge operation already enqueued, skipping")
 		return nil

@@ -91,7 +91,6 @@ func (ve VectorVersion) Deleted() bool {
 
 // VersionMap maps vector IDs to their latest version number.
 type VersionMap struct {
-	m        sync.Mutex
 	locks    *common.ShardedRWLocks
 	versions *common.PagedArray[VectorVersion]
 }
@@ -103,18 +102,18 @@ func NewVersionMap(pages, pageSize uint64) *VersionMap {
 	}
 }
 
-func (v *VersionMap) Get(vectorID uint64) VectorVersion {
-	v.locks.RLock(vectorID)
-	ve := v.versions.Get(vectorID)
-	v.locks.RUnlock(vectorID)
+func (v *VersionMap) Get(id uint64) VectorVersion {
+	v.locks.RLock(id)
+	ve := v.versions.Get(id)
+	v.locks.RUnlock(id)
 	return ve
 }
 
-func (v *VersionMap) Increment(vectorID uint64) (VectorVersion, bool) {
-	v.locks.Lock(vectorID)
-	defer v.locks.Unlock(vectorID)
+func (v *VersionMap) Increment(id uint64) (VectorVersion, bool) {
+	v.locks.Lock(id)
+	defer v.locks.Unlock(id)
 
-	ve := v.versions.Get(vectorID)
+	ve := v.versions.Get(id)
 	if ve.Deleted() {
 		return 0, false
 	}
@@ -129,16 +128,16 @@ func (v *VersionMap) Increment(vectorID uint64) (VectorVersion, bool) {
 	}
 
 	newVE := VectorVersion(delBit | counter)
-	v.versions.Set(vectorID, newVE)
+	v.versions.Set(id, newVE)
 
 	return newVE, true
 }
 
-func (v *VersionMap) MarkDeleted(vectorID uint64) VectorVersion {
-	v.locks.Lock(vectorID)
-	defer v.locks.Unlock(vectorID)
+func (v *VersionMap) MarkDeleted(id uint64) VectorVersion {
+	v.locks.Lock(id)
+	defer v.locks.Unlock(id)
 
-	ve := v.versions.Get(vectorID)
+	ve := v.versions.Get(id)
 	if ve == 0 {
 		return 0
 	}
@@ -149,15 +148,22 @@ func (v *VersionMap) MarkDeleted(vectorID uint64) VectorVersion {
 	counter := uint8(ve) & counterMask // 0-127
 
 	newVE := VectorVersion(tombstoneMask | counter)
-	v.versions.Set(vectorID, newVE)
+	v.versions.Set(id, newVE)
 	return newVE
+}
+
+func (v *VersionMap) IsDeleted(id uint64) bool {
+	v.locks.RLock(id)
+	ve := v.versions.Get(id)
+	v.locks.RUnlock(id)
+	return ve.Deleted()
 }
 
 // AllocPageFor ensures that the version map has a page allocated for the given ID.
 func (v *VersionMap) AllocPageFor(id uint64) {
-	v.m.Lock()
+	v.locks.Lock(id)
 	v.versions.AllocPageFor(id)
-	v.m.Unlock()
+	v.locks.Unlock(id)
 }
 
 type PostingSizes struct {

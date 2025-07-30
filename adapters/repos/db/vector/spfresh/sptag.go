@@ -24,14 +24,12 @@ type SPTAG interface {
 	Upsert(id uint64, centroid []byte) error
 	Delete(id uint64) error
 	Search(query []byte, k int) ([]SearchResult, error)
-	Split(oldID uint64, newID1, newID2 uint64, c1, c2 []byte) error
-	Merge(oldID1, oldID2, newID uint64, newCentroid []byte) error
-	ComputeDistance(a, b []byte) (float64, error)
+	ComputeDistance(a, b []byte) (float32, error)
 }
 
 type SearchResult struct {
 	ID       uint64
-	Distance float64
+	Distance float32
 }
 
 type BruteForceSPTAG struct {
@@ -74,7 +72,7 @@ func (b *BruteForceSPTAG) Search(query []byte, k int) ([]uint64, error) {
 	b.m.RLock()
 	defer b.m.RUnlock()
 
-	q := priorityqueue.NewMinWithId[byte](k)
+	q := priorityqueue.NewMin[uint64](k)
 	for id, centroid := range b.Centroids {
 		dist, err := b.quantizer.DistanceBetweenCompressedVectors(query, centroid)
 		if err != nil {
@@ -94,24 +92,4 @@ func (b *BruteForceSPTAG) Search(query []byte, k int) ([]uint64, error) {
 	}
 
 	return results, nil
-}
-
-func (b *BruteForceSPTAG) Split(oldID uint64, newID1, newID2 uint64, c1, c2 []byte) error {
-	b.m.Lock()
-	defer b.m.Unlock()
-
-	delete(b.Centroids, oldID)
-	b.Centroids[newID1] = c1
-	b.Centroids[newID2] = c2
-	return nil
-}
-
-func (b *BruteForceSPTAG) Merge(oldID1, oldID2, newID uint64, newCentroid []byte) error {
-	b.m.Lock()
-	defer b.m.Unlock()
-
-	delete(b.Centroids, oldID1)
-	delete(b.Centroids, oldID2)
-	b.Centroids[newID] = newCentroid
-	return nil
 }

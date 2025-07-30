@@ -234,27 +234,36 @@ func (s *SPFresh) Close(ctx context.Context) error {
 	return nil
 }
 
-// deduplicator ensures only one operation per posting ID can be enqueued at a time.
+// deduplicator is a simple structure to prevent duplicate values
 type deduplicator struct {
-	inflight *xsync.Map[uint64, struct{}] // map of inflight operations by posting ID
+	m *xsync.Map[uint64, struct{}]
 }
 
 func newDeduplicator() *deduplicator {
 	return &deduplicator{
-		inflight: xsync.NewMap[uint64, struct{}](),
+		m: xsync.NewMap[uint64, struct{}](),
 	}
 }
 
-func (d *deduplicator) tryEnqueue(id uint64) bool {
-	_, exists := d.inflight.LoadAndStore(id, struct{}{})
+// tryAdd attempts to add an ID to the deduplicator.
+// Returns true if the ID was added, false if it already exists.
+func (d *deduplicator) tryAdd(id uint64) bool {
+	_, exists := d.m.Compute(id, func(oldValue struct{}, loaded bool) (newValue struct{}, op xsync.ComputeOp) {
+		if loaded {
+			return oldValue, xsync.CancelOp
+		}
+		return struct{}{}, xsync.UpdateOp
+	})
 	return !exists
 }
 
+// done marks an ID as processed, removing it from the deduplicator.
 func (d *deduplicator) done(id uint64) {
-	d.inflight.Delete(id)
+	d.m.Delete(id)
 }
 
+// contains checks if an ID is already in the deduplicator.
 func (d *deduplicator) contains(id uint64) bool {
-	_, exists := d.inflight.Load(id)
+	_, exists := d.m.Load(id)
 	return exists
 }

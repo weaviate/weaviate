@@ -56,6 +56,21 @@ func (l *LSMStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
 	return posting, nil
 }
 
+func (l *LSMStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting, error) {
+	postings := make([]Posting, 0, len(postingIDs))
+
+	for _, id := range postingIDs {
+		posting, err := l.Get(ctx, id)
+		if err != nil {
+
+			return nil, errors.Wrapf(err, "failed to get posting %d", id)
+		}
+		postings = append(postings, posting)
+	}
+
+	return postings, nil
+}
+
 func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting Posting) error {
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
