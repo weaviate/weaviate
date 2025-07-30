@@ -785,7 +785,7 @@ type BatchReference struct {
 	Name           string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	FromCollection string                 `protobuf:"bytes,2,opt,name=from_collection,json=fromCollection,proto3" json:"from_collection,omitempty"`
 	FromUuid       string                 `protobuf:"bytes,3,opt,name=from_uuid,json=fromUuid,proto3" json:"from_uuid,omitempty"`
-	ToCollection   string                 `protobuf:"bytes,4,opt,name=to_collection,json=toCollection,proto3" json:"to_collection,omitempty"`
+	ToCollection   *string                `protobuf:"bytes,4,opt,name=to_collection,json=toCollection,proto3,oneof" json:"to_collection,omitempty"`
 	ToUuid         string                 `protobuf:"bytes,5,opt,name=to_uuid,json=toUuid,proto3" json:"to_uuid,omitempty"`
 	Tenant         string                 `protobuf:"bytes,6,opt,name=tenant,proto3" json:"tenant,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -844,8 +844,8 @@ func (x *BatchReference) GetFromUuid() string {
 }
 
 func (x *BatchReference) GetToCollection() string {
-	if x != nil {
-		return x.ToCollection
+	if x != nil && x.ToCollection != nil {
+		return *x.ToCollection
 	}
 	return ""
 }
@@ -1444,14 +1444,15 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\x13MultiTargetRefProps\x12\x14\n" +
 	"\x05uuids\x18\x01 \x03(\tR\x05uuids\x12\x1b\n" +
 	"\tprop_name\x18\x02 \x01(\tR\bpropName\x12+\n" +
-	"\x11target_collection\x18\x03 \x01(\tR\x10targetCollection\"\xc0\x01\n" +
+	"\x11target_collection\x18\x03 \x01(\tR\x10targetCollection\"\xd7\x01\n" +
 	"\x0eBatchReference\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
 	"\x0ffrom_collection\x18\x02 \x01(\tR\x0efromCollection\x12\x1b\n" +
-	"\tfrom_uuid\x18\x03 \x01(\tR\bfromUuid\x12#\n" +
-	"\rto_collection\x18\x04 \x01(\tR\ftoCollection\x12\x17\n" +
+	"\tfrom_uuid\x18\x03 \x01(\tR\bfromUuid\x12(\n" +
+	"\rto_collection\x18\x04 \x01(\tH\x00R\ftoCollection\x88\x01\x01\x12\x17\n" +
 	"\ato_uuid\x18\x05 \x01(\tR\x06toUuid\x12\x16\n" +
-	"\x06tenant\x18\x06 \x01(\tR\x06tenant\"\x8f\x01\n" +
+	"\x06tenant\x18\x06 \x01(\tR\x06tenantB\x10\n" +
+	"\x0e_to_collection\"\x8f\x01\n" +
 	"\n" +
 	"BatchError\x12\x14\n" +
 	"\x05error\x18\x01 \x01(\tR\x05error\x120\n" +
@@ -1577,6 +1578,7 @@ func file_v1_batch_proto_init() {
 		(*BatchStreamMessage_Stop)(nil),
 		(*BatchStreamMessage_Shutdown)(nil),
 	}
+	file_v1_batch_proto_msgTypes[12].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

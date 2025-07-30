@@ -47,20 +47,17 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 				if innerErr := stream.Send(newBatchStopMessage(streamId)); innerErr != nil {
 					return innerErr
 				}
-				h.readQueues.Delete(streamId)
 				return nil
 			case <-h.grpcShutdownCtx.Done():
 				if innerErr := stream.Send(newBatchShutdownMessage(streamId)); innerErr != nil {
 					return innerErr
 				}
-				h.readQueues.Delete(streamId)
 				return nil
 			case errs := <-readQueue:
 				if errs.Stop {
 					if innerErr := stream.Send(newBatchStopMessage(streamId)); innerErr != nil {
 						return innerErr
 					}
-					h.readQueues.Delete(streamId)
 					return nil
 				}
 				for _, err := range errs.Errors {
@@ -90,8 +87,7 @@ func (h *QueuesHandler) Setup(streamId string) {
 
 // Teardown closes the read queue for the given stream ID and removes it from the read queues map.
 func (h *QueuesHandler) Teardown(streamId string) {
-	if readQueue, ok := h.readQueues.Get(streamId); ok {
-		close(readQueue)
+	if _, ok := h.readQueues.Get(streamId); ok {
 		h.readQueues.Delete(streamId)
 	} else {
 		h.logger.WithField("streamId", streamId).Warn("teardown called for non-existing stream")
@@ -130,14 +126,14 @@ func newBatchShutdownMessage(streamId string) *pb.BatchStreamMessage {
 	}
 }
 
-type errorsObject struct {
+type readObject struct {
 	Errors []*pb.BatchError
 	Stop   bool
 }
 
 type (
 	writeQueue chan *pb.BatchSendRequest
-	readQueue  chan errorsObject
+	readQueue  chan readObject
 	readQueues map[string]readQueue
 )
 
@@ -160,15 +156,15 @@ func NewBatchReadQueue() readQueue {
 	return make(readQueue)
 }
 
-func NewStopObject() errorsObject {
-	return errorsObject{
+func NewStopObject() readObject {
+	return readObject{
 		Errors: nil,
 		Stop:   true,
 	}
 }
 
-func NewErrorsObject(errs []*pb.BatchError) errorsObject {
-	return errorsObject{
+func NewErrorsObject(errs []*pb.BatchError) readObject {
+	return readObject{
 		Errors: errs,
 	}
 }

@@ -60,8 +60,8 @@ func TestGRPC_Batching(t *testing.T) {
 
 		// Send some references between the articles and paragraphs
 		references := []*pb.BatchReference{
-			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: UUID0, ToCollection: clsP.Class, ToUuid: UUID1},
-			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: UUID0, ToCollection: clsP.Class, ToUuid: UUID2},
+			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: UUID0, ToUuid: UUID1},
+			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: UUID0, ToUuid: UUID2},
 		}
 		_, err = grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
 			Message: &pb.BatchSendRequest_References{References: &pb.BatchSendReferences{

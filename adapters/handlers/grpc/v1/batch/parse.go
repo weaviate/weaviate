@@ -231,9 +231,16 @@ func extractPrimitiveProperties(properties *pb.ObjectPropertiesValue) map[string
 func BatchReferencesFromProto(req *pb.BatchReferencesRequest) []*models.BatchReference {
 	refs := make([]*models.BatchReference, 0, len(req.GetReferences()))
 	for _, ref := range req.GetReferences() {
+		var to string
+		if ref.ToCollection == nil {
+			to = fmt.Sprintf("%s%s", BEACON_START, ref.ToUuid)
+		} else {
+			to = fmt.Sprintf("%s%s/%s", BEACON_START, *ref.ToCollection, ref.ToUuid)
+		}
+		from := fmt.Sprintf("%s%s/%s/%s", BEACON_START, ref.FromCollection, ref.FromUuid, ref.Name)
 		refs = append(refs, &models.BatchReference{
-			From:   strfmt.URI(fmt.Sprintf("%s%s/%s/%s", BEACON_START, ref.FromCollection, ref.FromUuid, ref.Name)),
-			To:     strfmt.URI(fmt.Sprintf("%s%s/%s", BEACON_START, ref.ToCollection, ref.ToUuid)),
+			From:   strfmt.URI(from),
+			To:     strfmt.URI(to),
 			Tenant: ref.Tenant,
 		})
 	}

@@ -111,7 +111,7 @@ message BatchReference {
   string name = 1;
   string from_collection = 2;
   string from_uuid = 3;
-  string to_collection = 4;
+  optional string to_collection = 4;
   string to_uuid = 5;
   string tenant = 6;
 }

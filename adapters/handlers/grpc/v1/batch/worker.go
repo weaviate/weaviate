@@ -56,7 +56,7 @@ func (w *Worker) sendObjects(req *pb.BatchSendObjects) error {
 			})
 		}
 		if ch, ok := w.readQueues.Get(req.StreamId); ok {
-			ch <- errorsObject{Errors: errs}
+			ch <- readObject{Errors: errs}
 		}
 	}
 	return nil
@@ -85,7 +85,7 @@ func (w *Worker) sendReferences(req *pb.BatchSendReferences) error {
 			})
 		}
 		if ch, ok := w.readQueues.Get(req.StreamId); ok {
-			ch <- errorsObject{Errors: errs}
+			ch <- readObject{Errors: errs}
 		}
 	}
 	return nil
@@ -115,7 +115,7 @@ func (w *Worker) process(req *pb.BatchSendRequest) error {
 	if req.GetStop() != nil {
 		// Signal to the reply handler that we are done
 		if ch, ok := w.readQueues.Get(req.GetStop().StreamId); ok {
-			ch <- errorsObject{Stop: true}
+			ch <- readObject{Stop: true}
 		}
 	}
 	if req.GetObjects() != nil {

@@ -35,7 +35,7 @@ func TestWorkerLoop(t *testing.T) {
 	readQueues.Make(StreamId)
 	logger := logrus.New()
 
-	t.Run("should process objects and send them without error", func(t *testing.T) {
+	t.Run("should process from the queue and send data without error", func(t *testing.T) {
 		mockBatcher := mocks.NewMockBatcher(t)
 
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -46,12 +46,21 @@ func TestWorkerLoop(t *testing.T) {
 			Took:   float32(1),
 			Errors: nil,
 		}, nil).Times(1)
+		mockBatcher.EXPECT().BatchReferences(ctx, mock.Anything).Return(&pb.BatchReferencesReply{
+			Took:   float32(1),
+			Errors: nil,
+		}, nil).Times(1)
 		batch.StartBatchWorkers(ctx, 1, writeQueue, readQueues, mockBatcher, logger)
 
 		// Send data
 		writeQueue <- &pb.BatchSendRequest{
 			Message: &pb.BatchSendRequest_Objects{
 				Objects: &pb.BatchSendObjects{StreamId: StreamId},
+			},
+		}
+		writeQueue <- &pb.BatchSendRequest{
+			Message: &pb.BatchSendRequest_References{
+				References: &pb.BatchSendReferences{StreamId: StreamId},
 			},
 		}
 
@@ -69,7 +78,7 @@ func TestWorkerLoop(t *testing.T) {
 		require.True(t, stop.Stop, "Expected stop signal to be true")
 	})
 
-	t.Run("should process objects during shutdown", func(t *testing.T) {
+	t.Run("should process from the queue during shutdown", func(t *testing.T) {
 		mockBatcher := mocks.NewMockBatcher(t)
 
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -80,14 +89,23 @@ func TestWorkerLoop(t *testing.T) {
 			Took:   float32(1),
 			Errors: nil,
 		}, nil).Times(1)
+		mockBatcher.EXPECT().BatchReferences(ctx, mock.Anything).Return(&pb.BatchReferencesReply{
+			Took:   float32(1),
+			Errors: nil,
+		}, nil).Times(1)
 		batch.StartBatchWorkers(ctx, 1, writeQueue, readQueues, mockBatcher, logger)
 
 		cancel() // Cancel the context to simulate shutdown
-		// Send data after context cancellatino to ensure that the worker processes it
+		// Send data after context cancellation to ensure that the worker processes it
 		// in its shutdown select-case
 		writeQueue <- &pb.BatchSendRequest{
 			Message: &pb.BatchSendRequest_Objects{
 				Objects: &pb.BatchSendObjects{StreamId: StreamId},
+			},
+		}
+		writeQueue <- &pb.BatchSendRequest{
+			Message: &pb.BatchSendRequest_References{
+				References: &pb.BatchSendReferences{StreamId: StreamId},
 			},
 		}
 		// Send sentinel
@@ -105,22 +123,32 @@ func TestWorkerLoop(t *testing.T) {
 		require.True(t, stop.Stop, "Expected stop signal to be true")
 	})
 
-	t.Run("should process objects and send them with a returned error", func(t *testing.T) {
+	t.Run("should process from the queue and send data returning error", func(t *testing.T) {
 		mockBatcher := mocks.NewMockBatcher(t)
 
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 
 		writeQueue := batch.NewBatchWriteQueue()
-		errors := []*pb.BatchObjectsReply_BatchError{
+		errorsObj := []*pb.BatchObjectsReply_BatchError{
 			{
-				Error: "batch error",
+				Error: "objs error",
+				Index: 0,
+			},
+		}
+		errorsRefs := []*pb.BatchReferencesReply_BatchError{
+			{
+				Error: "refs error",
 				Index: 0,
 			},
 		}
 		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
 			Took:   float32(1),
-			Errors: errors,
+			Errors: errorsObj,
+		}, nil)
+		mockBatcher.EXPECT().BatchReferences(ctx, mock.Anything).Return(&pb.BatchReferencesReply{
+			Took:   float32(1),
+			Errors: errorsRefs,
 		}, nil)
 		batch.StartBatchWorkers(ctx, 1, writeQueue, readQueues, mockBatcher, logger)
 
@@ -131,6 +159,15 @@ func TestWorkerLoop(t *testing.T) {
 				Objects: &pb.BatchSendObjects{
 					StreamId: StreamId,
 					Values:   []*pb.BatchObject{obj},
+				},
+			},
+		}
+		ref := &pb.BatchReference{}
+		writeQueue <- &pb.BatchSendRequest{
+			Message: &pb.BatchSendRequest_References{
+				References: &pb.BatchSendReferences{
+					StreamId: StreamId,
+					Values:   []*pb.BatchReference{ref},
 				},
 			},
 		}
@@ -145,12 +182,21 @@ func TestWorkerLoop(t *testing.T) {
 		ch, ok := readQueues.Get(StreamId)
 		require.True(t, ok, "Expected read queue to exist and to contain message")
 
-		// Read error
+		// Read first error
 		errs := <-ch
 		require.NotNil(t, errs.Errors, "Expected errors to be returned")
 		require.Len(t, errs.Errors, 1, "Expected one error to be returned")
-		require.Equal(t, "batch error", errs.Errors[0].Error, "Expected error message to match")
+		require.Equal(t, "objs error", errs.Errors[0].Error, "Expected error message to match")
 		require.Equal(t, obj, errs.Errors[0].Object, "Expected object to match the one sent")
+		require.Nil(t, errs.Errors[0].Reference, "Expected reference to be nil for object errors")
+
+		// Read second error
+		errs = <-ch
+		require.NotNil(t, errs.Errors, "Expected errors to be returned")
+		require.Len(t, errs.Errors, 1, "Expected one error to be returned")
+		require.Equal(t, "refs error", errs.Errors[0].Error, "Expected error message to match")
+		require.Equal(t, ref, errs.Errors[0].Reference, "Expected reference to match the one sent")
+		require.Nil(t, errs.Errors[0].Object, "Expected object to be nil for reference errors")
 
 		// Read sentinel
 		stop := <-ch
