@@ -33,17 +33,17 @@ func TestHandler(t *testing.T) {
 	t.Run("Send", func(t *testing.T) {
 		// Arrange
 		req := &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_Send{
-				Send: &pb.BatchSend{
+			Message: &pb.BatchSendRequest_Objects{
+				Objects: &pb.BatchSendObjects{
 					StreamId: "test-stream",
-					Objects:  []*pb.BatchObject{{Collection: "TestClass"}},
+					Values:   []*pb.BatchObject{{Collection: "TestClass"}},
 				},
 			},
 		}
 
 		shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 		defer shutdownCancel()
-		handler := batch.NewHandler(shutdownCtx, writeQueue, readQueues, logger)
+		handler := batch.NewQueuesHandler(shutdownCtx, writeQueue, readQueues, logger)
 
 		// Act
 		howMany := handler.Send(ctx, req)
@@ -77,7 +77,7 @@ func TestHandler(t *testing.T) {
 				},
 			}).Return(nil).Once()
 
-			handler := batch.NewHandler(context.Background(), writeQueue, readQueues, logger)
+			handler := batch.NewQueuesHandler(context.Background(), writeQueue, readQueues, logger)
 
 			readQueues.Make(StreamId)
 			err := handler.Stream(ctx, StreamId, stream)
@@ -104,7 +104,7 @@ func TestHandler(t *testing.T) {
 				},
 			}).Return(nil).Once()
 
-			handler := batch.NewHandler(context.Background(), writeQueue, readQueues, logger)
+			handler := batch.NewQueuesHandler(context.Background(), writeQueue, readQueues, logger)
 
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
@@ -138,7 +138,7 @@ func TestHandler(t *testing.T) {
 			}).Return(nil).Once()
 
 			shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-			handler := batch.NewHandler(shutdownCtx, writeQueue, readQueues, logger)
+			handler := batch.NewQueuesHandler(shutdownCtx, writeQueue, readQueues, logger)
 			readQueues.Make(StreamId)
 			shutdownCancel() // Trigger shutdown
 			err := handler.Stream(ctx, StreamId, stream)
@@ -172,7 +172,7 @@ func TestHandler(t *testing.T) {
 				},
 			}).Return(nil).Once()
 
-			handler := batch.NewHandler(context.Background(), writeQueue, readQueues, logger)
+			handler := batch.NewQueuesHandler(context.Background(), writeQueue, readQueues, logger)
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
@@ -212,7 +212,7 @@ func TestHandler(t *testing.T) {
 				},
 			}).Return(nil).Once()
 
-			handler := batch.NewHandler(context.Background(), writeQueue, readQueues, logger)
+			handler := batch.NewQueuesHandler(context.Background(), writeQueue, readQueues, logger)
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")

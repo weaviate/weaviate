@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package batch
+package batch_test
 
 import (
 	"encoding/binary"
@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -150,8 +151,8 @@ func TestGRPCBatchRequest(t *testing.T) {
 			}}},
 			out: []*models.Object{{Class: collection, ID: UUID4, Properties: map[string]interface{}{
 				"ref": []interface{}{
-					map[string]interface{}{"beacon": BEACON_START + refClass1 + "/" + UUID3},
-					map[string]interface{}{"beacon": BEACON_START + refClass1 + "/" + UUID4},
+					map[string]interface{}{"beacon": batch.BEACON_START + refClass1 + "/" + UUID3},
+					map[string]interface{}{"beacon": batch.BEACON_START + refClass1 + "/" + UUID4},
 				},
 			}}},
 		},
@@ -179,8 +180,8 @@ func TestGRPCBatchRequest(t *testing.T) {
 			}}},
 			out: []*models.Object{{Class: collection, ID: UUID4, Properties: map[string]interface{}{
 				"multiRef": []interface{}{
-					map[string]interface{}{"beacon": BEACON_START + refClass2 + "/" + UUID3},
-					map[string]interface{}{"beacon": BEACON_START + refClass2 + "/" + UUID4},
+					map[string]interface{}{"beacon": batch.BEACON_START + refClass2 + "/" + UUID3},
+					map[string]interface{}{"beacon": batch.BEACON_START + refClass2 + "/" + UUID4},
 				},
 			}}},
 		},
@@ -200,12 +201,12 @@ func TestGRPCBatchRequest(t *testing.T) {
 			}}},
 			out: []*models.Object{{Class: collection, ID: UUID4, Properties: map[string]interface{}{
 				"multiRef": []interface{}{
-					map[string]interface{}{"beacon": BEACON_START + refClass2 + "/" + UUID4},
-					map[string]interface{}{"beacon": BEACON_START + refClass2 + "/" + UUID3},
+					map[string]interface{}{"beacon": batch.BEACON_START + refClass2 + "/" + UUID4},
+					map[string]interface{}{"beacon": batch.BEACON_START + refClass2 + "/" + UUID3},
 				},
 				"ref": []interface{}{
-					map[string]interface{}{"beacon": BEACON_START + refClass1 + "/" + UUID4},
-					map[string]interface{}{"beacon": BEACON_START + refClass1 + "/" + UUID3},
+					map[string]interface{}{"beacon": batch.BEACON_START + refClass1 + "/" + UUID4},
+					map[string]interface{}{"beacon": batch.BEACON_START + refClass1 + "/" + UUID3},
 				},
 				"name": "else",
 				"age":  float64(46),
@@ -470,7 +471,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, origIndex, batchErrors := BatchFromProto(&pb.BatchObjectsRequest{Objects: tt.req}, getClass)
+			out, origIndex, batchErrors := batch.BatchObjectsFromProto(&pb.BatchObjectsRequest{Objects: tt.req}, getClass)
 			if len(tt.outError) > 0 {
 				require.NotNil(t, batchErrors)
 				if len(tt.out) > 0 {

@@ -21,10 +21,11 @@ var File_v1_weaviate_proto protoreflect.FileDescriptor
 
 const file_v1_weaviate_proto_rawDesc = "" +
 	"\n" +
-	"\x11v1/weaviate.proto\x12\vweaviate.v1\x1a\x12v1/aggregate.proto\x1a\x0ev1/batch.proto\x1a\x15v1/batch_delete.proto\x1a\x13v1/search_get.proto\x1a\x10v1/tenants.proto2\xaa\x04\n" +
+	"\x11v1/weaviate.proto\x12\vweaviate.v1\x1a\x12v1/aggregate.proto\x1a\x0ev1/batch.proto\x1a\x15v1/batch_delete.proto\x1a\x13v1/search_get.proto\x1a\x10v1/tenants.proto2\x87\x05\n" +
 	"\bWeaviate\x12@\n" +
 	"\x06Search\x12\x1a.weaviate.v1.SearchRequest\x1a\x18.weaviate.v1.SearchReply\"\x00\x12R\n" +
-	"\fBatchObjects\x12 .weaviate.v1.BatchObjectsRequest\x1a\x1e.weaviate.v1.BatchObjectsReply\"\x00\x12O\n" +
+	"\fBatchObjects\x12 .weaviate.v1.BatchObjectsRequest\x1a\x1e.weaviate.v1.BatchObjectsReply\"\x00\x12[\n" +
+	"\x0fBatchReferences\x12#.weaviate.v1.BatchReferencesRequest\x1a!.weaviate.v1.BatchReferencesReply\"\x00\x12O\n" +
 	"\vBatchDelete\x12\x1f.weaviate.v1.BatchDeleteRequest\x1a\x1d.weaviate.v1.BatchDeleteReply\"\x00\x12L\n" +
 	"\n" +
 	"TenantsGet\x12\x1e.weaviate.v1.TenantsGetRequest\x1a\x1c.weaviate.v1.TenantsGetReply\"\x00\x12I\n" +
@@ -34,38 +35,42 @@ const file_v1_weaviate_proto_rawDesc = "" +
 	"#io.weaviate.client.grpc.protocol.v1B\rWeaviateProtoZ4github.com/weaviate/weaviate/grpc/generated;protocolb\x06proto3"
 
 var file_v1_weaviate_proto_goTypes = []any{
-	(*SearchRequest)(nil),       // 0: weaviate.v1.SearchRequest
-	(*BatchObjectsRequest)(nil), // 1: weaviate.v1.BatchObjectsRequest
-	(*BatchDeleteRequest)(nil),  // 2: weaviate.v1.BatchDeleteRequest
-	(*TenantsGetRequest)(nil),   // 3: weaviate.v1.TenantsGetRequest
-	(*AggregateRequest)(nil),    // 4: weaviate.v1.AggregateRequest
-	(*BatchSendRequest)(nil),    // 5: weaviate.v1.BatchSendRequest
-	(*BatchStreamRequest)(nil),  // 6: weaviate.v1.BatchStreamRequest
-	(*SearchReply)(nil),         // 7: weaviate.v1.SearchReply
-	(*BatchObjectsReply)(nil),   // 8: weaviate.v1.BatchObjectsReply
-	(*BatchDeleteReply)(nil),    // 9: weaviate.v1.BatchDeleteReply
-	(*TenantsGetReply)(nil),     // 10: weaviate.v1.TenantsGetReply
-	(*AggregateReply)(nil),      // 11: weaviate.v1.AggregateReply
-	(*BatchSendReply)(nil),      // 12: weaviate.v1.BatchSendReply
-	(*BatchStreamMessage)(nil),  // 13: weaviate.v1.BatchStreamMessage
+	(*SearchRequest)(nil),          // 0: weaviate.v1.SearchRequest
+	(*BatchObjectsRequest)(nil),    // 1: weaviate.v1.BatchObjectsRequest
+	(*BatchReferencesRequest)(nil), // 2: weaviate.v1.BatchReferencesRequest
+	(*BatchDeleteRequest)(nil),     // 3: weaviate.v1.BatchDeleteRequest
+	(*TenantsGetRequest)(nil),      // 4: weaviate.v1.TenantsGetRequest
+	(*AggregateRequest)(nil),       // 5: weaviate.v1.AggregateRequest
+	(*BatchSendRequest)(nil),       // 6: weaviate.v1.BatchSendRequest
+	(*BatchStreamRequest)(nil),     // 7: weaviate.v1.BatchStreamRequest
+	(*SearchReply)(nil),            // 8: weaviate.v1.SearchReply
+	(*BatchObjectsReply)(nil),      // 9: weaviate.v1.BatchObjectsReply
+	(*BatchReferencesReply)(nil),   // 10: weaviate.v1.BatchReferencesReply
+	(*BatchDeleteReply)(nil),       // 11: weaviate.v1.BatchDeleteReply
+	(*TenantsGetReply)(nil),        // 12: weaviate.v1.TenantsGetReply
+	(*AggregateReply)(nil),         // 13: weaviate.v1.AggregateReply
+	(*BatchSendReply)(nil),         // 14: weaviate.v1.BatchSendReply
+	(*BatchStreamMessage)(nil),     // 15: weaviate.v1.BatchStreamMessage
 }
 var file_v1_weaviate_proto_depIdxs = []int32{
 	0,  // 0: weaviate.v1.Weaviate.Search:input_type -> weaviate.v1.SearchRequest
 	1,  // 1: weaviate.v1.Weaviate.BatchObjects:input_type -> weaviate.v1.BatchObjectsRequest
-	2,  // 2: weaviate.v1.Weaviate.BatchDelete:input_type -> weaviate.v1.BatchDeleteRequest
-	3,  // 3: weaviate.v1.Weaviate.TenantsGet:input_type -> weaviate.v1.TenantsGetRequest
-	4,  // 4: weaviate.v1.Weaviate.Aggregate:input_type -> weaviate.v1.AggregateRequest
-	5,  // 5: weaviate.v1.Weaviate.BatchSend:input_type -> weaviate.v1.BatchSendRequest
-	6,  // 6: weaviate.v1.Weaviate.BatchStream:input_type -> weaviate.v1.BatchStreamRequest
-	7,  // 7: weaviate.v1.Weaviate.Search:output_type -> weaviate.v1.SearchReply
-	8,  // 8: weaviate.v1.Weaviate.BatchObjects:output_type -> weaviate.v1.BatchObjectsReply
-	9,  // 9: weaviate.v1.Weaviate.BatchDelete:output_type -> weaviate.v1.BatchDeleteReply
-	10, // 10: weaviate.v1.Weaviate.TenantsGet:output_type -> weaviate.v1.TenantsGetReply
-	11, // 11: weaviate.v1.Weaviate.Aggregate:output_type -> weaviate.v1.AggregateReply
-	12, // 12: weaviate.v1.Weaviate.BatchSend:output_type -> weaviate.v1.BatchSendReply
-	13, // 13: weaviate.v1.Weaviate.BatchStream:output_type -> weaviate.v1.BatchStreamMessage
-	7,  // [7:14] is the sub-list for method output_type
-	0,  // [0:7] is the sub-list for method input_type
+	2,  // 2: weaviate.v1.Weaviate.BatchReferences:input_type -> weaviate.v1.BatchReferencesRequest
+	3,  // 3: weaviate.v1.Weaviate.BatchDelete:input_type -> weaviate.v1.BatchDeleteRequest
+	4,  // 4: weaviate.v1.Weaviate.TenantsGet:input_type -> weaviate.v1.TenantsGetRequest
+	5,  // 5: weaviate.v1.Weaviate.Aggregate:input_type -> weaviate.v1.AggregateRequest
+	6,  // 6: weaviate.v1.Weaviate.BatchSend:input_type -> weaviate.v1.BatchSendRequest
+	7,  // 7: weaviate.v1.Weaviate.BatchStream:input_type -> weaviate.v1.BatchStreamRequest
+	8,  // 8: weaviate.v1.Weaviate.Search:output_type -> weaviate.v1.SearchReply
+	9,  // 9: weaviate.v1.Weaviate.BatchObjects:output_type -> weaviate.v1.BatchObjectsReply
+	10, // 10: weaviate.v1.Weaviate.BatchReferences:output_type -> weaviate.v1.BatchReferencesReply
+	11, // 11: weaviate.v1.Weaviate.BatchDelete:output_type -> weaviate.v1.BatchDeleteReply
+	12, // 12: weaviate.v1.Weaviate.TenantsGet:output_type -> weaviate.v1.TenantsGetReply
+	13, // 13: weaviate.v1.Weaviate.Aggregate:output_type -> weaviate.v1.AggregateReply
+	14, // 14: weaviate.v1.Weaviate.BatchSend:output_type -> weaviate.v1.BatchSendReply
+	15, // 15: weaviate.v1.Weaviate.BatchStream:output_type -> weaviate.v1.BatchStreamMessage
+	8,  // [8:16] is the sub-list for method output_type
+	0,  // [0:8] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name

@@ -14,122 +14,157 @@ package batch
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/sirupsen/logrus"
-
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/objects"
+	schemaManager "github.com/weaviate/weaviate/usecases/schema"
 )
 
-type Batcher interface {
-	BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error)
-}
-
 type Handler struct {
-	grpcShutdownCtx context.Context
-	logger          logrus.FieldLogger
-	writeQueue      writeQueue
-	readQueues      *ReadQueues
+	authorizer    authorization.Authorizer
+	authenticator authenticator
+	batchManager  *objects.BatchManager
+	logger        logrus.FieldLogger
+	schemaManager *schemaManager.Manager
 }
 
-func NewHandler(grpcShutdownCtx context.Context, writeQueue writeQueue, readQueues *ReadQueues, logger logrus.FieldLogger) *Handler {
+type authenticator interface {
+	PrincipalFromContext(ctx context.Context) (*models.Principal, error)
+}
+
+func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator authenticator, schemaManager *schemaManager.Manager) *Handler {
 	return &Handler{
-		grpcShutdownCtx: grpcShutdownCtx,
-		logger:          logger,
-		writeQueue:      writeQueue,
-		readQueues:      readQueues,
+		authorizer:    authorizer,
+		authenticator: authenticator,
+		batchManager:  batchManager,
+		logger:        logger,
+		schemaManager: schemaManager,
 	}
 }
 
-func (h *Handler) Stream(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
-	if err := stream.Send(newBatchStartMessage(streamId)); err != nil {
-		return err
+func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+	before := time.Now()
+	principal, err := h.authenticator.PrincipalFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("extract auth: %w", err)
 	}
-	for {
-		if readQueue, ok := h.readQueues.Get(streamId); ok {
-			select {
-			case <-ctx.Done():
-				if innerErr := stream.Send(newBatchStopMessage(streamId)); innerErr != nil {
-					return innerErr
-				}
-				h.readQueues.Delete(streamId)
-				return nil
-			case <-h.grpcShutdownCtx.Done():
-				if innerErr := stream.Send(newBatchShutdownMessage(streamId)); innerErr != nil {
-					return innerErr
-				}
-				h.readQueues.Delete(streamId)
-				return nil
-			case errs := <-readQueue:
-				if errs.Stop {
-					if innerErr := stream.Send(newBatchStopMessage(streamId)); innerErr != nil {
-						return innerErr
-					}
-					h.readQueues.Delete(streamId)
-					return nil
-				}
-				for _, err := range errs.Errors {
-					if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
-						return innerErr
-					}
-				}
-			}
-		} else {
-			// This should never happen, but if it does, we log it
-			h.logger.WithField("streamId", streamId).Error("read queue not found")
-			return fmt.Errorf("read queue for stream %s not found", streamId)
+	ctx = classcache.ContextWithClassCache(ctx)
+
+	// we need to save the class two times:
+	// - to check if we already authorized the class+shard combination and if yes skip the auth, this is indexed by
+	//   a combination of class+shard
+	// - to pass down the stack to reuse, index by classname so it can be found easily
+	knownClasses := map[string]versioned.Class{}
+	knownClassesAuthCheck := map[string]*models.Class{}
+	classGetter := func(classname, shard string) (*models.Class, error) {
+		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
+		classTenantName := classname + "#" + shard
+		class, ok := knownClassesAuthCheck[classTenantName]
+		if ok {
+			return class, nil
+		}
+
+		// batch is upsert
+		if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(classname, shard)...); err != nil {
+			return nil, err
+		}
+
+		if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
+			return nil, err
+		}
+
+		// we don't leak any info that someone who inserts data does not have anyway
+		vClass, err := h.schemaManager.GetCachedClassNoAuth(ctx, classname)
+		if err != nil {
+			return nil, err
+		}
+		knownClasses[classname] = vClass[classname]
+		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
+		return vClass[classname].Class, nil
+	}
+	objs, objOriginalIndex, objectParsingErrors := BatchObjectsFromProto(req, classGetter)
+
+	var objErrors []*pb.BatchObjectsReply_BatchError
+	for i, err := range objectParsingErrors {
+		objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(i), Error: err.Error()})
+	}
+
+	// If every object failed to parse, return early with the errors
+	if len(objs) == 0 {
+		result := &pb.BatchObjectsReply{
+			Took:   float32(time.Since(before).Seconds()),
+			Errors: objErrors,
+		}
+		return result, nil
+	}
+
+	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
+
+	response, err := h.batchManager.AddObjectsGRPCAfterAuth(ctx, principal, objs, replicationProperties, knownClasses)
+	if err != nil {
+		return nil, err
+	}
+
+	for i, obj := range response {
+		if obj.Err != nil {
+			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(objOriginalIndex[i]), Error: obj.Err.Error()})
 		}
 	}
-}
 
-// Send adds a batch send request to the write queue and returns the number of objects in the request.
-func (h *Handler) Send(ctx context.Context, request *pb.BatchSendRequest) int64 {
-	h.writeQueue <- request
-	return int64(len(request.GetSend().GetObjects()))
-}
-
-// Setup initializes a read queue for the given stream ID and adds it to the read queues map.
-func (h *Handler) Setup(streamId string) {
-	h.readQueues.Make(streamId)
-}
-
-// Teardown closes the read queue for the given stream ID and removes it from the read queues map.
-func (h *Handler) Teardown(streamId string) {
-	if readQueue, ok := h.readQueues.Get(streamId); ok {
-		close(readQueue)
-		h.readQueues.Delete(streamId)
-	} else {
-		h.logger.WithField("streamId", streamId).Warn("teardown called for non-existing stream")
+	result := &pb.BatchObjectsReply{
+		Took:   float32(time.Since(before).Seconds()),
+		Errors: objErrors,
 	}
+	return result, nil
 }
 
-func newBatchStartMessage(streamId string) *pb.BatchStreamMessage {
-	return &pb.BatchStreamMessage{
-		Message: &pb.BatchStreamMessage_Start{
-			Start: &pb.BatchStart{StreamId: streamId},
-		},
+func (h *Handler) BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (*pb.BatchReferencesReply, error) {
+	before := time.Now()
+	principal, err := h.authenticator.PrincipalFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("extract auth: %w", err)
 	}
-}
+	replProps := extractReplicationProperties(req.ConsistencyLevel)
 
-func newBatchErrorMessage(err *pb.BatchError) *pb.BatchStreamMessage {
-	return &pb.BatchStreamMessage{
-		Message: &pb.BatchStreamMessage_Error{
-			Error: err,
-		},
+	response, err := h.batchManager.AddReferences(ctx, principal, BatchReferencesFromProto(req), replProps)
+	if err != nil {
+		return nil, err
 	}
-}
 
-func newBatchStopMessage(streamId string) *pb.BatchStreamMessage {
-	return &pb.BatchStreamMessage{
-		Message: &pb.BatchStreamMessage_Stop{
-			Stop: &pb.BatchStop{StreamId: streamId},
-		},
+	var refErrors []*pb.BatchReferencesReply_BatchError
+	for i, ref := range response {
+		if ref.Err != nil {
+			refErrors = append(refErrors, &pb.BatchReferencesReply_BatchError{Index: int32(i), Error: ref.Err.Error()})
+		}
 	}
+
+	result := &pb.BatchReferencesReply{
+		Took:   float32(time.Since(before).Seconds()),
+		Errors: refErrors,
+	}
+	return result, nil
 }
 
-func newBatchShutdownMessage(streamId string) *pb.BatchStreamMessage {
-	return &pb.BatchStreamMessage{
-		Message: &pb.BatchStreamMessage_Shutdown{
-			Shutdown: &pb.BatchShutdown{StreamId: streamId},
-		},
+func extractReplicationProperties(level *pb.ConsistencyLevel) *additional.ReplicationProperties {
+	if level == nil {
+		return nil
+	}
+
+	switch *level {
+	case pb.ConsistencyLevel_CONSISTENCY_LEVEL_ONE:
+		return &additional.ReplicationProperties{ConsistencyLevel: "ONE"}
+	case pb.ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM:
+		return &additional.ReplicationProperties{ConsistencyLevel: "QUORUM"}
+	case pb.ConsistencyLevel_CONSISTENCY_LEVEL_ALL:
+		return &additional.ReplicationProperties{ConsistencyLevel: "ALL"}
+	default:
+		return nil
 	}
 }

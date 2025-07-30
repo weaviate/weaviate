@@ -50,8 +50,8 @@ func TestWorkerLoop(t *testing.T) {
 
 		// Send data
 		writeQueue <- &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_Send{
-				Send: &pb.BatchSend{StreamId: StreamId},
+			Message: &pb.BatchSendRequest_Objects{
+				Objects: &pb.BatchSendObjects{StreamId: StreamId},
 			},
 		}
 
@@ -86,8 +86,8 @@ func TestWorkerLoop(t *testing.T) {
 		// Send data after context cancellatino to ensure that the worker processes it
 		// in its shutdown select-case
 		writeQueue <- &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_Send{
-				Send: &pb.BatchSend{StreamId: StreamId},
+			Message: &pb.BatchSendRequest_Objects{
+				Objects: &pb.BatchSendObjects{StreamId: StreamId},
 			},
 		}
 		// Send sentinel
@@ -127,10 +127,10 @@ func TestWorkerLoop(t *testing.T) {
 		// Send data
 		obj := &pb.BatchObject{}
 		writeQueue <- &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_Send{
-				Send: &pb.BatchSend{
+			Message: &pb.BatchSendRequest_Objects{
+				Objects: &pb.BatchSendObjects{
 					StreamId: StreamId,
-					Objects:  []*pb.BatchObject{obj},
+					Values:   []*pb.BatchObject{obj},
 				},
 			},
 		}

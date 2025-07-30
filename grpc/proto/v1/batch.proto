@@ -14,8 +14,20 @@ message BatchObjectsRequest {
   optional ConsistencyLevel consistency_level = 2;
 }
 
-message BatchSend {
-  repeated BatchObject objects = 1;
+message BatchReferencesRequest {
+  repeated BatchReference references = 1;
+  optional ConsistencyLevel consistency_level = 2;
+}
+
+message BatchSendObjects {
+  repeated BatchObject values = 1;
+  optional ConsistencyLevel consistency_level = 2;
+  int64 index = 3;
+  string stream_id = 4;
+}
+
+message BatchSendReferences {
+  repeated BatchReference values = 1;
   optional ConsistencyLevel consistency_level = 2;
   int64 index = 3;
   string stream_id = 4;
@@ -23,8 +35,9 @@ message BatchSend {
 
 message BatchSendRequest {
   oneof message {
-    BatchSend send = 1;
-    BatchStop stop = 2;
+    BatchSendObjects objects = 1;
+    BatchSendReferences references = 2;
+    BatchStop stop = 3;
   }
 }
 
@@ -94,12 +107,32 @@ message BatchObject {
   repeated Vectors vectors = 23;
 }
 
+message BatchReference {
+  string name = 1;
+  string from_collection = 2;
+  string from_uuid = 3;
+  string to_collection = 4;
+  string to_uuid = 5;
+  string tenant = 6;
+}
+
 message BatchError {
   string error = 1;
   BatchObject object = 2;
+  BatchReference reference = 3;
 }
 
 message BatchObjectsReply {
+  message BatchError {
+    int32 index = 1;
+    string error = 2;
+  }
+
+  float took = 1;
+  repeated BatchError errors = 2;
+}
+
+message BatchReferencesReply {
   message BatchError {
     int32 index = 1;
     string error = 2;

@@ -18,18 +18,22 @@ import (
 	"github.com/stretchr/testify/require"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
 func TestGRPC_Batching(t *testing.T) {
+	helper.SetupClient("localhost:8080")
 	ctx := context.Background()
 	grpcClient, _ := newClient(t)
 
-	// delete if exists and then re-create Books class
-	booksClass := books.ClassNamedContextionaryVectorizer()
-	helper.DeleteClass(t, booksClass.Class)
-	helper.CreateClass(t, booksClass)
-	defer helper.DeleteClass(t, booksClass.Class)
+	clsA := articles.ArticlesClass()
+	clsP := articles.ParagraphsClass()
+
+	// Create the schema
+	helper.CreateClass(t, clsP)
+	helper.CreateClass(t, clsA)
+	defer helper.DeleteClass(t, clsA.Class)
+	defer helper.DeleteClass(t, clsP.Class)
 
 	t.Run("Server-side batching", func(t *testing.T) {
 		// Open up a stream to read messages from
@@ -43,12 +47,29 @@ func TestGRPC_Batching(t *testing.T) {
 		require.NotNil(t, start, "Start message should not be nil")
 		streamId := start.GetStreamId()
 
-		// Send objects in send message
-		objs := books.BatchObjects()
+		// Send some articles and paragraphs in send message
+		objects := []*pb.BatchObject{
+			{Collection: clsA.Class, Uuid: UUID0},
+			{Collection: clsP.Class, Uuid: UUID1},
+			{Collection: clsP.Class, Uuid: UUID2},
+		}
 		_, err = grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_Send{Send: &pb.BatchSend{Objects: objs, StreamId: streamId}},
+			Message: &pb.BatchSendRequest_Objects{Objects: &pb.BatchSendObjects{Values: objects, StreamId: streamId}},
 		})
 		require.NoError(t, err, "BatchSend should not return an error")
+
+		// Send some references between the articles and paragraphs
+		references := []*pb.BatchReference{
+			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: UUID0, ToCollection: clsP.Class, ToUuid: UUID1},
+			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: UUID0, ToCollection: clsP.Class, ToUuid: UUID2},
+		}
+		_, err = grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
+			Message: &pb.BatchSendRequest_References{References: &pb.BatchSendReferences{
+				Values:   references,
+				StreamId: streamId,
+			}},
+		})
+		require.NoError(t, err, "BatchSend References should not return an error")
 
 		// Send stop message
 		_, err = grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
@@ -62,9 +83,14 @@ func TestGRPC_Batching(t *testing.T) {
 		end := resp.GetStop()
 		require.NotNil(t, end, "End message should not be nil")
 
-		// Validate the number of objects created
-		list, err := helper.ListObjects(t, booksClass.Class)
+		// Validate the number of articles created
+		listA, err := helper.ListObjects(t, clsA.Class)
 		require.NoError(t, err, "ListObjects should not return an error")
-		require.Len(t, list.Objects, len(objs), "Number of objects created should match the number sent")
+		require.Len(t, listA.Objects, 1, "Number of articles created should match the number sent")
+		require.Len(t, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], 2, "Article should have 2 paragraphs")
+
+		listP, err := helper.ListObjects(t, clsP.Class)
+		require.NoError(t, err, "ListObjects should not return an error")
+		require.Len(t, listP.Objects, 2, "Number of paragraphs created should match the number sent")
 	})
 }

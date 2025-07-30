@@ -49,9 +49,9 @@ type Service struct {
 	authorizer           authorization.Authorizer
 	logger               logrus.FieldLogger
 
-	authenticator       *authHandler
-	batchObjectsHandler *batch.ObjectsHandler
-	batchHandler        *batch.Handler
+	authenticator      *authHandler
+	batchHandler       *batch.Handler
+	batchQueuesHandler *batch.QueuesHandler
 	// batchWorkers        []*batch.Worker
 }
 
@@ -64,10 +64,10 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	batchWriteQueue := batch.NewBatchWriteQueue()
 	batchReadQueues := batch.NewBatchReadQueues()
 
-	batchObjectsHandler := batch.NewObjectsHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchHandler := batch.NewHandler(grpcShutdownCtx, batchWriteQueue, batchReadQueues, logger)
+	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
+	batchQueuesHandler := batch.NewQueuesHandler(grpcShutdownCtx, batchWriteQueue, batchReadQueues, logger)
 
-	batch.StartBatchWorkers(grpcShutdownCtx, 1, batchWriteQueue, batchReadQueues, batchObjectsHandler, logger)
+	batch.StartBatchWorkers(grpcShutdownCtx, 1, batchWriteQueue, batchReadQueues, batchHandler, logger)
 	go func() {
 		for {
 			select {
@@ -93,8 +93,8 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		logger:               logger,
 		authorizer:           authorization,
 		authenticator:        authenticator,
-		batchObjectsHandler:  batchObjectsHandler,
 		batchHandler:         batchHandler,
+		batchQueuesHandler:   batchQueuesHandler,
 	}
 }
 
@@ -224,7 +224,20 @@ func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	var errInner error
 
 	if err := enterrors.GoWrapperWithBlock(func() {
-		result, errInner = s.batchObjectsHandler.BatchObjects(ctx, req)
+		result, errInner = s.batchHandler.BatchObjects(ctx, req)
+	}, s.logger); err != nil {
+		return nil, err
+	}
+
+	return result, errInner
+}
+
+func (s *Service) BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (*pb.BatchReferencesReply, error) {
+	var result *pb.BatchReferencesReply
+	var errInner error
+
+	if err := enterrors.GoWrapperWithBlock(func() {
+		result, errInner = s.batchHandler.BatchReferences(ctx, req)
 	}, s.logger); err != nil {
 		return nil, err
 	}
@@ -237,7 +250,7 @@ func (s *Service) BatchSend(ctx context.Context, req *pb.BatchSendRequest) (*pb.
 	var errInner error
 
 	if err := enterrors.GoWrapperWithBlock(func() {
-		next := s.batchHandler.Send(ctx, req)
+		next := s.batchQueuesHandler.Send(ctx, req)
 		result = &pb.BatchSendReply{Next: next}
 	}, s.logger); err != nil {
 		return nil, err
@@ -252,9 +265,9 @@ func (s *Service) BatchStream(req *pb.BatchStreamRequest, stream pb.Weaviate_Bat
 		return err
 	}
 	streamId := id.String()
-	s.batchHandler.Setup(streamId)
-	defer s.batchHandler.Teardown(streamId)
-	return s.batchHandler.Stream(stream.Context(), streamId, stream)
+	s.batchQueuesHandler.Setup(streamId)
+	defer s.batchQueuesHandler.Teardown(streamId)
+	return s.batchQueuesHandler.Stream(stream.Context(), streamId, stream)
 }
 
 func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {

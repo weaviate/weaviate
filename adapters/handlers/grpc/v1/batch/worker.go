@@ -20,6 +20,11 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
+type Batcher interface {
+	BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error)
+	BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (*pb.BatchReferencesReply, error)
+}
+
 type Worker struct {
 	batcher    Batcher
 	ctx        context.Context
@@ -28,9 +33,12 @@ type Worker struct {
 	writeQueue writeQueue
 }
 
-func (w *Worker) send(req *pb.BatchSend) error {
+func (w *Worker) sendObjects(req *pb.BatchSendObjects) error {
+	if req == nil {
+		return fmt.Errorf("received nil BatchSendObjects request")
+	}
 	reply, err := w.batcher.BatchObjects(w.ctx, &pb.BatchObjectsRequest{
-		Objects:          req.Objects,
+		Objects:          req.Values,
 		ConsistencyLevel: req.ConsistencyLevel,
 	})
 	if err != nil {
@@ -44,7 +52,36 @@ func (w *Worker) send(req *pb.BatchSend) error {
 			}
 			errs = append(errs, &pb.BatchError{
 				Error:  err.Error,
-				Object: req.Objects[err.Index],
+				Object: req.Values[err.Index],
+			})
+		}
+		if ch, ok := w.readQueues.Get(req.StreamId); ok {
+			ch <- errorsObject{Errors: errs}
+		}
+	}
+	return nil
+}
+
+func (w *Worker) sendReferences(req *pb.BatchSendReferences) error {
+	if req == nil {
+		return fmt.Errorf("received nil BatchSendReferences request")
+	}
+	reply, err := w.batcher.BatchReferences(w.ctx, &pb.BatchReferencesRequest{
+		References:       req.Values,
+		ConsistencyLevel: req.ConsistencyLevel,
+	})
+	if err != nil {
+		return err
+	}
+	if len(reply.GetErrors()) > 0 {
+		errs := make([]*pb.BatchError, 0, len(reply.GetErrors()))
+		for _, err := range reply.GetErrors() {
+			if err == nil {
+				continue
+			}
+			errs = append(errs, &pb.BatchError{
+				Error:     err.Error,
+				Reference: req.Values[err.Index],
 			})
 		}
 		if ch, ok := w.readQueues.Get(req.StreamId); ok {
@@ -81,8 +118,13 @@ func (w *Worker) process(req *pb.BatchSendRequest) error {
 			ch <- errorsObject{Stop: true}
 		}
 	}
-	if req.GetSend() != nil {
-		if err := w.send(req.GetSend()); err != nil {
+	if req.GetObjects() != nil {
+		if err := w.sendObjects(req.GetObjects()); err != nil {
+			return err
+		}
+	}
+	if req.GetReferences() != nil {
+		if err := w.sendReferences(req.GetReferences()); err != nil {
 			return err
 		}
 	}

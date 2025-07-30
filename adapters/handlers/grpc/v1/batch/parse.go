@@ -33,7 +33,7 @@ func sliceToInterface[T any](values []T) []interface{} {
 	return tmpArray
 }
 
-func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (*models.Class, error)) ([]*models.Object, map[int]int, map[int]error) {
+func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (*models.Class, error)) ([]*models.Object, map[int]int, map[int]error) {
 	objectsBatch := req.Objects
 	objs := make([]*models.Object, 0, len(objectsBatch))
 	objOriginalIndex := make(map[int]int)
@@ -226,4 +226,16 @@ func extractPrimitiveProperties(properties *pb.ObjectPropertiesValue) map[string
 	}
 
 	return props
+}
+
+func BatchReferencesFromProto(req *pb.BatchReferencesRequest) []*models.BatchReference {
+	refs := make([]*models.BatchReference, 0, len(req.GetReferences()))
+	for _, ref := range req.GetReferences() {
+		refs = append(refs, &models.BatchReference{
+			From:   strfmt.URI(fmt.Sprintf("%s%s/%s/%s", BEACON_START, ref.FromCollection, ref.FromUuid, ref.Name)),
+			To:     strfmt.URI(fmt.Sprintf("%s%s/%s", BEACON_START, ref.ToCollection, ref.ToUuid)),
+			Tenant: ref.Tenant,
+		})
+	}
+	return refs
 }
