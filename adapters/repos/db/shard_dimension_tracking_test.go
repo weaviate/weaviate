@@ -580,10 +580,8 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 			assertTotalMetrics(0, 0)
 			insertData()
 			assertTotalMetrics(tt.expectDimensions, tt.expectSegments)
-
-			// TODO(dyma): pending the solution for updating metrics on shard drop
-			// require.NoError(t, db.DeleteIndex(schema.ClassName(class.Class)))
-			// assertTotalMetrics(0, 0)
+			require.NoError(t, db.DeleteIndex(schema.ClassName(class.Class)))
+			assertTotalMetrics(0, 0)
 		})
 	}
 }
@@ -604,11 +602,6 @@ func createTestDatabaseWithClass(t *testing.T, class *models.Class) *DB {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}},
 		shardState: singleShardState(),
 	})
-
-	// FIXME(dyma): this is not how DB is set up in ./init.go,
-	// see note in node_wide_metrics.go on it.
-	// Temporary fix to work around test failures.
-	db.metricsObserver = newNodeWideMetricsObserver(db)
 
 	require.Nil(t, db.WaitForStartup(testCtx()))
 	t.Cleanup(func() {

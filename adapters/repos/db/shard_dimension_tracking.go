@@ -212,12 +212,24 @@ func (s *Shard) getTotalDimensionMetrics(ctx context.Context) DimensionMetrics {
 	return total
 }
 
-func (s *Shard) clearDimensionMetrics(ctx context.Context) {
-	// s.dimensionMetricsCh <- taggedDimensionMetrics{
-	// 	ClassName: s.index.Config.ClassName.String(),
-	// 	ShardName: s.Name(),
-	// 	Dimensions: s.getTotalDimensionMetrics(ctx),
-	// }
+// Vector dimension metrics are collected on the node level and
+// are normally _polled_ from each shard. Shard SHOULD only update
+// its dimension metrics on its own iff it is being shut down or dropped
+// and metrics grouping is disatbled.
+func (s *Shard) clearDimensionMetrics() {
+	if s.index.metrics.baseMetrics == nil || s.index.metrics.baseMetrics.Group {
+		return
+	}
+
+	className, shardName := s.index.Config.ClassName.String(), s.name
+	if g, err := s.index.metrics.baseMetrics.VectorDimensionsSum.
+		GetMetricWithLabelValues(className, shardName); err == nil {
+		g.Set(0)
+	}
+	if g, err := s.index.metrics.baseMetrics.VectorSegmentsSum.
+		GetMetricWithLabelValues(className, shardName); err == nil {
+		g.Set(0)
+	}
 }
 
 func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics, className, shardName string) {

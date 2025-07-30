@@ -97,12 +97,6 @@ type DB struct {
 	// in the case of metrics grouping we need to observe some metrics
 	// node-centric, rather than shard-centric
 	metricsObserver *nodeWideMetricsObserver
-	// Vector dimension metrics are collected on the node lever and
-	// are normally _polled_ from each shard. Shard may only
-	// send on this channel to clear its metrics if it's being
-	// shut down or dropped. When doing so, it MUST report its
-	// actual dimensions, so that node-wide metrics can be aggregated correctly.
-	dimensionMetricsCh <-chan taggedDimensionMetrics
 
 	shardLoadLimiter ShardLoadLimiter
 
@@ -381,7 +375,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	if db.metricsObserver != nil {
+	if db.promMetrics != nil {
 		db.metricsObserver.Shutdown()
 	}
 

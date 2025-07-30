@@ -48,41 +48,55 @@ type (
 		read  int32
 		write int32
 	}
-	taggedDimensionMetrics struct {
-		ClassName  string
-		ShardName  string
-		Dimensions DimensionMetrics
-	}
 )
 
 func newNodeWideMetricsObserver(db *DB) *nodeWideMetricsObserver {
 	return &nodeWideMetricsObserver{db: db, shutdown: make(chan struct{})}
 }
 
+// Start goroutines for periodically polling node-wide metrics.
+// Shard read/write activity and objects_count are only collected
+// if metric aggregation (PROMETHEUS_MONITORING_GROUP) is enabled.
+// Only start this service if DB has Prometheus enabled.
 func (o *nodeWideMetricsObserver) Start() {
-	o.observeDimensionMetrics()
-
-	t30 := time.NewTicker(30 * time.Second)
-	t10 := time.NewTicker(10 * time.Second)
-
-	// make sure we start with a warm state, otherwise we delay the initial
-	// update. This only applies to tenant activity, other metrics wait
-	// for shard-readiness anyway.
-	o.observeActivity()
-
-	defer t30.Stop()
-	defer t10.Stop()
-
-	for {
-		select {
-		case <-o.shutdown:
-			return
-		case <-t10.C:
-			o.observeActivity()
-		case <-t30.C:
-			o.observeIfShardsReady()
-		}
+	// Prometheus metrics are redundant with Usage Module is enabled
+	if o.db.config.TrackVectorDimensions && !o.db.config.UsageEnabled {
+		o.observeDimensionMetrics()
 	}
+
+	if o.db.promMetrics.Group {
+		o.observeShards()
+	}
+}
+
+func (o *nodeWideMetricsObserver) Shutdown() {
+	close(o.shutdown)
+}
+
+func (o *nodeWideMetricsObserver) observeShards() {
+	enterrors.GoWrapper(func() {
+		t30 := time.NewTicker(30 * time.Second)
+		t10 := time.NewTicker(10 * time.Second)
+
+		// make sure we start with a warm state, otherwise we delay the initial
+		// update. This only applies to tenant activity, other metrics wait
+		// for shard-readiness anyway.
+		o.observeActivity()
+
+		defer t30.Stop()
+		defer t10.Stop()
+
+		for {
+			select {
+			case <-o.shutdown:
+				return
+			case <-t10.C:
+				o.observeActivity()
+			case <-t30.C:
+				o.observeIfShardsReady()
+			}
+		}
+	}, o.db.logger)
 }
 
 // Call observeUnlocked iff all shards in the local indices are loaded.
@@ -140,11 +154,7 @@ func (o *nodeWideMetricsObserver) observeUnlocked() {
 	}).Debug("observed node wide metrics")
 }
 
-func (o *nodeWideMetricsObserver) Shutdown() {
-	close(o.shutdown)
-}
-
-// NOTE(dyma): should this also chech that all indices report allShardsReady == true.
+// NOTE(dyma): should this also chech that all indices report allShardsReady == true?
 // Otherwise getCurrentActivity may end up loading lazy-loaded shards just to check
 // their activity, which is redundant on a cold shard?
 func (o *nodeWideMetricsObserver) observeActivity() {
@@ -332,17 +342,6 @@ func (o *nodeWideMetricsObserver) Usage(filter tenantactivity.UsageFilter) tenan
 // If vector dimension tracking is disabled, this method is a no-op: no goroutine will
 // be started and the "done" channel stays nil.
 func (o *nodeWideMetricsObserver) observeDimensionMetrics() {
-	if !o.db.config.TrackVectorDimensions {
-		// NOTE(dyma): do  we also need to check o.db.config.UsageEnabled?
-		return
-	}
-
-	if o.db.promMetrics == nil {
-		// FIXME(dyma): this is a temprorary fix against all the tests that
-		// used to pass `nil` metrics and have now started to panic
-		return
-	}
-
 	enterrors.GoWrapper(func() {
 		interval := config.DefaultTrackVectorDimensionsInterval
 		if o.db.config.TrackVectorDimensionsInterval > 0 { // duration must be > 0, or time.Timer will panic
@@ -364,14 +363,10 @@ func (o *nodeWideMetricsObserver) observeDimensionMetrics() {
 
 		for {
 			select {
-			case <-tick.C:
-				o.publishVectorMetrics(ctx)
-				// TODO(dyma): I think we should empty the dimensionMetricsCh to avoid messing
-				// with results we've just updated.
-			case metrics := <-o.db.dimensionMetricsCh:
-				o.clearDimensionMetrics(metrics.ClassName, metrics.ShardName, metrics.Dimensions)
 			case <-o.shutdown:
 				return
+			case <-tick.C:
+				o.publishVectorMetrics(ctx)
 			}
 		}
 	}, o.db.logger)
@@ -437,26 +432,6 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 	// Report aggregate metrics for the node if grouping is enabled.
 	if o.db.promMetrics.Group {
 		o.sendVectorDimensions(metricsLabelNA, metricsLabelNA, total)
-	}
-}
-
-// Use zeroDimensions to reset vector_dimensions and vector_segments gauge.
-var zeroDimensions DimensionMetrics
-
-// If grouping is disabled, sets vector_dimensions and vector_segments gauge to 0.
-// Otherwise subtracts shards individual metrics from the node-wide result.
-func (o *nodeWideMetricsObserver) clearDimensionMetrics(className, shardName string, dm DimensionMetrics) {
-	if !o.db.promMetrics.Group {
-		o.sendVectorDimensions(className, shardName, zeroDimensions)
-		return
-	}
-
-	if g, err := o.db.promMetrics.VectorDimensionsSum.GetMetricWithLabelValues(className, shardName); err == nil {
-		g.Sub(float64(dm.Uncompressed))
-	}
-
-	if g, err := o.db.promMetrics.VectorSegmentsSum.GetMetricWithLabelValues(className, shardName); err == nil {
-		g.Sub(float64(dm.Compressed))
 	}
 }
 
