@@ -19,9 +19,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dustin/go-humanize"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type BitmapBufPool interface {
@@ -34,7 +37,8 @@ func cloneToBuf(pool BitmapBufPool, bm *sroar.Bitmap) (cloned *sroar.Bitmap, put
 	return bm.CloneToBuf(buf), put
 }
 
-func NewBitmapBufPoolDefault(logger logrus.FieldLogger, inMemoMaxBufSize int, maxMemoSizeForBufs int,
+func NewBitmapBufPoolDefault(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics,
+	inMemoMaxBufSize int, maxMemoSizeForBufs int,
 ) (pool BitmapBufPool, close func()) {
 	syncMinRangeP2 := 9  // 2^9 = 512B
 	syncMaxRangeP2 := 20 // 2^20 = 1MB
@@ -51,7 +55,7 @@ func NewBitmapBufPoolDefault(logger logrus.FieldLogger, inMemoMaxBufSize int, ma
 	}
 
 	stopCleanup := func() {}
-	p := NewBitmapBufPoolRanged(syncMaxBufSize, inMemoBufsLimits, allRanges...)
+	p := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, inMemoBufsLimits, allRanges...)
 	if ln := len(inMemoRanges); ln > 0 {
 		limitMaxRange := inMemoBufsLimits[inMemoRanges[ln-1]]
 		nBuffers := (limitMaxRange + 1) / 2
@@ -86,6 +90,7 @@ type bitmapBufPoolRanged struct {
 	firstInMemoRngIdx int
 	poolsSync         []*BufPoolFixedSync
 	poolsInMemo       []*BufPoolFixedInMemory
+	disposableMetrics bufDisposableMetrics
 }
 
 // Creates multiple pools, one for specified range of sizes (given in bytes).
@@ -94,10 +99,21 @@ type bitmapBufPoolRanged struct {
 // Buffers of sizes bigger than highest range will be created but not kept in pool
 // (to be removed by GC when no longer needed)
 // Ranges <=0 or duplicated will be ignored.
-func NewBitmapBufPoolRanged(syncMaxBufSize int, inMemoBufsLimits map[int]int, ranges ...int) *bitmapBufPoolRanged {
+func NewBitmapBufPoolRanged(metrics *monitoring.PrometheusMetrics,
+	syncMaxBufSize int, inMemoBufsLimits map[int]int, ranges ...int,
+) *bitmapBufPoolRanged {
 	ranges = validateBufferRanges(ranges)
 	poolsSync := []*BufPoolFixedSync{}
 	poolsInMemo := []*BufPoolFixedInMemory{}
+
+	var inMemoMetrics bufPoolInMemoMetrics
+	var disposableMetrics bufDisposableMetrics
+	if metrics == nil {
+		inMemoMetrics = &bufPoolNoopMetrics{}
+		disposableMetrics = &bufDisposableNoopMetrics{}
+	} else {
+		disposableMetrics = newPromBufDisposableMetrics(metrics)
+	}
 
 	i := 0
 	for ; i < len(ranges) && ranges[i] <= syncMaxBufSize; i++ {
@@ -109,7 +125,10 @@ func NewBitmapBufPoolRanged(syncMaxBufSize int, inMemoBufsLimits map[int]int, ra
 		if lmt, ok := inMemoBufsLimits[ranges[i]]; ok {
 			limit = lmt
 		}
-		poolsInMemo = append(poolsInMemo, NewBufPoolFixedInMemory(ranges[i], limit))
+		if metrics != nil {
+			inMemoMetrics = newPromBufPoolInMemoMetrics(metrics, ranges[i])
+		}
+		poolsInMemo = append(poolsInMemo, NewBufPoolFixedInMemory(inMemoMetrics, ranges[i], limit))
 	}
 
 	return &bitmapBufPoolRanged{
@@ -117,6 +136,7 @@ func NewBitmapBufPoolRanged(syncMaxBufSize int, inMemoBufsLimits map[int]int, ra
 		firstInMemoRngIdx: firstInMemoRngIdx,
 		poolsSync:         poolsSync,
 		poolsInMemo:       poolsInMemo,
+		disposableMetrics: disposableMetrics,
 	}
 }
 
@@ -131,6 +151,7 @@ func (p *bitmapBufPoolRanged) Get(minCap int) (buf []byte, put func()) {
 			return p.poolsInMemo[i-p.firstInMemoRngIdx].Get()
 		}
 	}
+	p.disposableMetrics.bufCreated(minCap)
 	return make([]byte, 0, minCap), func() {}
 }
 
@@ -210,16 +231,18 @@ func (p *BufPoolFixedSync) Get() (buf []byte, put func()) {
 // -----------------------------------------------------------------------------
 
 type BufPoolFixedInMemory struct {
-	cap    int
-	limit  int
-	bufsCh chan *[]byte
+	cap     int
+	limit   int
+	bufsCh  chan *[]byte
+	metrics bufPoolInMemoMetrics
 }
 
-func NewBufPoolFixedInMemory(cap int, limit int) *BufPoolFixedInMemory {
+func NewBufPoolFixedInMemory(metrics bufPoolInMemoMetrics, cap int, limit int) *BufPoolFixedInMemory {
 	return &BufPoolFixedInMemory{
-		cap:    cap,
-		limit:  limit,
-		bufsCh: make(chan *[]byte, limit),
+		cap:     cap,
+		limit:   limit,
+		bufsCh:  make(chan *[]byte, limit),
+		metrics: metrics,
 	}
 }
 
@@ -228,9 +251,11 @@ func (p *BufPoolFixedInMemory) Get() (buf []byte, put func()) {
 	select {
 	case ptr = <-p.bufsCh:
 		buf = *ptr
+		p.metrics.bufGot()
 	default:
 		buf = make([]byte, 0, p.cap)
 		ptr = &buf
+		p.metrics.bufCreated()
 	}
 	return buf, func() { p.put(ptr) }
 }
@@ -238,9 +263,11 @@ func (p *BufPoolFixedInMemory) Get() (buf []byte, put func()) {
 func (p *BufPoolFixedInMemory) put(ptr *[]byte) bool {
 	select {
 	case p.bufsCh <- ptr:
+		p.metrics.bufPut()
 		// successfully returned
 		return true
 	default:
+		p.metrics.bufDiscarded()
 		// chan full, discard buffer
 		return false
 	}
@@ -255,6 +282,7 @@ outer:
 	for n = min(n, p.limit); i < n; i++ {
 		select {
 		case <-p.bufsCh:
+			p.metrics.bufCleanedUp()
 			// discard taken buffer
 		default:
 			break outer
@@ -341,3 +369,83 @@ func calculateInMemoBufferRangesAndLimits(maxSyncBufSize, minRangeP2, maxBufSize
 	}
 	return []int{}, map[int]int{}
 }
+
+// -----------------------------------------------------------------------------
+
+type bufPoolInMemoMetrics interface {
+	bufCreated()
+	bufGot()
+	bufPut()
+	bufDiscarded()
+	bufCleanedUp()
+}
+
+type promBufPoolInMemoMetrics struct {
+	usageCounter *prometheus.CounterVec
+	size         string
+}
+
+func newPromBufPoolInMemoMetrics(metrics *monitoring.PrometheusMetrics, sizeInBytes int) *promBufPoolInMemoMetrics {
+	return &promBufPoolInMemoMetrics{
+		usageCounter: metrics.LSMBitmapBuffersUsage,
+		size:         humanize.IBytes(uint64(sizeInBytes)),
+	}
+}
+
+func (m *promBufPoolInMemoMetrics) bufCreated() {
+	m.usageCounter.WithLabelValues(m.size, "inmemo_created").Inc()
+}
+
+func (m *promBufPoolInMemoMetrics) bufGot() {
+	m.usageCounter.WithLabelValues(m.size, "inmemo_got").Inc()
+}
+
+func (m *promBufPoolInMemoMetrics) bufPut() {
+	m.usageCounter.WithLabelValues(m.size, "inmemo_put").Inc()
+}
+
+func (m *promBufPoolInMemoMetrics) bufDiscarded() {
+	m.usageCounter.WithLabelValues(m.size, "inmemo_discarded").Inc()
+}
+
+func (m *promBufPoolInMemoMetrics) bufCleanedUp() {
+	m.usageCounter.WithLabelValues(m.size, "inmemo_cleanedUp").Inc()
+}
+
+type bufPoolNoopMetrics struct{}
+
+func (m *bufPoolNoopMetrics) bufCreated()   {}
+func (m *bufPoolNoopMetrics) bufGot()       {}
+func (m *bufPoolNoopMetrics) bufPut()       {}
+func (m *bufPoolNoopMetrics) bufDiscarded() {}
+func (m *bufPoolNoopMetrics) bufCleanedUp() {}
+
+// -----------------------------------------------------------------------------
+
+type bufDisposableMetrics interface {
+	bufCreated(sizeInBytes int)
+}
+
+type promBufDisposableMetrics struct {
+	usageCounter *prometheus.CounterVec
+}
+
+func newPromBufDisposableMetrics(metrics *monitoring.PrometheusMetrics) *promBufDisposableMetrics {
+	return &promBufDisposableMetrics{
+		usageCounter: metrics.LSMBitmapBuffersUsage,
+	}
+}
+
+func (m *promBufDisposableMetrics) bufCreated(sizeInBytes int) {
+	s := uint64(sizeInBytes)
+	ceil := uint64(1 << bits.Len64(s))
+	if s^ceil != 0 {
+		ceil *= 2
+	}
+	size := humanize.IBytes(ceil)
+	m.usageCounter.WithLabelValues(size, "disposable_created").Inc()
+}
+
+type bufDisposableNoopMetrics struct{}
+
+func (m *bufDisposableNoopMetrics) bufCreated(sizeInBytes int) {}

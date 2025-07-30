@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func TestBufPoolFixedSync(t *testing.T) {
@@ -63,10 +64,12 @@ func TestBufPoolFixedSync(t *testing.T) {
 }
 
 func TestBufPoolFixedInMemory(t *testing.T) {
+	metrics := &bufPoolNoopMetrics{}
+
 	t.Run("pool returns buffers of given cap", func(t *testing.T) {
-		pool123 := NewBufPoolFixedInMemory(123, 2)
-		pool234 := NewBufPoolFixedInMemory(234, 2)
-		pool345 := NewBufPoolFixedInMemory(345, 2)
+		pool123 := NewBufPoolFixedInMemory(metrics, 123, 2)
+		pool234 := NewBufPoolFixedInMemory(metrics, 234, 2)
+		pool345 := NewBufPoolFixedInMemory(metrics, 345, 2)
 
 		t.Run("buf1", func(t *testing.T) {
 			buf1_123, put := pool123.Get()
@@ -112,7 +115,7 @@ func TestBufPoolFixedInMemory(t *testing.T) {
 		// (once written values stay in the buffers).
 		// following buffers are created as temporary ones and are not put back to the pool
 		limit := 3
-		pool := NewBufPoolFixedInMemory(2, limit)
+		pool := NewBufPoolFixedInMemory(metrics, 2, limit)
 
 		t.Run("get buffers and write unique values", func(t *testing.T) {
 			buf1_1, put1 := pool.Get()
@@ -208,7 +211,7 @@ func TestBufPoolFixedInMemory(t *testing.T) {
 		limit := 3
 
 		t.Run("1 buffer used at once, 1 buffer is created", func(t *testing.T) {
-			pool := NewBufPoolFixedInMemory(2, limit)
+			pool := NewBufPoolFixedInMemory(metrics, 2, limit)
 
 			buf1_1, put1 := pool.Get()
 			binary.BigEndian.PutUint16(buf1_1[:2], val1)
@@ -222,7 +225,7 @@ func TestBufPoolFixedInMemory(t *testing.T) {
 		})
 
 		t.Run("2 buffers used at once, 2 buffers are created", func(t *testing.T) {
-			pool := NewBufPoolFixedInMemory(2, limit)
+			pool := NewBufPoolFixedInMemory(metrics, 2, limit)
 
 			buf1_3, put1 := pool.Get()
 			binary.BigEndian.PutUint16(buf1_3[:2], val1)
@@ -243,7 +246,7 @@ func TestBufPoolFixedInMemory(t *testing.T) {
 		})
 
 		t.Run("3 buffers used at once, 3 buffers are created", func(t *testing.T) {
-			pool := NewBufPoolFixedInMemory(2, limit)
+			pool := NewBufPoolFixedInMemory(metrics, 2, limit)
 
 			buf1_5, put1 := pool.Get()
 			binary.BigEndian.PutUint16(buf1_5[:2], val1)
@@ -278,7 +281,7 @@ func TestBufPoolFixedInMemory(t *testing.T) {
 		limit := 3
 
 		t.Run("all buffers in use, nothing is cleaned up", func(t *testing.T) {
-			pool := NewBufPoolFixedInMemory(2, limit)
+			pool := NewBufPoolFixedInMemory(metrics, 2, limit)
 
 			buf1_1, put1 := pool.Get()
 			binary.BigEndian.PutUint16(buf1_1[:2], val1)
@@ -309,7 +312,7 @@ func TestBufPoolFixedInMemory(t *testing.T) {
 		})
 
 		t.Run("2 buffers in use, 1 is cleaned up", func(t *testing.T) {
-			pool := NewBufPoolFixedInMemory(2, limit)
+			pool := NewBufPoolFixedInMemory(metrics, 2, limit)
 
 			buf1_1, put1 := pool.Get()
 			binary.BigEndian.PutUint16(buf1_1[:2], val1)
@@ -344,7 +347,7 @@ func TestBufPoolFixedInMemory(t *testing.T) {
 		})
 
 		t.Run("1 buffer in use, 2 are cleaned up", func(t *testing.T) {
-			pool := NewBufPoolFixedInMemory(2, limit)
+			pool := NewBufPoolFixedInMemory(metrics, 2, limit)
 
 			buf1_1, put1 := pool.Get()
 			binary.BigEndian.PutUint16(buf1_1[:2], val1)
@@ -371,7 +374,7 @@ func TestBufPoolFixedInMemory(t *testing.T) {
 		})
 
 		t.Run("no buffers in use, all are cleaned up", func(t *testing.T) {
-			pool := NewBufPoolFixedInMemory(2, limit)
+			pool := NewBufPoolFixedInMemory(metrics, 2, limit)
 
 			buf1_1, put1 := pool.Get()
 			binary.BigEndian.PutUint16(buf1_1[:2], val1)
@@ -396,6 +399,8 @@ func TestBufPoolFixedInMemory(t *testing.T) {
 }
 
 func TestBitmapBufPoolRanged(t *testing.T) {
+	var metrics *monitoring.PrometheusMetrics = nil
+
 	t.Run("pool returns buffers of next higher range", func(t *testing.T) {
 		ranges := []int{32, 64, 128, 256, 512, 1024}
 
@@ -463,7 +468,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 
 		t.Run("sync pool", func(t *testing.T) {
 			syncMaxBufSize := 1024
-			pool := NewBitmapBufPoolRanged(syncMaxBufSize, nil, ranges...)
+			pool := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, nil, ranges...)
 
 			for i, tc := range testCases {
 				t.Run(fmt.Sprintf("test case #%d", i), func(t *testing.T) {
@@ -478,7 +483,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 
 		t.Run("sync + inmemo pools", func(t *testing.T) {
 			syncMaxBufSize := 256
-			pool := NewBitmapBufPoolRanged(syncMaxBufSize, nil, ranges...)
+			pool := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, nil, ranges...)
 
 			for i, tc := range testCases {
 				t.Run(fmt.Sprintf("test case #%d", i), func(t *testing.T) {
@@ -496,7 +501,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		syncMaxBufSize := 128
 		limits := map[int]int{256: 4, 512: 3, 1024: 2}
 		ranges := []int{32, 64, 128, 256, 512, 1024}
-		pool := NewBitmapBufPoolRanged(syncMaxBufSize, limits, ranges...)
+		pool := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, limits, ranges...)
 
 		// get and write to 3 buffers of each inmemo size
 		buf256_1, put256_1 := pool.Get(254)
@@ -591,7 +596,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		syncMaxBufSize := 128
 		limits := map[int]int{256: 2, 512: 2, 1024: 2}
 		ranges := []int{32, 64, 128, 256, 512, 1024}
-		pool := NewBitmapBufPoolRanged(syncMaxBufSize, limits, ranges...)
+		pool := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, limits, ranges...)
 
 		buf256_1, put256_1 := pool.Get(256)
 		binary.BigEndian.PutUint16(buf256_1[:2], 10256)
