@@ -254,10 +254,10 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				// Wait for vector indexing to complete
 				time.Sleep(1 * time.Second)
 
-				index.ForEachShard(func(name string, shard ShardLike) error {
-					shard.publishDimensionMetrics(ctx)
-					return nil
-				})
+				// Vector dimensions are always aggregated from nodeWideMetricsObserver,
+				// but we don't need DB for this test. Gimicky, but it does the job.
+				db := createTestDatabaseWithClass(t, class)
+				publishVectorMetricsFromDB(t, db, tt.className)
 
 				// Test active shard vector storage size
 				shard, release, err := index.GetShard(ctx, tt.shardName)
@@ -513,11 +513,10 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				// Wait for vector indexing to complete
 				time.Sleep(1 * time.Second)
 
-				// Flush dimensions to disk
-				index.ForEachShard(func(name string, shard ShardLike) error {
-					shard.publishDimensionMetrics(ctx)
-					return nil
-				})
+				// Vector dimensions are always aggregated from nodeWideMetricsObserver,
+				// but we don't need DB for this test. Gimicky, but it does the job.
+				db := createTestDatabaseWithClass(t, class)
+				publishVectorMetricsFromDB(t, db, tt.className)
 
 				// Test active shard dimensions usage
 				shard, release, err := index.GetShard(ctx, tt.shardName)
@@ -681,11 +680,10 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	// Wait for indexing to complete
 	time.Sleep(1 * time.Second)
 
-	index.ForEachShard(func(name string, shard ShardLike) error {
-		// Update metrics
-		shard.publishDimensionMetrics(ctx)
-		return nil
-	})
+	// Vector dimensions are always aggregated from nodeWideMetricsObserver,
+	// but we don't need DB for this test. Gimicky, but it does the job.
+	db := createTestDatabaseWithClass(t, class)
+	publishVectorMetricsFromDB(t, db, className)
 
 	// Test active shard vector storage size
 	activeShard, release, err := index.GetShard(ctx, shardName)

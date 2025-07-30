@@ -13,16 +13,12 @@ package db
 
 import (
 	"context"
-	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/cluster/usage/types"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type DimensionCategory int
@@ -85,80 +81,6 @@ func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, se
 
 func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) (types.Dimensionality, error) {
 	return calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, calcEntry), nil
-}
-
-// initDimensionTracking initializes the dimension tracking for a shard.
-// it's no op if the trackVectorDimensions is disabled or the usage is enabled
-func (s *Shard) initDimensionTracking() {
-	// do not use the context passed from NewShard, as that one is only meant for
-	// initialization. However, this goroutine keeps running forever, so if the
-	// startup context expires, this would error.
-	// https://github.com/weaviate/weaviate/issues/5091
-	rootCtx := context.Background()
-	if s.index.Config.TrackVectorDimensions && !s.index.Config.UsageEnabled {
-		s.dimensionTrackingInitialized.Store(true)
-
-		// The timeout is rather arbitrary, it's just meant to prevent a context
-		// leak. The actual work should be much faster.
-		ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
-		defer cancel()
-
-		// always send vector dimensions at startup if tracking is enabled
-		s.publishDimensionMetrics(ctx)
-		// start tracking vector dimensions goroutine only when tracking is enabled
-		f := func() {
-			interval := config.DefaultTrackVectorDimensionsInterval
-			if s.index.Config.TrackVectorDimensionsInterval != 0 {
-				interval = s.index.Config.TrackVectorDimensionsInterval
-			}
-			t := time.NewTicker(interval)
-			defer t.Stop()
-			for {
-				select {
-				case <-s.stopDimensionTracking:
-					s.dimensionTrackingInitialized.Store(false)
-					return
-				case <-t.C:
-					func() {
-						// The timeout is rather arbitrary, it's just meant to prevent a context
-						// leak. The actual work should be much faster.
-						ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
-						defer cancel()
-						s.publishDimensionMetrics(ctx)
-					}()
-				}
-			}
-		}
-		enterrors.GoWrapper(f, s.index.logger)
-	}
-}
-
-func (s *Shard) publishDimensionMetrics(ctx context.Context) {
-	if s.promMetrics != nil {
-		var (
-			className = s.index.Config.ClassName.String()
-			shardName = s.name
-			configs   = s.index.GetVectorIndexConfigs()
-
-			sumSegments   = 0
-			sumDimensions = 0
-		)
-
-		// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled
-		if s.promMetrics.Group {
-			className = "n/a"
-			shardName = "n/a"
-		}
-
-		for targetVector, config := range configs {
-			metrics := s.calcDimensionMetrics(ctx, config, targetVector)
-			sumDimensions += metrics.Uncompressed
-			sumSegments += metrics.Compressed
-		}
-
-		sendVectorSegmentsMetric(s.promMetrics, className, shardName, sumSegments)
-		sendVectorDimensionsMetric(s.promMetrics, className, shardName, sumDimensions)
-	}
 }
 
 // DimensionMetrics represents the dimension tracking metrics for a vector.
@@ -229,50 +151,6 @@ func (s *Shard) clearDimensionMetrics() {
 	if g, err := s.index.metrics.baseMetrics.VectorSegmentsSum.
 		GetMetricWithLabelValues(className, shardName); err == nil {
 		g.Set(0)
-	}
-}
-
-func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics, className, shardName string) {
-	if promMetrics != nil {
-		// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled
-		if promMetrics.Group {
-			className = "n/a"
-			shardName = "n/a"
-		}
-		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
-		sendVectorSegmentsMetric(promMetrics, className, shardName, 0)
-	}
-}
-
-func sendVectorSegmentsMetric(promMetrics *monitoring.PrometheusMetrics,
-	className, shardName string, count int,
-) {
-	// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled
-	if promMetrics != nil && promMetrics.Group {
-		className = "n/a"
-		shardName = "n/a"
-	}
-
-	metric, err := promMetrics.VectorSegmentsSum.
-		GetMetricWithLabelValues(className, shardName)
-	if err == nil {
-		metric.Set(float64(count))
-	}
-}
-
-func sendVectorDimensionsMetric(promMetrics *monitoring.PrometheusMetrics,
-	className, shardName string, count int,
-) {
-	// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled
-	if promMetrics != nil && promMetrics.Group {
-		className = "n/a"
-		shardName = "n/a"
-	}
-
-	metric, err := promMetrics.VectorDimensionsSum.
-		GetMetricWithLabelValues(className, shardName)
-	if err == nil {
-		metric.Set(float64(count))
 	}
 }
 

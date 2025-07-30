@@ -25,8 +25,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-const metricsLabelNA = "n/a"
-
 type nodeWideMetricsObserver struct {
 	db *DB
 
@@ -142,8 +140,8 @@ func (o *nodeWideMetricsObserver) observeUnlocked() {
 	}
 
 	o.db.promMetrics.ObjectCount.With(prometheus.Labels{
-		"class_name": metricsLabelNA,
-		"shard_name": metricsLabelNA,
+		"class_name": "n/a",
+		"shard_name": "n/a",
 	}).Set(float64(totalObjectCount))
 
 	took := time.Since(start)
@@ -431,7 +429,7 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 
 	// Report aggregate metrics for the node if grouping is enabled.
 	if o.db.promMetrics.Group {
-		o.sendVectorDimensions(metricsLabelNA, metricsLabelNA, total)
+		o.sendVectorDimensions("n/a", "n/a", total)
 	}
 }
 

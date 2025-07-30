@@ -16,7 +16,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/rand"
 	"testing"
 	"time"
@@ -390,28 +389,6 @@ func Test_DimensionTracking(t *testing.T) {
 	})
 }
 
-func publishVectorMetricsFromDB(t *testing.T, db *DB, className string) {
-	if !db.config.TrackVectorDimensions {
-		t.Logf("Vector dimensions tracking is disabled, returning 0")
-		return
-	}
-	db.metricsObserver.publishVectorMetrics(t.Context())
-}
-
-func getSingleShardNameFromRepo(repo *DB, className string) string {
-	shardName := ""
-	if !repo.config.TrackVectorDimensions {
-		log.Printf("Vector dimensions tracking is disabled, returning 0")
-		return shardName
-	}
-	index := repo.GetIndex(schema.ClassName(className))
-	index.ForEachShard(func(name string, shard ShardLike) error {
-		shardName = shard.Name()
-		return nil
-	})
-	return shardName
-}
-
 func TestTotalDimensionTrackingMetrics(t *testing.T) {
 	const (
 		objectCount         = 100
@@ -586,30 +563,6 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 	}
 }
 
-func createTestDatabaseWithClass(t *testing.T, class *models.Class) *DB {
-	metrics := monitoring.GetMetrics()
-	metrics.Registerer = monitoring.NoopRegisterer
-
-	db, err := New(logrus.New(), Config{
-		RootPath:                  t.TempDir(),
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, metrics, memwatch.NewDummyMonitor())
-	require.Nil(t, err)
-
-	db.SetSchemaGetter(&fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}},
-		shardState: singleShardState(),
-	})
-
-	require.Nil(t, db.WaitForStartup(testCtx()))
-	t.Cleanup(func() {
-		require.NoError(t, db.Shutdown(context.Background()))
-	})
-
-	return db
-}
 
 func intToUUID(i int) strfmt.UUID {
 	return strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
