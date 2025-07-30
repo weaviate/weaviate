@@ -287,7 +287,7 @@ func (s *Shard) resetDimensionsLSM() error {
 	err := s.store.CreateOrLoadBucket(context.Background(),
 		helpers.DimensionsBucketLSM,
 		s.memtableDirtyConfig(),
-		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
@@ -349,20 +349,34 @@ func (s *Shard) addToDimensionBucket(
 		return errors.Errorf("add dimension bucket: no bucket dimensions")
 	}
 
-	tv := []byte(vecName)
-	// 8 bytes for doc id (map key)
-	// 4 bytes for dim count (row key)
-	// len(vecName) bytes for vector name (prefix of row key)
-	buf := make([]byte, 12+len(tv))
-	binary.LittleEndian.PutUint64(buf[:8], docID)
-	binary.LittleEndian.PutUint32(buf[8+len(tv):], uint32(dimLength))
-	copy(buf[8:], tv)
+	keybuff := make([]byte, 4+len(vecName))
+	copy(keybuff[4:], vecName)
+	binary.LittleEndian.PutUint32(keybuff[:4], uint32(dimLength))
+	countbuff_r, err := b.Get(keybuff)
+	if err != nil {
+		return err
+	}
+	countbuff := make([]byte, len(countbuff_r))
+	if countbuff_r == nil {
+		// if the bucket is empty, initialize the count to 0
+		countbuff = make([]byte, 8)
+		binary.LittleEndian.PutUint64(countbuff, 0)
+	} else {
+		copy(countbuff, countbuff_r)
+	}
+	count := binary.LittleEndian.Uint64(countbuff)
 
-	return b.MapSet(buf[8:], lsmkv.MapPair{
-		Key:       buf[:8],
-		Value:     []byte{},
-		Tombstone: tombstone,
-	})
+	if tombstone {
+		count = count - 1
+	} else {
+		count = count + 1
+	}
+
+	binary.LittleEndian.PutUint64(countbuff, count)
+	if err := b.Put(keybuff, countbuff); err != nil {
+		return errors.Wrapf(err, "add dimension bucket: set key %s", string(countbuff))
+	}
+	return nil
 }
 
 func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
