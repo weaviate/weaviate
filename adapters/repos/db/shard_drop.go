@@ -36,14 +36,6 @@ func (s *Shard) drop() (err error) {
 	s.metrics.baseMetrics.StartUnloadingShard()
 	s.replicationMap.clear()
 
-	if s.index.Config.TrackVectorDimensions {
-		// tracking vector dimensions goroutine only works when tracking is enabled
-		// that's why we are trying to stop it only in this case
-		s.stopDimensionTracking <- struct{}{}
-		// send 0 in when index gets dropped
-		s.clearDimensionMetrics()
-	}
-
 	s.index.logger.WithFields(logrus.Fields{
 		"action": "drop_shard",
 		"class":  s.class.Class,

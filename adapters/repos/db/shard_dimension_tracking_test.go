@@ -186,7 +186,7 @@ func Test_DimensionTracking(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, monitoring.GetMetrics(), memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -402,6 +402,15 @@ func publishDimensionMetricsFromRepo(ctx context.Context, repo *DB, className st
 	})
 }
 
+func publishVectorMetricsFromDB(t *testing.T, db *DB, className string) {
+	if !db.config.TrackVectorDimensions {
+		t.Logf("Vector dimensions tracking is disabled, returning 0")
+		return
+	}
+	index := db.GetIndex(schema.ClassName(className))
+	index.publishVectorMetrics(t.Context())
+}
+
 func getSingleShardNameFromRepo(repo *DB, className string) string {
 	shardName := ""
 	if !repo.config.TrackVectorDimensions {
@@ -556,6 +565,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 						require.Nil(t, err)
 					}
 					publishDimensionMetricsFromRepo(context.Background(), db, class.Class)
+					// publishVectorMetricsFromDB(t, db, class.Class)
 				}
 
 				removeData = func() {
@@ -564,6 +574,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 						require.NoError(t, err)
 					}
 					publishDimensionMetricsFromRepo(context.Background(), db, class.Class)
+					// publishVectorMetricsFromDB(t, db, class.Class)
 				}
 
 				assertTotalMetrics = func(expectDims, expectSegs float64) {
@@ -677,7 +688,7 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 			}
 
 			// Publish metrics
-			publishDimensionMetricsFromRepo(context.Background(), db, class.Class)
+			publishVectorMetricsFromDB(t, db, class.Class)
 
 			// Verify dimension metrics
 			metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(tc.expectedLabels[0], tc.expectedLabels[1])
@@ -690,4 +701,61 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 			require.Equal(t, float64(0), testutil.ToFloat64(metric))
 		})
 	}
+}
+
+func TestGroupedDimensionTrackingMultiShard(t *testing.T) {
+	metrics := monitoring.GetMetrics()
+	originalGroup := metrics.Group
+	metrics.Group = true
+	defer func() { metrics.Group = originalGroup }()
+
+	class := &models.Class{
+		Class:               "Thigns",
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+	}
+
+	// Create db with Things class
+	metrics.Registerer = monitoring.NoopRegisterer
+
+	db, err := New(logrus.New(), Config{
+		RootPath:                  t.TempDir(),
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, metrics, memwatch.NewDummyMonitor())
+	require.Nil(t, err)
+
+	db.SetSchemaGetter(&fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}},
+		shardState: multiShardState(),
+	})
+
+	require.Nil(t, db.WaitForStartup(t.Context()))
+	t.Cleanup(func() {
+		require.NoError(t, db.Shutdown(context.Background()))
+	})
+
+	// Insert test data
+	objectCount := 100
+	dimensionsPerVector := 5
+	expectedDimensions := objectCount * dimensionsPerVector
+	for i := range objectCount {
+		obj := &models.Object{
+			Class: class.Class,
+			ID:    intToUUID(i),
+		}
+		vec := randVector(dimensionsPerVector)
+		err := db.PutObject(t.Context(), obj, vec, nil, nil, nil, 0)
+		require.Nilf(t, err, "insert object %d", i)
+	}
+
+	// Publish metrics
+	publishVectorMetricsFromDB(t, db, class.Class)
+
+	// Verify dimension metrics
+	metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("n/a", "n/a")
+	require.NoError(t, err, "get gauge for n/a:n/a")
+	require.Equal(t, float64(expectedDimensions), testutil.ToFloat64(metric))
+
 }
