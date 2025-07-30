@@ -68,7 +68,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	batchQueuesHandler := batch.NewQueuesHandler(grpcShutdownCtx, batchWriteQueue, batchReadQueues, logger)
 
 	batch.StartBatchWorkers(grpcShutdownCtx, 1, batchWriteQueue, batchReadQueues, batchHandler, logger)
-	go func() {
+	enterrors.GoWrapperWithBlock(func() {
 		for {
 			select {
 			case <-grpcShutdownCtx.Done():
@@ -81,7 +81,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 				time.Sleep(100 * time.Millisecond) // sleep to avoid busy waiting
 			}
 		}
-	}()
+	}, logger)
 
 	return &Service{
 		traverser:            traverser,
