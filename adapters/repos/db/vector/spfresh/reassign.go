@@ -85,7 +85,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 
 	// append the vector to each replica
 	for _, replica := range replicas {
-		ok, err := s.Append(op.Vector, replica, true)
+		ok, err := s.append(op.Vector, replica, true)
 		if !ok {
 			s.Logger.WithField("vectorID", op.Vector.ID).
 				WithField("replicaID", replica).

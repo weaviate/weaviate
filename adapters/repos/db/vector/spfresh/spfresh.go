@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
@@ -64,6 +65,10 @@ type SPFresh struct {
 	visitedPool *visited.Pool
 
 	postingLocks *common.HashedLocks // Locks to prevent concurrent modifications to the same posting.
+
+	trackDimensionsOnce sync.Once
+	dims                int32
+	distancer           distancer.Provider
 }
 
 func (s *SPFresh) Start(ctx context.Context) {
@@ -101,6 +106,7 @@ func (s *SPFresh) Start(ctx context.Context) {
 	s.splitList = newDeduplicator()
 	s.mergeList = newDeduplicator()
 	s.visitedPool = visited.NewPool(1, 512, -1)
+	s.distancer = distancer.NewCosineDistanceProvider()
 
 	// start N workers to process split operations
 	for i := 0; i < s.UserConfig.SplitWorkers; i++ {
@@ -117,81 +123,6 @@ func (s *SPFresh) Start(ctx context.Context) {
 	// start a single worker to process merge operations
 	s.wg.Add(1)
 	enterrors.GoWrapper(s.mergeWorker, s.Logger)
-}
-
-// Insert a vector into one or more postings.
-// The number of replicas is determined by the UserConfig.Replicas setting.
-func (s *SPFresh) Insert(id uint64, vector []byte) error {
-	replicas, _, err := s.selectReplicas(vector, 0)
-	if err != nil {
-		return err
-	}
-
-	s.VersionMap.AllocPageFor(id)
-
-	for _, replica := range replicas {
-		_, err = s.Append(Vector{ID: id, Data: vector, Version: s.VersionMap.Get(id)}, replica, false)
-		if err != nil {
-			return errors.Wrapf(err, "failed to append vector %d to replica %d", id, replica)
-		}
-	}
-
-	return nil
-}
-
-func (s *SPFresh) Append(vector Vector, postingID uint64, reassigned bool) (bool, error) {
-	s.postingLocks.Lock(postingID)
-
-	// check if the posting still exists
-	if !s.SPTAG.Exists(postingID) {
-		// the vector might have been deleted concurrently,
-		// might happen if we are reassigning
-		if s.VersionMap.Get(vector.ID) == vector.Version {
-			err := s.enqueueReassign(s.ctx, postingID, vector)
-			s.postingLocks.Unlock(postingID)
-			if err != nil {
-				return false, err
-			}
-		}
-
-		return false, nil
-	}
-
-	// append the new vector to the existing posting
-	err := s.Store.Merge(s.ctx, postingID, vector)
-	if err != nil {
-		s.postingLocks.Unlock(postingID)
-		return false, err
-	}
-	// increment the size of the posting
-	s.PostingSizes.Inc(postingID, 1)
-
-	s.postingLocks.Unlock(postingID)
-
-	// ensure the posting size is within the configured limits
-	count := s.PostingSizes.Get(postingID)
-
-	// If the posting is too big, we need to split it.
-	// During an insert, we want to split asynchronously
-	// however during a reassign, we want to split immediately.
-	// Also, reassign operations may cause the posting to grow beyond the max size
-	// temporarily. To avoid triggering unnecessary splits, we add a fine-tuned threshold.
-	max := s.UserConfig.MaxPostingSize
-	if reassigned {
-		max += reassignThreshold
-	}
-	if count > max {
-		if reassigned {
-			err = s.doSplit(postingID)
-		} else {
-			err = s.enqueueSplit(s.ctx, postingID)
-		}
-		if err != nil {
-			return false, err
-		}
-	}
-
-	return true, nil
 }
 
 // Delete marks a vector as deleted in the version map.
