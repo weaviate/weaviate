@@ -34,13 +34,17 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	repl *additional.ReplicationProperties, tenant string,
 ) (*BatchDeleteResponse, error) {
 	class := "*"
-	aliasName := ""
+	var originalClassName string
 	if match != nil {
-		match.Class, aliasName = b.resolveAlias(match.Class)
+		originalClassName = match.Class
 		class = match.Class
+
+		// Keep original class name - schema layer will resolve aliases transparently
 	}
 
-	err := b.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsData(class, tenant)...)
+	// Use resolved class name for authorization
+	resolvedClass := b.resolveClassNameForRepo(class)
+	err := b.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsData(resolvedClass, tenant)...)
 	if err != nil {
 		return nil, err
 	}
@@ -50,11 +54,13 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
-	if aliasName != "" {
-		batchDeleteResponse, err := b.deleteObjects(ctx, principal, match, deletionTimeUnixMilli, dryRun, output, repl, tenant)
-		return b.batchDeleteWithAlias(batchDeleteResponse, aliasName), err
+	response, err := b.deleteObjects(ctx, principal, match, deletionTimeUnixMilli, dryRun, output, repl, tenant)
+	if err != nil {
+		return nil, err
 	}
-	return b.deleteObjects(ctx, principal, match, deletionTimeUnixMilli, dryRun, output, repl, tenant)
+
+	// Ensure response uses original user input
+	return b.restoreOriginalClassNameInBatchDelete(response, originalClassName), nil
 }
 
 // DeleteObjectsFromGRPCAfterAuth deletes objects in batch based on the match filter
@@ -65,8 +71,12 @@ func (b *BatchManager) DeleteObjectsFromGRPCAfterAuth(ctx context.Context, princ
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
+	// Create a copy of params with resolved class name for repository operations
+	repoParams := params
+	repoParams.ClassName = schema.ClassName(b.resolveClassNameForRepo(string(params.ClassName)))
+
 	deletionTime := time.UnixMilli(b.timeSource.Now())
-	return b.vectorRepo.BatchDeleteObjects(ctx, params, deletionTime, repl, tenant, 0)
+	return b.vectorRepo.BatchDeleteObjects(ctx, repoParams, deletionTime, repl, tenant, 0)
 }
 
 func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Principal,
@@ -87,7 +97,11 @@ func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Prin
 		deletionTime = time.UnixMilli(*deletionTimeUnixMilli)
 	}
 
-	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, deletionTime, repl, tenant, schemaVersion)
+	// Create a copy of params with resolved class name for repository operations
+	repoParams := *params
+	repoParams.ClassName = schema.ClassName(b.resolveClassNameForRepo(string(params.ClassName)))
+
+	result, err := b.vectorRepo.BatchDeleteObjects(ctx, repoParams, deletionTime, repl, tenant, schemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete objects: %w", err)
 	}
@@ -171,7 +185,7 @@ func (b *BatchManager) classGetterFunc(ctx context.Context, principal *models.Pr
 		if err := b.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Collections(name)...); err != nil {
 			return nil, err
 		}
-		class := b.schemaManager.ReadOnlyClass(name)
+		class := b.schemaManager.ReadOnlyClassResolvingAlias(name)
 		if class == nil {
 			return nil, fmt.Errorf("could not find class %s in schema", name)
 		}

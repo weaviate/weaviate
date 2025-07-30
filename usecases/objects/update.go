@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/versioned"
 
 	"github.com/go-openapi/strfmt"
@@ -34,17 +35,27 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	className := schema.UppercaseClassName(updates.Class)
-	className, aliasName := m.resolveAlias(className)
-	updates.Class = className
+	// Store original user input for response - use class from URL path or from object
+	originalClassName := class
+	if class == "" {
+		// If no class in URL path, use class from the object
+		originalClassName = updates.Class
+	}
+	originalClassName = schema.UppercaseClassName(originalClassName)
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
+	// Resolve alias for internal operations
+	resolvedClassName := m.resolveClassNameForRepo(originalClassName)
+	updates.Class = resolvedClassName
+
+	// Use resolved class name for authorization
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(resolvedClassName, updates.Tenant, updates.ID)); err != nil {
 		return nil, err
 	}
 
 	ctx = classcache.ContextWithClassCache(ctx)
 	// we don't reveal any info that the end users cannot get through the structure of the data anyway
-	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
+	// Schema layer will resolve alias transparently
+	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, originalClassName)
 	if err != nil {
 		return nil, err
 	}
@@ -57,28 +68,33 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 		return nil, fmt.Errorf("cannot process update object: %w", err)
 	}
 
-	if aliasName != "" {
-		obj, err := m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl, fetchedClasses)
-		return m.classNameToAlias(obj, aliasName), err
+	obj, err := m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl, fetchedClasses)
+	if err != nil {
+		return nil, err
 	}
-	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl, fetchedClasses)
+
+	// Ensure response uses original user input
+	return m.restoreOriginalClassName(obj, originalClassName), nil
 }
 
 func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	principal *models.Principal, className string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (*models.Object, error) {
-	var alias string
-	if cls := m.schemaManager.ResolveAlias(className); cls != "" {
-		alias = className
-		className = cls
-	}
-
 	if id != updates.ID {
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	obj, err := m.getObjectFromRepo(ctx, className, id, additional.Properties{}, repl, updates.Tenant)
+	// Get existing object using appropriate method based on how it was called
+	var obj *search.Result
+	var err error
+	if className == "" {
+		// Called without class in URL path - use ObjectByID (original behavior)
+		obj, err = m.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, additional.Properties{}, updates.Tenant)
+	} else {
+		// Called with class in URL path - use resolved class name
+		obj, err = m.vectorRepo.Object(ctx, updates.Class, id, search.SelectProperties{}, additional.Properties{}, repl, updates.Tenant)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -130,10 +146,6 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, vectors, multiVectors, repl, maxSchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
-	}
-
-	if alias != "" {
-		updates.Class = alias
 	}
 
 	return updates, nil

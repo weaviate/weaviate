@@ -69,13 +69,14 @@ func (q *QueryParams) inputs(m *Manager) (*QueryInput, error) {
 func (m *Manager) Query(ctx context.Context, principal *models.Principal, params *QueryParams,
 ) ([]*models.Object, *Error) {
 	class := "*"
-	aliasName := ""
+	var originalClassName string
 
 	if params != nil && params.Class != "" {
-		params.Class, aliasName = m.resolveAlias(params.Class)
+		originalClassName = params.Class
 		class = params.Class
 	}
 
+	// RBAC will resolve alias internally using its configured resolver
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsData(class)...); err != nil {
 		return nil, &Error{err.Error(), StatusForbidden, err}
 	}
@@ -103,6 +104,7 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 		return nil, &Error{err.Error(), StatusForbidden, err}
 	}
 
+	filteredQuery[0].Class = m.resolveClassNameForRepo(filteredQuery[0].Class)
 	res, rerr := m.vectorRepo.Query(ctx, filteredQuery[0])
 	if rerr != nil {
 		return nil, rerr
@@ -119,8 +121,12 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 		m.trackUsageList(res)
 	}
 
-	if aliasName != "" {
-		return m.classNamesToAliases(res.ObjectsWithVector(q.Additional.Vector), aliasName), nil
+	objects := res.ObjectsWithVector(q.Additional.Vector)
+
+	// Ensure responses use original user input
+	if originalClassName != "" {
+		objects = m.restoreOriginalClassNames(objects, originalClassName)
 	}
-	return res.ObjectsWithVector(q.Additional.Vector), nil
+
+	return objects, nil
 }

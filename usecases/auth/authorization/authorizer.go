@@ -17,6 +17,10 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+// AliasResolver is a function type that resolves an alias to its actual class name.
+// It returns the resolved class name if the alias exists, otherwise returns empty string.
+type AliasResolver func(alias string) string
+
 // Authorizer always makes a yes/no decision on a specific resource. Which
 // authorization technique is used in the background (e.g. RBAC, adminlist,
 // ...) is hidden through this interface

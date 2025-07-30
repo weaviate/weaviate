@@ -50,17 +50,25 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	if err := m.validateInputs(updates); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}
-	className, aliasName := m.resolveAlias(schema.UppercaseClassName(updates.Class))
-	updates.Class = className
-	cls, id := updates.Class, updates.ID
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
+
+	// Store original user input for response
+	originalClassName := schema.UppercaseClassName(updates.Class)
+
+	// Keep original class name - schema layer will resolve aliases transparently
+	updates.Class = originalClassName
+	cls, id := originalClassName, updates.ID
+
+	// Use resolved class name for authorization
+	authClassName := m.resolveClassNameForRepo(originalClassName)
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(authClassName, updates.Tenant, id)); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	// we don't reveal any info that the end users cannot get through the structure of the data anyway
-	fetchedClass, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
+	// Schema layer will resolve alias transparently
+	fetchedClass, err := m.schemaManager.GetCachedClassNoAuth(ctx, originalClassName)
 	if err != nil {
 		if errors.As(err, &authzerrs.Forbidden{}) {
 			return &Error{err.Error(), StatusForbidden, err}
@@ -77,7 +85,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{err.Error(), StatusInternalServerError, err}
 	}
 
-	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
+	obj, err := m.vectorRepo.Object(ctx, m.resolveClassNameForRepo(cls), id, nil, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		switch {
 		case errors.As(err, &ErrMultiTenancy{}):
@@ -120,9 +128,10 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		updates.Properties = map[string]interface{}{}
 	}
 
+	// Ensure response uses original user input
 	pathErr := m.patchObject(ctx, prevObj, updates, repl, propertiesToDelete, updates.Tenant, fetchedClass, maxSchemaVersion)
-	if aliasName != "" {
-		updates.Class = aliasName
+	if pathErr == nil {
+		m.restoreOriginalClassName(updates, originalClassName)
 	}
 	return pathErr
 }
@@ -133,14 +142,17 @@ func (m *Manager) patchObject(ctx context.Context, prevObj, updates *models.Obje
 ) *Error {
 	cls, id := updates.Class, updates.ID
 	class := fetchedClass[cls].Class
-	primitive, refs := m.splitPrimitiveAndRefs(updates.Properties.(map[string]interface{}), cls, id)
+
+	// Resolve class name for repository operations
+	resolvedClassName := m.resolveClassNameForRepo(cls)
+	primitive, refs := m.splitPrimitiveAndRefs(updates.Properties.(map[string]interface{}), resolvedClassName, id)
 	objWithVec, err := m.mergeObjectSchemaAndVectorize(ctx, prevObj.Properties,
 		primitive, prevObj.Vector, updates.Vector, prevObj.Vectors, updates.Vectors, updates.ID, class)
 	if err != nil {
 		return &Error{"merge and vectorize", StatusInternalServerError, err}
 	}
 	mergeDoc := MergeDocument{
-		Class:              cls,
+		Class:              resolvedClassName,
 		ID:                 id,
 		PrimitiveSchema:    primitive,
 		References:         refs,

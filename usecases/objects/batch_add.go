@@ -36,41 +36,48 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 ) (BatchObjects, error) {
 	ctx = classcache.ContextWithClassCache(ctx)
 
-	classAlias := make(map[string]string)
+	// Store original user inputs for response
+	originalClassNames := make(map[int]string)
 	classesShards := make(map[string][]string)
-	for _, obj := range objects {
-		obj.Class = schema.UppercaseClassName(obj.Class)
-		if cls, aliasName := b.resolveAlias(obj.Class); aliasName != "" {
-			classAlias[cls] = aliasName
-			obj.Class = cls
-		}
-		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
+	for i, obj := range objects {
+		originalClassName := schema.UppercaseClassName(obj.Class)
+		originalClassNames[i] = originalClassName
+
+		// Keep original class name - schema layer will resolve aliases transparently
+		obj.Class = originalClassName
+		classesShards[originalClassName] = append(classesShards[originalClassName], obj.Tenant)
 	}
 	knownClasses := map[string]versioned.Class{}
 
 	// whole request fails if permissions for any collection are not present
 	for className, shards := range classesShards {
 		// we don't leak any info that someone who inserts data does not have anyway
+		// Schema layer will resolve alias transparently
 		vClass, err := b.schemaManager.GetCachedClassNoAuth(ctx, className)
 		if err != nil {
 			return nil, err
 		}
-		knownClasses[className] = vClass[className]
+		// Store class info using resolved class name for schema operations
+		resolvedClassName := b.resolveClassNameForRepo(className)
+		knownClasses[resolvedClassName] = vClass[className]
 
-		if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(className, shards...)...); err != nil {
+		// Use resolved class name for authorization
+		if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(resolvedClassName, shards...)...); err != nil {
 			return nil, err
 		}
 
-		if err := b.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, shards...)...); err != nil {
+		if err := b.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(resolvedClassName, shards...)...); err != nil {
 			return nil, err
 		}
 	}
 
-	if len(classAlias) > 0 {
-		batchObjects, err := b.addObjects(ctx, principal, objects, repl, knownClasses)
-		return b.batchInsertWithAliases(batchObjects, classAlias), err
+	batchObjects, err := b.addObjects(ctx, principal, objects, repl, knownClasses)
+	if err != nil {
+		return nil, err
 	}
-	return b.addObjects(ctx, principal, objects, repl, knownClasses)
+
+	// Ensure responses use original user inputs
+	return b.restoreOriginalClassNamesInBatch(batchObjects, originalClassNames), nil
 }
 
 // AddObjectsGRPCAfterAuth bypasses the authentication in the REST endpoint as GRPC has its own checking
@@ -96,8 +103,16 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	}
 
 	var maxSchemaVersion uint64
-	batchObjects, maxSchemaVersion := b.validateAndGetVector(ctx, principal, objects, repl, fetchedClasses)
-	schemaVersion, tenantCount, err := b.autoSchemaManager.autoTenants(ctx, principal, objects, fetchedClasses)
+	// Create objects with resolved class names for schema operations
+	objectsForSchema := make([]*models.Object, len(objects))
+	for i, obj := range objects {
+		objCopy := *obj
+		objCopy.Class = b.resolveClassNameForRepo(obj.Class)
+		objectsForSchema[i] = &objCopy
+	}
+
+	batchObjects, maxSchemaVersion := b.validateAndGetVector(ctx, principal, objectsForSchema, repl, fetchedClasses)
+	schemaVersion, tenantCount, err := b.autoSchemaManager.autoTenants(ctx, principal, objectsForSchema, fetchedClasses)
 	if err != nil {
 		return nil, fmt.Errorf("auto create tenants: %w", err)
 	}
@@ -118,7 +133,20 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	if err := b.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
 	}
-	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl, maxSchemaVersion); err != nil {
+
+	// Create a copy of batch objects with resolved class names for repository operations
+	repoObjects := make(BatchObjects, len(batchObjects))
+	copy(repoObjects, batchObjects)
+	for i := range repoObjects {
+		if repoObjects[i].Object != nil {
+			// Create a copy of the object to avoid modifying the original
+			objCopy := *repoObjects[i].Object
+			objCopy.Class = b.resolveClassNameForRepo(objCopy.Class)
+			repoObjects[i].Object = &objCopy
+		}
+	}
+
+	if res, err = b.vectorRepo.BatchPutObjects(ctx, repoObjects, repl, maxSchemaVersion); err != nil {
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 

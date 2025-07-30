@@ -30,11 +30,14 @@ import (
 func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principal,
 	obj *models.Object, repl *additional.ReplicationProperties,
 ) error {
-	className := schema.UppercaseClassName(obj.Class)
-	className, _ = m.resolveAlias(className)
-	obj.Class = className
+	originalClassName := schema.UppercaseClassName(obj.Class)
 
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID))
+	// Resolve alias for internal operations
+	resolvedClassName := m.resolveClassNameForRepo(originalClassName)
+	obj.Class = resolvedClassName
+
+	// RBAC will resolve alias internally using its configured resolver
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(originalClassName, obj.Tenant, obj.ID))
 	if err != nil {
 		return err
 	}
@@ -42,7 +45,8 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	// we don't reveal any info that the end users cannot get through the structure of the data anyway
-	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
+	// Schema layer will resolve alias transparently
+	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, originalClassName)
 	if err != nil {
 		return err
 	}

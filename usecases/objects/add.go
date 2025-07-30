@@ -38,11 +38,13 @@ import (
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	className := schema.UppercaseClassName(object.Class)
-	className, aliasName := m.resolveAlias(className)
-	object.Class = className
+	// Store original user input for response
+	originalClassName := schema.UppercaseClassName(object.Class)
+	object.Class = originalClassName
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
+	// Use resolved class name for authorization
+	authClassName := m.resolveClassNameForRepo(originalClassName)
+	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(authClassName, object.Tenant)...); err != nil {
 		return nil, err
 	}
 
@@ -51,7 +53,8 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 
 	ctx = classcache.ContextWithClassCache(ctx)
 	// we don't reveal any info that the end users cannot get through the structure of the data anyway
-	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
+	// Schema layer will resolve alias transparently
+	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, originalClassName)
 	if err != nil {
 		return nil, err
 	}
@@ -66,10 +69,8 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, err
 	}
 
-	if aliasName != "" {
-		return m.classNameToAlias(obj, aliasName), nil
-	}
-	return obj, nil
+	// Ensure response uses original user input
+	return m.restoreOriginalClassName(obj, originalClassName), nil
 }
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,

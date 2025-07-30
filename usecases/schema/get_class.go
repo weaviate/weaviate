@@ -43,18 +43,44 @@ func NewClassGetter(
 }
 
 func (cg *ClassGetter) getClasses(names []string) (map[string]versioned.Class, error) {
+	// Resolve aliases to actual class names but maintain mapping
+	resolvedNamesMap := make(map[string]string) // resolvedName -> originalName
+	actualNames := make([]string, 0, len(names))
+	for _, name := range names {
+		resolvedName := cg.schemaReader.ResolveAlias(name)
+		if resolvedName == "" {
+			resolvedName = name
+		}
+		resolvedNamesMap[resolvedName] = name
+		actualNames = append(actualNames, resolvedName)
+	}
+
+	// Get classes using resolved names
+	var resolvedClasses map[string]versioned.Class
+	var err error
 	switch configRuntime.CollectionRetrievalStrategy(cg.collectionRetrievalStrategy.Get()) {
 	case configRuntime.LeaderOnly:
-		return cg.getClassesLeaderOnly(names)
+		resolvedClasses, err = cg.getClassesLeaderOnly(actualNames)
 	case configRuntime.LeaderOnMismatch:
-		return cg.getClassesLeaderOnMismatch(names)
+		resolvedClasses, err = cg.getClassesLeaderOnMismatch(actualNames)
 	case configRuntime.LocalOnly:
-		return cg.getClassesLocalOnly(names)
-
-		// This can happen if the feature flag gets configured with an invalid strategy
+		resolvedClasses, err = cg.getClassesLocalOnly(actualNames)
 	default:
-		return cg.getClassesLeaderOnly(names)
+		resolvedClasses, err = cg.getClassesLeaderOnly(actualNames)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Remap results to use original requested names as keys
+	result := make(map[string]versioned.Class, len(resolvedClasses))
+	for resolvedName, vclass := range resolvedClasses {
+		originalName := resolvedNamesMap[resolvedName]
+		result[originalName] = vclass
+	}
+
+	return result, nil
 }
 
 func (cg *ClassGetter) getClassesLeaderOnly(names []string) (map[string]versioned.Class, error) {

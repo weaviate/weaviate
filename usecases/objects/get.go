@@ -33,7 +33,15 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, additional additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*models.Object, error) {
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant, id))
+	// Store original class name for response (could be alias)
+	originalClassName := class
+
+	// Use resolved class name for authorization when class is provided
+	authClassName := originalClassName
+	if originalClassName != "" {
+		authClassName = m.resolveClassNameForRepo(originalClassName)
+	}
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(authClassName, tenant, id))
 	if err != nil {
 		return nil, err
 	}
@@ -41,14 +49,11 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
 
-	res, err := m.getObjectFromRepo(ctx, class, id, additional, replProps, tenant)
+	// Resolve alias for repository operations
+	resolvedClassName := m.resolveClassNameForRepo(class)
+	res, err := m.getObjectFromRepo(ctx, resolvedClassName, id, additional, replProps, tenant)
 	if err != nil {
 		return nil, err
-	}
-
-	var alias string
-	if res.ClassName != class {
-		alias = class
 	}
 
 	if additional.Vector {
@@ -56,8 +61,10 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	}
 
 	obj := res.ObjectWithVector(additional.Vector)
-	if alias != "" {
-		obj.Class = alias
+	// Only override class name if original input was provided (for alias support)
+	// If empty, use the class name from repository result
+	if originalClassName != "" {
+		obj.Class = originalClassName
 	}
 	return obj, nil
 }
@@ -127,9 +134,7 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 	adds additional.Properties, repl *additional.ReplicationProperties, tenant string,
 ) (res *search.Result, err error) {
 	if class != "" {
-		if cls := m.schemaManager.ResolveAlias(class); cls != "" {
-			class = cls
-		}
+		// class is expected to be already resolved by the caller
 		res, err = m.vectorRepo.Object(ctx, class, id, search.SelectProperties{}, adds, repl, tenant)
 	} else {
 		res, err = m.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, adds, tenant)

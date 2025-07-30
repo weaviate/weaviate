@@ -18,11 +18,9 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/objects/alias"
 )
 
 // BatchManager manages kind changes in batch at a use-case level , i.e.
@@ -37,6 +35,15 @@ type BatchManager struct {
 	modulesProvider   ModulesProvider
 	autoSchemaManager *AutoSchemaManager
 	metrics           *Metrics
+}
+
+// resolveClassNameForRepo resolves alias to actual class name for repository operations
+// while preserving the original name for response mapping
+func (b *BatchManager) resolveClassNameForRepo(classOrAlias string) string {
+	if resolved := b.schemaManager.ResolveAlias(classOrAlias); resolved != "" {
+		return resolved
+	}
+	return classOrAlias
 }
 
 type BatchVectorRepo interface {
@@ -72,26 +79,24 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 	}
 }
 
-// Alias support
-func (m *BatchManager) resolveAlias(class string) (className, aliasName string) {
-	return alias.ResolveAlias(m.schemaManager, class)
-}
+// Response helpers for preserving original user input in responses
 
-func (m *BatchManager) batchDeleteWithAlias(batchDeleteResponse *BatchDeleteResponse, aliasName string) *BatchDeleteResponse {
-	if batchDeleteResponse != nil {
-		if batchDeleteResponse.Match != nil {
-			batchDeleteResponse.Match.Class = aliasName
-		}
-		batchDeleteResponse.Params.ClassName = schema.ClassName(aliasName)
-	}
-	return batchDeleteResponse
-}
-
-func (m *BatchManager) batchInsertWithAliases(batchObjects BatchObjects, classAlias map[string]string) BatchObjects {
-	if len(classAlias) > 0 {
-		for i := range batchObjects {
-			batchObjects[i].Object = alias.ClassNameToAlias(batchObjects[i].Object, classAlias[batchObjects[i].Object.Class])
+// restoreOriginalClassNamesInBatch sets the original class names back on batch object responses
+func (b *BatchManager) restoreOriginalClassNamesInBatch(batchObjects BatchObjects, originalClassNames map[int]string) BatchObjects {
+	for i := range batchObjects {
+		if batchObjects[i].Object != nil {
+			if originalName, exists := originalClassNames[batchObjects[i].OriginalIndex]; exists {
+				batchObjects[i].Object.Class = originalName
+			}
 		}
 	}
 	return batchObjects
+}
+
+// restoreOriginalClassNameInBatchDelete sets the original class name back on batch delete response
+func (b *BatchManager) restoreOriginalClassNameInBatchDelete(response *BatchDeleteResponse, originalClassName string) *BatchDeleteResponse {
+	if response != nil && response.Match != nil && originalClassName != "" {
+		response.Match.Class = originalClassName
+	}
+	return response
 }
