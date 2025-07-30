@@ -17,7 +17,11 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *SPFresh) EnqueueMerge(ctx context.Context, postingID uint64) error {
+type mergeOperation struct {
+	PostingID uint64
+}
+
+func (s *SPFresh) enqueueMerge(ctx context.Context, postingID uint64) error {
 	if s.ctx == nil {
 		return nil // Not started yet
 	}
@@ -31,7 +35,7 @@ func (s *SPFresh) EnqueueMerge(ctx context.Context, postingID uint64) error {
 
 	// Enqueue the operation to the channel
 	select {
-	case s.mergeCh <- MergeOperation{PostingID: postingID}:
+	case s.mergeCh <- mergeOperation{PostingID: postingID}:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -57,7 +61,7 @@ func (s *SPFresh) mergeWorker() {
 	}
 }
 
-func (s *SPFresh) doMerge(op MergeOperation) error {
+func (s *SPFresh) doMerge(op mergeOperation) error {
 	defer s.mergeList.done(op.PostingID)
 
 	var markedAsDone bool

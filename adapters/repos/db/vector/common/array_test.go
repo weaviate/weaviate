@@ -247,6 +247,8 @@ func BenchmarkBufferMonotonic(b *testing.B) {
 func TestFlatBufferConcurrentSetAndGet(t *testing.T) {
 	buf := NewFlatBuffer[int](1000)
 
+	locks := NewShardedRWLocks(256)
+
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
 		wg.Add(2)
@@ -254,14 +256,18 @@ func TestFlatBufferConcurrentSetAndGet(t *testing.T) {
 			defer wg.Done()
 
 			for j := 0; j < 1000; j++ {
+				locks.Lock(uint64(j))
 				buf.Set(uint64(j), j)
+				locks.Unlock(uint64(j))
 			}
 		}(i)
 		go func(i int) {
 			defer wg.Done()
 
 			for j := 0; j < 1000; j++ {
+				locks.RLock(uint64(j))
 				_ = buf.Get(uint64(j))
+				locks.RUnlock(uint64(j))
 			}
 		}(i)
 	}
@@ -270,6 +276,7 @@ func TestFlatBufferConcurrentSetAndGet(t *testing.T) {
 
 func TestPagedBufferConcurrentSetAndGet(t *testing.T) {
 	buf := NewPagedArray[int](20, 512)
+	locks := NewShardedRWLocks(10)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
@@ -278,15 +285,19 @@ func TestPagedBufferConcurrentSetAndGet(t *testing.T) {
 			defer wg.Done()
 
 			for j := 0; j < 1000; j++ {
+				locks.Lock(uint64(j))
 				buf.AllocPageFor(uint64(j))
 				buf.Set(uint64(j), j)
+				locks.Unlock(uint64(j))
 			}
 		}(i)
 		go func(i int) {
 			defer wg.Done()
 
 			for j := 0; j < 1000; j++ {
+				locks.RLock(uint64(j))
 				_ = buf.Get(uint64(j))
+				locks.RUnlock(uint64(j))
 			}
 		}(i)
 	}

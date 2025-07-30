@@ -17,7 +17,11 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *SPFresh) EnqueueSplit(ctx context.Context, postingID uint64) error {
+type splitOperation struct {
+	PostingID uint64
+}
+
+func (s *SPFresh) enqueueSplit(ctx context.Context, postingID uint64) error {
 	if s.ctx == nil {
 		return nil // Not started yet
 	}
@@ -31,7 +35,7 @@ func (s *SPFresh) EnqueueSplit(ctx context.Context, postingID uint64) error {
 
 	// Enqueue the operation to the channel
 	select {
-	case s.splitCh <- SplitOperation{PostingID: postingID}:
+	case s.splitCh <- splitOperation{PostingID: postingID}:
 	case <-ctx.Done():
 		return ctx.Err()
 	}

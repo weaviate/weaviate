@@ -62,7 +62,6 @@ func (l *LSMStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting
 	for _, id := range postingIDs {
 		posting, err := l.Get(ctx, id)
 		if err != nil {
-
 			return nil, errors.Wrapf(err, "failed to get posting %d", id)
 		}
 		postings = append(postings, posting)

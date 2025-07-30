@@ -17,6 +17,11 @@ import (
 	"github.com/pkg/errors"
 )
 
+type reassignOperation struct {
+	PostingID uint64
+	Vector    Vector
+}
+
 func (s *SPFresh) enqueueReassign(ctx context.Context, postingID uint64, vector Vector) error {
 	if s.ctx == nil {
 		return nil // Not started yet
@@ -24,7 +29,7 @@ func (s *SPFresh) enqueueReassign(ctx context.Context, postingID uint64, vector 
 
 	// Enqueue the operation to the channel
 	select {
-	case s.reassignCh <- ReassignOperation{PostingID: postingID, Vector: vector}:
+	case s.reassignCh <- reassignOperation{PostingID: postingID, Vector: vector}:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -50,7 +55,7 @@ func (s *SPFresh) reassignWorker() {
 	}
 }
 
-func (s *SPFresh) doReassign(op ReassignOperation) error {
+func (s *SPFresh) doReassign(op reassignOperation) error {
 	// check if the vector is still valid
 	version := s.VersionMap.Get(op.Vector.ID)
 	if version.Deleted() || version.Version() > op.Vector.Version.Version() {

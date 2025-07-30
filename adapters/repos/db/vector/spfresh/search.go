@@ -85,7 +85,7 @@ func (s *SPFresh) Search(ctx context.Context, queryVector []byte, k int) ([]uint
 		// if the posting size is lower than the configured minimum,
 		// enqueue a merge operation
 		if postingSize < int(s.UserConfig.MinPostingSize) {
-			err = s.EnqueueMerge(ctx, selected[i])
+			err = s.enqueueMerge(ctx, selected[i])
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selected[i])
 			}
