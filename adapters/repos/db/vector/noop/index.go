@@ -126,9 +126,6 @@ func (i *Index) ValidateMultiBeforeInsert(vector [][]float32) error {
 func (i *Index) PostStartup() {
 }
 
-func (i *Index) Dump(labels ...string) {
-}
-
 func (i *Index) ContainsDoc(docID uint64) bool {
 	return false
 }

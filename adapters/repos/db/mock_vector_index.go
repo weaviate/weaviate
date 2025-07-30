@@ -21,8 +21,6 @@ import (
 
 	context "context"
 
-	distancer "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-
 	helpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 
 	mock "github.com/stretchr/testify/mock"
@@ -534,77 +532,6 @@ func (_c *MockVectorIndex_DeleteMulti_Call) RunAndReturn(run func(...uint64) err
 	return _c
 }
 
-// MockVectorIndex_DistanceBetweenVectors_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DistanceBetweenVectors'
-type MockVectorIndex_DistanceBetweenVectors_Call struct {
-	*mock.Call
-}
-
-// DistanceBetweenVectors is a helper method to define mock.On call
-//   - x []float32
-//   - y []float32
-func (_e *MockVectorIndex_Expecter) DistanceBetweenVectors(x interface{}, y interface{}) *MockVectorIndex_DistanceBetweenVectors_Call {
-	return &MockVectorIndex_DistanceBetweenVectors_Call{Call: _e.mock.On("DistanceBetweenVectors", x, y)}
-}
-
-func (_c *MockVectorIndex_DistanceBetweenVectors_Call) Run(run func(x []float32, y []float32)) *MockVectorIndex_DistanceBetweenVectors_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].([]float32), args[1].([]float32))
-	})
-	return _c
-}
-
-func (_c *MockVectorIndex_DistanceBetweenVectors_Call) Return(_a0 float32, _a1 error) *MockVectorIndex_DistanceBetweenVectors_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockVectorIndex_DistanceBetweenVectors_Call) RunAndReturn(run func([]float32, []float32) (float32, error)) *MockVectorIndex_DistanceBetweenVectors_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// DistancerProvider provides a mock function with no fields
-func (_m *MockVectorIndex) DistancerProvider() distancer.Provider {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for DistancerProvider")
-	}
-
-	var r0 distancer.Provider
-	if rf, ok := ret.Get(0).(func() distancer.Provider); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(distancer.Provider)
-		}
-	}
-
-	return r0
-}
-
-// MockVectorIndex_DistancerProvider_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DistancerProvider'
-type MockVectorIndex_DistancerProvider_Call struct {
-	*mock.Call
-}
-
-func (_c *MockVectorIndex_DistancerProvider_Call) Run(run func()) *MockVectorIndex_DistancerProvider_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockVectorIndex_DistancerProvider_Call) Return(_a0 distancer.Provider) *MockVectorIndex_DistancerProvider_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockVectorIndex_DistancerProvider_Call) RunAndReturn(run func() distancer.Provider) *MockVectorIndex_DistancerProvider_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // Drop provides a mock function with given fields: ctx
 func (_m *MockVectorIndex) Drop(ctx context.Context) error {
 	ret := _m.Called(ctx)
@@ -651,52 +578,6 @@ func (_c *MockVectorIndex_Drop_Call) RunAndReturn(run func(context.Context) erro
 	return _c
 }
 
-// Dump provides a mock function with given fields: labels
-func (_m *MockVectorIndex) Dump(labels ...string) {
-	_va := make([]interface{}, len(labels))
-	for _i := range labels {
-		_va[_i] = labels[_i]
-	}
-	var _ca []interface{}
-	_ca = append(_ca, _va...)
-	_m.Called(_ca...)
-}
-
-// MockVectorIndex_Dump_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Dump'
-type MockVectorIndex_Dump_Call struct {
-	*mock.Call
-}
-
-// Dump is a helper method to define mock.On call
-//   - labels ...string
-func (_e *MockVectorIndex_Expecter) Dump(labels ...interface{}) *MockVectorIndex_Dump_Call {
-	return &MockVectorIndex_Dump_Call{Call: _e.mock.On("Dump",
-		append([]interface{}{}, labels...)...)}
-}
-
-func (_c *MockVectorIndex_Dump_Call) Run(run func(labels ...string)) *MockVectorIndex_Dump_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		variadicArgs := make([]string, len(args)-0)
-		for i, a := range args[0:] {
-			if a != nil {
-				variadicArgs[i] = a.(string)
-			}
-		}
-		run(variadicArgs...)
-	})
-	return _c
-}
-
-func (_c *MockVectorIndex_Dump_Call) Return() *MockVectorIndex_Dump_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockVectorIndex_Dump_Call) RunAndReturn(run func(...string)) *MockVectorIndex_Dump_Call {
-	_c.Run(run)
-	return _c
-}
-
 // Flush provides a mock function with no fields
 func (_m *MockVectorIndex) Flush() error {
 	ret := _m.Called()
@@ -738,34 +619,6 @@ func (_c *MockVectorIndex_Flush_Call) Return(_a0 error) *MockVectorIndex_Flush_C
 }
 
 func (_c *MockVectorIndex_Flush_Call) RunAndReturn(run func() error) *MockVectorIndex_Flush_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// MockVectorIndex_GetKeys_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetKeys'
-type MockVectorIndex_GetKeys_Call struct {
-	*mock.Call
-}
-
-// GetKeys is a helper method to define mock.On call
-//   - id uint64
-func (_e *MockVectorIndex_Expecter) GetKeys(id interface{}) *MockVectorIndex_GetKeys_Call {
-	return &MockVectorIndex_GetKeys_Call{Call: _e.mock.On("GetKeys", id)}
-}
-
-func (_c *MockVectorIndex_GetKeys_Call) Run(run func(id uint64)) *MockVectorIndex_GetKeys_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(uint64))
-	})
-	return _c
-}
-
-func (_c *MockVectorIndex_GetKeys_Call) Return(_a0 uint64, _a1 uint64, _a2 error) *MockVectorIndex_GetKeys_Call {
-	_c.Call.Return(_a0, _a1, _a2)
-	return _c
-}
-
-func (_c *MockVectorIndex_GetKeys_Call) RunAndReturn(run func(uint64) (uint64, uint64, error)) *MockVectorIndex_GetKeys_Call {
 	_c.Call.Return(run)
 	return _c
 }

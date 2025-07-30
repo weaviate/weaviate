@@ -64,7 +64,6 @@ type Index interface {
 
 type VectorIndex interface {
 	MultiVectorIndex
-	Dump(labels ...string)
 	Add(ctx context.Context, id uint64, vector []float32) error
 	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
 	Delete(id ...uint64) error
