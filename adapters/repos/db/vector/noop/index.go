@@ -20,7 +20,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswconf "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -95,10 +94,6 @@ func (i *Index) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callbac
 	}
 }
 
-func (i *Index) GetKeys(id uint64) (uint64, uint64, error) {
-	return 0, 0, errors.Errorf("cannot get keys from a class not vector-indexed")
-}
-
 func (i *Index) Drop(context.Context) error {
 	// silently ignore
 	return nil
@@ -131,22 +126,11 @@ func (i *Index) ValidateMultiBeforeInsert(vector [][]float32) error {
 func (i *Index) PostStartup() {
 }
 
-func (i *Index) Dump(labels ...string) {
-}
-
-func (i *Index) DistanceBetweenVectors(x, y []float32) (float32, error) {
-	return 0, nil
-}
-
 func (i *Index) ContainsDoc(docID uint64) bool {
 	return false
 }
 
 func (i *Index) Iterate(fn func(id uint64) bool) {}
-
-func (i *Index) DistancerProvider() distancer.Provider {
-	return nil
-}
 
 func (i *Index) ShouldCompress() (bool, int) {
 	return false, 0
