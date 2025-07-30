@@ -47,6 +47,7 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 }
 
 func (h *Handler) GetAlias(ctx context.Context, principal *models.Principal, alias string) ([]*models.Alias, error) {
+	alias = schema.UppercaseClassName(alias)
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.Aliases("", alias)...); err != nil {
 		return nil, err
 	}
