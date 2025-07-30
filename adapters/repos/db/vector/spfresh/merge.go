@@ -77,7 +77,7 @@ func (s *SPFresh) doMerge(op MergeOperation) error {
 
 	p, err := s.Store.Get(s.ctx, op.PostingID)
 	if err != nil {
-		if err == ErrPostingNotFound {
+		if errors.Is(err, ErrPostingNotFound) {
 			s.Logger.WithField("postingID", op.PostingID).
 				Debug("Posting not found, skipping merge operation")
 			return nil

@@ -70,7 +70,7 @@ func (s *SPFresh) doSplit(postingID uint64) error {
 
 	p, err := s.Store.Get(s.ctx, postingID)
 	if err != nil {
-		if err == ErrPostingNotFound {
+		if errors.Is(err, ErrPostingNotFound) {
 			s.Logger.WithField("postingID", postingID).
 				Debug("Posting not found, skipping split operation")
 			return nil

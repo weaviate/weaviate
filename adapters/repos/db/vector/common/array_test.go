@@ -27,6 +27,7 @@ func TestPagedArray(t *testing.T) {
 		t.Helper()
 
 		for i := 0; i < n; i++ {
+			arr.AllocPageFor(uint64(i))
 			arr.Set(uint64(i), i)
 		}
 	}
@@ -277,6 +278,7 @@ func TestPagedBufferConcurrentSetAndGet(t *testing.T) {
 			defer wg.Done()
 
 			for j := 0; j < 1000; j++ {
+				buf.AllocPageFor(uint64(j))
 				buf.Set(uint64(j), j)
 			}
 		}(i)
