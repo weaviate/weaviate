@@ -563,7 +563,6 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 	}
 }
 
-
 func intToUUID(i int) strfmt.UUID {
 	return strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 }

@@ -344,7 +344,6 @@ func (o *nodeWideMetricsObserver) observeDimensionMetrics() {
 		interval := config.DefaultTrackVectorDimensionsInterval
 		if o.db.config.TrackVectorDimensionsInterval > 0 { // duration must be > 0, or time.Timer will panic
 			interval = o.db.config.TrackVectorDimensionsInterval
-
 		}
 
 		// This is a low-priority background process, which is not time-sensitive.
