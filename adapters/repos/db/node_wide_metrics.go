@@ -388,6 +388,8 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 				return nil
 			}
 
+			// TODO(dyma): getTotalDimensionMetrics should be an interface method,
+			// then we wouldn't need the type-assertion above.
 			dim := shard.getTotalDimensionMetrics(ctx)
 
 			// Aggregate metrics instead of reporting them per-shard if grouping is enabled.
