@@ -92,40 +92,26 @@ func (o *nodeWideMetricsObserver) observeShards() {
 			case <-t10.C:
 				o.observeActivity()
 			case <-t30.C:
-				o.observeIfShardsReady()
+				o.observeObjectCount()
 			}
 		}
 	}, o.db.logger)
 }
 
-// Call observeUnlocked iff all shards in the local indices are loaded.
-func (o *nodeWideMetricsObserver) observeIfShardsReady() {
+// Collect and publish aggregated object_count metric iff all indices report allShardsReady=true.
+func (o *nodeWideMetricsObserver) observeObjectCount() {
 	o.db.indexLock.RLock()
 	defer o.db.indexLock.RUnlock()
 
-	allShardsReady := true
-
 	for _, index := range o.db.indices {
 		if !index.allShardsReady.Load() {
-			allShardsReady = false
-			break
+			o.db.logger.WithFields(logrus.Fields{
+				"action": "skip_observe_node_wide_metrics",
+			}).Debugf("skip node-wide metrics, not all shards ready")
+			return
 		}
 	}
 
-	if !allShardsReady {
-		o.db.logger.WithFields(logrus.Fields{
-			"action": "skip_observe_node_wide_metrics",
-		}).Debugf("skip node-wide metrics, not all shards ready")
-		return
-	}
-
-	o.observeUnlocked()
-}
-
-// Collect object_count metric for every shard.
-// Assumes that all shards are loaded and that
-// the caller already holds a db.indexLock.Rlock().
-func (o *nodeWideMetricsObserver) observeUnlocked() {
 	start := time.Now()
 
 	totalObjectCount := int64(0)
@@ -376,7 +362,7 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 	indices := make(map[string]*Index, len(o.db.indices))
 	maps.Copy(indices, o.db.indices)
 	o.db.indexLock.RUnlock()
-	
+
 	var total DimensionMetrics
 	for _, index := range indices {
 		index.closeLock.RLock()
