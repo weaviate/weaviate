@@ -289,3 +289,266 @@ func repeatString(s string, n int) string {
 	}
 	return sb.String()
 }
+
+func TestSearcher_ResolveDocIds(t *testing.T) {
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	docIdSet1 := []uint64{7, 8, 9, 10, 11}
+	docIdSet2 := []uint64{1, 3, 5, 7, 9, 11}
+	docIdSet3 := []uint64{1, 3, 5, 7, 9}
+
+	fakeInvertedIndex := []struct {
+		val string
+		ids []uint64
+	}{
+		{val: "set1_1", ids: docIdSet1},
+		{val: "set1_2", ids: docIdSet1},
+		{val: "set1_3", ids: docIdSet1},
+		{val: "set2", ids: docIdSet2},
+		{val: "set3", ids: docIdSet3},
+	}
+
+	var searcher *Searcher
+	propName := "inverted-text-roaringset"
+
+	t.Run("import data", func(tt *testing.T) {
+		store, err := lsmkv.New(dirName, dirName, logger, nil,
+			cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop())
+		require.NoError(t, err)
+		t.Cleanup(func() { store.Shutdown(context.Background()) }) // cleanup in outer test
+
+		maxDocID := uint64(20)
+		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(maxDocID))
+		searcher = NewSearcher(logger, store, createSchema().GetClass, nil, nil,
+			fakeStopwordDetector{}, 2, func() bool { return false }, "",
+			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+
+		bucketName := helpers.BucketFromPropNameLSM(propName)
+		require.NoError(tt, store.CreateOrLoadBucket(context.Background(), bucketName,
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+			lsmkv.WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+		))
+		bucket := store.Bucket(bucketName)
+
+		for _, entry := range fakeInvertedIndex {
+			require.NoError(tt, bucket.RoaringSetAddList([]byte(entry.val), entry.ids))
+		}
+		require.Nil(tt, bucket.FlushAndSwitch())
+	})
+
+	equalOperand := func(val string) filters.Clause {
+		return filters.Clause{
+			Operator: filters.OperatorEqual,
+			On:       &filters.Path{Class: className, Property: schema.PropertyName(propName)},
+			Value:    &filters.Value{Value: val, Type: schema.DataTypeText},
+		}
+	}
+	testCases := []struct {
+		name        string
+		filter      *filters.LocalFilter
+		expectedIds []uint64
+	}{
+		{
+			name: "AND, different sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						equalOperand("set1_1"),
+						equalOperand("set2"),
+						equalOperand("set3"),
+					},
+				},
+			},
+			expectedIds: []uint64{7, 9},
+		},
+		{
+			name: "OR, different sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{
+						equalOperand("set1_1"),
+						equalOperand("set2"),
+						equalOperand("set3"),
+					},
+				},
+			},
+			expectedIds: []uint64{1, 3, 5, 7, 8, 9, 10, 11},
+		},
+		{
+			name: "AND, same sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						equalOperand("set1_1"),
+						equalOperand("set1_2"),
+						equalOperand("set1_3"),
+					},
+				},
+			},
+			expectedIds: docIdSet1,
+		},
+		{
+			name: "OR, same sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						equalOperand("set1_1"),
+						equalOperand("set1_2"),
+						equalOperand("set1_3"),
+					},
+				},
+			},
+			expectedIds: docIdSet1,
+		},
+		{
+			name: "AND, single child lvl 1",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						equalOperand("set2"),
+					},
+				},
+			},
+			expectedIds: docIdSet2,
+		},
+		{
+			name: "OR, single child lvl 1",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{
+						equalOperand("set2"),
+					},
+				},
+			},
+			expectedIds: docIdSet2,
+		},
+		{
+			name: "AND/OR, single child lvl 2",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorOr,
+							Operands: []filters.Clause{
+								equalOperand("set3"),
+							},
+						},
+					},
+				},
+			},
+			expectedIds: docIdSet3,
+		},
+		{
+			name: "OR/AND, single child lvl 2",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorAnd,
+							Operands: []filters.Clause{
+								equalOperand("set3"),
+							},
+						},
+					},
+				},
+			},
+			expectedIds: docIdSet3,
+		},
+		{
+			name: "AND, single children, different sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorAnd,
+							Operands: []filters.Clause{
+								equalOperand("set1_1"),
+								equalOperand("set2"),
+								equalOperand("set3"),
+							},
+						},
+					},
+				},
+			},
+			expectedIds: []uint64{7, 9},
+		},
+		{
+			name: "OR, single children, different sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorOr,
+							Operands: []filters.Clause{
+								equalOperand("set1_1"),
+								equalOperand("set2"),
+								equalOperand("set3"),
+							},
+						},
+					},
+				},
+			},
+			expectedIds: []uint64{1, 3, 5, 7, 8, 9, 10, 11},
+		},
+		{
+			name: "AND, single children, same sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorAnd,
+							Operands: []filters.Clause{
+								equalOperand("set1_1"),
+								equalOperand("set1_2"),
+								equalOperand("set1_3"),
+							},
+						},
+					},
+				},
+			},
+			expectedIds: docIdSet1,
+		},
+		{
+			name: "OR, single children, same sets",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorOr,
+							Operands: []filters.Clause{
+								equalOperand("set1_1"),
+								equalOperand("set1_2"),
+								equalOperand("set1_3"),
+							},
+						},
+					},
+				},
+			},
+			expectedIds: docIdSet1,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			allowList, err := searcher.DocIDs(context.Background(), tc.filter, additional.Properties{}, className)
+			assert.NoError(t, err)
+			assert.ElementsMatch(t, tc.expectedIds, allowList.Slice())
+			allowList.Close()
+		})
+	}
+}
