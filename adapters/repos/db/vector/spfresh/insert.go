@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -24,19 +25,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 	}
 
 	// track the dimensions of the vectors to ensure they are consistent
-	var err error
-	s.trackDimensionsOnce.Do(func() {
-		dims := len(vector)
-		if s.dims == 0 {
-			s.dims = int32(dims)
-		} else if s.dims != int32(dims) {
-			err = errors.Errorf("add called with vector of different length")
-			return
-		}
-	})
-	if err != nil {
-		return err
-	}
+	s.dims.CompareAndSwap(0, int32(len(vector)))
 
 	v := distancer.Normalize(vector)
 	compressed := s.Quantizer.Encode(v)
@@ -142,4 +131,22 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, postingID uint64, r
 	}
 
 	return true, nil
+}
+
+func (s *SPFresh) ValidateBeforeInsert(vector []float32) error {
+	if s.dims.Load() == 0 {
+		return nil
+	}
+
+	if dims := int(s.dims.Load()); len(vector) != dims {
+		return fmt.Errorf("new node has a vector with length %v. "+
+			"Existing nodes have vectors with length %v", len(vector), dims)
+	}
+
+	return nil
+}
+
+func (s *SPFresh) ContainsDoc(id uint64) bool {
+	v := s.VersionMap.Get(id)
+	return !v.Deleted() && v.Version() > 0
 }

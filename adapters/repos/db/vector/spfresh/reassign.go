@@ -47,6 +47,10 @@ func (s *SPFresh) reassignWorker() {
 
 		err := s.doReassign(op)
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				continue
+			}
+
 			s.Logger.WithError(err).
 				WithField("vectorID", op.Vector.ID).
 				Error("Failed to process reassign operation")

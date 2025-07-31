@@ -53,6 +53,10 @@ func (s *SPFresh) mergeWorker() {
 
 		err := s.doMerge(op)
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				continue
+			}
+
 			s.Logger.WithError(err).
 				WithField("postingID", op.PostingID).
 				Error("Failed to process merge operation")

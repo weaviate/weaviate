@@ -14,6 +14,7 @@ package spfresh
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/puzpuzpuz/xsync/v4"
@@ -66,9 +67,8 @@ type SPFresh struct {
 
 	postingLocks *common.HashedLocks // Locks to prevent concurrent modifications to the same posting.
 
-	trackDimensionsOnce sync.Once
-	dims                int32
-	distancer           distancer.Provider
+	dims      atomic.Int32
+	distancer distancer.Provider
 }
 
 func (s *SPFresh) Start(ctx context.Context) {
@@ -126,16 +126,23 @@ func (s *SPFresh) Start(ctx context.Context) {
 }
 
 // Delete marks a vector as deleted in the version map.
-func (s *SPFresh) Delete(ctx context.Context, id uint64) error {
-	version := s.VersionMap.MarkDeleted(id)
-	if version == 0 {
-		return ErrVectorNotFound
+func (s *SPFresh) Delete(ids ...uint64) error {
+	for _, id := range ids {
+		version := s.VersionMap.MarkDeleted(id)
+		if version == 0 {
+			return ErrVectorNotFound
+		}
 	}
-
 	return nil
 }
 
-func (s *SPFresh) Close(ctx context.Context) error {
+func (s *SPFresh) Drop(ctx context.Context) error {
+	_ = s.Shutdown(ctx)
+	// Shard::drop will take care of handling store buckets
+	return nil
+}
+
+func (s *SPFresh) Shutdown(ctx context.Context) error {
 	if s.ctx == nil {
 		return nil // Already closed or not started
 	}
@@ -154,6 +161,31 @@ func (s *SPFresh) Close(ctx context.Context) error {
 
 	s.wg.Wait() // Wait for all workers to finish
 	return nil
+}
+
+func (s *SPFresh) Flush() error {
+	return nil
+}
+
+func (s *SPFresh) SwitchCommitLogs(ctx context.Context) error {
+	return nil
+}
+
+func (s *SPFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+	return nil, nil
+}
+
+func (s *SPFresh) PostStartup() {
+	// This method can be used to perform any post-startup initialization
+	// For now, it does nothing
+}
+
+func (s *SPFresh) Compressed() bool {
+	return true
+}
+
+func (s *SPFresh) Multivector() bool {
+	return false
 }
 
 // deduplicator is a simple structure to prevent duplicate values

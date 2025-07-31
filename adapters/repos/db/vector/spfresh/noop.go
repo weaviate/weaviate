@@ -45,10 +45,6 @@ func (s *SPFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callb
 	return errors.New("UpdateUserConfig is not supported for the spfresh index")
 }
 
-func (s *SPFresh) Multivector() bool {
-	return false
-}
-
 func (s *SPFresh) ValidateMultiBeforeInsert(vector [][]float32) error {
 	return errors.New("ValidateMultiBeforeInsert is not supported for the spfresh index")
 }
