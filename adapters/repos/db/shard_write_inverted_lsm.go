@@ -298,7 +298,23 @@ func (s *Shard) resetDimensionsLSM() error {
 		s.segmentCleanupConfig(),
 	)
 	if err != nil {
-		return fmt.Errorf("create dimensions bucket: %w", err)
+		//Attempt to load the old format bucket
+		err := s.store.CreateOrLoadBucket(context.Background(),
+			helpers.DimensionsBucketLSM,
+			s.memtableDirtyConfig(),
+			lsmkv.WithStrategy(lsmkv.StrategyReplace),
+			lsmkv.WithPread(s.index.Config.AvoidMMap),
+			lsmkv.WithAllocChecker(s.index.allocChecker),
+			lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
+			lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+			lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+			lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
+			lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
+			s.segmentCleanupConfig(),
+		)
+		if err != nil {
+			return fmt.Errorf("create dimensions bucket: %w", err)
+		}
 	}
 
 	// Fetch the actual bucket

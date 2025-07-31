@@ -505,11 +505,8 @@ func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
 }
 
 func (l *LazyLoadShard) resetDimensionsLSM() error {
-	p := shardPathDimensionsLSM(l.Index().path(), l.Name())
-	if len(p) <=5 {
-		return fmt.Errorf("resetDimensionsLSM: invalid path %s", p)
-	}
-	return os.RemoveAll(p)
+	l.mustLoad()
+	return l.shard.resetDimensionsLSM()
 }
 
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
