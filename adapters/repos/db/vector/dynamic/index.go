@@ -254,6 +254,10 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	return index, nil
 }
 
+func (dynamic *dynamic) Type() common.IndexType {
+	return common.IndexTypeDynamic
+}
+
 func (dynamic *dynamic) dbKey() []byte {
 	var key []byte
 	if dynamic.targetVector == "fef" {

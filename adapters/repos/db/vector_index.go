@@ -23,6 +23,7 @@ import (
 // VectorIndex is anything that indexes vectors efficiently. For an example
 // look at ./vector/hnsw/index.go
 type VectorIndex interface {
+	Type() common.IndexType
 	Add(ctx context.Context, id uint64, vector []float32) error
 	AddMulti(ctx context.Context, docId uint64, vector [][]float32) error
 	AddBatch(ctx context.Context, ids []uint64, vector [][]float32) error
