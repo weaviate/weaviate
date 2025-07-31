@@ -126,9 +126,9 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:        "AddAlias",
-			additionalArgs:    []interface{}{&models.Alias{Class: "classname"}},
+			additionalArgs:    []interface{}{&models.Alias{Class: "classname", Alias: "aliasName"}},
 			expectedVerb:      authorization.CREATE,
-			expectedResources: authorization.Aliases("Classname"),
+			expectedResources: authorization.Aliases("Classname", "AliasName"),
 		},
 		{
 			methodName:        "UpdateAlias",

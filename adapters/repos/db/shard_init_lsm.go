@@ -192,7 +192,6 @@ func (s *Shard) initIndexCounterVersionerAndBitmapFactory() error {
 		return fmt.Errorf("init index counter: %w", err)
 	}
 	s.counter = counter
-	s.bitmapBufPool = roaringset.NewBitmapBufPool(1024, 1.1)
 	// counter is incremented whenever new docID is fetched, therefore last docID is lower by 1
 	s.bitmapFactory = roaringset.NewBitmapFactory(s.bitmapBufPool, func() uint64 { return s.counter.Get() - 1 })
 
