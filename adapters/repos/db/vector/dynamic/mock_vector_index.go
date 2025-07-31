@@ -1670,7 +1670,8 @@ func (_c *MockVectorIndex_ValidateMultiBeforeInsert_Call) RunAndReturn(run func(
 func NewMockVectorIndex(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockVectorIndex {
+},
+) *MockVectorIndex {
 	mock := &MockVectorIndex{}
 	mock.Mock.Test(t)
 

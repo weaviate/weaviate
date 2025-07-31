@@ -68,7 +68,7 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 
 	simpleInsertObjects(t, repo, "ThingForBatching", 123)
 
-	time.Sleep(5*time.Second)
+	time.Sleep(5 * time.Second)
 
 	dimAfter := getDimensionsFromRepo(context.Background(), repo, "ThingForBatching")
 	require.Equal(t, 369, dimAfter, "Dimensions are present after import")
