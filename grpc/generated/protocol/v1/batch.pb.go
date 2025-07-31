@@ -127,7 +127,7 @@ type BatchSendObjects struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Values           []*BatchObject         `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
 	ConsistencyLevel *ConsistencyLevel      `protobuf:"varint,2,opt,name=consistency_level,json=consistencyLevel,proto3,enum=weaviate.v1.ConsistencyLevel,oneof" json:"consistency_level,omitempty"`
-	Index            int64                  `protobuf:"varint,3,opt,name=index,proto3" json:"index,omitempty"`
+	Index            int32                  `protobuf:"varint,3,opt,name=index,proto3" json:"index,omitempty"`
 	StreamId         string                 `protobuf:"bytes,4,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -177,7 +177,7 @@ func (x *BatchSendObjects) GetConsistencyLevel() ConsistencyLevel {
 	return ConsistencyLevel_CONSISTENCY_LEVEL_UNSPECIFIED
 }
 
-func (x *BatchSendObjects) GetIndex() int64 {
+func (x *BatchSendObjects) GetIndex() int32 {
 	if x != nil {
 		return x.Index
 	}
@@ -195,7 +195,7 @@ type BatchSendReferences struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Values           []*BatchReference      `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
 	ConsistencyLevel *ConsistencyLevel      `protobuf:"varint,2,opt,name=consistency_level,json=consistencyLevel,proto3,enum=weaviate.v1.ConsistencyLevel,oneof" json:"consistency_level,omitempty"`
-	Index            int64                  `protobuf:"varint,3,opt,name=index,proto3" json:"index,omitempty"`
+	Index            int32                  `protobuf:"varint,3,opt,name=index,proto3" json:"index,omitempty"`
 	StreamId         string                 `protobuf:"bytes,4,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -245,7 +245,7 @@ func (x *BatchSendReferences) GetConsistencyLevel() ConsistencyLevel {
 	return ConsistencyLevel_CONSISTENCY_LEVEL_UNSPECIFIED
 }
 
-func (x *BatchSendReferences) GetIndex() int64 {
+func (x *BatchSendReferences) GetIndex() int32 {
 	if x != nil {
 		return x.Index
 	}
@@ -359,7 +359,7 @@ func (*BatchSendRequest_Stop) isBatchSendRequest_Message() {}
 
 type BatchSendReply struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Next          int64                  `protobuf:"varint,1,opt,name=next,proto3" json:"next,omitempty"`
+	Next          int32                  `protobuf:"varint,1,opt,name=next,proto3" json:"next,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -394,7 +394,7 @@ func (*BatchSendReply) Descriptor() ([]byte, []int) {
 	return file_v1_batch_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *BatchSendReply) GetNext() int64 {
+func (x *BatchSendReply) GetNext() int32 {
 	if x != nil {
 		return x.Next
 	}
@@ -867,8 +867,9 @@ func (x *BatchReference) GetTenant() string {
 type BatchError struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Error         string                 `protobuf:"bytes,1,opt,name=error,proto3" json:"error,omitempty"`
-	Object        *BatchObject           `protobuf:"bytes,2,opt,name=object,proto3" json:"object,omitempty"`
-	Reference     *BatchReference        `protobuf:"bytes,3,opt,name=reference,proto3" json:"reference,omitempty"`
+	Index         int32                  `protobuf:"varint,2,opt,name=index,proto3" json:"index,omitempty"`
+	Object        *BatchObject           `protobuf:"bytes,3,opt,name=object,proto3" json:"object,omitempty"`
+	Reference     *BatchReference        `protobuf:"bytes,4,opt,name=reference,proto3" json:"reference,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -908,6 +909,13 @@ func (x *BatchError) GetError() string {
 		return x.Error
 	}
 	return ""
+}
+
+func (x *BatchError) GetIndex() int32 {
+	if x != nil {
+		return x.Index
+	}
+	return 0
 }
 
 func (x *BatchError) GetObject() *BatchObject {
@@ -1380,13 +1388,13 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\x10BatchSendObjects\x120\n" +
 	"\x06values\x18\x01 \x03(\v2\x18.weaviate.v1.BatchObjectR\x06values\x12O\n" +
 	"\x11consistency_level\x18\x02 \x01(\x0e2\x1d.weaviate.v1.ConsistencyLevelH\x00R\x10consistencyLevel\x88\x01\x01\x12\x14\n" +
-	"\x05index\x18\x03 \x01(\x03R\x05index\x12\x1b\n" +
+	"\x05index\x18\x03 \x01(\x05R\x05index\x12\x1b\n" +
 	"\tstream_id\x18\x04 \x01(\tR\bstreamIdB\x14\n" +
 	"\x12_consistency_level\"\xe4\x01\n" +
 	"\x13BatchSendReferences\x123\n" +
 	"\x06values\x18\x01 \x03(\v2\x1b.weaviate.v1.BatchReferenceR\x06values\x12O\n" +
 	"\x11consistency_level\x18\x02 \x01(\x0e2\x1d.weaviate.v1.ConsistencyLevelH\x00R\x10consistencyLevel\x88\x01\x01\x12\x14\n" +
-	"\x05index\x18\x03 \x01(\x03R\x05index\x12\x1b\n" +
+	"\x05index\x18\x03 \x01(\x05R\x05index\x12\x1b\n" +
 	"\tstream_id\x18\x04 \x01(\tR\bstreamIdB\x14\n" +
 	"\x12_consistency_level\"\xca\x01\n" +
 	"\x10BatchSendRequest\x129\n" +
@@ -1397,7 +1405,7 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\x04stop\x18\x03 \x01(\v2\x16.weaviate.v1.BatchStopH\x00R\x04stopB\t\n" +
 	"\amessage\"$\n" +
 	"\x0eBatchSendReply\x12\x12\n" +
-	"\x04next\x18\x01 \x01(\x03R\x04next\"\x14\n" +
+	"\x04next\x18\x01 \x01(\x05R\x04next\"\x14\n" +
 	"\x12BatchStreamRequest\")\n" +
 	"\n" +
 	"BatchStart\x12\x1b\n" +
@@ -1452,12 +1460,13 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\rto_collection\x18\x04 \x01(\tH\x00R\ftoCollection\x88\x01\x01\x12\x17\n" +
 	"\ato_uuid\x18\x05 \x01(\tR\x06toUuid\x12\x16\n" +
 	"\x06tenant\x18\x06 \x01(\tR\x06tenantB\x10\n" +
-	"\x0e_to_collection\"\x8f\x01\n" +
+	"\x0e_to_collection\"\xa5\x01\n" +
 	"\n" +
 	"BatchError\x12\x14\n" +
-	"\x05error\x18\x01 \x01(\tR\x05error\x120\n" +
-	"\x06object\x18\x02 \x01(\v2\x18.weaviate.v1.BatchObjectR\x06object\x129\n" +
-	"\treference\x18\x03 \x01(\v2\x1b.weaviate.v1.BatchReferenceR\treference\"\xa4\x01\n" +
+	"\x05error\x18\x01 \x01(\tR\x05error\x12\x14\n" +
+	"\x05index\x18\x02 \x01(\x05R\x05index\x120\n" +
+	"\x06object\x18\x03 \x01(\v2\x18.weaviate.v1.BatchObjectR\x06object\x129\n" +
+	"\treference\x18\x04 \x01(\v2\x1b.weaviate.v1.BatchReferenceR\treference\"\xa4\x01\n" +
 	"\x11BatchObjectsReply\x12\x12\n" +
 	"\x04took\x18\x01 \x01(\x02R\x04took\x12A\n" +
 	"\x06errors\x18\x02 \x03(\v2).weaviate.v1.BatchObjectsReply.BatchErrorR\x06errors\x1a8\n" +

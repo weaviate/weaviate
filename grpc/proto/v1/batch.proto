@@ -22,14 +22,14 @@ message BatchReferencesRequest {
 message BatchSendObjects {
   repeated BatchObject values = 1;
   optional ConsistencyLevel consistency_level = 2;
-  int64 index = 3;
+  int32 index = 3;
   string stream_id = 4;
 }
 
 message BatchSendReferences {
   repeated BatchReference values = 1;
   optional ConsistencyLevel consistency_level = 2;
-  int64 index = 3;
+  int32 index = 3;
   string stream_id = 4;
 }
 
@@ -42,7 +42,7 @@ message BatchSendRequest {
 }
 
 message BatchSendReply {
-  int64 next = 1;
+  int32 next = 1;
 }
 
 message BatchStreamRequest {
@@ -118,8 +118,9 @@ message BatchReference {
 
 message BatchError {
   string error = 1;
-  BatchObject object = 2;
-  BatchReference reference = 3;
+  int32 index = 2;
+  BatchObject object = 3;
+  BatchReference reference = 4;
 }
 
 message BatchObjectsReply {

@@ -53,6 +53,7 @@ func (w *Worker) sendObjects(req *pb.BatchSendObjects) error {
 			errs = append(errs, &pb.BatchError{
 				Error:  err.Error,
 				Object: req.Values[err.Index],
+				Index:  req.Index + int32(err.Index),
 			})
 		}
 		if ch, ok := w.readQueues.Get(req.StreamId); ok {
@@ -82,6 +83,7 @@ func (w *Worker) sendReferences(req *pb.BatchSendReferences) error {
 			errs = append(errs, &pb.BatchError{
 				Error:     err.Error,
 				Reference: req.Values[err.Index],
+				Index:     req.Index + int32(err.Index),
 			})
 		}
 		if ch, ok := w.readQueues.Get(req.StreamId); ok {

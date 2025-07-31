@@ -75,9 +75,9 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 }
 
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
-func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) int64 {
+func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) int32 {
 	h.writeQueue <- request
-	return int64(len(request.GetObjects().GetValues()))
+	return int32(len(request.GetObjects().GetValues()))
 }
 
 // Setup initializes a read queue for the given stream ID and adds it to the read queues map.
