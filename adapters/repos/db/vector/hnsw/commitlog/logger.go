@@ -201,7 +201,7 @@ func (l *Logger) AddBRQCompression(data compressionhelpers.BRQData) error {
 	}
 
 	for _, rounding := range data.Rounding {
-		binary.Write(&buf, binary.LittleEndian, math.Float32bits(rounding))
+		binary.Write(&buf, binary.LittleEndian, rounding)
 	}
 
 	_, err := l.bufw.Write(buf.Bytes())

@@ -882,8 +882,8 @@ func (d *Deserializer) ReadBRQ(r io.Reader, res *DeserializationResult) (int, er
 		}
 	}
 
-	rounding := make([]float32, roundingSize)
-	for i := uint32(0); i < roundingSize; i++ {
+	rounding := make([]float32, outputDim)
+	for i := uint32(0); i < outputDim; i++ {
 		rounding[i], err = readFloat32(r)
 		if err != nil {
 			return 0, err

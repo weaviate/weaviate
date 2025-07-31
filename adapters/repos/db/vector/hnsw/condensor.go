@@ -456,7 +456,7 @@ func (c *MemoryCondensor) AddBRQCompression(data compressionhelpers.BRQData) err
 	}
 
 	for _, rounding := range data.Rounding {
-		binary.Write(&buf, binary.LittleEndian, math.Float32bits(rounding))
+		binary.Write(&buf, binary.LittleEndian, rounding)
 	}
 
 	_, err := c.newLog.Write(buf.Bytes())
