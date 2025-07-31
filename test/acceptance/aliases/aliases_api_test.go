@@ -14,6 +14,7 @@ package test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -98,6 +100,11 @@ func Test_AliasesAPI(t *testing.T) {
 				name:  documents.Passage,
 				alias: &models.Alias{Alias: "AliasThatWillBeReplaced", Class: documents.Passage},
 			},
+			{
+				name: "create with different case",
+				// passing in `aliasThatCreated` but should transform into `AliasThatCreated`.
+				alias: &models.Alias{Alias: "aliasThatCreated", Class: documents.Passage},
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -107,7 +114,9 @@ func Test_AliasesAPI(t *testing.T) {
 				require.NotEmpty(t, resp.Aliases)
 				aliasCreated := false
 				for _, alias := range resp.Aliases {
-					if tt.alias.Alias == alias.Alias && tt.alias.Class == alias.Class {
+					expAlias := entschema.UppercaseClassName(tt.alias.Alias)
+					expClass := entschema.UppercaseClassName(tt.alias.Class)
+					if expAlias == alias.Alias && expClass == alias.Class {
 						aliasCreated = true
 					}
 				}
@@ -128,15 +137,49 @@ func Test_AliasesAPI(t *testing.T) {
 		helper.DeleteClass(t, documents.Document)
 	}()
 
+	t.Run("create alias with invalid char", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			input string
+		}{
+			{name: "symbols1", input: "invalid_alias_!#"},
+			{name: "symbols2", input: "invalid_alias_@"},
+			{name: "symbols3", input: "!invalid_alias_@"},
+			{name: "symbols4", input: "#invalid_alias_*"},
+			{name: "empty", input: ""},
+			{name: "maxlength", input: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, // more than max 255 chars
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				alias := &models.Alias{Class: books.DefaultClassName, Alias: "valid_alias_!#"}
+				p := schema.NewAliasesCreateParams().WithBody(alias)
+				resp, err := helper.Client(t).Schema.AliasesCreate(p, nil)
+				require.Error(t, err)
+				assert.Nil(t, resp)
+				var cerr *schema.AliasesCreateUnprocessableEntity
+				ok := errors.As(err, &cerr) // convert to concrete error type
+				assert.True(t, ok)
+				assert.Contains(t, cerr.Payload.Error[0].Message, "is not a valid alias name")
+			})
+		}
+	})
+
 	t.Run("get aliases", func(t *testing.T) {
 		resp := helper.GetAliases(t, nil)
 		require.NotNil(t, resp)
 		require.NotEmpty(t, resp.Aliases)
-		require.Equal(t, 7, len(resp.Aliases))
+		require.Equal(t, 8, len(resp.Aliases))
 	})
 
 	t.Run("get alias", func(t *testing.T) {
 		resp := helper.GetAlias(t, "BookAlias")
+		require.NotNil(t, resp)
+		require.Equal(t, "BookAlias", resp.Alias)
+	})
+
+	t.Run("get alias different case", func(t *testing.T) {
+		resp := helper.GetAlias(t, "bookAlias") // first letter is different case.
 		require.NotNil(t, resp)
 		require.Equal(t, "BookAlias", resp.Alias)
 	})
@@ -157,6 +200,20 @@ func Test_AliasesAPI(t *testing.T) {
 		checkAlias(t, aliasName, documents.Passage)
 		helper.UpdateAlias(t, aliasName, documents.Document)
 		checkAlias(t, aliasName, documents.Document)
+	})
+
+	t.Run("replace alias different case", func(t *testing.T) {
+		checkAlias := func(t *testing.T, aliasName, expectedClass string) {
+			resp := helper.GetAlias(t, aliasName)
+			require.NotNil(t, resp)
+			require.Equal(t, aliasName, resp.Alias)
+			require.Equal(t, expectedClass, resp.Class)
+		}
+		aliasName := "AliasThatWillBeReplaced"
+		dAliasName := "aliasThatWillBeReplaced" // same with first lower case
+		checkAlias(t, aliasName, documents.Document)
+		helper.UpdateAlias(t, dAliasName, documents.Passage)
+		checkAlias(t, aliasName, documents.Passage)
 	})
 
 	t.Run("replace non existing alias", func(t *testing.T) {
@@ -180,7 +237,7 @@ func Test_AliasesAPI(t *testing.T) {
 			require.Equal(t, expectedClass, resp.Class)
 		}
 		aliasName := "AliasThatWillBeReplaced"
-		checkAlias(t, aliasName, documents.Document)
+		checkAlias(t, aliasName, documents.Passage)
 		resp, err := helper.UpdateAliasWithReturn(t, aliasName, "errorCollection")
 		require.Error(t, err)
 		require.Nil(t, resp)
@@ -199,8 +256,20 @@ func Test_AliasesAPI(t *testing.T) {
 			require.NotEmpty(t, resp.Aliases)
 			require.Equal(t, count, len(resp.Aliases))
 		}
-		checkAliasesCount(t, 7)
+		checkAliasesCount(t, 8)
 		helper.DeleteAlias(t, "AliasThatWillBeReplaced")
+		checkAliasesCount(t, 7)
+	})
+
+	t.Run("delete alias different case", func(t *testing.T) {
+		checkAliasesCount := func(t *testing.T, count int) {
+			resp := helper.GetAliases(t, nil)
+			require.NotNil(t, resp)
+			require.NotEmpty(t, resp.Aliases)
+			require.Equal(t, count, len(resp.Aliases))
+		}
+		checkAliasesCount(t, 7)
+		helper.DeleteAlias(t, "aliasThatCreated") // note first letter is small
 		checkAliasesCount(t, 6)
 	})
 
@@ -242,6 +311,36 @@ func Test_AliasesAPI(t *testing.T) {
 				})
 			}
 		})
+		t.Run("create class", func(t *testing.T) {
+			tests := []struct {
+				name             string
+				class            *models.Class
+				expectedErrorMsg string
+			}{
+				{
+					// trying to create class with existing class name.
+					name:             "with existing class name",
+					class:            books.ClassModel2VecVectorizerWithName(books.DefaultClassName),
+					expectedErrorMsg: fmt.Sprintf("class name %s already exists", books.DefaultClassName),
+				},
+				// trying to create class with existing alias name.
+				{
+					name:             "with existing alias name",
+					class:            books.ClassModel2VecVectorizerWithName("BookAlias"),
+					expectedErrorMsg: fmt.Sprintf("alias name %s already exists", "BookAlias"),
+				},
+			}
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					params := schema.NewSchemaObjectsCreateParams().WithObjectClass(tt.class)
+					resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+					require.Error(t, err)
+					assert.Nil(t, resp)
+					errorPayload, _ := json.MarshalIndent(err, "", " ")
+					assert.Contains(t, string(errorPayload), tt.expectedErrorMsg)
+				})
+			}
+		})
 	})
 
 	t.Run("create alias to non existing collection", func(t *testing.T) {
@@ -274,7 +373,7 @@ func Test_AliasesAPI(t *testing.T) {
 			require.Nil(t, resp)
 			require.Error(t, err)
 			errorPayload, _ := json.MarshalIndent(err, "", " ")
-			assert.Contains(t, string(errorPayload), fmt.Sprintf("class name %s already exists", class.Class))
+			assert.Contains(t, string(errorPayload), fmt.Sprintf("alias name %s already exists", class.Class))
 		})
 		t.Run("GraphQL Get query with alias", func(t *testing.T) {
 			getQuery := `
