@@ -18,10 +18,33 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
+func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+
+	// track the dimensions of the vectors to ensure they are consistent
+	var err error
+	s.trackDimensionsOnce.Do(func() {
+		dims := len(vector)
+		if s.dims == 0 {
+			s.dims = int32(dims)
+		} else if s.dims != int32(dims) {
+			err = errors.Errorf("add called with vector of different length")
+			return
+		}
+	})
+	if err != nil {
+		return err
+	}
+
+	v := distancer.Normalize(vector)
+	compressed := s.Quantizer.Encode(v)
+
+	return s.addOne(ctx, id, compressed)
+}
+
+func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	if len(ids) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
 	}
@@ -29,33 +52,13 @@ func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float3
 		return errors.Errorf("insertBatch called with empty lists")
 	}
 
-	// track the dimensions of the vectors to ensure they are consistent
-	var err error
-	s.trackDimensionsOnce.Do(func() {
-		dims := len(vectors[0])
-		for _, vec := range vectors {
-			if len(vec) != dims {
-				err = errors.Errorf("addBatch called with vectors of different lengths")
-				return
-			}
-		}
-		if err == nil {
-			s.dims = int32(len(vectors[0]))
-		}
-	})
-	if err != nil {
-		return err
-	}
-
-	for i := range ids {
-		if err := ctx.Err(); err != nil {
+	for i, id := range ids {
+		err := ctx.Err()
+		if err != nil {
 			return err
 		}
 
-		v := distancer.Normalize(vectors[i])
-		compressed := s.Quantizer.Encode(v)
-
-		err = s.addOne(ctx, ids[i], compressed)
+		err = s.Add(ctx, id, vectors[i])
 		if err != nil {
 			return err
 		}
