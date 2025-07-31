@@ -237,7 +237,7 @@ func createTestDatabaseWithClass(t *testing.T, classes ...*models.Class) *DB {
 		shardState: singleShardState(),
 	})
 
-	require.Nil(t, db.WaitForStartup(testCtx()))
+	require.Nil(t, db.WaitForStartup(t.Context()))
 	t.Cleanup(func() {
 		require.NoError(t, db.Shutdown(context.Background()))
 	})
