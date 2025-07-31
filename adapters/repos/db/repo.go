@@ -375,7 +375,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	if db.promMetrics != nil {
+	if db.metricsObserver != nil {
 		db.metricsObserver.Shutdown()
 	}
 
