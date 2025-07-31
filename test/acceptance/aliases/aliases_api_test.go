@@ -139,13 +139,15 @@ func Test_AliasesAPI(t *testing.T) {
 
 	t.Run("create alias with invalid char", func(t *testing.T) {
 		cases := []struct {
-			name string
+			name  string
+			input string
 		}{
-			{name: "invalid_alias_!#"},
-			{name: "invalid_alias_@"},
-			{name: "!invalid_alias_@"},
-			{name: "#invalid_alias_*"},
-			{name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, // more than max 255 chars
+			{name: "symbols1", input: "invalid_alias_!#"},
+			{name: "symbols2", input: "invalid_alias_@"},
+			{name: "symbols3", input: "!invalid_alias_@"},
+			{name: "symbols4", input: "#invalid_alias_*"},
+			{name: "empty", input: ""},
+			{name: "maxlength", input: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, // more than max 255 chars
 		}
 
 		for _, tc := range cases {
