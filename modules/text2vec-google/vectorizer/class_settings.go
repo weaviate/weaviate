@@ -26,6 +26,7 @@ const (
 	projectIDProperty   = "projectId"
 	modelIDProperty     = "modelId"
 	titleProperty       = "titleProperty"
+	dimensionsProperty  = "dimensions"
 )
 
 const (
@@ -132,4 +133,8 @@ func (ic *classSettings) ModelID() string {
 
 func (ic *classSettings) TitleProperty() string {
 	return ic.getStringProperty(titleProperty, "")
+}
+
+func (ic *classSettings) Dimensions() *int64 {
+	return ic.GetPropertyAsInt64(dimensionsProperty, nil)
 }
