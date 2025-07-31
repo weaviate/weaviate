@@ -441,18 +441,16 @@ func (brq *BinaryRotationalQuantizer) ReturnQuantizerDistancer(distancer quantiz
 }
 
 type BRQData struct {
-	InputDim  uint32
-	QueryBits uint32
-	Rotation  FastRotation
-	Rounding  []float32
+	InputDim uint32
+	Rotation FastRotation
+	Rounding []float32
 }
 
 func (brq *BinaryRotationalQuantizer) PersistCompression(logger CommitLogger) {
 	logger.AddBRQCompression(BRQData{
-		InputDim:  brq.inputDim,
-		QueryBits: 5,
-		Rotation:  *brq.rotation,
-		Rounding:  brq.rounding,
+		InputDim: brq.inputDim,
+		Rotation: *brq.rotation,
+		Rounding: brq.rounding,
 	})
 }
 

@@ -179,11 +179,10 @@ func (l *Logger) AddBRQCompression(data compressionhelpers.BRQData) error {
 	signSize := 4 * data.Rotation.Rounds * data.Rotation.OutputDim
 	roundingSize := 4 * data.Rotation.OutputDim
 	var buf bytes.Buffer
-	buf.Grow(17 + int(swapSize) + int(signSize) + int(roundingSize))
+	buf.Grow(13 + int(swapSize) + int(signSize) + int(roundingSize))
 
 	buf.WriteByte(byte(AddBRQ))                                      // 1
 	binary.Write(&buf, binary.LittleEndian, data.InputDim)           // 4 input dim
-	binary.Write(&buf, binary.LittleEndian, data.QueryBits)          // 4 query bits
 	binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4 rotation - output dim
 	binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4 rotation - rounds
 

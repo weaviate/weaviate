@@ -865,11 +865,6 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 		}
 		offset += writeUint32Size
 
-		if err := writeUint32(w, state.CompressionBRQData.QueryBits); err != nil {
-			return 0, err
-		}
-		offset += writeUint32Size
-
 		if err := writeUint32(w, state.CompressionBRQData.Rotation.OutputDim); err != nil {
 			return 0, err
 		}
@@ -1211,12 +1206,6 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 			}
 			inputDim := binary.LittleEndian.Uint32(b[:4])
 
-			_, err = ReadAndHash(r, hasher, b[:4]) // BRQData.QueryBits
-			if err != nil {
-				return nil, errors.Wrapf(err, "read BRQData.QueryBits")
-			}
-			queryBits := binary.LittleEndian.Uint32(b[:4])
-
 			_, err = ReadAndHash(r, hasher, b[:4]) // BRQData.Rotation.OutputDim
 			if err != nil {
 				return nil, errors.Wrapf(err, "read BRQData.Rotation.OutputDim")
@@ -1272,8 +1261,7 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 			}
 
 			res.CompressionBRQData = &compressionhelpers.BRQData{
-				InputDim:  inputDim,
-				QueryBits: queryBits,
+				InputDim: inputDim,
 				Rotation: compressionhelpers.FastRotation{
 					OutputDim: outputDim,
 					Rounds:    rounds,

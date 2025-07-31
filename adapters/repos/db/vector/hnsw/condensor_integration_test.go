@@ -924,8 +924,7 @@ func TestCondensorWithRQ1Information(t *testing.T) {
 	defer uncondensed.Shutdown(ctx)
 
 	brqData := compressionhelpers.BRQData{
-		InputDim:  10,
-		QueryBits: 4,
+		InputDim: 10,
 		Rotation: compressionhelpers.FastRotation{
 			OutputDim: 4,
 			Rounds:    5,

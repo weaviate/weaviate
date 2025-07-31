@@ -837,10 +837,6 @@ func (d *Deserializer) ReadBRQ(r io.Reader, res *DeserializationResult) (int, er
 	if err != nil {
 		return 0, err
 	}
-	queryBits, err := readUint32(r)
-	if err != nil {
-		return 0, err
-	}
 	outputDim, err := readUint32(r)
 	if err != nil {
 		return 0, err
@@ -891,8 +887,7 @@ func (d *Deserializer) ReadBRQ(r io.Reader, res *DeserializationResult) (int, er
 	}
 
 	res.CompressionBRQData = &compressionhelpers.BRQData{
-		InputDim:  inputDim,
-		QueryBits: queryBits,
+		InputDim: inputDim,
 		Rotation: compressionhelpers.FastRotation{
 			OutputDim: outputDim,
 			Rounds:    rounds,

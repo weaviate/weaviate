@@ -1126,8 +1126,7 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Compressed: true,
 			Nodes:      make([]*vertex, 250),
 			CompressionBRQData: &compressionhelpers.BRQData{
-				InputDim:  8,
-				QueryBits: 4,
+				InputDim: 8,
 				Rotation: compressionhelpers.FastRotation{
 					OutputDim: 8,
 					Rounds:    1,
@@ -1168,7 +1167,6 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 		require.Equal(t, len(state.Nodes), len(restoredState.Nodes))
 		require.NotNil(t, restoredState.CompressionBRQData)
 		require.Equal(t, state.CompressionBRQData.InputDim, restoredState.CompressionBRQData.InputDim)
-		require.Equal(t, state.CompressionBRQData.QueryBits, restoredState.CompressionBRQData.QueryBits)
 		require.Equal(t, state.CompressionBRQData.Rotation.OutputDim, restoredState.CompressionBRQData.Rotation.OutputDim)
 		require.Equal(t, state.CompressionBRQData.Rotation.Rounds, restoredState.CompressionBRQData.Rotation.Rounds)
 		require.Equal(t, len(state.CompressionBRQData.Rotation.Swaps), len(restoredState.CompressionBRQData.Rotation.Swaps))
