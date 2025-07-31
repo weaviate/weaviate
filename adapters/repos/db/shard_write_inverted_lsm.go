@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"os"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -318,6 +319,13 @@ func (s *Shard) resetDimensionsLSM() error {
 	// Fetch the actual bucket
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
+		// Ensure the bucket directory is clear
+		p := shardPathDimensionsLSM(s.Index().path(), s.Name())
+		if len(p) <= 5 {
+			return fmt.Errorf("resetDimensionsLSM: invalid path %s", p)
+		}
+
+		return os.RemoveAll(p)
 		return errors.Errorf("resetDimensionsLSM: no dimensions bucket")
 	}
 
