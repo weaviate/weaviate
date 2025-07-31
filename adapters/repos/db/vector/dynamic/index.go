@@ -54,7 +54,6 @@ type MultiVectorIndex interface {
 	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 	SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, targetDistance float32,
 		maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error)
-	GetKeys(id uint64) (uint64, uint64, error)
 	ValidateMultiBeforeInsert(vector [][]float32) error
 }
 
@@ -65,7 +64,6 @@ type Index interface {
 
 type VectorIndex interface {
 	MultiVectorIndex
-	Dump(labels ...string)
 	Add(ctx context.Context, id uint64, vector []float32) error
 	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
 	Delete(id ...uint64) error
@@ -82,9 +80,7 @@ type VectorIndex interface {
 	Compressed() bool
 	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
-	DistanceBetweenVectors(x, y []float32) (float32, error)
 	ContainsDoc(docID uint64) bool
-	DistancerProvider() distancer.Provider
 	AlreadyIndexed() uint64
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 	QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer
@@ -378,12 +374,6 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 	return nil
 }
 
-func (dynamic *dynamic) GetKeys(id uint64) (uint64, uint64, error) {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.GetKeys(id)
-}
-
 func (dynamic *dynamic) Drop(ctx context.Context) error {
 	if dynamic.ctx.Err() != nil {
 		// already dropped
@@ -458,12 +448,6 @@ func (dynamic *dynamic) PostStartup() {
 	dynamic.index.PostStartup()
 }
 
-func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, error) {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.DistanceBetweenVectors(x, y)
-}
-
 func (dynamic *dynamic) ContainsDoc(docID uint64) bool {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
@@ -474,12 +458,6 @@ func (dynamic *dynamic) AlreadyIndexed() uint64 {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.AlreadyIndexed()
-}
-
-func (dynamic *dynamic) DistancerProvider() distancer.Provider {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.DistancerProvider()
 }
 
 func (dynamic *dynamic) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {

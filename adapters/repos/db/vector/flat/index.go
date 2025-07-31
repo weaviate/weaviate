@@ -793,10 +793,6 @@ func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, er
 	return files, nil
 }
 
-func (index *flat) GetKeys(id uint64) (uint64, uint64, error) {
-	return 0, 0, errors.Errorf("GetKeys is not supported for flat index")
-}
-
 func (i *flat) ValidateBeforeInsert(vector []float32) error {
 	return nil
 }
@@ -864,10 +860,6 @@ func (index *flat) PostStartup() {
 	}).Debugf("pre-loaded %d vectors in %s", count, took)
 }
 
-func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, error) {
-	return index.distancerProvider.SingleDist(x, y)
-}
-
 func (index *flat) ContainsDoc(id uint64) bool {
 	var bucketName string
 
@@ -918,10 +910,6 @@ func (index *flat) Iterate(fn func(docID uint64) bool) {
 			break
 		}
 	}
-}
-
-func (index *flat) DistancerProvider() distancer.Provider {
-	return index.distancerProvider
 }
 
 func newSearchByDistParams(maxLimit int64) *common.SearchByDistParams {

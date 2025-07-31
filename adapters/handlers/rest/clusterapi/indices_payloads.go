@@ -35,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/scaler"
 )
 
 var IndicesPayloads = indicesPayloads{}
@@ -64,7 +63,6 @@ type indicesPayloads struct {
 	UpdateShardStatusParams    updateShardStatusParamsPayload
 	UpdateShardsStatusResults  updateShardsStatusResultsPayload
 	ShardFiles                 shardFilesPayload
-	IncreaseReplicationFactor  increaseReplicationFactorPayload
 	ShardFileMetadataResults   shardFileMetadataResultsPayload
 	ShardFilesResults          shardFilesResultsPayload
 	AsyncReplicationTargetNode asyncReplicationTargetNode
@@ -118,30 +116,6 @@ func (p asyncReplicationTargetNode) SetContentTypeHeaderReq(r *http.Request) {
 
 func (p asyncReplicationTargetNode) Marshal(in additional.AsyncReplicationTargetNodeOverride) ([]byte, error) {
 	return json.Marshal(in)
-}
-
-type increaseReplicationFactorPayload struct{}
-
-func (p increaseReplicationFactorPayload) Marshall(dist scaler.ShardDist) ([]byte, error) {
-	type payload struct {
-		ShardDist scaler.ShardDist `json:"shard_distribution"`
-	}
-
-	pay := payload{ShardDist: dist}
-	return json.Marshal(pay)
-}
-
-func (p increaseReplicationFactorPayload) Unmarshal(in []byte) (scaler.ShardDist, error) {
-	type payload struct {
-		ShardDist scaler.ShardDist `json:"shard_distribution"`
-	}
-
-	pay := payload{}
-	if err := json.Unmarshal(in, &pay); err != nil {
-		return nil, fmt.Errorf("unmarshal replication factor payload: %w", err)
-	}
-
-	return pay.ShardDist, nil
 }
 
 type errorListPayload struct{}
