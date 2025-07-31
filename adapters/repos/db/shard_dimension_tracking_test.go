@@ -527,7 +527,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 						err := db.PutObject(context.Background(), obj, legacyVec, namedVecs, multiVecs, nil, 0)
 						require.Nil(t, err)
 					}
-					publishVectorMetricsFromDB(t, db, class.Class)
+					publishVectorMetricsFromDB(t, db)
 				}
 
 				removeData = func() {
@@ -535,7 +535,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 						err := db.DeleteObject(context.Background(), class.Class, intToUUID(i), time.Now(), nil, "", 0)
 						require.NoError(t, err)
 					}
-					publishVectorMetricsFromDB(t, db, class.Class)
+					publishVectorMetricsFromDB(t, db)
 				}
 
 				assertTotalMetrics = func(expectDims, expectSegs float64) {
@@ -568,25 +568,28 @@ func intToUUID(i int) strfmt.UUID {
 
 func TestDimensionTrackingWithGrouping(t *testing.T) {
 	const (
-		objectCount         = 5
-		dimensionsPerVector = 64
-		expectedDimensions  = objectCount * dimensionsPerVector
+		objectCount       = 5
+		dimPerVector      = 64
+		expectDimPerShard = objectCount * dimPerVector
 	)
 
 	testCases := []struct {
-		name            string
-		groupingEnabled bool
-		expectedLabels  []string
+		name               string
+		groupingEnabled    bool
+		expectedLabels     []string // class-shard label pairs
+		expectedDimensions []int    // expectedDimensions for a label pair
 	}{
 		{
-			name:            "with_grouping_enabled",
-			groupingEnabled: true,
-			expectedLabels:  []string{"n/a", "n/a"},
+			name:               "with_grouping_enabled",
+			groupingEnabled:    true,
+			expectedLabels:     []string{"n/a", "n/a"},
+			expectedDimensions: []int{expectDimPerShard * 2},
 		},
 		{
-			name:            "with_grouping_disabled",
-			groupingEnabled: false,
-			expectedLabels:  nil, // Will be set dynamically
+			name:               "with_grouping_disabled",
+			groupingEnabled:    false,
+			expectedLabels:     nil, // Will be set dynamically
+			expectedDimensions: []int{expectDimPerShard},
 		},
 	}
 
@@ -599,37 +602,48 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 			defer func() { metrics.Group = originalGroup }()
 
 			// Create test class and database
-			class := &models.Class{
-				Class:               tc.name,
+			class1 := &models.Class{
+				Class:               fmt.Sprintf("%s_1", tc.name),
 				VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 				InvertedIndexConfig: invertedConfig(),
 			}
-			db := createTestDatabaseWithClass(t, class)
+			class2 := &models.Class{
+				Class:               fmt.Sprintf("%s_2", tc.name),
+				VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+				InvertedIndexConfig: invertedConfig(),
+			}
+			db := createTestDatabaseWithClass(t, class1, class2)
 
 			// Set expected labels for non-grouping case
 			if !tc.groupingEnabled {
-				shardName := getSingleShardNameFromRepo(db, class.Class)
-				tc.expectedLabels = []string{class.Class, shardName}
+				shardName1 := getSingleShardNameFromRepo(db, class1.Class)
+				shardName2 := getSingleShardNameFromRepo(db, class2.Class)
+				tc.expectedLabels = []string{
+					class1.Class, shardName1,
+					class2.Class, shardName2,
+				}
 			}
 
 			// Insert test data
-			for i := range objectCount {
-				obj := &models.Object{
-					Class: class.Class,
-					ID:    intToUUID(i),
+			for _, class := range []*models.Class{class1, class2} {
+				for i := range objectCount {
+					obj := &models.Object{
+						Class: class.Class,
+						ID:    intToUUID(i),
+					}
+					vec := randVector(dimPerVector)
+					err := db.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
+					require.NoError(t, err, "put object")
 				}
-				vec := randVector(dimensionsPerVector)
-				err := db.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
-				require.NoError(t, err, "put object")
 			}
 
 			// Publish metrics
-			publishVectorMetricsFromDB(t, db, class.Class)
+			publishVectorMetricsFromDB(t, db)
 
 			// Verify dimension metrics
 			metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(tc.expectedLabels[0], tc.expectedLabels[1])
 			require.NoError(t, err)
-			require.Equal(t, float64(expectedDimensions), testutil.ToFloat64(metric), "dimensions")
+			require.Equal(t, float64(tc.expectedDimensions[0]), testutil.ToFloat64(metric), "dimensions")
 
 			// Verify segment metrics (should be 0 for standard vectors)
 			metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues(tc.expectedLabels[0], tc.expectedLabels[1])
@@ -687,7 +701,7 @@ func TestGroupedDimensionTrackingMultiShard(t *testing.T) {
 	}
 
 	// Publish metrics
-	publishVectorMetricsFromDB(t, db, class.Class)
+	publishVectorMetricsFromDB(t, db)
 
 	// Verify dimension metrics
 	gotDimensions, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("n/a", "n/a")

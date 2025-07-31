@@ -218,7 +218,7 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 		false, false, indexOpts...)
 }
 
-func createTestDatabaseWithClass(t *testing.T, class *models.Class) *DB {
+func createTestDatabaseWithClass(t *testing.T, classes ...*models.Class) *DB {
 	t.Helper()
 
 	metrics := monitoring.GetMetrics()
@@ -233,7 +233,7 @@ func createTestDatabaseWithClass(t *testing.T, class *models.Class) *DB {
 	require.Nil(t, err)
 
 	db.SetSchemaGetter(&fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}},
+		schema:     schema.Schema{Objects: &models.Schema{Classes: classes}},
 		shardState: singleShardState(),
 	})
 
@@ -245,7 +245,7 @@ func createTestDatabaseWithClass(t *testing.T, class *models.Class) *DB {
 	return db
 }
 
-func publishVectorMetricsFromDB(t *testing.T, db *DB, className string) {
+func publishVectorMetricsFromDB(t *testing.T, db *DB) {
 	t.Helper()
 
 	if !db.config.TrackVectorDimensions {
