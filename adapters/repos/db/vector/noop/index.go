@@ -164,10 +164,6 @@ func (i *Index) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryV
 	return common.QueryVectorDistancer{}
 }
 
-func (i *Index) Stats() (common.IndexStats, error) {
-	return &NoopStats{}, errors.New("Stats() is not implemented for noop index")
-}
-
 func (i *Index) Type() common.IndexType {
 	return common.IndexTypeNoop
 }
@@ -180,10 +176,4 @@ func (i *Index) VectorStorageSize(_ context.Context) int64 {
 func (i *Index) CompressionStats() compressionhelpers.CompressionStats {
 	// Noop index doesn't compress vectors
 	return compressionhelpers.UncompressedStats{}
-}
-
-type NoopStats struct{}
-
-func (s *NoopStats) IndexType() common.IndexType {
-	return common.IndexTypeNoop
 }

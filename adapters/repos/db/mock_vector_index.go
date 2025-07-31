@@ -1167,63 +1167,6 @@ func (_c *MockVectorIndex_Shutdown_Call) RunAndReturn(run func(context.Context) 
 	return _c
 }
 
-// Stats provides a mock function with no fields
-func (_m *MockVectorIndex) Stats() (common.IndexStats, error) {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for Stats")
-	}
-
-	var r0 common.IndexStats
-	var r1 error
-	if rf, ok := ret.Get(0).(func() (common.IndexStats, error)); ok {
-		return rf()
-	}
-	if rf, ok := ret.Get(0).(func() common.IndexStats); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(common.IndexStats)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockVectorIndex_Stats_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Stats'
-type MockVectorIndex_Stats_Call struct {
-	*mock.Call
-}
-
-// Stats is a helper method to define mock.On call
-func (_e *MockVectorIndex_Expecter) Stats() *MockVectorIndex_Stats_Call {
-	return &MockVectorIndex_Stats_Call{Call: _e.mock.On("Stats")}
-}
-
-func (_c *MockVectorIndex_Stats_Call) Run(run func()) *MockVectorIndex_Stats_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockVectorIndex_Stats_Call) Return(_a0 common.IndexStats, _a1 error) *MockVectorIndex_Stats_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockVectorIndex_Stats_Call) RunAndReturn(run func() (common.IndexStats, error)) *MockVectorIndex_Stats_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // SwitchCommitLogs provides a mock function with given fields: ctx
 func (_m *MockVectorIndex) SwitchCommitLogs(ctx context.Context) error {
 	ret := _m.Called(ctx)

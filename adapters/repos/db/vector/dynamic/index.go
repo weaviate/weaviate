@@ -87,7 +87,6 @@ type VectorIndex interface {
 	// Consistency or order is not guaranteed, as the index may be concurrently modified.
 	// If the callback returns false, the iteration will stop.
 	Iterate(fn func(docID uint64) bool)
-	Stats() (common.IndexStats, error)
 	Type() common.IndexType
 }
 
@@ -639,10 +638,19 @@ func (dynamic *dynamic) Iterate(fn func(id uint64) bool) {
 	dynamic.index.Iterate(fn)
 }
 
-func (dynamic *dynamic) Stats() (common.IndexStats, error) {
+type hnswStats interface {
+	Stats() (*hnsw.HnswStats, error)
+}
+
+func (dynamic *dynamic) Stats() (*hnsw.HnswStats, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.Stats()
+
+	h, ok := dynamic.index.(hnswStats)
+	if !ok {
+		return nil, errors.New("index is not hnsw")
+	}
+	return h.Stats()
 }
 
 func (dynamic *dynamic) CompressionStats() compressionhelpers.CompressionStats {
@@ -664,12 +672,6 @@ func (dynamic *dynamic) UnderlyingIndex() common.IndexType {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.Type()
-}
-
-type DynamicStats struct{}
-
-func (s *DynamicStats) IndexType() common.IndexType {
-	return common.IndexTypeDynamic
 }
 
 // to make sure the dynamic index satisfies the Index interface

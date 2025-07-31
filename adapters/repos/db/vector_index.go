@@ -56,7 +56,6 @@ type VectorIndex interface {
 	Iterate(fn func(docID uint64) bool)
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 	QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer
-	Stats() (common.IndexStats, error)
 	// CompressionStats returns the compression statistics for this index
 	CompressionStats() compressionhelpers.CompressionStats
 }
