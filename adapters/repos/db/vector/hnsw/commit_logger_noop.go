@@ -42,6 +42,10 @@ func (n *NoopCommitLogger) AddMuvera(data multivector.MuveraData) error {
 	return nil
 }
 
+func (n *NoopCommitLogger) AddBRQCompression(data compressionhelpers.BRQData) error {
+	return nil
+}
+
 func (n *NoopCommitLogger) AddNode(node *vertex) error {
 	return nil
 }

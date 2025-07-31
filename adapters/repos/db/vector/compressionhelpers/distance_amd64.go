@@ -20,5 +20,6 @@ func init() {
 	if cpu.X86.HasAVX2 {
 		l2SquaredByteImpl = asm.L2ByteAVX256
 		dotByteImpl = asm.DotByteAVX256
+		hammingBitwiseImpl = asm.HammingBitwiseAVX256
 	}
 }
