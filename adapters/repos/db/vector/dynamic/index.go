@@ -81,7 +81,6 @@ type VectorIndex interface {
 	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
 	ContainsDoc(docID uint64) bool
-	AlreadyIndexed() uint64
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 	QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer
 	// Iterate over all indexed document ids in the index.
@@ -96,6 +95,7 @@ type upgradableIndexer interface {
 	Upgraded() bool
 	Upgrade(callback func()) error
 	ShouldUpgrade() (bool, int)
+	AlreadyIndexed() uint64
 }
 
 type dynamic struct {
@@ -457,7 +457,7 @@ func (dynamic *dynamic) ContainsDoc(docID uint64) bool {
 func (dynamic *dynamic) AlreadyIndexed() uint64 {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.AlreadyIndexed()
+	return (dynamic.index).(upgradableIndexer).AlreadyIndexed()
 }
 
 func (dynamic *dynamic) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
