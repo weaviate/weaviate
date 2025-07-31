@@ -107,33 +107,6 @@ func (dm DimensionMetrics) Add(add DimensionMetrics) DimensionMetrics {
 	}
 }
 
-func (s *Shard) calcDimensionMetrics(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig, vecName string) DimensionMetrics {
-	switch category, segments := GetDimensionCategory(vecCfg); category {
-	case DimensionCategoryPQ:
-		return DimensionMetrics{Uncompressed: 0, Compressed: s.QuantizedDimensions(ctx, vecName, segments)}
-	case DimensionCategoryBQ:
-		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
-		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
-		// Roundup is required because BQ packs bits into uint64 blocks - you can't have
-		// a partial uint64 block. Even 1 dimension needs a full 8-byte uint64 block.
-		count, _ := s.Dimensions(ctx, vecName)
-		bytes := (count + 63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
-		return DimensionMetrics{Uncompressed: 0, Compressed: bytes}
-	default:
-		count, _ := s.Dimensions(ctx, vecName)
-		return DimensionMetrics{Uncompressed: count, Compressed: 0}
-	}
-}
-
-func (s *Shard) getTotalDimensionMetrics(ctx context.Context) DimensionMetrics {
-	var total DimensionMetrics
-	for vectorName, config := range s.index.GetVectorIndexConfigs() {
-		metrics := s.calcDimensionMetrics(ctx, config, vectorName)
-		total = total.Add(metrics)
-	}
-	return total
-}
-
 // Vector dimension metrics are collected on the node level and
 // are normally _polled_ from each shard. Shard SHOULD only update
 // its dimension metrics on its own iff it is being shut down or dropped

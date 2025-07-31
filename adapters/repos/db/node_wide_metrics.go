@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/tenantactivity"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -388,22 +389,7 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 
 		// Avoid loading cold shards, as it may create I/O spikes.
 		index.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
-			var shard *Shard
-			switch s := sl.(type) {
-			case *Shard:
-				shard = s
-			case *LazyLoadShard:
-				shard = s.shard // this shard
-			default:
-				// Actually we could calculate dimensions on any ShardLike
-				// but as Shard is currently the only implementation that
-				// reports vector metrics, we will pretend that we can't.
-				return nil
-			}
-
-			// TODO(dyma): getTotalDimensionMetrics should be an interface method,
-			// then we wouldn't need the type-assertion above.
-			dim := shard.getTotalDimensionMetrics(ctx)
+			dim := calculateShardDimensionMetrics(ctx, sl)
 			total = total.Add(dim)
 
 			// Report metrics per-shard if grouping is disabled.
@@ -428,5 +414,34 @@ func (o *nodeWideMetricsObserver) sendVectorDimensions(className, shardName stri
 
 	if g, err := o.db.promMetrics.VectorSegmentsSum.GetMetricWithLabelValues(className, shardName); err == nil {
 		g.Set(float64(dm.Compressed))
+	}
+}
+
+// Calculate total vector dimensions for all vector indices in the shard's parent Index.
+func calculateShardDimensionMetrics(ctx context.Context, sl ShardLike) DimensionMetrics {
+	var total DimensionMetrics
+	for name, config := range sl.Index().GetVectorIndexConfigs() {
+		dim := calcVectorDimensionMetrics(ctx, sl, name, config)
+		total = total.Add(dim)
+	}
+	return total
+}
+
+// Calculate vector dimensions for a vector index in a shard.
+func calcVectorDimensionMetrics(ctx context.Context, sl ShardLike, vecName string, vecCfg schemaConfig.VectorIndexConfig) DimensionMetrics {
+	switch category, segments := GetDimensionCategory(vecCfg); category {
+	case DimensionCategoryPQ:
+		return DimensionMetrics{Uncompressed: 0, Compressed: sl.QuantizedDimensions(ctx, vecName, segments)}
+	case DimensionCategoryBQ:
+		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
+		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
+		// Roundup is required because BQ packs bits into uint64 blocks - you can't have
+		// a partial uint64 block. Even 1 dimension needs a full 8-byte uint64 block.
+		count, _ := sl.Dimensions(ctx, vecName)
+		bytes := (count + 63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
+		return DimensionMetrics{Uncompressed: 0, Compressed: bytes}
+	default:
+		count, _ := sl.Dimensions(ctx, vecName)
+		return DimensionMetrics{Uncompressed: count, Compressed: 0}
 	}
 }
