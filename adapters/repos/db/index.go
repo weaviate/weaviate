@@ -415,6 +415,9 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		i.shards.Store(shardName, shard)
 	}
 
+	// NOTE(dyma):
+	// 1. So "lazy-loaded" shards are actually loaded "half-eagerly"?
+	// 2. If <-ctx.Done or we fail to load a shard, should allShardsReady still report true?
 	initLazyShardsInBackground := func() {
 		defer i.allShardsReady.Store(true)
 
@@ -2416,12 +2419,12 @@ func (i *Index) drop() error {
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
-	dropShard := func(name string, _ ShardLike) error {
+	dropShard := func(shardName string, _ ShardLike) error {
 		eg.Go(func() error {
-			i.shardCreateLocks.Lock(name)
-			defer i.shardCreateLocks.Unlock(name)
+			i.shardCreateLocks.Lock(shardName)
+			defer i.shardCreateLocks.Unlock(shardName)
 
-			shard, ok := i.shards.LoadAndDelete(name)
+			shard, ok := i.shards.LoadAndDelete(shardName)
 			if !ok {
 				return nil // shard already does not exist
 			}
