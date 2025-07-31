@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -20,11 +21,16 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/tenantactivity"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 type nodeWideMetricsObserver struct {
-	db       *DB
+	db *DB
+
+	// Goroutines spawned by nodeWideMetricsObserver must exit after receiving on this channel.
 	shutdown chan struct{}
 
 	activityLock          sync.Mutex
@@ -48,55 +54,65 @@ func newNodeWideMetricsObserver(db *DB) *nodeWideMetricsObserver {
 	return &nodeWideMetricsObserver{db: db, shutdown: make(chan struct{})}
 }
 
+// Start goroutines for periodically polling node-wide metrics.
+// Shard read/write activity and objects_count are only collected
+// if metric aggregation (PROMETHEUS_MONITORING_GROUP) is enabled.
+// Only start this service if DB has Prometheus enabled.
 func (o *nodeWideMetricsObserver) Start() {
-	t30 := time.NewTicker(30 * time.Second)
-	t10 := time.NewTicker(10 * time.Second)
+	// Prometheus metrics are redundant with Usage Module is enabled
+	if o.db.config.TrackVectorDimensions && !o.db.config.UsageEnabled {
+		o.observeDimensionMetrics()
+	}
 
-	// make sure we start with a warm state, otherwise we delay the initial
-	// update. This only applies to tenant activity, other metrics wait
-	// for shard-readiness anyway.
-	o.observeActivity()
-
-	defer t30.Stop()
-	defer t10.Stop()
-
-	for {
-		select {
-		case <-o.shutdown:
-			return
-		case <-t10.C:
-			o.observeActivity()
-		case <-t30.C:
-			o.observeIfShardsReady()
-		}
+	if o.db.promMetrics.Group {
+		o.observeShards()
 	}
 }
 
-func (o *nodeWideMetricsObserver) observeIfShardsReady() {
+func (o *nodeWideMetricsObserver) Shutdown() {
+	close(o.shutdown)
+}
+
+func (o *nodeWideMetricsObserver) observeShards() {
+	enterrors.GoWrapper(func() {
+		// make sure we start with a warm state, otherwise we delay the initial
+		// update. This only applies to tenant activity, other metrics wait
+		// for shard-readiness anyway.
+		o.observeActivity()
+
+		t30 := time.NewTicker(30 * time.Second)
+		defer t30.Stop()
+
+		t10 := time.NewTicker(10 * time.Second)
+		defer t10.Stop()
+
+		for {
+			select {
+			case <-o.shutdown:
+				return
+			case <-t10.C:
+				o.observeActivity()
+			case <-t30.C:
+				o.observeObjectCount()
+			}
+		}
+	}, o.db.logger)
+}
+
+// Collect and publish aggregated object_count metric iff all indices report allShardsReady=true.
+func (o *nodeWideMetricsObserver) observeObjectCount() {
 	o.db.indexLock.RLock()
 	defer o.db.indexLock.RUnlock()
 
-	allShardsReady := true
-
 	for _, index := range o.db.indices {
 		if !index.allShardsReady.Load() {
-			allShardsReady = false
-			break
+			o.db.logger.WithFields(logrus.Fields{
+				"action": "skip_observe_node_wide_metrics",
+			}).Debugf("skip node-wide metrics, not all shards ready")
+			return
 		}
 	}
 
-	if !allShardsReady {
-		o.db.logger.WithFields(logrus.Fields{
-			"action": "skip_observe_node_wide_metrics",
-		}).Debugf("skip node-wide metrics, not all shards ready")
-		return
-	}
-
-	o.observeUnlocked()
-}
-
-// assumes that the caller already holds a db.indexLock.Rlock()
-func (o *nodeWideMetricsObserver) observeUnlocked() {
 	start := time.Now()
 
 	totalObjectCount := int64(0)
@@ -124,10 +140,9 @@ func (o *nodeWideMetricsObserver) observeUnlocked() {
 	}).Debug("observed node wide metrics")
 }
 
-func (o *nodeWideMetricsObserver) Shutdown() {
-	o.shutdown <- struct{}{}
-}
-
+// NOTE(dyma): should this also chech that all indices report allShardsReady == true?
+// Otherwise getCurrentActivity may end up loading lazy-loaded shards just to check
+// their activity, which is redundant on a cold shard?
 func (o *nodeWideMetricsObserver) observeActivity() {
 	start := time.Now()
 	current := o.getCurrentActivity()
@@ -300,5 +315,133 @@ func (o *nodeWideMetricsObserver) Usage(filter tenantactivity.UsageFilter) tenan
 		return o.lastTenantUsage
 	default:
 		return o.lastTenantUsage
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Vector dimensions tracking
+// ----------------------------------------------------------------------------
+
+// Start a goroutine to collect vector dimension/segment metrics from the shards,
+// and publish them at a regular interval. Only call this method in the constructor,
+// as it does not guard access with locks.
+// If vector dimension tracking is disabled, this method is a no-op: no goroutine will
+// be started and the "done" channel stays nil.
+func (o *nodeWideMetricsObserver) observeDimensionMetrics() {
+	enterrors.GoWrapper(func() {
+		interval := config.DefaultTrackVectorDimensionsInterval
+		if o.db.config.TrackVectorDimensionsInterval > 0 { // duration must be > 0, or time.Timer will panic
+			interval = o.db.config.TrackVectorDimensionsInterval
+		}
+
+		// This is a low-priority background process, which is not time-sensitive.
+		// Some downstream calls require a context, so we create one, but we needn't
+		// manage it beyond making sure it doesn't leak.
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		o.publishVectorMetrics(ctx)
+
+		tick := time.NewTicker(interval)
+		defer tick.Stop()
+
+		for {
+			select {
+			case <-o.shutdown:
+				return
+			case <-tick.C:
+				o.publishVectorMetrics(ctx)
+			}
+		}
+	}, o.db.logger)
+}
+
+func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
+	// We're a low-priority process, copy the index map to avoid blocking others.
+	// No new indices can be added while we're holding the lock anyways.
+	o.db.indexLock.RLock()
+	indices := make(map[string]*Index, len(o.db.indices))
+	maps.Copy(indices, o.db.indices)
+	o.db.indexLock.RUnlock()
+
+	var total DimensionMetrics
+
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		o.db.logger.WithFields(logrus.Fields{
+			"action":           "observe_node_wide_metrics",
+			"took":             took,
+			"total_dimensions": total.Uncompressed,
+			"total_segments":   total.Compressed,
+			"publish_grouped":  o.db.promMetrics.Group,
+		}).Debug("published vector metrics")
+	}()
+
+	for _, index := range indices {
+		index.closeLock.RLock()
+		if index.closed {
+			continue
+		}
+		index.closeLock.RUnlock()
+
+		className := index.Config.ClassName.String()
+
+		// Avoid loading cold shards, as it may create I/O spikes.
+		index.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
+			dim := calculateShardDimensionMetrics(ctx, sl)
+			total = total.Add(dim)
+
+			// Report metrics per-shard if grouping is disabled.
+			if !o.db.promMetrics.Group {
+				o.sendVectorDimensions(className, shardName, dim)
+			}
+			return nil
+		})
+	}
+
+	// Report aggregate metrics for the node if grouping is enabled.
+	if o.db.promMetrics.Group {
+		o.sendVectorDimensions("n/a", "n/a", total)
+	}
+}
+
+// Set vector_dimensions=DimensionMetrics.Uncompressed and vector_segments=DimensionMetrics.Compressed gauges.
+func (o *nodeWideMetricsObserver) sendVectorDimensions(className, shardName string, dm DimensionMetrics) {
+	if g, err := o.db.promMetrics.VectorDimensionsSum.GetMetricWithLabelValues(className, shardName); err == nil {
+		g.Set(float64(dm.Uncompressed))
+	}
+
+	if g, err := o.db.promMetrics.VectorSegmentsSum.GetMetricWithLabelValues(className, shardName); err == nil {
+		g.Set(float64(dm.Compressed))
+	}
+}
+
+// Calculate total vector dimensions for all vector indices in the shard's parent Index.
+func calculateShardDimensionMetrics(ctx context.Context, sl ShardLike) DimensionMetrics {
+	var total DimensionMetrics
+	for name, config := range sl.Index().GetVectorIndexConfigs() {
+		dim := calcVectorDimensionMetrics(ctx, sl, name, config)
+		total = total.Add(dim)
+	}
+	return total
+}
+
+// Calculate vector dimensions for a vector index in a shard.
+func calcVectorDimensionMetrics(ctx context.Context, sl ShardLike, vecName string, vecCfg schemaConfig.VectorIndexConfig) DimensionMetrics {
+	switch category, segments := GetDimensionCategory(vecCfg); category {
+	case DimensionCategoryPQ:
+		return DimensionMetrics{Uncompressed: 0, Compressed: sl.QuantizedDimensions(ctx, vecName, segments)}
+	case DimensionCategoryBQ:
+		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
+		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
+		// Roundup is required because BQ packs bits into uint64 blocks - you can't have
+		// a partial uint64 block. Even 1 dimension needs a full 8-byte uint64 block.
+		count, _ := sl.Dimensions(ctx, vecName)
+		bytes := (count + 63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
+		return DimensionMetrics{Uncompressed: 0, Compressed: bytes}
+	default:
+		count, _ := sl.Dimensions(ctx, vecName)
+		return DimensionMetrics{Uncompressed: count, Compressed: 0}
 	}
 }
