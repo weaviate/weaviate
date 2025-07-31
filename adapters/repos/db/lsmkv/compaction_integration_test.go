@@ -16,6 +16,7 @@ package lsmkv
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,7 +42,7 @@ type bucketIntegrationTests []bucketIntegrationTest
 
 func (tests bucketIntegrationTests) run(ctx context.Context, t *testing.T) {
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s_no_checksum", test.name), func(t *testing.T) {
 			test.opts = append(test.opts, WithSegmentsChecksumValidationEnabled(false))
 			t.Run("mmap", func(t *testing.T) {
 				test.f(ctx, t, test.opts)
@@ -50,6 +51,14 @@ func (tests bucketIntegrationTests) run(ctx context.Context, t *testing.T) {
 				test.f(ctx, t, append([]BucketOption{WithPread(true)}, test.opts...))
 			})
 		})
+
+		t.Run(fmt.Sprintf("%s_checksum", test.name), func(t *testing.T) {
+			test.opts = append(test.opts, WithSegmentsChecksumValidationEnabled(true))
+			t.Run("mmap", func(t *testing.T) {
+				test.f(ctx, t, test.opts)
+			})
+		})
+
 	}
 }
 
@@ -478,10 +487,15 @@ func assertSingleSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, ex
 	}
 	require.Len(t, dbFiles, 1)
 
+	if bucket.enableChecksumValidation {
+		expectedMinSize += segmentindex.ChecksumSize
+		expectedMaxSize += segmentindex.ChecksumSize
+	}
+
 	fi, err := os.Stat(dbFiles[0])
 	require.NoError(t, err)
 	assert.LessOrEqual(t, expectedMinSize, fi.Size())
-	assert.GreaterOrEqual(t, expectedMaxSize+segmentindex.ChecksumSize, fi.Size())
+	assert.GreaterOrEqual(t, expectedMaxSize, fi.Size())
 }
 
 func assertSecondSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, expectedMaxSize int64) {
