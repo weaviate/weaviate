@@ -395,7 +395,7 @@ func (l *LazyLoadShard) drop() error {
 
 		// cleanup dimensions
 		if idx.Config.TrackVectorDimensions {
-			clearDimensionMetrics(l.shardOpts.promMetrics, className, shardName)
+			l.shard.clearDimensionMetrics()
 		}
 
 		// cleanup index checkpoints
@@ -502,11 +502,6 @@ func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (in
 func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
 	l.mustLoad()
 	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
-}
-
-func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
-	l.mustLoad()
-	l.shard.publishDimensionMetrics(ctx)
 }
 
 func (l *LazyLoadShard) resetDimensionsLSM() error {
