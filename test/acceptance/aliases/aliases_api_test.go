@@ -363,7 +363,10 @@ func Test_AliasesAPI(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, objWithAlias)
 			assert.Equal(t, objWithClassName.ID, objWithAlias.ID)
-			assert.Equal(t, aliasName, objWithAlias.Class)
+
+			// no matter how the object is accessed(via collection name or alias name),
+			// returned JSON should have original class name as source of truth.
+			assert.Equal(t, books.DefaultClassName, objWithAlias.Class)
 		}
 
 		t.Run("create class with alias name", func(t *testing.T) {
