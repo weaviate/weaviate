@@ -231,51 +231,6 @@ func (_c *MockVectorIndex_AddMultiBatch_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
-// AlreadyIndexed provides a mock function with no fields
-func (_m *MockVectorIndex) AlreadyIndexed() uint64 {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for AlreadyIndexed")
-	}
-
-	var r0 uint64
-	if rf, ok := ret.Get(0).(func() uint64); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(uint64)
-	}
-
-	return r0
-}
-
-// MockVectorIndex_AlreadyIndexed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AlreadyIndexed'
-type MockVectorIndex_AlreadyIndexed_Call struct {
-	*mock.Call
-}
-
-// AlreadyIndexed is a helper method to define mock.On call
-func (_e *MockVectorIndex_Expecter) AlreadyIndexed() *MockVectorIndex_AlreadyIndexed_Call {
-	return &MockVectorIndex_AlreadyIndexed_Call{Call: _e.mock.On("AlreadyIndexed")}
-}
-
-func (_c *MockVectorIndex_AlreadyIndexed_Call) Run(run func()) *MockVectorIndex_AlreadyIndexed_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockVectorIndex_AlreadyIndexed_Call) Return(_a0 uint64) *MockVectorIndex_AlreadyIndexed_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockVectorIndex_AlreadyIndexed_Call) RunAndReturn(run func() uint64) *MockVectorIndex_AlreadyIndexed_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // Compressed provides a mock function with no fields
 func (_m *MockVectorIndex) Compressed() bool {
 	ret := _m.Called()

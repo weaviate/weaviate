@@ -348,8 +348,14 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 		slice = make([]byte, len(vectorBQ)*8)
 		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
 	}
-	newCount := atomic.LoadUint64(&index.count)
-	atomic.StoreUint64(&index.count, newCount+1)
+
+	for {
+		oldCount := atomic.LoadUint64(&index.count)
+		if atomic.CompareAndSwapUint64(&index.count, oldCount, oldCount+1) {
+			break
+		}
+	}
+
 	return nil
 }
 
