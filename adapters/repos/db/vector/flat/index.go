@@ -1043,10 +1043,6 @@ func (index *flat) QueryMultiVectorDistancer(queryVector [][]float32) common.Que
 	return common.QueryVectorDistancer{}
 }
 
-func (index *flat) Stats() (common.IndexStats, error) {
-	return &FlatStats{}, errors.New("Stats() is not implemented for flat index")
-}
-
 func (index *flat) Type() common.IndexType {
 	return common.IndexTypeFlat
 }
@@ -1054,12 +1050,6 @@ func (index *flat) Type() common.IndexType {
 func (index *flat) CompressionStats() compressionhelpers.CompressionStats {
 	// Flat index doesn't have detailed compression stats, return uncompressed stats
 	return compressionhelpers.UncompressedStats{}
-}
-
-type FlatStats struct{}
-
-func (s *FlatStats) IndexType() common.IndexType {
-	return common.IndexTypeFlat
 }
 
 func (h *flat) ShouldUpgrade() (bool, int) {

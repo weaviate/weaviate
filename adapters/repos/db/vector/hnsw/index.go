@@ -967,7 +967,7 @@ func (s *HnswStats) IndexType() common.IndexType {
 	return common.IndexTypeHNSW
 }
 
-func (h *hnsw) Stats() (common.IndexStats, error) {
+func (h *hnsw) Stats() (*HnswStats, error) {
 	h.RLock()
 	defer h.RUnlock()
 	distributionLayers := map[int]uint{}
