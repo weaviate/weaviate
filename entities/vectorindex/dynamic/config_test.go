@@ -58,6 +58,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 							Type:         hnsw.DefaultPQEncoderType,
 							Distribution: hnsw.DefaultPQEncoderDistribution,
 						},
+						RescoreLimit: hnsw.DefaultPQRescoreLimit,
 					},
 					SQ: hnsw.SQConfig{
 						Enabled:       hnsw.DefaultSQEnabled,
@@ -68,6 +69,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Enabled:      hnsw.DefaultRQEnabled,
 						Bits:         hnsw.DefaultRQBits,
 						RescoreLimit: hnsw.DefaultRQRescoreLimit,
+					},
+					BQ: hnsw.BQConfig{
+						Enabled:      hnsw.DefaultBQEnabled,
+						RescoreLimit: hnsw.DefaultBQRescoreLimit,
 					},
 					FilterStrategy: hnsw.DefaultFilterStrategy,
 					Multivector: hnsw.MultivectorConfig{
@@ -131,6 +136,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 							Type:         hnsw.DefaultPQEncoderType,
 							Distribution: hnsw.DefaultPQEncoderDistribution,
 						},
+						RescoreLimit: hnsw.DefaultPQRescoreLimit,
 					},
 					SQ: hnsw.SQConfig{
 						Enabled:       hnsw.DefaultSQEnabled,
@@ -141,6 +147,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Enabled:      hnsw.DefaultRQEnabled,
 						Bits:         hnsw.DefaultRQBits,
 						RescoreLimit: hnsw.DefaultRQRescoreLimit,
+					},
+					BQ: hnsw.BQConfig{
+						Enabled:      hnsw.DefaultBQEnabled,
+						RescoreLimit: hnsw.DefaultBQRescoreLimit,
 					},
 					FilterStrategy: hnsw.DefaultFilterStrategy,
 					Multivector: hnsw.MultivectorConfig{
@@ -224,6 +234,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 							Type:         hnsw.DefaultPQEncoderType,
 							Distribution: hnsw.DefaultPQEncoderDistribution,
 						},
+						RescoreLimit: hnsw.DefaultPQRescoreLimit,
 					},
 					SQ: hnsw.SQConfig{
 						Enabled:       hnsw.DefaultSQEnabled,
@@ -234,6 +245,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Enabled:      hnsw.DefaultRQEnabled,
 						Bits:         hnsw.DefaultRQBits,
 						RescoreLimit: hnsw.DefaultRQRescoreLimit,
+					},
+					BQ: hnsw.BQConfig{
+						Enabled:      hnsw.DefaultBQEnabled,
+						RescoreLimit: hnsw.DefaultBQRescoreLimit,
 					},
 					FilterStrategy: hnsw.FilterStrategyAcorn,
 					Multivector: hnsw.MultivectorConfig{
@@ -292,6 +307,12 @@ func Test_DynamicUserConfig(t *testing.T) {
 						"cache":        true,
 					},
 				},
+				"hnsw": map[string]interface{}{
+					"bq": map[string]interface{}{
+						"enabled":      true,
+						"rescoreLimit": float64(99),
+					},
+				},
 			},
 			expected: UserConfig{
 				Distance:  common.DefaultDistanceMetric,
@@ -317,6 +338,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 							Type:         hnsw.DefaultPQEncoderType,
 							Distribution: hnsw.DefaultPQEncoderDistribution,
 						},
+						RescoreLimit: hnsw.DefaultPQRescoreLimit,
 					},
 					SQ: hnsw.SQConfig{
 						Enabled:       hnsw.DefaultSQEnabled,
@@ -327,6 +349,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Enabled:      hnsw.DefaultRQEnabled,
 						Bits:         hnsw.DefaultRQBits,
 						RescoreLimit: hnsw.DefaultRQRescoreLimit,
+					},
+					BQ: hnsw.BQConfig{
+						Enabled:      true,
+						RescoreLimit: 99,
 					},
 					FilterStrategy: hnsw.DefaultFilterStrategy,
 					Multivector: hnsw.MultivectorConfig{
