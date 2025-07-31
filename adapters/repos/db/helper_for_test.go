@@ -230,23 +230,12 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 	metricsCopy := *metrics
 	metricsCopy.Registerer = monitoring.NoopRegisterer
 
-	shardState := singleShardState()
-	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	db, err := New(logrus.New(), "node1", Config{
+	db, err := New(logrus.New(), Config{
 		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, metrics, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 
 	db.SetSchemaGetter(&fakeSchemaGetter{

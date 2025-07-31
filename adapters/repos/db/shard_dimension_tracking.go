@@ -110,7 +110,7 @@ func (dm DimensionMetrics) Add(add DimensionMetrics) DimensionMetrics {
 
 // Set shard's vector_dimensions_sum and vector_segments_sum metrics to 0.
 func (s *Shard) clearDimensionMetrics() {
-	if s.promMetrics == nil {
+	if s.index.metrics.baseMetrics == nil || s.index.metrics.baseMetrics.Group {
 		return
 	}
 	clearDimensionMetrics(s.index.Config, s.promMetrics, s.index.Config.ClassName.String(), s.name)
