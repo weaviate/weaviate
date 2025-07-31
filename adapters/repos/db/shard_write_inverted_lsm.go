@@ -299,7 +299,7 @@ func (s *Shard) resetDimensionsLSM() error {
 	)
 	if err != nil {
 		//Attempt to load the old format bucket
-		err := s.store.CreateOrLoadBucket(context.Background(),
+		s.store.CreateOrLoadBucket(context.Background(),
 			helpers.DimensionsBucketLSM,
 			s.memtableDirtyConfig(),
 			lsmkv.WithStrategy(lsmkv.StrategyReplace),
@@ -312,15 +312,13 @@ func (s *Shard) resetDimensionsLSM() error {
 			lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
 			s.segmentCleanupConfig(),
 		)
-		if err != nil {
-			return fmt.Errorf("create dimensions bucket: %w", err)
-		}
+		//Doesn't matter if it's the wrong format, we will just create a new one
 	}
 
 	// Fetch the actual bucket
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
-		return errors.Errorf("resetDimensionsLSM: no bucket dimensions")
+		return errors.Errorf("resetDimensionsLSM: no dimensions bucket")
 	}
 
 	// Create random bucket name
