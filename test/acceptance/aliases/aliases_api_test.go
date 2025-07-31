@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -98,6 +99,11 @@ func Test_AliasesAPI(t *testing.T) {
 				name:  documents.Passage,
 				alias: &models.Alias{Alias: "AliasThatWillBeReplaced", Class: documents.Passage},
 			},
+			{
+				name: "create with different case",
+				// passing in `aliasThatCreated` but should transform into `AliasThatCreated`.
+				alias: &models.Alias{Alias: "aliasThatCreated", Class: documents.Passage},
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -107,7 +113,9 @@ func Test_AliasesAPI(t *testing.T) {
 				require.NotEmpty(t, resp.Aliases)
 				aliasCreated := false
 				for _, alias := range resp.Aliases {
-					if tt.alias.Alias == alias.Alias && tt.alias.Class == alias.Class {
+					expAlias := entschema.UppercaseClassName(tt.alias.Alias)
+					expClass := entschema.UppercaseClassName(tt.alias.Class)
+					if expAlias == alias.Alias && expClass == alias.Class {
 						aliasCreated = true
 					}
 				}
@@ -132,11 +140,17 @@ func Test_AliasesAPI(t *testing.T) {
 		resp := helper.GetAliases(t, nil)
 		require.NotNil(t, resp)
 		require.NotEmpty(t, resp.Aliases)
-		require.Equal(t, 7, len(resp.Aliases))
+		require.Equal(t, 8, len(resp.Aliases))
 	})
 
 	t.Run("get alias", func(t *testing.T) {
 		resp := helper.GetAlias(t, "BookAlias")
+		require.NotNil(t, resp)
+		require.Equal(t, "BookAlias", resp.Alias)
+	})
+
+	t.Run("get alias different case", func(t *testing.T) {
+		resp := helper.GetAlias(t, "bookAlias") // first letter is different case.
 		require.NotNil(t, resp)
 		require.Equal(t, "BookAlias", resp.Alias)
 	})
@@ -157,6 +171,20 @@ func Test_AliasesAPI(t *testing.T) {
 		checkAlias(t, aliasName, documents.Passage)
 		helper.UpdateAlias(t, aliasName, documents.Document)
 		checkAlias(t, aliasName, documents.Document)
+	})
+
+	t.Run("replace alias different case", func(t *testing.T) {
+		checkAlias := func(t *testing.T, aliasName, expectedClass string) {
+			resp := helper.GetAlias(t, aliasName)
+			require.NotNil(t, resp)
+			require.Equal(t, aliasName, resp.Alias)
+			require.Equal(t, expectedClass, resp.Class)
+		}
+		aliasName := "AliasThatWillBeReplaced"
+		dAliasName := "aliasThatWillBeReplaced" // same with first lower case
+		checkAlias(t, aliasName, documents.Document)
+		helper.UpdateAlias(t, dAliasName, documents.Passage)
+		checkAlias(t, aliasName, documents.Passage)
 	})
 
 	t.Run("replace non existing alias", func(t *testing.T) {
@@ -180,7 +208,7 @@ func Test_AliasesAPI(t *testing.T) {
 			require.Equal(t, expectedClass, resp.Class)
 		}
 		aliasName := "AliasThatWillBeReplaced"
-		checkAlias(t, aliasName, documents.Document)
+		checkAlias(t, aliasName, documents.Passage)
 		resp, err := helper.UpdateAliasWithReturn(t, aliasName, "errorCollection")
 		require.Error(t, err)
 		require.Nil(t, resp)
@@ -199,8 +227,20 @@ func Test_AliasesAPI(t *testing.T) {
 			require.NotEmpty(t, resp.Aliases)
 			require.Equal(t, count, len(resp.Aliases))
 		}
-		checkAliasesCount(t, 7)
+		checkAliasesCount(t, 8)
 		helper.DeleteAlias(t, "AliasThatWillBeReplaced")
+		checkAliasesCount(t, 7)
+	})
+
+	t.Run("delete alias different case", func(t *testing.T) {
+		checkAliasesCount := func(t *testing.T, count int) {
+			resp := helper.GetAliases(t, nil)
+			require.NotNil(t, resp)
+			require.NotEmpty(t, resp.Aliases)
+			require.Equal(t, count, len(resp.Aliases))
+		}
+		checkAliasesCount(t, 7)
+		helper.DeleteAlias(t, "aliasThatCreated") // note first letter is small
 		checkAliasesCount(t, 6)
 	})
 
