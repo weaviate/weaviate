@@ -648,7 +648,6 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 						tc.expectedDimensions = append(tc.expectedDimensions, expectDimPerShard)
 					}
 				}
-
 			}
 
 			// Publish metrics
