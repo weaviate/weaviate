@@ -145,8 +145,3 @@ func (s *SPFresh) ValidateBeforeInsert(vector []float32) error {
 
 	return nil
 }
-
-func (s *SPFresh) ContainsDoc(id uint64) bool {
-	v := s.VersionMap.Get(id)
-	return !v.Deleted() && v.Version() > 0
-}

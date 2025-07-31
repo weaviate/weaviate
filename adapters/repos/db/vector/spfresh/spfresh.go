@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 const (
@@ -136,6 +137,14 @@ func (s *SPFresh) Delete(ids ...uint64) error {
 	return nil
 }
 
+func (s *SPFresh) Type() common.IndexType {
+	return common.IndexTypeSPFresh
+}
+
+func (s *SPFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
+	return errors.New("UpdateUserConfig is not supported for the spfresh index")
+}
+
 func (s *SPFresh) Drop(ctx context.Context) error {
 	_ = s.Shutdown(ctx)
 	// Shard::drop will take care of handling store buckets
@@ -186,6 +195,15 @@ func (s *SPFresh) Compressed() bool {
 
 func (s *SPFresh) Multivector() bool {
 	return false
+}
+
+func (s *SPFresh) ContainsDoc(id uint64) bool {
+	v := s.VersionMap.Get(id)
+	return !v.Deleted() && v.Version() > 0
+}
+
+func (s *SPFresh) Iterate(fn func(id uint64) bool) {
+	s.Logger.Warn("Iterate is not implemented for SPFresh index")
 }
 
 // deduplicator is a simple structure to prevent duplicate values

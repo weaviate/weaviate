@@ -15,21 +15,27 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-func (s *SPFresh) Search(ctx context.Context, queryVector []byte, k int) ([]uint64, error) {
+func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	vector = distancer.Normalize(vector)
+
+	queryVector := s.Quantizer.Encode(vector)
+
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
 	candidateNum := max(k, s.UserConfig.InternalPostingCandidates)
 
 	centroids, err := s.SPTAG.Search(queryVector, candidateNum)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if len(centroids) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// compute the max distance to filter out candidates that are too far away
@@ -48,7 +54,7 @@ func (s *SPFresh) Search(ctx context.Context, queryVector []byte, k int) ([]uint
 	// read all the selected postings
 	postings, err := s.Store.MultiGet(ctx, selected)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	visited := s.visitedPool.Borrow()
@@ -75,11 +81,16 @@ func (s *SPFresh) Search(ctx context.Context, queryVector []byte, k int) ([]uint
 				continue
 			}
 
+			// skip vectors that are not in the allow list
+			if !allowList.Contains(v.ID) {
+				continue
+			}
+
 			visited.Visit(v.ID)
 
 			dist, err := s.SPTAG.ComputeDistance(v.Data, queryVector)
 			if err != nil {
-				return nil, errors.Wrapf(err, "failed to compute distance for vector %d", v.ID)
+				return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", v.ID)
 			}
 
 			q.Insert(v.ID, dist)
@@ -90,16 +101,18 @@ func (s *SPFresh) Search(ctx context.Context, queryVector []byte, k int) ([]uint
 		if postingSize < int(s.UserConfig.MinPostingSize) {
 			err = s.enqueueMerge(ctx, selected[i])
 			if err != nil {
-				return nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selected[i])
+				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selected[i])
 			}
 		}
 	}
 
 	results := make([]uint64, 0, q.Len())
+	dists := make([]float32, 0, q.Len())
 	for q.Len() > 0 {
 		item := q.Pop()
 		results = append(results, item.ID)
+		dists = append(dists, item.Dist)
 	}
 
-	return results, nil
+	return results, dists, nil
 }
