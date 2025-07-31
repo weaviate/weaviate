@@ -643,7 +643,7 @@ func setupDebugHandlers(appState *state.State) {
 
 		h, ok := vidx.(hnswStats)
 		if !ok {
-			w.WriteHeader(http.StatusNotImplemented)
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 

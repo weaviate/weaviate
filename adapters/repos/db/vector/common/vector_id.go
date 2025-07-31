@@ -23,9 +23,11 @@ import (
 
 type VectorIndex interface {
 	AddBatch(ctx context.Context, ids []uint64, vector [][]float32) error
-	AddMultiBatch(ctx context.Context, docIds []uint64, vectors [][][]float32) error
-
 	ValidateBeforeInsert(vector []float32) error
+}
+
+type VectorIndexMulti interface {
+	AddMultiBatch(ctx context.Context, docIds []uint64, vectors [][][]float32) error
 	ValidateMultiBeforeInsert(vector [][]float32) error
 }
 
@@ -55,7 +57,7 @@ func AddVectorsToIndex(ctx context.Context, vectors []VectorRecord, vectorIndex 
 			ids[i] = v.(*Vector[[][]float32]).ID
 			vecs[i] = v.(*Vector[[][]float32]).Vector
 		}
-		return vectorIndex.AddMultiBatch(ctx, ids, vecs)
+		return vectorIndex.(VectorIndexMulti).AddMultiBatch(ctx, ids, vecs)
 	default:
 		return fmt.Errorf("unexpected vector type %T", vectors[0])
 	}
@@ -91,7 +93,7 @@ func (v *Vector[T]) Validate(vectorIndex VectorIndex) error {
 	case []float32:
 		return vectorIndex.ValidateBeforeInsert(any(v.Vector).([]float32))
 	case [][]float32:
-		return vectorIndex.ValidateMultiBeforeInsert(any(v.Vector).([][]float32))
+		return vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(any(v.Vector).([][]float32))
 	default:
 		return fmt.Errorf("unexpected vector type %T", v.Vector)
 	}

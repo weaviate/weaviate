@@ -402,7 +402,7 @@ func (t *Task[T]) Execute(ctx context.Context) error {
 	case vectorIndexQueueInsertOp:
 		return t.idx.Add(ctx, t.id, any(t.vector).([]float32))
 	case vectorIndexQueueMultiInsertOp:
-		return t.idx.AddMulti(ctx, t.id, any(t.vector).([][]float32))
+		return t.idx.(VectorIndexMulti).AddMulti(ctx, t.id, any(t.vector).([][]float32))
 	case vectorIndexQueueDeleteOp, vectorIndexQueueMultiDeleteOp:
 		return t.idx.Delete(t.id)
 	}
@@ -452,7 +452,7 @@ func (t *TaskGroup[T]) Execute(ctx context.Context) error {
 	case vectorIndexQueueInsertOp:
 		return t.idx.AddBatch(ctx, t.ids, any(t.vectors).([][]float32))
 	case vectorIndexQueueMultiInsertOp:
-		return t.idx.AddMultiBatch(ctx, t.ids, any(t.vectors).([][][]float32))
+		return t.idx.(VectorIndexMulti).AddMultiBatch(ctx, t.ids, any(t.vectors).([][][]float32))
 	case vectorIndexQueueDeleteOp, vectorIndexQueueMultiDeleteOp:
 		return t.idx.Delete(t.ids...)
 	}
