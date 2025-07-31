@@ -390,7 +390,7 @@ func (l *LazyLoadShard) drop() error {
 
 		// cleanup dimensions
 		if idx.Config.TrackVectorDimensions {
-			l.shard.clearDimensionMetrics()
+			clearDimensionMetrics(l.shardOpts.promMetrics, className, shardName)
 		}
 
 		// cleanup index checkpoints
@@ -499,13 +499,14 @@ func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector st
 	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
 }
 
-func (l *LazyLoadShard) resetDimensionsLSM() error {
-	p := shardPathDimensionsLSM(l.Index().path(), l.Name())
-	if len(p) <=5 {
-		return fmt.Errorf("resetDimensionsLSM: invalid path %s", p)
-	}
+func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
+	l.mustLoad()
+	l.shard.publishDimensionMetrics(ctx)
+}
 
-	return os.RemoveAll(p)
+func (l *LazyLoadShard) resetDimensionsLSM() error {
+	l.mustLoad()
+	return l.shard.resetDimensionsLSM()
 }
 
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {

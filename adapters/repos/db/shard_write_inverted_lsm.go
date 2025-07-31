@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"os"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -299,34 +298,13 @@ func (s *Shard) resetDimensionsLSM() error {
 		s.segmentCleanupConfig(),
 	)
 	if err != nil {
-		//Attempt to load the old format bucket
-		s.store.CreateOrLoadBucket(context.Background(),
-			helpers.DimensionsBucketLSM,
-			s.memtableDirtyConfig(),
-			lsmkv.WithStrategy(lsmkv.StrategyReplace),
-			lsmkv.WithPread(s.index.Config.AvoidMMap),
-			lsmkv.WithAllocChecker(s.index.allocChecker),
-			lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-			lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
-			lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
-			lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
-			lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
-			s.segmentCleanupConfig(),
-		)
-		//Doesn't matter if it's the wrong format, we will just create a new one
+		return fmt.Errorf("create dimensions bucket: %w", err)
 	}
 
 	// Fetch the actual bucket
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
-		// Ensure the bucket directory is clear
-		p := shardPathDimensionsLSM(s.Index().path(), s.Name())
-		if len(p) <= 5 {
-			return fmt.Errorf("resetDimensionsLSM: invalid path %s", p)
-		}
-
-		return os.RemoveAll(p)
-		return errors.Errorf("resetDimensionsLSM: no dimensions bucket")
+		return errors.Errorf("resetDimensionsLSM: no bucket dimensions")
 	}
 
 	// Create random bucket name
