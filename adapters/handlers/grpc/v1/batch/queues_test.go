@@ -49,7 +49,7 @@ func TestHandler(t *testing.T) {
 		howMany := handler.Send(ctx, req)
 
 		// Assert
-		require.Equal(t, int64(1), howMany, "Expected to send one object")
+		require.Equal(t, int32(1), howMany, "Expected to send one object")
 
 		// Verify that the write queue has the object
 		obj := <-writeQueue
