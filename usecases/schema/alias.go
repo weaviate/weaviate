@@ -60,6 +60,11 @@ func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
 	alias.Class = schema.UppercaseClassName(alias.Class)
 	alias.Alias = schema.UppercaseClassName(alias.Alias)
 
+	err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Aliases(alias.Class, alias.Alias)...)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	// alias should have same validation as collection.
 	al, err := schema.ValidateAliasName(alias.Alias)
 	if err != nil {
@@ -67,10 +72,6 @@ func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
 	}
 	alias.Alias = al
 
-	err = h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Aliases(alias.Class, alias.Alias)...)
-	if err != nil {
-		return nil, 0, err
-	}
 	class := h.schemaReader.ReadOnlyClass(alias.Class)
 	version, err := h.schemaManager.CreateAlias(ctx, alias.Alias, class)
 	if err != nil {
