@@ -68,6 +68,7 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 		ApiEndpoint: icheck.ApiEndpoint(),
 		ProjectID:   icheck.ProjectID(),
 		Model:       icheck.ModelID(),
+		Dimensions:  icheck.Dimensions(),
 	}, titlePropertyValue)
 	if err != nil {
 		return nil, err

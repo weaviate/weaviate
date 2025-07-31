@@ -55,14 +55,15 @@ const (
 
 // ValidateClassName validates that this string is a valid class name (format wise)
 func ValidateClassName(name string) (ClassName, error) {
-	if len(name) > classNameMaxLength {
-		return "", fmt.Errorf("'%s' is not a valid class name. Name should not be longer than %d characters",
-			name, classNameMaxLength)
+	c, err := validateClassOrAliasName(name, false)
+	if err != nil {
+		return "", err
 	}
-	if !validateClassNameRegex.MatchString(name) {
-		return "", fmt.Errorf("'%s' is not a valid class name", name)
-	}
-	return ClassName(name), nil
+	return ClassName(c), nil
+}
+
+func ValidateAliasName(name string) (string, error) {
+	return validateClassOrAliasName(name, true)
 }
 
 // ValidateClassNameIncludesRegex validates that this string is a valid class name (format wise)
@@ -76,6 +77,22 @@ func ValidateClassNameIncludesRegex(name string) (ClassName, error) {
 		return "", fmt.Errorf("'%s' is not a valid class name", name)
 	}
 	return ClassName(name), nil
+}
+
+func validateClassOrAliasName(name string, isAlias bool) (string, error) {
+	typ := "class"
+	if isAlias {
+		typ = "alias"
+	}
+
+	if len(name) > classNameMaxLength {
+		return "", fmt.Errorf("'%s' is not a valid %s name. Name should not be longer than %d characters",
+			name, typ, classNameMaxLength)
+	}
+	if !validateClassNameRegex.MatchString(name) {
+		return "", fmt.Errorf("'%s' is not a valid %s name", name, typ)
+	}
+	return name, nil
 }
 
 // ValidateTenantName validates that this string is a valid tenant name (format wise)

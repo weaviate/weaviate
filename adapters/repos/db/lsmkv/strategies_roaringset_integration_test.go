@@ -20,6 +20,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -31,6 +32,7 @@ func TestRoaringSetStrategy(t *testing.T) {
 			f:    roaringsetInsertAndSetAdd,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 			},
 		},
 	}
@@ -66,20 +68,23 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			err = b.RoaringSetAddList(key3, orig3)
 			require.Nil(t, err)
 
-			res, err := b.RoaringSetGet(key1)
-			require.Nil(t, err)
+			res, release, err := b.RoaringSetGet(key1)
+			require.NoError(t, err)
+			defer release()
 			for _, testVal := range orig1 {
 				assert.True(t, res.Contains(testVal))
 			}
 
-			res, err = b.RoaringSetGet(key2)
-			require.Nil(t, err)
+			res, release, err = b.RoaringSetGet(key2)
+			require.NoError(t, err)
+			defer release()
 			for _, testVal := range orig2 {
 				assert.True(t, res.Contains(testVal))
 			}
 
-			res, err = b.RoaringSetGet(key3)
-			require.Nil(t, err)
+			res, release, err = b.RoaringSetGet(key3)
+			require.NoError(t, err)
+			defer release()
 			for _, testVal := range orig3 {
 				assert.True(t, res.Contains(testVal))
 			}
@@ -94,20 +99,23 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			err = b.RoaringSetRemoveOne(key3, removal3)
 			require.Nil(t, err)
 
-			res, err := b.RoaringSetGet(key1)
-			require.Nil(t, err)
+			res, release, err := b.RoaringSetGet(key1)
+			require.NoError(t, err)
+			defer release()
 			for _, testVal := range []uint64{1, 2} { // unchanged values
 				assert.True(t, res.Contains(testVal))
 			}
 
-			res, err = b.RoaringSetGet(key2)
-			require.Nil(t, err)
+			res, release, err = b.RoaringSetGet(key2)
+			require.NoError(t, err)
+			defer release()
 			for _, testVal := range []uint64{3, 4, 5} { // extended with 5
 				assert.True(t, res.Contains(testVal))
 			}
 
-			res, err = b.RoaringSetGet(key3)
-			require.Nil(t, err)
+			res, release, err = b.RoaringSetGet(key3)
+			require.NoError(t, err)
+			defer release()
 			for _, testVal := range []uint64{6} { // fewer remain
 				assert.True(t, res.Contains(testVal))
 			}
@@ -143,20 +151,23 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			err = b.RoaringSetAddList(key3, orig3)
 			require.Nil(t, err)
 
-			res, err := b.RoaringSetGet(key1)
-			require.Nil(t, err)
+			res, release, err := b.RoaringSetGet(key1)
+			require.NoError(t, err)
+			defer release()
 			for _, testVal := range orig1 {
 				assert.True(t, res.Contains(testVal))
 			}
 
-			res, err = b.RoaringSetGet(key2)
-			require.Nil(t, err)
+			res, release, err = b.RoaringSetGet(key2)
+			require.NoError(t, err)
+			defer release()
 			for _, testVal := range orig2 {
 				assert.True(t, res.Contains(testVal))
 			}
 
-			res, err = b.RoaringSetGet(key3)
-			require.Nil(t, err)
+			res, release, err = b.RoaringSetGet(key3)
+			require.NoError(t, err)
+			defer release()
 			for _, testVal := range orig3 {
 				assert.True(t, res.Contains(testVal))
 			}
@@ -175,20 +186,23 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			err = b.RoaringSetRemoveOne(key3, removal3)
 			require.Nil(t, err)
 
-			res, err := b.RoaringSetGet(key1)
-			require.Nil(t, err)
+			res, release, err := b.RoaringSetGet(key1)
+			require.NoError(t, err)
+			defer release()
 			for _, testVal := range []uint64{1, 2} { // unchanged values
 				assert.True(t, res.Contains(testVal))
 			}
 
-			res, err = b.RoaringSetGet(key2)
-			require.Nil(t, err)
+			res, release, err = b.RoaringSetGet(key2)
+			require.NoError(t, err)
+			defer release()
 			for _, testVal := range []uint64{3, 4, 5} { // extended with 5
 				assert.True(t, res.Contains(testVal))
 			}
 
-			res, err = b.RoaringSetGet(key3)
-			require.Nil(t, err)
+			res, release, err = b.RoaringSetGet(key3)
+			require.NoError(t, err)
+			defer release()
 			for _, testVal := range []uint64{6} { // fewer remain
 				assert.True(t, res.Contains(testVal))
 			}

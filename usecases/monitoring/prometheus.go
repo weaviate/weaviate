@@ -57,6 +57,7 @@ type PrometheusMetrics struct {
 	LSMSegmentSize                      *prometheus.GaugeVec
 	LSMMemtableSize                     *prometheus.GaugeVec
 	LSMMemtableDurations                *prometheus.SummaryVec
+	LSMBitmapBuffersUsage               *prometheus.CounterVec
 	ObjectCount                         *prometheus.GaugeVec
 	QueriesCount                        *prometheus.GaugeVec
 	RequestsTotal                       *prometheus.GaugeVec
@@ -501,6 +502,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "lsm_memtable_durations_ms",
 			Help: "Time in ms for a bucket operation to complete",
 		}, []string{"strategy", "class_name", "shard_name", "path", "operation"}),
+		LSMBitmapBuffersUsage: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "lsm_bitmap_buffers_usage",
+			Help: "Number of bitmap buffers used by size",
+		}, []string{"size", "operation"}),
 		FileIOWrites: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "file_io_writes_total_bytes",
 			Help: "Total number of bytes written to disk",
