@@ -364,6 +364,19 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 	o.db.indexLock.RUnlock()
 
 	var total DimensionMetrics
+
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		o.db.logger.WithFields(logrus.Fields{
+			"action":           "observe_node_wide_metrics",
+			"took":             took,
+			"total_dimensions": total.Uncompressed,
+			"total_segments":   total.Compressed,
+			"publish_grouped":  o.db.promMetrics.Group,
+		}).Debug("published vector metrics")
+	}()
+
 	for _, index := range indices {
 		index.closeLock.RLock()
 		if index.closed {
@@ -391,11 +404,10 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 			// TODO(dyma): getTotalDimensionMetrics should be an interface method,
 			// then we wouldn't need the type-assertion above.
 			dim := shard.getTotalDimensionMetrics(ctx)
+			total = total.Add(dim)
 
-			// Aggregate metrics instead of reporting them per-shard if grouping is enabled.
-			if o.db.promMetrics.Group {
-				total = total.Add(dim)
-			} else {
+			// Report metrics per-shard if grouping is disabled.
+			if !o.db.promMetrics.Group {
 				o.sendVectorDimensions(className, shardName, dim)
 			}
 			return nil
