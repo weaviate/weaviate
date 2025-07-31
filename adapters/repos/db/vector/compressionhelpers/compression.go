@@ -673,7 +673,7 @@ func NewRQCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
 	default:
-		return nil, errors.New("invalid bits value, only 8 bits are supported")
+		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
 	}
 
 	return rqVectorsCompressor, nil
@@ -728,7 +728,7 @@ func RestoreRQCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
 	default:
-		return nil, errors.New("invalid bits value, only 8 bits are supported")
+		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
 	}
 
 	return rqVectorsCompressor, nil
@@ -772,7 +772,7 @@ func NewRQMultiCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
 	default:
-		return nil, errors.New("invalid bits value, only 8 bits are supported")
+		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
 	}
 
 	return rqVectorsCompressor, nil
@@ -827,7 +827,7 @@ func RestoreRQMultiCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
 	default:
-		return nil, errors.New("invalid bits value, only 8 bits are supported")
+		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
 	}
 
 	return rqVectorsCompressor, nil
