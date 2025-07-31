@@ -26,6 +26,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 )
@@ -483,7 +484,7 @@ func TestRoaringSetStrategy_RecoverFromWAL(t *testing.T) {
 	t.Run("without prior state", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyRoaringSet))
+			WithStrategy(StrategyRoaringSet), WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 		require.Nil(t, err)
 
 		key1 := []byte("test1-key-1")
@@ -502,16 +503,19 @@ func TestRoaringSetStrategy_RecoverFromWAL(t *testing.T) {
 			err = b.RoaringSetAddList(key3, orig3)
 			require.NoError(t, err)
 
-			bm1, err := b.RoaringSetGet(key1)
+			bm1, release, err := b.RoaringSetGet(key1)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, orig1, bm1.ToArray())
 
-			bm2, err := b.RoaringSetGet(key2)
+			bm2, release, err := b.RoaringSetGet(key2)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, orig2, bm2.ToArray())
 
-			bm3, err := b.RoaringSetGet(key3)
+			bm3, release, err := b.RoaringSetGet(key3)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, orig3, bm3.ToArray())
 		})
 
@@ -547,16 +551,19 @@ func TestRoaringSetStrategy_RecoverFromWAL(t *testing.T) {
 				33, // newly added
 			} // 32 deleted
 
-			bm1, err := b.RoaringSetGet(key1)
+			bm1, release, err := b.RoaringSetGet(key1)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, expected1, bm1.ToArray())
 
-			bm2, err := b.RoaringSetGet(key2)
+			bm2, release, err := b.RoaringSetGet(key2)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, expected2, bm2.ToArray())
 
-			bm3, err := b.RoaringSetGet(key3)
+			bm3, release, err := b.RoaringSetGet(key3)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, expected3, bm3.ToArray())
 		})
 
@@ -583,7 +590,7 @@ func TestRoaringSetStrategy_RecoverFromWAL(t *testing.T) {
 		t.Run("create new bucket from existing state", func(t *testing.T) {
 			b, err := NewBucketCreator().NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(StrategyRoaringSet))
+				WithStrategy(StrategyRoaringSet), WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 			require.Nil(t, err)
 
 			bRec = b
@@ -601,16 +608,19 @@ func TestRoaringSetStrategy_RecoverFromWAL(t *testing.T) {
 				33, // newly added
 			} // 32 deleted
 
-			bm1, err := bRec.RoaringSetGet(key1)
+			bm1, release, err := bRec.RoaringSetGet(key1)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, expected1, bm1.ToArray())
 
-			bm2, err := bRec.RoaringSetGet(key2)
+			bm2, release, err := bRec.RoaringSetGet(key2)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, expected2, bm2.ToArray())
 
-			bm3, err := bRec.RoaringSetGet(key3)
+			bm3, release, err := bRec.RoaringSetGet(key3)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, expected3, bm3.ToArray())
 		})
 	})
