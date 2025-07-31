@@ -11,6 +11,8 @@
 
 package compressionhelpers
 
+import "math/bits"
+
 var l2SquaredByteImpl func(a, b []byte) uint32 = func(a, b []byte) uint32 {
 	var sum uint32
 
@@ -30,4 +32,12 @@ var dotByteImpl func(a, b []uint8) uint32 = func(a, b []byte) uint32 {
 	}
 
 	return sum
+}
+
+var hammingBitwiseImpl func(a, b []uint64) float32 = func(a, b []uint64) float32 {
+	total := float32(0)
+	for segment := range a {
+		total += float32(bits.OnesCount64(a[segment] ^ b[segment]))
+	}
+	return total
 }

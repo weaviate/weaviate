@@ -356,16 +356,14 @@ func (rq *RQNeighborProvider) NearestNeighbors(q []float32, k int) []int {
 
 // End of rotational quantization
 
-type BRQSettings struct {
-	QueryBits int
-}
+type BRQSettings struct{}
 
 func (s *BRQSettings) BitsPerDimension() float64 {
 	return 1.0
 }
 
 func (s *BRQSettings) Description() string {
-	return fmt.Sprintf("BRQ(%d,1)", s.QueryBits)
+	return "BRQ"
 }
 
 type BRQNeighborProvider struct {
@@ -376,7 +374,7 @@ type BRQNeighborProvider struct {
 
 func NewBRQNeighborProvider(data [][]float32, settings BRQSettings, distance distancer.Provider) *BRQNeighborProvider {
 	d := len(data[0])
-	quantizer := compressionhelpers.NewBinaryRotationalQuantizer(d, settings.QueryBits, 42, distance)
+	quantizer := compressionhelpers.NewBinaryRotationalQuantizer(d, 42, distance)
 
 	quantizedData := make([][]uint64, len(data))
 	for i, v := range data {
@@ -460,22 +458,21 @@ func BenchmarkQuantizationRecall(b *testing.B) {
 		{Name: "glove-200-angular", Distance: distancer.NewCosineDistanceProvider()},
 
 		// Smaller OpenAI datasets
-		{Name: "dbpedia-100k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		// {Name: "dbpedia-100k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
 		// {Name: "dbpedia-100k-openai-ada002-angular", Distance: distancer.NewCosineDistanceProvider()},
 		// {Name: "dbpedia-100k-openai-3large-dot", Distance: distancer.NewDotProductProvider()},
 
 		// Bigger datasets
-		// {Name: "dbpedia-500k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
-		// {Name: "dbpedia-openai-1000k-angular", Distance: distancer.NewCosineDistanceProvider()},
-		// {Name: "sphere-1M-meta-dpr", Distance: distancer.NewDotProductProvider()},
+		{Name: "dbpedia-500k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		{Name: "dbpedia-openai-1000k-angular", Distance: distancer.NewCosineDistanceProvider()},
+		//{Name: "sphere-1M-meta-dpr", Distance: distancer.NewDotProductProvider()},
 		// {Name: "snowflake-msmarco-arctic-embed-m-v1.5-angular", Distance: distancer.NewCosineDistanceProvider()},
 	}
 
 	algorithms := []QuantizationSettings{
 		&BQSettings{},
-		&BRQSettings{QueryBits: 4},
-		&BRQSettings{QueryBits: 6},
-		&BRQSettings{QueryBits: 8},
+		&BRQSettings{},
+		&PQSettings{SegmentLength: 8, Centroids: 256, TrainingSize: 10_000},
 	}
 
 	maxVectors := 100_000
