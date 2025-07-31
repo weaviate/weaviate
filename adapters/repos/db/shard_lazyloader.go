@@ -22,16 +22,17 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -468,40 +469,114 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
-func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (usagetypes.Dimensionality, error) {
-	l.mutex.Lock()
-	if l.loaded {
-		l.mutex.Unlock()
+func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, int64, int64, error) {
+	if l.isLoaded() {
 		return l.shard.DimensionsUsage(ctx, targetVector)
 	}
-	l.mutex.Unlock()
-
-	// For unloaded shards, use the unloaded shard/tenant calculation method
-	// This avoids loading the shard into memory
-	return l.shardOpts.index.CalculateUnloadedDimensionsUsage(ctx, l.shardOpts.name, targetVector)
-}
-
-func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
-	l.mutex.Lock()
-	if l.loaded {
-		l.mutex.Unlock()
-		return l.shard.Dimensions(ctx, targetVector)
+	b, err := l.getDimensionsBucket()
+	if err != nil {
+		return 0, 0, 0, 0,err
 	}
-	l.mutex.Unlock()
+	defer b.Shutdown(ctx)
 
-	// For unloaded shards, get dimensions from unloaded shard/tenant calculation
-	dimensionality, err := l.shardOpts.index.CalculateUnloadedDimensionsUsage(ctx, l.shardOpts.name, targetVector)
-	return dimensionality.Count, err
+	dimensions, count := calcTargetVectorDimensionsFromBucket(b, targetVector, func(dimLen int, v int64) (int64, int64) {
+		return v, int64(dimLen)
+	})
+
+	dims, comp, segs := discountDimensions(dimensions, count, l.Index().GetVectorIndexConfig(targetVector))
+
+
+	return dims, count, comp, segs, err
 }
 
-func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
-	l.mustLoad()
-	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
+func (l *LazyLoadShard) Dimensions(ctx context.Context, compressionType DimensionCategory) (int64, error) {
+	if l.isLoaded() {
+		return l.shard.Dimensions(ctx, compressionType)
+	}
+	b, err := l.getDimensionsBucket()
+	if err != nil {
+		return 0, err
+	}
+	defer b.Shutdown(ctx)
+
+	dimensions, count, err := sumByVectorType(b, l.Index().GetVectorIndexConfigs(), compressionType, func(dimLen int, v int64) (int64, int64) {
+		return v, int64(dimLen)
+	})
+	if err != nil {
+		return 0, errors.Wrapf(err, "calculate dimensions for shard %s", l.Name())
+	}
+
+	return dimensions * count, nil
+}
+
+func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int64) int64 {
+	if l.isLoaded() {
+		return l.shard.QuantizedDimensions(ctx, targetVector, segments)
+	}
+	b, err := l.getDimensionsBucket()
+	if err != nil {
+		l.shardOpts.index.logger.WithField("shard", l.Name()).
+			Errorf("error while getting dimensions bucket for shard %s: %v", l.Name(), err)
+		return -1
+	}
+	defer b.Shutdown(ctx)
+		var comp int64
+	for vecName, _ := range l.Index().GetVectorIndexConfigs() {
+		_ ,count, compressed, _, err := l.DimensionsUsage(ctx, vecName)
+		if err != nil {
+			l.Index().logger.Errorf("failed to get dimensions usage for vector %q: %v", vecName, err)
+			return -1
+		}
+		comp += compressed*count
+	}
+	return comp
+}
+
+func (l *LazyLoadShard) getDimensionsBucket() (*lsmkv.Bucket, error) {
+	path := l.Index().path()
+	bucket, err := lsmkv.NewBucketCreator().NewBucket(context.Background(),
+		shardPathDimensionsLSM(path, l.Name()),
+		path,
+		l.Index().logger,
+		nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return bucket, nil
 }
 
 func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
-	l.mustLoad()
-	l.shard.publishDimensionMetrics(ctx)
+	if l.isLoaded() {
+		l.shard.publishDimensionMetrics(ctx)
+		return
+	}
+	if l.shardOpts.promMetrics != nil {
+		var (
+			className = l.Index().Config.ClassName.String()
+			shardName = l.Name()
+		)
+
+		// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled
+		if l.shardOpts.promMetrics.Group {
+			className = "n/a"
+			shardName = "n/a"
+		}
+
+		b, err := l.getDimensionsBucket()
+		if err != nil {
+			l.shardOpts.index.logger.WithField("shard", l.Name()).
+				Errorf("error while getting dimensions bucket for shard %s: %v", l.Name(), err)
+			return
+		}
+		defer b.Shutdown(ctx)
+
+		sumDimensions, _, sumSegments := sumAllDimensionsInBucket(ctx, b, l.Index().GetVectorIndexConfigs())
+		sendVectorSegmentsMetric(l.shardOpts.promMetrics, className, shardName, sumSegments) // sumSegments is the sum of segments, count is the number of vectors
+		sendVectorDimensionsMetric(l.shardOpts.promMetrics, className, shardName, sumDimensions)
+	}
 }
 
 func (l *LazyLoadShard) resetDimensionsLSM() error {
@@ -804,5 +879,39 @@ func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) (int64, error) {
 
 	// For unloaded shards, use the existing cold tenant calculation method
 	// This avoids complex disk file calculations and uses the same logic as the index
-	return l.shardOpts.index.CalculateUnloadedVectorsMetrics(ctx, l.shardOpts.name)
+	totalSize := int64(0)
+
+	// For each target vector, calculate storage size using dimensions bucket and config-based compression
+	for targetVector, config := range l.Index().GetVectorIndexConfigs() {
+		// Get dimensions and object count from the dimensions bucket
+		bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
+			shardPathDimensionsLSM(l.Index().path(), l.Name()),
+			l.Index().path(),
+			l.Index().logger,
+			nil,
+			cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(),
+		)
+		if err != nil {
+			return 0, err
+		}
+		defer bucket.Shutdown(ctx)
+
+		dimensions, count := calcTargetVectorDimensionsFromBucket(bucket, targetVector, func(dimLen int, v int64) (int64, int64) {
+			return v, int64(dimLen)
+		})
+
+		if count == 0 || dimensions == 0 {
+			continue
+		}
+
+		// Calculate uncompressed size (float32 = 4 bytes per dimension)
+		uncompressedSize := int64(count) * int64(dimensions) * 4
+
+		// For inactive tenants, use vector index config for dimension tracking
+		// This is similar to the original shard dimension tracking approach
+		totalSize += int64(float64(uncompressedSize) * helpers.CompressionRatioFromConfig(config, dimensions))
+	}
+
+	return totalSize, nil
 }

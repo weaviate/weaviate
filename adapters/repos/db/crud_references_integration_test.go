@@ -516,27 +516,28 @@ func getDimensionsFromRepo(ctx context.Context, repo *DB, className string) int 
 		return 0
 	}
 	index := repo.GetIndex(schema.ClassName(className))
-	sum := 0
+	sum := int64(0)
 	index.ForEachShard(func(name string, shard ShardLike) error {
-		dim, err := shard.Dimensions(ctx, "")
+		dim, err := shard.Dimensions(ctx, DimensionCategoryAll)
 		if err != nil {
 			return err
 		}
 		sum += dim
 		return nil
 	})
-	return sum
+	return int(sum)
 }
 
-func GetQuantizedDimensionsFromRepo(ctx context.Context, repo *DB, className string, segments int) int {
+func GetQuantizedDimensionsFromRepo(ctx context.Context, repo *DB, className string, segments int64) int64 {
 	if !repo.config.TrackVectorDimensions {
-		log.Printf("Vector dimensions tracking is disabled, returning 0")
-		return 0
+		log.Printf("Vector dimensions tracking is disabled, returning -1")
+		return -1
 	}
+
 	index := repo.GetIndex(schema.ClassName(className))
-	sum := 0
+	sum := int64(0)
 	index.ForEachShard(func(name string, shard ShardLike) error {
-		sum += shard.QuantizedDimensions(ctx, "", segments)
+		sum += shard.QuantizedDimensions(ctx, className, segments)
 		return nil
 	})
 	return sum

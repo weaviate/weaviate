@@ -167,7 +167,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 						indexType = vectorIndexConfig.IndexType()
 					}
 
-					dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
+					dimensionality, count, _, err := shard.DimensionsUsage(ctx, targetVector)
 					if err != nil {
 						return err
 					}
@@ -182,14 +182,14 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 						Compression:            category.String(),
 						VectorIndexType:        indexType,
 						IsDynamic:              common.IsDynamic(common.IndexType(indexType)),
-						VectorCompressionRatio: vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions),
+						VectorCompressionRatio: vectorIndex.CompressionStats().CompressionRatio(dimensionality),
 					}
 
 					// Only add dimensionalities if there's valid data
-					if dimensionality.Count > 0 || dimensionality.Dimensions > 0 {
+					if count > 0 || dimensionality > 0 {
 						vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &types.Dimensionality{
-							Dimensions: dimensionality.Dimensions,
-							Count:      dimensionality.Count,
+							Dimensions: dimensionality,
+							Count:      count,
 						})
 					}
 

@@ -71,7 +71,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			dims := int(h.dims)
 
 			if cfg.PQ.Segments <= 0 {
-				cfg.PQ.Segments = common.CalculateOptimalSegments(dims)
+				cfg.PQ.Segments = int(common.CalculateOptimalSegments(int64(dims)))
 				h.pqConfig.Segments = cfg.PQ.Segments
 			}
 

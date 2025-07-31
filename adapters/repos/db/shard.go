@@ -33,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -142,11 +141,11 @@ type ShardLike interface {
 	abortReplication(context.Context, string) replica.SimpleResponse
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
-	// Dimensions returns the total number of dimensions for a given vector
-	Dimensions(ctx context.Context, targetVector string) (int, error)
-	// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
-	DimensionsUsage(ctx context.Context, targetVector string) (usagetypes.Dimensionality, error)
-	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
+	// Dimensions returns the total number of dimensions for a given vector type
+	Dimensions(ctx context.Context, compressionType DimensionCategory) (int64, error)
+	// DimensionsUsage returns the total number of dimensions, the number of objects, and the compressed dimensions for a given vector
+	DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, int64, int64, error)
+	QuantizedDimensions(ctx context.Context, targetVector string, segments int64) int64
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
 	publishDimensionMetrics(ctx context.Context)
@@ -439,32 +438,12 @@ func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {
 // This ensures we get accurate counts regardless of cache size or shard state
 // This method is only called for active tenants, so we can always use direct vector index compression.
 func (s *Shard) VectorStorageSize(ctx context.Context) (int64, error) {
-	totalSize := int64(0)
-
-	// Iterate over all vector indexes to calculate storage size for both default and targeted vectors
-	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		// Get dimensions and object count from the dimensions bucket for this specific target vector
-		dimensionality := calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
-			return len(v), dimLen
-		})
-
-		if dimensionality.Count == 0 || dimensionality.Dimensions == 0 {
-			return nil
-		}
-
-		// Calculate uncompressed size (float32 = 4 bytes per dimension)
-		uncompressedSize := int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
-
-		// For active tenants, always use the direct vector index compression rate
-		compressionRate := index.CompressionStats().CompressionRatio(dimensionality.Dimensions)
-
-		// Calculate total size using actual compression rate
-		totalSize += int64(float64(uncompressedSize) * compressionRate)
-
-		return nil
-	}); err != nil {
-		return 0, err
+	totalSize, err := s.Dimensions(ctx, DimensionCategoryAll)
+	if err != nil {
+		return 0, fmt.Errorf("calculating vector storage size: %w", err)
 	}
+	// The total size is the number of dimensions multiplied by the size of float32
+	totalSize *= 4 // float32 size in bytes
 
 	return totalSize, nil
 }
@@ -523,4 +502,18 @@ func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueInd
 
 func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) {
 	s.callbacksRemoveFromPropertyValueIndex = append(s.callbacksRemoveFromPropertyValueIndex, callback)
+}
+
+func (s *Shard) QuantizedDimensions(ctx context.Context, targetVectorType string, segments int64) int64 {
+	var comp int64
+	for vecName, _ := range s.Index().GetVectorIndexConfigs() {
+		_ , count, compressed, _, err := s.DimensionsUsage(ctx, vecName)
+		if err != nil {
+			s.index.logger.Errorf("failed to get dimensions usage for vector %q: %v", vecName, err)
+			return -1
+		}
+		comp += compressed * count
+	}
+	return comp
+
 }
