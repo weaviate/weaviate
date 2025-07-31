@@ -14,6 +14,7 @@ package test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -135,6 +136,34 @@ func Test_AliasesAPI(t *testing.T) {
 		helper.DeleteClass(t, documents.Passage)
 		helper.DeleteClass(t, documents.Document)
 	}()
+
+	t.Run("create alias with invalid char", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			input string
+		}{
+			{name: "symbols1", input: "invalid_alias_!#"},
+			{name: "symbols2", input: "invalid_alias_@"},
+			{name: "symbols3", input: "!invalid_alias_@"},
+			{name: "symbols4", input: "#invalid_alias_*"},
+			{name: "empty", input: ""},
+			{name: "maxlength", input: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, // more than max 255 chars
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				alias := &models.Alias{Class: books.DefaultClassName, Alias: "valid_alias_!#"}
+				p := schema.NewAliasesCreateParams().WithBody(alias)
+				resp, err := helper.Client(t).Schema.AliasesCreate(p, nil)
+				require.Error(t, err)
+				assert.Nil(t, resp)
+				var cerr *schema.AliasesCreateUnprocessableEntity
+				ok := errors.As(err, &cerr) // convert to concrete error type
+				assert.True(t, ok)
+				assert.Contains(t, cerr.Payload.Error[0].Message, "is not a valid alias name")
+			})
+		}
+	})
 
 	t.Run("get aliases", func(t *testing.T) {
 		resp := helper.GetAliases(t, nil)
