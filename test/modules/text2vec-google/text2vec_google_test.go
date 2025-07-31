@@ -25,13 +25,15 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 	return func(t *testing.T) {
 		helper.SetupClient(rest)
 		// Data
+		dimensions768 := 768
 		data := companies.Companies
 		className := "VectorizerTest"
 		class := companies.BaseClass(className)
 		tests := []struct {
-			name     string
-			model    string
-			taskType string
+			name       string
+			model      string
+			dimensions *int
+			taskType   string
 		}{
 			{
 				name:  "textembedding-gecko@latest",
@@ -54,6 +56,11 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 				model: "gemini-embedding-001",
 			},
 			{
+				name:       "gemini-embedding-001 with 768 dimensions",
+				model:      "gemini-embedding-001",
+				dimensions: &dimensions768,
+			},
+			{
 				name:     "text-embedding-005 with FACT_VERIFICATION taskType",
 				model:    "text-embedding-005",
 				taskType: "FACT_VERIFICATION",
@@ -62,19 +69,22 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				// Define class
-				vectorizerConfig := map[string]any{
+				vectorizerSettings := map[string]any{
 					"properties":         []any{"description"},
 					"vectorizeClassName": false,
 					"projectId":          gcpProject,
 					"modelId":            tt.model,
 				}
+				if tt.dimensions != nil {
+					vectorizerSettings["dimensions"] = *tt.dimensions
+				}
 				if tt.taskType != "" {
-					vectorizerConfig["taskType"] = tt.taskType
+					vectorizerSettings["taskType"] = tt.taskType
 				}
 				class.VectorConfig = map[string]models.VectorConfig{
 					"description": {
 						Vectorizer: map[string]any{
-							vectorizerName: vectorizerConfig,
+							vectorizerName: vectorizerSettings,
 						},
 						VectorIndexType: "flat",
 					},
@@ -95,6 +105,9 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 							require.Len(t, obj.Vectors, 1)
 							require.IsType(t, []float32{}, obj.Vectors["description"])
 							assert.True(t, len(obj.Vectors["description"].([]float32)) > 0)
+							if tt.dimensions != nil {
+								assert.Equal(t, *tt.dimensions, len(obj.Vectors["description"].([]float32)))
+							}
 						})
 					}
 				})

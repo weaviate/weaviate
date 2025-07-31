@@ -15,5 +15,6 @@ type VectorizationConfig struct {
 	ApiEndpoint string
 	ProjectID   string
 	Model       string
+	Dimensions  *int64
 	TaskType    string
 }

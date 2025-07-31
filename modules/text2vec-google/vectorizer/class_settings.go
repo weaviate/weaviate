@@ -27,6 +27,7 @@ const (
 	modelIDProperty     = "modelId"
 	modelProperty       = "model"
 	titleProperty       = "titleProperty"
+	dimensionsProperty  = "dimensions"
 	taskTypeProperty    = "taskType"
 )
 
@@ -152,6 +153,10 @@ func (ic *classSettings) Model() string {
 
 func (ic *classSettings) TitleProperty() string {
 	return ic.getStringProperty(titleProperty, "")
+}
+
+func (ic *classSettings) Dimensions() *int64 {
+	return ic.GetPropertyAsInt64(dimensionsProperty, nil)
 }
 
 func (ic *classSettings) TaskType() string {

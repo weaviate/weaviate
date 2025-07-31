@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
@@ -153,7 +152,7 @@ func (v *google) useGenerativeAIEndpoint(config ent.VectorizationConfig) bool {
 
 func (v *google) getPayload(useGenerativeAI bool, input []string,
 	taskType taskType, title string, config ent.VectorizationConfig,
-) interface{} {
+) any {
 	if useGenerativeAI {
 		if v.isLegacy(config) {
 			return batchEmbedTextRequestLegacy{Texts: input}
@@ -169,23 +168,22 @@ func (v *google) getPayload(useGenerativeAI bool, input []string,
 					Content: content{
 						Parts: parts,
 					},
-					TaskType: taskType,
-					Title:    title,
+					TaskType:             taskType,
+					Title:                title,
+					OutputDimensionality: config.Dimensions,
 				},
 			},
 		}
 		return req
 	}
-	isModelVersion001 := strings.HasSuffix(config.Model, "@001")
 	instances := make([]instance, len(input))
 	for i := range input {
-		if isModelVersion001 {
-			instances[i] = instance{Content: input[i]}
-		} else {
-			instances[i] = instance{Content: input[i], TaskType: taskType, Title: title}
-		}
+		instances[i] = instance{Content: input[i], TaskType: taskType, Title: title}
 	}
-	return embeddingsRequest{instances}
+	if config.Dimensions != nil {
+		return embeddingsRequest{Instances: instances, Parameters: &parameters{OutputDimensionality: config.Dimensions}}
+	}
+	return embeddingsRequest{Instances: instances}
 }
 
 func (v *google) checkResponse(statusCode int, googleApiError *googleApiError) error {
@@ -325,7 +323,12 @@ func isLegacyModel(model string) bool {
 }
 
 type embeddingsRequest struct {
-	Instances []instance `json:"instances,omitempty"`
+	Instances  []instance  `json:"instances,omitempty"`
+	Parameters *parameters `json:"parameters,omitempty"`
+}
+
+type parameters struct {
+	OutputDimensionality *int64 `json:"outputDimensionality,omitempty"`
 }
 
 type instance struct {
@@ -380,10 +383,11 @@ type batchEmbedContents struct {
 }
 
 type embedContentRequest struct {
-	Model    string   `json:"model"`
-	Content  content  `json:"content"`
-	TaskType taskType `json:"task_type,omitempty"`
-	Title    string   `json:"title,omitempty"`
+	Model                string   `json:"model"`
+	Content              content  `json:"content"`
+	TaskType             taskType `json:"taskType,omitempty"`
+	Title                string   `json:"title,omitempty"`
+	OutputDimensionality *int64   `json:"outputDimensionality,omitempty"`
 }
 
 type content struct {
