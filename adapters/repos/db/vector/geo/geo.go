@@ -44,7 +44,6 @@ type vectorIndex interface {
 	KnnSearchByVectorMaxDist(ctx context.Context, query []float32, dist float32, ef int,
 		allowList helpers.AllowList) ([]uint64, error)
 	Delete(id ...uint64) error
-	Dump(...string)
 	Drop(ctx context.Context) error
 	PostStartup()
 }

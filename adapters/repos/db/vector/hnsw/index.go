@@ -740,10 +740,6 @@ func (h *hnsw) Entrypoint() uint64 {
 	return h.entryPointID
 }
 
-func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, error) {
-	return h.distancerProvider.SingleDist(x, y)
-}
-
 func (h *hnsw) ContainsDoc(docID uint64) bool {
 	if h.Multivector() && !h.muvera.Load() {
 		h.RLock()
@@ -826,10 +822,6 @@ func (h *hnsw) iterateMulti(fn func(docID uint64) bool) {
 	}
 }
 
-func (h *hnsw) DistancerProvider() distancer.Provider {
-	return h.distancerProvider
-}
-
 func (h *hnsw) ShouldUpgrade() (bool, int) {
 	if h.sqConfig.Enabled {
 		return h.sqConfig.Enabled, h.sqConfig.TrainingLimit
@@ -865,11 +857,6 @@ func (h *hnsw) Upgraded() bool {
 
 func (h *hnsw) AlreadyIndexed() uint64 {
 	return uint64(h.cache.CountVectors())
-}
-
-func (h *hnsw) GetKeys(id uint64) (uint64, uint64, error) {
-	docID, relativeID := h.cache.GetKeys(id)
-	return docID, relativeID, nil
 }
 
 func (h *hnsw) normalizeVec(vec []float32) []float32 {
@@ -980,7 +967,7 @@ func (s *HnswStats) IndexType() common.IndexType {
 	return common.IndexTypeHNSW
 }
 
-func (h *hnsw) Stats() (common.IndexStats, error) {
+func (h *hnsw) Stats() (*HnswStats, error) {
 	h.RLock()
 	defer h.RUnlock()
 	distributionLayers := map[int]uint{}

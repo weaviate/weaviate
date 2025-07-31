@@ -341,9 +341,7 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 		assert.LessOrEqual(t, alreadyRunningCount, 1, "Expected at most one 'already running' error")
 		stats, err := vectorIndex.Stats()
 		require.Nil(t, err)
-		hnswStats, ok := stats.(*HnswStats)
-		require.True(t, ok)
-		assert.Equal(t, 0, hnswStats.NumTombstones, "Expected no tombstones after cleanup")
+		assert.Equal(t, 0, stats.NumTombstones, "Expected no tombstones after cleanup")
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {

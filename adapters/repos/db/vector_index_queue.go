@@ -257,6 +257,7 @@ type upgradableIndexer interface {
 	Upgraded() bool
 	Upgrade(callback func()) error
 	ShouldUpgrade() (bool, int)
+	AlreadyIndexed() uint64
 }
 
 // triggers compression if the index is ready to be upgraded
@@ -271,7 +272,7 @@ func (iq *VectorIndexQueue) checkCompressionSettings() (skip bool) {
 		return false
 	}
 
-	if iq.vectorIndex.AlreadyIndexed() > uint64(shouldUpgradeAt) {
+	if ci.AlreadyIndexed() > uint64(shouldUpgradeAt) {
 		iq.scheduler.PauseQueue(iq.DiskQueue.ID())
 
 		err := ci.Upgrade(func() {
