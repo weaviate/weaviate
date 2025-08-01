@@ -818,12 +818,12 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			if object.Object.LastUpdateTimeUnix > resetTime {
 				// Skip objects that were updated after the reset time, they will be handled elsewhere
-				m.logger.WithField("action", "reindex").Debugf("skipping object %v with last update time %d after reset time %d",
+				m.logger.WithField("action", "reindex").Infof("skipping object %v with last update time %d after reset time %d",
 					object.DocID, object.Object.LastUpdateTimeUnix, resetTime)
 				// Continue with the next object, but log the skip
 				return nil
 			}
-			m.logger.WithField("action", "reindex").Debugf("reindexing object %v with last update time %d",
+			m.logger.WithField("action", "reindex").Infof("reindexing object %v with last update time %d",
 				object.DocID, object.Object.LastUpdateTimeUnix)
 			// Reindex the object
 			count = count + 1
