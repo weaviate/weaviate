@@ -30,7 +30,7 @@ func TestClassSettings(t *testing.T) {
 			}},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "")
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
 		ic := NewClassSettings(cfg)
 
 		assert.True(t, ic.PropertyIndexed("someProp"))
@@ -72,7 +72,7 @@ func TestClassSettings(t *testing.T) {
 			}},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "")
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
 		ic := NewClassSettings(cfg)
 
 		assert.True(t, ic.PropertyIndexed("someProp"))
@@ -101,7 +101,7 @@ func TestClassSettings(t *testing.T) {
 			}},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "")
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
 		ic := NewClassSettings(cfg)
 
 		assert.False(t, ic.PropertyIndexed("someProp"))
@@ -142,7 +142,7 @@ func TestClassSettings(t *testing.T) {
 			},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", targetVector)
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", targetVector, nil)
 		ic := NewClassSettings(cfg)
 
 		assert.True(t, ic.PropertyIndexed(propertyToIndex))
@@ -188,7 +188,7 @@ func TestClassSettings(t *testing.T) {
 			}},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "withInferenceUrl")
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "withInferenceUrl", nil)
 		ic := NewClassSettings(cfg)
 
 		assert.False(t, ic.PropertyIndexed("someProp"))
@@ -199,7 +199,7 @@ func TestClassSettings(t *testing.T) {
 		assert.Empty(t, ic.PassageInferenceURL())
 		assert.Empty(t, ic.QueryInferenceURL())
 
-		cfg = modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "withPassageAndQueryInferenceUrl")
+		cfg = modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "withPassageAndQueryInferenceUrl", nil)
 		ic = NewClassSettings(cfg)
 
 		assert.False(t, ic.PropertyIndexed("someProp"))
@@ -307,7 +307,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				}},
 			}
 
-			cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "namedVector")
+			cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "namedVector", nil)
 			ic := NewClassSettings(cfg)
 			err := ic.Validate(class)
 			if tt.wantErr != nil {

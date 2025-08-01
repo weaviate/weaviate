@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -163,5 +164,9 @@ func (f fakeClassConfig) Properties() []string {
 }
 
 func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
+}
+
+func (f fakeClassConfig) Config() *config.Config {
 	return nil
 }
