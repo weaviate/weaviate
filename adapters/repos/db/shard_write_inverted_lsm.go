@@ -378,6 +378,21 @@ func (s *Shard) addToDimensionBucket(
 	if err := b.Put(keybuff, countbuff); err != nil {
 		return errors.Wrapf(err, "add dimension bucket: set key %s", string(countbuff))
 	}
+
+	objCount_byte, _ := b.Get([]byte("cnt")) //If it doesn't exist, it will be created
+
+	objCount := binary.LittleEndian.Uint64(objCount_byte)
+	if tombstone {
+		objCount = objCount - 1
+	} else {
+		objCount = objCount + 1
+	}
+	binary.LittleEndian.PutUint64(objCount_byte, objCount)
+	if err := b.Put([]byte("cnt"), objCount_byte); err != nil {
+		return fmt.Errorf("failed to put object count in dimensions bucket: %w", err)
+	}
+	return nil
+
 	return nil
 }
 
