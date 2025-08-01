@@ -20,13 +20,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -47,18 +51,28 @@ func Benchmark_Migration(b *testing.B) {
 				schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 				shardState: shardState,
 			}
-			repo, err := New(logger, Config{
+			mockSchemaReader := schemaTypes.NewMockSchemaReader(b)
+			mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+			mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+			mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(b)
+			mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+			mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+			mockNodeSelector := cluster.NewMockNodeSelector(b)
+			mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+			mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+			repo, err := New(logger, "node1", Config{
 				RootPath:                  dirName,
 				QueryMaximumResults:       1000,
 				MaxImportGoroutinesFactor: 1,
 				TrackVectorDimensions:     true,
-			}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+			}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+				mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 			require.Nil(b, err)
 			repo.SetSchemaGetter(schemaGetter)
 			require.Nil(b, repo.WaitForStartup(testCtx()))
 			defer repo.Shutdown(context.Background())
 
-			migrator := NewMigrator(repo, logger)
+			migrator := NewMigrator(repo, logger, "node1")
 
 			class := &models.Class{
 				Class:               "Test",
@@ -112,18 +126,28 @@ func Test_Migration(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       1000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("set schema", func(t *testing.T) {
 		class := &models.Class{
@@ -180,18 +204,28 @@ func Test_DimensionTracking(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, monitoring.GetMetrics(), memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("set schema", func(t *testing.T) {
 		class := &models.Class{

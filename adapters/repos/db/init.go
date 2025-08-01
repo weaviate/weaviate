@@ -81,9 +81,11 @@ func (db *DB) init(ctx context.Context) error {
 			}
 
 			shardingState := db.schemaGetter.CopyShardingState(class.Class)
+			collection := schema.ClassName(class.Class).String()
+			multiTenancyEnabled := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 			indexRouter := router.NewBuilder(
-				schema.ClassName(class.Class).String(),
-				shardingState.PartitioningEnabled,
+				collection,
+				multiTenancyEnabled,
 				db.nodeSelector,
 				db.schemaGetter,
 				db.schemaReader,

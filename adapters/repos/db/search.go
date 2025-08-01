@@ -40,7 +40,8 @@ import (
 )
 
 func (db *DB) Aggregate(ctx context.Context,
-	params aggregation.Params, modules *modules.Provider,
+	params aggregation.Params,
+	modules *modules.Provider,
 ) (*aggregation.Result, error) {
 	start := time.Now()
 	defer func() {
@@ -57,7 +58,7 @@ func (db *DB) Aggregate(ctx context.Context,
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
 
-	return idx.aggregate(ctx, params, modules)
+	return idx.aggregate(ctx, nil, params, modules, params.Tenant)
 }
 
 func (db *DB) GetQueryMaximumResults() int {

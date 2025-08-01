@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -146,6 +148,9 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return(tt.shardName).Maybe()
 			mockSchema.EXPECT().ShardOwner(tt.className, tt.shardName).Maybe().Return("test-node", nil)
 
+			mockRouter := types.NewMockRouter(t)
+			mockRouter.EXPECT().GetWriteReplicasLocation(tt.className, mock.Anything, tt.shardName).
+				Return(types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "110.12.15.23"}}}, nil).Maybe()
 			// Create index
 			index, err := NewIndex(ctx, IndexConfig{
 				RootPath:              dirName,
@@ -291,6 +296,10 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return(tenantName).Maybe()
 	mockSchema.EXPECT().ShardOwner(className, tenantName).Maybe().Return("test-node", nil)
 	mockSchema.EXPECT().TenantsShards(ctx, className, tenantName).Maybe().Return(map[string]string{tenantName: models.TenantActivityStatusHOT}, nil)
+
+	mockRouter := types.NewMockRouter(t)
+	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, tenantName).
+		Return(types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "test-node", ShardName: tenantName, HostAddr: "110.12.15.23"}}}, nil).Maybe()
 
 	// Create index with lazy loading disabled to test active calculation methods
 	index, err := NewIndex(ctx, IndexConfig{
