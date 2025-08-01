@@ -898,13 +898,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
 
-		// Add dimensions to all the objects in the database, if requested by the user
-	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && appState.DB.GetConfig().TrackVectorDimensions {
-		appState.Logger.
-			WithField("action", "startup").
-			Info("Reindexing dimensions")
-		appState.Migrator.RecalculateVectorDimensions(ctx)
-	}
 
 
 
@@ -989,6 +982,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				Errorf("failed to gracefully shutdown")
 		}
 	}
+
+
+			// Add dimensions to all the objects in the database, if requested by the user
+	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && appState.DB.GetConfig().TrackVectorDimensions {
+		appState.Logger.
+			WithField("action", "startup").
+			Info("Reindexing dimensions")
+		appState.Migrator.RecalculateVectorDimensions(ctx)
+	}
+
 
 	startGrpcServer(grpcServer, appState)
 

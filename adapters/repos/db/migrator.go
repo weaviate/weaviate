@@ -799,7 +799,16 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	m.db.indexLock.Lock()
 	defer m.db.indexLock.Unlock()
 
-	m.logger.WithField("action", "reindex").Infof("Found %v indexes to reindex", len(m.db.indices))
+	indices := m.db.indices
+	m.logger.WithField("action", "reindex").Infof("Found %v indexes to reindex", len(indices))
+
+	var classes []*models.Class
+	objects := m.db.schemaGetter.GetSchemaSkipAuth().Objects
+	if objects != nil {
+		classes = objects.Classes
+	}
+	m.logger.WithField("action", "reindex").Infof("Found %v classes to reindex", len(classes))
+
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
 		m.logger.WithField("action", "reindex").Infof("reindexing dimensions for index %q", index.ID())
