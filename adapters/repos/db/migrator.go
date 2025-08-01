@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"slices"
 	"time"
@@ -798,25 +799,83 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	m.db.indexLock.Lock()
 	defer m.db.indexLock.Unlock()
 
+	indices := m.db.indices
+	m.logger.WithField("action", "reindex").Infof("Found %v indexes to reindex", len(indices))
+
+	var classes []*models.Class
+	objects := m.db.schemaGetter.GetSchemaSkipAuth().Objects
+	if objects != nil {
+		classes = objects.Classes
+	}
+	m.logger.WithField("action", "reindex").Infof("Found %v classes to reindex", len(classes))
+
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
-		err := index.ForEachShard(func(name string, shard ShardLike) error {
-			return shard.resetDimensionsLSM()
-		})
-		if err != nil {
-			m.logger.WithField("action", "reindex").WithError(err).Warn("could not reset vector dimensions")
-			return err
-		}
+		m.logger.WithField("action", "reindex").Infof("reindexing dimensions for index %q", index.ID())
+		shards := index.ShardState().AllLocalPhysicalShards()
+		m.logger.WithField("action", "reindex").Infof("Found %v shards to reindex", len(shards))
+		err := index.ForEachPhysicalShard(func(name string, shard ShardLike) error {
+			// Iterate over all shards
+			m.logger.WithField("action", "reindex").Infof("resetting vector dimensions for shard %q", name)
+			err := shard.resetDimensionsLSM()
 
-		// Iterate over all shards
-		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
-			count = count + 1
-			return object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
-				if err = shard.extendDimensionTrackerLSM(dims, object.DocID, targetVector); err != nil {
-					return fmt.Errorf("failed to extend dimension tracker for vector %q: %w", targetVector, err)
-				}
+			if err != nil {
+				m.logger.WithField("action", "reindex").WithError(err).Warn("could not reset vector dimensions")
+				// If we cannot reset the dimensions, we skip this shard
 				return nil
+			}
+
+			resetTime := time.Now().UnixNano()
+
+			// TODO:  Run this in the background, so that the server can start
+
+
+			m.logger.WithField("action", "reindex").Infof("reindexing objects for shard %q", name)
+			return shard.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
+				if object.Object.LastUpdateTimeUnix > resetTime {
+					// Skip objects that were updated after the reset time, they will be handled elsewhere
+					m.logger.WithField("action", "reindex").Infof("skipping object %v with last update time %d after reset time %d",
+						object.DocID, object.Object.LastUpdateTimeUnix, resetTime)
+					// Continue with the next object, but log the skip
+					return nil
+				}
+				// Reindex the object
+				count = count + 1
+				b := shard.Store().Bucket(helpers.DimensionsBucketLSM)
+				if b == nil {
+					return fmt.Errorf("dimensions bucket %q not found for shard %q", helpers.DimensionsBucketLSM, shard.Name())
+				}
+				var objCount_byte []byte
+				// Update the object count in the dimensions bucket
+				objCount_byte, _ = b.Get([]byte("cnt")) //If it doesn't exist, it will be created
+
+				if len(objCount_byte) != 8 {
+					objCount_byte = make([]byte, 8)
+					binary.LittleEndian.PutUint64(objCount_byte, 0) // Initialize to 0 if not found
+				}
+
+				objCount := binary.LittleEndian.Uint64(objCount_byte)
+
+				objCount = objCount + 1
+
+				countBytesOut := make([]byte, 8)
+				binary.LittleEndian.PutUint64(countBytesOut, objCount)
+
+				if err := b.Put([]byte("cnt"), countBytesOut); err != nil {
+					return fmt.Errorf("failed to put object count in dimensions bucket: %w", err)
+				}
+				return object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
+					if err := shard.extendDimensionTrackerLSM(dims, object.DocID, targetVector); err != nil {
+						m.logger.WithField("action", "reindex").WithError(err).Warnf("could not extend vector dimensions for vector %q", targetVector)
+						// Continue with the next vector, but log the error
+						return nil
+					}
+
+					return nil
+
+				})
 			})
+
 		})
 		if err != nil {
 			m.logger.WithField("action", "reindex").WithError(err).Warn("could not extend vector dimensions")

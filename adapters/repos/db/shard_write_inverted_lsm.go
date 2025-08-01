@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
@@ -287,7 +288,7 @@ func (s *Shard) resetDimensionsLSM() error {
 	err := s.store.CreateOrLoadBucket(context.Background(),
 		helpers.DimensionsBucketLSM,
 		s.memtableDirtyConfig(),
-		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
@@ -349,20 +350,64 @@ func (s *Shard) addToDimensionBucket(
 		return errors.Errorf("add dimension bucket: no bucket dimensions")
 	}
 
-	tv := []byte(vecName)
-	// 8 bytes for doc id (map key)
-	// 4 bytes for dim count (row key)
-	// len(vecName) bytes for vector name (prefix of row key)
-	buf := make([]byte, 12+len(tv))
-	binary.LittleEndian.PutUint64(buf[:8], docID)
-	binary.LittleEndian.PutUint32(buf[8+len(tv):], uint32(dimLength))
-	copy(buf[8:], tv)
+	// Find the key, which is the target vector name and dimensionality, and the number of times it appears
+	keybuff := make([]byte, 4+len(vecName))
+	copy(keybuff[4:], vecName)
+	binary.LittleEndian.PutUint32(keybuff[:4], uint32(dimLength))
+	s.dimensionTrackingLock.Lock()
+	defer s.dimensionTrackingLock.Unlock()
+	countbuff_r, err := b.Get(keybuff)
+	if err != nil {
+		return err
+	}
+	countbuff := make([]byte, len(countbuff_r))
+	if countbuff_r == nil {
+		// if the bucket is empty, initialize the count to 0
+		countbuff = make([]byte, 8)
+		binary.LittleEndian.PutUint64(countbuff, 0)
+	} else {
+		copy(countbuff, countbuff_r)
+	}
+	count := binary.LittleEndian.Uint64(countbuff)
 
-	return b.MapSet(buf[8:], lsmkv.MapPair{
-		Key:       buf[:8],
-		Value:     []byte{},
-		Tombstone: tombstone,
-	})
+	// Update the count based on whether it's being created or deleted
+	if tombstone {
+		count = count - 1
+	} else {
+		count = count + 1
+	}
+
+	binary.LittleEndian.PutUint64(countbuff, count)
+	if err := b.Put(keybuff, countbuff); err != nil {
+		return errors.Wrapf(err, "add dimension bucket: set key %s", string(countbuff))
+	}
+
+	var objCount_byte []byte
+	// Update the object count in the dimensions bucket
+	objCount_byte, _ = b.Get([]byte("cnt")) //If it doesn't exist, it will be created
+	if err != nil {
+
+	}
+
+	if len(objCount_byte) != 8 {
+		objCount_byte = make([]byte, 8)
+		binary.LittleEndian.PutUint64(objCount_byte, 0) // Initialize to 0 if not found
+	}
+
+	objCount := binary.LittleEndian.Uint64(objCount_byte)
+
+	if tombstone {
+		objCount = objCount - 1
+	} else {
+		objCount = objCount + 1
+	}
+	countBytesOut := make([]byte, 8)
+	binary.LittleEndian.PutUint64(countBytesOut, objCount)
+
+	if err := b.Put([]byte("cnt"), countBytesOut); err != nil {
+		return fmt.Errorf("failed to put object count in dimensions bucket: %w", err)
+	}
+	return nil
 }
 
 func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
@@ -379,4 +424,14 @@ func isMetaCountProperty(property inverted.Property) bool {
 
 func isInternalProperty(property inverted.Property) bool {
 	return property.Name[0] == '_'
+}
+
+func (shard *Shard) IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) (err error) {
+
+	wrapper := func(object *storobj.Object) error {
+		return cb(shard.Index(), shard, object)
+	}
+	bucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
+	return bucket.IterateObjects(ctx, wrapper)
+
 }

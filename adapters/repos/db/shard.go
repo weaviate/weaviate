@@ -192,6 +192,9 @@ type ShardLike interface {
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
 	RepairIndex(ctx context.Context, targetVector string) error
+
+	// IterateObjects iterates over all objects in the shard and calls the callback for each object
+	IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) error
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
@@ -243,6 +246,10 @@ type Shard struct {
 	status              ShardStatus
 	statusLock          sync.RWMutex
 	propertyIndicesLock sync.RWMutex
+
+	stopDimensionTracking        chan struct{}
+	dimensionTrackingInitialized atomic.Bool
+	dimensionTrackingLock        sync.Mutex
 
 	centralJobQueue chan job // reference to queue used by all shards
 
@@ -439,8 +446,8 @@ func (s *Shard) VectorStorageSize(ctx context.Context) (int64, error) {
 	// Iterate over all vector indexes to calculate storage size for both default and targeted vectors
 	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// Get dimensions and object count from the dimensions bucket for this specific target vector
-		dimensionality := calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
-			return len(v), dimLen
+		dimensionality := calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, func(dimLen int, v int) (int, int) {
+			return v, dimLen
 		})
 
 		if dimensionality.Count == 0 || dimensionality.Dimensions == 0 {

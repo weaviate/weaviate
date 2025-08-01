@@ -505,7 +505,9 @@ func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector st
 }
 
 func (l *LazyLoadShard) resetDimensionsLSM() error {
-	l.mustLoad()
+	if err := l.Load(context.TODO()); err != nil {
+		return err
+	}
 	return l.shard.resetDimensionsLSM()
 }
 
@@ -805,4 +807,12 @@ func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) (int64, error) {
 	// For unloaded shards, use the existing cold tenant calculation method
 	// This avoids complex disk file calculations and uses the same logic as the index
 	return l.shardOpts.index.CalculateUnloadedVectorsMetrics(ctx, l.shardOpts.name)
+}
+
+func (l *LazyLoadShard) IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) (err error) {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+
+	return l.shard.IterateObjects(ctx, cb)
 }
