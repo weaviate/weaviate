@@ -838,8 +838,6 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 					// Continue with the next object, but log the skip
 					return nil
 				}
-				m.logger.WithField("action", "reindex").Infof("reindexing object %v with last update time %d",
-					object.DocID, object.Object.LastUpdateTimeUnix)
 				// Reindex the object
 				count = count + 1
 				b := shard.Store().Bucket(helpers.DimensionsBucketLSM)
