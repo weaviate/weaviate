@@ -349,6 +349,7 @@ func (s *Shard) addToDimensionBucket(
 		return errors.Errorf("add dimension bucket: no bucket dimensions")
 	}
 
+	// Find the key, which is the target vector name and dimensionality, and the number of times it appears
 	keybuff := make([]byte, 4+len(vecName))
 	copy(keybuff[4:], vecName)
 	binary.LittleEndian.PutUint32(keybuff[:4], uint32(dimLength))
@@ -368,6 +369,7 @@ func (s *Shard) addToDimensionBucket(
 	}
 	count := binary.LittleEndian.Uint64(countbuff)
 
+	// Update the count based on whether it's being created or deleted
 	if tombstone {
 		count = count - 1
 	} else {
@@ -379,9 +381,13 @@ func (s *Shard) addToDimensionBucket(
 		return errors.Wrapf(err, "add dimension bucket: set key %s", string(countbuff))
 	}
 
-	objCount_byte, _ := b.Get([]byte("cnt")) //If it doesn't exist, it will be created
+	// Update the object count in the dimensions bucket
+	objCount_byte, err := b.Get([]byte("cnt")) //If it doesn't exist, it will be created
 
-	objCount := binary.LittleEndian.Uint64(objCount_byte)
+	objCount := 0
+	if err == nil {
+		binary.LittleEndian.Uint64(objCount_byte)
+	}
 	if tombstone {
 		objCount = objCount - 1
 	} else {
@@ -391,8 +397,6 @@ func (s *Shard) addToDimensionBucket(
 	if err := b.Put([]byte("cnt"), objCount_byte); err != nil {
 		return fmt.Errorf("failed to put object count in dimensions bucket: %w", err)
 	}
-	return nil
-
 	return nil
 }
 
