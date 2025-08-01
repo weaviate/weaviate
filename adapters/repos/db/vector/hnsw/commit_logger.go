@@ -41,6 +41,7 @@ type hnswCommitLogger struct {
 
 	rootPath          string
 	id                string
+	shardName         string
 	condensor         Condensor
 	logger            logrus.FieldLogger
 	maxSizeIndividual int64
@@ -79,12 +80,13 @@ type hnswCommitLogger struct {
 	snapshotPartitions []string
 }
 
-func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
+func NewCommitLogger(rootPath, name, shardName string, logger logrus.FieldLogger,
 	maintenanceCallbacks cyclemanager.CycleCallbackGroup, opts ...CommitlogOption,
 ) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
 		rootPath:             rootPath,
 		id:                   name,
+		shardName:            shardName,
 		condensor:            NewMemoryCondensor(logger),
 		logger:               logger,
 		maintenanceCallbacks: maintenanceCallbacks,
@@ -532,6 +534,7 @@ func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortC
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_switch").
+			WithField("shard", l.shardName).
 			Error("hnsw commit log switch failed")
 	}
 	return executed
@@ -542,6 +545,7 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_combining").
+			WithField("shard", l.shardName).
 			Error("hnsw commit log maintenance (combining) failed")
 	}
 
@@ -549,6 +553,7 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_condensing").
+			WithField("shard", l.shardName).
 			Error("hnsw commit log maintenance (condensing) failed")
 	}
 
@@ -556,6 +561,7 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_snapshot_creating").
+			WithField("shard", l.shardName).
 			Error("hnsw commit log maintenance (snapshot) failed")
 	}
 

@@ -41,7 +41,7 @@ func TestBackup_SwitchCommitLogs(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
+			return NewCommitLogger(dirName, indexID, "shard", logrus.New(), cyclemanager.NewCallbackGroupNoop())
 		},
 	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.Nil(t, err)
@@ -70,7 +70,7 @@ func TestBackup_ListFiles(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
+			return NewCommitLogger(dirName, indexID, "shard", logrus.New(), cyclemanager.NewCallbackGroupNoop())
 		},
 	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.Nil(t, err)

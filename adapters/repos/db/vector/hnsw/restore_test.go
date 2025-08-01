@@ -111,7 +111,7 @@ func TestBackup_IntegrationHnsw(t *testing.T) {
 		Logger:           logger,
 		DistanceProvider: distancer,
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logger, noopCallback)
+			return NewCommitLogger(dirName, indexID, "shard", logger, noopCallback)
 		},
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			vec := vectors[int(id)]

@@ -35,7 +35,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	_, err := NewCommitLogger(rootPath, "corrupt_test", logger,
+	_, err := NewCommitLogger(rootPath, "corrupt_test", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
@@ -55,7 +55,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	t.Run("set up an index with the specified commit logger", func(t *testing.T) {
 		idx, err := New(Config{
 			MakeCommitLoggerThunk: func() (CommitLogger, error) {
-				return NewCommitLogger(rootPath, "corrupt_test", logger,
+				return NewCommitLogger(rootPath, "corrupt_test", "shard", logger,
 					cyclemanager.NewCallbackGroupNoop())
 			},
 			ID:               "corrupt_test",

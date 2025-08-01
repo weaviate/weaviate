@@ -40,7 +40,7 @@ func TestHnswPersistence(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	makeCL := func() (CommitLogger, error) {
-		return NewCommitLogger(dirName, indexID, logger,
+		return NewCommitLogger(dirName, indexID, "shard", logger,
 			cyclemanager.NewCallbackGroupNoop())
 	}
 
@@ -110,7 +110,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	makeCL := func() (CommitLogger, error) {
-		return NewCommitLogger(dirName, indexID, logger,
+		return NewCommitLogger(dirName, indexID, "shard", logger,
 			cyclemanager.NewCallbackGroupNoop())
 	}
 
@@ -217,7 +217,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	makeCL := func() (CommitLogger, error) {
-		return NewCommitLogger(dirName, indexID, logger,
+		return NewCommitLogger(dirName, indexID, "shard", logger,
 			cyclemanager.NewCallbackGroupNoop())
 	}
 
@@ -297,7 +297,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	makeCL := func() (CommitLogger, error) {
-		return NewCommitLogger(dirName, indexID, logger,
+		return NewCommitLogger(dirName, indexID, "shard", logger,
 			cyclemanager.NewCallbackGroupNoop())
 	}
 

@@ -440,7 +440,7 @@ func TestDeserializerTotalReadPQ(t *testing.T) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	commitLogger, err := NewCommitLogger(rootPath, "tmpLogger", logger,
+	commitLogger, err := NewCommitLogger(rootPath, "tmpLogger", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	dimensions := 16
@@ -503,7 +503,7 @@ func TestDeserializerTotalReadMUVERA(t *testing.T) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	commitLogger, err := NewCommitLogger(rootPath, "tmpLogger", logger,
+	commitLogger, err := NewCommitLogger(rootPath, "tmpLogger", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 

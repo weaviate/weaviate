@@ -388,7 +388,7 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 		RootPath:     rootPath,
 		ID:           "vector-test_0",
 		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(tempDir, "vector-test_0", logger, noopCallback)
+			return hnsw.NewCommitLogger(tempDir, "vector-test_0", "shard", logger, noopCallback)
 		},
 		DistanceProvider: distancer,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {

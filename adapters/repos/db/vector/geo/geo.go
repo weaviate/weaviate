@@ -52,6 +52,7 @@ type vectorIndex interface {
 // Config is passed to the GeoIndex when its created
 type Config struct {
 	ID                 string
+	ShardName          string
 	CoordinatesForID   CoordinatesForID
 	DisablePersistence bool
 	RootPath           string
@@ -110,7 +111,7 @@ func makeCommitLoggerFromConfig(config Config, maintenanceCallbacks cyclemanager
 	makeCL := hnsw.MakeNoopCommitLogger
 	if !config.DisablePersistence {
 		makeCL = func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.Logger, maintenanceCallbacks,
+			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.ShardName, config.Logger, maintenanceCallbacks,
 				hnsw.WithSnapshotDisabled(config.SnapshotDisabled),
 				hnsw.WithSnapshotCreateInterval(config.SnapshotCreateInterval),
 				hnsw.WithSnapshotMinDeltaCommitlogsNumer(config.SnapshotMinDeltaCommitlogsNumer),
