@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -35,7 +36,7 @@ import (
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	scheduler *queue.Scheduler, indexCheckpoints *indexcheckpoint.Checkpoints,
-	reindexer ShardReindexerV3, lazyLoadSegments bool,
+	reindexer ShardReindexerV3, lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 ) (_ *Shard, err error) {
 	start := time.Now()
 
@@ -54,11 +55,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			string(index.Config.ClassName), shardName),
 		slowQueryReporter: helpers.NewSlowQueryReporter(index.Config.QuerySlowLogEnabled,
 			index.Config.QuerySlowLogThreshold, index.logger),
-		stopDimensionTracking: make(chan struct{}),
-		replicationMap:        pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:       jobQueueCh,
-		scheduler:             scheduler,
-		indexCheckpoints:      indexCheckpoints,
+		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:  jobQueueCh,
+		scheduler:        scheduler,
+		indexCheckpoints: indexCheckpoints,
 
 		shutdownLock: new(sync.RWMutex),
 
@@ -66,6 +66,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		searchableBlockmaxPropNamesLock: new(sync.Mutex),
 		reindexer:                       reindexer,
 		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
+		bitmapBufPool:                   bitmapBufPool,
 	}
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
@@ -136,8 +137,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err = s.initShardVectors(ctx, lazyLoadSegments); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
-
-	s.initDimensionTracking()
 
 	if asyncEnabled() {
 		f := func() {

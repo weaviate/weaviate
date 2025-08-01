@@ -27,6 +27,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -206,7 +207,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 				TrackVectorDimensions: true,
 			}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				defaultVectorConfig, vectorConfigs, mockRouter, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
+				defaultVectorConfig, vectorConfigs, nil, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -262,10 +263,10 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				// Wait for vector indexing to complete
 				time.Sleep(1 * time.Second)
 
-				index.ForEachShard(func(name string, shard ShardLike) error {
-					shard.publishDimensionMetrics(ctx)
-					return nil
-				})
+				// Vector dimensions are always aggregated from nodeWideMetricsObserver,
+				// but we don't need DB for this test. Gimicky, but it does the job.
+				db := createTestDatabaseWithClass(t, class)
+				publishVectorMetricsFromDB(t, db)
 
 				// Test active shard vector storage size
 				shard, release, err := index.GetShard(ctx, tt.shardName)
@@ -477,7 +478,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 			}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
-				}, vectorConfigs, mockRouter, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
+				}, vectorConfigs, nil, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -527,11 +528,10 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				// Wait for vector indexing to complete
 				time.Sleep(1 * time.Second)
 
-				// Flush dimensions to disk
-				index.ForEachShard(func(name string, shard ShardLike) error {
-					shard.publishDimensionMetrics(ctx)
-					return nil
-				})
+				// Vector dimensions are always aggregated from nodeWideMetricsObserver,
+				// but we don't need DB for this test. Gimicky, but it does the job.
+				db := createTestDatabaseWithClass(t, class)
+				publishVectorMetricsFromDB(t, db)
 
 				// Test active shard dimensions usage
 				shard, release, err := index.GetShard(ctx, tt.shardName)
@@ -667,7 +667,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, nil, mockRouter, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
+		}, nil, nil, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.NoError(t, err)
 
 	// Add properties
@@ -701,11 +701,10 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	// Wait for indexing to complete
 	time.Sleep(1 * time.Second)
 
-	index.ForEachShard(func(name string, shard ShardLike) error {
-		// Update metrics
-		shard.publishDimensionMetrics(ctx)
-		return nil
-	})
+	// Vector dimensions are always aggregated from nodeWideMetricsObserver,
+	// but we don't need DB for this test. Gimicky, but it does the job.
+	db := createTestDatabaseWithClass(t, class)
+	publishVectorMetricsFromDB(t, db)
 
 	// Test active shard vector storage size
 	activeShard, release, err := index.GetShard(ctx, shardName)
@@ -756,7 +755,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, index.GetVectorIndexConfigs(), mockRouter, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
+		}, index.GetVectorIndexConfigs(), nil, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.NoError(t, err)
 	defer newIndex.Shutdown(ctx)
 

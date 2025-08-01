@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"log"
 	"math/rand"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -219,6 +221,68 @@ func getRandomSeed() *rand.Rand {
 func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
 		false, false, indexOpts...)
+}
+
+func createTestDatabaseWithClass(t *testing.T, classes ...*models.Class) *DB {
+	t.Helper()
+
+	metrics := monitoring.GetMetrics()
+	metrics.Registerer = monitoring.NoopRegisterer
+
+	shardState := singleShardState()
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	db, err := New(logrus.New(), "node1", Config{
+		RootPath:                  t.TempDir(),
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+	require.Nil(t, err)
+
+	db.SetSchemaGetter(&fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: classes}},
+		shardState: shardState,
+	})
+
+	require.Nil(t, db.WaitForStartup(t.Context()))
+	t.Cleanup(func() {
+		require.NoError(t, db.Shutdown(context.Background()))
+	})
+
+	return db
+}
+
+func publishVectorMetricsFromDB(t *testing.T, db *DB) {
+	t.Helper()
+
+	if !db.config.TrackVectorDimensions {
+		t.Logf("Vector dimensions tracking is disabled, returning 0")
+		return
+	}
+	db.metricsObserver.publishVectorMetrics(t.Context())
+}
+
+func getSingleShardNameFromRepo(repo *DB, className string) string {
+	shardName := ""
+	if !repo.config.TrackVectorDimensions {
+		log.Printf("Vector dimensions tracking is disabled, returning 0")
+		return shardName
+	}
+	index := repo.GetIndex(schema.ClassName(className))
+	index.ForEachShard(func(name string, shard ShardLike) error {
+		shardName = shard.Name()
+		return nil
+	})
+	return shardName
 }
 
 func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,

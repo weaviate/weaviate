@@ -16,6 +16,7 @@ package lsmkv
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 func testCtx() context.Context {
@@ -41,7 +43,7 @@ type bucketIntegrationTests []bucketIntegrationTest
 
 func (tests bucketIntegrationTests) run(ctx context.Context, t *testing.T) {
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s_no_checksum", test.name), func(t *testing.T) {
 			test.opts = append(test.opts, WithSegmentsChecksumValidationEnabled(false))
 			t.Run("mmap", func(t *testing.T) {
 				test.f(ctx, t, test.opts)
@@ -50,6 +52,14 @@ func (tests bucketIntegrationTests) run(ctx context.Context, t *testing.T) {
 				test.f(ctx, t, append([]BucketOption{WithPread(true)}, test.opts...))
 			})
 		})
+
+		t.Run(fmt.Sprintf("%s_checksum", test.name), func(t *testing.T) {
+			test.opts = append(test.opts, WithSegmentsChecksumValidationEnabled(true))
+			t.Run("mmap", func(t *testing.T) {
+				test.f(ctx, t, test.opts)
+			})
+		})
+
 	}
 }
 
@@ -269,6 +279,7 @@ func TestCompaction(t *testing.T) {
 			f:    compactionRoaringSetStrategy_Random,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 			},
 		},
 		{
@@ -276,6 +287,7 @@ func TestCompaction(t *testing.T) {
 			f:    compactionRoaringSetStrategy_Random,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 				WithKeepTombstones(true),
 			},
 		},
@@ -286,6 +298,7 @@ func TestCompaction(t *testing.T) {
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 			},
 		},
 		{
@@ -295,6 +308,7 @@ func TestCompaction(t *testing.T) {
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 				WithKeepTombstones(true),
 			},
 		},
@@ -303,6 +317,7 @@ func TestCompaction(t *testing.T) {
 			f:    compactionRoaringSetStrategy_RemoveUnnecessary,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 			},
 		},
 		{
@@ -310,6 +325,7 @@ func TestCompaction(t *testing.T) {
 			f:    compactionRoaringSetStrategy_RemoveUnnecessary,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 				WithKeepTombstones(true),
 			},
 		},
@@ -318,6 +334,7 @@ func TestCompaction(t *testing.T) {
 			f:    compactionRoaringSetStrategy_FrequentPutDeleteOperations,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 			},
 		},
 		{
@@ -325,6 +342,7 @@ func TestCompaction(t *testing.T) {
 			f:    compactionRoaringSetStrategy_FrequentPutDeleteOperations,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 				WithKeepTombstones(true),
 			},
 		},
@@ -478,10 +496,15 @@ func assertSingleSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, ex
 	}
 	require.Len(t, dbFiles, 1)
 
+	if bucket.enableChecksumValidation {
+		expectedMinSize += segmentindex.ChecksumSize
+		expectedMaxSize += segmentindex.ChecksumSize
+	}
+
 	fi, err := os.Stat(dbFiles[0])
 	require.NoError(t, err)
 	assert.LessOrEqual(t, expectedMinSize, fi.Size())
-	assert.GreaterOrEqual(t, expectedMaxSize+segmentindex.ChecksumSize, fi.Size())
+	assert.GreaterOrEqual(t, expectedMaxSize, fi.Size())
 }
 
 func assertSecondSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, expectedMaxSize int64) {

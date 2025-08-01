@@ -16,7 +16,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/rand"
 	"testing"
 	"time"
@@ -231,8 +230,7 @@ func Test_DimensionTracking(t *testing.T) {
 			},
 		}
 
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+		require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 
 		schemaGetter.schema = schema
 	})
@@ -415,32 +413,6 @@ func Test_DimensionTracking(t *testing.T) {
 	})
 }
 
-func publishDimensionMetricsFromRepo(ctx context.Context, repo *DB, className string) {
-	if !repo.config.TrackVectorDimensions {
-		log.Printf("Vector dimensions tracking is disabled, returning 0")
-		return
-	}
-	index := repo.GetIndex(schema.ClassName(className))
-	index.ForEachShard(func(name string, shard ShardLike) error {
-		shard.publishDimensionMetrics(ctx)
-		return nil
-	})
-}
-
-func getSingleShardNameFromRepo(repo *DB, className string) string {
-	shardName := ""
-	if !repo.config.TrackVectorDimensions {
-		log.Printf("Vector dimensions tracking is disabled, returning 0")
-		return shardName
-	}
-	index := repo.GetIndex(schema.ClassName(className))
-	index.ForEachShard(func(name string, shard ShardLike) error {
-		shardName = shard.Name()
-		return nil
-	})
-	return shardName
-}
-
 func TestTotalDimensionTrackingMetrics(t *testing.T) {
 	const (
 		objectCount         = 100
@@ -580,7 +552,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 						err := db.PutObject(context.Background(), obj, legacyVec, namedVecs, multiVecs, nil, 0)
 						require.Nil(t, err)
 					}
-					publishDimensionMetricsFromRepo(context.Background(), db, class.Class)
+					publishVectorMetricsFromDB(t, db)
 				}
 
 				removeData = func() {
@@ -588,7 +560,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 						err := db.DeleteObject(context.Background(), class.Class, intToUUID(i), time.Now(), nil, "", 0)
 						require.NoError(t, err)
 					}
-					publishDimensionMetricsFromRepo(context.Background(), db, class.Class)
+					publishVectorMetricsFromDB(t, db)
 				}
 
 				assertTotalMetrics = func(expectDims, expectSegs float64) {
@@ -615,65 +587,38 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 	}
 }
 
-func createTestDatabaseWithClass(t *testing.T, class *models.Class) *DB {
-	metrics := monitoring.GetMetrics()
-	metrics.Registerer = monitoring.NoopRegisterer
-	shardState := singleShardState()
-	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	db, err := New(logrus.New(), "node1", Config{
-		RootPath:                  t.TempDir(),
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
-	require.Nil(t, err)
-	db.SetSchemaGetter(&fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}},
-		shardState: shardState,
-	})
-
-	require.Nil(t, db.WaitForStartup(testCtx()))
-	t.Cleanup(func() {
-		require.NoError(t, db.Shutdown(context.Background()))
-	})
-
-	return db
-}
-
 func intToUUID(i int) strfmt.UUID {
 	return strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 }
 
 func TestDimensionTrackingWithGrouping(t *testing.T) {
 	const (
-		objectCount         = 5
-		dimensionsPerVector = 64
-		expectedDimensions  = objectCount * dimensionsPerVector
+		nClasses          = 2
+		shardsPerClass    = 1 // createTestDatabaseWithClass does not support multi-tenancy
+		objectCount       = 5
+		dimPerVector      = 64
+		expectDimPerShard = objectCount * dimPerVector
+		expectTotalDim    = nClasses * shardsPerClass * expectDimPerShard
 	)
 
 	testCases := []struct {
-		name            string
-		groupingEnabled bool
-		expectedLabels  []string
+		name               string
+		groupingEnabled    bool
+		expectedLabels     []string // class-shard label pairs
+		expectedDimensions []int    // expectedDimensions for a label pair
 	}{
 		{
-			name:            "with_grouping_enabled",
-			groupingEnabled: true,
-			expectedLabels:  []string{"n/a", "n/a"},
+			name:               "with_grouping_enabled",
+			groupingEnabled:    true,
+			expectedLabels:     []string{"n/a", "n/a"},
+			expectedDimensions: []int{expectTotalDim},
 		},
 		{
 			name:            "with_grouping_disabled",
 			groupingEnabled: false,
-			expectedLabels:  nil, // Will be set dynamically
+			// Will be set dynamically
+			expectedLabels:     nil,
+			expectedDimensions: nil,
 		},
 	}
 
@@ -686,42 +631,69 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 			defer func() { metrics.Group = originalGroup }()
 
 			// Create test class and database
-			class := &models.Class{
-				Class:               tc.name,
-				VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-				InvertedIndexConfig: invertedConfig(),
+			classes := make([]*models.Class, nClasses)
+			for i := range classes {
+				classes[i] = &models.Class{
+					Class:               fmt.Sprintf("%s_%d", tc.name, i),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled:              shardsPerClass > 1,
+						AutoTenantCreation:   true,
+						AutoTenantActivation: true,
+					},
+				}
 			}
-			db := createTestDatabaseWithClass(t, class)
 
-			// Set expected labels for non-grouping case
-			if !tc.groupingEnabled {
-				shardName := getSingleShardNameFromRepo(db, class.Class)
-				tc.expectedLabels = []string{class.Class, shardName}
-			}
+			db := createTestDatabaseWithClass(t, classes...)
 
 			// Insert test data
-			for i := range objectCount {
-				obj := &models.Object{
-					Class: class.Class,
-					ID:    intToUUID(i),
+			for _, class := range classes {
+				for range shardsPerClass {
+					shardName := getSingleShardNameFromRepo(db, class.Class)
+
+					for i := range objectCount {
+						obj := &models.Object{
+							Class: class.Class,
+							ID:    intToUUID(i),
+						}
+
+						if shardsPerClass > 1 {
+							obj.Tenant = shardName
+						}
+
+						vec := randVector(dimPerVector)
+						err := db.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
+						require.NoError(t, err, "put object")
+					}
+
+					// Set expected labels for non-grouping case
+					if !tc.groupingEnabled {
+						tc.expectedLabels = append(tc.expectedLabels, class.Class, shardName)
+						tc.expectedDimensions = append(tc.expectedDimensions, expectDimPerShard)
+					}
 				}
-				vec := randVector(dimensionsPerVector)
-				err := db.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
-				require.Nil(t, err)
 			}
 
 			// Publish metrics
-			publishDimensionMetricsFromRepo(context.Background(), db, class.Class)
+			publishVectorMetricsFromDB(t, db)
 
-			// Verify dimension metrics
-			metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(tc.expectedLabels[0], tc.expectedLabels[1])
-			require.NoError(t, err)
-			require.Equal(t, float64(expectedDimensions), testutil.ToFloat64(metric))
+			// Check expected dimensions for each pair of labels
+			for i := 0; i < len(tc.expectedLabels); i += 2 {
+				className, shardName := tc.expectedLabels[i], tc.expectedLabels[i+1]
 
-			// Verify segment metrics (should be 0 for standard vectors)
-			metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues(tc.expectedLabels[0], tc.expectedLabels[1])
-			require.NoError(t, err)
-			require.Equal(t, float64(0), testutil.ToFloat64(metric))
+				// Verify dimension metrics
+				dim, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(className, shardName)
+				require.NoError(t, err, "get vector_dimensions_sum metric")
+				require.Equal(t, float64(tc.expectedDimensions[0]), testutil.ToFloat64(dim),
+					"vector_dimensions_sum{class=%s,shard=%s}", className, shardName)
+
+				// Verify segment metrics (should be 0 for standard vectors)
+				segments, err := metrics.VectorSegmentsSum.GetMetricWithLabelValues(className, shardName)
+				require.NoError(t, err, "get vector_segments_sum metric")
+				require.Equal(t, float64(0), testutil.ToFloat64(segments),
+					"vector_segments_sum{class=%s,shard=%s}", className, shardName)
+			}
 		})
 	}
 }

@@ -26,6 +26,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
@@ -102,6 +103,9 @@ type DB struct {
 	nodeSelector   cluster.NodeSelector
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
+
+	bitmapBufPool      roaringset.BitmapBufPool
+	bitmapBufPoolClose func()
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -189,6 +193,8 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		nodeSelector:        nodeSelector,
 		schemaReader:        schemaReader,
 		replicationFSM:      replicationFSM,
+		bitmapBufPool:       roaringset.NewBitmapBufPoolNoop(),
+		bitmapBufPoolClose:  func() {},
 	}
 
 	if db.maxNumberGoroutines == 0 {
@@ -363,6 +369,7 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 
 func (db *DB) Shutdown(ctx context.Context) error {
 	db.shutdown <- struct{}{}
+	db.bitmapBufPoolClose()
 
 	if !asyncEnabled() {
 		// shut down the workers that add objects to
@@ -445,4 +452,10 @@ func (db *DB) SetSchemaReader(schemaReader clusterSchema.SchemaReader) {
 
 func (db *DB) SetReplicationFSM(replicationFsm *clusterReplication.ShardReplicationFSM) {
 	db.replicationFSM = replicationFsm
+}
+
+func (db *DB) WithBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) *DB {
+	db.bitmapBufPool = bufPool
+	db.bitmapBufPoolClose = close
+	return db
 }

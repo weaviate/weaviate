@@ -41,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
@@ -257,7 +258,8 @@ type Index struct {
 
 	shardReindexer ShardReindexerV3
 
-	router routerTypes.Router
+	router        routerTypes.Router
+	bitmapBufPool roaringset.BitmapBufPool
 }
 
 func (i *Index) ID() string {
@@ -288,6 +290,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 	allocChecker memwatch.AllocChecker,
 	shardReindexer ShardReindexerV3,
+	bitmapBufPool roaringset.BitmapBufPool,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
@@ -323,6 +326,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		shardReindexer:          shardReindexer,
 		router:                  router,
+		bitmapBufPool:           bitmapBufPool,
 	}
 
 	getDeletionStrategy := func() string {
@@ -379,7 +383,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				defer i.shardLoadLimiter.Release()
 
 				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
-					i.indexCheckpoints, i.shardReindexer, false)
+					i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 				}
@@ -409,10 +413,13 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		}
 
 		shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
-			i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true)
+			i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
 		i.shards.Store(shardName, shard)
 	}
 
+	// NOTE(dyma):
+	// 1. So "lazy-loaded" shards are actually loaded "half-eagerly"?
+	// 2. If <-ctx.Done or we fail to load a shard, should allShardsReady still report true?
 	initLazyShardsInBackground := func() {
 		defer i.allShardsReady.Store(true)
 
@@ -498,7 +505,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		defer i.shardLoadLimiter.Release()
 
 		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
-			i.indexCheckpoints, i.shardReindexer, false)
+			i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 		}
@@ -507,7 +514,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 	}
 
 	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
-		i.allocChecker, i.shardLoadLimiter, i.shardReindexer, implicitShardLoading)
+		i.allocChecker, i.shardLoadLimiter, i.shardReindexer, implicitShardLoading, i.bitmapBufPool)
 	return shard, nil
 }
 
@@ -2378,12 +2385,12 @@ func (i *Index) drop() error {
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
-	dropShard := func(name string, _ ShardLike) error {
+	dropShard := func(shardName string, _ ShardLike) error {
 		eg.Go(func() error {
-			i.shardCreateLocks.Lock(name)
-			defer i.shardCreateLocks.Unlock(name)
+			i.shardCreateLocks.Lock(shardName)
+			defer i.shardCreateLocks.Unlock(shardName)
 
-			shard, ok := i.shards.LoadAndDelete(name)
+			shard, ok := i.shards.LoadAndDelete(shardName)
 			if !ok {
 				return nil // shard already does not exist
 			}
