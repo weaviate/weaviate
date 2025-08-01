@@ -1162,6 +1162,13 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 				connCount := int(binary.LittleEndian.Uint32(b[:4]))
 
 				if connCount > 0 {
+					// sanity check in case of corruption
+					if connCount > 10000 {
+						l.logger.
+							WithField("action", "checkpoint_restore").
+							WithField("path", l.rootPath).
+							Warnf("node %d has too many connections: %v", node.id, connCount)
+					}
 					node.connections = make([][]uint64, connCount)
 
 					for l := 0; l < connCount; l++ {
