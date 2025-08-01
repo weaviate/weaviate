@@ -151,6 +151,9 @@ func (db *DB) init(ctx context.Context) error {
 			db.indexLock.Lock()
 			db.indices[idx.ID()] = idx
 			db.indexLock.Unlock()
+			db.logger.WithField("action", "init").
+				WithField("index", idx.ID()).
+				Info("created index for class")
 		}
 	}
 
