@@ -402,7 +402,7 @@ func (s *Shard) addToDimensionBucket(
 		objCount = objCount + 1
 	}
 	countBytesOut := make([]byte, 8)
-	binary.LittleEndian.PutUint64(countBytesOut, count)
+	binary.LittleEndian.PutUint64(countBytesOut, objCount)
 
 	if err := b.Put([]byte("cnt"), countBytesOut); err != nil {
 		return fmt.Errorf("failed to put object count in dimensions bucket: %w", err)

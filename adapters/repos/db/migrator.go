@@ -834,16 +834,29 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 				if b == nil {
 					return fmt.Errorf("dimensions bucket %q not found for shard %q", helpers.DimensionsBucketLSM, shard.Name())
 				}
-				objCount_byte, _ := b.Get([]byte("cnt")) //If it doesn't exist, it will be created
+				var objCount_byte []byte
+	// Update the object count in the dimensions bucket
+	objCount_byte, _ = b.Get([]byte("cnt")) //If it doesn't exist, it will be created
+	if err != nil {
 
-				objCount := binary.LittleEndian.Uint64(objCount_byte)
-				objCount += 1
-				binary.LittleEndian.PutUint64(objCount_byte, objCount)
-				if err := b.Put([]byte("cnt"), objCount_byte); err != nil {
-					m.logger.WithField("action", "reindex").WithError(err).Warnf("could not put object count in dimensions bucket for shard %q", shard.Name())
-					// Continue with the next vector, but log the error
-					return nil
-				}
+	}
+
+	if len(objCount_byte) != 8 {
+		objCount_byte = make([]byte, 8)
+		binary.LittleEndian.PutUint64(objCount_byte, 0) // Initialize to 0 if not found
+	}
+
+	objCount := binary.LittleEndian.Uint64(objCount_byte)
+
+
+		objCount = objCount + 1
+
+	countBytesOut := make([]byte, 8)
+	binary.LittleEndian.PutUint64(countBytesOut, objCount)
+
+	if err := b.Put([]byte("cnt"), countBytesOut); err != nil {
+		return fmt.Errorf("failed to put object count in dimensions bucket: %w", err)
+	}
 				return object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
 					if err = shard.extendDimensionTrackerLSM(dims, object.DocID, targetVector); err != nil {
 						m.logger.WithField("action", "reindex").WithError(err).Warnf("could not extend vector dimensions for vector %q", targetVector)
