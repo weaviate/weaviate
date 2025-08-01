@@ -17,7 +17,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
 func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
@@ -115,4 +117,69 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 	}
 
 	return results, dists, nil
+}
+
+func (s *SPFresh) SearchByVectorDistance(
+	ctx context.Context,
+	vector []float32,
+	targetDistance float32,
+	maxLimit int64,
+	allow helpers.AllowList) ([]uint64, []float32, error) {
+
+	searchParams := common.NewSearchByDistParams(0, common.DefaultSearchByDistInitialLimit, common.DefaultSearchByDistInitialLimit, maxLimit)
+	var resultIDs []uint64
+	var resultDist []float32
+
+	recursiveSearch := func() (bool, error) {
+		totalLimit := searchParams.TotalLimit()
+		ids, dist, err := s.SearchByVector(ctx, vector, totalLimit, allow)
+		if err != nil {
+			return false, errors.Wrap(err, "vector search")
+		}
+
+		// if there is less results than given limit search can be stopped
+		shouldContinue := !(len(ids) < totalLimit)
+
+		// ensures the indexes aren't out of range
+		offsetCap := searchParams.OffsetCapacity(ids)
+		totalLimitCap := searchParams.TotalLimitCapacity(ids)
+
+		if offsetCap == totalLimitCap {
+			return false, nil
+		}
+
+		ids, dist = ids[offsetCap:totalLimitCap], dist[offsetCap:totalLimitCap]
+		for i := range ids {
+			if aboveThresh := dist[i] <= targetDistance; aboveThresh ||
+				floatcomp.InDelta(float64(dist[i]), float64(targetDistance), 1e-6) {
+				resultIDs = append(resultIDs, ids[i])
+				resultDist = append(resultDist, dist[i])
+			} else {
+				// as soon as we encounter a certainty which
+				// is below threshold, we can stop searching
+				shouldContinue = false
+				break
+			}
+		}
+
+		return shouldContinue, nil
+	}
+
+	var shouldContinue bool
+	var err error
+	for shouldContinue, err = recursiveSearch(); shouldContinue && err == nil; {
+		searchParams.Iterate()
+		if searchParams.MaxLimitReached() {
+			s.Logger.
+				WithField("action", "unlimited_vector_search").
+				Warnf("maximum search limit of %d results has been reached",
+					searchParams.MaximumSearchLimit())
+			break
+		}
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return resultIDs, resultDist, nil
 }
