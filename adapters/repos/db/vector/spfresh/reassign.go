@@ -118,7 +118,7 @@ LOOP:
 
 		// determine if the candidate is too close to a pre-existing replica
 		for j := range replicas {
-			dist, err := s.SPTAG.ComputeDistance(s.SPTAG.Get(results[i].ID), s.SPTAG.Get(replicas[j]))
+			dist, err := s.Quantizer.DistanceBetweenCompressedVectors(s.SPTAG.Get(results[i].ID), s.SPTAG.Get(replicas[j]))
 			if err != nil {
 				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", results[i].ID, replicas[j])
 			}

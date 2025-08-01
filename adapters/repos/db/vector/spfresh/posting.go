@@ -63,19 +63,6 @@ func (p Posting) Dimensions() int {
 	return len(p[0].Data)
 }
 
-// A PostingSplitter splits a posting into two evenly distributed groups.
-type PostingSplitter interface {
-	// Split takes a posting and returns two groups.
-	// If the clustering fails because of the content of the posting,
-	// it must return ErrIdenticalVectors.
-	Split(vectors Posting) ([]SplitResult, error)
-}
-
-type SplitResult struct {
-	Centroid []byte
-	Posting  Posting
-}
-
 // A VectorVersion is a 1-byte value structured as follows:
 // - 7 bits for the version number
 // - 1 bit for the tombstone flag (0 = alive, 1 = deleted)

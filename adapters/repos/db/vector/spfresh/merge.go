@@ -243,12 +243,12 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 		smallCentroid := s.SPTAG.Get(smallID)
 		largeCentroid := s.SPTAG.Get(largeID)
 		for _, v := range smallPosting {
-			prevDist, err := s.SPTAG.ComputeDistance(smallCentroid, v.Data)
+			prevDist, err := s.Quantizer.DistanceBetweenCompressedVectors(smallCentroid, v.Data)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in small posting %d", v.ID, smallID)
 			}
 
-			newDist, err := s.SPTAG.ComputeDistance(largeCentroid, v.Data)
+			newDist, err := s.Quantizer.DistanceBetweenCompressedVectors(largeCentroid, v.Data)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in large posting %d", v.ID, largeID)
 			}

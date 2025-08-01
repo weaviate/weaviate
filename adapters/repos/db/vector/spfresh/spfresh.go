@@ -50,7 +50,6 @@ type SPFresh struct {
 	UserConfig   *UserConfig                      // UserConfig contains user-defined settings for the rebuilder.
 	SPTAG        SPTAG                            // SPTAG provides access to the SPTAG index for centroid operations.
 	Store        *LSMStore                        // Used for managing persistence of postings.
-	Splitter     PostingSplitter                  // Used for splitting postings into two.
 	VersionMap   *VersionMap                      // Provides access to vector versions.
 	IDs          *common.MonotonicCounter[uint64] // Shared monotonic counter for generating unique IDs for new postings.
 	PostingSizes *PostingSizes                    // Stores the size of each posting
@@ -86,9 +85,6 @@ func (s *SPFresh) Start(ctx context.Context) {
 	}
 	if s.Store == nil {
 		panic("Store must be set before starting LocalRebuilder")
-	}
-	if s.Splitter == nil {
-		panic("Splitter must be set before starting LocalRebuilder")
 	}
 	if s.VersionMap == nil {
 		panic("VersionMap must be set before starting LocalRebuilder")

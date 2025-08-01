@@ -18,13 +18,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
+var _ SPTAG = (*BruteForceSPTAG)(nil)
+
 type SPTAG interface {
 	Get(id uint64) []byte
 	Exists(id uint64) bool
 	Upsert(id uint64, centroid []byte) error
 	Delete(id uint64) error
 	Search(query []byte, k int) ([]SearchResult, error)
-	ComputeDistance(a, b []byte) (float32, error)
 }
 
 type SearchResult struct {
@@ -45,36 +46,36 @@ func NewBruteForceSPTAG(quantizer *compressionhelpers.RotationalQuantizer) *Brut
 	}
 }
 
-func (b *BruteForceSPTAG) Get(id uint64) []byte {
-	b.m.RLock()
-	defer b.m.RUnlock()
+func (s *BruteForceSPTAG) Get(id uint64) []byte {
+	s.m.RLock()
+	defer s.m.RUnlock()
 
-	return b.Centroids[id]
+	return s.Centroids[id]
 }
 
-func (b *BruteForceSPTAG) Upsert(id uint64, centroid []byte) error {
-	b.m.Lock()
-	defer b.m.Unlock()
+func (s *BruteForceSPTAG) Upsert(id uint64, centroid []byte) error {
+	s.m.Lock()
+	defer s.m.Unlock()
 
-	b.Centroids[id] = centroid
+	s.Centroids[id] = centroid
 	return nil
 }
 
-func (b *BruteForceSPTAG) Delete(id uint64) error {
-	b.m.Lock()
-	defer b.m.Unlock()
+func (s *BruteForceSPTAG) Delete(id uint64) error {
+	s.m.Lock()
+	defer s.m.Unlock()
 
-	delete(b.Centroids, id)
+	delete(s.Centroids, id)
 	return nil
 }
 
-func (b *BruteForceSPTAG) Search(query []byte, k int) ([]uint64, error) {
-	b.m.RLock()
-	defer b.m.RUnlock()
+func (s *BruteForceSPTAG) Search(query []byte, k int) ([]SearchResult, error) {
+	s.m.RLock()
+	defer s.m.RUnlock()
 
 	q := priorityqueue.NewMin[uint64](k)
-	for id, centroid := range b.Centroids {
-		dist, err := b.quantizer.DistanceBetweenCompressedVectors(query, centroid)
+	for id, centroid := range s.Centroids {
+		dist, err := s.quantizer.DistanceBetweenCompressedVectors(query, centroid)
 		if err != nil {
 			return nil, err
 		}
@@ -85,11 +86,19 @@ func (b *BruteForceSPTAG) Search(query []byte, k int) ([]uint64, error) {
 		}
 	}
 
-	results := make([]uint64, 0, q.Len())
+	results := make([]SearchResult, 0, q.Len())
 	for q.Len() > 0 {
 		item := q.Pop()
-		results = append(results, item.ID)
+		results = append(results, SearchResult{ID: item.ID, Distance: item.Dist})
 	}
 
 	return results, nil
+}
+
+func (s *BruteForceSPTAG) Exists(id uint64) bool {
+	s.m.RLock()
+	defer s.m.RUnlock()
+
+	_, exists := s.Centroids[id]
+	return exists
 }
