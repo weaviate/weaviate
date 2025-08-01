@@ -51,13 +51,22 @@ func Benchmark_Migration(b *testing.B) {
 				schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 				shardState: shardState,
 			}
+			mockSchemaReader := schemaTypes.NewMockSchemaReader(b)
+			mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+			mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+			mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(b)
+			mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+			mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+			mockNodeSelector := cluster.NewMockNodeSelector(b)
+			mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+			mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
 			repo, err := New(logger, "node1", Config{
 				RootPath:                  dirName,
 				QueryMaximumResults:       1000,
 				MaxImportGoroutinesFactor: 1,
 				TrackVectorDimensions:     true,
 			}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-				nil, nil, nil)
+				mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 			require.Nil(b, err)
 			repo.SetSchemaGetter(schemaGetter)
 			require.Nil(b, repo.WaitForStartup(testCtx()))
