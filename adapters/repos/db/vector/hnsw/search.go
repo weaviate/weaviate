@@ -723,7 +723,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 
 	// stop at layer 1, not 0!
-	for level := maxLayer; level >= 1; level-- {
+	for level := maxLayer; level >= 0; level-- {
 		eps := priorityqueue.NewMin[any](10)
 		eps.Insert(entryPointID, entryPointDistance)
 
@@ -811,25 +811,41 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		strategy = SWEEPING
 	}
 
-	if allowList != nil && useAcorn {
-		it := allowList.Iterator()
-		idx, ok := it.Next()
+	if allowList != nil && strategy == ACORN {
+		queue := h.pools.GetQueue()
+		connsSlice := h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
+
+		queue.Enqueue(entryPointID)
+		seeds := ef
+		found := 0
+		h.pools.visitedListsLock.RLock()
+		visited := h.pools.visitedLists.Borrow()
+		h.pools.visitedListsLock.RUnlock()
+
 		h.shardedNodeLocks.RLockAll()
-		if !isMultivec {
-			for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
-				idx, ok = it.Next()
-			}
-		} else {
-			_, exists := h.docIDVectors[idx]
-			for ok && !exists {
-				idx, ok = it.Next()
-				_, exists = h.docIDVectors[idx]
+		for found < seeds {
+			candidate := queue.Dequeue().(uint64)
+			h.nodes[candidate].connections.CopyLayer(connsSlice.Slice, 0)
+			for _, nn := range connsSlice.Slice {
+				if visited.Visited(nn) {
+					continue
+				}
+				visited.Visit(nn)
+				if allowList.Contains(nn) {
+					found++
+					nnDistance, _ := h.distToNode(compressorDistancer, nn, searchVec)
+					eps.Insert(nn, nnDistance)
+				}
+				queue.Enqueue(nn)
 			}
 		}
 		h.shardedNodeLocks.RUnlockAll()
+		h.pools.PutQueue(queue)
+		h.pools.tempVectorsUint64.Put(connsSlice)
 
-		entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
-		eps.Insert(idx, entryPointDistance)
+		h.pools.visitedListsLock.RLock()
+		h.pools.visitedLists.Return(visited)
+		h.pools.visitedListsLock.RUnlock()
 	}
 	res, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy)
 	if err != nil {
