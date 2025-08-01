@@ -799,9 +799,12 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	m.db.indexLock.Lock()
 	defer m.db.indexLock.Unlock()
 
+	m.logger.WithField("action", "reindex").Infof("Found %v indexes to reindex", len(m.db.indices))
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
 		m.logger.WithField("action", "reindex").Infof("reindexing dimensions for index %q", index.ID())
+		shards := index.ShardState().AllLocalPhysicalShards()
+		m.logger.WithField("action", "reindex").Infof("Found %v shards to reindex", len(shards))
 		err := index.ForEachPhysicalShard(func(name string, shard ShardLike) error {
 			// Iterate over all shards
 			m.logger.WithField("action", "reindex").Infof("resetting vector dimensions for shard %q", name)
