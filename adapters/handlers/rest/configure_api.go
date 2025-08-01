@@ -982,7 +982,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Add dimensions to all the objects in the database, if requested by the user
 		if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && appState.DB.GetConfig().TrackVectorDimensions {
-			time.Sleep(30* time.Second) // wait for the DB to be ready
+			time.Sleep(600* time.Second) // wait for the DB to be ready
 			appState.Logger.
 				WithField("action", "startup").
 				Info("Reindexing dimensions")
