@@ -5035,6 +5035,50 @@ func (_c *MockShardLike_uuidFromDocID_Call) RunAndReturn(run func(uint64) (strfm
 	return _c
 }
 
+// IterateObjects provides a mock function with given fields: ctx, fn
+// IterateObjects(context.Context, func(*Index, ShardLike, *storobj.Object) error) error
+func (_m *MockShardLike) IterateObjects(ctx context.Context,  fn func(*Index, ShardLike, *storobj.Object) error) error {
+	ret := _m.Called(ctx, fn)
+
+	if len(ret) == 0 {
+		panic("no return value specified for IterateObjects")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, func(*Index, ShardLike, *storobj.Object) error) error); ok {
+		r0 = rf(ctx, fn)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+// MockShardLike_IterateObjects_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IterateObjects'
+type MockShardLike_IterateObjects_Call struct {
+	*mock.Call
+}
+// IterateObjects is a helper method to define mock.On call
+//   - ctx context.Context
+//   - fn func(*Index, ShardLike, *storobj.Object) error
+func (_e *MockShardLike_Expecter) IterateObjects(ctx interface{}, fn interface{}) *MockShardLike_IterateObjects_Call {
+	return &MockShardLike_IterateObjects_Call{Call: _e.mock.On("IterateObjects", ctx, fn)}
+}
+// IterateObjects is a helper method to define mock.On call
+func (_c *MockShardLike_IterateObjects_Call) Run(run func(ctx context.Context, fn func(*Index, ShardLike, *storobj.Object) error)) *MockShardLike_IterateObjects_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(func(*Index, ShardLike, *storobj.Object) error))
+	})
+	return _c
+}
+func (_c *MockShardLike_IterateObjects_Call) Return(_a0 error) *MockShardLike_IterateObjects_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+func (_c *MockShardLike_IterateObjects_Call) RunAndReturn(run func(context.Context, func(*Index, ShardLike, *storobj.Object) error) error) *MockShardLike_IterateObjects_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockShardLike creates a new instance of MockShardLike. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockShardLike(t interface {
