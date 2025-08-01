@@ -14,6 +14,7 @@ package v1
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -61,20 +62,23 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	logger logrus.FieldLogger, grpcShutdownCtx context.Context,
 ) *Service {
 	authenticator := NewAuthHandler(allowAnonymousAccess, authComposer)
-	batchWriteQueue := batch.NewBatchWriteQueue()
+	internalQueue := batch.NewBatchInternalQueue()
+	batchWriteQueues := batch.NewBatchWriteQueues()
 	batchReadQueues := batch.NewBatchReadQueues()
 
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchQueuesHandler := batch.NewQueuesHandler(grpcShutdownCtx, batchWriteQueue, batchReadQueues, logger)
+	batchQueuesHandler := batch.NewQueuesHandler(grpcShutdownCtx, batchWriteQueues, batchReadQueues, logger)
 
-	batch.StartBatchWorkers(grpcShutdownCtx, 1, batchWriteQueue, batchReadQueues, batchHandler, logger)
+	var wg sync.WaitGroup
+	numWorkers := 1
+	batch.StartBatchWorkers(grpcShutdownCtx, &wg, numWorkers, internalQueue, batchReadQueues, batchHandler, logger)
+	batch.StartScheduler(grpcShutdownCtx, &wg, batchWriteQueues, internalQueue, logger)
 	enterrors.GoWrapper(func() {
 		for {
 			select {
 			case <-grpcShutdownCtx.Done():
 				logger.Info("shutting down grpc batch workers")
-				close(batchWriteQueue)
-				batchReadQueues.Close()
+				wg.Wait()
 				return
 			default:
 				// keep the goroutine alive to listen for shutdown signal
@@ -265,7 +269,7 @@ func (s *Service) BatchStream(req *pb.BatchStreamRequest, stream pb.Weaviate_Bat
 		return err
 	}
 	streamId := id.String()
-	s.batchQueuesHandler.Setup(streamId)
+	s.batchQueuesHandler.Setup(streamId, req.ConsistencyLevel)
 	defer s.batchQueuesHandler.Teardown(streamId)
 	return s.batchQueuesHandler.Stream(stream.Context(), streamId, stream)
 }

@@ -19,25 +19,21 @@ message BatchReferencesRequest {
   optional ConsistencyLevel consistency_level = 2;
 }
 
-message BatchSendObjects {
+message BatchObjects {
   repeated BatchObject values = 1;
-  optional ConsistencyLevel consistency_level = 2;
-  int32 index = 3;
-  string stream_id = 4;
 }
 
-message BatchSendReferences {
+message BatchReferences {
   repeated BatchReference values = 1;
-  optional ConsistencyLevel consistency_level = 2;
-  int32 index = 3;
-  string stream_id = 4;
 }
 
 message BatchSendRequest {
+  message BatchStop{}
+  string stream_id = 1;
   oneof message {
-    BatchSendObjects objects = 1;
-    BatchSendReferences references = 2;
-    BatchStop stop = 3;
+    BatchObjects objects = 2;
+    BatchReferences references = 3;
+    BatchStop stop = 4;
   }
 }
 
@@ -46,13 +42,22 @@ message BatchSendReply {
 }
 
 message BatchStreamRequest {
+  message Dynamic {}
+  message FixedSize {
+    int32 size = 1;
+  }
+  message RateLimited {
+    int32 rate = 1;
+  }
+  optional ConsistencyLevel consistency_level = 1;
+  oneof type {
+    Dynamic dynamic = 2;
+    FixedSize fixed_size = 3;
+    RateLimited rate_limited = 4;
+  };
 }
 
 message BatchStart {
-  string stream_id = 1;
-}
-
-message BatchStop {
   string stream_id = 1;
 }
 
@@ -61,6 +66,9 @@ message BatchShutdown {
 }
 
 message BatchStreamMessage {
+  message BatchStop {
+    string stream_id = 1;
+  }
   oneof message {
     BatchStart start = 1;
     BatchError error = 2;

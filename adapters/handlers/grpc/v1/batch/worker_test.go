@@ -31,8 +31,6 @@ func TestWorkerLoop(t *testing.T) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	readQueues := batch.NewBatchReadQueues()
-	readQueues.Make(StreamId)
 	logger := logrus.New()
 
 	t.Run("should process from the queue and send data without error", func(t *testing.T) {
@@ -41,7 +39,10 @@ func TestWorkerLoop(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 
-		writeQueue := batch.NewBatchWriteQueue()
+		readQueues := batch.NewBatchReadQueues()
+		readQueues.Make(StreamId)
+		internalQueue := batch.NewBatchInternalQueue()
+
 		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
 			Took:   float32(1),
 			Errors: nil,
@@ -50,25 +51,31 @@ func TestWorkerLoop(t *testing.T) {
 			Took:   float32(1),
 			Errors: nil,
 		}, nil).Times(1)
-		batch.StartBatchWorkers(ctx, 1, writeQueue, readQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, nil, 1, internalQueue, readQueues, mockBatcher, logger)
 
 		// Send data
-		writeQueue <- &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_Objects{
-				Objects: &pb.BatchSendObjects{StreamId: StreamId},
+		internalQueue <- &batch.ProcessRequest{
+			StreamId: StreamId,
+			Objects: &batch.SendObjects{
+				Values: []*pb.BatchObject{},
 			},
 		}
-		writeQueue <- &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_References{
-				References: &pb.BatchSendReferences{StreamId: StreamId},
+		internalQueue <- &batch.ProcessRequest{
+			StreamId: StreamId,
+			References: &batch.SendReferences{
+				Values: []*pb.BatchReference{},
 			},
+		}
+		// Send sentinel
+		internalQueue <- &batch.ProcessRequest{
+			StreamId: StreamId,
+			Stop:     true,
 		}
 
 		// Send sentinel
-		writeQueue <- &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_Stop{
-				Stop: &pb.BatchStop{StreamId: StreamId},
-			},
+		internalQueue <- &batch.ProcessRequest{
+			StreamId: StreamId,
+			Stop:     true,
 		}
 
 		// Accept the stop message
@@ -84,7 +91,10 @@ func TestWorkerLoop(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 
-		writeQueue := batch.NewBatchWriteQueue()
+		readQueues := batch.NewBatchReadQueues()
+		readQueues.Make(StreamId)
+		internalQueue := batch.NewBatchInternalQueue()
+
 		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
 			Took:   float32(1),
 			Errors: nil,
@@ -93,28 +103,29 @@ func TestWorkerLoop(t *testing.T) {
 			Took:   float32(1),
 			Errors: nil,
 		}, nil).Times(1)
-		batch.StartBatchWorkers(ctx, 1, writeQueue, readQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, nil, 1, internalQueue, readQueues, mockBatcher, logger)
 
 		cancel() // Cancel the context to simulate shutdown
 		// Send data after context cancellation to ensure that the worker processes it
 		// in its shutdown select-case
-		writeQueue <- &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_Objects{
-				Objects: &pb.BatchSendObjects{StreamId: StreamId},
+		internalQueue <- &batch.ProcessRequest{
+			StreamId: StreamId,
+			Objects: &batch.SendObjects{
+				Values: []*pb.BatchObject{},
 			},
 		}
-		writeQueue <- &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_References{
-				References: &pb.BatchSendReferences{StreamId: StreamId},
+		internalQueue <- &batch.ProcessRequest{
+			StreamId: StreamId,
+			References: &batch.SendReferences{
+				Values: []*pb.BatchReference{},
 			},
 		}
 		// Send sentinel
-		writeQueue <- &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_Stop{
-				Stop: &pb.BatchStop{StreamId: StreamId},
-			},
+		internalQueue <- &batch.ProcessRequest{
+			StreamId: StreamId,
+			Stop:     true,
 		}
-		close(writeQueue) // Close the write queue to stop processing as part of the shutdown
+		close(internalQueue) // Close the internal queue to stop processing as part of the shutdown
 
 		// Accept the stop message
 		ch, ok := readQueues.Get(StreamId)
@@ -129,7 +140,10 @@ func TestWorkerLoop(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 
-		writeQueue := batch.NewBatchWriteQueue()
+		readQueues := batch.NewBatchReadQueues()
+		readQueues.Make(StreamId)
+		internalQueue := batch.NewBatchInternalQueue()
+
 		errorsObj := []*pb.BatchObjectsReply_BatchError{
 			{
 				Error: "objs error",
@@ -150,33 +164,28 @@ func TestWorkerLoop(t *testing.T) {
 			Took:   float32(1),
 			Errors: errorsRefs,
 		}, nil)
-		batch.StartBatchWorkers(ctx, 1, writeQueue, readQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, nil, 1, internalQueue, readQueues, mockBatcher, logger)
 
 		// Send data
 		obj := &pb.BatchObject{}
-		writeQueue <- &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_Objects{
-				Objects: &pb.BatchSendObjects{
-					StreamId: StreamId,
-					Values:   []*pb.BatchObject{obj},
-				},
+		internalQueue <- &batch.ProcessRequest{
+			StreamId: StreamId,
+			Objects: &batch.SendObjects{
+				Values: []*pb.BatchObject{obj},
 			},
 		}
 		ref := &pb.BatchReference{}
-		writeQueue <- &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_References{
-				References: &pb.BatchSendReferences{
-					StreamId: StreamId,
-					Values:   []*pb.BatchReference{ref},
-				},
+		internalQueue <- &batch.ProcessRequest{
+			StreamId: StreamId,
+			References: &batch.SendReferences{
+				Values: []*pb.BatchReference{ref},
 			},
 		}
 
 		// Send sentinel
-		writeQueue <- &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_Stop{
-				Stop: &pb.BatchStop{StreamId: StreamId},
-			},
+		internalQueue <- &batch.ProcessRequest{
+			StreamId: StreamId,
+			Stop:     true,
 		}
 
 		ch, ok := readQueues.Get(StreamId)

@@ -29,15 +29,15 @@ func TestGRPC_Batching(t *testing.T) {
 	clsA := articles.ArticlesClass()
 	clsP := articles.ParagraphsClass()
 
+	helper.DeleteClass(t, clsP.Class)
+	helper.DeleteClass(t, clsA.Class)
 	// Create the schema
 	helper.CreateClass(t, clsP)
 	helper.CreateClass(t, clsA)
-	defer helper.DeleteClass(t, clsA.Class)
-	defer helper.DeleteClass(t, clsP.Class)
 
 	t.Run("Server-side batching", func(t *testing.T) {
 		// Open up a stream to read messages from
-		stream, err := grpcClient.BatchStream(ctx, nil)
+		stream, err := grpcClient.BatchStream(ctx, &pb.BatchStreamRequest{})
 		require.NoError(t, err, "BatchStream should not return an error")
 
 		// Read first message, which starts the batching process
@@ -54,7 +54,8 @@ func TestGRPC_Batching(t *testing.T) {
 			{Collection: clsP.Class, Uuid: UUID2},
 		}
 		_, err = grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_Objects{Objects: &pb.BatchSendObjects{Values: objects, StreamId: streamId}},
+			StreamId: streamId,
+			Message:  &pb.BatchSendRequest_Objects{Objects: &pb.BatchObjects{Values: objects}},
 		})
 		require.NoError(t, err, "BatchSend should not return an error")
 
@@ -64,16 +65,17 @@ func TestGRPC_Batching(t *testing.T) {
 			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: UUID0, ToUuid: UUID2},
 		}
 		_, err = grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_References{References: &pb.BatchSendReferences{
-				Values:   references,
-				StreamId: streamId,
+			StreamId: streamId,
+			Message: &pb.BatchSendRequest_References{References: &pb.BatchReferences{
+				Values: references,
 			}},
 		})
 		require.NoError(t, err, "BatchSend References should not return an error")
 
 		// Send stop message
 		_, err = grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
-			Message: &pb.BatchSendRequest_Stop{Stop: &pb.BatchStop{StreamId: streamId}},
+			StreamId: streamId,
+			Message:  &pb.BatchSendRequest_Stop{Stop: &pb.BatchSendRequest_BatchStop{}},
 		})
 		require.NoError(t, err, "BatchSend Stop should not return an error")
 
@@ -87,6 +89,7 @@ func TestGRPC_Batching(t *testing.T) {
 		listA, err := helper.ListObjects(t, clsA.Class)
 		require.NoError(t, err, "ListObjects should not return an error")
 		require.Len(t, listA.Objects, 1, "Number of articles created should match the number sent")
+		require.NotNil(t, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], "hasParagraphs should not be nil")
 		require.Len(t, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], 2, "Article should have 2 paragraphs")
 
 		listP, err := helper.ListObjects(t, clsP.Class)

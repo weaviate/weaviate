@@ -26,34 +26,38 @@ import (
 func TestHandler(t *testing.T) {
 	ctx := context.Background()
 
-	writeQueue := batch.NewBatchWriteQueue()
-	readQueues := batch.NewBatchReadQueues()
 	logger := logrus.New()
 
 	t.Run("Send", func(t *testing.T) {
 		// Arrange
 		req := &pb.BatchSendRequest{
+			StreamId: "test-stream",
 			Message: &pb.BatchSendRequest_Objects{
-				Objects: &pb.BatchSendObjects{
-					StreamId: "test-stream",
-					Values:   []*pb.BatchObject{{Collection: "TestClass"}},
+				Objects: &pb.BatchObjects{
+					Values: []*pb.BatchObject{{Collection: "TestClass"}},
 				},
 			},
 		}
 
 		shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 		defer shutdownCancel()
-		handler := batch.NewQueuesHandler(shutdownCtx, writeQueue, readQueues, logger)
 
+		writeQueues := batch.NewBatchWriteQueues()
+		readQueues := batch.NewBatchReadQueues()
+		internalQueue := batch.NewBatchInternalQueue()
+		handler := batch.NewQueuesHandler(shutdownCtx, writeQueues, readQueues, logger)
+		batch.StartScheduler(ctx, nil, writeQueues, internalQueue, logger)
+
+		writeQueues.Make(req.StreamId, nil)
 		// Act
 		howMany := handler.Send(ctx, req)
 
 		// Assert
 		require.Equal(t, int32(1), howMany, "Expected to send one object")
 
-		// Verify that the write queue has the object
-		obj := <-writeQueue
-		require.Equal(t, req, obj, "Expected write queue to contain the sent object")
+		// Verify that the internal queue has the object
+		obj := <-internalQueue
+		require.NotNil(t, obj, "Expected object to be sent to internal queue")
 	})
 
 	t.Run("Stream", func(t *testing.T) {
@@ -71,14 +75,19 @@ func TestHandler(t *testing.T) {
 			}).Return(nil).Once()
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
 				Message: &pb.BatchStreamMessage_Stop{
-					Stop: &pb.BatchStop{
+					Stop: &pb.BatchStreamMessage_BatchStop{
 						StreamId: StreamId,
 					},
 				},
 			}).Return(nil).Once()
 
-			handler := batch.NewQueuesHandler(context.Background(), writeQueue, readQueues, logger)
+			writeQueues := batch.NewBatchWriteQueues()
+			readQueues := batch.NewBatchReadQueues()
+			internalQueue := batch.NewBatchInternalQueue()
+			handler := batch.NewQueuesHandler(context.Background(), writeQueues, readQueues, logger)
+			batch.StartScheduler(ctx, nil, writeQueues, internalQueue, logger)
 
+			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
 			err := handler.Stream(ctx, StreamId, stream)
 			require.NoError(t, err, "Expected no error when streaming")
@@ -98,19 +107,24 @@ func TestHandler(t *testing.T) {
 			}).Return(nil).Once()
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
 				Message: &pb.BatchStreamMessage_Stop{
-					Stop: &pb.BatchStop{
+					Stop: &pb.BatchStreamMessage_BatchStop{
 						StreamId: StreamId,
 					},
 				},
 			}).Return(nil).Once()
 
-			handler := batch.NewQueuesHandler(context.Background(), writeQueue, readQueues, logger)
+			writeQueues := batch.NewBatchWriteQueues()
+			readQueues := batch.NewBatchReadQueues()
+			internalQueue := batch.NewBatchInternalQueue()
+			handler := batch.NewQueuesHandler(context.Background(), writeQueues, readQueues, logger)
+			batch.StartScheduler(ctx, nil, writeQueues, internalQueue, logger)
 
+			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
 			go func() {
-				ch <- batch.NewStopObject()
+				ch <- batch.NewStopReadObject()
 			}()
 
 			err := handler.Stream(ctx, StreamId, stream)
@@ -137,8 +151,14 @@ func TestHandler(t *testing.T) {
 				},
 			}).Return(nil).Once()
 
+			writeQueues := batch.NewBatchWriteQueues()
+			readQueues := batch.NewBatchReadQueues()
+			internalQueue := batch.NewBatchInternalQueue()
 			shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-			handler := batch.NewQueuesHandler(shutdownCtx, writeQueue, readQueues, logger)
+			handler := batch.NewQueuesHandler(shutdownCtx, writeQueues, readQueues, logger)
+			batch.StartScheduler(shutdownCtx, nil, writeQueues, internalQueue, logger)
+
+			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
 			shutdownCancel() // Trigger shutdown
 			err := handler.Stream(ctx, StreamId, stream)
@@ -166,13 +186,19 @@ func TestHandler(t *testing.T) {
 			}).Return(nil).Once()
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
 				Message: &pb.BatchStreamMessage_Stop{
-					Stop: &pb.BatchStop{
+					Stop: &pb.BatchStreamMessage_BatchStop{
 						StreamId: StreamId,
 					},
 				},
 			}).Return(nil).Once()
 
-			handler := batch.NewQueuesHandler(context.Background(), writeQueue, readQueues, logger)
+			writeQueues := batch.NewBatchWriteQueues()
+			readQueues := batch.NewBatchReadQueues()
+			internalQueue := batch.NewBatchInternalQueue()
+			handler := batch.NewQueuesHandler(context.Background(), writeQueues, readQueues, logger)
+			batch.StartScheduler(ctx, nil, writeQueues, internalQueue, logger)
+
+			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
@@ -206,19 +232,25 @@ func TestHandler(t *testing.T) {
 			}).Return(nil).Once()
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
 				Message: &pb.BatchStreamMessage_Stop{
-					Stop: &pb.BatchStop{
+					Stop: &pb.BatchStreamMessage_BatchStop{
 						StreamId: StreamId,
 					},
 				},
 			}).Return(nil).Once()
 
-			handler := batch.NewQueuesHandler(context.Background(), writeQueue, readQueues, logger)
+			writeQueues := batch.NewBatchWriteQueues()
+			readQueues := batch.NewBatchReadQueues()
+			internalQueue := batch.NewBatchInternalQueue()
+			handler := batch.NewQueuesHandler(context.Background(), writeQueues, readQueues, logger)
+			batch.StartScheduler(ctx, nil, writeQueues, internalQueue, logger)
+
+			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
 			go func() {
 				ch <- batch.NewErrorsObject([]*pb.BatchError{{Error: "processing error"}})
-				ch <- batch.NewStopObject()
+				ch <- batch.NewStopReadObject()
 			}()
 
 			readQueues.Make(StreamId)
@@ -226,4 +258,32 @@ func TestHandler(t *testing.T) {
 			require.NoError(t, err, "Expected error when processing")
 		})
 	})
+}
+
+func TestScheduler(t *testing.T) {
+	ctx := context.Background()
+	shutdownCtx, shutdownCancel := context.WithCancel(ctx)
+	defer shutdownCancel()
+
+	logger := logrus.New()
+	writeQueues := batch.NewBatchWriteQueues()
+	internalQueue := batch.NewBatchInternalQueue()
+
+	writeQueues.Make("test-stream", nil)
+	batch.StartScheduler(shutdownCtx, nil, writeQueues, internalQueue, logger)
+
+	queue, ok := writeQueues.Get("test-stream")
+	require.True(t, ok, "Expected write queue to exist")
+
+	obj := &pb.BatchObject{}
+	queue <- batch.NewWriteObject(obj)
+
+	require.Eventually(t, func() bool {
+		select {
+		case receivedObj := <-internalQueue:
+			return receivedObj.Objects.Values[0] == obj
+		default:
+			return false
+		}
+	}, 1*time.Second, 10*time.Millisecond, "Expected object to be sent to internal queue")
 }
