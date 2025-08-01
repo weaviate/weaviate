@@ -13,12 +13,16 @@ package spfresh
 
 import (
 	"context"
+	"encoding/binary"
+	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -51,6 +55,10 @@ type SPFresh struct {
 	IDs          *common.MonotonicCounter[uint64] // Shared monotonic counter for generating unique IDs for new postings.
 	PostingSizes *PostingSizes                    // Stores the size of each posting
 	Quantizer    *compressionhelpers.RotationalQuantizer
+	Distancer    distancer.Provider
+	id           string
+	targetVector string
+	rootPath     string
 
 	// ctx and cancel are used to manage the lifecycle of the LocalRebuilder.
 	ctx    context.Context
@@ -204,6 +212,39 @@ func (s *SPFresh) ContainsDoc(id uint64) bool {
 
 func (s *SPFresh) Iterate(fn func(id uint64) bool) {
 	s.Logger.Warn("Iterate is not implemented for SPFresh index")
+}
+
+func (s *SPFresh) getBucketName() string {
+	if s.targetVector != "" {
+		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, s.targetVector)
+	}
+	return helpers.VectorsBucketLSM
+}
+
+func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
+	for i := range slice {
+		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(vector[i*4:]))
+	}
+	return slice
+}
+
+func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+	distFunc := func(id uint64) (float32, error) {
+		var buf [8]byte
+		binary.BigEndian.PutUint64(buf[:], id)
+		vec, err := s.Store.store.Bucket(s.getBucketName()).Get(buf[:])
+		if err != nil {
+			return 0, err
+		}
+
+		dist, err := s.distancer.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+		if err != nil {
+			return 0, err
+		}
+		return dist, nil
+	}
+
+	return common.QueryVectorDistancer{DistanceFunc: distFunc}
 }
 
 func (s *SPFresh) CompressionStats() compressionhelpers.CompressionStats {
