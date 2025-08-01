@@ -817,8 +817,8 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 		err := index.ForEachPhysicalShard(func(name string, shard ShardLike) error {
 			// Iterate over all shards
 			m.logger.WithField("action", "reindex").Infof("resetting vector dimensions for shard %q", name)
-			return shard.resetDimensionsLSM()
-		})
+			err = shard.resetDimensionsLSM()
+
 		if err != nil {
 			m.logger.WithField("action", "reindex").WithError(err).Warn("could not reset vector dimensions")
 			return err
@@ -828,7 +828,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 
 		// TODO:  Run this in the background, so that the server can start
 
-		err = index.ForEachPhysicalShard(func(name string, shard ShardLike) error {
+
 			// Iterate over all shards
 			m.logger.WithField("action", "reindex").Infof("reindexing objects for shard %q", name)
 			return shard.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
@@ -850,9 +850,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 				var objCount_byte []byte
 				// Update the object count in the dimensions bucket
 				objCount_byte, _ = b.Get([]byte("cnt")) //If it doesn't exist, it will be created
-				if err != nil {
 
-				}
 
 				if len(objCount_byte) != 8 {
 					objCount_byte = make([]byte, 8)
@@ -870,7 +868,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 					return fmt.Errorf("failed to put object count in dimensions bucket: %w", err)
 				}
 				return object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
-					if err = shard.extendDimensionTrackerLSM(dims, object.DocID, targetVector); err != nil {
+					if err := shard.extendDimensionTrackerLSM(dims, object.DocID, targetVector); err != nil {
 						m.logger.WithField("action", "reindex").WithError(err).Warnf("could not extend vector dimensions for vector %q", targetVector)
 						// Continue with the next vector, but log the error
 						return nil
