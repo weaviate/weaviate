@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"slices"
 	"time"
@@ -801,6 +802,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
 		err := index.ForEachShard(func(name string, shard ShardLike) error {
+			m.logger.WithField("action", "reindex").Infof("resetting vector dimensions for shard %q", name)
 			return shard.resetDimensionsLSM()
 		})
 		if err != nil {
@@ -808,14 +810,35 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 			return err
 		}
 
+		resetTime := time.Now().UnixNano()
+
+		// TODO:  Run this in the background, so that the server can start
+
 		// Iterate over all shards
 		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
+			if object.Object.LastUpdateTimeUnix > resetTime {
+				// Skip objects that were updated after the reset time, they will be handled elsewhere
+				return nil
+			}
 			count = count + 1
 			return object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
 				if err = shard.extendDimensionTrackerLSM(dims, object.DocID, targetVector); err != nil {
 					return fmt.Errorf("failed to extend dimension tracker for vector %q: %w", targetVector, err)
 				}
+				b := shard.Store().Bucket(helpers.DimensionsBucketLSM)
+				if b == nil {
+					return fmt.Errorf("dimensions bucket %q not found for shard %q", helpers.DimensionsBucketLSM, shard.Name())
+				}
+				objCount_byte, _ := b.Get([]byte("cnt"))  //If it doesn't exist, it will be created
+
+				objCount := binary.LittleEndian.Uint64(objCount_byte)
+				objCount += 1
+				binary.LittleEndian.PutUint64(objCount_byte, objCount)
+				if err := b.Put([]byte("cnt"), objCount_byte); err != nil {
+					return fmt.Errorf("failed to put object count in dimensions bucket for shard %q: %w", shard.Name(), err)
+				}
 				return nil
+
 			})
 		})
 		if err != nil {
