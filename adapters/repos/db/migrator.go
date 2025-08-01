@@ -821,14 +821,15 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 
 			if err != nil {
 				m.logger.WithField("action", "reindex").WithError(err).Warn("could not reset vector dimensions")
-				return err
+				// If we cannot reset the dimensions, we skip this shard
+				return nil
 			}
 
 			resetTime := time.Now().UnixNano()
 
 			// TODO:  Run this in the background, so that the server can start
 
-			// Iterate over all shards
+
 			m.logger.WithField("action", "reindex").Infof("reindexing objects for shard %q", name)
 			return shard.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 				if object.Object.LastUpdateTimeUnix > resetTime {
