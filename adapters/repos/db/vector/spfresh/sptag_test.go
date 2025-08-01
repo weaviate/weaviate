@@ -47,7 +47,7 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 
 	// Use a query close to vector 2
 	query := make([]float32, dim)
-	for i := 0; i < dim; i++ {
+	for i := range dim {
 		query[i] = float32(i + 1) // same as vector 2
 	}
 	encodedQuery := q.Encode(query)
@@ -57,7 +57,8 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	require.True(t, len(results) >= 1)
 
 	// Vector 2 should be one of the closest
-	require.Contains(t, results, uint64(2))
+	require.Equal(t, results[0].ID, uint64(2))
+	require.NotZero(t, results[0].Distance)
 
 	// Delete vector 2 and search again
 	err = sptag.Delete(2)
@@ -68,11 +69,22 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	require.NotContains(t, results, uint64(2))
 
 	// Ensure other vectors are still present
-	require.Contains(t, results, uint64(1))
-	require.Contains(t, results, uint64(3))
+	require.Equal(t, results[0].ID, uint64(3))
+	require.Equal(t, results[1].ID, uint64(1))
 
 	// Test with an empty search
 	results, err = sptag.Search(encodedQuery, 0)
 	require.NoError(t, err)
 	require.Empty(t, results)
+
+	// Get existing vector
+	existingVector := sptag.Get(1)
+	require.NotNil(t, existingVector)
+	require.Equal(t, q.Encode(vectors[1]), existingVector)
+	require.True(t, sptag.Exists(1))
+
+	// Get non-existing vector
+	nonExistingVector := sptag.Get(999)
+	require.Nil(t, nonExistingVector)
+	require.False(t, sptag.Exists(999))
 }

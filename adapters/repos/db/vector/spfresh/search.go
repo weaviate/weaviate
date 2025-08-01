@@ -124,7 +124,8 @@ func (s *SPFresh) SearchByVectorDistance(
 	vector []float32,
 	targetDistance float32,
 	maxLimit int64,
-	allow helpers.AllowList) ([]uint64, []float32, error) {
+	allow helpers.AllowList,
+) ([]uint64, []float32, error) {
 
 	searchParams := common.NewSearchByDistParams(0, common.DefaultSearchByDistInitialLimit, common.DefaultSearchByDistInitialLimit, maxLimit)
 	var resultIDs []uint64
@@ -138,7 +139,7 @@ func (s *SPFresh) SearchByVectorDistance(
 		}
 
 		// if there is less results than given limit search can be stopped
-		shouldContinue := !(len(ids) < totalLimit)
+		shouldContinue := len(ids) >= totalLimit
 
 		// ensures the indexes aren't out of range
 		offsetCap := searchParams.OffsetCapacity(ids)
