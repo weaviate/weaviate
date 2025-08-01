@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
@@ -388,13 +389,12 @@ func (s *Shard) addToDimensionBucket(
 
 	}
 
-	if len(objCount_byte) !=8 {
-	objCount_byte = make([]byte, 8)
+	if len(objCount_byte) != 8 {
+		objCount_byte = make([]byte, 8)
 		binary.LittleEndian.PutUint64(objCount_byte, 0) // Initialize to 0 if not found
 	}
 
-
-	objCount :=	binary.LittleEndian.Uint64(objCount_byte)
+	objCount := binary.LittleEndian.Uint64(objCount_byte)
 
 	if tombstone {
 		objCount = objCount - 1
@@ -424,4 +424,14 @@ func isMetaCountProperty(property inverted.Property) bool {
 
 func isInternalProperty(property inverted.Property) bool {
 	return property.Name[0] == '_'
+}
+
+func (shard *Shard) IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) (err error) {
+
+	wrapper := func(object *storobj.Object) error {
+		return cb(shard.Index(), shard, object)
+	}
+	bucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
+	return bucket.IterateObjects(ctx, wrapper)
+
 }

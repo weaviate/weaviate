@@ -815,43 +815,47 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 
 		// TODO:  Run this in the background, so that the server can start
 
-		// Iterate over all shards
-		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
-			if object.Object.LastUpdateTimeUnix > resetTime {
-				// Skip objects that were updated after the reset time, they will be handled elsewhere
-				m.logger.WithField("action", "reindex").Infof("skipping object %v with last update time %d after reset time %d",
-					object.DocID, object.Object.LastUpdateTimeUnix, resetTime)
-				// Continue with the next object, but log the skip
-				return nil
-			}
-			m.logger.WithField("action", "reindex").Infof("reindexing object %v with last update time %d",
-				object.DocID, object.Object.LastUpdateTimeUnix)
-			// Reindex the object
-			count = count + 1
-			b := shard.Store().Bucket(helpers.DimensionsBucketLSM)
-			if b == nil {
-				return fmt.Errorf("dimensions bucket %q not found for shard %q", helpers.DimensionsBucketLSM, shard.Name())
-			}
-			objCount_byte, _ := b.Get([]byte("cnt")) //If it doesn't exist, it will be created
+		err = index.ForEachPhysicalShard(func(name string, shard ShardLike) error {
+			// Iterate over all shards
 
-			objCount := binary.LittleEndian.Uint64(objCount_byte)
-			objCount += 1
-			binary.LittleEndian.PutUint64(objCount_byte, objCount)
-			if err := b.Put([]byte("cnt"), objCount_byte); err != nil {
-				m.logger.WithField("action", "reindex").WithError(err).Warnf("could not put object count in dimensions bucket for shard %q", shard.Name())
-				// Continue with the next vector, but log the error
-				return nil
-			}
-			return object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
-				if err = shard.extendDimensionTrackerLSM(dims, object.DocID, targetVector); err != nil {
-					m.logger.WithField("action", "reindex").WithError(err).Warnf("could not extend vector dimensions for vector %q", targetVector)
+			return shard.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
+				if object.Object.LastUpdateTimeUnix > resetTime {
+					// Skip objects that were updated after the reset time, they will be handled elsewhere
+					m.logger.WithField("action", "reindex").Infof("skipping object %v with last update time %d after reset time %d",
+						object.DocID, object.Object.LastUpdateTimeUnix, resetTime)
+					// Continue with the next object, but log the skip
+					return nil
+				}
+				m.logger.WithField("action", "reindex").Infof("reindexing object %v with last update time %d",
+					object.DocID, object.Object.LastUpdateTimeUnix)
+				// Reindex the object
+				count = count + 1
+				b := shard.Store().Bucket(helpers.DimensionsBucketLSM)
+				if b == nil {
+					return fmt.Errorf("dimensions bucket %q not found for shard %q", helpers.DimensionsBucketLSM, shard.Name())
+				}
+				objCount_byte, _ := b.Get([]byte("cnt")) //If it doesn't exist, it will be created
+
+				objCount := binary.LittleEndian.Uint64(objCount_byte)
+				objCount += 1
+				binary.LittleEndian.PutUint64(objCount_byte, objCount)
+				if err := b.Put([]byte("cnt"), objCount_byte); err != nil {
+					m.logger.WithField("action", "reindex").WithError(err).Warnf("could not put object count in dimensions bucket for shard %q", shard.Name())
 					// Continue with the next vector, but log the error
 					return nil
 				}
+				return object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
+					if err = shard.extendDimensionTrackerLSM(dims, object.DocID, targetVector); err != nil {
+						m.logger.WithField("action", "reindex").WithError(err).Warnf("could not extend vector dimensions for vector %q", targetVector)
+						// Continue with the next vector, but log the error
+						return nil
+					}
 
-				return nil
+					return nil
 
+				})
 			})
+
 		})
 		if err != nil {
 			m.logger.WithField("action", "reindex").WithError(err).Warn("could not extend vector dimensions")

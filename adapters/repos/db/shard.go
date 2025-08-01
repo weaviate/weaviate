@@ -192,6 +192,9 @@ type ShardLike interface {
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
 	RepairIndex(ctx context.Context, targetVector string) error
+
+	// IterateObjects iterates over all objects in the shard and calls the callback for each object
+	IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) error
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error

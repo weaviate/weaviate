@@ -519,11 +519,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 // Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
 func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) (err error) {
 	return i.ForEachShard(func(_ string, shard ShardLike) error {
-		wrapper := func(object *storobj.Object) error {
-			return cb(i, shard, object)
-		}
-		bucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
-		return bucket.IterateObjects(ctx, wrapper)
+		return shard.IterateObjects(ctx, cb)
 	})
 }
 
