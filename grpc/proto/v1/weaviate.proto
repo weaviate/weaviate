@@ -15,7 +15,10 @@ option java_outer_classname = "WeaviateProto";
 service Weaviate {
   rpc Search(SearchRequest) returns (SearchReply) {};
   rpc BatchObjects(BatchObjectsRequest) returns (BatchObjectsReply) {};
+  rpc BatchReferences(BatchReferencesRequest) returns (BatchReferencesReply) {};
   rpc BatchDelete(BatchDeleteRequest) returns (BatchDeleteReply) {};
   rpc TenantsGet(TenantsGetRequest) returns (TenantsGetReply) {};
   rpc Aggregate(AggregateRequest) returns (AggregateReply) {};
+  rpc BatchSend(BatchSendRequest) returns (BatchSendReply) {};
+  rpc BatchStream(BatchStreamRequest) returns (stream BatchStreamMessage) {};
 }

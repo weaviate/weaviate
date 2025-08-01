@@ -14,6 +14,69 @@ message BatchObjectsRequest {
   optional ConsistencyLevel consistency_level = 2;
 }
 
+message BatchReferencesRequest {
+  repeated BatchReference references = 1;
+  optional ConsistencyLevel consistency_level = 2;
+}
+
+message BatchObjects {
+  repeated BatchObject values = 1;
+}
+
+message BatchReferences {
+  repeated BatchReference values = 1;
+}
+
+message BatchSendRequest {
+  message BatchStop{}
+  string stream_id = 1;
+  oneof message {
+    BatchObjects objects = 2;
+    BatchReferences references = 3;
+    BatchStop stop = 4;
+  }
+}
+
+message BatchSendReply {
+  int32 next = 1;
+}
+
+message BatchStreamRequest {
+  message Dynamic {}
+  message FixedSize {
+    int32 size = 1;
+  }
+  message RateLimited {
+    int32 rate = 1;
+  }
+  optional ConsistencyLevel consistency_level = 1;
+  oneof type {
+    Dynamic dynamic = 2;
+    FixedSize fixed_size = 3;
+    RateLimited rate_limited = 4;
+  };
+}
+
+message BatchStart {
+  string stream_id = 1;
+}
+
+message BatchShutdown {
+  string stream_id = 1;
+}
+
+message BatchStreamMessage {
+  message BatchStop {
+    string stream_id = 1;
+  }
+  oneof message {
+    BatchStart start = 1;
+    BatchError error = 2;
+    BatchStop stop = 3;
+    BatchShutdown shutdown = 4;
+  }
+}
+
 message BatchObject {
   message Properties {
     google.protobuf.Struct non_ref_properties = 1;
@@ -52,7 +115,33 @@ message BatchObject {
   repeated Vectors vectors = 23;
 }
 
+message BatchReference {
+  string name = 1;
+  string from_collection = 2;
+  string from_uuid = 3;
+  optional string to_collection = 4;
+  string to_uuid = 5;
+  string tenant = 6;
+}
+
+message BatchError {
+  string error = 1;
+  int32 index = 2;
+  BatchObject object = 3;
+  BatchReference reference = 4;
+}
+
 message BatchObjectsReply {
+  message BatchError {
+    int32 index = 1;
+    string error = 2;
+  }
+
+  float took = 1;
+  repeated BatchError errors = 2;
+}
+
+message BatchReferencesReply {
   message BatchError {
     int32 index = 1;
     string error = 2;
