@@ -817,17 +817,16 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 		err := index.ForEachPhysicalShard(func(name string, shard ShardLike) error {
 			// Iterate over all shards
 			m.logger.WithField("action", "reindex").Infof("resetting vector dimensions for shard %q", name)
-			err = shard.resetDimensionsLSM()
+			err := shard.resetDimensionsLSM()
 
-		if err != nil {
-			m.logger.WithField("action", "reindex").WithError(err).Warn("could not reset vector dimensions")
-			return err
-		}
+			if err != nil {
+				m.logger.WithField("action", "reindex").WithError(err).Warn("could not reset vector dimensions")
+				return err
+			}
 
-		resetTime := time.Now().UnixNano()
+			resetTime := time.Now().UnixNano()
 
-		// TODO:  Run this in the background, so that the server can start
-
+			// TODO:  Run this in the background, so that the server can start
 
 			// Iterate over all shards
 			m.logger.WithField("action", "reindex").Infof("reindexing objects for shard %q", name)
@@ -850,7 +849,6 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 				var objCount_byte []byte
 				// Update the object count in the dimensions bucket
 				objCount_byte, _ = b.Get([]byte("cnt")) //If it doesn't exist, it will be created
-
 
 				if len(objCount_byte) != 8 {
 					objCount_byte = make([]byte, 8)
