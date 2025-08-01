@@ -401,8 +401,10 @@ func (s *Shard) addToDimensionBucket(
 	} else {
 		objCount = objCount + 1
 	}
-	binary.LittleEndian.PutUint64(objCount_byte, objCount)
-	if err := b.Put([]byte("cnt"), objCount_byte); err != nil {
+	countBytesOut := make([]byte, 8)
+	binary.LittleEndian.PutUint64(countBytesOut, count)
+
+	if err := b.Put([]byte("cnt"), countBytesOut); err != nil {
 		return fmt.Errorf("failed to put object count in dimensions bucket: %w", err)
 	}
 	return nil
