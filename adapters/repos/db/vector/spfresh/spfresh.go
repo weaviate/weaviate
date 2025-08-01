@@ -206,6 +206,10 @@ func (s *SPFresh) Iterate(fn func(id uint64) bool) {
 	s.Logger.Warn("Iterate is not implemented for SPFresh index")
 }
 
+func (s *SPFresh) CompressionStats() compressionhelpers.CompressionStats {
+	return s.Quantizer.Stats()
+}
+
 // deduplicator is a simple structure to prevent duplicate values
 type deduplicator struct {
 	m *xsync.Map[uint64, struct{}]
