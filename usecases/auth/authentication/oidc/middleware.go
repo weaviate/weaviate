@@ -196,6 +196,10 @@ func (c *Client) extractGroups(claims map[string]interface{}) []string {
 
 	groupsSlice, ok := groupsUntyped.([]interface{})
 	if !ok {
+		groupAsString, ok := groupsUntyped.(string)
+		if ok {
+			return []string{groupAsString}
+		}
 		return groups
 	}
 
