@@ -383,9 +383,13 @@ func (s *Shard) addToDimensionBucket(
 
 	var objCount_byte []byte
 	// Update the object count in the dimensions bucket
-	objCount_byte, err = b.Get([]byte("cnt")) //If it doesn't exist, it will be created
+	objCount_byte, _ = b.Get([]byte("cnt")) //If it doesn't exist, it will be created
 	if err != nil {
-		objCount_byte = make([]byte, 8)
+
+	}
+
+	if len(objCount_byte) !=8 {
+	objCount_byte = make([]byte, 8)
 		binary.LittleEndian.PutUint64(objCount_byte, 0) // Initialize to 0 if not found
 	}
 
