@@ -727,13 +727,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	configureServer = makeConfigureServer(appState)
 
-	// Add dimensions to all the objects in the database, if requested by the user
-	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && repo.GetConfig().TrackVectorDimensions {
-		appState.Logger.
-			WithField("action", "startup").
-			Info("Reindexing dimensions")
-		migrator.RecalculateVectorDimensions(ctx)
-	}
+
 
 	// Add recount properties of all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
@@ -903,6 +897,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
+
+		// Add dimensions to all the objects in the database, if requested by the user
+	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && appState.DB.GetConfig().TrackVectorDimensions {
+		appState.Logger.
+			WithField("action", "startup").
+			Info("Reindexing dimensions")
+		appState.Migrator.RecalculateVectorDimensions(ctx)
+	}
+
+
 
 	grpcServer := createGrpcServer(appState, grpcInstrument...)
 	setupMiddlewares := makeSetupMiddlewares(appState)
