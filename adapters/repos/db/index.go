@@ -3055,6 +3055,9 @@ func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, 
 	dimensionality := usagetypes.Dimensionality{}
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
+		if len(k) < 4 || len(v) < 4 {
+			continue // skip keys or values that are too short to contain valid data
+		}
 		vecName := string(k[4:]) // skip the first 4 bytes which are the dimension length
 		// for named vectors we have to additionally check if the key is prefixed with the vector name
 		keyMatches := vecName == targetVector
