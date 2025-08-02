@@ -832,11 +832,10 @@ func ExtractQueryVectorFromParams(params dto.GetParams) (queryVector []float32) 
 	
 	if params.NearObject != nil {
 		// For nearObject, we would need to resolve the object's vector
-		// For now, we return nil since the vector resolution is complex
+		// This functionality is not currently implemented
 		return nil
 	}
 
-	// TODO: Add support for module-based query vectors (nearText, etc.)
 	return nil
 }
 
