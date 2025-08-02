@@ -185,6 +185,11 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
+	// Sanity check on file format
+	if id > 8e9 {
+		return io.ErrUnexpectedEOF
+	}
+
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, id, d.logger)
 	if err != nil {
 		return err
