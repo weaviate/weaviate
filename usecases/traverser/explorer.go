@@ -811,8 +811,21 @@ func ExtractCertaintyFromParams(params dto.GetParams) (certainty float64) {
 
 func ExtractQueryVectorFromParams(params dto.GetParams) (queryVector []float32) {
 	if params.NearVector != nil && len(params.NearVector.Vectors) > 0 {
-		// Return the first vector as the query vector
-		if vec, ok := params.NearVector.Vectors[0].([]float32); ok {
+		// Handle different vector types that can be stored in models.Vector (interface{})
+		switch v := params.NearVector.Vectors[0].(type) {
+		case []float32:
+			return v
+		case []interface{}:
+			vec := make([]float32, len(v))
+			for i, val := range v {
+				if f, ok := val.(float32); ok {
+					vec[i] = f
+				} else if f, ok := val.(float64); ok {
+					vec[i] = float32(f)
+				} else {
+					return nil
+				}
+			}
 			return vec
 		}
 	}
