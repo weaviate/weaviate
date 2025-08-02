@@ -479,6 +479,13 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			}
 		}
 
+		if params.AdditionalProperties.QueryVector {
+			queryVector := ExtractQueryVectorFromParams(params)
+			if queryVector != nil {
+				additionalProperties["query_vector"] = queryVector
+			}
+		}
+
 		if params.AdditionalProperties.ID {
 			additionalProperties["id"] = res.ID
 		}
@@ -800,6 +807,24 @@ func ExtractCertaintyFromParams(params dto.GetParams) (certainty float64) {
 	}
 
 	return
+}
+
+func ExtractQueryVectorFromParams(params dto.GetParams) (queryVector []float32) {
+	if params.NearVector != nil && len(params.NearVector.Vectors) > 0 {
+		// Return the first vector as the query vector
+		if vec, ok := params.NearVector.Vectors[0].([]float32); ok {
+			return vec
+		}
+	}
+	
+	if params.NearObject != nil {
+		// For nearObject, we would need to resolve the object's vector
+		// For now, we return nil since the vector resolution is complex
+		return nil
+	}
+
+	// TODO: Add support for module-based query vectors (nearText, etc.)
+	return nil
 }
 
 func extractCertaintyFromExploreParams(params ExploreParams) (certainty float64) {

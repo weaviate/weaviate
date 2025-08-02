@@ -182,6 +182,7 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["distance"] = b.additionalDistanceField(class)
 	additionalProperties["vector"] = b.additionalVectorField(class)
 	additionalProperties["vectors"] = b.additionalVectorsField(class)
+	additionalProperties["query_vector"] = b.additionalQueryVectorField(class)
 	additionalProperties["id"] = b.additionalIDField()
 	additionalProperties["creationTimeUnix"] = b.additionalCreationTimeUnix()
 	additionalProperties["lastUpdateTimeUnix"] = b.additionalLastUpdateTimeUnix()
@@ -264,6 +265,12 @@ func (b *classBuilder) additionalVectorsField(class *models.Class) *graphql.Fiel
 		}
 	}
 	return nil
+}
+
+func (b *classBuilder) additionalQueryVectorField(class *models.Class) *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.NewList(graphql.Float),
+	}
 }
 
 func (b *classBuilder) additionalCreationTimeUnix() *graphql.Field {
