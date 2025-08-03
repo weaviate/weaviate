@@ -126,7 +126,7 @@ func (g *GCSStorage) UploadUsageData(ctx context.Context, usage *types.Report) e
 		return err
 	}
 
-	obj := g.storageClient.Bucket(g.BucketName).Object(g.ConstructObjectKey())
+	obj := g.storageClient.Bucket(g.BucketName).Object(g.ConstructObjectKey(usage.CollectingTIme))
 	writer := obj.NewWriter(ctx)
 	writer.ContentType = "application/json"
 	writer.Metadata = map[string]string{
@@ -161,23 +161,32 @@ func (g *GCSStorage) UpdateConfig(config common.StorageConfig) (bool, error) {
 
 	// Update the configuration
 	configChanged := g.UpdateCommonConfig(config)
+	if !configChanged {
+		return configChanged, nil
+	}
 
 	// If bucket name changed, verify permissions
 	if oldBucketName != g.BucketName {
 		g.Logger.WithFields(logrus.Fields{
 			"old_bucket": oldBucketName,
 			"new_bucket": g.BucketName,
-		}).Info("GCS bucket name changed - verifying permissions")
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		if err := g.VerifyPermissions(ctx); err != nil {
-			g.Logger.WithError(err).Error("GCS permission verification failed after bucket change")
-			return configChanged, err
-		}
-		g.Logger.Info("GCS permissions verified successfully after bucket change")
+		}).Info("GCS bucket name changed")
 	}
+
+	if !config.VerifyPermissions {
+		g.Logger.Info("permission verification skipped after bucket change (disabled by configuration)")
+		return configChanged, nil
+	}
+
+	g.Logger.Info("verifying permissions")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := g.VerifyPermissions(ctx); err != nil {
+		g.Logger.WithError(err).Error("GCS permission verification failed after bucket change")
+		return configChanged, err
+	}
+	g.Logger.Info("GCS permissions verified successfully")
 
 	return configChanged, nil
 }

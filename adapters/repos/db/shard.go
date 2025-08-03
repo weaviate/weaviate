@@ -149,7 +149,6 @@ type ShardLike interface {
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
-	publishDimensionMetrics(ctx context.Context)
 	resetDimensionsLSM() error
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
@@ -234,7 +233,6 @@ type Shard struct {
 	lastComparedHosts                 []string
 	lastComparedHostsMux              sync.RWMutex
 	asyncReplicationStatsByTargetNode map[string]*hashBeatHostStats
-	//
 
 	haltForTransferMux               sync.Mutex
 	haltForTransferInactivityTimeout time.Duration
@@ -245,9 +243,6 @@ type Shard struct {
 	status              ShardStatus
 	statusLock          sync.RWMutex
 	propertyIndicesLock sync.RWMutex
-
-	stopDimensionTracking        chan struct{}
-	dimensionTrackingInitialized atomic.Bool
 
 	centralJobQueue chan job // reference to queue used by all shards
 
@@ -415,7 +410,9 @@ func (s *Shard) ObjectCount() int {
 func (s *Shard) ObjectCountAsync(_ context.Context) (int64, error) {
 	b := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
-		return 0, fmt.Errorf("bucket %s not found", helpers.ObjectsBucketLSM)
+		// we return no error, because we could have shards without the objects bucket
+		// the error is needed to satisfy the interface for lazy loaded shards possible errors
+		return 0, nil
 	}
 
 	return int64(b.CountAsync()), nil
@@ -424,7 +421,9 @@ func (s *Shard) ObjectCountAsync(_ context.Context) (int64, error) {
 func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
-		return 0, fmt.Errorf("bucket %s not found", helpers.ObjectsBucketLSM)
+		// we return no error, because we could have shards without the objects bucket
+		// the error is needed to satisfy the interface for lazy loaded shards possible errors
+		return 0, nil
 	}
 
 	return bucket.DiskSize() + bucket.MetadataSize(), nil

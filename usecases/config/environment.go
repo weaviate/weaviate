@@ -185,6 +185,7 @@ func FromEnv(config *Config) error {
 			userClaim       string
 			groupsClaim     string
 			certificate     string
+			jwksUrl         string
 		)
 
 		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
@@ -215,6 +216,10 @@ func FromEnv(config *Config) error {
 			certificate = v
 		}
 
+		if v := os.Getenv("AUTHENTICATION_OIDC_JWKS_URL"); v != "" {
+			jwksUrl = v
+		}
+
 		config.Authentication.OIDC.SkipClientIDCheck = runtime.NewDynamicValue(skipClientCheck)
 		config.Authentication.OIDC.Issuer = runtime.NewDynamicValue(issuer)
 		config.Authentication.OIDC.ClientID = runtime.NewDynamicValue(clientID)
@@ -222,6 +227,7 @@ func FromEnv(config *Config) error {
 		config.Authentication.OIDC.UsernameClaim = runtime.NewDynamicValue(userClaim)
 		config.Authentication.OIDC.GroupsClaim = runtime.NewDynamicValue(groupsClaim)
 		config.Authentication.OIDC.Certificate = runtime.NewDynamicValue(certificate)
+		config.Authentication.OIDC.JWKSUrl = runtime.NewDynamicValue(jwksUrl)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
@@ -876,6 +882,26 @@ func FromEnv(config *Config) error {
 	}
 	config.QuerySlowLogThreshold = runtime.NewDynamicValue(querySlowLogThreshold)
 
+	envName := "QUERY_BITMAP_BUFS_MAX_MEMORY"
+	config.QueryBitmapBufsMaxMemory = DefaultQueryBitmapBufsMaxMemory
+	if v := os.Getenv(envName); v != "" {
+		bytes, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("%s: %w", envName, err)
+		}
+		config.QueryBitmapBufsMaxMemory = int(bytes)
+	}
+
+	envName = "QUERY_BITMAP_BUFS_MAX_BUF_SIZE"
+	config.QueryBitmapBufsMaxBufSize = DefaultQueryBitmapBufsMaxBufSize
+	if v := os.Getenv(envName); v != "" {
+		bytes, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("%s: %w", envName, err)
+		}
+		config.QueryBitmapBufsMaxBufSize = int(bytes)
+	}
+
 	invertedSorterDisabled := false
 	if v := os.Getenv("INVERTED_SORTER_DISABLED"); v != "" {
 		invertedSorterDisabled = !(strings.ToLower(v) == "false")
@@ -1213,6 +1239,9 @@ const (
 	DefaultQueryNestedCrossReferenceLimit = int64(100000)
 	// DefaultQueryCrossReferenceDepthLimit describes the max depth of nested crossrefs in a query
 	DefaultQueryCrossReferenceDepthLimit = 5
+
+	DefaultQueryBitmapBufsMaxBufSize = 1 << 25 // 32MB
+	DefaultQueryBitmapBufsMaxMemory  = 1 << 27 // 128MB (2x 32MB, 2x 16MB, 2x 8MB, 2x 4MB, 4x 2MB)
 )
 
 const (

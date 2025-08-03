@@ -4513,39 +4513,6 @@ func (_c *MockShardLike_preventShutdown_Call) RunAndReturn(run func() (func(), e
 	return _c
 }
 
-// publishDimensionMetrics provides a mock function with given fields: ctx
-func (_m *MockShardLike) publishDimensionMetrics(ctx context.Context) {
-	_m.Called(ctx)
-}
-
-// MockShardLike_publishDimensionMetrics_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'publishDimensionMetrics'
-type MockShardLike_publishDimensionMetrics_Call struct {
-	*mock.Call
-}
-
-// publishDimensionMetrics is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockShardLike_Expecter) publishDimensionMetrics(ctx interface{}) *MockShardLike_publishDimensionMetrics_Call {
-	return &MockShardLike_publishDimensionMetrics_Call{Call: _e.mock.On("publishDimensionMetrics", ctx)}
-}
-
-func (_c *MockShardLike_publishDimensionMetrics_Call) Run(run func(ctx context.Context)) *MockShardLike_publishDimensionMetrics_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_publishDimensionMetrics_Call) Return() *MockShardLike_publishDimensionMetrics_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockShardLike_publishDimensionMetrics_Call) RunAndReturn(run func(context.Context)) *MockShardLike_publishDimensionMetrics_Call {
-	_c.Run(run)
-	return _c
-}
-
 // putObjectLSM provides a mock function with given fields: object, idBytes
 func (_m *MockShardLike) putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error) {
 	ret := _m.Called(object, idBytes)

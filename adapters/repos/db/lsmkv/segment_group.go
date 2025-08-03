@@ -91,6 +91,7 @@ type SegmentGroup struct {
 	lastCompactionCall time.Time
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
+	bitmapBufPool                  roaringset.BitmapBufPool
 	bm25config                     *schema.BM25Config
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
@@ -120,6 +121,7 @@ type sgConfig struct {
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	compactionCallbacks cyclemanager.CycleCallbackGroup, cfg sgConfig,
 	allocChecker memwatch.AllocChecker, lazySegmentLoading bool, files map[string]int64,
+	bitmapBufPool roaringset.BitmapBufPool,
 ) (*SegmentGroup, error) {
 	now := time.Now()
 	sg := &SegmentGroup{
@@ -144,6 +146,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		MinMMapSize:                  cfg.MinMMapSize,
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 		writeMetadata:                cfg.writeMetadata,
+		bitmapBufPool:                bitmapBufPool,
 	}
 
 	segmentIndex := 0
@@ -702,27 +705,46 @@ func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []Segme
 	return out[:i], outSegments[:i], release, nil
 }
 
-func (sg *SegmentGroup) roaringSetGet(key []byte) (roaringset.BitmapLayers, error) {
-	segments, release := sg.getAndLockSegments()
-	defer release()
+func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, release func(), err error) {
+	segments, sgRelease := sg.getAndLockSegments()
+	defer sgRelease()
 
-	var out roaringset.BitmapLayers
-
-	// start with first and do not exit
-	for _, segment := range segments {
-		layer, err := segment.roaringSetGet(key)
-		if err != nil {
-			if errors.Is(err, lsmkv.NotFound) {
-				continue
-			}
-
-			return nil, err
-		}
-
-		out = append(out, layer)
+	ln := len(segments)
+	if ln == 0 {
+		return nil, noopRelease, nil
 	}
 
-	return out, nil
+	release = noopRelease
+	// use bigger buffer for first layer, to make space for further merges
+	// with following layers
+	bitmapBufPool := roaringset.NewBitmapBufPoolFactorWrapper(sg.bitmapBufPool, 1.25)
+
+	i := 0
+	for ; i < ln; i++ {
+		layer, layerRelease, err := segments[i].roaringSetGet(key, bitmapBufPool)
+		if err == nil {
+			out = append(out, layer)
+			release = layerRelease
+			i++
+			break
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return nil, noopRelease, err
+		}
+	}
+	defer func() {
+		if err != nil {
+			release()
+		}
+	}()
+
+	for ; i < ln; i++ {
+		if err := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool); err != nil {
+			return nil, noopRelease, err
+		}
+	}
+
+	return out, release, nil
 }
 
 func (sg *SegmentGroup) count() int {
@@ -750,33 +772,69 @@ func (sg *SegmentGroup) Size() int64 {
 }
 
 // MetadataSize returns the total size of metadata files (.bloom and .cna) from segments in memory
+// MetadataSize returns the total size of metadata files for all segments.
+// The calculation differs based on the writeMetadata setting:
+//
+// When writeMetadata is enabled:
+//   - Counts the actual file size of .metadata files on disk
+//   - Each .metadata file contains: header + bloom filters + count net additions
+//   - Header includes: checksum (4 bytes) + version (1 byte) + bloom len (4 bytes) + cna len (4 bytes) = 13 bytes
+//   - Bloom filters are serialized and stored inline
+//   - CNA data includes: uint64 count (8 bytes) + length indicator (4 bytes) = 12 bytes
+//
+// When writeMetadata is disabled:
+//   - Counts bloom filters in memory (getBloomFilterSize)
+//   - Counts .cna files separately (12 bytes each: 8 bytes data + 4 bytes checksum)
+//   - This represents the legacy behavior where metadata was stored separately
+//
+// The total size should be equivalent between both modes, accounting for the
+// metadata file header overhead when writeMetadata is enabled.
 func (sg *SegmentGroup) MetadataSize() int64 {
 	segments, release := sg.getAndLockSegments()
 	defer release()
 
-	var totalSize, cnaCount int64
+	var totalSize int64
 	for _, segment := range segments {
-		// Count bloom filters in memory
-		if seg := segment.getSegment(); seg != nil {
-			if seg.bloomFilter != nil {
-				totalSize += int64(getBloomFilterSize(seg.bloomFilter))
-			}
-			// Count secondary bloom filters
-			for _, bf := range seg.secondaryBloomFilters {
-				if bf != nil {
-					totalSize += int64(getBloomFilterSize(bf))
+		if sg.writeMetadata {
+			// When writeMetadata is enabled, count .metadata files
+			// Each .metadata file contains bloom filters + count net additions
+			if seg := segment.getSegment(); seg != nil {
+				// Check if segment has metadata file
+				metadataPath := seg.metadataPath()
+				if metadataPath != "" {
+					exists, err := fileExists(metadataPath)
+					if err == nil && exists {
+						// Get the actual file size of the metadata file
+						if info, err := os.Stat(metadataPath); err == nil {
+							totalSize += info.Size()
+						}
+					}
 				}
 			}
-		}
+		} else {
+			// When writeMetadata is disabled, count bloom filters and .cna files separately
+			if seg := segment.getSegment(); seg != nil {
+				// Count bloom filters in memory
+				if seg.bloomFilter != nil {
+					totalSize += int64(getBloomFilterSize(seg.bloomFilter))
+				}
+				// Count secondary bloom filters
+				for _, bf := range seg.secondaryBloomFilters {
+					if bf != nil {
+						totalSize += int64(getBloomFilterSize(bf))
+					}
+				}
+			}
 
-		// Count .cna files (12 bytes each)
-		if segment.getSegment().countNetPath() != "" {
-			cnaCount++
+			// Count .cna files (12 bytes each)
+			if segment.getSegment().countNetPath() != "" {
+				// .cna files: uint64 count (8 bytes) + uint32 checksum (4 bytes) = 12 bytes
+				totalSize += 12
+			}
 		}
 	}
 
-	// .cna files: uint64 count (8 bytes) + uint32 checksum (4 bytes) = 12 bytes
-	return totalSize + 12*cnaCount
+	return totalSize
 }
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {
