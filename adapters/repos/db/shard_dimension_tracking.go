@@ -110,7 +110,10 @@ func (dm DimensionMetrics) Add(add DimensionMetrics) DimensionMetrics {
 // Vector dimension metrics are collected on the node level and
 // are normally _polled_ from each shard. Shard SHOULD only update
 // its dimension metrics on its own iff it is being shut down or dropped
-// and metrics grouping is disatbled.
+// and metrics grouping is disabled.
+// If metrics grouping is enabled, the difference is eventually
+// accounted for the next time nodeWideMetricsObserver recalculates
+// total vector dimensions, because only _active_ shards are considered.
 func (s *Shard) clearDimensionMetrics() {
 	if s.index.metrics.baseMetrics == nil || s.index.metrics.baseMetrics.Group {
 		return
