@@ -163,7 +163,6 @@ type hnsw struct {
 	deleteVsInsertLock sync.RWMutex
 
 	compressed       atomic.Bool
-	doNotRescore     bool
 	acornSearch      atomic.Bool
 	acornFilterRatio float64
 
