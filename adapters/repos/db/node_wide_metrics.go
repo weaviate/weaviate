@@ -59,8 +59,7 @@ func newNodeWideMetricsObserver(db *DB) *nodeWideMetricsObserver {
 // if metric aggregation (PROMETHEUS_MONITORING_GROUP) is enabled.
 // Only start this service if DB has Prometheus enabled.
 func (o *nodeWideMetricsObserver) Start() {
-	// Prometheus metrics are redundant with Usage Module is enabled
-	if o.db.config.TrackVectorDimensions && !o.db.config.UsageEnabled {
+	if o.db.config.TrackVectorDimensions {
 		enterrors.GoWrapper(o.observeDimensionMetrics, o.db.logger)
 	}
 
