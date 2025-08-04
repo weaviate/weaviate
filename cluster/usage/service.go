@@ -162,7 +162,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 					category := db.DimensionCategoryStandard // Default category
 					indexType := ""
 					var bits int16
-					if vectorIndexConfig, ok := vectorIndex.(schemaConfig.VectorIndexConfig); ok {
+					if vectorIndexConfig, ok := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
 						category, _ = db.GetDimensionCategory(vectorIndexConfig)
 						indexType = vectorIndexConfig.IndexType()
 						bits = db.GetRQBits(vectorIndexConfig)
