@@ -33,6 +33,7 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	idx, err := geo.NewIndex(geo.Config{
 		ID:                 geoPropID(prop.Name),
 		RootPath:           s.path(),
+		ShardName:          s.name,
 		CoordinatesForID:   s.makeCoordinatesForID(prop.Name),
 		DisablePersistence: false,
 		Logger:             s.index.logger,

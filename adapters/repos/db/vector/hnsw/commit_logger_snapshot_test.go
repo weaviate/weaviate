@@ -33,7 +33,7 @@ func createTestCommitLoggerForSnapshots(t *testing.T, rootDir, id string) *hnswC
 	}
 
 	commitLogDir := commitLogDirectory(rootDir, id)
-	cl, err := NewCommitLogger(rootDir, id, logrus.New(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	cl, err := NewCommitLogger(rootDir, id, "shard", logrus.New(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.NoError(t, err)
 
 	// commit logger always creates an empty file if there is no data, remove it first

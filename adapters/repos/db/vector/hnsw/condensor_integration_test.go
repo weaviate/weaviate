@@ -34,12 +34,12 @@ func TestCondensor(t *testing.T) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
 
-	perfect, err := NewCommitLogger(rootPath, "perfect", logger,
+	perfect, err := NewCommitLogger(rootPath, "perfect", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer perfect.Shutdown(ctx)
@@ -149,17 +149,17 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
+	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer uncondensed1.Shutdown(ctx)
 
-	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
+	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer uncondensed2.Shutdown(ctx)
 
-	control, err := NewCommitLogger(rootPath, "control", logger,
+	control, err := NewCommitLogger(rootPath, "control", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
@@ -243,17 +243,17 @@ func TestCondensorReplaceNodeLinks(t *testing.T) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
+	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer uncondensed1.Shutdown(ctx)
 
-	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
+	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer uncondensed2.Shutdown(ctx)
 
-	control, err := NewCommitLogger(rootPath, "control", logger,
+	control, err := NewCommitLogger(rootPath, "control", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
@@ -342,17 +342,17 @@ func TestCondensorClearLinksAtLevel(t *testing.T) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
+	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer uncondensed1.Shutdown(ctx)
 
-	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
+	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer uncondensed2.Shutdown(ctx)
 
-	control, err := NewCommitLogger(rootPath, "control", logger,
+	control, err := NewCommitLogger(rootPath, "control", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
@@ -437,17 +437,17 @@ func TestCondensorTombstones(t *testing.T) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
+	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer uncondensed1.Shutdown(ctx)
 
-	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
+	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer uncondensed2.Shutdown(ctx)
 
-	control, err := NewCommitLogger(rootPath, "control", logger,
+	control, err := NewCommitLogger(rootPath, "control", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
@@ -533,17 +533,17 @@ func TestCondensorPhantom(t *testing.T) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
+	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer uncondensed1.Shutdown(ctx)
 
-	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
+	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer uncondensed2.Shutdown(ctx)
 
-	control, err := NewCommitLogger(rootPath, "control", logger,
+	control, err := NewCommitLogger(rootPath, "control", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
@@ -612,7 +612,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
@@ -662,7 +662,7 @@ func TestCondensorWithPQInformation(t *testing.T) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
@@ -746,7 +746,7 @@ func TestCondensorWithMUVERAInformation(t *testing.T) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)

@@ -336,7 +336,7 @@ func TestMultivectorPersistence(t *testing.T) {
 	k := 10
 
 	logger, _ := test.NewNullLogger()
-	cl, clErr := NewCommitLogger(dirName, indexID, logger,
+	cl, clErr := NewCommitLogger(dirName, indexID, "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	makeCL := func() (CommitLogger, error) {
 		return cl, clErr
