@@ -60,7 +60,7 @@ var contentsWithChecksum = []byte{
 	0x5a,
 }
 
-func TestSegmentFile_ValidateChecksum(t *testing.T) {
+func prepareSegment(t *testing.T) (*os.File, int64) {
 	dir := t.TempDir()
 	fname := path.Join(dir, "tmp.db")
 
@@ -80,11 +80,15 @@ func TestSegmentFile_ValidateChecksum(t *testing.T) {
 	fileInfo, err := f.Stat()
 	if err != nil {
 		fmt.Printf("Error getting file info: %v\n", err)
-		return
+		return nil, 0
 	}
+	return f, fileInfo.Size()
+}
 
+func TestSegmentFile_ValidateChecksum(t *testing.T) {
+	f, fileSize := prepareSegment(t)
 	segmentFile := NewSegmentFile(WithReader(f))
-	err = segmentFile.ValidateChecksum(fileInfo.Size(), HeaderSize)
+	err := segmentFile.ValidateChecksum(fileSize, HeaderSize)
 	require.Nil(t, err)
 }
 
@@ -93,28 +97,8 @@ func TestSegmentFile_ValidateChecksum(t *testing.T) {
 // Setting a custom buffer size is simpler than creating a segment file with a size that is close to the checksum size.
 // Interesting note, for this segment, the test would fail in the old implementation if the buffer size is set to 77, 78, 154, 155 or 156 bytes.
 func TestSegmentFile_ValidateChecksumMultipleOfBufferReader(t *testing.T) {
-	dir := t.TempDir()
-	fname := path.Join(dir, "tmp.db")
-
-	{
-		// setup
-		f, err := os.Create(fname)
-		require.Nil(t, err)
-		_, err = f.Write(contentsWithChecksum)
-		require.Nil(t, err)
-		f.Close()
-	}
-
-	f, err := os.Open(fname)
-	require.Nil(t, err)
-	defer f.Close()
-
-	fileInfo, err := f.Stat()
-	if err != nil {
-		fmt.Printf("Error getting file info: %v\n", err)
-		return
-	}
+	f, fileSize := prepareSegment(t)
 	segmentFile := NewSegmentFile(WithReaderCustomBufferSize(f, 77))
-	err = segmentFile.ValidateChecksum(fileInfo.Size(), HeaderSize)
+	err := segmentFile.ValidateChecksum(fileSize, HeaderSize)
 	require.Nil(t, err)
 }
