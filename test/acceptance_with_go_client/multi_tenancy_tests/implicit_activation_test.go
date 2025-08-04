@@ -86,17 +86,15 @@ func autoTenantActivationJourney(t *testing.T,
 		err = client.Schema().ClassUpdater().WithClass(c).Do(ctx)
 		require.Nil(t, err)
 
-		// These kind of schema changes are not expected to be strongly
-		// consistent, so we wait a bit. This is fine as this setting should very
-		// rarely change.
-		time.Sleep(1 * time.Second)
 	})
 
 	t.Run("assert all tenants are queryable despite originally being COLD", func(t *testing.T) {
-		for _, tenantName := range tenantNames {
-			assertActiveTenantObjects(t, client, className, tenantName,
-				[]string{fixtures.PIZZA_FRUTTI_DI_MARE_ID})
-		}
+		assert.EventuallyWithT(t, func(t *assert.CollectT) {
+			for _, tenantName := range tenantNames {
+				assertActiveTenantObjectsNoRequire(t, client, className, tenantName,
+					[]string{fixtures.PIZZA_FRUTTI_DI_MARE_ID})
+			}
+		}, 5*time.Second, 300*time.Millisecond)
 	})
 
 	t.Run("assert all tenants are reporting as HOT now", func(t *testing.T) {
