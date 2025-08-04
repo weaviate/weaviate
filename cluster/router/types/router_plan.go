@@ -28,11 +28,14 @@ import (
 //   - ConsistencyLevel: The desired level of consistency for the operation.
 //   - DirectCandidateNode: Optional. The preferred node to use first when building the routing plan.
 //     If empty, the local node is used as the default candidate.
+//   - ReadExecutorStopOnError: If true, the read executor when executing the plan will stop when an error occurs.
 type RoutingPlanBuildOptions struct {
 	Shard               string
 	Tenant              string
 	ConsistencyLevel    ConsistencyLevel
 	DirectCandidateNode string
+
+	ReadExecutorStopOnError bool
 }
 
 // String returns a human-readable representation of the RoutingPlanBuildOptions.
@@ -52,6 +55,7 @@ func (o RoutingPlanBuildOptions) String() string {
 //   - ReplicaSet: The ordered list of Replicas to contact.
 //   - ConsistencyLevel: The user-specified consistency level.
 //   - IntConsistencyLevel: The resolved numeric value for the consistency level.
+//   - ReadExecutorStopOnError: If true, the read executor when executing the plan will stop when an error occurs.
 type ReadRoutingPlan struct {
 	Shard               string
 	Tenant              string

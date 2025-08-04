@@ -236,6 +236,105 @@ func (_c *MockRouter_BuildWriteRoutingPlan_Call) RunAndReturn(run func(RoutingPl
 	return _c
 }
 
+// ExecuteForEachReplicaOfShard provides a mock function with given fields: plan, options, shardName, localExecutor, remoteExecutor
+func (_m *MockRouter) ExecuteForEachReplicaOfShard(plan ReadRoutingPlan, options ReadRoutingPlanExecutorOptions, shardName string, localExecutor ReadExecutor, remoteExecutor ReadExecutor) error {
+	ret := _m.Called(plan, options, shardName, localExecutor, remoteExecutor)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ExecuteForEachReplicaOfShard")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(ReadRoutingPlan, ReadRoutingPlanExecutorOptions, string, ReadExecutor, ReadExecutor) error); ok {
+		r0 = rf(plan, options, shardName, localExecutor, remoteExecutor)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockRouter_ExecuteForEachReplicaOfShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ExecuteForEachReplicaOfShard'
+type MockRouter_ExecuteForEachReplicaOfShard_Call struct {
+	*mock.Call
+}
+
+// ExecuteForEachReplicaOfShard is a helper method to define mock.On call
+//   - plan ReadRoutingPlan
+//   - options ReadRoutingPlanExecutorOptions
+//   - shardName string
+//   - localExecutor ReadExecutor
+//   - remoteExecutor ReadExecutor
+func (_e *MockRouter_Expecter) ExecuteForEachReplicaOfShard(plan interface{}, options interface{}, shardName interface{}, localExecutor interface{}, remoteExecutor interface{}) *MockRouter_ExecuteForEachReplicaOfShard_Call {
+	return &MockRouter_ExecuteForEachReplicaOfShard_Call{Call: _e.mock.On("ExecuteForEachReplicaOfShard", plan, options, shardName, localExecutor, remoteExecutor)}
+}
+
+func (_c *MockRouter_ExecuteForEachReplicaOfShard_Call) Run(run func(plan ReadRoutingPlan, options ReadRoutingPlanExecutorOptions, shardName string, localExecutor ReadExecutor, remoteExecutor ReadExecutor)) *MockRouter_ExecuteForEachReplicaOfShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(ReadRoutingPlan), args[1].(ReadRoutingPlanExecutorOptions), args[2].(string), args[3].(ReadExecutor), args[4].(ReadExecutor))
+	})
+	return _c
+}
+
+func (_c *MockRouter_ExecuteForEachReplicaOfShard_Call) Return(_a0 error) *MockRouter_ExecuteForEachReplicaOfShard_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockRouter_ExecuteForEachReplicaOfShard_Call) RunAndReturn(run func(ReadRoutingPlan, ReadRoutingPlanExecutorOptions, string, ReadExecutor, ReadExecutor) error) *MockRouter_ExecuteForEachReplicaOfShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ExecuteForEachShard provides a mock function with given fields: plan, options, localExecutor, remoteExecutor
+func (_m *MockRouter) ExecuteForEachShard(plan ReadRoutingPlan, options ReadRoutingPlanExecutorOptions, localExecutor ReadExecutor, remoteExecutor ReadExecutor) error {
+	ret := _m.Called(plan, options, localExecutor, remoteExecutor)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ExecuteForEachShard")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(ReadRoutingPlan, ReadRoutingPlanExecutorOptions, ReadExecutor, ReadExecutor) error); ok {
+		r0 = rf(plan, options, localExecutor, remoteExecutor)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockRouter_ExecuteForEachShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ExecuteForEachShard'
+type MockRouter_ExecuteForEachShard_Call struct {
+	*mock.Call
+}
+
+// ExecuteForEachShard is a helper method to define mock.On call
+//   - plan ReadRoutingPlan
+//   - options ReadRoutingPlanExecutorOptions
+//   - localExecutor ReadExecutor
+//   - remoteExecutor ReadExecutor
+func (_e *MockRouter_Expecter) ExecuteForEachShard(plan interface{}, options interface{}, localExecutor interface{}, remoteExecutor interface{}) *MockRouter_ExecuteForEachShard_Call {
+	return &MockRouter_ExecuteForEachShard_Call{Call: _e.mock.On("ExecuteForEachShard", plan, options, localExecutor, remoteExecutor)}
+}
+
+func (_c *MockRouter_ExecuteForEachShard_Call) Run(run func(plan ReadRoutingPlan, options ReadRoutingPlanExecutorOptions, localExecutor ReadExecutor, remoteExecutor ReadExecutor)) *MockRouter_ExecuteForEachShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(ReadRoutingPlan), args[1].(ReadRoutingPlanExecutorOptions), args[2].(ReadExecutor), args[3].(ReadExecutor))
+	})
+	return _c
+}
+
+func (_c *MockRouter_ExecuteForEachShard_Call) Return(_a0 error) *MockRouter_ExecuteForEachShard_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockRouter_ExecuteForEachShard_Call) RunAndReturn(run func(ReadRoutingPlan, ReadRoutingPlanExecutorOptions, ReadExecutor, ReadExecutor) error) *MockRouter_ExecuteForEachShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetReadReplicasLocation provides a mock function with given fields: collection, tenant, shard
 func (_m *MockRouter) GetReadReplicasLocation(collection string, tenant string, shard string) (ReadReplicaSet, error) {
 	ret := _m.Called(collection, tenant, shard)

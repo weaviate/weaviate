@@ -102,6 +102,33 @@ type Router interface {
 	//   - error: if an error occurs while building the routing plan.
 	BuildReadRoutingPlan(params RoutingPlanBuildOptions) (ReadRoutingPlan, error)
 
+	// ExecuteForEachReplica executes localExecutor for the local node and remoteExecutor for the remote node
+	// for every replica in the plan, regardless of shard deduplication.
+	//
+	// Parameters:
+	//   - plan: the routing plan to execute.
+	//   - options: execution options including
+	//   - shardName: the name of the shard to execute the replicas of.
+	//   - localExecutor: the executor to use for the local node.
+	//   - remoteExecutor: the executor to use for the remote node.
+	//
+	// Returns:
+	//   - error: if an error occurs while executing the routing plan.
+	ExecuteForEachReplicaOfShard(plan ReadRoutingPlan, options ReadRoutingPlanExecutorOptions, shardName string, localExecutor ReadExecutor, remoteExecutor ReadExecutor) error
+
+	// ExecuteForEachReplica executes localExecutor for the local node and remoteExecutor for the remote node
+	// in the order of the replica(s) in the plan.
+	//
+	// Parameters:
+	//   - plan: the routing plan to execute.
+	//   - options: execution options including
+	//   - localExecutor: the executor to use for the local node.
+	//   - remoteExecutor: the executor to use for the remote node.
+	//
+	// Returns:
+	//   - error: if an error occurs while executing the routing plan.
+	ExecuteForEachShard(plan ReadRoutingPlan, options ReadRoutingPlanExecutorOptions, localExecutor ReadExecutor, remoteExecutor ReadExecutor) error
+
 	// NodeHostname returns the hostname for a given node name.
 	//
 	// Parameters:

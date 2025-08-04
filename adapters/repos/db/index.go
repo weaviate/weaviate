@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 
 	"github.com/go-openapi/strfmt"
@@ -1548,8 +1549,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		}
 	}
 
-	outObjects, outScores, err := i.objectSearchByShard(ctx, limit,
-		filters, keywordRanking, sort, cursor, addlProps, tenant, readPlan.Shards(), properties)
+	outObjects, outScores, err := i.objectSearchByShard(ctx, limit, filters, keywordRanking, sort, cursor, addlProps, tenant, readPlan, properties)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1632,31 +1632,33 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	addlProps additional.Properties, tenant string, shards []string, properties []string,
+	addlProps additional.Properties, tenant string, readPlan routerTypes.ReadRoutingPlan, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
+	resultObjects, resultScores := objectSearchPreallocate(limit, readPlan.Shards())
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
 	eg.SetLimit(_NUMCPU * 2)
 	shardResultLock := sync.Mutex{}
-	for _, shardName := range shards {
-		shardName := shardName
+	i.router.ExecuteForEachShard(readPlan, types.ReadRoutingPlanExecutorOptions{StopOnError: true},
+		// Local Shard Search
+		func(replica routerTypes.Replica) error {
+			shardName := replica.ShardName
+			eg.Go(func() error {
+				var (
+					objs     []*storobj.Object
+					scores   []float32
+					nodeName string
+					err      error
+				)
 
-		eg.Go(func() error {
-			var (
-				objs     []*storobj.Object
-				scores   []float32
-				nodeName string
-				err      error
-			)
+				shard, release, err := i.GetShard(ctx, shardName)
+				if err != nil {
+					return fmt.Errorf("error getting local shard %s: %w", shardName, err)
+				}
+				if shard != nil {
+					defer release()
+				}
 
-			shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead)
-			defer release()
-			if err != nil {
-				return err
-			}
-
-			if shard != nil {
 				localCtx := helpers.InitSlowQueryDetails(ctx)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
@@ -1665,30 +1667,51 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 						"local shard object search %s: %w", shard.ID(), err)
 				}
 				nodeName = i.getSchema.NodeName()
-			} else {
-				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
 
-				objs, scores, nodeName, err = i.remote.SearchShard(
-					ctx, shardName, nil, nil, 0, limit, filters, keywordRanking,
-					sort, cursor, nil, addlProps, nil, properties)
+				if i.shardHasMultipleReplicasRead(tenant, shardName) {
+					storobj.AddOwnership(objs, nodeName, shardName)
+				}
+
+				shardResultLock.Lock()
+				resultObjects = append(resultObjects, objs...)
+				resultScores = append(resultScores, scores...)
+				shardResultLock.Unlock()
+
+				return nil
+			}, shardName)
+			return nil
+		},
+		// Remote Shard Search
+		func(replica routerTypes.Replica) error {
+			shardName := replica.ShardName
+			eg.Go(func() error {
+				var (
+					objs     []*storobj.Object
+					scores   []float32
+					nodeName string
+					err      error
+				)
+
+				objs, scores, nodeName, err = i.remote.SearchShard(ctx, shardName, nil, nil, 0, limit, filters, keywordRanking, sort, cursor, nil, addlProps, nil, properties)
 				if err != nil {
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err)
 				}
-			}
 
-			if i.shardHasMultipleReplicasRead(tenant, shardName) {
-				storobj.AddOwnership(objs, nodeName, shardName)
-			}
+				if i.shardHasMultipleReplicasRead(tenant, shardName) {
+					storobj.AddOwnership(objs, nodeName, shardName)
+				}
 
-			shardResultLock.Lock()
-			resultObjects = append(resultObjects, objs...)
-			resultScores = append(resultScores, scores...)
-			shardResultLock.Unlock()
+				shardResultLock.Lock()
+				resultObjects = append(resultObjects, objs...)
+				resultScores = append(resultScores, scores...)
+				shardResultLock.Unlock()
 
+				return nil
+			}, shardName)
 			return nil
-		}, shardName)
-	}
+		},
+	)
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
@@ -1696,7 +1719,6 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	if len(resultObjects) == len(resultScores) {
 
 		// Force a stable sort order by UUID
-
 		type resultSortable struct {
 			object *storobj.Object
 			score  float32
