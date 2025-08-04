@@ -162,7 +162,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 					category := db.DimensionCategoryStandard // Default category
 					indexType := ""
 					var bits int16
-					if vectorIndexConfig, ok := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+					if vectorIndexConfig, ok := vectorIndex.(schemaConfig.VectorIndexConfig); ok {
 						category, _ = db.GetDimensionCategory(vectorIndexConfig)
 						indexType = vectorIndexConfig.IndexType()
 						bits = db.GetRQBits(vectorIndexConfig)
@@ -234,7 +234,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 	return usage, nil
 }
 
-func calculateUnloadedShardUsage(ctx context.Context, index db.IndexLike, tenantName string, vectorConfig map[string]models.VectorConfig) (*types.ShardUsage, error) {
+func calculateUnloadedShardUsage(ctx context.Context, index db.IndexLike, tenantName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
 	// Cold tenant: calculate from disk without loading
 	objectUsage, err := index.CalculateUnloadedObjectsMetrics(ctx, tenantName)
 	if err != nil {
@@ -255,7 +255,7 @@ func calculateUnloadedShardUsage(ctx context.Context, index db.IndexLike, tenant
 	}
 
 	// Get named vector data for cold shards from schema configuration
-	for targetVector, vectorConfig := range vectorConfig {
+	for targetVector, vectorConfig := range vectorConfigs {
 		// For cold shards, we can't get actual dimensionality from disk without loading
 		// So we'll use a placeholder or estimate based on the schema
 		vectorUsage := &types.VectorUsage{
