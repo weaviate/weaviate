@@ -47,6 +47,7 @@ type Config struct {
 	ClassName string
 
 	VisitedListPoolMaxSize int
+	InitLogLevel           logrus.Level
 }
 
 func (c Config) Validate() error {

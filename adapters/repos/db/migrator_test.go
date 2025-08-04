@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -89,6 +90,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 				RootPath:          t.TempDir(),
 				ReplicationFactor: 1,
 				ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+				ShardInitLogLevel: configRuntime.NewDynamicValue("debug"),
 			}, originalSS, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
 			require.NoError(t, err)
@@ -218,6 +220,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				RootPath:          t.TempDir(),
 				ReplicationFactor: 1,
 				ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+				ShardInitLogLevel: configRuntime.NewDynamicValue("debug"),
 			}, initialState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop())
 			require.NoError(t, err)

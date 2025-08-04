@@ -189,6 +189,8 @@ type hnsw struct {
 	docIDVectors map[uint64][]uint64
 	vecIDcounter uint64
 	maxDocID     uint64
+
+	initLogLevel logrus.Level
 }
 
 type CommitLogger interface {
@@ -237,6 +239,10 @@ func New(cfg Config, uc ent.UserConfig,
 		logger := logrus.New()
 		logger.Out = io.Discard
 		cfg.Logger = logger
+	}
+
+	if cfg.InitLogLevel == 0 {
+		cfg.InitLogLevel = logrus.DebugLevel
 	}
 
 	normalizeOnRead := false
@@ -291,8 +297,9 @@ func New(cfg Config, uc ent.UserConfig,
 		efMax:    int64(uc.DynamicEFMax),
 		efFactor: int64(uc.DynamicEFFactor),
 
-		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
-		shardName: cfg.ShardName,
+		metrics:      NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
+		shardName:    cfg.ShardName,
+		initLogLevel: cfg.InitLogLevel,
 
 		randFunc:                  rand.Float64,
 		compressActionLock:        &sync.RWMutex{},

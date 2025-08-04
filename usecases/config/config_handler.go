@@ -205,6 +205,14 @@ type Config struct {
 	//
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
+
+	// ShardInitLogLevel is 'debug' by default as every single shard initialization
+	// will log something (e.g. shard ready, async replication state, etc.)
+	// However, this may temporarily be desired, e.g. for analysis or debugging
+	// purposes. In this case the log level can be elevated, e.g. to 'info'. This
+	// is overall less noisy than changing the global log level, but still allows
+	// to see all tenant write activity.
+	ShardInitLogLevel *runtime.DynamicValue[string] `json:"shard_init_log_level" yaml:"shard_init_log_level"`
 }
 
 type MapToBlockamaxConfig struct {

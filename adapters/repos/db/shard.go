@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -197,6 +198,7 @@ type Shard struct {
 	propertyIndices   propertyspecific.Indices
 	propLenTracker    *inverted.JsonShardMetaData
 	versioner         *shardVersioner
+	initLogLevel      logrus.Level
 
 	vectorIndexMu sync.RWMutex
 	vectorIndex   VectorIndex

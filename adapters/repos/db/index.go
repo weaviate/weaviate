@@ -678,6 +678,7 @@ type IndexConfig struct {
 	QuerySlowLogThreshold               *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled              *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled              func() bool
+	ShardInitLogLevel                   *configRuntime.DynamicValue[string]
 }
 
 func indexID(class schema.ClassName) string {
