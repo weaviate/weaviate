@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,36 +23,6 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 )
-
-func waitForBackup(t *testing.T, backupID, backend string) {
-	for {
-		resp, err := helper.CreateBackupStatus(t, backend, backupID, "", "")
-		require.Nil(t, err)
-		require.NotNil(t, resp.Payload)
-		if *resp.Payload.Status == "SUCCESS" {
-			break
-		}
-		if *resp.Payload.Status == "FAILED" {
-			t.Fatalf("backup failed: %s", resp.Payload.Error)
-		}
-		time.Sleep(time.Second / 10)
-	}
-}
-
-func waitForRestore(t *testing.T, backupID, backend string) {
-	for {
-		resp, err := helper.RestoreBackupStatus(t, backend, backupID, "", "")
-		require.Nil(t, err)
-		require.NotNil(t, resp.Payload)
-		if *resp.Payload.Status == "SUCCESS" {
-			break
-		}
-		if *resp.Payload.Status == "FAILED" {
-			t.Fatalf("backup failed: %s", resp.Payload.Error)
-		}
-		time.Sleep(time.Second / 10)
-	}
-}
 
 func Test_AliasesAPI_Backup(t *testing.T) {
 	ctx := context.Background()
@@ -151,7 +120,7 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 				backupResp, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), books.DefaultClassName, backend, backupID)
 				assert.Nil(t, err)
 				assert.NotNil(t, backupResp)
-				waitForBackup(t, backupID, backend)
+				helper.ExpectBackupEventuallyCreated(t, backupID, backend, nil, helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 			})
 
 			t.Run("delete collection", func(t *testing.T) {
@@ -220,7 +189,7 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 				restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), books.DefaultClassName, backend, backupID, map[string]string{})
 				assert.Nil(t, err)
 				assert.NotNil(t, restoreResp)
-				waitForRestore(t, backupID, backend)
+				helper.ExpectBackupEventuallyRestored(t, backupID, backend, nil, helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 			})
 
 			t.Run("check class after restore", func(t *testing.T) {
