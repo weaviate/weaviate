@@ -31,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -683,8 +682,8 @@ func TestGetRQBits(t *testing.T) {
 	}{
 		{
 			name: "RQ disabled should return 0",
-			config: hnswent.UserConfig{
-				RQ: hnswent.RQConfig{
+			config: enthnsw.UserConfig{
+				RQ: enthnsw.RQConfig{
 					Enabled: false,
 					Bits:    8,
 				},
@@ -693,8 +692,8 @@ func TestGetRQBits(t *testing.T) {
 		},
 		{
 			name: "RQ enabled with bits=1 should return 1",
-			config: hnswent.UserConfig{
-				RQ: hnswent.RQConfig{
+			config: enthnsw.UserConfig{
+				RQ: enthnsw.RQConfig{
 					Enabled: true,
 					Bits:    1,
 				},
@@ -703,8 +702,8 @@ func TestGetRQBits(t *testing.T) {
 		},
 		{
 			name: "RQ enabled with bits=8 should return 8",
-			config: hnswent.UserConfig{
-				RQ: hnswent.RQConfig{
+			config: enthnsw.UserConfig{
+				RQ: enthnsw.RQConfig{
 					Enabled: true,
 					Bits:    8,
 				},
@@ -713,8 +712,8 @@ func TestGetRQBits(t *testing.T) {
 		},
 		{
 			name: "non-RQ config should return 0",
-			config: hnswent.UserConfig{
-				BQ: hnswent.BQConfig{
+			config: enthnsw.UserConfig{
+				BQ: enthnsw.BQConfig{
 					Enabled: true,
 				},
 			},
