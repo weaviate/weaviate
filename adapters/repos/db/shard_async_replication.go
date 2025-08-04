@@ -29,18 +29,18 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
-
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const (
@@ -633,7 +633,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 								WithField("class_name", s.class.Class).
 								WithField("shard_name", s.name).
 								WithField("hosts", s.getLastComparedHosts()).
-								Info("hashbeat iteration successfully completed: no differences were found")
+								Debug("hashbeat iteration successfully completed: no differences were found")
 						}
 
 						backoffTimer.Reset()
