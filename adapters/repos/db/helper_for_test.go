@@ -218,18 +218,17 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 		false, false, indexOpts...)
 }
 
-func createTestDatabaseWithClass(t *testing.T, classes ...*models.Class) *DB {
+func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMetrics, classes ...*models.Class) *DB {
 	t.Helper()
 
-	metrics := monitoring.GetMetrics()
-	metrics.Registerer = monitoring.NoopRegisterer
-
+	metricsCopy := *metrics
+	metricsCopy.Registerer = monitoring.NoopRegisterer
 	db, err := New(logrus.New(), Config{
 		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, metrics, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 
 	db.SetSchemaGetter(&fakeSchemaGetter{

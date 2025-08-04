@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -955,7 +956,7 @@ func TestMerge_ObjectWithNamedVectors(t *testing.T) {
 		}
 		objectID = strfmt.UUID("897be7cc-1ae1-4b40-89d9-d3ea98037638")
 
-		db = createTestDatabaseWithClass(t, class)
+		db = createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 	)
 
 	require.NoError(t, db.PutObject(ctx, &models.Object{
