@@ -900,7 +900,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 
 	byShard := map[string]objsAndPos{}
 	// get all tenants shards
-	tenants := make([]string, len(objects))
+	tenants := make([]string, 0, len(objects))
 	tenantsStatus := map[string]string{}
 	var err error
 	for _, obj := range objects {
