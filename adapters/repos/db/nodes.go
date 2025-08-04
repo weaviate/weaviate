@@ -192,7 +192,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 				}
 				shardStatus := &models.NodeShardStatus{
 					Name:                 name,
-					Class:                class,
+					Class:                shard.Index().Config.ClassName.String(),
 					VectorIndexingStatus: shard.GetStatusNoLoad().String(),
 					Loaded:               false,
 					ReplicationFactor:    shardingState.ReplicationFactor,
