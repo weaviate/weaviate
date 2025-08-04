@@ -60,7 +60,8 @@ func TestQueryReplica(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		rindex := RemoteIndex{"C", &test.schema, nil, &test.resolver}
+		// TODO replace with fake router?
+		rindex := RemoteIndex{"C", &test.schema, nil, &test.resolver, nil}
 		got, lastNode, err := rindex.queryReplicas(test.ctx, "S", doIf(test.targetNode))
 		if !test.success {
 			if got != nil {
