@@ -1239,6 +1239,14 @@ func createSchema() *schema.Schema {
 							IndexRangeFilters: &vFalse,
 						},
 						{
+							Name:              "inverted-text-roaringset",
+							DataType:          schema.DataTypeText.PropString(),
+							Tokenization:      models.PropertyTokenizationField,
+							IndexFilterable:   &vTrue,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+						},
+						{
 							Name:              "inverted-roaringsetrange-on-disk",
 							DataType:          schema.DataTypeInt.PropString(),
 							IndexFilterable:   &vFalse,
