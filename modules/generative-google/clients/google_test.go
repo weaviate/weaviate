@@ -58,7 +58,7 @@ func TestGetAnswer(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			buildUrlFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID, region string) string {
+			buildUrlFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, region string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -91,7 +91,7 @@ func TestGetAnswer(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			buildUrlFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID, region string) string {
+			buildUrlFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, region string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
