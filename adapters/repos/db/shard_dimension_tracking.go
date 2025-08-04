@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type DimensionCategory int
@@ -115,16 +116,19 @@ func (dm DimensionMetrics) Add(add DimensionMetrics) DimensionMetrics {
 // accounted for the next time nodeWideMetricsObserver recalculates
 // total vector dimensions, because only _active_ shards are considered.
 func (s *Shard) clearDimensionMetrics() {
-	if s.index.metrics.baseMetrics == nil || s.index.metrics.baseMetrics.Group {
+	if s.promMetrics == nil || s.promMetrics.Group {
 		return
 	}
+	clearDimensionMetrics(s.promMetrics, s.index.Config.ClassName.String(), s.name)
+}
 
-	className, shardName := s.index.Config.ClassName.String(), s.name
-	if g, err := s.index.metrics.baseMetrics.VectorDimensionsSum.
+// Set shard's vector_dimensions_sum and vector_segments_sum metrics to 0.
+func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics, className, shardName string) {
+	if g, err := promMetrics.VectorDimensionsSum.
 		GetMetricWithLabelValues(className, shardName); err == nil {
 		g.Set(0)
 	}
-	if g, err := s.index.metrics.baseMetrics.VectorSegmentsSum.
+	if g, err := promMetrics.VectorSegmentsSum.
 		GetMetricWithLabelValues(className, shardName); err == nil {
 		g.Set(0)
 	}

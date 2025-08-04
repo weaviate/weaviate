@@ -393,9 +393,10 @@ func (l *LazyLoadShard) drop() error {
 		NewMetrics(idx.logger, l.shardOpts.promMetrics, className, shardName).
 			DeleteShardLabels(className, shardName)
 
-		// cleanup dimensions
-		if idx.Config.TrackVectorDimensions {
-			l.shard.clearDimensionMetrics()
+		// cleanup dimensions iff grouping is disabled, otherwise
+		// nodeWideMetricsObserver will reflect that in the next iteration.
+		if idx.Config.TrackVectorDimensions && !l.shardOpts.promMetrics.Group {
+			clearDimensionMetrics(l.shardOpts.promMetrics, className, shardName)
 		}
 
 		// cleanup index checkpoints
