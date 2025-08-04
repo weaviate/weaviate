@@ -16,8 +16,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
+
+	"github.com/weaviate/weaviate/entities/diskio"
 
 	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -44,7 +45,7 @@ func (s *segment) initMetadata(metrics *Metrics, overwrite bool, exists existsOn
 	}
 	if loadFromDisk {
 		if overwrite {
-			err := os.Remove(path)
+			err := diskio.Remove(path, "metadata")
 			if err != nil {
 				return false, fmt.Errorf("delete metadata %s: %w", path, err)
 			}

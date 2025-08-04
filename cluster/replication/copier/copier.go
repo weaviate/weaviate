@@ -237,7 +237,7 @@ func (c *Copier) validateLocalFolder(collectionName, shardName string, fileNames
 	sortPathsByDepthDescending(dirs)
 
 	for _, dir := range dirs {
-		if err := diskio.Fsync(dir); err != nil {
+		if err := diskio.Fsync(dir, "copier"); err != nil {
 			return fmt.Errorf("failed to fsync local folder: %s: %w", dir, err)
 		}
 	}

@@ -15,7 +15,6 @@ import (
 	"bufio"
 	"context"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -52,7 +51,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, files map[string]
 		path := filepath.Join(b.dir, file)
 
 		if size == 0 {
-			err := os.Remove(path)
+			err := diskio.Remove(path, "walRecover")
 			if err != nil {
 				return errors.Wrap(err, "remove empty wal file")
 			}

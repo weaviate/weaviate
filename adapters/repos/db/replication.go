@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
@@ -546,7 +548,7 @@ func (s *Shard) filePutter(ctx context.Context,
 		return nil, fmt.Errorf("create parent folder for %s: %w", filePath, err)
 	}
 
-	f, err := os.Create(finalPath)
+	f, err := diskio.CreateFile(finalPath, "replication")
 	if err != nil {
 		return nil, fmt.Errorf("open file %q for writing: %w", filePath, err)
 	}

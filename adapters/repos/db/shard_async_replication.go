@@ -296,7 +296,7 @@ func (s *Shard) initAsyncReplication() error {
 			return err
 		}
 
-		if err := diskio.Fsync(s.pathHashTree()); err != nil {
+		if err := diskio.Fsync(s.pathHashTree(), "asyncReplication"); err != nil {
 			return fmt.Errorf("fsync hashtree directory %q: %w", s.pathHashTree(), err)
 		}
 
@@ -634,7 +634,7 @@ func (s *Shard) dumpHashTree() error {
 		return fmt.Errorf("closing hashtree %q: %w", hashtreeFilename, err)
 	}
 
-	if err := diskio.Fsync(s.pathHashTree()); err != nil {
+	if err := diskio.Fsync(s.pathHashTree(), "asyncReplication"); err != nil {
 		return fmt.Errorf("fsync hashtree directory %q: %w", s.pathHashTree(), err)
 	}
 
