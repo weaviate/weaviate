@@ -12,6 +12,8 @@
 package spfresh
 
 import (
+	"encoding/binary"
+	"iter"
 	"sync"
 	"sync/atomic"
 
@@ -23,44 +25,75 @@ const (
 	tombstoneMask = 0x80 // 1000 0000, masks out the highest bit
 )
 
-type Vector struct {
-	ID      uint64
-	Version VectorVersion
-	Data    []byte
+type Vector []byte
+
+func (v Vector) ID() uint64 {
+	return binary.LittleEndian.Uint64(v[:8])
+}
+
+func (v Vector) Version() VectorVersion {
+	return VectorVersion(v[8])
+}
+
+func (v Vector) Data() []byte {
+	return v[8+1:]
 }
 
 // A Posting is a collection of vectors associated with the same centroid.
-type Posting []Vector
+type Posting struct {
+	dims int32
+	data []byte
+}
 
 // GarbageCollect filters out vectors that are marked as deleted in the version map
-// and return a new Posting.
-func (p Posting) GarbageCollect(versionMap *VersionMap) Posting {
-	var filtered Posting
-
-	for _, v := range p {
-		version := versionMap.Get(v.ID)
-		if version.Deleted() || version.Version() > v.Version.Version() {
+// and return the filtered posting.
+// This method doesn't allocate a new slice, the filtering is done in-place.
+func (p *Posting) GarbageCollect(versionMap *VersionMap) *Posting {
+	var i int32
+	step := 8 + 1 + p.dims*4
+	for int(i) < len(p.data) {
+		id := binary.LittleEndian.Uint64(p.data[i : i+8])
+		version := versionMap.Get(id)
+		if !version.Deleted() && version.Version() <= p.data[i+8] {
+			i += step
 			continue
 		}
 
-		filtered = append(filtered, Vector{
-			ID:      v.ID,
-			Version: version,
-			Data:    v.Data,
-		})
+		// shift the data to the left
+		copy(p.data[i:], p.data[i+step:])
+		p.data = p.data[:len(p.data)-int(step)]
 	}
 
-	return filtered
+	return p
 }
 
-// Dimensions returns the number of dimensions of the vectors in the posting.
-// It returns 0 if the posting is empty.
-func (p Posting) Dimensions() int {
-	if len(p) == 0 {
-		return 0
+func (p *Posting) Len() int {
+	step := int(8 + 1 + p.dims*4)
+	var j int
+	for i := 0; i < len(p.data); i += step {
+		j++
 	}
 
-	return len(p[0].Data)
+	return j
+}
+
+func (p *Posting) Iter() iter.Seq2[int, Vector] {
+	step := 8 + 1 + int(p.dims)*4
+	return func(yield func(int, Vector) bool) {
+		var j int
+		for i := 0; i < len(p.data); i += step {
+			if !yield(j, p.data[i:i+step]) {
+				break
+			}
+			j++
+		}
+	}
+}
+
+func (p *Posting) GetAt(i int) Vector {
+	step := int(8 + 1 + p.dims*4)
+	idx := i * step
+	return p.data[idx : idx+step]
 }
 
 // A VectorVersion is a 1-byte value structured as follows:

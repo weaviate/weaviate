@@ -69,33 +69,34 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 		}
 
 		// keep track of the posting size
-		postingSize := len(p)
+		postingSize := p.Len()
 
-		for _, v := range p {
+		for _, v := range p.Iter() {
+			id := v.ID()
 			// skip deleted vectors
-			if s.VersionMap.IsDeleted(v.ID) {
+			if s.VersionMap.IsDeleted(id) {
 				postingSize--
 				continue
 			}
 
 			// skip duplicates
-			if visited.Visited(v.ID) {
+			if visited.Visited(id) {
 				continue
 			}
 
 			// skip vectors that are not in the allow list
-			if !allowList.Contains(v.ID) {
+			if !allowList.Contains(id) {
 				continue
 			}
 
-			visited.Visit(v.ID)
+			visited.Visit(id)
 
-			dist, err := s.Quantizer.DistanceBetweenCompressedVectors(v.Data, queryVector)
+			dist, err := s.Quantizer.DistanceBetweenCompressedVectors(v, queryVector)
 			if err != nil {
-				return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", v.ID)
+				return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 			}
 
-			q.Insert(v.ID, dist)
+			q.Insert(id, dist)
 		}
 
 		// if the posting size is lower than the configured minimum,

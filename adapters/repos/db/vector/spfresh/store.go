@@ -12,30 +12,28 @@
 package spfresh
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
-	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
 type LSMStore struct {
-	store   *lsmkv.Store
-	bucket  *lsmkv.Bucket
-	encoder *PostingEncoder
+	store  *lsmkv.Store
+	bucket *lsmkv.Bucket
+	dims   int32
 }
 
-func NewLSMStore(store *lsmkv.Store, dims int, bucketName string) *LSMStore {
+func NewLSMStore(store *lsmkv.Store, dims int32, bucketName string) *LSMStore {
 	return &LSMStore{
-		store:   store,
-		bucket:  store.Bucket(bucketName),
-		encoder: NewPostingEncoder(dims),
+		store:  store,
+		bucket: store.Bucket(bucketName),
+		dims:   dims,
 	}
 }
 
-func (l *LSMStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
+func (l *LSMStore) Get(ctx context.Context, postingID uint64) (*Posting, error) {
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 	list, err := l.bucket.SetList(buf[:])
@@ -43,21 +41,20 @@ func (l *LSMStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
 
-	posting := make(Posting, 0, len(list))
-
-	for _, val := range list {
-		vector, err := l.encoder.DecodeVector(val)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to decode posting %d", postingID)
-		}
-		posting = append(posting, *vector)
+	posting := Posting{
+		dims: l.dims,
+		data: make([]byte, 0, int32(len(list))*(8+1+l.dims*4)),
 	}
 
-	return posting, nil
+	for _, v := range list {
+		posting.data = append(posting.data, v...)
+	}
+
+	return &posting, nil
 }
 
-func (l *LSMStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting, error) {
-	postings := make([]Posting, 0, len(postingIDs))
+func (l *LSMStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]*Posting, error) {
+	postings := make([]*Posting, 0, len(postingIDs))
 
 	for _, id := range postingIDs {
 		posting, err := l.Get(ctx, id)
@@ -70,7 +67,7 @@ func (l *LSMStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting
 	return postings, nil
 }
 
-func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting Posting) error {
+func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting *Posting) error {
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 
@@ -86,66 +83,18 @@ func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting Posting) e
 		}
 	}
 
-	encoded := make([][]byte, len(posting))
-	for i := range posting {
-		encoded[i] = l.encoder.EncodeVector(&posting[i])
+	set := make([][]byte, posting.Len())
+
+	for i, v := range posting.Iter() {
+		set[i] = v
 	}
-	return l.bucket.SetAdd(buf[:], encoded)
+
+	return l.bucket.SetAdd(buf[:], set)
 }
 
 func (l *LSMStore) Merge(ctx context.Context, postingID uint64, vector Vector) error {
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 
-	return l.bucket.SetAdd(buf[:], [][]byte{l.encoder.EncodeVector(&vector)})
-}
-
-// PostingEncoder encodes and decodes postings
-type PostingEncoder struct {
-	Dimensions int // Number of dimensions of the vectors to encode/decode
-
-	bufPool sync.Pool // Buffer pool for reusing byte slices
-}
-
-func NewPostingEncoder(dimensions int) *PostingEncoder {
-	return &PostingEncoder{
-		Dimensions: dimensions,
-		bufPool: sync.Pool{
-			New: func() any {
-				return new(bytes.Buffer)
-			},
-		},
-	}
-}
-
-func (e *PostingEncoder) EncodeVector(vector *Vector) []byte {
-	buf := make([]byte, 8+1+e.Dimensions)
-	binary.LittleEndian.PutUint64(buf, vector.ID)
-	buf[8] = byte(vector.Version)
-	copy(buf[9:], vector.Data)
-	return buf
-}
-
-func (e *PostingEncoder) DecodeVector(encoded []byte) (*Vector, error) {
-	if len(encoded) < 8+1+e.Dimensions {
-		return nil, errors.New("encoded vector is too short")
-	}
-
-	var id uint64
-	var version VectorVersion
-	err := binary.Read(bytes.NewReader(encoded[:8]), binary.LittleEndian, &id)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to read vector ID")
-	}
-	err = binary.Read(bytes.NewReader(encoded[8:9]), binary.LittleEndian, &version)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to read vector version")
-	}
-
-	data := encoded[9 : 9+e.Dimensions]
-	return &Vector{
-		ID:      id,
-		Version: version,
-		Data:    data,
-	}, nil
+	return l.bucket.SetAdd(buf[:], [][]byte{vector})
 }

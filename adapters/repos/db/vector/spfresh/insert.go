@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/pkg/errors"
@@ -66,8 +67,13 @@ func (s *SPFresh) addOne(ctx context.Context, id uint64, vector []byte) error {
 
 	s.VersionMap.AllocPageFor(id)
 
+	v := make(Vector, 8+1+len(vector))
+	binary.LittleEndian.PutUint64(v[:8], id)
+	v[8] = s.VersionMap.Get(id).Version()
+	copy(v[8:], vector)
+
 	for _, replica := range replicas {
-		_, err = s.append(ctx, Vector{ID: id, Data: vector, Version: s.VersionMap.Get(id)}, replica, false)
+		_, err = s.append(ctx, v, replica, false)
 		if err != nil {
 			return errors.Wrapf(err, "failed to append vector %d to replica %d", id, replica)
 		}
@@ -85,7 +91,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, postingID uint64, r
 	if !s.SPTAG.Exists(postingID) {
 		// the vector might have been deleted concurrently,
 		// might happen if we are reassigning
-		if s.VersionMap.Get(vector.ID) == vector.Version {
+		if s.VersionMap.Get(vector.ID()) == vector.Version() {
 			err := s.enqueueReassign(ctx, postingID, vector)
 			s.postingLocks.Unlock(postingID)
 			if err != nil {

@@ -61,8 +61,8 @@ func (s *SPFresh) reassignWorker() {
 
 func (s *SPFresh) doReassign(op reassignOperation) error {
 	// check if the vector is still valid
-	version := s.VersionMap.Get(op.Vector.ID)
-	if version.Deleted() || version.Version() > op.Vector.Version.Version() {
+	version := s.VersionMap.Get(op.Vector.ID())
+	if version.Deleted() || version.Version() > op.Vector.Version().Version() {
 		s.Logger.WithField("vectorID", op.Vector.ID).
 			Debug("Vector is deleted or has a newer version, skipping reassign operation")
 		return nil
@@ -70,7 +70,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 
 	// perform a RNG selection to determine the postings where the vector should be
 	// reassigned to.
-	replicas, needsReassign, err := s.selectReplicas(op.Vector.Data, op.PostingID)
+	replicas, needsReassign, err := s.selectReplicas(op.Vector, op.PostingID)
 	if err != nil {
 		return errors.Wrap(err, "failed to select replicas")
 	}
@@ -80,9 +80,9 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 		return nil
 	}
 	// check again if the version is still valid
-	version = s.VersionMap.Get(op.Vector.ID)
-	if version.Deleted() || version.Version() > op.Vector.Version.Version() {
-		s.Logger.WithField("vectorID", op.Vector.ID).
+	version = s.VersionMap.Get(op.Vector.ID())
+	if version.Deleted() || version.Version() > op.Vector.Version().Version() {
+		s.Logger.WithField("vectorID", op.Vector.ID()).
 			Debug("Vector is deleted or has a newer version, skipping reassign operation")
 		return nil
 	}
