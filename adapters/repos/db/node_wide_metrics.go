@@ -61,11 +61,11 @@ func newNodeWideMetricsObserver(db *DB) *nodeWideMetricsObserver {
 func (o *nodeWideMetricsObserver) Start() {
 	// Prometheus metrics are redundant with Usage Module is enabled
 	if o.db.config.TrackVectorDimensions && !o.db.config.UsageEnabled {
-		o.observeDimensionMetrics()
+		enterrors.GoWrapper(o.observeDimensionMetrics, o.db.logger)
 	}
 
 	if o.db.promMetrics.Group {
-		o.observeShards()
+		enterrors.GoWrapper(o.observeShards, o.db.logger)
 	}
 }
 
@@ -74,29 +74,27 @@ func (o *nodeWideMetricsObserver) Shutdown() {
 }
 
 func (o *nodeWideMetricsObserver) observeShards() {
-	enterrors.GoWrapper(func() {
-		// make sure we start with a warm state, otherwise we delay the initial
-		// update. This only applies to tenant activity, other metrics wait
-		// for shard-readiness anyway.
-		o.observeActivity()
+	// make sure we start with a warm state, otherwise we delay the initial
+	// update. This only applies to tenant activity, other metrics wait
+	// for shard-readiness anyway.
+	o.observeActivity()
 
-		t30 := time.NewTicker(30 * time.Second)
-		defer t30.Stop()
+	t30 := time.NewTicker(30 * time.Second)
+	defer t30.Stop()
 
-		t10 := time.NewTicker(10 * time.Second)
-		defer t10.Stop()
+	t10 := time.NewTicker(10 * time.Second)
+	defer t10.Stop()
 
-		for {
-			select {
-			case <-o.shutdown:
-				return
-			case <-t10.C:
-				o.observeActivity()
-			case <-t30.C:
-				o.observeObjectCount()
-			}
+	for {
+		select {
+		case <-o.shutdown:
+			return
+		case <-t10.C:
+			o.observeActivity()
+		case <-t30.C:
+			o.observeObjectCount()
 		}
-	}, o.db.logger)
+	}
 }
 
 // Collect and publish aggregated object_count metric iff all indices report allShardsReady=true.
@@ -328,32 +326,30 @@ func (o *nodeWideMetricsObserver) Usage(filter tenantactivity.UsageFilter) tenan
 // If vector dimension tracking is disabled, this method is a no-op: no goroutine will
 // be started and the "done" channel stays nil.
 func (o *nodeWideMetricsObserver) observeDimensionMetrics() {
-	enterrors.GoWrapper(func() {
-		interval := config.DefaultTrackVectorDimensionsInterval
-		if o.db.config.TrackVectorDimensionsInterval > 0 { // duration must be > 0, or time.Timer will panic
-			interval = o.db.config.TrackVectorDimensionsInterval
+	interval := config.DefaultTrackVectorDimensionsInterval
+	if o.db.config.TrackVectorDimensionsInterval > 0 { // duration must be > 0, or time.Timer will panic
+		interval = o.db.config.TrackVectorDimensionsInterval
+	}
+
+	// This is a low-priority background process, which is not time-sensitive.
+	// Some downstream calls require a context, so we create one, but we needn't
+	// manage it beyond making sure it doesn't leak.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	o.publishVectorMetrics(ctx)
+
+	tick := time.NewTicker(interval)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-o.shutdown:
+			return
+		case <-tick.C:
+			o.publishVectorMetrics(ctx)
 		}
-
-		// This is a low-priority background process, which is not time-sensitive.
-		// Some downstream calls require a context, so we create one, but we needn't
-		// manage it beyond making sure it doesn't leak.
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		o.publishVectorMetrics(ctx)
-
-		tick := time.NewTicker(interval)
-		defer tick.Stop()
-
-		for {
-			select {
-			case <-o.shutdown:
-				return
-			case <-tick.C:
-				o.publishVectorMetrics(ctx)
-			}
-		}
-	}, o.db.logger)
+	}
 }
 
 func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
