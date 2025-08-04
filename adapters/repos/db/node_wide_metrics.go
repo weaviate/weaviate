@@ -376,10 +376,11 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 
 	for _, index := range indices {
 		index.closeLock.RLock()
-		if index.closed {
+		closed := index.closed
+		index.closeLock.RUnlock()
+		if closed {
 			continue
 		}
-		index.closeLock.RUnlock()
 
 		className := index.Config.ClassName.String()
 
