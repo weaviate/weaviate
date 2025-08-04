@@ -203,7 +203,6 @@ func ExpectBackupEventuallyCreated(t *testing.T, backupID, backend string, authz
 		require.NotNil(c, resp.Payload, "empty response")
 
 		status := *resp.Payload.Status
-		require.NotEqualf(c, "FAILED", status, "create failed: %s", resp.Payload.Error)
 		require.Equal(c, "SUCCESS", status, "backup create status")
 	}, opt.Deadline, opt.Interval, "backup %s not created after %s", backupID, opt.Deadline)
 }
@@ -223,7 +222,6 @@ func ExpectBackupEventuallyRestored(t *testing.T, backupID, backend string, auth
 		require.NotNil(c, resp.Payload, "empty response")
 
 		status := *resp.Payload.Status
-		require.NotEqualf(c, "FAILED", status, "restore failed: %s", resp.Payload.Error)
 		require.Equal(c, "SUCCESS", status, "backup restore status")
 	}, opt.Deadline, opt.Interval, "backup %s not restored after %s", backupID, opt.Deadline)
 }
