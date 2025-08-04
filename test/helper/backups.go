@@ -13,8 +13,11 @@ package helper
 
 import (
 	"testing"
+	"time"
 
 	"github.com/go-openapi/runtime"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -144,4 +147,81 @@ func RestoreBackupStatusWithAuthz(t *testing.T, backend, backupID, overrideBucke
 		WithBucket(&overrideBucket).
 		WithPath(&overridePath)
 	return Client(t).Backups.BackupsRestoreStatus(params, authInfo)
+}
+
+const (
+	MinPollInterval = 100 * time.Millisecond // Minimun interval for polling backup status.
+	MaxDeadline     = 10 * time.Minute       // Maxium timeout for polling backup status.
+)
+
+// [backupExpectOpt.WithOptions] copies the struct, so it is safe to derive options
+// from defaultBackupExpect directly:
+//
+//	defaultBackupExpect.WithOptions(opts)
+var defaultBackupExpect = backupExpectOpt{
+	Interval: 500 * time.Millisecond,
+	Deadline: 30 * time.Second,
+}
+
+type backupExpectOpt struct {
+	Interval time.Duration
+	Deadline time.Duration
+}
+
+// WithOptions applies options to the copy of backupExpectOpt and returns it.
+func (b backupExpectOpt) WithOptions(opts ...BackupExpectOpt) *backupExpectOpt {
+	for _, opt := range opts {
+		opt(&b)
+	}
+	return &b
+}
+
+type BackupExpectOpt func(*backupExpectOpt)
+
+// Set the interval for polling backup create/restore status. Pass [MinPollInterval] for rapid checks.
+func WithPollInterval(d time.Duration) BackupExpectOpt {
+	return func(opt *backupExpectOpt) { opt.Interval = max(d, MinPollInterval) }
+}
+
+// Set the deadline for receiving status SUCCESS. Waiting indefinitely is not allowed, use [MaxDeadline] instead.
+func WithDeadline(d time.Duration) BackupExpectOpt {
+	return func(opt *backupExpectOpt) { opt.Deadline = min(d, MaxDeadline) }
+}
+
+// Expect creation status to report SUCCESS within 30s and with 500ms polling interval (default).
+// Change polling configuration by passing [WithPollInterval] and [WithDeadline].
+// To use in no-authz context, pass nil to the authz parameter.
+func ExpectBackupEventuallyCreated(t *testing.T, backupID, backend string, authz runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
+	t.Helper()
+	opt := defaultBackupExpect.WithOptions(opts...)
+
+	require.EventuallyWithTf(t, func(c *assert.CollectT) {
+		// Calling -WithAuthz with nil-auth is equivalent to using its no-authz counterpart
+		resp, err := CreateBackupStatusWithAuthz(t, backend, backupID, "", "", authz)
+
+		require.NoError(c, err, "fetch backup create status")
+		require.NotNil(c, resp.Payload, "empty response")
+
+		status := *resp.Payload.Status
+		require.Equal(c, "SUCCESS", status, "backup create status")
+	}, opt.Deadline, opt.Interval, "backup %s not created after %s", backupID, opt.Deadline)
+}
+
+// Expect restore status to report SUCCESS within 30s and with 500ms polling interval (default).
+// Change polling configuration by passing [WithPollInterval] and [WithDeadline].
+// To use in no-authz context, pass nil to the authz parameter.
+func ExpectBackupEventuallyRestored(t *testing.T, backupID, backend string, authz runtime.ClientAuthInfoWriter, opts ...BackupExpectOpt) {
+	t.Helper()
+	opt := defaultBackupExpect.WithOptions(opts...)
+
+	require.EventuallyWithTf(t, func(c *assert.CollectT) {
+		// Calling -WithAuthz with nil-auth is equivalent to using its no-authz counterpart
+		resp, err := RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", authz)
+
+		require.NoError(c, err, "fetch backup restore status")
+		require.NotNil(c, resp.Payload, "empty response")
+
+		status := *resp.Payload.Status
+		require.Equal(c, "SUCCESS", status, "backup restore status")
+	}, opt.Deadline, opt.Interval, "backup %s not restored after %s", backupID, opt.Deadline)
 }
