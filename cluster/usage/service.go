@@ -27,6 +27,7 @@ import (
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
@@ -165,7 +166,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 					if vectorIndexConfig, ok := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
 						category, _ = db.GetDimensionCategory(vectorIndexConfig)
 						indexType = vectorIndexConfig.IndexType()
-						bits = db.GetRQBits(vectorIndexConfig)
+						bits = enthnsw.GetRQBits(vectorIndexConfig)
 
 					}
 
@@ -268,7 +269,7 @@ func calculateUnloadedShardUsage(ctx context.Context, index db.IndexLike, tenant
 			category, _ := db.GetDimensionCategory(vectorIndexConfig)
 			vectorUsage.Compression = category.String()
 			vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
-			vectorUsage.Bits = db.GetRQBits(vectorIndexConfig)
+			vectorUsage.Bits = enthnsw.GetRQBits(vectorIndexConfig)
 			vectorUsage.IsDynamic = common.IsDynamic(common.IndexType(vectorUsage.VectorIndexType))
 		}
 

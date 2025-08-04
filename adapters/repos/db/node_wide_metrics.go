@@ -24,6 +24,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/tenantactivity"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -445,7 +446,7 @@ func calcVectorDimensionMetrics(ctx context.Context, sl ShardLike, vecName strin
 		// For bits=1: equivalent to BQ (1 bit per dimension, packed in uint64 blocks)
 		// For bits=8: 8 bits per dimension (1 byte per dimension)
 		count, _ := sl.Dimensions(ctx, vecName)
-		bits := GetRQBits(vecCfg)
+		bits := enthnsw.GetRQBits(vecCfg)
 		var bytes int
 		if bits == 1 {
 			// bits=1: same as BQ - 1 bit per dimension, packed in uint64 blocks

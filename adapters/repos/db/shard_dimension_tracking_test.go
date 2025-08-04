@@ -29,7 +29,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/schema/config"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -669,63 +668,6 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 				require.NoError(t, err, "get vector_segments_sum metric")
 				require.Equal(t, float64(0), testutil.ToFloat64(segments),
 					"vector_segments_sum{class=%s,shard=%s}", className, shardName)
-			}
-		})
-	}
-}
-
-func TestGetRQBits(t *testing.T) {
-	tests := []struct {
-		name     string
-		config   config.VectorIndexConfig
-		expected int16
-	}{
-		{
-			name: "RQ disabled should return 0",
-			config: enthnsw.UserConfig{
-				RQ: enthnsw.RQConfig{
-					Enabled: false,
-					Bits:    8,
-				},
-			},
-			expected: 0,
-		},
-		{
-			name: "RQ enabled with bits=1 should return 1",
-			config: enthnsw.UserConfig{
-				RQ: enthnsw.RQConfig{
-					Enabled: true,
-					Bits:    1,
-				},
-			},
-			expected: 1,
-		},
-		{
-			name: "RQ enabled with bits=8 should return 8",
-			config: enthnsw.UserConfig{
-				RQ: enthnsw.RQConfig{
-					Enabled: true,
-					Bits:    8,
-				},
-			},
-			expected: 8,
-		},
-		{
-			name: "non-RQ config should return 0",
-			config: enthnsw.UserConfig{
-				BQ: enthnsw.BQConfig{
-					Enabled: true,
-				},
-			},
-			expected: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := GetRQBits(tt.config)
-			if result != tt.expected {
-				t.Errorf("GetRQBits() = %v, want %v", result, tt.expected)
 			}
 		})
 	}
