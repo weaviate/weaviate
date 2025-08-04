@@ -13,12 +13,14 @@ package db
 
 import (
 	"context"
+	"log"
 	"math/rand"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -214,6 +216,57 @@ func getRandomSeed() *rand.Rand {
 func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
 		false, false, indexOpts...)
+}
+
+func createTestDatabaseWithClass(t *testing.T, classes ...*models.Class) *DB {
+	t.Helper()
+
+	metrics := monitoring.GetMetrics()
+	metrics.Registerer = monitoring.NoopRegisterer
+
+	db, err := New(logrus.New(), Config{
+		RootPath:                  t.TempDir(),
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, metrics, memwatch.NewDummyMonitor())
+	require.Nil(t, err)
+
+	db.SetSchemaGetter(&fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: classes}},
+		shardState: singleShardState(),
+	})
+
+	require.Nil(t, db.WaitForStartup(t.Context()))
+	t.Cleanup(func() {
+		require.NoError(t, db.Shutdown(context.Background()))
+	})
+
+	return db
+}
+
+func publishVectorMetricsFromDB(t *testing.T, db *DB) {
+	t.Helper()
+
+	if !db.config.TrackVectorDimensions {
+		t.Logf("Vector dimensions tracking is disabled, returning 0")
+		return
+	}
+	db.metricsObserver.publishVectorMetrics(t.Context())
+}
+
+func getSingleShardNameFromRepo(repo *DB, className string) string {
+	shardName := ""
+	if !repo.config.TrackVectorDimensions {
+		log.Printf("Vector dimensions tracking is disabled, returning 0")
+		return shardName
+	}
+	index := repo.GetIndex(schema.ClassName(className))
+	index.ForEachShard(func(name string, shard ShardLike) error {
+		shardName = shard.Name()
+		return nil
+	})
+	return shardName
 }
 
 func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,

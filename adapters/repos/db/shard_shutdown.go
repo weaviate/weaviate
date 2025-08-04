@@ -154,13 +154,6 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		ec.AddWrap(err, "stop dynamic vector index db")
 	}
 
-	if s.dimensionTrackingInitialized.Load() {
-		// tracking vector dimensions goroutine only works when tracking is enabled
-		// _and_ when initialization completed, that's why we are trying to stop it
-		// only in this case
-		s.stopDimensionTracking <- struct{}{}
-	}
-
 	return ec.ToError()
 }
 

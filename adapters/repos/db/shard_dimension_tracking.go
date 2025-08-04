@@ -13,16 +13,12 @@ package db
 
 import (
 	"context"
-	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/cluster/usage/types"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type DimensionCategory int
@@ -87,80 +83,6 @@ func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector str
 	return calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, calcEntry), nil
 }
 
-// initDimensionTracking initializes the dimension tracking for a shard.
-// it's no op if the trackVectorDimensions is disabled or the usage is enabled
-func (s *Shard) initDimensionTracking() {
-	// do not use the context passed from NewShard, as that one is only meant for
-	// initialization. However, this goroutine keeps running forever, so if the
-	// startup context expires, this would error.
-	// https://github.com/weaviate/weaviate/issues/5091
-	rootCtx := context.Background()
-	if s.index.Config.TrackVectorDimensions && !s.index.Config.UsageEnabled {
-		s.dimensionTrackingInitialized.Store(true)
-
-		// The timeout is rather arbitrary, it's just meant to prevent a context
-		// leak. The actual work should be much faster.
-		ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
-		defer cancel()
-
-		// always send vector dimensions at startup if tracking is enabled
-		s.publishDimensionMetrics(ctx)
-		// start tracking vector dimensions goroutine only when tracking is enabled
-		f := func() {
-			interval := config.DefaultTrackVectorDimensionsInterval
-			if s.index.Config.TrackVectorDimensionsInterval != 0 {
-				interval = s.index.Config.TrackVectorDimensionsInterval
-			}
-			t := time.NewTicker(interval)
-			defer t.Stop()
-			for {
-				select {
-				case <-s.stopDimensionTracking:
-					s.dimensionTrackingInitialized.Store(false)
-					return
-				case <-t.C:
-					func() {
-						// The timeout is rather arbitrary, it's just meant to prevent a context
-						// leak. The actual work should be much faster.
-						ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
-						defer cancel()
-						s.publishDimensionMetrics(ctx)
-					}()
-				}
-			}
-		}
-		enterrors.GoWrapper(f, s.index.logger)
-	}
-}
-
-func (s *Shard) publishDimensionMetrics(ctx context.Context) {
-	if s.promMetrics != nil {
-		var (
-			className = s.index.Config.ClassName.String()
-			shardName = s.name
-			configs   = s.index.GetVectorIndexConfigs()
-
-			sumSegments   = 0
-			sumDimensions = 0
-		)
-
-		// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled
-		if s.promMetrics.Group {
-			className = "n/a"
-			shardName = "n/a"
-		}
-
-		for targetVector, config := range configs {
-			metrics := s.calcDimensionMetrics(ctx, config, targetVector)
-			sumDimensions += metrics.Uncompressed
-			sumSegments += metrics.Compressed
-		}
-
-		sendVectorSegmentsMetric(s.promMetrics, className, shardName, sumSegments)
-		sendVectorDimensionsMetric(s.promMetrics, className, shardName, sumDimensions)
-	}
-}
-
 // DimensionMetrics represents the dimension tracking metrics for a vector.
 // The metrics are used to track memory usage and performance characteristics
 // of different vector compression methods.
@@ -177,69 +99,31 @@ type DimensionMetrics struct {
 	Compressed   int // Compressed dimensions count (for PQ/BQ vectors)
 }
 
-func (s *Shard) calcDimensionMetrics(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig, vecName string) DimensionMetrics {
-	switch category, segments := GetDimensionCategory(vecCfg); category {
-	case DimensionCategoryPQ:
-		return DimensionMetrics{Uncompressed: 0, Compressed: s.QuantizedDimensions(ctx, vecName, segments)}
-	case DimensionCategoryBQ:
-		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
-		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
-		// Roundup is required because BQ packs bits into uint64 blocks - you can't have
-		// a partial uint64 block. Even 1 dimension needs a full 8-byte uint64 block.
-		count, _ := s.Dimensions(ctx, vecName)
-		bytes := (count + 63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
-		return DimensionMetrics{Uncompressed: 0, Compressed: bytes}
-	default:
-		count, _ := s.Dimensions(ctx, vecName)
-		return DimensionMetrics{Uncompressed: count, Compressed: 0}
+// Add creates a new DimensionMetrics instance with total values summed pairwise.
+func (dm DimensionMetrics) Add(add DimensionMetrics) DimensionMetrics {
+	return DimensionMetrics{
+		Uncompressed: dm.Uncompressed + add.Uncompressed,
+		Compressed:   dm.Compressed + add.Compressed,
 	}
 }
 
+// Vector dimension metrics are collected on the node level and
+// are normally _polled_ from each shard. Shard SHOULD only update
+// its dimension metrics on its own iff it is being shut down or dropped
+// and metrics grouping is disatbled.
 func (s *Shard) clearDimensionMetrics() {
-	clearDimensionMetrics(s.promMetrics, s.index.Config.ClassName.String(), s.name)
-}
-
-func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics, className, shardName string) {
-	if promMetrics != nil {
-		// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled
-		if promMetrics.Group {
-			className = "n/a"
-			shardName = "n/a"
-		}
-		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
-		sendVectorSegmentsMetric(promMetrics, className, shardName, 0)
-	}
-}
-
-func sendVectorSegmentsMetric(promMetrics *monitoring.PrometheusMetrics,
-	className, shardName string, count int,
-) {
-	// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled
-	if promMetrics != nil && promMetrics.Group {
-		className = "n/a"
-		shardName = "n/a"
+	if s.index.metrics.baseMetrics == nil || s.index.metrics.baseMetrics.Group {
+		return
 	}
 
-	metric, err := promMetrics.VectorSegmentsSum.
-		GetMetricWithLabelValues(className, shardName)
-	if err == nil {
-		metric.Set(float64(count))
+	className, shardName := s.index.Config.ClassName.String(), s.name
+	if g, err := s.index.metrics.baseMetrics.VectorDimensionsSum.
+		GetMetricWithLabelValues(className, shardName); err == nil {
+		g.Set(0)
 	}
-}
-
-func sendVectorDimensionsMetric(promMetrics *monitoring.PrometheusMetrics,
-	className, shardName string, count int,
-) {
-	// Apply grouping logic when PROMETHEUS_MONITORING_GROUP is enabled
-	if promMetrics != nil && promMetrics.Group {
-		className = "n/a"
-		shardName = "n/a"
-	}
-
-	metric, err := promMetrics.VectorDimensionsSum.
-		GetMetricWithLabelValues(className, shardName)
-	if err == nil {
-		metric.Set(float64(count))
+	if g, err := s.index.metrics.baseMetrics.VectorSegmentsSum.
+		GetMetricWithLabelValues(className, shardName); err == nil {
+		g.Set(0)
 	}
 }
 
