@@ -420,10 +420,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		i.shards.Store(shardName, shard)
 	}
 
-	// NOTE(dyma):
-	// 1. So "lazy-loaded" shards are actually loaded "half-eagerly"?
-	// 2. If <-ctx.Done or we fail to load a shard, should allShardsReady still report true?
 	initLazyShardsInBackground := func() {
+		// NOTE(dyma): If <-ctx.Done or we fail to load a shard, should allShardsReady still report true?
 		defer i.allShardsReady.Store(true)
 
 		ticker := time.NewTicker(time.Second)
