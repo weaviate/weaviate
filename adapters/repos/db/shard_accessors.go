@@ -77,8 +77,9 @@ func (s *Shard) Metrics() *Metrics {
 	return s.metrics
 }
 
-func (s *Shard) setFallbackToSearchable(fallback bool) {
+func (s *Shard) setFallbackToSearchable(fallback bool) error {
 	s.fallbackToSearchable = fallback
+	return nil
 }
 
 func (s *Shard) addJobToQueue(job job) {

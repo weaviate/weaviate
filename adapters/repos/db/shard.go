@@ -95,7 +95,7 @@ type ShardLike interface {
 	ID() string // Get the shard id
 	drop() error
 	HaltForTransfer(ctx context.Context) error
-	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property)
+	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
 	SetPropertyLengths(props []inverted.Property) error
@@ -139,7 +139,7 @@ type ShardLike interface {
 	QuantizedDimensions(ctx context.Context, segments int) int
 	extendDimensionTrackerLSM(dimLength int, docID uint64) error
 	extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error
-	publishDimensionMetrics(ctx context.Context)
+	publishDimensionMetrics(ctx context.Context) error
 	resetDimensionsLSM() error
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
@@ -147,9 +147,9 @@ type ShardLike interface {
 	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
 	addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
-	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
+	pairPropertyWithFrequency(docID uint64, freq, propLen float32) (lsmkv.MapPair, error)
 
-	setFallbackToSearchable(fallback bool)
+	setFallbackToSearchable(fallback bool) error
 	addJobToQueue(job job)
 	uuidFromDocID(docID uint64) (strfmt.UUID, error)
 	batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error
