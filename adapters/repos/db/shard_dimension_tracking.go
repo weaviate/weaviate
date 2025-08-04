@@ -147,6 +147,14 @@ func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory
 	return DimensionCategoryStandard, 0
 }
 
+// GetRQBits returns the bits value for RQ compression, or 0 if not RQ
+func GetRQBits(cfg schemaConfig.VectorIndexConfig) int16 {
+	if hnswUserConfig, ok := cfg.(hnswent.UserConfig); ok && hnswUserConfig.RQ.Enabled {
+		return hnswUserConfig.RQ.Bits
+	}
+	return 0
+}
+
 func correctEmptySegments(segments int, dimensions int) int {
 	// If segments is 0 (unset), in this case PQ will calculate the number of segments
 	// based on the number of dimensions

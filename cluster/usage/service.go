@@ -161,10 +161,12 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 				if err = shard.ForEachVectorIndex(func(targetVector string, vectorIndex db.VectorIndex) error {
 					category := db.DimensionCategoryStandard // Default category
 					indexType := ""
-
+					var bits int16
 					if vectorIndexConfig, ok := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
 						category, _ = db.GetDimensionCategory(vectorIndexConfig)
 						indexType = vectorIndexConfig.IndexType()
+						bits = db.GetRQBits(vectorIndexConfig)
+
 					}
 
 					dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
@@ -183,6 +185,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 						VectorIndexType:        indexType,
 						IsDynamic:              common.IsDynamic(common.IndexType(indexType)),
 						VectorCompressionRatio: vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions),
+						Bits:                   bits,
 					}
 
 					// Only add dimensionalities if there's valid data
@@ -253,22 +256,23 @@ func calculateUnloadedShardUsage(ctx context.Context, index db.IndexLike, tenant
 
 	// Get named vector data for cold shards from schema configuration
 	for targetVector, vectorConfig := range vectorConfig {
+		// For cold shards, we can't get actual dimensionality from disk without loading
+		// So we'll use a placeholder or estimate based on the schema
+		vectorUsage := &types.VectorUsage{
+			Name:                   targetVector,
+			Compression:            db.DimensionCategoryStandard.String(),
+			VectorCompressionRatio: 1.0, // Default ratio for cold shards
+		}
+
 		if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
 			category, _ := db.GetDimensionCategory(vectorIndexConfig)
-			indexType := vectorIndexConfig.IndexType()
-
-			// For cold shards, we can't get actual dimensionality from disk without loading
-			// So we'll use a placeholder or estimate based on the schema
-			vectorUsage := &types.VectorUsage{
-				Name:                   targetVector,
-				Compression:            category.String(),
-				VectorIndexType:        indexType,
-				IsDynamic:              common.IsDynamic(common.IndexType(indexType)),
-				VectorCompressionRatio: 1.0, // Default ratio for cold shards
-			}
-
-			shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
+			vectorUsage.Compression = category.String()
+			vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
+			vectorUsage.Bits = db.GetRQBits(vectorIndexConfig)
+			vectorUsage.IsDynamic = common.IsDynamic(common.IndexType(vectorUsage.VectorIndexType))
 		}
+
+		shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
 	}
 	return shardUsage, err
 }
