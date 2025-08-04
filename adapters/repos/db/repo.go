@@ -24,6 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -46,6 +47,7 @@ type DB struct {
 	nodeResolver      nodeResolver
 	remoteNode        *sharding.RemoteNode
 	promMetrics       *monitoring.PrometheusMetrics
+	walMetrics        *lsmkv.CommitLoggerMetrics
 	indexCheckpoints  *indexcheckpoint.Checkpoints
 	shutdown          chan struct{}
 	startupComplete   atomic.Bool
@@ -126,7 +128,7 @@ func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
 func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
-	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
+	promMetrics *monitoring.PrometheusMetrics, walMetrics *lsmkv.CommitLoggerMetrics, memMonitor *memwatch.Monitor,
 ) (*DB, error) {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -145,6 +147,7 @@ func New(logger logrus.FieldLogger, config Config,
 		remoteNode:              sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
 		replicaClient:           replicaClient,
 		promMetrics:             promMetrics,
+		walMetrics:              walMetrics,
 		shutdown:                make(chan struct{}),
 		asyncIndexRetryInterval: 5 * time.Second,
 		maxNumberGoroutines:     int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
