@@ -670,7 +670,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			WithField("action", "startup").
 			WithError(err).
 			Fatal("could not open cloud meta store")
-			os.Exit(1)
+		os.Exit(1)
 	}
 
 	// Add dimensions to all the objects in the database, if requested by the user
@@ -719,10 +719,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
 
-		appState.Logger.
-			WithField("action", "startup").
-			Info("Reindexing inverted indexes")
-		reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
+		enterrors.GoWrapper(func() {
+			appState.Logger.
+				WithField("action", "startup").
+				Info("Reindexing inverted indexes")
+			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
+		}, appState.Logger)
 
 	}
 
@@ -749,10 +751,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		})
 
 		enterrors.GoWrapper(func() {
-		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
-			appState.Logger.WithError(err).WithField("action", "startup").
-				Error("failed to start distributed task scheduler")
-		}
+			if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
+				appState.Logger.WithError(err).WithField("action", "startup").
+					Error("failed to start distributed task scheduler")
+			}
 		}, appState.Logger)
 
 	}
