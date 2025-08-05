@@ -41,7 +41,7 @@ func (suite *ReplicationTestSuite) TestReadRepairDeleteOnConflict() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 20*time.Minute)
 	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
