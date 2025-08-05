@@ -379,8 +379,6 @@ func (s *Shard) addToDimensionBucket(
 	var objCount_byte []byte
 	// Update the object count in the dimensions bucket
 	objCount_byte, _ = b.Get([]byte("cnt")) // If it doesn't exist, it will be created
-	if err != nil {
-	}
 
 	if len(objCount_byte) != 8 {
 		objCount_byte = make([]byte, 8)

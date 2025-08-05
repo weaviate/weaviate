@@ -665,39 +665,20 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	reindexer := configureReindexer(appState, reindexCtx)
 	repo.WithReindexer(reindexer)
 
-	metaStoreReadyErr := fmt.Errorf("meta store ready")
-	metaStoreFailedErr := fmt.Errorf("meta store failed")
-	storeReadyCtx, storeReadyCancel := context.WithCancelCause(context.Background())
-	enterrors.GoWrapper(func() {
-		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
-			appState.Logger.
-				WithField("action", "startup").
-				WithError(err).
-				Fatal("could not open cloud meta store")
-			storeReadyCancel(metaStoreFailedErr)
-		} else {
-			storeReadyCancel(metaStoreReadyErr)
-		}
-	}, appState.Logger)
+	if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
+		appState.Logger.
+			WithField("action", "startup").
+			WithError(err).
+			Fatal("could not open cloud meta store")
+	}
 
-	enterrors.GoWrapper(func() {
-		// Add dimensions to all the objects in the database, if requested by the user
-		if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && appState.DB.GetConfig().TrackVectorDimensions {
-			<-storeReadyCtx.Done()
-			// storeReadyCancel was called — check reason
-			if cause := context.Cause(storeReadyCtx); cause != nil && cause != metaStoreReadyErr {
-				appState.Logger.
-					WithField("action", "startup").
-					WithError(cause).
-					Error("Skipping reindex due to meta store failure")
-				return
-			}
-			appState.Logger.
-				WithField("action", "startup").
-				Info("Reindexing dimensions")
-			appState.Migrator.RecalculateVectorDimensions(ctx)
-		}
-	}, appState.Logger)
+	// Add dimensions to all the objects in the database, if requested by the user
+	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && appState.DB.GetConfig().TrackVectorDimensions {
+		appState.Logger.
+			WithField("action", "startup").
+			Info("Reindexing dimensions")
+		appState.Migrator.RecalculateVectorDimensions(ctx)
+	}
 
 	// TODO-RAFT: refactor remove this sleep
 	// this sleep was used to block GraphQL and give time to RAFT to start.
@@ -736,16 +717,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	if len(reindexTaskNamesWithArgs) > 0 {
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
-		enterrors.GoWrapper(func() {
-			// wait until meta store is ready, as reindex tasks needs schema
-			<-storeReadyCtx.Done()
-			if errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
-				appState.Logger.
-					WithField("action", "startup").
-					Info("Reindexing inverted indexes")
-				reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
-			}
-		}, appState.Logger)
+
+		appState.Logger.
+			WithField("action", "startup").
+			Info("Reindexing inverted indexes")
+		reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
+
 	}
 
 	configureServer = makeConfigureServer(appState)
@@ -769,19 +746,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			// this can be changed to provide a value per provider.
 			CompletedTaskTTL: appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
 		})
-		enterrors.GoWrapper(func() {
-			// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
-			// and stopping tasks.
-			// Additionally, not-ready RAFT state could lead to lose of local task metadata.
-			<-storeReadyCtx.Done()
-			if !errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
-				return
-			}
-			if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
-				appState.Logger.WithError(err).WithField("action", "startup").
-					Error("failed to start distributed task scheduler")
-			}
-		}, appState.Logger)
+
+		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
+			appState.Logger.WithError(err).WithField("action", "startup").
+				Error("failed to start distributed task scheduler")
+		}
+
 	}
 
 	return appState
