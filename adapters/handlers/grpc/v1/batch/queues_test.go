@@ -71,7 +71,7 @@ func TestHandler(t *testing.T) {
 
 	t.Run("Stream", func(t *testing.T) {
 		t.Run("start and stop due to cancellation", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 			defer cancel()
 
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
@@ -93,7 +93,7 @@ func TestHandler(t *testing.T) {
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
 			internalQueue := batch.NewBatchInternalQueue()
-			handler := batch.NewQueuesHandler(ctx, writeQueues, readQueues, logger)
+			handler := batch.NewQueuesHandler(context.Background(), writeQueues, readQueues, logger)
 			var wg sync.WaitGroup
 			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
@@ -104,7 +104,7 @@ func TestHandler(t *testing.T) {
 		})
 
 		t.Run("start and stop due to sentinel", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 			defer cancel()
 
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
@@ -143,7 +143,7 @@ func TestHandler(t *testing.T) {
 		})
 
 		t.Run("start and stop due to shutdown", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 			defer cancel()
 
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
@@ -178,7 +178,7 @@ func TestHandler(t *testing.T) {
 		})
 
 		t.Run("start, process error, and stop due to cancellation", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 			defer cancel()
 
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
@@ -207,7 +207,7 @@ func TestHandler(t *testing.T) {
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
 			internalQueue := batch.NewBatchInternalQueue()
-			handler := batch.NewQueuesHandler(ctx, writeQueues, readQueues, logger)
+			handler := batch.NewQueuesHandler(context.Background(), writeQueues, readQueues, logger)
 			var wg sync.WaitGroup
 			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
@@ -225,7 +225,7 @@ func TestHandler(t *testing.T) {
 		})
 
 		t.Run("start, process error, and stop due to sentinel", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 			defer cancel()
 
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
