@@ -61,7 +61,7 @@ func (o *AssignRoleToUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewAssignRoleToUserParams()
+	Params := NewAssignRoleToUserParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -82,26 +82,24 @@ func (o *AssignRoleToUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }
 
 // AssignRoleToUserBody assign role to user body
 //
 // swagger:model AssignRoleToUserBody
 type AssignRoleToUserBody struct {
+	// group type
+	GroupType models.UserAndGroupTypeInput `json:"groupType,omitempty" yaml:"groupType,omitempty"`
 
 	// the roles that assigned to user
 	Roles []string `json:"roles" yaml:"roles"`
-
-	// user type
-	UserType models.UserAndGroupTypeInput `json:"userType,omitempty" yaml:"userType,omitempty"`
 }
 
 // Validate validates this assign role to user body
 func (o *AssignRoleToUserBody) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := o.validateUserType(formats); err != nil {
+	if err := o.validateGroupType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -111,16 +109,16 @@ func (o *AssignRoleToUserBody) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (o *AssignRoleToUserBody) validateUserType(formats strfmt.Registry) error {
-	if swag.IsZero(o.UserType) { // not required
+func (o *AssignRoleToUserBody) validateGroupType(formats strfmt.Registry) error {
+	if swag.IsZero(o.GroupType) { // not required
 		return nil
 	}
 
-	if err := o.UserType.Validate(formats); err != nil {
+	if err := o.GroupType.Validate(formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("body" + "." + "userType")
+			return ve.ValidateName("body" + "." + "groupType")
 		} else if ce, ok := err.(*errors.CompositeError); ok {
-			return ce.ValidateName("body" + "." + "userType")
+			return ce.ValidateName("body" + "." + "groupType")
 		}
 		return err
 	}
@@ -132,7 +130,7 @@ func (o *AssignRoleToUserBody) validateUserType(formats strfmt.Registry) error {
 func (o *AssignRoleToUserBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
-	if err := o.contextValidateUserType(ctx, formats); err != nil {
+	if err := o.contextValidateGroupType(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -142,13 +140,12 @@ func (o *AssignRoleToUserBody) ContextValidate(ctx context.Context, formats strf
 	return nil
 }
 
-func (o *AssignRoleToUserBody) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
-
-	if err := o.UserType.ContextValidate(ctx, formats); err != nil {
+func (o *AssignRoleToUserBody) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
+	if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("body" + "." + "userType")
+			return ve.ValidateName("body" + "." + "groupType")
 		} else if ce, ok := err.(*errors.CompositeError); ok {
-			return ce.ValidateName("body" + "." + "userType")
+			return ce.ValidateName("body" + "." + "groupType")
 		}
 		return err
 	}

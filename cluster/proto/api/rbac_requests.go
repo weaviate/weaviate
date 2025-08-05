@@ -115,6 +115,7 @@ type QueryGetRolesForUserOrGroupResponse struct {
 type QueryGetUsersForRoleRequest struct {
 	Role     string
 	UserType models.UserAndGroupTypeInput
+	IsGroup  bool
 }
 
 type QueryGetUsersForRoleResponse struct {

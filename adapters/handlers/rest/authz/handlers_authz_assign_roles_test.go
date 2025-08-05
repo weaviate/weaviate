@@ -40,14 +40,14 @@ func TestAssignRoleToUserSuccess(t *testing.T) {
 		ID:          "user1",
 		HTTPRequest: req,
 		Body: authz.AssignRoleToUserBody{
-			Roles:    []string{"testRole"},
-			UserType: userType,
+			Roles:     []string{"testRole"},
+			GroupType: userType,
 		},
 	}
 
 	authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(params.ID)[0]).Return(nil)
 	controller.On("GetRoles", params.Body.Roles[0]).Return(map[string][]authorization.Policy{params.Body.Roles[0]: {}}, nil)
-	controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(params.ID, params.Body.UserType), params.Body.Roles).Return(nil)
+	controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(params.ID, params.Body.GroupType), params.Body.Roles).Return(nil)
 
 	h := &authZHandlers{
 		authorizer:     authorizer,
@@ -480,8 +480,8 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 				ID:          "testUser",
 				HTTPRequest: req,
 				Body: authz.AssignRoleToUserBody{
-					Roles:    []string{"testRole"},
-					UserType: userType,
+					Roles:     []string{"testRole"},
+					GroupType: userType,
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
@@ -494,8 +494,8 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 				ID:          "testUser",
 				HTTPRequest: req,
 				Body: authz.AssignRoleToUserBody{
-					Roles:    []string{"testRole"},
-					UserType: userType,
+					Roles:     []string{"testRole"},
+					GroupType: userType,
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
@@ -514,7 +514,7 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
 				controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
-				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, tt.params.Body.UserType), tt.params.Body.Roles).Return(tt.assignErr)
+				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, tt.params.Body.GroupType), tt.params.Body.Roles).Return(tt.assignErr)
 			}
 
 			h := &authZHandlers{

@@ -208,7 +208,7 @@ func AssignRoleToUser(t *testing.T, key, role, user string) {
 	t.Helper()
 	userType := models.UserAndGroupTypeInputDb
 	resp, err := Client(t).Authz.AssignRoleToUser(
-		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}, UserType: userType}),
+		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}, GroupType: userType}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
@@ -219,7 +219,7 @@ func AssignRoleToUserOIDC(t *testing.T, key, role, user string) {
 	t.Helper()
 	userType := models.UserAndGroupTypeInputOidc
 	resp, err := Client(t).Authz.AssignRoleToUser(
-		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}, UserType: userType}),
+		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}, GroupType: userType}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
@@ -230,7 +230,7 @@ func RevokeRoleFromUser(t *testing.T, key, role, user string) {
 	userType := models.UserAndGroupTypeInputDb
 
 	resp, err := Client(t).Authz.RevokeRoleFromUser(
-		authz.NewRevokeRoleFromUserParams().WithID(user).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{role}, UserType: userType}),
+		authz.NewRevokeRoleFromUserParams().WithID(user).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{role}, GroupType: userType}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)

@@ -1092,14 +1092,14 @@ func TestRolesUserExistence(t *testing.T) {
 
 	t.Run("Cannot assign or revoke to/from OIDC user (not enabled)", func(t *testing.T) {
 		resp, err := helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}, UserType: models.UserAndGroupTypeInputOidc}),
+			authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}, GroupType: models.UserAndGroupTypeInputOidc}),
 			helper.CreateAuth(adminKey),
 		)
 		require.Nil(t, resp)
 		require.Error(t, err)
 
 		resp2, err := helper.Client(t).Authz.RevokeRoleFromUser(
-			authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}, UserType: models.UserAndGroupTypeInputOidc}),
+			authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}, GroupType: models.UserAndGroupTypeInputOidc}),
 			helper.CreateAuth(adminKey),
 		)
 		require.Nil(t, resp2)
@@ -1108,14 +1108,14 @@ func TestRolesUserExistence(t *testing.T) {
 
 	t.Run("Cannot assign or revoke to/from non-existent db user", func(t *testing.T) {
 		resp, err := helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}, UserType: models.UserAndGroupTypeInputDb}),
+			authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}, GroupType: models.UserAndGroupTypeInputDb}),
 			helper.CreateAuth(adminKey),
 		)
 		require.Nil(t, resp)
 		require.Error(t, err)
 
 		resp2, err := helper.Client(t).Authz.RevokeRoleFromUser(
-			authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}, UserType: models.UserAndGroupTypeInputDb}),
+			authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}, GroupType: models.UserAndGroupTypeInputDb}),
 			helper.CreateAuth(adminKey),
 		)
 		require.Nil(t, resp2)

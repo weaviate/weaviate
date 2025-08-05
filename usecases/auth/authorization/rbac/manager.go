@@ -279,13 +279,20 @@ func (m *Manager) GetRolesForUserOrGroup(userName string, userType models.UserAn
 	return roles, err
 }
 
-func (m *Manager) GetUsersForRole(roleName string, userType models.UserAndGroupTypeInput) ([]string, error) {
+func (m *Manager) GetUsersOrGroupForRole(roleName string, userType models.UserAndGroupTypeInput, isGroup bool) ([]string, error) {
 	m.backupLock.RLock()
 	defer m.backupLock.RUnlock()
 
-	pusers, err := m.casbin.GetUsersForRole(conv.PrefixRoleName(roleName))
+	var prefixedName string
+	if isGroup {
+		prefixedName = conv.PrefixGroupName(roleName)
+	} else {
+		prefixedName = conv.PrefixRoleName(roleName)
+	}
+
+	pusers, err := m.casbin.GetUsersForRole(prefixedName)
 	if err != nil {
-		return nil, fmt.Errorf("GetUsersForRole: %w", err)
+		return nil, fmt.Errorf("GetUsersOrGroupForRole: %w", err)
 	}
 	users := make([]string, 0, len(pusers))
 	for idx := range pusers {

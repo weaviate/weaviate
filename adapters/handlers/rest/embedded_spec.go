@@ -1317,15 +1317,15 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "$ref": "#/definitions/UserAndGroupTypeInput"
+                },
                 "roles": {
                   "description": "the roles that assigned to user",
                   "type": "array",
                   "items": {
                     "type": "string"
                   }
-                },
-                "userType": {
-                  "$ref": "#/definitions/UserAndGroupTypeInput"
                 }
               }
             }
@@ -1390,15 +1390,15 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "$ref": "#/definitions/UserAndGroupTypeInput"
+                },
                 "roles": {
                   "description": "the roles that revoked from the key or user",
                   "type": "array",
                   "items": {
                     "type": "string"
                   }
-                },
-                "userType": {
-                  "$ref": "#/definitions/UserAndGroupTypeInput"
                 }
               }
             }
@@ -10127,15 +10127,15 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "$ref": "#/definitions/UserAndGroupTypeInput"
+                },
                 "roles": {
                   "description": "the roles that assigned to user",
                   "type": "array",
                   "items": {
                     "type": "string"
                   }
-                },
-                "userType": {
-                  "$ref": "#/definitions/UserAndGroupTypeInput"
                 }
               }
             }
@@ -10200,15 +10200,15 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "$ref": "#/definitions/UserAndGroupTypeInput"
+                },
                 "roles": {
                   "description": "the roles that revoked from the key or user",
                   "type": "array",
                   "items": {
                     "type": "string"
                   }
-                },
-                "userType": {
-                  "$ref": "#/definitions/UserAndGroupTypeInput"
                 }
               }
             }

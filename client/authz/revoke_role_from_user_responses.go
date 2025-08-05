@@ -88,8 +88,7 @@ RevokeRoleFromUserOK describes a response with status code 200, with default hea
 
 Role revoked successfully
 */
-type RevokeRoleFromUserOK struct {
-}
+type RevokeRoleFromUserOK struct{}
 
 // IsSuccess returns true when this revoke role from user o k response has a 2xx status code
 func (o *RevokeRoleFromUserOK) IsSuccess() bool {
@@ -130,7 +129,6 @@ func (o *RevokeRoleFromUserOK) String() string {
 }
 
 func (o *RevokeRoleFromUserOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -191,7 +189,6 @@ func (o *RevokeRoleFromUserBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *RevokeRoleFromUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -212,8 +209,7 @@ RevokeRoleFromUserUnauthorized describes a response with status code 401, with d
 
 Unauthorized or invalid credentials.
 */
-type RevokeRoleFromUserUnauthorized struct {
-}
+type RevokeRoleFromUserUnauthorized struct{}
 
 // IsSuccess returns true when this revoke role from user unauthorized response has a 2xx status code
 func (o *RevokeRoleFromUserUnauthorized) IsSuccess() bool {
@@ -254,7 +250,6 @@ func (o *RevokeRoleFromUserUnauthorized) String() string {
 }
 
 func (o *RevokeRoleFromUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -315,7 +310,6 @@ func (o *RevokeRoleFromUserForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *RevokeRoleFromUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -383,7 +377,6 @@ func (o *RevokeRoleFromUserNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *RevokeRoleFromUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -451,7 +444,6 @@ func (o *RevokeRoleFromUserInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *RevokeRoleFromUserInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -467,19 +459,18 @@ RevokeRoleFromUserBody revoke role from user body
 swagger:model RevokeRoleFromUserBody
 */
 type RevokeRoleFromUserBody struct {
+	// group type
+	GroupType models.UserAndGroupTypeInput `json:"groupType,omitempty"`
 
 	// the roles that revoked from the key or user
 	Roles []string `json:"roles"`
-
-	// user type
-	UserType models.UserAndGroupTypeInput `json:"userType,omitempty"`
 }
 
 // Validate validates this revoke role from user body
 func (o *RevokeRoleFromUserBody) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := o.validateUserType(formats); err != nil {
+	if err := o.validateGroupType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -489,16 +480,16 @@ func (o *RevokeRoleFromUserBody) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (o *RevokeRoleFromUserBody) validateUserType(formats strfmt.Registry) error {
-	if swag.IsZero(o.UserType) { // not required
+func (o *RevokeRoleFromUserBody) validateGroupType(formats strfmt.Registry) error {
+	if swag.IsZero(o.GroupType) { // not required
 		return nil
 	}
 
-	if err := o.UserType.Validate(formats); err != nil {
+	if err := o.GroupType.Validate(formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("body" + "." + "userType")
+			return ve.ValidateName("body" + "." + "groupType")
 		} else if ce, ok := err.(*errors.CompositeError); ok {
-			return ce.ValidateName("body" + "." + "userType")
+			return ce.ValidateName("body" + "." + "groupType")
 		}
 		return err
 	}
@@ -510,7 +501,7 @@ func (o *RevokeRoleFromUserBody) validateUserType(formats strfmt.Registry) error
 func (o *RevokeRoleFromUserBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
-	if err := o.contextValidateUserType(ctx, formats); err != nil {
+	if err := o.contextValidateGroupType(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -520,13 +511,12 @@ func (o *RevokeRoleFromUserBody) ContextValidate(ctx context.Context, formats st
 	return nil
 }
 
-func (o *RevokeRoleFromUserBody) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
-
-	if err := o.UserType.ContextValidate(ctx, formats); err != nil {
+func (o *RevokeRoleFromUserBody) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
+	if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("body" + "." + "userType")
+			return ve.ValidateName("body" + "." + "groupType")
 		} else if ce, ok := err.(*errors.CompositeError); ok {
-			return ce.ValidateName("body" + "." + "userType")
+			return ce.ValidateName("body" + "." + "groupType")
 		}
 		return err
 	}

@@ -88,8 +88,7 @@ AssignRoleToUserOK describes a response with status code 200, with default heade
 
 Role assigned successfully
 */
-type AssignRoleToUserOK struct {
-}
+type AssignRoleToUserOK struct{}
 
 // IsSuccess returns true when this assign role to user o k response has a 2xx status code
 func (o *AssignRoleToUserOK) IsSuccess() bool {
@@ -130,7 +129,6 @@ func (o *AssignRoleToUserOK) String() string {
 }
 
 func (o *AssignRoleToUserOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -191,7 +189,6 @@ func (o *AssignRoleToUserBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AssignRoleToUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -212,8 +209,7 @@ AssignRoleToUserUnauthorized describes a response with status code 401, with def
 
 Unauthorized or invalid credentials.
 */
-type AssignRoleToUserUnauthorized struct {
-}
+type AssignRoleToUserUnauthorized struct{}
 
 // IsSuccess returns true when this assign role to user unauthorized response has a 2xx status code
 func (o *AssignRoleToUserUnauthorized) IsSuccess() bool {
@@ -254,7 +250,6 @@ func (o *AssignRoleToUserUnauthorized) String() string {
 }
 
 func (o *AssignRoleToUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -315,7 +310,6 @@ func (o *AssignRoleToUserForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AssignRoleToUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -383,7 +377,6 @@ func (o *AssignRoleToUserNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AssignRoleToUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -451,7 +444,6 @@ func (o *AssignRoleToUserInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *AssignRoleToUserInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -467,19 +459,18 @@ AssignRoleToUserBody assign role to user body
 swagger:model AssignRoleToUserBody
 */
 type AssignRoleToUserBody struct {
+	// group type
+	GroupType models.UserAndGroupTypeInput `json:"groupType,omitempty"`
 
 	// the roles that assigned to user
 	Roles []string `json:"roles"`
-
-	// user type
-	UserType models.UserAndGroupTypeInput `json:"userType,omitempty"`
 }
 
 // Validate validates this assign role to user body
 func (o *AssignRoleToUserBody) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := o.validateUserType(formats); err != nil {
+	if err := o.validateGroupType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -489,16 +480,16 @@ func (o *AssignRoleToUserBody) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (o *AssignRoleToUserBody) validateUserType(formats strfmt.Registry) error {
-	if swag.IsZero(o.UserType) { // not required
+func (o *AssignRoleToUserBody) validateGroupType(formats strfmt.Registry) error {
+	if swag.IsZero(o.GroupType) { // not required
 		return nil
 	}
 
-	if err := o.UserType.Validate(formats); err != nil {
+	if err := o.GroupType.Validate(formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("body" + "." + "userType")
+			return ve.ValidateName("body" + "." + "groupType")
 		} else if ce, ok := err.(*errors.CompositeError); ok {
-			return ce.ValidateName("body" + "." + "userType")
+			return ce.ValidateName("body" + "." + "groupType")
 		}
 		return err
 	}
@@ -510,7 +501,7 @@ func (o *AssignRoleToUserBody) validateUserType(formats strfmt.Registry) error {
 func (o *AssignRoleToUserBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
-	if err := o.contextValidateUserType(ctx, formats); err != nil {
+	if err := o.contextValidateGroupType(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -520,13 +511,12 @@ func (o *AssignRoleToUserBody) ContextValidate(ctx context.Context, formats strf
 	return nil
 }
 
-func (o *AssignRoleToUserBody) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
-
-	if err := o.UserType.ContextValidate(ctx, formats); err != nil {
+func (o *AssignRoleToUserBody) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
+	if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("body" + "." + "userType")
+			return ve.ValidateName("body" + "." + "groupType")
 		} else if ce, ok := err.(*errors.CompositeError); ok {
-			return ce.ValidateName("body" + "." + "userType")
+			return ce.ValidateName("body" + "." + "groupType")
 		}
 		return err
 	}

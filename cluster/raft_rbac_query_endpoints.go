@@ -109,10 +109,11 @@ func (s *Raft) GetRolesForUserOrGroup(user string, userType models.UserAndGroupT
 	return response.Roles, nil
 }
 
-func (s *Raft) GetUsersForRole(role string, userType models.UserAndGroupTypeInput) ([]string, error) {
+func (s *Raft) GetUsersOrGroupForRole(role string, userType models.UserAndGroupTypeInput, isGroup bool) ([]string, error) {
 	req := cmd.QueryGetUsersForRoleRequest{
 		Role:     role,
 		UserType: userType,
+		IsGroup:  isGroup,
 	}
 
 	subCommand, err := json.Marshal(&req)

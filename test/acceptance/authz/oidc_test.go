@@ -185,14 +185,14 @@ func TestRbacWithOIDC(t *testing.T) {
 			if test.onlyOIDC {
 				// cannot assign/revoke to/from db users
 				resp, err := helper.Client(t).Authz.AssignRoleToUser(
-					authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{createSchemaRoleName}, UserType: models.UserAndGroupTypeInputDb}),
+					authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{createSchemaRoleName}, GroupType: models.UserAndGroupTypeInputDb}),
 					helper.CreateAuth(tokenAdmin),
 				)
 				require.Nil(t, resp)
 				require.Error(t, err)
 
 				resp2, err := helper.Client(t).Authz.RevokeRoleFromUser(
-					authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{createSchemaRoleName}, UserType: models.UserAndGroupTypeInputDb}),
+					authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{createSchemaRoleName}, GroupType: models.UserAndGroupTypeInputDb}),
 					helper.CreateAuth(tokenAdmin),
 				)
 				require.Nil(t, resp2)

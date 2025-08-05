@@ -314,29 +314,29 @@ func (_c *MockController_GetRolesForUserOrGroup_Call) RunAndReturn(run func(stri
 	return _c
 }
 
-// GetUsersForRole provides a mock function with given fields: role, userType
-func (_m *MockController) GetUsersForRole(role string, userType models.UserAndGroupTypeInput) ([]string, error) {
-	ret := _m.Called(role, userType)
+// GetUsersOrGroupForRole provides a mock function with given fields: role, userType, IsGroup
+func (_m *MockController) GetUsersOrGroupForRole(role string, userType models.UserAndGroupTypeInput, IsGroup bool) ([]string, error) {
+	ret := _m.Called(role, userType, IsGroup)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetUsersForRole")
+		panic("no return value specified for GetUsersOrGroupForRole")
 	}
 
 	var r0 []string
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, models.UserAndGroupTypeInput) ([]string, error)); ok {
-		return rf(role, userType)
+	if rf, ok := ret.Get(0).(func(string, models.UserAndGroupTypeInput, bool) ([]string, error)); ok {
+		return rf(role, userType, IsGroup)
 	}
-	if rf, ok := ret.Get(0).(func(string, models.UserAndGroupTypeInput) []string); ok {
-		r0 = rf(role, userType)
+	if rf, ok := ret.Get(0).(func(string, models.UserAndGroupTypeInput, bool) []string); ok {
+		r0 = rf(role, userType, IsGroup)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]string)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string, models.UserAndGroupTypeInput) error); ok {
-		r1 = rf(role, userType)
+	if rf, ok := ret.Get(1).(func(string, models.UserAndGroupTypeInput, bool) error); ok {
+		r1 = rf(role, userType, IsGroup)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -344,31 +344,32 @@ func (_m *MockController) GetUsersForRole(role string, userType models.UserAndGr
 	return r0, r1
 }
 
-// MockController_GetUsersForRole_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetUsersForRole'
-type MockController_GetUsersForRole_Call struct {
+// MockController_GetUsersOrGroupForRole_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetUsersOrGroupForRole'
+type MockController_GetUsersOrGroupForRole_Call struct {
 	*mock.Call
 }
 
-// GetUsersForRole is a helper method to define mock.On call
+// GetUsersOrGroupForRole is a helper method to define mock.On call
 //   - role string
 //   - userType models.UserAndGroupTypeInput
-func (_e *MockController_Expecter) GetUsersForRole(role interface{}, userType interface{}) *MockController_GetUsersForRole_Call {
-	return &MockController_GetUsersForRole_Call{Call: _e.mock.On("GetUsersForRole", role, userType)}
+//   - IsGroup bool
+func (_e *MockController_Expecter) GetUsersOrGroupForRole(role interface{}, userType interface{}, IsGroup interface{}) *MockController_GetUsersOrGroupForRole_Call {
+	return &MockController_GetUsersOrGroupForRole_Call{Call: _e.mock.On("GetUsersOrGroupForRole", role, userType, IsGroup)}
 }
 
-func (_c *MockController_GetUsersForRole_Call) Run(run func(role string, userType models.UserAndGroupTypeInput)) *MockController_GetUsersForRole_Call {
+func (_c *MockController_GetUsersOrGroupForRole_Call) Run(run func(role string, userType models.UserAndGroupTypeInput, IsGroup bool)) *MockController_GetUsersOrGroupForRole_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(models.UserAndGroupTypeInput))
+		run(args[0].(string), args[1].(models.UserAndGroupTypeInput), args[2].(bool))
 	})
 	return _c
 }
 
-func (_c *MockController_GetUsersForRole_Call) Return(_a0 []string, _a1 error) *MockController_GetUsersForRole_Call {
+func (_c *MockController_GetUsersOrGroupForRole_Call) Return(_a0 []string, _a1 error) *MockController_GetUsersOrGroupForRole_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockController_GetUsersForRole_Call) RunAndReturn(run func(string, models.UserAndGroupTypeInput) ([]string, error)) *MockController_GetUsersForRole_Call {
+func (_c *MockController_GetUsersOrGroupForRole_Call) RunAndReturn(run func(string, models.UserAndGroupTypeInput, bool) ([]string, error)) *MockController_GetUsersOrGroupForRole_Call {
 	_c.Call.Return(run)
 	return _c
 }

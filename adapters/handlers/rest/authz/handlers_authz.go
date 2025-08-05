@@ -97,6 +97,7 @@ func SetupHandlers(api *operations.WeaviateAPI, controller ControllerAndGetUsers
 	api.AuthzRevokeRoleFromGroupHandler = authz.RevokeRoleFromGroupHandlerFunc(h.revokeRoleFromGroup)
 	api.AuthzGetRolesForGroupHandler = authz.GetRolesForGroupHandlerFunc(h.getRolesForGroup)
 	api.AuthzGetGroupsHandler = authz.GetGroupsHandlerFunc(h.getGroups)
+	api.AuthzGetGroupsForRoleHandler = authz.GetGroupsForRoleHandlerFunc(h.getGroupsForRole)
 }
 
 func (h *authZHandlers) authorizeRoleScopes(ctx context.Context, principal *models.Principal, originalVerb string, policies []authorization.Policy, roleName string) error {
@@ -475,7 +476,7 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles requested doesn't exist")))
 	}
 
-	userTypes, err := h.getUserTypesAndValidateExistence(params.ID, params.Body.UserType)
+	userTypes, err := h.getUserTypesAndValidateExistence(params.ID, params.Body.GroupType)
 	if err != nil {
 		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user exists: %w", err)))
 	}
@@ -710,9 +711,9 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 
 	var response []*authz.GetUsersForRoleOKBodyItems0
 	for _, userType := range []models.UserAndGroupTypeInput{models.UserAndGroupTypeInputOidc, models.UserAndGroupTypeInputDb} {
-		users, err := h.controller.GetUsersForRole(params.ID, userType)
+		users, err := h.controller.GetUsersOrGroupForRole(params.ID, userType, false)
 		if err != nil {
-			return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersForRole: %w", err)))
+			return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersOrGroupForRole: %w", err)))
 		}
 
 		filteredUsers := make([]string, 0, len(users))
@@ -758,6 +759,53 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 	return authz.NewGetUsersForRoleOK().WithPayload(response)
 }
 
+func (h *authZHandlers) getGroupsForRole(params authz.GetGroupsForRoleParams, principal *models.Principal) middleware.Responder {
+	ctx := params.HTTPRequest.Context()
+
+	if err := validateEnvVarRoles(params.ID); err != nil && !slices.Contains(h.rbacconfig.RootUsers, principal.Username) {
+		return authz.NewGetGroupsForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if err := h.authorizeRoleScopes(ctx, principal, authorization.READ, nil, params.ID); err != nil {
+		return authz.NewGetGroupsForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	var response []*authz.GetGroupsForRoleOKBodyItems0
+	for _, userType := range []models.UserAndGroupTypeInput{models.UserAndGroupTypeInputOidc, models.UserAndGroupTypeInputDb} {
+		users, err := h.controller.GetUsersOrGroupForRole(params.ID, userType, true)
+		if err != nil {
+			return authz.NewGetGroupsForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersOrGroupForRole: %w", err)))
+		}
+
+		filteredUsers := make([]string, 0, len(users))
+		for _, userName := range users {
+			if userName == principal.Username {
+				// own username
+				filteredUsers = append(filteredUsers, userName)
+				continue
+			}
+			if err := h.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Users(userName)...); err == nil {
+				filteredUsers = append(filteredUsers, userName)
+			}
+		}
+		slices.Sort(filteredUsers)
+
+		// only OIDC groups so far
+		for _, userId := range filteredUsers {
+			response = append(response, &authz.GetGroupsForRoleOKBodyItems0{UserID: userId, GroupType: models.UserAndGroupTypeInputOidc})
+		}
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"action":                "get_groups_for_role",
+		"component":             authorization.ComponentName,
+		"user":                  principal.Username,
+		"role_to_get_users_for": params.ID,
+	}).Info("groups requested")
+
+	return authz.NewGetGroupsForRoleOK().WithPayload(response)
+}
+
 // Delete this when 1.29 is not supported anymore
 func (h *authZHandlers) getUsersForRoleDeprecated(params authz.GetUsersForRoleDeprecatedParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
@@ -774,9 +822,9 @@ func (h *authZHandlers) getUsersForRoleDeprecated(params authz.GetUsersForRoleDe
 	filteredUsers := make([]string, 0)
 
 	for _, userType := range []models.UserAndGroupTypeInput{models.UserAndGroupTypeInputDb, models.UserAndGroupTypeInputOidc} {
-		users, err := h.controller.GetUsersForRole(params.ID, userType)
+		users, err := h.controller.GetUsersOrGroupForRole(params.ID, userType, false)
 		if err != nil {
-			return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersForRole: %w", err)))
+			return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersOrGroupForRole: %w", err)))
 		}
 
 		for _, userName := range users {
@@ -839,7 +887,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the request roles doesn't exist")))
 	}
 
-	userTypes, err := h.getUserTypesAndValidateExistence(params.ID, params.Body.UserType)
+	userTypes, err := h.getUserTypesAndValidateExistence(params.ID, params.Body.GroupType)
 	if err != nil {
 		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user exists: %w", err)))
 	}

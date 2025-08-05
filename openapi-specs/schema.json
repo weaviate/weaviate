@@ -4968,7 +4968,7 @@
                     "type": "string"
                   }
                 },
-                "userType": {
+                "groupType": {
                   "$ref": "#/definitions/UserAndGroupTypeInput"
                 }
               }
@@ -5041,7 +5041,7 @@
                     "type": "string"
                   }
                 },
-                "userType": {
+                "groupType": {
                   "$ref": "#/definitions/UserAndGroupTypeInput"
                 }
               }
