@@ -1,0 +1,54 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 1500
+  resource:
+    attributes:
+      - key: environment
+        value: "local-testing"
+        action: upsert
+
+exporters:
+  logging:
+    loglevel: debug
+    sampling_initial: 1
+    sampling_thereafter: 1
+  jaeger:
+    endpoint: jaeger:14250
+    tls:
+      insecure: true
+  zipkin:
+    endpoint: http://zipkin:9411/api/v2/spans
+    format: proto
+  otlp:
+    endpoint: http://localhost:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [logging, jaeger, zipkin]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [logging]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [logging]
+
+  extensions: [health_check, pprof, zpages] 

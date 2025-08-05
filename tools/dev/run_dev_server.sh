@@ -51,6 +51,9 @@ case $CONFIG in
 
   local-single-node)
       OTEL_ENABLED=true \
+      OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+      OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+      OTEL_TRACES_SAMPLER_ARG=1.0 \
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./data-weaviate-0" \
