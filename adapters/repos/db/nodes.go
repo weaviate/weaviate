@@ -177,7 +177,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 				shardStatus := &models.NodeShardStatus{
 					Name:                 name,
 					Class:                shard.Index().Config.ClassName.String(),
-					VectorIndexingStatus: shard.GetStatusNoLoad().String(),
+					VectorIndexingStatus: shard.GetStatus().String(),
 					Loaded:               false,
 				}
 				*status = append(*status, shardStatus)
