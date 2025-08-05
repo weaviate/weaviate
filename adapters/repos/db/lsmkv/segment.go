@@ -50,7 +50,7 @@ type segment struct {
 	logger              logrus.FieldLogger
 	metrics             *Metrics
 	size                int64
-	mmapContents        bool
+	readFromMemory      bool
 	unMapContents       bool
 
 	useBloomFilter        bool // see bucket for more datails
@@ -143,13 +143,23 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	var allocCheckerErr error
 
 	if size <= cfg.MinMMapSize { // check if it is a candidate for full reading
-		allocCheckerErr = cfg.allocChecker.CheckAlloc(size) // check if we have enough memory
-		if allocCheckerErr != nil {
-			logger.Debugf("memory pressure: cannot fully read segment")
+		if cfg.allocChecker == nil {
+			logger.WithFields(logrus.Fields{
+				"path":        path,
+				"size":        size,
+				"minMMapSize": cfg.MinMMapSize,
+			}).Info("allocChecker is nil, skipping memory pressure check for new segment")
+		} else {
+			allocCheckerErr = cfg.allocChecker.CheckAlloc(size) // check if we have enough memory
+			if allocCheckerErr != nil {
+				logger.Debugf("memory pressure: cannot fully read segment")
+			}
 		}
 	}
 
-	if size > cfg.MinMMapSize || allocCheckerErr != nil { // mmap the file if it's too large or if we have memory pressure
+	useBloomFilter := cfg.useBloomFilter
+	readFromMemory := cfg.mmapContents
+	if size > cfg.MinMMapSize || cfg.allocChecker == nil || allocCheckerErr != nil { // mmap the file if it's too large or if we have memory pressure
 		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 		if err != nil {
 			return nil, fmt.Errorf("mmap file: %w", err)
@@ -157,11 +167,15 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		contents = contents2
 		unMapContents = true
 	} else { // read the file into memory if it's small enough and we have enough memory
-		contents, err = io.ReadAll(file)
+		meteredF := diskio.NewMeteredReader(file, diskio.MeteredReaderCallback(metrics.ReadObserver("readSegmentFile")))
+		bufio.NewReader(meteredF)
+		contents, err = io.ReadAll(meteredF)
 		if err != nil {
 			return nil, fmt.Errorf("read file: %w", err)
 		}
 		unMapContents = false
+		readFromMemory = true
+		useBloomFilter = false
 	}
 	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
@@ -229,8 +243,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		logger:                logger,
 		metrics:               metrics,
 		size:                  size,
-		mmapContents:          cfg.mmapContents,
-		useBloomFilter:        cfg.useBloomFilter,
+		readFromMemory:        readFromMemory,
+		useBloomFilter:        useBloomFilter,
 		calcCountNetAdditions: cfg.calcCountNetAdditions,
 		invertedHeader:        invertedHeader,
 		invertedData: &segmentInvertedData{
@@ -241,7 +255,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
-	if seg.mmapContents {
+	if seg.readFromMemory {
 		defer file.Close()
 	} else {
 		seg.contentFile = file
@@ -428,19 +442,19 @@ type nodeOffset struct {
 	start, end uint64
 }
 
-func (s *segment) newNodeReader(offset nodeOffset) (*nodeReader, error) {
+func (s *segment) newNodeReader(offset nodeOffset, operation string) (*nodeReader, error) {
 	var (
 		r   io.Reader
 		err error
 	)
-	if s.mmapContents {
+	if s.readFromMemory {
 		contents := s.contents[offset.start:]
 		if offset.end != 0 {
 			contents = s.contents[offset.start:offset.end]
 		}
 		r, err = s.bytesReaderFrom(contents)
 	} else {
-		r, err = s.bufferedReaderAt(offset.start)
+		r, err = s.bufferedReaderAt(offset.start, "ReadFromSegment"+operation)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("new nodeReader: %w", err)
@@ -449,11 +463,11 @@ func (s *segment) newNodeReader(offset nodeOffset) (*nodeReader, error) {
 }
 
 func (s *segment) copyNode(b []byte, offset nodeOffset) error {
-	if s.mmapContents {
+	if s.readFromMemory {
 		copy(b, s.contents[offset.start:offset.end])
 		return nil
 	}
-	n, err := s.newNodeReader(offset)
+	n, err := s.newNodeReader(offset, "copyNode")
 	if err != nil {
 		return fmt.Errorf("copy node: %w", err)
 	}
@@ -468,11 +482,13 @@ func (s *segment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
 	return bytes.NewReader(in), nil
 }
 
-func (s *segment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
+func (s *segment) bufferedReaderAt(offset uint64, operation string) (io.Reader, error) {
 	if s.contentFile == nil {
 		return nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
 	}
 
-	r := io.NewSectionReader(s.contentFile, int64(offset), s.size)
+	meteredF := diskio.NewMeteredReader(s.contentFile, diskio.MeteredReaderCallback(s.metrics.ReadObserver(operation)))
+	r := io.NewSectionReader(meteredF, int64(offset), s.size)
+
 	return bufio.NewReader(r), nil
 }

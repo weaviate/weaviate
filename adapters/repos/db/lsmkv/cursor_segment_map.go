@@ -146,7 +146,7 @@ func (s *segmentCursorMap) first() ([]byte, []MapPair, error) {
 }
 
 func (s *segmentCursorMap) parseCollectionNode(offset nodeOffset) (segmentCollectionNode, error) {
-	r, err := s.segment.newNodeReader(offset)
+	r, err := s.segment.newNodeReader(offset, "segmentCursorMap")
 	if err != nil {
 		return segmentCollectionNode{}, err
 	}
@@ -154,7 +154,7 @@ func (s *segmentCursorMap) parseCollectionNode(offset nodeOffset) (segmentCollec
 }
 
 func (s *segmentCursorMap) parseInvertedNode(offset nodeOffset) (segmentCollectionNode, error) {
-	r, err := s.segment.newNodeReader(offset)
+	r, err := s.segment.newNodeReader(offset, "segmentCursorMap")
 	if err != nil {
 		return segmentCollectionNode{}, err
 	}

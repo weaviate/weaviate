@@ -91,7 +91,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	parser := NewAggregateParser(
-		s.classGetterWithAuthzFunc(principal, req.Tenant),
+		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
 	)
 
 	params, err := parser.Aggregate(req)
@@ -105,7 +105,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	}
 
 	replier := NewAggregateReplier(
-		s.classGetterWithAuthzFunc(principal, req.Tenant),
+		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
 		params,
 	)
 	reply, err := replier.Aggregate(res, params.GroupBy != nil)
@@ -166,11 +166,11 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		tenant = *req.Tenant
 	}
 
-	if err := s.authorizer.Authorize(principal, authorization.DELETE, authorization.ShardsData(req.Collection, tenant)...); err != nil {
+	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsData(req.Collection, tenant)...); err != nil {
 		return nil, err
 	}
 
-	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(principal, tenant))
+	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(ctx, principal, tenant))
 	if err != nil {
 		return nil, fmt.Errorf("batch delete params: %w", err)
 	}
@@ -227,11 +227,11 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 		}
 
 		// batch is upsert
-		if err := s.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(classname, shard)...); err != nil {
+		if err := s.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(classname, shard)...); err != nil {
 			return nil, err
 		}
 
-		if err := s.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
+		if err := s.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
 			return nil, err
 		}
 
@@ -304,7 +304,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 
 	parser := NewParser(
 		req.Uses_127Api,
-		s.classGetterWithAuthzFunc(principal, req.Tenant),
+		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
 	)
 	replier := NewReplier(
 		req.Uses_125Api || req.Uses_127Api,
@@ -349,7 +349,7 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 
 type classGetterWithAuthzFunc func(string) (*models.Class, error)
 
-func (s *Service) classGetterWithAuthzFunc(principal *models.Principal, tenant string) classGetterWithAuthzFunc {
+func (s *Service) classGetterWithAuthzFunc(ctx context.Context, principal *models.Principal, tenant string) classGetterWithAuthzFunc {
 	authorizedCollections := map[string]*models.Class{}
 
 	return func(name string) (*models.Class, error) {
@@ -361,7 +361,7 @@ func (s *Service) classGetterWithAuthzFunc(principal *models.Principal, tenant s
 				resources = authorization.ShardsData(name, tenant)
 			}
 			// having data access is enough for querying as we dont leak any info from the collection config that you cannot get via data access anyways
-			if err := s.authorizer.Authorize(principal, authorization.READ, resources...); err != nil {
+			if err := s.authorizer.Authorize(ctx, principal, authorization.READ, resources...); err != nil {
 				return nil, err
 			}
 			class = s.schemaManager.ReadOnlyClass(name)

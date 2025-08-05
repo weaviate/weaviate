@@ -12,6 +12,7 @@
 package rbac
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/sirupsen/logrus"
@@ -22,7 +23,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
-func (m *manager) authorize(principal *models.Principal, verb string, skipAudit bool, resources ...string) error {
+const AuditLogVersion = 2
+
+func (m *Manager) authorize(ctx context.Context, principal *models.Principal, verb string, skipAudit bool, resources ...string) error {
 	if principal == nil {
 		return fmt.Errorf("rbac: %w", errors.NewUnauthenticated())
 	}
@@ -32,19 +35,33 @@ func (m *manager) authorize(principal *models.Principal, verb string, skipAudit 
 	}
 
 	logger := m.logger.WithFields(logrus.Fields{
-		"action":         "authorize",
-		"user":           principal.Username,
-		"component":      authorization.ComponentName,
-		"request_action": verb,
+		"action":           "authorize",
+		"user":             principal.Username,
+		"component":        authorization.ComponentName,
+		"request_action":   verb,
+		"rbac_log_version": AuditLogVersion,
 	})
+	if !m.rbacConf.IpInAuditDisabled {
+		sourceIp := ctx.Value("sourceIp")
+		logger = logger.WithField("source_ip", sourceIp)
+	}
+
 	if len(principal.Groups) > 0 {
 		logger = logger.WithField("groups", principal.Groups)
 	}
 
-	// Create a slice to store all permission results
-	permResults := make([]logrus.Fields, 0, len(resources))
-
+	// Create a map to aggregate resources and their counts while preserving order
+	resourceCounts := make(map[string]int)
+	var uniqueResources []string
 	for _, resource := range resources {
+		if _, exists := resourceCounts[resource]; !exists {
+			uniqueResources = append(uniqueResources, resource)
+		}
+		resourceCounts[resource]++
+	}
+	permResults := make([]logrus.Fields, 0, len(uniqueResources))
+
+	for _, resource := range uniqueResources {
 		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
@@ -82,19 +99,19 @@ func (m *manager) authorize(principal *models.Principal, verb string, skipAudit 
 }
 
 // Authorize verify if the user has access to a resource to do specific action
-func (m *manager) Authorize(principal *models.Principal, verb string, resources ...string) error {
-	return m.authorize(principal, verb, false, resources...)
+func (m *Manager) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	return m.authorize(ctx, principal, verb, false, resources...)
 }
 
 // AuthorizeSilent verify if the user has access to a resource to do specific action without audit logs
 // to be used internally
-func (m *manager) AuthorizeSilent(principal *models.Principal, verb string, resources ...string) error {
-	return m.authorize(principal, verb, true, resources...)
+func (m *Manager) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	return m.authorize(ctx, principal, verb, true, resources...)
 }
 
 // FilterAuthorizedResources authorize the passed resources with best effort approach, it will return
 // list of allowed resources, if none, it will return an empty slice
-func (m *manager) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
 	if principal == nil {
 		return nil, errors.NewUnauthenticated()
 	}
@@ -114,10 +131,21 @@ func (m *manager) FilterAuthorizedResources(principal *models.Principal, verb st
 		logger = logger.WithField("groups", principal.Groups)
 	}
 
-	permResults := make([]logrus.Fields, 0, len(resources))
 	allowedResources := make([]string, 0, len(resources))
 
+	// Create a map to aggregate resources and their counts while preserving order
+	resourceCounts := make(map[string]int)
+	var uniqueResources []string
 	for _, resource := range resources {
+		if _, exists := resourceCounts[resource]; !exists {
+			uniqueResources = append(uniqueResources, resource)
+		}
+		resourceCounts[resource]++
+	}
+
+	permResults := make([]logrus.Fields, 0, len(uniqueResources))
+
+	for _, resource := range uniqueResources {
 		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
 			logger.WithError(err).WithField("resource", resource).Error("failed to enforce policy")

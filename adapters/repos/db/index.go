@@ -59,6 +59,7 @@ import (
 	esync "github.com/weaviate/weaviate/entities/sync"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -644,6 +645,7 @@ type IndexConfig struct {
 	RootPath                            string
 	ClassName                           schema.ClassName
 	QueryMaximumResults                 int64
+	QueryHybridMaximumResults           int64
 	QueryNestedRefLimit                 int64
 	ResourceUsage                       config.ResourceUsage
 	MemtablesFlushDirtyAfter            int
@@ -672,6 +674,10 @@ type IndexConfig struct {
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
 	ShardLoadLimiter                    ShardLoadLimiter
+	QuerySlowLogEnabled                 *configRuntime.DynamicValue[bool]
+	QuerySlowLogThreshold               *configRuntime.DynamicValue[time.Duration]
+	InvertedSorterDisabled              *configRuntime.DynamicValue[bool]
+	MaintenanceModeEnabled              func() bool
 }
 
 func indexID(class schema.ClassName) string {
@@ -2031,6 +2037,32 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	}
 
 	i.shards.Store(shardName, shard)
+
+	return nil
+}
+
+func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return errAlreadyShutdown
+	}
+
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
+
+	shardLike, ok := i.shards.LoadAndDelete(shardName)
+	if !ok {
+		return nil // shard was not found, nothing to unload
+	}
+
+	if err := shardLike.Shutdown(ctx); err != nil {
+		if !errors.Is(err, errAlreadyShutdown) {
+			return errors.Wrapf(err, "shutdown shard %q", shardName)
+		}
+		return errors.Wrapf(errAlreadyShutdown, "shutdown shard %q", shardName)
+	}
 
 	return nil
 }

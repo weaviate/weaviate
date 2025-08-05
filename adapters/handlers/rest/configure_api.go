@@ -102,7 +102,7 @@ import (
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
-	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2colbert-jinaai"
+	modtext2multivecjinaai "github.com/weaviate/weaviate/modules/text2multivec-jinaai"
 	modtext2vecaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modt2vbigram "github.com/weaviate/weaviate/modules/text2vec-bigram"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
@@ -391,6 +391,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		RootPath:                            appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                          appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:                 appState.ServerConfig.Config.QueryMaximumResults,
+		QueryHybridMaximumResults:           appState.ServerConfig.Config.QueryHybridMaximumResults,
 		QueryNestedRefLimit:                 appState.ServerConfig.Config.QueryNestedCrossReferenceLimit,
 		MaxImportGoroutinesFactor:           appState.ServerConfig.Config.MaxImportGoroutinesFactor,
 		TrackVectorDimensions:               appState.ServerConfig.Config.TrackVectorDimensions,
@@ -410,6 +411,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			AsyncReplicationDisabled: appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
 		},
 		MaximumConcurrentShardLoads: appState.ServerConfig.Config.MaximumConcurrentShardLoads,
+		TenantActivityReadLogLevel:  appState.ServerConfig.Config.TenantActivityReadLogLevel,
+		TenantActivityWriteLogLevel: appState.ServerConfig.Config.TenantActivityWriteLogLevel,
+		QuerySlowLogEnabled:         appState.ServerConfig.Config.QuerySlowLogEnabled,
+		QuerySlowLogThreshold:       appState.ServerConfig.Config.QuerySlowLogThreshold,
+		InvertedSorterDisabled:      appState.ServerConfig.Config.InvertedSorterDisabled,
+		MaintenanceModeEnabled:      appState.Cluster.MaintenanceModeEnabledForLocalhost,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -507,7 +514,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		LoadLegacySchema:       schemaRepo.LoadLegacySchema,
 		SaveLegacySchema:       schemaRepo.SaveLegacySchema,
 		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
-		AuthzController:        appState.AuthzController,
+		RBAC:                   appState.RBAC,
 		DynamicUserController:  appState.APIKey.Dynamic,
 		AuthNConfig:            appState.ServerConfig.Config.Authentication,
 	}
@@ -559,7 +566,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo, appState.ClusterService.SchemaReader())
 
 	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer,
-		schemaManager, repo, appState.Modules)
+		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
 
 	internalServer := clusterapi.NewServer(appState)
@@ -695,6 +702,7 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 			cfg.ReindexMapToBlockmaxConfig.ConditionalStart,
 			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds),
 			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.PauseDurationSeconds),
+			time.Millisecond*time.Duration(cfg.ReindexMapToBlockmaxConfig.PerObjectDelayMilliseconds),
 			concurrency, cfg.ReindexMapToBlockmaxConfig.Selected, appState.SchemaManager,
 		))
 	}
@@ -1009,7 +1017,7 @@ func registerModules(appState *state.State) error {
 		WithField("action", "startup").
 		Debug("start registering modules")
 
-	appState.Modules = modules.NewProvider(appState.Logger)
+	appState.Modules = modules.NewProvider(appState.Logger, appState.ServerConfig.Config)
 
 	// Default modules
 	defaultVectorizers := []string{
@@ -1028,7 +1036,7 @@ func registerModules(appState *state.State) error {
 		modvoyageai.Name,
 		modmulti2vecvoyageai.Name,
 		modweaviateembed.Name,
-		modtext2colbertjinaai.Name,
+		modtext2multivecjinaai.Name,
 		modnvidia.Name,
 		modmulti2vecnvidia.Name,
 	}
@@ -1526,11 +1534,13 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules[modtext2colbertjinaai.Name]; ok {
-		appState.Modules.Register(modtext2colbertjinaai.New())
+	_, enabledText2MultivecJinaAI := enabledModules[modtext2multivecjinaai.Name]
+	_, enabledText2ColBERTJinaAI := enabledModules[modtext2multivecjinaai.LegacyName]
+	if enabledText2MultivecJinaAI || enabledText2ColBERTJinaAI {
+		appState.Modules.Register(modtext2multivecjinaai.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", modtext2colbertjinaai.Name).
+			WithField("module", modtext2multivecjinaai.Name).
 			Debug("enabled module")
 	}
 
@@ -1719,6 +1729,27 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
 		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
+		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
+		registered.TenantActivityWriteLogLevel = appState.ServerConfig.Config.TenantActivityWriteLogLevel
+		registered.RevectorizeCheckDisabled = appState.ServerConfig.Config.RevectorizeCheckDisabled
+		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
+		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
+		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+
+		hooks := make(map[string]func() error)
+
+		if appState.OIDC.Config.Enabled {
+			registered.OIDCIssuer = appState.OIDC.Config.Issuer
+			registered.OIDCClientID = appState.OIDC.Config.ClientID
+			registered.OIDCSkipClientIDCheck = appState.OIDC.Config.SkipClientIDCheck
+			registered.OIDCUsernameClaim = appState.OIDC.Config.UsernameClaim
+			registered.OIDCGroupsClaim = appState.OIDC.Config.GroupsClaim
+			registered.OIDCScopes = appState.OIDC.Config.Scopes
+			registered.OIDCCertificate = appState.OIDC.Config.Certificate
+
+			hooks["OIDC"] = appState.OIDC.Init
+			appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
+		}
 
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,
@@ -1727,6 +1758,7 @@ func initRuntimeOverrides(appState *state.State) {
 			registered,
 			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
 			appState.Logger,
+			hooks,
 			prometheus.DefaultRegisterer)
 		if err != nil {
 			appState.Logger.WithField("action", "startup").WithError(err).Fatal("could not create runtime config manager")

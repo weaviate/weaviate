@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/weaviate/weaviate/entities/tenantactivity"
@@ -26,7 +27,7 @@ type Handler struct {
 }
 
 type ActivitySource interface {
-	LocalTenantActivity() tenantactivity.ByCollection
+	LocalTenantActivity(filter tenantactivity.UsageFilter) tenantactivity.ByCollection
 }
 
 func NewHandler() *Handler {
@@ -57,7 +58,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	act := h.src.LocalTenantActivity()
+	var filter tenantactivity.UsageFilter
+	// parse ?filter from query params
+	if filterParam := strings.ToLower(r.URL.Query().Get("filter")); filterParam != "" {
+		switch filterParam {
+		case "reads", "read", "r":
+			filter = tenantactivity.UsageFilterOnlyReads
+		case "writes", "write", "w":
+			filter = tenantactivity.UsageFilterOnlyWrites
+		case "all", "a":
+			filter = tenantactivity.UsageFilterAll
+		default:
+			http.Error(w, fmt.Sprintf("invalid filter: %s", filterParam), http.StatusBadRequest)
+			return
+		}
+	}
+
+	act := h.src.LocalTenantActivity(filter)
 
 	payload, err := json.Marshal(act)
 	if err != nil {

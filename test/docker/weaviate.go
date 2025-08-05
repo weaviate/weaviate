@@ -13,6 +13,7 @@ package docker
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -82,6 +83,7 @@ func startWeaviate(ctx context.Context,
 		"PERSISTENCE_DATA_PATH":     "./data",
 		"DEFAULT_VECTORIZER_MODULE": "none",
 		"FAST_FAILURE_DETECTION":    "true",
+		"DISABLE_TELEMETRY":         "true",
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")
@@ -92,6 +94,7 @@ func startWeaviate(ctx context.Context,
 	for key, value := range extraEnvSettings {
 		env[key] = value
 	}
+
 	httpPort := nat.Port("8080/tcp")
 	exposedPorts := []string{"8080/tcp"}
 	waitStrategies := []wait.Strategy{
@@ -113,6 +116,7 @@ func startWeaviate(ctx context.Context,
 			networkName: {containerName},
 		},
 		ExposedPorts: exposedPorts,
+		WaitingFor:   wait.ForAll(waitStrategies...),
 		Env:          env,
 		LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 			{
@@ -140,6 +144,9 @@ func startWeaviate(ctx context.Context,
 		Reuse:            false,
 	})
 	if err != nil {
+		if terminateErr := testcontainers.TerminateContainer(c); terminateErr != nil {
+			return nil, fmt.Errorf("%w: failed to terminate: %w", err, terminateErr)
+		}
 		return nil, err
 	}
 	httpUri, err := c.PortEndpoint(ctx, httpPort, "")

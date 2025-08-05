@@ -88,7 +88,7 @@ func (s *segmentCursorCollection) first() ([]byte, []value, error) {
 }
 
 func (s *segmentCursorCollection) parseCollectionNode(offset nodeOffset) (segmentCollectionNode, error) {
-	r, err := s.segment.newNodeReader(offset)
+	r, err := s.segment.newNodeReader(offset, "segmentCursorCollection")
 	if err != nil {
 		return segmentCollectionNode{}, err
 	}

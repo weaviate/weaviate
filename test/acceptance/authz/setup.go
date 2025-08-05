@@ -36,7 +36,7 @@ func composeUp(t *testing.T, admins map[string]string, users map[string]string, 
 		viewerUserNames = append(viewerUserNames, userName)
 	}
 	if len(admins) > 0 {
-		builder = builder.WithRbacAdmins(adminUserNames...)
+		builder = builder.WithRbacRoots(adminUserNames...)
 	}
 	if len(viewers) > 0 {
 		builder = builder.WithRbacViewers(viewerUserNames...)

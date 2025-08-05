@@ -195,7 +195,7 @@ func (b *BM25Searcher) wandBlock(
 				continue
 			}
 			eg.Go(func() (err error) {
-				topKHeap := lsmkv.DoBlockMaxWand(internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]))
+				topKHeap := lsmkv.DoBlockMaxWand(internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), ctx, b.logger)
 				ids, scores, explanations, err := b.getTopKIds(topKHeap)
 				if err != nil {
 					return err

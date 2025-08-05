@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -196,6 +197,7 @@ type Config struct {
 	RootPath                            string
 	QueryLimit                          int64
 	QueryMaximumResults                 int64
+	QueryHybridMaximumResults           int64
 	QueryNestedRefLimit                 int64
 	ResourceUsage                       config.ResourceUsage
 	MaxImportGoroutinesFactor           float64
@@ -225,6 +227,12 @@ type Config struct {
 	MaximumConcurrentShardLoads         int
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+	TenantActivityReadLogLevel          *configRuntime.DynamicValue[string]
+	TenantActivityWriteLogLevel         *configRuntime.DynamicValue[string]
+	QuerySlowLogEnabled                 *configRuntime.DynamicValue[bool]
+	QuerySlowLogThreshold               *configRuntime.DynamicValue[time.Duration]
+	InvertedSorterDisabled              *configRuntime.DynamicValue[bool]
+	MaintenanceModeEnabled              func() bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

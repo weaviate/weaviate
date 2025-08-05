@@ -22,23 +22,27 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+
+	"github.com/weaviate/weaviate/cluster/dynusers"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+
+	"github.com/prometheus/client_golang/prometheus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -158,8 +162,10 @@ type Config struct {
 	ForceOneNodeRecovery bool
 
 	// 	AuthzController to manage RBAC commands and apply it to casbin
-	AuthzController       authorization.Controller
-	AuthNConfig           config.Authentication
+	AuthzController authorization.Controller
+	AuthNConfig     config.Authentication
+	RBAC            *rbac.Manager
+
 	DynamicUserController *apikey.DBUser
 }
 
@@ -285,7 +291,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			NodeNameToPortMap: cfg.NodeNameToPortMap,
 		}),
 		schemaManager:  schemaManager,
-		authZManager:   rbacRaft.NewManager(authZController, cfg.AuthNConfig, snapshotter, cfg.Logger),
+		authZManager:   rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager: dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
 		metrics:        newStoreMetrics(cfg.NodeID, reg),
 	}
@@ -388,7 +394,7 @@ func (st *Store) init() error {
 	}
 
 	// file snapshot store
-	st.snapshotStore, err = raft.NewFileSnapshotStore(st.cfg.WorkDir, nRetainedSnapShots, os.Stdout)
+	st.snapshotStore, err = raft.NewFileSnapshotStore(st.cfg.WorkDir, nRetainedSnapShots, st.log.Out)
 	if err != nil {
 		return fmt.Errorf("file snapshot store: %w", err)
 	}
@@ -776,8 +782,12 @@ type Response struct {
 
 var _ raft.FSM = &Store{}
 
-func lastSnapshotIndex(ss *raft.FileSnapshotStore) uint64 {
-	ls, err := ss.List()
+func lastSnapshotIndex(snapshotStore *raft.FileSnapshotStore) uint64 {
+	if snapshotStore == nil {
+		return 0
+	}
+
+	ls, err := snapshotStore.List()
 	if err != nil || len(ls) == 0 {
 		return 0
 	}

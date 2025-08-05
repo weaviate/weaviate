@@ -27,6 +27,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -180,19 +181,21 @@ func (s *coordStore) Meta(ctx context.Context, filename, overrideBucket, overrid
 
 // uploader uploads backup artifacts. This includes db files and metadata
 type uploader struct {
-	sourcer  Sourcer
-	backend  nodeStore
-	backupID string
+	sourcer        Sourcer
+	rbacSourcer    fsm.Snapshotter
+	dynUserSourcer fsm.Snapshotter
+	backend        nodeStore
+	backupID       string
 	zipConfig
 	setStatus func(st backup.Status)
 	log       logrus.FieldLogger
 }
 
-func newUploader(sourcer Sourcer, backend nodeStore,
+func newUploader(sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter, backend nodeStore,
 	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
-		sourcer, backend,
+		sourcer, rbacSourcer, dynUserSourcer, backend,
 		backupID,
 		newZipConfig(Compression{
 			Level:         DefaultCompression,
@@ -215,25 +218,50 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	desc.Status = string(backup.Transferring)
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes)
 	defer func() {
+		//  release indexes under all conditions
+		u.releaseIndexes(classes, desc.ID)
+
 		//  make sure context is not cancelled when uploading metadata
 		ctx := context.Background()
-		if err != nil {
-			desc.Error = err.Error()
-			if errors.Is(err, context.Canceled) {
-				u.setStatus(backup.Cancelled)
-				desc.Status = string(backup.Cancelled)
-				u.releaseIndexes(classes, desc.ID)
-			}
-			err = fmt.Errorf("upload %w: %w", err, u.backend.PutMeta(ctx, desc, overrideBucket, overridePath))
-		} else {
-			u.log.Info("start uploading meta data")
+
+		// Handle success case first
+		if err == nil {
+			u.log.Info("start uploading metadata")
 			if err = u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); err != nil {
 				desc.Status = string(backup.Transferred)
 			}
 			u.setStatus(backup.Success)
-			u.log.Info("finish uploading meta data")
+			u.log.Info("finish uploading metadata")
+			return
 		}
+
+		desc.Error = err.Error()
+
+		// Handle error cases
+		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+			u.setStatus(backup.Cancelled)
+			desc.Status = string(backup.Cancelled)
+		}
+
+		u.log.Info("start uploading metadata for cancelled or failed backup")
+		if metaErr := u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); metaErr != nil {
+			// combine errors for shadowing the original error in case
+			// of putMeta failure
+			err = fmt.Errorf("upload %w: %w", err, metaErr)
+		}
+		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
+
+	contextChecker := func(ctx context.Context) error {
+		ctxerr := ctx.Err()
+		if ctxerr != nil {
+			u.setStatus(backup.Cancelled)
+			desc.Status = string(backup.Cancelled)
+			u.releaseIndexes(classes, desc.ID)
+		}
+		return ctxerr
+	}
+
 Loop:
 	for {
 		select {
@@ -253,15 +281,32 @@ Loop:
 			u.log.WithField("class", cdesc.Name).Info("finish uploading files")
 
 		case <-ctx.Done():
-			ctxerr := ctx.Err()
-			if ctxerr != nil {
-				u.setStatus(backup.Cancelled)
-				desc.Status = string(backup.Cancelled)
-				u.releaseIndexes(classes, desc.ID)
-			}
-			return ctxerr
+			return contextChecker(ctx)
 		}
 	}
+
+	if err := ctx.Err(); err != nil {
+		return contextChecker(ctx)
+	} else if u.rbacSourcer != nil {
+		u.log.Info("start uploading RBAC backups")
+		descrp, err := u.rbacSourcer.Snapshot()
+		if err != nil {
+			return err
+		}
+		desc.RbacBackups = descrp
+	}
+
+	if err := ctx.Err(); err != nil {
+		return contextChecker(ctx)
+	} else if u.dynUserSourcer != nil {
+		u.log.Info("start uploading dynamic user backups")
+		descrp, err := u.dynUserSourcer.Snapshot()
+		if err != nil {
+			return err
+		}
+		desc.UserBackups = descrp
+	}
+
 	u.setStatus(backup.Transferred)
 	desc.Status = string(backup.Success)
 	return nil

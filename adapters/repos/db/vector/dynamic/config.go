@@ -22,26 +22,29 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	bolt "go.etcd.io/bbolt"
 )
 
 type Config struct {
-	ID                    string
-	TargetVector          string
-	Logger                logrus.FieldLogger
-	RootPath              string
-	ShardName             string
-	ClassName             string
-	PrometheusMetrics     *monitoring.PrometheusMetrics
-	VectorForIDThunk      common.VectorForID[float32]
-	TempVectorForIDThunk  common.TempVectorForID[float32]
-	DistanceProvider      distancer.Provider
-	MakeCommitLoggerThunk hnsw.MakeCommitLogger
-	TombstoneCallbacks    cyclemanager.CycleCallbackGroup
-	SharedDB              *bolt.DB
-	MinMMapSize           int64
-	MaxWalReuseSize       int64
+	ID                      string
+	TargetVector            string
+	Logger                  logrus.FieldLogger
+	RootPath                string
+	ShardName               string
+	ClassName               string
+	PrometheusMetrics       *monitoring.PrometheusMetrics
+	VectorForIDThunk        common.VectorForID[float32]
+	TempVectorForIDThunk    common.TempVectorForID[float32]
+	DistanceProvider        distancer.Provider
+	MakeCommitLoggerThunk   hnsw.MakeCommitLogger
+	TombstoneCallbacks      cyclemanager.CycleCallbackGroup
+	SharedDB                *bolt.DB
+	HNSWWaitForCachePrefill bool
+	MinMMapSize             int64
+	MaxWalReuseSize         int64
+	AllocChecker            memwatch.AllocChecker
 }
 
 func (c Config) Validate() error {

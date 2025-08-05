@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -147,30 +148,57 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
 		config.Authentication.OIDC.Enabled = true
+		var (
+			skipClientCheck bool
+			issuer          string
+			clientID        string
+			scopes          []string
+			userClaim       string
+			groupsClaim     string
+			certificate     string
+			jwksUrl         string
+		)
 
 		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
-			config.Authentication.OIDC.SkipClientIDCheck = true
+			skipClientCheck = true
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_ISSUER"); v != "" {
-			config.Authentication.OIDC.Issuer = v
+			issuer = v
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_CLIENT_ID"); v != "" {
-			config.Authentication.OIDC.ClientID = v
+			clientID = v
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_SCOPES"); v != "" {
-			config.Authentication.OIDC.Scopes = strings.Split(v, ",")
+			scopes = strings.Split(v, ",")
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_USERNAME_CLAIM"); v != "" {
-			config.Authentication.OIDC.UsernameClaim = v
+			userClaim = v
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_GROUPS_CLAIM"); v != "" {
-			config.Authentication.OIDC.GroupsClaim = v
+			groupsClaim = v
 		}
+
+		if v := os.Getenv("AUTHENTICATION_OIDC_CERTIFICATE"); v != "" {
+			certificate = v
+		}
+
+		if v := os.Getenv("AUTHENTICATION_OIDC_JWKS_URL"); v != "" {
+			jwksUrl = v
+		}
+
+		config.Authentication.OIDC.SkipClientIDCheck = runtime.NewDynamicValue(skipClientCheck)
+		config.Authentication.OIDC.Issuer = runtime.NewDynamicValue(issuer)
+		config.Authentication.OIDC.ClientID = runtime.NewDynamicValue(clientID)
+		config.Authentication.OIDC.Scopes = runtime.NewDynamicValue(scopes)
+		config.Authentication.OIDC.UsernameClaim = runtime.NewDynamicValue(userClaim)
+		config.Authentication.OIDC.GroupsClaim = runtime.NewDynamicValue(groupsClaim)
+		config.Authentication.OIDC.Certificate = runtime.NewDynamicValue(certificate)
+		config.Authentication.OIDC.JWKSUrl = runtime.NewDynamicValue(jwksUrl)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
@@ -219,6 +247,10 @@ func FromEnv(config *Config) error {
 	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) || entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_ENABLED")) {
 		config.Authorization.Rbac.Enabled = true
 
+		if entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_IP_IN_AUDIT_LOG_DISABLED")) {
+			config.Authorization.Rbac.IpInAuditDisabled = true
+		}
+
 		adminsString, ok := os.LookupEnv("AUTHORIZATION_RBAC_ROOT_USERS")
 		if ok {
 			config.Authorization.Rbac.RootUsers = strings.Split(adminsString, ",")
@@ -234,9 +266,25 @@ func FromEnv(config *Config) error {
 			config.Authorization.Rbac.RootGroups = strings.Split(groupString, ",")
 		}
 
-		viewerGroupString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_ROOT_GROUPS")
+		viewerGroupString, ok := os.LookupEnv("AUTHORIZATION_RBAC_READONLY_GROUPS")
 		if ok {
-			config.Authorization.Rbac.ViewerRootGroups = strings.Split(viewerGroupString, ",")
+			config.Authorization.Rbac.ReadOnlyGroups = strings.Split(viewerGroupString, ",")
+		} else {
+			// delete this after 1.30.11 + 1.31.3 is the minimum version in WCD
+			viewerGroupString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_ROOT_GROUPS")
+			if ok {
+				config.Authorization.Rbac.ReadOnlyGroups = strings.Split(viewerGroupString, ",")
+			}
+		}
+
+		readOnlyUsersString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_USERS")
+		if ok {
+			config.Authorization.Rbac.ViewerUsers = strings.Split(readOnlyUsersString, ",")
+		}
+
+		adminUsersString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_ADMIN_USERS")
+		if ok {
+			config.Authorization.Rbac.AdminUsers = strings.Split(adminUsersString, ",")
 		}
 	}
 
@@ -390,6 +438,10 @@ func FromEnv(config *Config) error {
 		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PAUSE_DURATION_SECONDS",
 			func(val int) { config.ReindexMapToBlockmaxConfig.PauseDurationSeconds = val },
 			DefaultMapToBlockmaxPauseDurationSeconds)
+		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PER_OBJECT_DELAY_MILLISECONDS",
+			func(val int) { config.ReindexMapToBlockmaxConfig.PerObjectDelayMilliseconds = val },
+			DefaultMapToBlockmaxPerObjectDelayMilliseconds)
+
 		cptSelected, err := cptParser.parse(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SELECT"))
 		if err != nil {
 			return err
@@ -426,6 +478,19 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse QUERY_DEFAULTS_LIMIT_GRAPHQL as int: %w", err)
+		}
+
+		config.QueryDefaults.LimitGraphQL = int64(asInt)
+	} else {
+		if config.QueryDefaults.LimitGraphQL == 0 {
+			config.QueryDefaults.LimitGraphQL = DefaultQueryDefaultsLimitGraphQL
+		}
+	}
+
 	if v := os.Getenv("QUERY_MAXIMUM_RESULTS"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
@@ -435,6 +500,16 @@ func FromEnv(config *Config) error {
 		config.QueryMaximumResults = int64(asInt)
 	} else {
 		config.QueryMaximumResults = DefaultQueryMaximumResults
+	}
+
+	if v := os.Getenv("QUERY_HYBRID_MAXIMUM_RESULTS"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse QUERY_HYBRID_MAXIMUM_RESULTS as int: %w", err)
+		}
+		config.QueryHybridMaximumResults = int64(asInt)
+	} else {
+		config.QueryHybridMaximumResults = DefaultQueryHybridMaximumResults
 	}
 
 	if v := os.Getenv("QUERY_NESTED_CROSS_REFERENCE_LIMIT"); v != "" {
@@ -520,6 +595,18 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("AUTOSCHEMA_DEFAULT_DATE"); v != "" {
 		config.AutoSchema.DefaultDate = v
 	}
+
+	tenantActivityReadLogLevel := "debug"
+	if v := os.Getenv("TENANT_ACTIVITY_READ_LOG_LEVEL"); v != "" {
+		tenantActivityReadLogLevel = v
+	}
+	config.TenantActivityReadLogLevel = runtime.NewDynamicValue(tenantActivityReadLogLevel)
+
+	tenantActivityWriteLogLevel := "debug"
+	if v := os.Getenv("TENANT_ACTIVITY_WRITE_LOG_LEVEL"); v != "" {
+		tenantActivityWriteLogLevel = v
+	}
+	config.TenantActivityWriteLogLevel = runtime.NewDynamicValue(tenantActivityWriteLogLevel)
 
 	ru, err := parseResourceUsageEnvVars()
 	if err != nil {
@@ -662,6 +749,31 @@ func FromEnv(config *Config) error {
 		}
 		config.RuntimeOverrides.LoadInterval = interval
 	}
+
+	revoctorizeCheckDisabled := false
+	if v := os.Getenv("REVECTORIZE_CHECK_DISABLED"); v != "" {
+		revoctorizeCheckDisabled = !(strings.ToLower(v) == "false")
+	}
+	config.RevectorizeCheckDisabled = runtime.NewDynamicValue(revoctorizeCheckDisabled)
+
+	querySlowLogEnabled := entcfg.Enabled(os.Getenv("QUERY_SLOW_LOG_ENABLED"))
+	config.QuerySlowLogEnabled = runtime.NewDynamicValue(querySlowLogEnabled)
+
+	querySlowLogThreshold := dbhelpers.DefaultSlowLogThreshold
+	if v := os.Getenv("QUERY_SLOW_LOG_THRESHOLD"); v != "" {
+		threshold, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse QUERY_SLOW_LOG_THRESHOLD as time.Duration: %w", err)
+		}
+		querySlowLogThreshold = threshold
+	}
+	config.QuerySlowLogThreshold = runtime.NewDynamicValue(querySlowLogThreshold)
+
+	invertedSorterDisabled := false
+	if v := os.Getenv("INVERTED_SORTER_DISABLED"); v != "" {
+		invertedSorterDisabled = !(strings.ToLower(v) == "false")
+	}
+	config.InvertedSorterDisabled = runtime.NewDynamicValue(invertedSorterDisabled)
 
 	return nil
 }
@@ -972,7 +1084,8 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 }
 
 const (
-	DefaultQueryMaximumResults = int64(10000)
+	DefaultQueryMaximumResults       = int64(10000)
+	DefaultQueryHybridMaximumResults = int64(100)
 	// DefaultQueryNestedCrossReferenceLimit describes the max number of nested crossrefs returned for a query
 	DefaultQueryNestedCrossReferenceLimit = int64(100000)
 	// DefaultQueryCrossReferenceDepthLimit describes the max depth of nested crossrefs in a query

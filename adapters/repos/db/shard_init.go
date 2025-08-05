@@ -52,7 +52,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		promMetrics: promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
-		slowQueryReporter:     helpers.NewSlowQueryReporterFromEnv(index.logger),
+		slowQueryReporter: helpers.NewSlowQueryReporter(index.Config.QuerySlowLogEnabled,
+			index.Config.QuerySlowLogThreshold, index.logger),
 		stopDimensionTracking: make(chan struct{}),
 		replicationMap:        pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 		centralJobQueue:       jobQueueCh,
@@ -103,7 +104,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		index.metrics.ObserveUpdateShardStatus(s.status.Status.String(), time.Since(start))
 	}()
 
-	s.activityTracker.Store(1) // initial state
+	s.activityTrackerRead.Store(1)  // initial state
+	s.activityTrackerWrite.Store(1) // initial state
 	s.initCycleCallbacks()
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)

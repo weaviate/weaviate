@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -182,7 +183,7 @@ func (s *segment) storeBloomFilterOnDisk(path string) error {
 }
 
 func (s *segment) loadBloomFilterFromDisk() error {
-	data, err := loadWithChecksum(s.bloomFilterPath(), -1)
+	data, err := loadWithChecksum(s.bloomFilterPath(), -1, s.metrics.ReadObserver("loadBloomfilter"))
 	if err != nil {
 		return err
 	}
@@ -306,7 +307,7 @@ func (s *segment) storeBloomFilterSecondaryOnDisk(path string, pos int) error {
 }
 
 func (s *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
-	data, err := loadWithChecksum(s.bloomFilterSecondaryPath(pos), -1)
+	data, err := loadWithChecksum(s.bloomFilterSecondaryPath(pos), -1, s.metrics.ReadObserver("loadSecondaryBloomFilter"))
 	if err != nil {
 		return err
 	}
@@ -352,8 +353,15 @@ func writeWithChecksum(bufWriter byteops.ReadWriter, path string, observeFileWri
 
 // use negative length check to indicate that no length check should be
 // performed
-func loadWithChecksum(path string, lengthCheck int) ([]byte, error) {
-	data, err := os.ReadFile(path)
+func loadWithChecksum(path string, lengthCheck int, observeFileReader BytesReadObserver) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	meteredF := diskio.NewMeteredReader(f, diskio.MeteredReaderCallback(observeFileReader))
+
+	data, err := io.ReadAll(meteredF)
 	if err != nil {
 		return nil, err
 	}

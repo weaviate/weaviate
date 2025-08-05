@@ -208,6 +208,10 @@ func (d *DockerCompose) GetMockOIDC() *DockerContainer {
 	return d.getContainerByName(MockOIDC)
 }
 
+func (d *DockerCompose) GetMockOIDCHelper() *DockerContainer {
+	return d.getContainerByName(MockOIDCHelper)
+}
+
 func (d *DockerCompose) getContainerByName(name string) *DockerContainer {
 	for _, c := range d.containers {
 		if c.name == name {
@@ -236,7 +240,8 @@ func (d *DockerCompose) DisconnectFromNetwork(ctx context.Context, nodeIndex int
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to disconnect container %s from network: %w", container.name, err)
 	}
-
+	// sleep to make sure that the off node is detected by memberlist and marked failed
+	time.Sleep(3 * time.Second)
 	return nil
 }
 
@@ -260,5 +265,7 @@ func (d *DockerCompose) ConnectToNetwork(ctx context.Context, nodeIndex int) err
 		return fmt.Errorf("failed to connect container %s to network: %w", container.name, err)
 	}
 
+	// sleep to make sure that the off node is detected by memberlist and connected to the network
+	time.Sleep(3 * time.Second)
 	return nil
 }

@@ -109,7 +109,9 @@ func (st *Store) Apply(l *raft.Log) any {
 		// that means we're done doing schema only.
 		// we do this at the beginning to handle situation were schema was catching up
 		// and to make sure no matter is the error status we are going to open the db on startup
-		if l.Index != 0 && l.Index == st.lastAppliedIndexToDB.Load() {
+		// we reload the db only if we have a previous state and the db is not loaded
+		dbReloadRequired := st.lastAppliedIndexToDB.Load() != 0 && !st.dbLoaded.Load()
+		if dbReloadRequired && l.Index != 0 && l.Index >= st.lastAppliedIndexToDB.Load() {
 			st.log.WithFields(logrus.Fields{
 				"log_type":                     l.Type,
 				"log_name":                     l.Type.String(),
@@ -259,6 +261,10 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_ACTIVATE_USER:
 		f = func() {
 			ret.Error = st.dynUserManager.ActivateUser(&cmd)
+		}
+	case api.ApplyRequest_TYPE_CREATE_USER_WITH_KEY:
+		f = func() {
+			ret.Error = st.dynUserManager.CreateUserWithKeyRequest(&cmd)
 		}
 	default:
 		// This could occur when a new command has been introduced in a later app version

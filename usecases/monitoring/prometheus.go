@@ -73,6 +73,7 @@ type PrometheusMetrics struct {
 	BackupRestoreDataTransferred        *prometheus.CounterVec
 	BackupStoreDataTransferred          *prometheus.CounterVec
 	FileIOWrites                        *prometheus.SummaryVec
+	FileIOReads                         *prometheus.SummaryVec
 	MmapOperations                      *prometheus.CounterVec
 	MmapProcMaps                        prometheus.Gauge
 
@@ -494,6 +495,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "file_io_writes_total_bytes",
 			Help: "Total number of bytes written to disk",
 		}, []string{"operation", "strategy"}),
+		FileIOReads: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "file_io_reads_total_bytes",
+			Help: "Total number of bytes read from disk",
+		}, []string{"operation"}),
 		MmapOperations: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "mmap_operations_total",
 			Help: "Total number of mmap operations",

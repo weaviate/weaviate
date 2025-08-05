@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
@@ -49,18 +50,20 @@ type Provider struct {
 	hasMultipleVectorizers    bool
 	targetVectorNameValidator *regexp.Regexp
 	logger                    logrus.FieldLogger
+	cfg                       config.Config
 }
 
 type schemaGetter interface {
 	ReadOnlyClass(name string) *models.Class
 }
 
-func NewProvider(logger logrus.FieldLogger) *Provider {
+func NewProvider(logger logrus.FieldLogger, cfg config.Config) *Provider {
 	return &Provider{
 		registered:                map[string]modulecapabilities.Module{},
 		altNames:                  map[string]string{},
 		targetVectorNameValidator: regexp.MustCompile(`^` + schema.TargetVectorNameRegex + `$`),
 		logger:                    logger,
+		cfg:                       cfg,
 	}
 }
 
@@ -239,7 +242,7 @@ func (p *Provider) validateModules(name string, properties map[string][]string, 
 }
 
 func (p *Provider) moduleProvidesMultipleVectorizers(moduleType modulecapabilities.ModuleType) bool {
-	return moduleType == modulecapabilities.Text2MultiVec
+	return moduleType == modulecapabilities.Text2ManyVec
 }
 
 func (p *Provider) isOnlyOneModuleEnabledOfAGivenType(moduleType modulecapabilities.ModuleType) bool {
@@ -273,7 +276,7 @@ func (p *Provider) IsMultiVector(modName string) bool {
 	if mod == nil {
 		return false
 	}
-	return mod.Type() == modulecapabilities.Text2ColBERT
+	return mod.Type() == modulecapabilities.Text2Multivec
 }
 
 func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) bool {
@@ -281,9 +284,9 @@ func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) 
 	case modulecapabilities.Text2Vec,
 		modulecapabilities.Img2Vec,
 		modulecapabilities.Multi2Vec,
-		modulecapabilities.Text2MultiVec,
+		modulecapabilities.Text2ManyVec,
 		modulecapabilities.Ref2Vec,
-		modulecapabilities.Text2ColBERT:
+		modulecapabilities.Text2Multivec:
 		return true
 	default:
 		return false

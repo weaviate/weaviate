@@ -111,6 +111,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			RootPath:                            m.db.config.RootPath,
 			ResourceUsage:                       m.db.config.ResourceUsage,
 			QueryMaximumResults:                 m.db.config.QueryMaximumResults,
+			QueryHybridMaximumResults:           m.db.config.QueryHybridMaximumResults,
 			QueryNestedRefLimit:                 m.db.config.QueryNestedRefLimit,
 			MemtablesFlushDirtyAfter:            m.db.config.MemtablesFlushDirtyAfter,
 			MemtablesInitialSizeMB:              m.db.config.MemtablesInitialSizeMB,
@@ -138,6 +139,9 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
 			DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
 			ShardLoadLimiter:                    m.db.shardLoadLimiter,
+			QuerySlowLogEnabled:                 m.db.config.QuerySlowLogEnabled,
+			QuerySlowLogThreshold:               m.db.config.QuerySlowLogThreshold,
+			InvertedSorterDisabled:              m.db.config.InvertedSorterDisabled,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
@@ -252,11 +256,7 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 			}
 		} else {
 			// Shutdown the tenant if activity status != HOT
-			shard := idx.shards.Load(shardName)
-			if shard == nil {
-				continue
-			}
-			if err := shard.Shutdown(ctx); err != nil {
+			if err := idx.UnloadLocalShard(ctx, shardName); err != nil {
 				return fmt.Errorf("shutdown tenant shard %s during update index: %w", shardName, err)
 			}
 		}
@@ -309,14 +309,13 @@ func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 	}
 
 	// Initialize missing shards and shutdown unneeded ones
-	for shardName, shard := range existingShards {
+	for shardName := range existingShards {
 		if !slices.Contains(requestedShards, shardName) {
-			if err := shard.Shutdown(ctx); err != nil {
-				// we log instead of returning an error, to avoid stopping the change
+			if err := idx.UnloadLocalShard(ctx, shardName); err != nil {
+				// TODO: an error should be returned but keeping the old behavior for now
 				m.logger.WithField("shard", shardName).Error("shutdown shard during update index: %w", err)
 				continue
 			}
-			idx.shards.LoadAndDelete(shardName)
 		}
 	}
 

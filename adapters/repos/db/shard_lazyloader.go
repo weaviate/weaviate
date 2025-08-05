@@ -687,7 +687,7 @@ func (l *LazyLoadShard) isLoaded() bool {
 	return l.loaded
 }
 
-func (l *LazyLoadShard) Activity() int32 {
+func (l *LazyLoadShard) Activity() (int32, int32) {
 	var loaded bool
 	l.mutex.Lock()
 	loaded = l.loaded
@@ -696,7 +696,7 @@ func (l *LazyLoadShard) Activity() int32 {
 	if !loaded {
 		// don't force-load the shard, just report the same number every time, so
 		// the caller can figure out there was no activity
-		return 0
+		return 0, 0
 	}
 
 	return l.shard.Activity()

@@ -84,6 +84,7 @@ func (db *DB) init(ctx context.Context) error {
 				RootPath:                            db.config.RootPath,
 				ResourceUsage:                       db.config.ResourceUsage,
 				QueryMaximumResults:                 db.config.QueryMaximumResults,
+				QueryHybridMaximumResults:           db.config.QueryHybridMaximumResults,
 				QueryNestedRefLimit:                 db.config.QueryNestedRefLimit,
 				MemtablesFlushDirtyAfter:            db.config.MemtablesFlushDirtyAfter,
 				MemtablesInitialSizeMB:              db.config.MemtablesInitialSizeMB,
@@ -111,6 +112,10 @@ func (db *DB) init(ctx context.Context) error {
 				AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
 				DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
 				ShardLoadLimiter:                    db.shardLoadLimiter,
+				QuerySlowLogEnabled:                 db.config.QuerySlowLogEnabled,
+				QuerySlowLogThreshold:               db.config.QuerySlowLogThreshold,
+				InvertedSorterDisabled:              db.config.InvertedSorterDisabled,
+				MaintenanceModeEnabled:              db.config.MaintenanceModeEnabled,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
@@ -142,8 +147,8 @@ func (db *DB) init(ctx context.Context) error {
 	return nil
 }
 
-func (db *DB) LocalTenantActivity() tenantactivity.ByCollection {
-	return db.metricsObserver.Usage()
+func (db *DB) LocalTenantActivity(filter tenantactivity.UsageFilter) tenantactivity.ByCollection {
+	return db.metricsObserver.Usage(filter)
 }
 
 func (db *DB) migrateFileStructureIfNecessary() error {

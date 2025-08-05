@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/companies"
 )
 
-func testText2ColBERTJinaAI(host, grpc string) func(t *testing.T) {
+func testText2MultivecJinaAI(host, grpc, vectorizerName string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Data
@@ -43,7 +43,7 @@ func testText2ColBERTJinaAI(host, grpc string) func(t *testing.T) {
 				class.VectorConfig = map[string]models.VectorConfig{
 					"description": {
 						Vectorizer: map[string]interface{}{
-							"text2colbert-jinaai": map[string]interface{}{
+							vectorizerName: map[string]interface{}{
 								"properties":         []interface{}{"description"},
 								"vectorizeClassName": false,
 								"model":              tt.model,

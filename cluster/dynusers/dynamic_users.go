@@ -44,6 +44,18 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.CreatedAt)
 }
 
+func (m *Manager) CreateUserWithKeyRequest(c *cmd.ApplyRequest) error {
+	if m.dynUser == nil {
+		return nil
+	}
+	req := &cmd.CreateUserWithKeyRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.dynUser.CreateUserWithKey(req.UserId, req.ApiKeyFirstLetters, req.WeakHash, req.CreatedAt)
+}
+
 func (m *Manager) DeleteUser(c *cmd.ApplyRequest) error {
 	if m.dynUser == nil {
 		return nil

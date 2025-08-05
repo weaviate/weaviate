@@ -17,6 +17,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -37,7 +39,7 @@ import (
 // able to find a way to unify the two -- there are subtle differences.
 func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	logger logrus.FieldLogger, useBloomFilter bool, calcCountNetAdditions bool,
-	enableChecksumValidation bool, minMMapSize int64, allocChecker memwatch.AllocChecker,
+	enableChecksumValidation bool, minMMapSize int64, allocChecker memwatch.AllocChecker, metrics *Metrics,
 ) ([]string, error) {
 	out := []string{path}
 
@@ -66,13 +68,21 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	// mmap has some overhead, we can read small files directly to memory
 
 	if size <= minMMapSize { // check if it is a candidate for full reading
-		allocCheckerErr = allocChecker.CheckAlloc(size) // check if we have enough memory
-		if allocCheckerErr != nil {
-			logger.Debugf("memory pressure: cannot fully read segment")
+		if allocChecker == nil {
+			logger.WithFields(logrus.Fields{
+				"path":        path,
+				"size":        size,
+				"minMMapSize": minMMapSize,
+			}).Info("allocChecker is nil, skipping memory pressure check for precompute segment")
+		} else {
+			allocCheckerErr = allocChecker.CheckAlloc(size) // check if we have enough memory
+			if allocCheckerErr != nil {
+				logger.Debugf("memory pressure: cannot fully read segment")
+			}
 		}
 	}
-
-	if size > minMMapSize || allocCheckerErr != nil { // mmap the file if it's too large or if we have memory pressure
+	// mmap the file if it's too large or if we could not check for memory pressure or if we have memory pressure
+	if size > minMMapSize || allocChecker == nil || allocCheckerErr != nil {
 		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 		if err != nil {
 			return nil, fmt.Errorf("mmap file: %w", err)
@@ -81,10 +91,13 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 
 		defer contents2.Unmap()
 	} else { // read the file into memory if it's small enough and we have enough memory
-		contents, err = io.ReadAll(file)
+		meteredF := diskio.NewMeteredReader(file, diskio.MeteredReaderCallback(metrics.ReadObserver("readSegmentFileCompaction")))
+
+		contents, err = io.ReadAll(meteredF)
 		if err != nil {
 			return nil, fmt.Errorf("read file: %w", err)
 		}
+		useBloomFilter = false // we don't read bloom filters if we are below the MMAP threshold so there is no point in precomputing them
 	}
 
 	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])

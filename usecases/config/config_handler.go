@@ -23,7 +23,7 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 
 	"github.com/weaviate/weaviate/deprecations"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -107,6 +107,7 @@ type Config struct {
 	Debug                               bool                     `json:"debug" yaml:"debug"`
 	QueryDefaults                       QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
 	QueryMaximumResults                 int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
+	QueryHybridMaximumResults           int64                    `json:"query_hybrid_maximum_results" yaml:"query_hybrid_maximum_results"`
 	QueryNestedCrossReferenceLimit      int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
 	QueryCrossReferenceDepthLimit       int                      `json:"query_cross_reference_depth_limit" yaml:"query_cross_reference_depth_limit"`
 	Contextionary                       Contextionary            `json:"contextionary" yaml:"contextionary"`
@@ -160,18 +161,63 @@ type Config struct {
 	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
 
 	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
+
+	// TenantActivityReadLogLevel is 'debug' by default as every single READ
+	// interaction with a tenant leads to a log line. However, this may
+	// temporarily be desired, e.g. for analysis or debugging purposes. In this
+	// case the log level can be elevated, e.g. to 'info'. This is overall less
+	// noisy than changing the global log level, but still allows to see all
+	// tenant read activity.
+	TenantActivityReadLogLevel *runtime.DynamicValue[string] `json:"tenant_activity_read_log_level" yaml:"tenant_activity_read_log_level"`
+	// TenantActivityWriteLogLevel is 'debug' by default as every single WRITE
+	// interaction with a tenant leads to a log line. However, this may
+	// temporarily be desired, e.g. for analysis or debugging purposes. In this
+	// case the log level can be elevated, e.g. to 'info'. This is overall less
+	// noisy than changing the global log level, but still allows to see all
+	// tenant write activity.
+	TenantActivityWriteLogLevel *runtime.DynamicValue[string] `json:"tenant_activity_write_log_level" yaml:"tenant_activity_write_log_level"`
+
+	// RevectorizeCheck is an optimization where Weaviate checks if a vector can
+	// be reused from a previous version of the object, for example because the
+	// only change was an update of a property that is excluded from
+	// vectorization. This check is on by default (backward-compatibility).
+	//
+	// However, this check comes at a cost, it means that every single insert
+	// will turn into a read-before-write pattern, even if the inserted object is
+	// new. That is because the logic first needs to check if the object even
+	// exists. In cases where write throughput matters and the overwhelming
+	// majority of inserts are new, unique objects, it might be advisable to turn
+	// this feature off using the provided flag.
+	RevectorizeCheckDisabled *runtime.DynamicValue[bool] `json:"revectorize_check_disabled" yaml:"revectorize_check_disabled"`
+
+	QuerySlowLogEnabled   *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
+	QuerySlowLogThreshold *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
+
+	// InvertedSorterDisabled forces the "objects bucket" strategy and doesn't
+	// not consider inverted sorting, even when the query planner thinks this is
+	// the better option.
+	//
+	// Most users should never set this flag, it exists for two reasons:
+	//  - For benchmarking reasons, this flag can be used to evaluate the
+	//		(positive) impact of the inverted sorter.
+	//  - As a safety net to revert to the old behavior in case there is a bug
+	//		in the inverted indexer despite the very extensive testing.
+	//
+	// This flat may be removed in the future.
+	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 }
 
 type MapToBlockamaxConfig struct {
-	SwapBuckets               bool                     `json:"swap_buckets" yaml:"swap_buckets"`
-	UnswapBuckets             bool                     `json:"unswap_buckets" yaml:"unswap_buckets"`
-	TidyBuckets               bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
-	ReloadShards              bool                     `json:"reload_shards" yaml:"reload_shards"`
-	Rollback                  bool                     `json:"rollback" yaml:"rollback"`
-	ConditionalStart          bool                     `json:"conditional_start" yaml:"conditional_start"`
-	ProcessingDurationSeconds int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
-	PauseDurationSeconds      int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
-	Selected                  []CollectionPropsTenants `json:"selected" yaml:"selected"`
+	SwapBuckets                bool                     `json:"swap_buckets" yaml:"swap_buckets"`
+	UnswapBuckets              bool                     `json:"unswap_buckets" yaml:"unswap_buckets"`
+	TidyBuckets                bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
+	ReloadShards               bool                     `json:"reload_shards" yaml:"reload_shards"`
+	Rollback                   bool                     `json:"rollback" yaml:"rollback"`
+	ConditionalStart           bool                     `json:"conditional_start" yaml:"conditional_start"`
+	ProcessingDurationSeconds  int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
+	PauseDurationSeconds       int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
+	PerObjectDelayMilliseconds int                      `json:"per_object_delay_milliseconds" yaml:"per_object_delay_milliseconds"`
+	Selected                   []CollectionPropsTenants `json:"selected" yaml:"selected"`
 }
 
 type CollectionPropsTenants struct {
@@ -274,11 +320,15 @@ func (a AutoSchema) Validate() error {
 
 // QueryDefaults for optional parameters
 type QueryDefaults struct {
-	Limit int64 `json:"limit" yaml:"limit"`
+	Limit        int64 `json:"limit" yaml:"limit"`
+	LimitGraphQL int64 `json:"limitGraphQL" yaml:"limitGraphQL"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
-const DefaultQueryDefaultsLimit int64 = 10
+const (
+	DefaultQueryDefaultsLimit        int64 = 10
+	DefaultQueryDefaultsLimitGraphQL int64 = 100
+)
 
 type Contextionary struct {
 	URL string `json:"url" yaml:"url"`
@@ -337,8 +387,9 @@ const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward
 const (
 	DefaultReindexerGoroutinesFactor = 0.5
 
-	DefaultMapToBlockmaxProcessingDurationSeconds = 3 * 60
-	DefaultMapToBlockmaxPauseDurationSeconds      = 60
+	DefaultMapToBlockmaxProcessingDurationSeconds  = 3 * 60
+	DefaultMapToBlockmaxPauseDurationSeconds       = 60
+	DefaultMapToBlockmaxPerObjectDelayMilliseconds = 0
 )
 
 // MetadataServer is experimental.

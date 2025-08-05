@@ -320,7 +320,7 @@ func TestRepairTooShortBloomSecondaryOnInit(t *testing.T) {
 func TestLoadWithChecksumErrorCases(t *testing.T) {
 	t.Run("file does not exist", func(t *testing.T) {
 		dirName := t.TempDir()
-		_, err := loadWithChecksum(path.Join(dirName, "my-file"), -1)
+		_, err := loadWithChecksum(path.Join(dirName, "my-file"), -1, nil)
 		assert.NotNil(t, err)
 	})
 
@@ -335,7 +335,7 @@ func TestLoadWithChecksumErrorCases(t *testing.T) {
 
 		require.Nil(t, f.Close())
 
-		_, err = loadWithChecksum(path.Join(dirName, "my-file"), 17)
+		_, err = loadWithChecksum(path.Join(dirName, "my-file"), 17, nil)
 		assert.NotNil(t, err)
 	})
 }
@@ -360,7 +360,7 @@ func BenchmarkLoading(b *testing.B) {
 			require.NoError(b, f.Close())
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				loadedData, err := loadWithChecksum(fName, len(data))
+				loadedData, err := loadWithChecksum(fName, len(data), nil)
 				require.NoError(b, err)
 				require.Equal(b, loadedData, data[4:])
 			}

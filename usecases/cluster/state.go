@@ -333,7 +333,7 @@ func (s *State) NodeAddress(id string) string {
 		} else {
 			s.delegate.log.WithFields(logrus.Fields{
 				"action":     "memberlist_rejoin",
-				"node_count": nodeCount,
+				"node_count": s.list.NumMembers(),
 			}).Info("Successfully rejoined the memberlist cluster")
 		}
 	}

@@ -34,7 +34,8 @@ func TestText2VecJinaAI(t *testing.T) {
 	rest := compose.GetWeaviate().URI()
 	grpc := compose.GetWeaviate().GrpcURI()
 
-	t.Run("tests", testText2ColBERTJinaAI(rest, grpc))
+	t.Run("text2multivec-jinaai", testText2MultivecJinaAI(rest, grpc, "text2multivec-jinaai"))
+	t.Run("text2colbert-jinaai", testText2MultivecJinaAI(rest, grpc, "text2colbert-jinaai"))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, jinaApiKey string,
@@ -48,6 +49,6 @@ func createSingleNodeEnvironment(ctx context.Context, jinaApiKey string,
 
 func composeModules(jinaApiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
-		WithText2ColBERTJinaAI(jinaApiKey)
+		WithText2MultivecJinaAI(jinaApiKey)
 	return
 }

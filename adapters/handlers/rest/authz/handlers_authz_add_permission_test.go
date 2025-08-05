@@ -13,6 +13,7 @@ package authz
 
 import (
 	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -27,6 +28,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
 
+var req, _ = http.NewRequest("POST", "/activate", nil)
+
 func TestAddPermissionsSuccess(t *testing.T) {
 	type testCase struct {
 		name      string
@@ -39,7 +42,8 @@ func TestAddPermissionsSuccess(t *testing.T) {
 			name:      "all are *",
 			principal: &models.Principal{Username: "user1"},
 			params: authz.AddPermissionsParams{
-				ID: "test",
+				ID:          "test",
+				HTTPRequest: req,
 				Body: authz.AddPermissionsBody{
 					Permissions: []*models.Permission{
 						{
@@ -56,7 +60,8 @@ func TestAddPermissionsSuccess(t *testing.T) {
 			name:      "collection checks",
 			principal: &models.Principal{Username: "user1"},
 			params: authz.AddPermissionsParams{
-				ID: "newRole",
+				ID:          "newRole",
+				HTTPRequest: req,
 				Body: authz.AddPermissionsBody{
 					Permissions: []*models.Permission{
 						{
@@ -71,7 +76,9 @@ func TestAddPermissionsSuccess(t *testing.T) {
 			name:      "collection and tenant checks",
 			principal: &models.Principal{Username: "user1"},
 			params: authz.AddPermissionsParams{
-				ID: "newRole",
+				ID:          "newRole",
+				HTTPRequest: req,
+
 				Body: authz.AddPermissionsBody{
 					Permissions: []*models.Permission{
 						{
@@ -88,7 +95,8 @@ func TestAddPermissionsSuccess(t *testing.T) {
 			name:      "* collections and tenant checks",
 			principal: &models.Principal{Username: "user1"},
 			params: authz.AddPermissionsParams{
-				ID: "newRole",
+				ID:          "newRole",
+				HTTPRequest: req,
 				Body: authz.AddPermissionsBody{
 					Permissions: []*models.Permission{
 						{
@@ -116,7 +124,7 @@ func TestAddPermissionsSuccess(t *testing.T) {
 			})
 			require.Nil(t, err)
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.ID).Return(map[string][]authorization.Policy{
 				"test": {
 					{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
@@ -150,7 +158,8 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 		{
 			name: "role has to have at least 1 permission",
 			params: authz.AddPermissionsParams{
-				ID: "someName",
+				ID:          "someName",
+				HTTPRequest: req,
 				Body: authz.AddPermissionsBody{
 					Permissions: []*models.Permission{},
 				},
@@ -161,7 +170,8 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 		{
 			name: "update builtin role",
 			params: authz.AddPermissionsParams{
-				ID: authorization.BuiltInRoles[0],
+				ID:          authorization.BuiltInRoles[0],
+				HTTPRequest: req,
 				Body: authz.AddPermissionsBody{
 					Permissions: []*models.Permission{
 						{
@@ -212,7 +222,8 @@ func TestAddPermissionsForbidden(t *testing.T) {
 		{
 			name: "update some role",
 			params: authz.AddPermissionsParams{
-				ID: "someRole",
+				ID:          "someRole",
+				HTTPRequest: req,
 				Body: authz.AddPermissionsBody{
 					Permissions: []*models.Permission{
 						{
@@ -236,9 +247,9 @@ func TestAddPermissionsForbidden(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
 			if tt.authorizeErr != nil {
-				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_MATCH), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_MATCH), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{
@@ -269,7 +280,8 @@ func TestAddPermissionsRoleNotFound(t *testing.T) {
 		{
 			name: "role not found",
 			params: authz.AddPermissionsParams{
-				ID: "some role",
+				ID:          "some role",
+				HTTPRequest: req,
 				Body: authz.AddPermissionsBody{
 					Permissions: []*models.Permission{
 						{
@@ -292,7 +304,7 @@ func TestAddPermissionsRoleNotFound(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.ID).Return(map[string][]authorization.Policy{}, nil)
 
 			h := &authZHandlers{
@@ -320,7 +332,8 @@ func TestAddPermissionsInternalServerError(t *testing.T) {
 		{
 			name: "update some role",
 			params: authz.AddPermissionsParams{
-				ID: "someRole",
+				ID:          "someRole",
+				HTTPRequest: req,
 				Body: authz.AddPermissionsBody{
 					Permissions: []*models.Permission{
 						{
@@ -344,7 +357,7 @@ func TestAddPermissionsInternalServerError(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.ID).Return(map[string][]authorization.Policy{
 				"test": {
 					{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
