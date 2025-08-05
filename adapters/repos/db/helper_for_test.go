@@ -223,11 +223,12 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 		false, false, indexOpts...)
 }
 
-func createTestDatabaseWithClass(t *testing.T, classes ...*models.Class) *DB {
+func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMetrics, classes ...*models.Class) *DB {
 	t.Helper()
 
-	metrics := monitoring.GetMetrics()
-	metrics.Registerer = monitoring.NoopRegisterer
+	require.NotNil(t, metrics, "metrics parameter cannot be nil")
+	metricsCopy := *metrics
+	metricsCopy.Registerer = monitoring.NoopRegisterer
 
 	shardState := singleShardState()
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
@@ -244,7 +245,7 @@ func createTestDatabaseWithClass(t *testing.T, classes ...*models.Class) *DB {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 
