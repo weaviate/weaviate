@@ -314,6 +314,7 @@ func (s *Shard) resetDimensionsLSM(ctx context.Context) (time.Time, error) {
 
 	// Clear the bucket
 	cursor := b.Cursor()
+	defer cursor.Close()
 	for k, _ := cursor.First(); k != nil; k, _ = cursor.Next() {
 		b.Delete(k)
 	}
