@@ -207,9 +207,6 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 }
 
 func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	start := time.Now()
 	now := start.UTC()
 	collectionTime := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), 0, 0, time.UTC).Format("2006-01-02T15-04-05Z")
@@ -230,9 +227,12 @@ func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
 	}
 
 	// Set version on usage data
+	// Lock to protect shared fields and upload operation
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	usage.Version = b.policyVersion
-
 	usage.CollectingTIme = collectionTime
+
 	return b.storage.UploadUsageData(ctx, usage)
 }
 
