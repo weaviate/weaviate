@@ -17,6 +17,7 @@ package lsmkv
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -59,7 +60,6 @@ func (tests bucketIntegrationTests) run(ctx context.Context, t *testing.T) {
 				test.f(ctx, t, test.opts)
 			})
 		})
-
 	}
 }
 
@@ -505,6 +505,87 @@ func assertSingleSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, ex
 	require.NoError(t, err)
 	assert.LessOrEqual(t, expectedMinSize, fi.Size())
 	assert.GreaterOrEqual(t, expectedMaxSize, fi.Size())
+
+	assertChecksum(t, bucket)
+}
+
+// This test is to ensure that the ValidateChecksum function works correctly for all segment types by:
+// - running the tests that create and compact multiple segments, validating the checksums on all intermediate segments
+// - checking if the size of the segment is correct (including the checksum size
+// - doing some checksum corruptions to ensure that the ValidateChecksum function detects them correctly for all segment types in all possible scenarios
+func assertChecksum(t *testing.T, bucket *Bucket) {
+	require.Len(t, bucket.disk.segments, 1)
+	segment := bucket.disk.segments[0].getSegment()
+
+	if !bucket.enableChecksumValidation {
+		return
+	}
+
+	file, err := os.Open(segment.path)
+	require.NoError(t, err)
+	contents, err := io.ReadAll(file)
+	require.NoError(t, err)
+
+	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
+	require.NoError(t, err)
+	// corrupt header checksum
+	headerSize := int64(segmentindex.HeaderSize)
+	if segment.strategy == segmentindex.StrategyInverted {
+		headerSize += int64(segmentindex.HeaderInvertedSize)
+	}
+	positionsToCorrupt := []uint64{
+		1,                          // corrupt header
+		uint64(headerSize),         // corrupt keys
+		uint64(header.IndexStart),  // corrupt index
+		uint64(segment.Size() - 1), // corrupt checksum
+	}
+
+	if segment.strategy == segmentindex.StrategyInverted {
+		positionsToCorrupt = append(positionsToCorrupt, uint64(headerSize-4)) // corrupt inverted header
+	}
+
+	expectedErr := fmt.Errorf("invalid checksum")
+	// corrupt the segment at the specified positions and check that the checksum validation fails
+	for _, pos := range positionsToCorrupt {
+		brokenSegment := createBrokenSegment(t, segment, int(pos), segment.size)
+		file, err := os.Open(brokenSegment)
+		require.NoError(t, err)
+		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
+		err = segmentFile.ValidateChecksum(segment.size, headerSize)
+		require.Error(t, err)
+		assert.Equal(t, expectedErr.Error(), err.Error())
+	}
+
+	// special case, trim the checksum from the file
+	brokenSegment := createBrokenSegment(t, segment, int(segment.size-1), segment.size-segmentindex.ChecksumSize)
+	file, err = os.Open(brokenSegment)
+	require.NoError(t, err)
+	segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
+	err = segmentFile.ValidateChecksum(segment.size-segmentindex.ChecksumSize, headerSize)
+	require.Error(t, err)
+	assert.Equal(t, expectedErr.Error(), err.Error())
+}
+
+func createBrokenSegment(t *testing.T, segment *segment, byteToCurrupt int, trimTo int64) string {
+	// read all bytes from the segment
+	buffer := make([]byte, segment.Size())
+
+	segment.copyNode(buffer, nodeOffset{
+		start: 0,
+		end:   uint64(segment.Size()),
+	})
+
+	// corrupt a byte by inverting it
+	buffer[byteToCurrupt] = ^buffer[byteToCurrupt]
+	// write the corrupted bytes back to the segment
+	file, err := os.OpenFile(segment.path+".broken", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
+	require.NoError(t, err)
+	_, err = file.Write(buffer[:trimTo])
+	require.NoError(t, err)
+	err = file.Close()
+	require.NoError(t, err)
+	// return the path to the broken segment
+	return segment.path + ".broken"
 }
 
 func assertSecondSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, expectedMaxSize int64) {
