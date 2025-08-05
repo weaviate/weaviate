@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/pkg/errors"
