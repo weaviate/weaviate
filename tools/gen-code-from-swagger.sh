@@ -20,6 +20,8 @@ if [ ! -f "$SWAGGER" ]; then
   chmod +x "$SWAGGER"
 fi
 
+echo Using swagger from $SWAGGER
+
 # Always install goimports to ensure that all parties use the same version
 go install golang.org/x/tools/cmd/goimports@v0.1.12
 
