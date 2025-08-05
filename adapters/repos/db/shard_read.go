@@ -342,11 +342,10 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		var bm25objs []*storobj.Object
 		var bm25count []float32
-		var objs helpers.AllowList
 		var filterDocIds helpers.AllowList
 
 		if filters != nil {
-			objs, err = inverted.NewSearcher(s.index.logger, s.store,
+			filterDocIds, err = inverted.NewSearcher(s.index.logger, s.store,
 				s.index.getSchema.ReadOnlyClass, s.propertyIndices,
 				s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
 				s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit,
@@ -356,8 +355,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 				return nil, nil, err
 			}
 
-			filterDocIds = objs
-			defer objs.Close()
+			defer filterDocIds.Close()
 		}
 
 		className := s.index.Config.ClassName
@@ -540,11 +538,12 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		})
 	}
 
-	if err := eg.Wait(); err != nil {
-		return nil, nil, err
-	}
+	err := eg.Wait()
 	if allowList != nil {
-		defer allowList.Close()
+		allowList.Close()
+	}
+	if err != nil {
+		return nil, nil, err
 	}
 
 	idsCombined, distCombined, err := CombineMultiTargetResults(ctx, s, s.index.logger, idss, distss, targetVectors, searchVectors, targetCombination, limit, targetDist)
