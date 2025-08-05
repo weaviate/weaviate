@@ -83,6 +83,9 @@ type VectorUsage struct {
 	// The compression ratio achieved
 	VectorCompressionRatio float64 `json:"vector_compression_ratio,omitempty"`
 
+	// The bits parameter for RQ compression (only set when Compression="rq")
+	Bits int16 `json:"bits,omitempty"`
+
 	// List of dimensionalities and their metrics
 	Dimensionalities []*Dimensionality `json:"dimensionalities,omitempty"`
 }
