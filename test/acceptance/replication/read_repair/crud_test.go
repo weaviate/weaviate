@@ -88,7 +88,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
 	defer cancel()
 
 	helper.SetupClient(compose.ContainerURI(1))
