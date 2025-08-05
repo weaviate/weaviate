@@ -88,7 +88,8 @@ AssignRoleToGroupOK describes a response with status code 200, with default head
 
 Role assigned successfully
 */
-type AssignRoleToGroupOK struct{}
+type AssignRoleToGroupOK struct {
+}
 
 // IsSuccess returns true when this assign role to group o k response has a 2xx status code
 func (o *AssignRoleToGroupOK) IsSuccess() bool {
@@ -129,6 +130,7 @@ func (o *AssignRoleToGroupOK) String() string {
 }
 
 func (o *AssignRoleToGroupOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -189,6 +191,7 @@ func (o *AssignRoleToGroupBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AssignRoleToGroupBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -209,7 +212,8 @@ AssignRoleToGroupUnauthorized describes a response with status code 401, with de
 
 Unauthorized or invalid credentials.
 */
-type AssignRoleToGroupUnauthorized struct{}
+type AssignRoleToGroupUnauthorized struct {
+}
 
 // IsSuccess returns true when this assign role to group unauthorized response has a 2xx status code
 func (o *AssignRoleToGroupUnauthorized) IsSuccess() bool {
@@ -250,6 +254,7 @@ func (o *AssignRoleToGroupUnauthorized) String() string {
 }
 
 func (o *AssignRoleToGroupUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -310,6 +315,7 @@ func (o *AssignRoleToGroupForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AssignRoleToGroupForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -330,7 +336,8 @@ AssignRoleToGroupNotFound describes a response with status code 404, with defaul
 
 role or group is not found.
 */
-type AssignRoleToGroupNotFound struct{}
+type AssignRoleToGroupNotFound struct {
+}
 
 // IsSuccess returns true when this assign role to group not found response has a 2xx status code
 func (o *AssignRoleToGroupNotFound) IsSuccess() bool {
@@ -371,6 +378,7 @@ func (o *AssignRoleToGroupNotFound) String() string {
 }
 
 func (o *AssignRoleToGroupNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -431,6 +439,7 @@ func (o *AssignRoleToGroupInternalServerError) GetPayload() *models.ErrorRespons
 }
 
 func (o *AssignRoleToGroupInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -446,6 +455,7 @@ AssignRoleToGroupBody assign role to group body
 swagger:model AssignRoleToGroupBody
 */
 type AssignRoleToGroupBody struct {
+
 	// group type
 	GroupType models.UserAndGroupTypeInput `json:"groupType,omitempty"`
 
@@ -499,6 +509,7 @@ func (o *AssignRoleToGroupBody) ContextValidate(ctx context.Context, formats str
 }
 
 func (o *AssignRoleToGroupBody) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
+
 	if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("body" + "." + "groupType")

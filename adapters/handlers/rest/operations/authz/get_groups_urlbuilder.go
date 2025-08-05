@@ -51,7 +51,7 @@ func (o *GetGroupsURL) SetBasePath(bp string) {
 func (o *GetGroupsURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/authz/groups/{groupType}"
+	var _path = "/authz/groups/{groupType}"
 
 	groupType := o.GroupType
 	if groupType != "" {

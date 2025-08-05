@@ -29,6 +29,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewGetGroupsParams() GetGroupsParams {
+
 	return GetGroupsParams{}
 }
 
@@ -37,6 +38,7 @@ func NewGetGroupsParams() GetGroupsParams {
 //
 // swagger:parameters getGroups
 type GetGroupsParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -86,6 +88,7 @@ func (o *GetGroupsParams) bindGroupType(rawData []string, hasKey bool, formats s
 
 // validateGroupType carries on validations for parameter GroupType
 func (o *GetGroupsParams) validateGroupType(formats strfmt.Registry) error {
+
 	if err := validate.EnumCase("groupType", "path", o.GroupType, []interface{}{"oidc"}, true); err != nil {
 		return err
 	}

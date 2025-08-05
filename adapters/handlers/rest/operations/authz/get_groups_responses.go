@@ -33,6 +33,7 @@ GetGroupsOK Roles assigned to group
 swagger:response getGroupsOK
 */
 type GetGroupsOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type GetGroupsOK struct {
 
 // NewGetGroupsOK creates GetGroupsOK with default headers values
 func NewGetGroupsOK() *GetGroupsOK {
+
 	return &GetGroupsOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *GetGroupsOK) SetPayload(payload []string) {
 
 // WriteResponse to the client
 func (o *GetGroupsOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	payload := o.Payload
 	if payload == nil {
@@ -78,6 +81,7 @@ GetGroupsBadRequest Bad request
 swagger:response getGroupsBadRequest
 */
 type GetGroupsBadRequest struct {
+
 	/*
 	  In: Body
 	*/
@@ -86,6 +90,7 @@ type GetGroupsBadRequest struct {
 
 // NewGetGroupsBadRequest creates GetGroupsBadRequest with default headers values
 func NewGetGroupsBadRequest() *GetGroupsBadRequest {
+
 	return &GetGroupsBadRequest{}
 }
 
@@ -102,6 +107,7 @@ func (o *GetGroupsBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *GetGroupsBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -119,16 +125,19 @@ GetGroupsUnauthorized Unauthorized or invalid credentials.
 
 swagger:response getGroupsUnauthorized
 */
-type GetGroupsUnauthorized struct{}
+type GetGroupsUnauthorized struct {
+}
 
 // NewGetGroupsUnauthorized creates GetGroupsUnauthorized with default headers values
 func NewGetGroupsUnauthorized() *GetGroupsUnauthorized {
+
 	return &GetGroupsUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *GetGroupsUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -142,6 +151,7 @@ GetGroupsForbidden Forbidden
 swagger:response getGroupsForbidden
 */
 type GetGroupsForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -150,6 +160,7 @@ type GetGroupsForbidden struct {
 
 // NewGetGroupsForbidden creates GetGroupsForbidden with default headers values
 func NewGetGroupsForbidden() *GetGroupsForbidden {
+
 	return &GetGroupsForbidden{}
 }
 
@@ -166,6 +177,7 @@ func (o *GetGroupsForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *GetGroupsForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -184,6 +196,7 @@ GetGroupsUnprocessableEntity Request body is well-formed (i.e., syntactically co
 swagger:response getGroupsUnprocessableEntity
 */
 type GetGroupsUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -192,6 +205,7 @@ type GetGroupsUnprocessableEntity struct {
 
 // NewGetGroupsUnprocessableEntity creates GetGroupsUnprocessableEntity with default headers values
 func NewGetGroupsUnprocessableEntity() *GetGroupsUnprocessableEntity {
+
 	return &GetGroupsUnprocessableEntity{}
 }
 
@@ -208,6 +222,7 @@ func (o *GetGroupsUnprocessableEntity) SetPayload(payload *models.ErrorResponse)
 
 // WriteResponse to the client
 func (o *GetGroupsUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -226,6 +241,7 @@ GetGroupsInternalServerError An error has occurred while trying to fulfill the r
 swagger:response getGroupsInternalServerError
 */
 type GetGroupsInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -234,6 +250,7 @@ type GetGroupsInternalServerError struct {
 
 // NewGetGroupsInternalServerError creates GetGroupsInternalServerError with default headers values
 func NewGetGroupsInternalServerError() *GetGroupsInternalServerError {
+
 	return &GetGroupsInternalServerError{}
 }
 
@@ -250,6 +267,7 @@ func (o *GetGroupsInternalServerError) SetPayload(payload *models.ErrorResponse)
 
 // WriteResponse to the client
 func (o *GetGroupsInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

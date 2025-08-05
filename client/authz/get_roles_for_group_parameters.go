@@ -72,6 +72,7 @@ GetRolesForGroupParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type GetRolesForGroupParams struct {
+
 	/* GroupType.
 
 	   The type of group
@@ -107,7 +108,9 @@ func (o *GetRolesForGroupParams) WithDefaults() *GetRolesForGroupParams {
 //
 // All values with no default are reset to their zero value.
 func (o *GetRolesForGroupParams) SetDefaults() {
-	includeFullRolesDefault := bool(false)
+	var (
+		includeFullRolesDefault = bool(false)
+	)
 
 	val := GetRolesForGroupParams{
 		IncludeFullRoles: &includeFullRolesDefault,
@@ -187,6 +190,7 @@ func (o *GetRolesForGroupParams) SetIncludeFullRoles(includeFullRoles *bool) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *GetRolesForGroupParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
@@ -212,6 +216,7 @@ func (o *GetRolesForGroupParams) WriteToRequest(r runtime.ClientRequest, reg str
 		}
 		qIncludeFullRoles := swag.FormatBool(qrIncludeFullRoles)
 		if qIncludeFullRoles != "" {
+
 			if err := r.SetQueryParam("includeFullRoles", qIncludeFullRoles); err != nil {
 				return err
 			}

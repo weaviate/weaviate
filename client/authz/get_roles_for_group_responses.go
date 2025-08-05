@@ -138,6 +138,7 @@ func (o *GetRolesForGroupOK) GetPayload() models.RolesListResponse {
 }
 
 func (o *GetRolesForGroupOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -203,6 +204,7 @@ func (o *GetRolesForGroupBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetRolesForGroupBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -223,7 +225,8 @@ GetRolesForGroupUnauthorized describes a response with status code 401, with def
 
 Unauthorized or invalid credentials.
 */
-type GetRolesForGroupUnauthorized struct{}
+type GetRolesForGroupUnauthorized struct {
+}
 
 // IsSuccess returns true when this get roles for group unauthorized response has a 2xx status code
 func (o *GetRolesForGroupUnauthorized) IsSuccess() bool {
@@ -264,6 +267,7 @@ func (o *GetRolesForGroupUnauthorized) String() string {
 }
 
 func (o *GetRolesForGroupUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -324,6 +328,7 @@ func (o *GetRolesForGroupForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetRolesForGroupForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -344,7 +349,8 @@ GetRolesForGroupNotFound describes a response with status code 404, with default
 
 group not found
 */
-type GetRolesForGroupNotFound struct{}
+type GetRolesForGroupNotFound struct {
+}
 
 // IsSuccess returns true when this get roles for group not found response has a 2xx status code
 func (o *GetRolesForGroupNotFound) IsSuccess() bool {
@@ -385,6 +391,7 @@ func (o *GetRolesForGroupNotFound) String() string {
 }
 
 func (o *GetRolesForGroupNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -445,6 +452,7 @@ func (o *GetRolesForGroupUnprocessableEntity) GetPayload() *models.ErrorResponse
 }
 
 func (o *GetRolesForGroupUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -512,6 +520,7 @@ func (o *GetRolesForGroupInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *GetRolesForGroupInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

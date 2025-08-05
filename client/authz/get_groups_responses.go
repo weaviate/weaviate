@@ -132,6 +132,7 @@ func (o *GetGroupsOK) GetPayload() []string {
 }
 
 func (o *GetGroupsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -197,6 +198,7 @@ func (o *GetGroupsBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetGroupsBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -217,7 +219,8 @@ GetGroupsUnauthorized describes a response with status code 401, with default he
 
 Unauthorized or invalid credentials.
 */
-type GetGroupsUnauthorized struct{}
+type GetGroupsUnauthorized struct {
+}
 
 // IsSuccess returns true when this get groups unauthorized response has a 2xx status code
 func (o *GetGroupsUnauthorized) IsSuccess() bool {
@@ -258,6 +261,7 @@ func (o *GetGroupsUnauthorized) String() string {
 }
 
 func (o *GetGroupsUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -318,6 +322,7 @@ func (o *GetGroupsForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetGroupsForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -385,6 +390,7 @@ func (o *GetGroupsUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetGroupsUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -452,6 +458,7 @@ func (o *GetGroupsInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetGroupsInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

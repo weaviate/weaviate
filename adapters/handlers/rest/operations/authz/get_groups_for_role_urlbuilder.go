@@ -51,7 +51,7 @@ func (o *GetGroupsForRoleURL) SetBasePath(bp string) {
 func (o *GetGroupsForRoleURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/authz/roles/{id}/group-assignments"
+	var _path = "/authz/roles/{id}/group-assignments"
 
 	id := o.ID
 	if id != "" {

@@ -33,6 +33,7 @@ GetRolesForGroupOK Role assigned to group
 swagger:response getRolesForGroupOK
 */
 type GetRolesForGroupOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type GetRolesForGroupOK struct {
 
 // NewGetRolesForGroupOK creates GetRolesForGroupOK with default headers values
 func NewGetRolesForGroupOK() *GetRolesForGroupOK {
+
 	return &GetRolesForGroupOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *GetRolesForGroupOK) SetPayload(payload models.RolesListResponse) {
 
 // WriteResponse to the client
 func (o *GetRolesForGroupOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	payload := o.Payload
 	if payload == nil {
@@ -78,6 +81,7 @@ GetRolesForGroupBadRequest Bad request
 swagger:response getRolesForGroupBadRequest
 */
 type GetRolesForGroupBadRequest struct {
+
 	/*
 	  In: Body
 	*/
@@ -86,6 +90,7 @@ type GetRolesForGroupBadRequest struct {
 
 // NewGetRolesForGroupBadRequest creates GetRolesForGroupBadRequest with default headers values
 func NewGetRolesForGroupBadRequest() *GetRolesForGroupBadRequest {
+
 	return &GetRolesForGroupBadRequest{}
 }
 
@@ -102,6 +107,7 @@ func (o *GetRolesForGroupBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *GetRolesForGroupBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -119,16 +125,19 @@ GetRolesForGroupUnauthorized Unauthorized or invalid credentials.
 
 swagger:response getRolesForGroupUnauthorized
 */
-type GetRolesForGroupUnauthorized struct{}
+type GetRolesForGroupUnauthorized struct {
+}
 
 // NewGetRolesForGroupUnauthorized creates GetRolesForGroupUnauthorized with default headers values
 func NewGetRolesForGroupUnauthorized() *GetRolesForGroupUnauthorized {
+
 	return &GetRolesForGroupUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *GetRolesForGroupUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -142,6 +151,7 @@ GetRolesForGroupForbidden Forbidden
 swagger:response getRolesForGroupForbidden
 */
 type GetRolesForGroupForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -150,6 +160,7 @@ type GetRolesForGroupForbidden struct {
 
 // NewGetRolesForGroupForbidden creates GetRolesForGroupForbidden with default headers values
 func NewGetRolesForGroupForbidden() *GetRolesForGroupForbidden {
+
 	return &GetRolesForGroupForbidden{}
 }
 
@@ -166,6 +177,7 @@ func (o *GetRolesForGroupForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *GetRolesForGroupForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -183,16 +195,19 @@ GetRolesForGroupNotFound group not found
 
 swagger:response getRolesForGroupNotFound
 */
-type GetRolesForGroupNotFound struct{}
+type GetRolesForGroupNotFound struct {
+}
 
 // NewGetRolesForGroupNotFound creates GetRolesForGroupNotFound with default headers values
 func NewGetRolesForGroupNotFound() *GetRolesForGroupNotFound {
+
 	return &GetRolesForGroupNotFound{}
 }
 
 // WriteResponse to the client
 func (o *GetRolesForGroupNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -206,6 +221,7 @@ GetRolesForGroupUnprocessableEntity Request body is well-formed (i.e., syntactic
 swagger:response getRolesForGroupUnprocessableEntity
 */
 type GetRolesForGroupUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -214,6 +230,7 @@ type GetRolesForGroupUnprocessableEntity struct {
 
 // NewGetRolesForGroupUnprocessableEntity creates GetRolesForGroupUnprocessableEntity with default headers values
 func NewGetRolesForGroupUnprocessableEntity() *GetRolesForGroupUnprocessableEntity {
+
 	return &GetRolesForGroupUnprocessableEntity{}
 }
 
@@ -230,6 +247,7 @@ func (o *GetRolesForGroupUnprocessableEntity) SetPayload(payload *models.ErrorRe
 
 // WriteResponse to the client
 func (o *GetRolesForGroupUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -248,6 +266,7 @@ GetRolesForGroupInternalServerError An error has occurred while trying to fulfil
 swagger:response getRolesForGroupInternalServerError
 */
 type GetRolesForGroupInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -256,6 +275,7 @@ type GetRolesForGroupInternalServerError struct {
 
 // NewGetRolesForGroupInternalServerError creates GetRolesForGroupInternalServerError with default headers values
 func NewGetRolesForGroupInternalServerError() *GetRolesForGroupInternalServerError {
+
 	return &GetRolesForGroupInternalServerError{}
 }
 
@@ -272,6 +292,7 @@ func (o *GetRolesForGroupInternalServerError) SetPayload(payload *models.ErrorRe
 
 // WriteResponse to the client
 func (o *GetRolesForGroupInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

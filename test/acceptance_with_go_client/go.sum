@@ -591,6 +591,8 @@ github.com/weaviate/sroar v0.0.11 h1:yO25NXecuUcrcgdwTvahT91RDS6FDmaNSjgA7nCKVcw
 github.com/weaviate/sroar v0.0.11/go.mod h1:VgBRWPKPHRV/k9ABnD5w7QgdH9xe4RACzDzkrrK977g=
 github.com/weaviate/tiktoken-go v0.0.2 h1:lkwTMEoXSFSXxYvw1c44/xz3OOAh27L3+3vvNN/TSSg=
 github.com/weaviate/tiktoken-go v0.0.2/go.mod h1:u47qSckEGSi4sOcVJmUnd3xoHpDV9/5FDDi3KUCFUq4=
+github.com/weaviate/weaviate v1.31.1 h1:1nGb2ypk1M1alTclvSLv7mrQP4i8NlRBSloZ9aIAGjQ=
+github.com/weaviate/weaviate v1.31.1/go.mod h1:5PgCdx0jMJQIY0u1AErrPz27qZeM/zaR3QaIlFNRUQI=
 github.com/weaviate/weaviate-go-client/v5 v5.2.0 h1:/HG0vFiKBK3JoOKo0mdk2XVYZ+oM0KfvCLG2ySr/FCA=
 github.com/weaviate/weaviate-go-client/v5 v5.2.0/go.mod h1:nzR0ScRmbbutI+0pAjylj9Pt6upGVotnphiLWjy/QNA=
 github.com/willf/bitset v1.1.11 h1:N7Z7E9UvjW+sGsEl7k/SJrvY2reP1A07MrGuCjIOjRE=

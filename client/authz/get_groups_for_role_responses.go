@@ -135,6 +135,7 @@ func (o *GetGroupsForRoleOK) GetPayload() []*GetGroupsForRoleOKBodyItems0 {
 }
 
 func (o *GetGroupsForRoleOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -200,6 +201,7 @@ func (o *GetGroupsForRoleBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetGroupsForRoleBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -220,7 +222,8 @@ GetGroupsForRoleUnauthorized describes a response with status code 401, with def
 
 Unauthorized or invalid credentials.
 */
-type GetGroupsForRoleUnauthorized struct{}
+type GetGroupsForRoleUnauthorized struct {
+}
 
 // IsSuccess returns true when this get groups for role unauthorized response has a 2xx status code
 func (o *GetGroupsForRoleUnauthorized) IsSuccess() bool {
@@ -261,6 +264,7 @@ func (o *GetGroupsForRoleUnauthorized) String() string {
 }
 
 func (o *GetGroupsForRoleUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -321,6 +325,7 @@ func (o *GetGroupsForRoleForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetGroupsForRoleForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -341,7 +346,8 @@ GetGroupsForRoleNotFound describes a response with status code 404, with default
 
 no role found
 */
-type GetGroupsForRoleNotFound struct{}
+type GetGroupsForRoleNotFound struct {
+}
 
 // IsSuccess returns true when this get groups for role not found response has a 2xx status code
 func (o *GetGroupsForRoleNotFound) IsSuccess() bool {
@@ -382,6 +388,7 @@ func (o *GetGroupsForRoleNotFound) String() string {
 }
 
 func (o *GetGroupsForRoleNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -442,6 +449,7 @@ func (o *GetGroupsForRoleInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *GetGroupsForRoleInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -457,6 +465,7 @@ GetGroupsForRoleOKBodyItems0 get groups for role o k body items0
 swagger:model GetGroupsForRoleOKBodyItems0
 */
 type GetGroupsForRoleOKBodyItems0 struct {
+
 	// group type
 	GroupType models.UserAndGroupTypeInput `json:"groupType,omitempty"`
 
@@ -510,6 +519,7 @@ func (o *GetGroupsForRoleOKBodyItems0) ContextValidate(ctx context.Context, form
 }
 
 func (o *GetGroupsForRoleOKBodyItems0) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
+
 	if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("groupType")

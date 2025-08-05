@@ -2,8 +2,6 @@ module acceptance_tests_with_client
 
 go 1.24
 
-replace github.com/weaviate/weaviate => ../..
-
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/go-openapi/strfmt v0.23.0

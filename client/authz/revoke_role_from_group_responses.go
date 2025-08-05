@@ -88,7 +88,8 @@ RevokeRoleFromGroupOK describes a response with status code 200, with default he
 
 Role revoked successfully
 */
-type RevokeRoleFromGroupOK struct{}
+type RevokeRoleFromGroupOK struct {
+}
 
 // IsSuccess returns true when this revoke role from group o k response has a 2xx status code
 func (o *RevokeRoleFromGroupOK) IsSuccess() bool {
@@ -129,6 +130,7 @@ func (o *RevokeRoleFromGroupOK) String() string {
 }
 
 func (o *RevokeRoleFromGroupOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -189,6 +191,7 @@ func (o *RevokeRoleFromGroupBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *RevokeRoleFromGroupBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -209,7 +212,8 @@ RevokeRoleFromGroupUnauthorized describes a response with status code 401, with 
 
 Unauthorized or invalid credentials.
 */
-type RevokeRoleFromGroupUnauthorized struct{}
+type RevokeRoleFromGroupUnauthorized struct {
+}
 
 // IsSuccess returns true when this revoke role from group unauthorized response has a 2xx status code
 func (o *RevokeRoleFromGroupUnauthorized) IsSuccess() bool {
@@ -250,6 +254,7 @@ func (o *RevokeRoleFromGroupUnauthorized) String() string {
 }
 
 func (o *RevokeRoleFromGroupUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -310,6 +315,7 @@ func (o *RevokeRoleFromGroupForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *RevokeRoleFromGroupForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -330,7 +336,8 @@ RevokeRoleFromGroupNotFound describes a response with status code 404, with defa
 
 role or group is not found.
 */
-type RevokeRoleFromGroupNotFound struct{}
+type RevokeRoleFromGroupNotFound struct {
+}
 
 // IsSuccess returns true when this revoke role from group not found response has a 2xx status code
 func (o *RevokeRoleFromGroupNotFound) IsSuccess() bool {
@@ -371,6 +378,7 @@ func (o *RevokeRoleFromGroupNotFound) String() string {
 }
 
 func (o *RevokeRoleFromGroupNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -431,6 +439,7 @@ func (o *RevokeRoleFromGroupInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *RevokeRoleFromGroupInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -446,6 +455,7 @@ RevokeRoleFromGroupBody revoke role from group body
 swagger:model RevokeRoleFromGroupBody
 */
 type RevokeRoleFromGroupBody struct {
+
 	// group type
 	GroupType models.UserAndGroupTypeInput `json:"groupType,omitempty"`
 
@@ -499,6 +509,7 @@ func (o *RevokeRoleFromGroupBody) ContextValidate(ctx context.Context, formats s
 }
 
 func (o *RevokeRoleFromGroupBody) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
+
 	if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("body" + "." + "groupType")
