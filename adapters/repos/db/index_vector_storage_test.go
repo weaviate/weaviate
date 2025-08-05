@@ -265,7 +265,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 
 				// Vector dimensions are always aggregated from nodeWideMetricsObserver,
 				// but we don't need DB for this test. Gimicky, but it does the job.
-				db := createTestDatabaseWithClass(t, class)
+				db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 				publishVectorMetricsFromDB(t, db)
 
 				// Test active shard vector storage size
@@ -530,7 +530,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 
 				// Vector dimensions are always aggregated from nodeWideMetricsObserver,
 				// but we don't need DB for this test. Gimicky, but it does the job.
-				db := createTestDatabaseWithClass(t, class)
+				db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 				publishVectorMetricsFromDB(t, db)
 
 				// Test active shard dimensions usage
@@ -703,7 +703,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 
 	// Vector dimensions are always aggregated from nodeWideMetricsObserver,
 	// but we don't need DB for this test. Gimicky, but it does the job.
-	db := createTestDatabaseWithClass(t, class)
+	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 	publishVectorMetricsFromDB(t, db)
 
 	// Test active shard vector storage size

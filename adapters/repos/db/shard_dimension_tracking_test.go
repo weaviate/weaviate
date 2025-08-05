@@ -549,7 +549,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 			}
 
 			var (
-				db        = createTestDatabaseWithClass(t, class)
+				db        = createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 				shardName = getSingleShardNameFromRepo(db, class.Class)
 
 				insertData = func() {
@@ -633,11 +633,9 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Setup metrics grouping
-			metrics := monitoring.GetMetrics()
-			originalGroup := metrics.Group
+			// Setup metrics grouping (copy to avoid race condition)
+			metrics := *monitoring.GetMetrics()
 			metrics.Group = tc.groupingEnabled
-			defer func() { metrics.Group = originalGroup }()
 
 			// Create test class and database
 			classes := make([]*models.Class, nClasses)
@@ -654,7 +652,7 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 				}
 			}
 
-			db := createTestDatabaseWithClass(t, classes...)
+			db := createTestDatabaseWithClass(t, &metrics, classes...)
 
 			// Insert test data
 			for _, class := range classes {
