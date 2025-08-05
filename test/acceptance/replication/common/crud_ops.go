@@ -52,11 +52,11 @@ func StopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose
 func StartNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
 	t.Helper()
 	if err := compose.StartAt(ctx, index); err != nil {
-		// try one more time after 1 second
-		<-time.After(1 * time.Second)
+		// try one more time after 10 seconds
+		<-time.After(10 * time.Second)
 		require.NoError(t, compose.StartAt(ctx, index))
 	}
-	<-time.After(1 * time.Second)
+	<-time.After(2 * time.Second)
 }
 
 func GetClass(t *testing.T, host, class string) *models.Class {
