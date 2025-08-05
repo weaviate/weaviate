@@ -1715,6 +1715,7 @@ func postInitModules(appState *state.State) {
 			if usageModuleWithService, ok := usageGCSModule.(modulecapabilities.ModuleWithUsageService); ok {
 				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, usageModuleWithService.Logger())
 				usageModuleWithService.SetUsageService(usageService)
+				usageModuleWithService.SetSchemaGetter(appState.SchemaManager)
 			}
 		}
 		// Initialize usage service for S3
@@ -1722,6 +1723,7 @@ func postInitModules(appState *state.State) {
 			if usageModuleWithService, ok := usageS3Module.(modulecapabilities.ModuleWithUsageService); ok {
 				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, usageModuleWithService.Logger())
 				usageModuleWithService.SetUsageService(usageService)
+				usageModuleWithService.SetSchemaGetter(appState.SchemaManager)
 			}
 		}
 	}
