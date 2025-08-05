@@ -148,6 +148,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
+	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -249,6 +250,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	// initializing at the top to reflect the config changes before we pass on to different components.
 	initRuntimeOverrides(appState)
+
+	// Initialize OpenTelemetry tracing
+	if err := initOpenTelemetry(appState); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("failed to initialize OpenTelemetry")
+	}
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.HTTPServerMetrics = monitoring.NewHTTPServerMetrics(monitoring.DefaultMetricsNamespace, prometheus.DefaultRegisterer)
@@ -1955,4 +1963,10 @@ func initRuntimeOverrides(appState *state.State) {
 			}
 		}, appState.Logger)
 	}
+}
+
+// initOpenTelemetry initializes the OpenTelemetry tracing provider
+func initOpenTelemetry(appState *state.State) error {
+	// Initialize OpenTelemetry from environment variables
+	return opentelemetry.Init(appState.Logger)
 }

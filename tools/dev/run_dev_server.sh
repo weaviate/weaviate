@@ -50,6 +50,7 @@ case $CONFIG in
   ;;
 
   local-single-node)
+      OTEL_ENABLED=true \
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./data-weaviate-0" \
