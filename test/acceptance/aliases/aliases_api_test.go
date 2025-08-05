@@ -363,7 +363,10 @@ func Test_AliasesAPI(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, objWithAlias)
 			assert.Equal(t, objWithClassName.ID, objWithAlias.ID)
-			assert.Equal(t, aliasName, objWithAlias.Class)
+
+			// no matter how the object is accessed(via collection name or alias name),
+			// returned JSON should have original class name as source of truth.
+			assert.Equal(t, books.DefaultClassName, objWithAlias.Class)
 		}
 
 		t.Run("create class with alias name", func(t *testing.T) {
@@ -475,7 +478,8 @@ func Test_AliasesAPI(t *testing.T) {
 			}
 			created, err := helper.CreateObjectWithResponse(t, obj)
 			require.NoError(t, err)
-			assert.Equal(t, aliasName, created.Class)
+			// should still return original class name in the response (not alias)
+			assert.Equal(t, books.DefaultClassName, created.Class)
 			assertGetObject(t, objID)
 		})
 
@@ -491,7 +495,8 @@ func Test_AliasesAPI(t *testing.T) {
 			}
 			updated, err := helper.UpdateObjectWithResponse(t, obj)
 			require.NoError(t, err)
-			assert.Equal(t, aliasName, updated.Class)
+			// should still return original class name in the response (not alias)
+			assert.Equal(t, books.DefaultClassName, updated.Class)
 			assertGetObject(t, objID)
 		})
 
@@ -552,7 +557,8 @@ func Test_AliasesAPI(t *testing.T) {
 			}
 			resp := helper.CreateObjectsBatchWithResponse(t, []*models.Object{obj1, obj2})
 			for _, obj := range resp {
-				assert.Equal(t, aliasName, obj.Class)
+				// should still return original class name in the response (not alias)
+				assert.Equal(t, books.DefaultClassName, obj.Class)
 			}
 			assertGetObject(t, objID1)
 			assertGetObject(t, objID2)
@@ -573,7 +579,8 @@ func Test_AliasesAPI(t *testing.T) {
 			resp := helper.DeleteObjectsBatchWithResponse(t, batchDelete, types.ConsistencyLevelAll)
 			require.NotNil(t, resp)
 			require.NotNil(t, resp.Match)
-			assert.Equal(t, aliasName, resp.Match.Class)
+			// should still return original class name in the response (not alias)
+			assert.Equal(t, books.DefaultClassName, resp.Match.Class)
 		})
 	})
 }

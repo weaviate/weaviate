@@ -250,7 +250,7 @@ func createTestDatabaseWithClass(t *testing.T, classes ...*models.Class) *DB {
 
 	db.SetSchemaGetter(&fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: classes}},
-		shardState: shardState,
+		shardState: singleShardState(),
 	})
 
 	require.Nil(t, db.WaitForStartup(t.Context()))
