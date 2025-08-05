@@ -463,11 +463,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.TenantActivity.SetSource(appState.DB)
 	}
 
-	enterrors.GoWrapper(func() {
-		db.SimpleSummaryPrinter(appState.Logger, repo)
-	}, appState.Logger)
-	// this is a long-running goroutine that prints a summary of the DB every 10 second
-
 	setupDebugHandlers(appState)
 	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
