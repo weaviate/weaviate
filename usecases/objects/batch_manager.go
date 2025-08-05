@@ -76,22 +76,3 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 func (m *BatchManager) resolveAlias(class string) (className, aliasName string) {
 	return alias.ResolveAlias(m.schemaManager, class)
 }
-
-func (m *BatchManager) batchDeleteWithAlias(batchDeleteResponse *BatchDeleteResponse, aliasName string) *BatchDeleteResponse {
-	if batchDeleteResponse != nil {
-		if batchDeleteResponse.Match != nil {
-			batchDeleteResponse.Match.Class = aliasName
-		}
-		batchDeleteResponse.Params.ClassName = schema.ClassName(aliasName)
-	}
-	return batchDeleteResponse
-}
-
-func (m *BatchManager) batchInsertWithAliases(batchObjects BatchObjects, classAlias map[string]string) BatchObjects {
-	if len(classAlias) > 0 {
-		for i := range batchObjects {
-			batchObjects[i].Object = alias.ClassNameToAlias(batchObjects[i].Object, classAlias[batchObjects[i].Object.Class])
-		}
-	}
-	return batchObjects
-}
