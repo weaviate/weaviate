@@ -61,7 +61,7 @@ func (o *AssignRoleToUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	Params := NewAssignRoleToUserParams()
+	var Params = NewAssignRoleToUserParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -82,12 +82,14 @@ func (o *AssignRoleToUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }
 
 // AssignRoleToUserBody assign role to user body
 //
 // swagger:model AssignRoleToUserBody
 type AssignRoleToUserBody struct {
+
 	// group type
 	GroupType models.UserAndGroupTypeInput `json:"groupType,omitempty" yaml:"groupType,omitempty"`
 
@@ -141,6 +143,7 @@ func (o *AssignRoleToUserBody) ContextValidate(ctx context.Context, formats strf
 }
 
 func (o *AssignRoleToUserBody) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
+
 	if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("body" + "." + "groupType")
