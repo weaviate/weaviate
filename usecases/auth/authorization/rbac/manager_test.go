@@ -44,7 +44,7 @@ func TestSnapshotAndRestore(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("admin"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserAndGroupTypeInputDb), conv.PrefixRoleName("admin"))
 				return err
 			},
 		},
@@ -60,11 +60,11 @@ func TestSnapshotAndRestore(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("admin"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserAndGroupTypeInputDb), conv.PrefixRoleName("admin"))
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("editor"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserAndGroupTypeInputDb), conv.PrefixRoleName("editor"))
 				return err
 			},
 		},

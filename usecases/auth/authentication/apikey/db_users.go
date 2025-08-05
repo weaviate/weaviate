@@ -342,7 +342,7 @@ func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 			c.data.Users[userId].Unlock()
 		}
 
-		return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}, nil
+		return &models.Principal{Username: userId, UserType: models.UserAndGroupTypeInputDb}, nil
 	}
 
 	return nil, nil
@@ -399,7 +399,7 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 		c.data.Users[userId].Unlock()
 	}
 
-	return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}, nil
+	return &models.Principal{Username: userId, UserType: models.UserAndGroupTypeInputDb}, nil
 }
 
 func (c *DBUser) validateWeakHash(key []byte, weakHash [32]byte) error {

@@ -128,7 +128,7 @@ func migrateUpsertRolesPermissionsV3(roles map[string][]authorization.Policy) ma
 				continue
 			}
 
-			roles[roleName][idx].Verb = authorization.USER_ASSIGN_AND_REVOKE
+			roles[roleName][idx].Verb = authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE
 
 		}
 	}
@@ -232,7 +232,7 @@ func migrateRemoveRolesPermissionsV3(permissions []*authorization.Policy) []*aut
 			continue
 		}
 
-		permissions[idx].Verb = authorization.USER_ASSIGN_AND_REVOKE
+		permissions[idx].Verb = authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE
 	}
 	return permissions
 }
@@ -250,12 +250,12 @@ func migrateRevokeRolesV0(req *cmd.RevokeRolesForUserRequest) []*cmd.RevokeRoles
 	req1 := &cmd.RevokeRolesForUserRequest{
 		Version: req.Version + 1,
 		Roles:   req.Roles,
-		User:    conv.UserNameWithTypeFromId(user, models.UserTypeInputDb),
+		User:    conv.UserNameWithTypeFromId(user, models.UserAndGroupTypeInputDb),
 	}
 	req2 := &cmd.RevokeRolesForUserRequest{
 		Version: req.Version + 1,
 		Roles:   req.Roles,
-		User:    conv.UserNameWithTypeFromId(user, models.UserTypeInputOidc),
+		User:    conv.UserNameWithTypeFromId(user, models.UserAndGroupTypeInputOidc),
 	}
 
 	return []*cmd.RevokeRolesForUserRequest{req1, req2}
@@ -276,7 +276,7 @@ func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest, authNconfig config.A
 		reqs = append(reqs, &cmd.AddRolesForUsersRequest{
 			Version: req.Version + 1,
 			Roles:   req.Roles,
-			User:    conv.UserNameWithTypeFromId(user, models.UserTypeInputDb),
+			User:    conv.UserNameWithTypeFromId(user, models.UserAndGroupTypeInputDb),
 		})
 	}
 
@@ -284,7 +284,7 @@ func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest, authNconfig config.A
 		reqs = append(reqs, &cmd.AddRolesForUsersRequest{
 			Version: req.Version + 1,
 			Roles:   req.Roles,
-			User:    conv.UserNameWithTypeFromId(user, models.UserTypeInputOidc),
+			User:    conv.UserNameWithTypeFromId(user, models.UserAndGroupTypeInputOidc),
 		})
 	}
 

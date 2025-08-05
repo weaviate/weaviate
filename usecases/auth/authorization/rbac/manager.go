@@ -67,11 +67,37 @@ func (m *Manager) CreateRolesPermissions(roles map[string][]authorization.Policy
 	return m.upsertRolesPermissions(roles)
 }
 
+func (m *Manager) GetUsersOrGroupsWithRoles(isGroup bool, authType string) ([]string, error) {
+	roles, err := m.casbin.GetAllSubjects()
+	if err != nil {
+		return nil, err
+	}
+	usersOrGroups := map[string]struct{}{}
+	for _, role := range roles {
+		users, err := m.casbin.GetUsersForRole(role)
+		if err != nil {
+			return nil, err
+		}
+		for _, user := range users {
+			if isGroup && strings.HasPrefix(user, conv.GROUP_NAME_PREFIX) {
+				usersOrGroups[user] = struct{}{}
+			}
+		}
+	}
+
+	usersOrGroupsList := make([]string, 0, len(usersOrGroups))
+	for user := range usersOrGroups {
+		usersOrGroupsList = append(usersOrGroupsList, user)
+	}
+
+	return usersOrGroupsList, nil
+}
+
 func (m *Manager) upsertRolesPermissions(roles map[string][]authorization.Policy) error {
 	for roleName, policies := range roles {
 		// assign role to internal user to make sure to catch empty roles
 		// e.g. : g, user:wv_internal_empty, role:roleName
-		if _, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, models.UserTypeInputDb), conv.PrefixRoleName(roleName)); err != nil {
+		if _, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, models.UserAndGroupTypeInputDb), conv.PrefixRoleName(roleName)); err != nil {
 			return fmt.Errorf("AddRoleForUser: %w", err)
 		}
 		for _, policy := range policies {
@@ -229,13 +255,19 @@ func (m *Manager) AddRolesForUser(user string, roles []string) error {
 	return nil
 }
 
-func (m *Manager) GetRolesForUser(userName string, userType models.UserTypeInput) (map[string][]authorization.Policy, error) {
-	m.backupLock.RLock()
-	defer m.backupLock.RUnlock()
-
-	rolesNames, err := m.casbin.GetRolesForUser(conv.UserNameWithTypeFromId(userName, userType))
-	if err != nil {
-		return nil, fmt.Errorf("GetRolesForUser: %w", err)
+func (m *Manager) GetRolesForUserOrGroup(userName string, userType models.UserAndGroupTypeInput, isGroup bool) (map[string][]authorization.Policy, error) {
+	var rolesNames []string
+	var err error
+	if isGroup {
+		rolesNames, err = m.casbin.GetRolesForUser(conv.PrefixGroupName(userName))
+		if err != nil {
+			return nil, fmt.Errorf("GetRolesForUserOrGroup: %w", err)
+		}
+	} else {
+		rolesNames, err = m.casbin.GetRolesForUser(conv.UserNameWithTypeFromId(userName, userType))
+		if err != nil {
+			return nil, fmt.Errorf("GetRolesForUserOrGroup: %w", err)
+		}
 	}
 	if len(rolesNames) == 0 {
 		return map[string][]authorization.Policy{}, err
@@ -247,7 +279,7 @@ func (m *Manager) GetRolesForUser(userName string, userType models.UserTypeInput
 	return roles, err
 }
 
-func (m *Manager) GetUsersForRole(roleName string, userType models.UserTypeInput) ([]string, error) {
+func (m *Manager) GetUsersForRole(roleName string, userType models.UserAndGroupTypeInput) ([]string, error) {
 	m.backupLock.RLock()
 	defer m.backupLock.RUnlock()
 

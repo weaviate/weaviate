@@ -181,13 +181,13 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 
 		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.RootUsers[i]) {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeInputDb), conv.PrefixRoleName(authorization.Root)); err != nil {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserAndGroupTypeInputDb), conv.PrefixRoleName(authorization.Root)); err != nil {
 				return fmt.Errorf("add role for user: %w", err)
 			}
 		}
 
 		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeInputOidc), conv.PrefixRoleName(authorization.Root)); err != nil {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserAndGroupTypeInputOidc), conv.PrefixRoleName(authorization.Root)); err != nil {
 				return fmt.Errorf("add role for user: %w", err)
 			}
 		}
@@ -200,13 +200,13 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 
 		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.AdminUsers[i]) {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.AdminUsers[i], models.UserTypeInputDb), conv.PrefixRoleName(authorization.Admin)); err != nil {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.AdminUsers[i], models.UserAndGroupTypeInputDb), conv.PrefixRoleName(authorization.Admin)); err != nil {
 				return fmt.Errorf("add role for user: %w", err)
 			}
 		}
 
 		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.AdminUsers[i], models.UserTypeInputOidc), conv.PrefixRoleName(authorization.Admin)); err != nil {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.AdminUsers[i], models.UserAndGroupTypeInputOidc), conv.PrefixRoleName(authorization.Admin)); err != nil {
 				return fmt.Errorf("add role for user: %w", err)
 			}
 		}
@@ -218,13 +218,13 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 
 		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.ViewerUsers[i]) {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.ViewerUsers[i], models.UserTypeInputDb), conv.PrefixRoleName(authorization.Viewer)); err != nil {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.ViewerUsers[i], models.UserAndGroupTypeInputDb), conv.PrefixRoleName(authorization.Viewer)); err != nil {
 				return fmt.Errorf("add role for user: %w", err)
 			}
 		}
 
 		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.ViewerUsers[i], models.UserTypeInputOidc), conv.PrefixRoleName(authorization.Viewer)); err != nil {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.ViewerUsers[i], models.UserAndGroupTypeInputOidc), conv.PrefixRoleName(authorization.Viewer)); err != nil {
 				return fmt.Errorf("add role for user: %w", err)
 			}
 		}

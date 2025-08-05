@@ -85,6 +85,15 @@ type QueryHasPermissionResponse struct {
 	HasPermission bool
 }
 
+type QueryGetAllUsersOrGroupsWithRolesRequest struct {
+	IsGroup  bool
+	AuthType string
+}
+
+type QueryGetAllUsersOrGroupsWithRolesResponse struct {
+	UsersOrGroups []string
+}
+
 type QueryGetRolesRequest struct {
 	Roles []string
 }
@@ -93,18 +102,19 @@ type QueryGetRolesResponse struct {
 	Roles map[string][]authorization.Policy
 }
 
-type QueryGetRolesForUserRequest struct {
+type QueryGetRolesForUserOrGroupRequest struct {
 	User     string
-	UserType models.UserTypeInput
+	UserType models.UserAndGroupTypeInput
+	IsGroup  bool
 }
 
-type QueryGetRolesForUserResponse struct {
+type QueryGetRolesForUserOrGroupResponse struct {
 	Roles map[string][]authorization.Policy
 }
 
 type QueryGetUsersForRoleRequest struct {
 	Role     string
-	UserType models.UserTypeInput
+	UserType models.UserAndGroupTypeInput
 }
 
 type QueryGetUsersForRoleResponse struct {

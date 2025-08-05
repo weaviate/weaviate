@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
@@ -87,8 +88,7 @@ AssignRoleToGroupOK describes a response with status code 200, with default head
 
 Role assigned successfully
 */
-type AssignRoleToGroupOK struct {
-}
+type AssignRoleToGroupOK struct{}
 
 // IsSuccess returns true when this assign role to group o k response has a 2xx status code
 func (o *AssignRoleToGroupOK) IsSuccess() bool {
@@ -129,7 +129,6 @@ func (o *AssignRoleToGroupOK) String() string {
 }
 
 func (o *AssignRoleToGroupOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -190,7 +189,6 @@ func (o *AssignRoleToGroupBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AssignRoleToGroupBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -211,8 +209,7 @@ AssignRoleToGroupUnauthorized describes a response with status code 401, with de
 
 Unauthorized or invalid credentials.
 */
-type AssignRoleToGroupUnauthorized struct {
-}
+type AssignRoleToGroupUnauthorized struct{}
 
 // IsSuccess returns true when this assign role to group unauthorized response has a 2xx status code
 func (o *AssignRoleToGroupUnauthorized) IsSuccess() bool {
@@ -253,7 +250,6 @@ func (o *AssignRoleToGroupUnauthorized) String() string {
 }
 
 func (o *AssignRoleToGroupUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -314,7 +310,6 @@ func (o *AssignRoleToGroupForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AssignRoleToGroupForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -335,8 +330,7 @@ AssignRoleToGroupNotFound describes a response with status code 404, with defaul
 
 role or group is not found.
 */
-type AssignRoleToGroupNotFound struct {
-}
+type AssignRoleToGroupNotFound struct{}
 
 // IsSuccess returns true when this assign role to group not found response has a 2xx status code
 func (o *AssignRoleToGroupNotFound) IsSuccess() bool {
@@ -377,7 +371,6 @@ func (o *AssignRoleToGroupNotFound) String() string {
 }
 
 func (o *AssignRoleToGroupNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -438,7 +431,6 @@ func (o *AssignRoleToGroupInternalServerError) GetPayload() *models.ErrorRespons
 }
 
 func (o *AssignRoleToGroupInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -454,6 +446,8 @@ AssignRoleToGroupBody assign role to group body
 swagger:model AssignRoleToGroupBody
 */
 type AssignRoleToGroupBody struct {
+	// group type
+	GroupType models.UserAndGroupTypeInput `json:"groupType,omitempty"`
 
 	// the roles that assigned to group
 	Roles []string `json:"roles"`
@@ -461,11 +455,59 @@ type AssignRoleToGroupBody struct {
 
 // Validate validates this assign role to group body
 func (o *AssignRoleToGroupBody) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.validateGroupType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
 	return nil
 }
 
-// ContextValidate validates this assign role to group body based on context it is used
+func (o *AssignRoleToGroupBody) validateGroupType(formats strfmt.Registry) error {
+	if swag.IsZero(o.GroupType) { // not required
+		return nil
+	}
+
+	if err := o.GroupType.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("body" + "." + "groupType")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("body" + "." + "groupType")
+		}
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this assign role to group body based on the context it is used
 func (o *AssignRoleToGroupBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.contextValidateGroupType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *AssignRoleToGroupBody) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
+	if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("body" + "." + "groupType")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("body" + "." + "groupType")
+		}
+		return err
+	}
+
 	return nil
 }
 

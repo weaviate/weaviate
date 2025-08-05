@@ -34,7 +34,7 @@ func TestAssignRoleToUserSuccess(t *testing.T) {
 	controller := NewMockControllerAndGetUsers(t)
 	logger, _ := test.NewNullLogger()
 
-	userType := models.UserTypeInputDb
+	userType := models.UserAndGroupTypeInputDb
 	principal := &models.Principal{Username: "user1"}
 	params := authz.AssignRoleToUserParams{
 		ID:          "user1",
@@ -45,7 +45,7 @@ func TestAssignRoleToUserSuccess(t *testing.T) {
 		},
 	}
 
-	authorizer.On("Authorize", mock.Anything, principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(params.ID)[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(params.ID)[0]).Return(nil)
 	controller.On("GetRoles", params.Body.Roles[0]).Return(map[string][]authorization.Policy{params.Body.Roles[0]: {}}, nil)
 	controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(params.ID, params.Body.UserType), params.Body.Roles).Return(nil)
 
@@ -71,11 +71,12 @@ func TestAssignRoleToGroupSuccess(t *testing.T) {
 		ID:          "group1",
 		HTTPRequest: req,
 		Body: authz.AssignRoleToGroupBody{
-			Roles: []string{"testRole"},
+			Roles:     []string{"testRole"},
+			GroupType: models.UserAndGroupTypeInputOidc,
 		},
 	}
 
-	authorizer.On("Authorize", mock.Anything, principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.Body.Roles...)[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(string(params.Body.GroupType), params.ID)[0]).Return(nil)
 	controller.On("GetRoles", params.Body.Roles[0]).Return(map[string][]authorization.Policy{params.Body.Roles[0]: {}}, nil)
 	controller.On("AddRolesForUser", conv.PrefixGroupName(params.ID), params.Body.Roles).Return(nil)
 
@@ -141,7 +142,7 @@ func TestAssignRoleToUserOrUserNotFound(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_ASSIGN_AND_REVOKE, mock.Anything, mock.Anything).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, mock.Anything, mock.Anything).Return(nil)
 
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
 			if tt.callToGetUser {
@@ -178,7 +179,7 @@ func TestAssignRoleToGroupOrUserNotFound(t *testing.T) {
 				ID:          "group1",
 				HTTPRequest: req,
 				Body: authz.AssignRoleToGroupBody{
-					Roles: []string{"role1"},
+					Roles: []string{"role1"}, GroupType: models.UserAndGroupTypeInputOidc,
 				},
 			},
 			principal:     &models.Principal{Username: "root-user"},
@@ -193,7 +194,7 @@ func TestAssignRoleToGroupOrUserNotFound(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), mock.Anything, mock.Anything).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(string(tt.params.Body.GroupType), tt.params.ID)[0]).Return(nil)
 
 			if tt.callToGetRole {
 				controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
@@ -373,7 +374,7 @@ func TestAssignRoleToUserForbidden(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if !tt.skipAuthZ {
-				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(tt.authorizeErr)
+				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{
@@ -411,7 +412,8 @@ func TestAssignRoleToGroupForbidden(t *testing.T) {
 				ID:          "testUser",
 				HTTPRequest: req,
 				Body: authz.AssignRoleToGroupBody{
-					Roles: []string{"testRole"},
+					Roles:     []string{"testRole"},
+					GroupType: models.UserAndGroupTypeInputOidc,
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
@@ -423,20 +425,10 @@ func TestAssignRoleToGroupForbidden(t *testing.T) {
 			params: authz.AssignRoleToGroupParams{
 				ID:          "root-group",
 				HTTPRequest: req,
-				Body:        authz.AssignRoleToGroupBody{Roles: []string{"some-role"}},
+				Body:        authz.AssignRoleToGroupBody{Roles: []string{"some-role"}, GroupType: models.UserAndGroupTypeInputOidc},
 			},
 			principal:     &models.Principal{Username: "root-user"},
 			expectedError: "assigning: cannot assign or revoke from root group root-group",
-		},
-		{
-			name: "viewer root group",
-			params: authz.AssignRoleToGroupParams{
-				ID:          "viewer-root-group",
-				HTTPRequest: req,
-				Body:        authz.AssignRoleToGroupBody{Roles: []string{"some-role"}},
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "assigning: only root users can assign roles to groups",
 		},
 	}
 
@@ -446,7 +438,7 @@ func TestAssignRoleToGroupForbidden(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(string(tt.params.Body.GroupType), tt.params.ID)[0]).Return(tt.authorizeErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -479,7 +471,7 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 		expectedError string
 	}
 
-	userType := models.UserTypeInputDb
+	userType := models.UserAndGroupTypeInputDb
 
 	tests := []testCase{
 		{
@@ -518,7 +510,7 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
 				controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
@@ -558,7 +550,7 @@ func TestAssignRoleToGroupInternalServerError(t *testing.T) {
 				ID:          "testUser",
 				HTTPRequest: req,
 				Body: authz.AssignRoleToGroupBody{
-					Roles: []string{"testRole"},
+					Roles: []string{"testRole"}, GroupType: models.UserAndGroupTypeInputOidc,
 				},
 			},
 			principal:     &models.Principal{Username: "root-user"},
@@ -571,7 +563,7 @@ func TestAssignRoleToGroupInternalServerError(t *testing.T) {
 				ID:          "testUser",
 				HTTPRequest: req,
 				Body: authz.AssignRoleToGroupBody{
-					Roles: []string{"testRole"},
+					Roles: []string{"testRole"}, GroupType: models.UserAndGroupTypeInputOidc,
 				},
 			},
 			principal:     &models.Principal{Username: "root-user"},
@@ -586,7 +578,7 @@ func TestAssignRoleToGroupInternalServerError(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(string(tt.params.Body.GroupType), tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
 				controller.On("AddRolesForUser", conv.PrefixGroupName(tt.params.ID), tt.params.Body.Roles).Return(tt.assignErr)

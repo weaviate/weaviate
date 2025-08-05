@@ -367,7 +367,7 @@ func TestImportingStaticKeys(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, principal)
 		require.Equal(t, userId, principal.Username)
-		require.Equal(t, principal.UserType, models.UserTypeInputDb)
+		require.Equal(t, principal.UserType, models.UserAndGroupTypeInputDb)
 
 		require.True(t, dynUsers.IsBlockedKey(importedApiKey))
 	}

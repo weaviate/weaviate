@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 )
@@ -33,6 +35,25 @@ func TestUsers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := Users(tt.users...)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestGroups(t *testing.T) {
+	tests := []struct {
+		name     string
+		groups   []string
+		expected []string
+	}{
+		{"No groups", []string{}, []string{fmt.Sprintf("%s/%s/*", GroupsDomain, models.UserAndGroupTypeInputOidc)}},
+		{"Single group", []string{"group1"}, []string{fmt.Sprintf("%s/%s/group1", GroupsDomain, models.UserAndGroupTypeInputOidc)}},
+		{"Multiple groups", []string{"group1", "group2"}, []string{fmt.Sprintf("%s/%s/group1", GroupsDomain, models.UserAndGroupTypeInputOidc), fmt.Sprintf("%s/%s/group2", GroupsDomain, models.UserAndGroupTypeInputOidc)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Groups(string(models.UserAndGroupTypeInputOidc), tt.groups...)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

@@ -65,7 +65,7 @@ func TestAuthorize(t *testing.T) {
 			principal: &models.Principal{
 				Username: "admin-user",
 				Groups:   []string{"admin-group"},
-				UserType: models.UserTypeInputDb,
+				UserType: models.UserAndGroupTypeInputDb,
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
@@ -74,7 +74,7 @@ func TestAuthorize(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("admin-user", models.UserTypeInputDb),
+				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("admin-user", models.UserAndGroupTypeInputDb),
 					conv.PrefixRoleName("admin"))
 				if err != nil {
 					return err
@@ -101,7 +101,7 @@ func TestAuthorize(t *testing.T) {
 			principal: &models.Principal{
 				Username: "partial-user",
 				Groups:   []string{},
-				UserType: models.UserTypeInputDb,
+				UserType: models.UserAndGroupTypeInputDb,
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
@@ -110,7 +110,7 @@ func TestAuthorize(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("partial-user", models.UserTypeInputDb),
+				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("partial-user", models.UserAndGroupTypeInputDb),
 					conv.PrefixRoleName("partial"))
 				if err != nil {
 					return err
@@ -152,7 +152,7 @@ func TestAuthorize(t *testing.T) {
 			principal: &models.Principal{
 				Username: "audit-test-user",
 				Groups:   []string{},
-				UserType: models.UserTypeInputDb,
+				UserType: models.UserAndGroupTypeInputDb,
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1"),
@@ -162,7 +162,7 @@ func TestAuthorize(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("audit-test-user", models.UserTypeInputDb),
+				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("audit-test-user", models.UserAndGroupTypeInputDb),
 					conv.PrefixRoleName("audit-role"))
 				if err != nil {
 					return err
@@ -251,7 +251,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			name: "wildcard permission allows all resources",
 			principal: &models.Principal{
 				Username: "admin-user",
-				UserType: models.UserTypeInputDb,
+				UserType: models.UserAndGroupTypeInputDb,
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
@@ -261,7 +261,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("admin-user", models.UserTypeInputDb),
+				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("admin-user", models.UserAndGroupTypeInputDb),
 					conv.PrefixRoleName("admin"))
 				if err != nil {
 					return err
@@ -277,7 +277,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			name: "specific permission allows only matching resource",
 			principal: &models.Principal{
 				Username: "limited-user",
-				UserType: models.UserTypeInputDb,
+				UserType: models.UserAndGroupTypeInputDb,
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
@@ -287,7 +287,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("limited-user", models.UserTypeInputDb),
+				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("limited-user", models.UserAndGroupTypeInputDb),
 					conv.PrefixRoleName("limited"))
 				if err != nil {
 					return err
@@ -312,7 +312,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			name: "wildcard collection permission allows all collections",
 			principal: &models.Principal{
 				Username: "collections-admin",
-				UserType: models.UserTypeInputDb,
+				UserType: models.UserAndGroupTypeInputDb,
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
@@ -322,7 +322,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("collections-admin", models.UserTypeInputDb),
+				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("collections-admin", models.UserAndGroupTypeInputDb),
 					conv.PrefixRoleName("collections-admin"))
 				if err != nil {
 					return err
@@ -349,7 +349,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			name: "user with multiple roles",
 			principal: &models.Principal{
 				Username: "multi-role-user",
-				UserType: models.UserTypeInputDb,
+				UserType: models.UserAndGroupTypeInputDb,
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2", "Test3"),
@@ -360,12 +360,12 @@ func TestFilterAuthorizedResources(t *testing.T) {
 				if _, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("role2"), authorization.CollectionsMetadata("Test2")[0], authorization.READ, authorization.SchemaDomain); err != nil {
 					return err
 				}
-				if ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("multi-role-user", models.UserTypeInputDb), conv.PrefixRoleName("role1")); err != nil {
+				if ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("multi-role-user", models.UserAndGroupTypeInputDb), conv.PrefixRoleName("role1")); err != nil {
 					return err
 				} else if !ok {
 					return fmt.Errorf("failed to add role for user")
 				}
-				if ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("multi-role-user", models.UserTypeInputDb), conv.PrefixRoleName("role2")); err != nil {
+				if ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("multi-role-user", models.UserAndGroupTypeInputDb), conv.PrefixRoleName("role2")); err != nil {
 					return err
 				} else if !ok {
 					return fmt.Errorf("failed to add role for user")
@@ -415,7 +415,7 @@ func TestFilterAuthorizedResourcesLogging(t *testing.T) {
 	principal := &models.Principal{
 		Username: "test-user",
 		Groups:   []string{"group1"},
-		UserType: models.UserTypeInputDb,
+		UserType: models.UserAndGroupTypeInputDb,
 	}
 
 	testResources := authorization.CollectionsMetadata("Test1", "Test2")
@@ -423,7 +423,7 @@ func TestFilterAuthorizedResourcesLogging(t *testing.T) {
 	// Setup a policy
 	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", "*", authorization.RolesDomain)
 	require.NoError(t, err)
-	_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("admin"))
+	_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserAndGroupTypeInputDb), conv.PrefixRoleName("admin"))
 	require.NoError(t, err)
 
 	// Call the function
@@ -484,7 +484,7 @@ func TestAuthorizeResourceAggregation(t *testing.T) {
 	// Setup admin policy
 	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.DataDomain)
 	require.NoError(t, err)
-	ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("admin-user", models.UserTypeInputDb),
+	ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("admin-user", models.UserAndGroupTypeInputDb),
 		conv.PrefixRoleName("admin"))
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -492,7 +492,7 @@ func TestAuthorizeResourceAggregation(t *testing.T) {
 	principal := &models.Principal{
 		Username: "admin-user",
 		Groups:   []string{"admin-group"},
-		UserType: models.UserTypeInputDb,
+		UserType: models.UserAndGroupTypeInputDb,
 	}
 
 	// Test with 1000 duplicate resources (simulating the original issue)
@@ -555,7 +555,7 @@ func TestFilterAuthorizedResourcesAggregation(t *testing.T) {
 	// Setup admin policy
 	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.DataDomain)
 	require.NoError(t, err)
-	ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("admin-user", models.UserTypeInputDb),
+	ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("admin-user", models.UserAndGroupTypeInputDb),
 		conv.PrefixRoleName("admin"))
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -563,7 +563,7 @@ func TestFilterAuthorizedResourcesAggregation(t *testing.T) {
 	principal := &models.Principal{
 		Username: "admin-user",
 		Groups:   []string{"admin-group"},
-		UserType: models.UserTypeInputDb,
+		UserType: models.UserAndGroupTypeInputDb,
 	}
 
 	// Test with 1000 duplicate resources (simulating the original issue)

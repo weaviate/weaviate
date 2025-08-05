@@ -40,7 +40,7 @@ func upgradeGroupingsFrom129(enforcer *casbin.SyncedCachedEnforcer, authNconf co
 					return err
 				}
 
-				if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, models.UserTypeInputDb), role); err != nil {
+				if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, models.UserAndGroupTypeInputDb), role); err != nil {
 					return err
 				}
 			} else if strings.HasPrefix(user, "user:") {
@@ -49,12 +49,12 @@ func upgradeGroupingsFrom129(enforcer *casbin.SyncedCachedEnforcer, authNconf co
 					return err
 				}
 				if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, userNoPrefix) {
-					if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(userNoPrefix, models.UserTypeInputDb), role); err != nil {
+					if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(userNoPrefix, models.UserAndGroupTypeInputDb), role); err != nil {
 						return err
 					}
 				}
 				if authNconf.OIDC.Enabled {
-					if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(userNoPrefix, models.UserTypeInputOidc), role); err != nil {
+					if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(userNoPrefix, models.UserAndGroupTypeInputOidc), role); err != nil {
 						return err
 					}
 				}
@@ -79,7 +79,7 @@ func upgradePoliciesFrom129(enforcer *casbin.SyncedCachedEnforcer, keepBuildInRo
 		}
 
 		if policy[3] == authorization.UsersDomain && policy[2] == authorization.UPDATE {
-			policy[2] = authorization.USER_ASSIGN_AND_REVOKE
+			policy[2] = authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE
 		}
 
 		policiesToAdd = append(policiesToAdd, policy)

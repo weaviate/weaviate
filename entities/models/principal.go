@@ -28,12 +28,11 @@ import (
 //
 // swagger:model Principal
 type Principal struct {
-
 	// groups
 	Groups []string `json:"groups"`
 
 	// user type
-	UserType UserTypeInput `json:"userType,omitempty"`
+	UserType UserAndGroupTypeInput `json:"userType,omitempty"`
 
 	// The username that was extracted either from the authentication information
 	Username string `json:"username,omitempty"`
@@ -85,7 +84,6 @@ func (m *Principal) ContextValidate(ctx context.Context, formats strfmt.Registry
 }
 
 func (m *Principal) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
-
 	if err := m.UserType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("userType")
