@@ -52,8 +52,8 @@ func StopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose
 func StartNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
 	t.Helper()
 	if err := compose.StartAt(ctx, index); err != nil {
-		// try one more time after 10 seconds
-		<-time.After(10 * time.Second)
+		// try one more time after 1 seconds
+		<-time.After(1 * time.Second)
 		require.NoError(t, compose.StartAt(ctx, index))
 	}
 	<-time.After(2 * time.Second)
