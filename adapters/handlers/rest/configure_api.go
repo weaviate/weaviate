@@ -747,10 +747,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			CompletedTaskTTL: appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
 		})
 
+		enterrors.GoWrapper(func() {
 		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
 			appState.Logger.WithError(err).WithField("action", "startup").
 				Error("failed to start distributed task scheduler")
 		}
+		}, appState.Logger)
 
 	}
 
