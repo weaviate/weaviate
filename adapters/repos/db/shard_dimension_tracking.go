@@ -112,7 +112,7 @@ func (dm DimensionMetrics) Add(add DimensionMetrics) DimensionMetrics {
 // its dimension metrics on its own iff it is being shut down or dropped
 // and metrics grouping is disatbled.
 func (s *Shard) clearDimensionMetrics() {
-	if s.index.metrics == nil || s.index.metrics.baseMetrics == nil || s.index.metrics.baseMetrics.Group {
+	if s.index.metrics.baseMetrics == nil || s.index.metrics.baseMetrics.Group {
 		return
 	}
 
