@@ -670,6 +670,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			WithField("action", "startup").
 			WithError(err).
 			Fatal("could not open cloud meta store")
+			os.Exit(1)
 	}
 
 	// Add dimensions to all the objects in the database, if requested by the user
