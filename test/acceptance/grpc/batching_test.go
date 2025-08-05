@@ -34,6 +34,10 @@ func TestGRPC_Batching(t *testing.T) {
 	// Create the schema
 	helper.CreateClass(t, clsP)
 	helper.CreateClass(t, clsA)
+	defer func() {
+		helper.DeleteClass(t, clsP.Class)
+		helper.DeleteClass(t, clsA.Class)
+	}()
 
 	t.Run("Server-side batching", func(t *testing.T) {
 		// Open up a stream to read messages from
