@@ -50,19 +50,11 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 		return nil, err
 	}
 
-	var alias string
-	if res.ClassName != class {
-		alias = class
-	}
-
 	if additional.Vector {
 		m.trackUsageSingle(res)
 	}
 
 	obj := res.ObjectWithVector(additional.Vector)
-	if alias != "" {
-		obj.Class = alias
-	}
 	return obj, nil
 }
 
