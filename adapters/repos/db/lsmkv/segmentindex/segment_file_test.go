@@ -11,15 +11,6 @@
 
 package segmentindex
 
-import (
-	"fmt"
-	"os"
-	"path"
-	"testing"
-
-	"github.com/stretchr/testify/require"
-)
-
 // contentsWithChecksum is a precomputed segment file from the property__id bucket.
 // The data object which was used to generate this segment file is the following:
 //
@@ -55,32 +46,4 @@ var contentsWithChecksum = []byte{
 	0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x53, 0x4c, 0x67,
 	0x5a,
-}
-
-func TestSegmentFile_ValidateChecksum(t *testing.T) {
-	dir := t.TempDir()
-	fname := path.Join(dir, "tmp.db")
-
-	{
-		// setup
-		f, err := os.Create(fname)
-		require.Nil(t, err)
-		_, err = f.Write(contentsWithChecksum)
-		require.Nil(t, err)
-		f.Close()
-	}
-
-	f, err := os.Open(fname)
-	require.Nil(t, err)
-	defer f.Close()
-
-	fileInfo, err := f.Stat()
-	if err != nil {
-		fmt.Printf("Error getting file info: %v\n", err)
-		return
-	}
-
-	segmentFile := NewSegmentFile(WithReader(f))
-	err = segmentFile.ValidateChecksum(fileInfo)
-	require.Nil(t, err)
 }

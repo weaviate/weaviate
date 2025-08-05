@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/pkg/errors"
 
@@ -186,11 +187,19 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
 	}
 
+	logger.Warnf("validating segment %q checksum", path)
+	start := time.Now()
+
 	file.Seek(0, io.SeekStart)
 	segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
-	if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
+	headerSize := int64(segmentindex.HeaderSize)
+	if header.Strategy == segmentindex.StrategyInverted {
+		headerSize += int64(segmentindex.HeaderInvertedSize)
+	}
+	if err := segmentFile.ValidateChecksum(fileInfo.Size(), headerSize); err != nil {
 		return nil, fmt.Errorf("validate segment %q: %w", path, err)
 	}
+	logger.WithField("duration", time.Since(start)/time.Millisecond).Infof("validated segment %q checksum", path)
 
 	primaryIndex, err := header.PrimaryIndex(contents)
 	if err != nil {

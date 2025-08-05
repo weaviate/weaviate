@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/diskio"
 
@@ -109,13 +110,18 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
 	}
 
-	if header.Version >= segmentindex.SegmentV1 && enableChecksumValidation {
-		file.Seek(0, io.SeekStart)
-		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
-		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
-			return nil, fmt.Errorf("validate segment %q: %w", path, err)
-		}
+	logger.Warnf("validating segment compaction %q checksum", path)
+	start := time.Now()
+	file.Seek(0, io.SeekStart)
+	segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
+	headerSize := int64(segmentindex.HeaderSize)
+	if header.Strategy == segmentindex.StrategyInverted {
+		headerSize += int64(segmentindex.HeaderInvertedSize)
 	}
+	if err := segmentFile.ValidateChecksum(fileInfo.Size(), headerSize); err != nil {
+		return nil, fmt.Errorf("validate segment %q: %w", path, err)
+	}
+	logger.WithField("duration", time.Since(start)/time.Millisecond).Infof("validated segment %q checksum", path)
 
 	primaryIndex, err := header.PrimaryIndex(contents)
 	if err != nil {
