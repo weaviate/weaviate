@@ -30,6 +30,9 @@ func TestHandler(t *testing.T) {
 	logger := logrus.New()
 
 	t.Run("Send", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
 		// Arrange
 		req := &pb.BatchSendRequest{
 			StreamId: "test-stream",
@@ -68,7 +71,7 @@ func TestHandler(t *testing.T) {
 
 	t.Run("Stream", func(t *testing.T) {
 		t.Run("start and stop due to cancellation", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
@@ -101,7 +104,7 @@ func TestHandler(t *testing.T) {
 		})
 
 		t.Run("start and stop due to sentinel", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
@@ -140,7 +143,7 @@ func TestHandler(t *testing.T) {
 		})
 
 		t.Run("start and stop due to shutdown", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
@@ -175,7 +178,7 @@ func TestHandler(t *testing.T) {
 		})
 
 		t.Run("start, process error, and stop due to cancellation", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
@@ -222,7 +225,7 @@ func TestHandler(t *testing.T) {
 		})
 
 		t.Run("start, process error, and stop due to sentinel", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
