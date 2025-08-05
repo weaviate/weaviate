@@ -51,6 +51,10 @@ func (ic *classSettings) QueryInferenceURL() string {
 	return ic.getSetting("queryInferenceUrl")
 }
 
+func (ic *classSettings) Dimensions() *int64 {
+	return ic.BaseClassSettings.GetPropertyAsInt64("dimensions", nil)
+}
+
 func (ic *classSettings) getSetting(property string) string {
 	return ic.BaseClassSettings.GetPropertyAsString(property, "")
 }
