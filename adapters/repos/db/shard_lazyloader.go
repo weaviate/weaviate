@@ -393,10 +393,8 @@ func (l *LazyLoadShard) drop() error {
 		NewMetrics(idx.logger, l.shardOpts.promMetrics, className, shardName).
 			DeleteShardLabels(className, shardName)
 
-		// cleanup dimensions
-		if idx.Config.TrackVectorDimensions {
-			l.shard.clearDimensionMetrics()
-		}
+		// cleanup dimensions: not deleted in s.metrics.DeleteShardLabels
+		clearDimensionMetrics(idx.Config, l.shardOpts.promMetrics, className, shardName)
 
 		// cleanup index checkpoints
 		if l.shardOpts.indexCheckpoints != nil {

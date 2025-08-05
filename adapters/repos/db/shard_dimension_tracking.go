@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type DimensionCategory int
@@ -107,21 +108,32 @@ func (dm DimensionMetrics) Add(add DimensionMetrics) DimensionMetrics {
 	}
 }
 
-// Vector dimension metrics are collected on the node level and
-// are normally _polled_ from each shard. Shard SHOULD only update
-// its dimension metrics on its own iff it is being shut down or dropped
-// and metrics grouping is disatbled.
+// Set shard's vector_dimensions_sum and vector_segments_sum metrics to 0.
 func (s *Shard) clearDimensionMetrics() {
-	if s.index.metrics.baseMetrics == nil || s.index.metrics.baseMetrics.Group {
+	if s.promMetrics == nil {
 		return
 	}
+	clearDimensionMetrics(s.index.Config, s.promMetrics, s.index.Config.ClassName.String(), s.name)
+}
 
-	className, shardName := s.index.Config.ClassName.String(), s.name
-	if g, err := s.index.metrics.baseMetrics.VectorDimensionsSum.
+// Set shard's vector_dimensions_sum and vector_segments_sum metrics to 0.
+//
+// Vector dimension metrics are collected on the node level and
+// are normally _polled_ from each shard. Shard dimension metrics
+// should only be updated on the shard level iff it is being shut
+// down or dropped and metrics grouping is disabled.
+// If metrics grouping is enabled, the difference is eventually
+// accounted for the next time nodeWideMetricsObserver recalculates
+// total vector dimensions, because only _active_ shards are considered.
+func clearDimensionMetrics(cfg IndexConfig, promMetrics *monitoring.PrometheusMetrics, className, shardName string) {
+	if !cfg.TrackVectorDimensions || promMetrics.Group {
+		return
+	}
+	if g, err := promMetrics.VectorDimensionsSum.
 		GetMetricWithLabelValues(className, shardName); err == nil {
 		g.Set(0)
 	}
-	if g, err := s.index.metrics.baseMetrics.VectorSegmentsSum.
+	if g, err := promMetrics.VectorSegmentsSum.
 		GetMetricWithLabelValues(className, shardName); err == nil {
 		g.Set(0)
 	}
