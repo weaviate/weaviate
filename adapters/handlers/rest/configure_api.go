@@ -701,7 +701,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 				WithField("action", "startup").
 				Info("Reindexing dimensions")
 			appState.Migrator.RecalculateVectorDimensions(ctx)
-
 		}
 	}, appState.Logger)
 

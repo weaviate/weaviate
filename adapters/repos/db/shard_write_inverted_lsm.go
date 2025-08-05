@@ -302,31 +302,21 @@ func (s *Shard) resetDimensionsLSM(ctx context.Context) (time.Time, error) {
 		s.segmentCleanupConfig(),
 	)
 	if err != nil {
-		return time.Now(), fmt.Errorf("create dimensions bucket: %w", err)
+		s.index.logger.WithError(err).WithField("shard", s.Name()).Error("resetDimensionsLSM: failed to create or load dimensions bucket")
 	}
 
 	// Fetch the actual bucket
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
+		s.index.logger.WithField("shard", s.Name()).Error("resetDimensionsLSM: no bucket dimensions")
 		return time.Now(), errors.Errorf("resetDimensionsLSM: no bucket dimensions")
 	}
 
-	// Create random bucket name
-	name, err := GenerateUniqueString(32)
-	if err != nil {
-		return time.Now(), errors.Wrap(err, "generate unique bucket name")
-	}
-
-	// Create a new bucket with the unique name
-	err = s.createDimensionsBucket(context.Background(), name)
-	if err != nil {
-		return time.Now(), errors.Wrap(err, "create temporary dimensions bucket")
-	}
-
-	// Replace the old bucket with the new one
-	err = s.store.ReplaceBuckets(context.Background(), helpers.DimensionsBucketLSM, name)
-	if err != nil {
-		return time.Now(), errors.Wrap(err, "replace dimensions bucket")
+	
+	// Clear the bucket
+	cursor := b.Cursor()
+	for k, _ := cursor.First(); k != nil; k, _ = cursor.Next() {
+		b.Delete(k)
 	}
 
 	return time.Now(), nil
