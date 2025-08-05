@@ -42,7 +42,7 @@ func testCreateSchemaWithMixedVectorizers(host string) func(t *testing.T) {
 			className := "BringYourOwnVector"
 			none1 := "none1"
 			none2 := "none2"
-			mixedTargetVectors := []string{none1, none2, c11y, transformers_bq}
+			mixedTargetVectors := []string{none1, none2, m2vec, transformers_bq}
 			vector1a := []float32{0.1, 0.2, 0.3}
 			vector2a := []float32{-0.1001, 0.2002, -0.3003, -0.4, -0.5}
 			vector1b := []float32{0.1111, 0.4, 0.3}
@@ -67,9 +67,9 @@ func testCreateSchemaWithMixedVectorizers(host string) func(t *testing.T) {
 						},
 						VectorIndexType: "flat",
 					},
-					c11y: {
+					m2vec: {
 						Vectorizer: map[string]interface{}{
-							text2vecContextionary: map[string]interface{}{
+							text2vecModel2Vec: map[string]interface{}{
 								"vectorizeClassName": false,
 							},
 						},
