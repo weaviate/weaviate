@@ -364,7 +364,9 @@ func (s *Shard) addToDimensionBucket(
 
 	// Update the count based on whether it's being created or deleted
 	if tombstone {
-		count = count - 1
+		if count > 0 {
+			count = count - 1
+		}
 	} else {
 		count = count + 1
 	}
