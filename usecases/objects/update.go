@@ -64,9 +64,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	principal *models.Principal, className string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (*models.Object, error) {
-	var alias string
 	if cls := m.schemaManager.ResolveAlias(className); cls != "" {
-		alias = className
 		className = cls
 	}
 
@@ -126,10 +124,6 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, vectors, multiVectors, repl, maxSchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
-	}
-
-	if alias != "" {
-		updates.Class = alias
 	}
 
 	return updates, nil
