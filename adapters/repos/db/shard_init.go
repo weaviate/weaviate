@@ -152,7 +152,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	s.NotifyReady()
 
 	if exists {
-		s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(start))
+		// s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(start))
 	} else {
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(start))
 	}

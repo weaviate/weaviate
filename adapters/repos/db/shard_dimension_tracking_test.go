@@ -190,6 +190,7 @@ func Test_Migration(t *testing.T) {
 	require.Equal(t, 0, dimBefore, "dimensions should not have been calculated")
 	repo.config.TrackVectorDimensions = true
 	migrator.RecalculateVectorDimensions(context.TODO())
+	time.Sleep(10 * time.Second) // wait for async migration to finish
 	dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
 	require.Equal(t, 12800, dimAfter, "dimensions should be counted now")
 }

@@ -33,6 +33,7 @@ import (
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -452,6 +453,35 @@ func (db *DB) SetSchemaReader(schemaReader clusterSchema.SchemaReader) {
 
 func (db *DB) SetReplicationFSM(replicationFsm *clusterReplication.ShardReplicationFSM) {
 	db.replicationFSM = replicationFsm
+}
+
+func SimpleSummaryPrinter(logger logrus.FieldLogger, dbh *DB) {
+	for {
+		time.Sleep(1 * time.Second) // print every 1 seconds
+		func() {
+			var classCount, indexCount, shardCount int
+			dbh.indexLock.Lock()
+			defer dbh.indexLock.Unlock()
+
+			indices := dbh.indices
+			indexCount = len(indices)
+
+			var classes []*models.Class
+			objects := dbh.schemaGetter.GetSchemaSkipAuth().Objects
+			if objects != nil {
+				classes = objects.Classes
+			}
+			classCount = len(classes)
+
+			// Iterate over all indexes
+			for _, index := range dbh.indices {
+				shards := index.ShardState().AllLocalPhysicalShards()
+				shardCount += len(shards)
+			}
+
+			logger.WithField("action", "SimpleSummaryPrinter").Infof("Found %v classes, %v indexes, %v shards", classCount, indexCount, shardCount)
+		}()
+	}
 }
 
 func (db *DB) WithBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) *DB {

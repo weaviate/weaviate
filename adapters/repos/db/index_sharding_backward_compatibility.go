@@ -32,7 +32,7 @@ func (i *Index) checkSingleShardMigration() error {
 		}
 
 		// whatever is left now, needs to be migrated
-		shards := i.shardState().AllPhysicalShards()
+		shards := i.ShardState().AllPhysicalShards()
 		if len(shards) != 1 {
 			return errors.Errorf("cannot migrate '_single' shard into config with %d "+
 				"desired shards", len(shards))

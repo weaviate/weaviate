@@ -4619,21 +4619,43 @@ func (_c *MockShardLike_removeTargetNodeOverride_Call) RunAndReturn(run func(con
 }
 
 // resetDimensionsLSM provides a mock function with given fields: ctx
-func (_m *MockShardLike) resetDimensionsLSM(ctx context.Context) error {
+func (_m *MockShardLike) resetDimensionsLSM(ctx context.Context) (time.Time, error) {
 	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for resetDimensionsLSM")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+	var r0 time.Time
+	var r1 error
+
+	// Allow various stubbed function shapes
+	if rf, ok := ret.Get(0).(func(context.Context) (time.Time, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func() (time.Time, error)); ok {
+		return rf()
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) time.Time); ok {
 		r0 = rf(ctx)
+	} else if rf, ok := ret.Get(0).(func() time.Time); ok {
+		r0 = rf()
+	} else if v, ok := ret.Get(0).(time.Time); ok {
+		r0 = v
 	} else {
-		r0 = ret.Error(0)
+		// fallback to zero value if none provided
+		r0 = time.Time{}
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else if rf, ok := ret.Get(1).(func() error); ok {
+		r1 = rf()
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockShardLike_resetDimensionsLSM_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'resetDimensionsLSM'
@@ -4654,12 +4676,12 @@ func (_c *MockShardLike_resetDimensionsLSM_Call) Run(run func(ctx context.Contex
 	return _c
 }
 
-func (_c *MockShardLike_resetDimensionsLSM_Call) Return(_a0 error) *MockShardLike_resetDimensionsLSM_Call {
-	_c.Call.Return(_a0)
+func (_c *MockShardLike_resetDimensionsLSM_Call) Return(_a0 time.Time, _a1 error) *MockShardLike_resetDimensionsLSM_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockShardLike_resetDimensionsLSM_Call) RunAndReturn(run func(context.Context) error) *MockShardLike_resetDimensionsLSM_Call {
+func (_c *MockShardLike_resetDimensionsLSM_Call) RunAndReturn(run func(context.Context) (time.Time, error)) *MockShardLike_resetDimensionsLSM_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -4987,6 +5009,55 @@ func (_c *MockShardLike_uuidFromDocID_Call) Return(_a0 strfmt.UUID, _a1 error) *
 }
 
 func (_c *MockShardLike_uuidFromDocID_Call) RunAndReturn(run func(uint64) (strfmt.UUID, error)) *MockShardLike_uuidFromDocID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// IterateObjects provides a mock function with given fields: ctx, fn
+// IterateObjects(context.Context, func(*Index, ShardLike, *storobj.Object) error) error
+func (_m *MockShardLike) IterateObjects(ctx context.Context, fn func(*Index, ShardLike, *storobj.Object) error) error {
+	ret := _m.Called(ctx, fn)
+
+	if len(ret) == 0 {
+		panic("no return value specified for IterateObjects")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, func(*Index, ShardLike, *storobj.Object) error) error); ok {
+		r0 = rf(ctx, fn)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_IterateObjects_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IterateObjects'
+type MockShardLike_IterateObjects_Call struct {
+	*mock.Call
+}
+
+// IterateObjects is a helper method to define mock.On call
+//   - ctx context.Context
+//   - fn func(*Index, ShardLike, *storobj.Object) error
+func (_e *MockShardLike_Expecter) IterateObjects(ctx interface{}, fn interface{}) *MockShardLike_IterateObjects_Call {
+	return &MockShardLike_IterateObjects_Call{Call: _e.mock.On("IterateObjects", ctx, fn)}
+}
+
+// IterateObjects is a helper method to define mock.On call
+func (_c *MockShardLike_IterateObjects_Call) Run(run func(ctx context.Context, fn func(*Index, ShardLike, *storobj.Object) error)) *MockShardLike_IterateObjects_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(func(*Index, ShardLike, *storobj.Object) error))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_IterateObjects_Call) Return(_a0 error) *MockShardLike_IterateObjects_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_IterateObjects_Call) RunAndReturn(run func(context.Context, func(*Index, ShardLike, *storobj.Object) error) error) *MockShardLike_IterateObjects_Call {
 	_c.Call.Return(run)
 	return _c
 }

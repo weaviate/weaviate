@@ -547,11 +547,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 // Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
 func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) (err error) {
 	return i.ForEachShard(func(_ string, shard ShardLike) error {
-		wrapper := func(object *storobj.Object) error {
-			return cb(i, shard, object)
-		}
-		bucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
-		return bucket.IterateObjects(ctx, wrapper)
+		return shard.IterateObjects(ctx, cb)
 	})
 }
 
@@ -582,6 +578,50 @@ func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) e
 		}
 		return f(name, shard)
 	})
+}
+
+func (index *Index) ClassName() string {
+	return index.Config.ClassName.String()
+}
+
+func (index *Index) Class() *models.Class {
+	className := index.Config.ClassName.String()
+	class := index.getSchema.ReadOnlyClass(className)
+	return class
+}
+
+func (i *Index) GetShardLike(shardName string) (ShardLike, error) {
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
+	shard := i.shards.Load(shardName)
+	if shard != nil {
+		return shard, nil
+	}
+
+	shard, err := i.initShard(i.closingCtx, shardName, i.Class(),
+		monitoring.GetMetrics(), false, false)
+	if err != nil {
+		return nil, err
+	}
+
+	return shard, nil
+}
+
+func (i *Index) ForEachPhysicalShard(f func(name string, shard ShardLike) error) error {
+	shardingState := i.ShardState()
+	physicalShards := shardingState.AllPhysicalShards()
+	for _, shardName := range physicalShards {
+		s, err := i.GetShardLike(shardName)
+		if err != nil {
+			return fmt.Errorf("getting shard %s: %w", shardName, err)
+		}
+
+		err = f(shardName, s)
+		if err != nil {
+			return fmt.Errorf("iterating physical shards: %w", err)
+		}
+	}
+	return nil
 }
 
 func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {
@@ -2613,7 +2653,7 @@ func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
 	return nil
 }
 
-func (i *Index) shardState() *sharding.State {
+func (i *Index) ShardState() *sharding.State {
 	return i.getSchema.CopyShardingState(i.Config.ClassName.String())
 }
 
@@ -2621,7 +2661,7 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 	shardsQueueSize := make(map[string]int64)
 
 	// TODO-RAFT should be strongly consistent?
-	shardNames := i.shardState().AllPhysicalShards()
+	shardNames := i.ShardState().AllPhysicalShards()
 
 	for _, shardName := range shardNames {
 		if tenant != "" && shardName != tenant {
@@ -3060,7 +3100,7 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 }
 
 // calcTargetVectorDimensionsFromStore calculates dimensions and object count for a target vector from an LSMKV store
-func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) usagetypes.Dimensionality {
+func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store, targetVector string, calcEntry func(dimLen int, v int) (int, int)) usagetypes.Dimensionality {
 	b := store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
 		return usagetypes.Dimensionality{}
@@ -3069,25 +3109,26 @@ func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store
 }
 
 // calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
-func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) usagetypes.Dimensionality {
-	c := b.MapCursor()
+func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string, calcEntry func(dimLen int, v int) (int, int)) usagetypes.Dimensionality {
+	c := b.Cursor()
 	defer c.Close()
 
-	var (
-		nameLen        = len(targetVector)
-		expectedKeyLen = 4 + nameLen
-		dimensionality = usagetypes.Dimensionality{}
-	)
+	dimensionality := usagetypes.Dimensionality{}
 
-	for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		if len(k) < 4 || len(v) < 4 {
+			continue // skip keys or values that are too short to contain valid data
+		}
+		vecName := string(k[4:]) // skip the first 4 bytes which are the dimension length
 		// for named vectors we have to additionally check if the key is prefixed with the vector name
-		keyMatches := len(k) == expectedKeyLen && (nameLen == 4 || strings.HasPrefix(string(k), targetVector))
+		keyMatches := vecName == targetVector
 		if !keyMatches {
 			continue
 		}
 
-		dimLength := int(binary.LittleEndian.Uint32(k[nameLen:]))
-		size, dim := calcEntry(dimLength, v)
+		dimLength := int(binary.LittleEndian.Uint32(k[:4]))
+		count := int(binary.LittleEndian.Uint32(v))
+		size, dim := calcEntry(dimLength, count)
 		if dimensionality.Dimensions == 0 && dim > 0 {
 			dimensionality.Dimensions = dim
 		}
@@ -3144,16 +3185,6 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 				}
 				totalObjectCount += count
 			}
-
-			// Look for .metadata files (bloom filters + count net additions)
-			if strings.HasSuffix(info.Name(), lsmkv.MetadataFileSuffix) {
-				count, err := lsmkv.ReadObjectCountFromMetadataFile(path)
-				if err != nil {
-					i.logger.WithField("path", path).WithError(err).Warn("failed to read .metadata file")
-					return err
-				}
-				totalObjectCount += count
-			}
 		}
 
 		return nil
@@ -3192,8 +3223,8 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName
 	}
 	defer bucket.Shutdown(ctx)
 
-	dimensionality := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
-		return len(v), dimLen
+	dimensionality := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v int) (int, int) {
+		return v, dimLen
 	})
 
 	return dimensionality, nil
@@ -3227,8 +3258,8 @@ func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName 
 			return 0, err
 		}
 
-		dimensionality := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
-			return len(v), dimLen
+		dimensionality := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v int) (int, int) {
+			return v, dimLen
 		})
 		bucket.Shutdown(ctx)
 

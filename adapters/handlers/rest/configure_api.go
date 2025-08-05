@@ -463,6 +463,11 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.TenantActivity.SetSource(appState.DB)
 	}
 
+	enterrors.GoWrapper(func() {
+		db.SimpleSummaryPrinter(appState.Logger, repo)
+	}, appState.Logger)
+	// this is a long-running goroutine that prints a summary of the DB every 10 second
+
 	setupDebugHandlers(appState)
 	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
@@ -680,6 +685,26 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		}
 	}, appState.Logger)
 
+	enterrors.GoWrapper(func() {
+		// Add dimensions to all the objects in the database, if requested by the user
+		if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && appState.DB.GetConfig().TrackVectorDimensions {
+			<-storeReadyCtx.Done()
+			// storeReadyCancel was called — check reason
+			if cause := context.Cause(storeReadyCtx); cause != nil && cause != metaStoreReadyErr {
+				appState.Logger.
+					WithField("action", "startup").
+					WithError(cause).
+					Error("Skipping reindex due to meta store failure")
+				return
+			}
+			appState.Logger.
+				WithField("action", "startup").
+				Info("Reindexing dimensions")
+			appState.Migrator.RecalculateVectorDimensions(ctx)
+
+		}
+	}, appState.Logger)
+
 	// TODO-RAFT: refactor remove this sleep
 	// this sleep was used to block GraphQL and give time to RAFT to start.
 	time.Sleep(2 * time.Second)
@@ -730,14 +755,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	configureServer = makeConfigureServer(appState)
-
-	// Add dimensions to all the objects in the database, if requested by the user
-	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && repo.GetConfig().TrackVectorDimensions {
-		appState.Logger.
-			WithField("action", "startup").
-			Info("Reindexing dimensions")
-		migrator.RecalculateVectorDimensions(ctx)
-	}
 
 	// Add recount properties of all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.RecountPropertiesAtStartup {

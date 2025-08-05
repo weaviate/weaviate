@@ -101,7 +101,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class, lazyLoad
 			return fmt.Errorf("init async replication on shard %q: %w", s.ID(), err)
 		}
 	} else if s.index.replicationEnabled() {
-		s.index.logger.Infof("async replication disabled on shard %q", s.ID())
+		// s.index.logger.Infof("async replication disabled on shard %q", s.ID())
 	}
 
 	// check if we need to set Inverted Index config to use BlockMax inverted format for new properties
