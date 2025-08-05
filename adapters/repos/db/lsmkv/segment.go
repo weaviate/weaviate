@@ -186,12 +186,10 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
 	}
 
-	if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation {
-		file.Seek(0, io.SeekStart)
-		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
-		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
-			return nil, fmt.Errorf("validate segment %q: %w", path, err)
-		}
+	file.Seek(0, io.SeekStart)
+	segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
+	if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
+		return nil, fmt.Errorf("validate segment %q: %w", path, err)
 	}
 
 	primaryIndex, err := header.PrimaryIndex(contents)
