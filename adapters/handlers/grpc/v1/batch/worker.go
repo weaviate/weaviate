@@ -28,7 +28,6 @@ type Batcher interface {
 
 type Worker struct {
 	batcher       Batcher
-	ctx           context.Context
 	logger        logrus.FieldLogger
 	readQueues    *ReadQueues
 	internalQueue internalQueue
@@ -53,11 +52,11 @@ type ProcessRequest struct {
 	Stop       bool
 }
 
-func (w *Worker) sendObjects(streamId string, req *SendObjects) error {
+func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObjects) error {
 	if req == nil {
 		return fmt.Errorf("received nil sendObjects request")
 	}
-	reply, err := w.batcher.BatchObjects(w.ctx, &pb.BatchObjectsRequest{
+	reply, err := w.batcher.BatchObjects(ctx, &pb.BatchObjectsRequest{
 		Objects:          req.Values,
 		ConsistencyLevel: req.ConsistencyLevel,
 	})
@@ -83,11 +82,11 @@ func (w *Worker) sendObjects(streamId string, req *SendObjects) error {
 	return nil
 }
 
-func (w *Worker) sendReferences(streamId string, req *SendReferences) error {
+func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendReferences) error {
 	if req == nil {
 		return fmt.Errorf("received nil sendReferences request")
 	}
-	reply, err := w.batcher.BatchReferences(w.ctx, &pb.BatchReferencesRequest{
+	reply, err := w.batcher.BatchReferences(ctx, &pb.BatchReferencesRequest{
 		References:       req.Values,
 		ConsistencyLevel: req.ConsistencyLevel,
 	})
@@ -114,33 +113,38 @@ func (w *Worker) sendReferences(streamId string, req *SendReferences) error {
 }
 
 // Loop processes objects from the write queue, sending them to the batcher and handling shutdown signals.
-func (w *Worker) Loop(consistencyLevel pb.ConsistencyLevel) error {
+func (w *Worker) Loop(ctx context.Context, consistencyLevel pb.ConsistencyLevel) error {
 	for {
 		select {
-		case <-w.ctx.Done():
+		case <-ctx.Done():
+			// Return early if the internal queue is empty
+			// TODO: will there be a race between an object being added to the queue and the workers shutting down?
+			if len(w.internalQueue) == 0 {
+				return nil
+			}
 			// Drain the write queue and process any remaining requests
 			for req := range w.internalQueue {
-				if err := w.process(req); err != nil {
+				if err := w.process(ctx, req); err != nil {
 					return fmt.Errorf("failed to process batch request: %w", err)
 				}
 			}
 			return nil
 		case req := <-w.internalQueue:
-			if err := w.process(req); err != nil {
+			if err := w.process(ctx, req); err != nil {
 				return fmt.Errorf("failed to process batch request: %w", err)
 			}
 		}
 	}
 }
 
-func (w *Worker) process(req *ProcessRequest) error {
+func (w *Worker) process(ctx context.Context, req *ProcessRequest) error {
 	if req.Objects != nil {
-		if err := w.sendObjects(req.StreamId, req.Objects); err != nil {
+		if err := w.sendObjects(ctx, req.StreamId, req.Objects); err != nil {
 			return err
 		}
 	}
 	if req.References != nil {
-		if err := w.sendReferences(req.StreamId, req.References); err != nil {
+		if err := w.sendReferences(ctx, req.StreamId, req.References); err != nil {
 			return err
 		}
 	}
@@ -159,8 +163,8 @@ func StartBatchWorkers(ctx context.Context, wg *sync.WaitGroup, concurrency int,
 		wg.Add(1)
 		eg.Go(func() error {
 			defer wg.Done()
-			w := &Worker{batcher: batcher, ctx: ctx, logger: logger, readQueues: readQueues, internalQueue: internalQueue}
-			return w.Loop(pb.ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM)
+			w := &Worker{batcher: batcher, logger: logger, readQueues: readQueues, internalQueue: internalQueue}
+			return w.Loop(ctx, pb.ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM)
 		})
 	}
 }

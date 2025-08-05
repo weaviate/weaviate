@@ -13,6 +13,7 @@ package batch_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -51,7 +52,8 @@ func TestWorkerLoop(t *testing.T) {
 			Took:   float32(1),
 			Errors: nil,
 		}, nil).Times(1)
-		batch.StartBatchWorkers(ctx, nil, 1, internalQueue, readQueues, mockBatcher, logger)
+		var wg sync.WaitGroup
+		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, mockBatcher, logger)
 
 		// Send data
 		internalQueue <- &batch.ProcessRequest{
@@ -66,11 +68,6 @@ func TestWorkerLoop(t *testing.T) {
 				Values: []*pb.BatchReference{},
 			},
 		}
-		// Send sentinel
-		internalQueue <- &batch.ProcessRequest{
-			StreamId: StreamId,
-			Stop:     true,
-		}
 
 		// Send sentinel
 		internalQueue <- &batch.ProcessRequest{
@@ -83,6 +80,11 @@ func TestWorkerLoop(t *testing.T) {
 		require.True(t, ok, "Expected read queue to exist and to contain message")
 		stop := <-ch
 		require.True(t, stop.Stop, "Expected stop signal to be true")
+
+		cancel() // Cancel the context to stop the worker loop
+		wg.Wait()
+		require.Empty(t, internalQueue, "Expected internal queue to be empty after processing")
+		require.Empty(t, ch, "Expected read queue to be empty after processing")
 	})
 
 	t.Run("should process from the queue during shutdown", func(t *testing.T) {
@@ -103,7 +105,8 @@ func TestWorkerLoop(t *testing.T) {
 			Took:   float32(1),
 			Errors: nil,
 		}, nil).Times(1)
-		batch.StartBatchWorkers(ctx, nil, 1, internalQueue, readQueues, mockBatcher, logger)
+		var wg sync.WaitGroup
+		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, mockBatcher, logger)
 
 		cancel() // Cancel the context to simulate shutdown
 		// Send data after context cancellation to ensure that the worker processes it
@@ -132,6 +135,10 @@ func TestWorkerLoop(t *testing.T) {
 		require.True(t, ok, "Expected read queue to exist and to contain message")
 		stop := <-ch
 		require.True(t, stop.Stop, "Expected stop signal to be true")
+
+		wg.Wait() // Wait for the worker to finish processing
+		require.Empty(t, internalQueue, "Expected internal queue to be empty after processing")
+		require.Empty(t, ch, "Expected read queue to be empty after processing")
 	})
 
 	t.Run("should process from the queue and send data returning error", func(t *testing.T) {
@@ -164,7 +171,8 @@ func TestWorkerLoop(t *testing.T) {
 			Took:   float32(1),
 			Errors: errorsRefs,
 		}, nil)
-		batch.StartBatchWorkers(ctx, nil, 1, internalQueue, readQueues, mockBatcher, logger)
+		var wg sync.WaitGroup
+		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, mockBatcher, logger)
 
 		// Send data
 		obj := &pb.BatchObject{}
@@ -210,5 +218,10 @@ func TestWorkerLoop(t *testing.T) {
 		// Read sentinel
 		stop := <-ch
 		require.True(t, stop.Stop, "Expected stop signal to be true")
+
+		cancel() // Cancel the context to stop the worker loop
+		wg.Wait()
+		require.Empty(t, internalQueue, "Expected internal queue to be empty after processing")
+		require.Empty(t, ch, "Expected read queue to be empty after processing")
 	})
 }

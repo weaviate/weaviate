@@ -13,6 +13,7 @@ package batch_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,7 +47,8 @@ func TestHandler(t *testing.T) {
 		readQueues := batch.NewBatchReadQueues()
 		internalQueue := batch.NewBatchInternalQueue()
 		handler := batch.NewQueuesHandler(shutdownCtx, writeQueues, readQueues, logger)
-		batch.StartScheduler(ctx, nil, writeQueues, internalQueue, logger)
+		var wg sync.WaitGroup
+		batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
 
 		writeQueues.Make(req.StreamId, nil)
 		// Act
@@ -58,6 +60,10 @@ func TestHandler(t *testing.T) {
 		// Verify that the internal queue has the object
 		obj := <-internalQueue
 		require.NotNil(t, obj, "Expected object to be sent to internal queue")
+
+		// Shutdown the scheduler
+		shutdownCancel()
+		wg.Wait()
 	})
 
 	t.Run("Stream", func(t *testing.T) {
@@ -84,8 +90,9 @@ func TestHandler(t *testing.T) {
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
 			internalQueue := batch.NewBatchInternalQueue()
-			handler := batch.NewQueuesHandler(context.Background(), writeQueues, readQueues, logger)
-			batch.StartScheduler(ctx, nil, writeQueues, internalQueue, logger)
+			handler := batch.NewQueuesHandler(ctx, writeQueues, readQueues, logger)
+			var wg sync.WaitGroup
+			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
@@ -116,8 +123,9 @@ func TestHandler(t *testing.T) {
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
 			internalQueue := batch.NewBatchInternalQueue()
-			handler := batch.NewQueuesHandler(context.Background(), writeQueues, readQueues, logger)
-			batch.StartScheduler(ctx, nil, writeQueues, internalQueue, logger)
+			handler := batch.NewQueuesHandler(ctx, writeQueues, readQueues, logger)
+			var wg sync.WaitGroup
+			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
@@ -156,7 +164,8 @@ func TestHandler(t *testing.T) {
 			internalQueue := batch.NewBatchInternalQueue()
 			shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 			handler := batch.NewQueuesHandler(shutdownCtx, writeQueues, readQueues, logger)
-			batch.StartScheduler(shutdownCtx, nil, writeQueues, internalQueue, logger)
+			var wg sync.WaitGroup
+			batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
@@ -195,8 +204,9 @@ func TestHandler(t *testing.T) {
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
 			internalQueue := batch.NewBatchInternalQueue()
-			handler := batch.NewQueuesHandler(context.Background(), writeQueues, readQueues, logger)
-			batch.StartScheduler(ctx, nil, writeQueues, internalQueue, logger)
+			handler := batch.NewQueuesHandler(ctx, writeQueues, readQueues, logger)
+			var wg sync.WaitGroup
+			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
@@ -241,8 +251,9 @@ func TestHandler(t *testing.T) {
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
 			internalQueue := batch.NewBatchInternalQueue()
-			handler := batch.NewQueuesHandler(context.Background(), writeQueues, readQueues, logger)
-			batch.StartScheduler(ctx, nil, writeQueues, internalQueue, logger)
+			handler := batch.NewQueuesHandler(ctx, writeQueues, readQueues, logger)
+			var wg sync.WaitGroup
+			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
@@ -270,7 +281,8 @@ func TestScheduler(t *testing.T) {
 	internalQueue := batch.NewBatchInternalQueue()
 
 	writeQueues.Make("test-stream", nil)
-	batch.StartScheduler(shutdownCtx, nil, writeQueues, internalQueue, logger)
+	var wg sync.WaitGroup
+	batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
 
 	queue, ok := writeQueues.Get("test-stream")
 	require.True(t, ok, "Expected write queue to exist")
@@ -286,4 +298,12 @@ func TestScheduler(t *testing.T) {
 			return false
 		}
 	}, 1*time.Second, 10*time.Millisecond, "Expected object to be sent to internal queue")
+
+	shutdownCancel() // Trigger shutdown
+	wg.Wait()        // Wait for scheduler to finish
+
+	require.Empty(t, internalQueue, "Expected internal queue to be empty after shutdown")
+	ch, ok := writeQueues.Get("test-stream")
+	require.True(t, ok, "Expected write queue to still exist after shutdown")
+	require.Empty(t, ch, "Expected write queue to be empty after shutdown")
 }

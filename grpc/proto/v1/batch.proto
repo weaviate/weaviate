@@ -28,7 +28,8 @@ message BatchReferences {
 }
 
 message BatchSendRequest {
-  message BatchStop{}
+  message BatchStop{
+  }
   string stream_id = 1;
   oneof message {
     BatchObjects objects = 2;
@@ -42,7 +43,8 @@ message BatchSendReply {
 }
 
 message BatchStreamRequest {
-  message Dynamic {}
+  message Dynamic {
+  }
   message FixedSize {
     int32 size = 1;
   }

@@ -116,25 +116,23 @@ func (h *QueuesHandler) Teardown(streamId string) {
 }
 
 type Scheduler struct {
-	grpcShutdownCtx context.Context
-	logger          logrus.FieldLogger
-	writeQueues     *WriteQueues
-	internalQueue   internalQueue
+	logger        logrus.FieldLogger
+	writeQueues   *WriteQueues
+	internalQueue internalQueue
 }
 
-func NewScheduler(grpcShutdownCtx context.Context, writeQueues *WriteQueues, internalQueue internalQueue, logger logrus.FieldLogger) *Scheduler {
+func NewScheduler(writeQueues *WriteQueues, internalQueue internalQueue, logger logrus.FieldLogger) *Scheduler {
 	return &Scheduler{
-		grpcShutdownCtx: grpcShutdownCtx,
-		logger:          logger,
-		writeQueues:     writeQueues,
-		internalQueue:   internalQueue,
+		logger:        logger,
+		writeQueues:   writeQueues,
+		internalQueue: internalQueue,
 	}
 }
 
-func (s *Scheduler) Loop() {
+func (s *Scheduler) Loop(ctx context.Context) {
 	for {
 		select {
-		case <-s.grpcShutdownCtx.Done():
+		case <-ctx.Done():
 			s.logger.Info("shutting down scheduler loop")
 			return
 		default:
@@ -152,21 +150,21 @@ func (s *Scheduler) Loop() {
 				if len(wq.queue) == 0 {
 					return true // continue iteration if queue is empty
 				}
-				return s.add(streamId, wq)
+				return s.add(ctx, streamId, wq)
 			})
 			time.Sleep(time.Millisecond * 100)
 		}
 	}
 }
 
-func (s *Scheduler) add(streamId string, wq *WriteQueue) bool {
+func (s *Scheduler) add(ctx context.Context, streamId string, wq *WriteQueue) bool {
 	weight := len(wq.queue) // or smoothed average
 	objs := make([]*pb.BatchObject, 0, weight)
 	refs := make([]*pb.BatchReference, 0, weight)
 	stop := false
 	for i := 0; i < weight && len(wq.queue) > 0; i++ {
 		select {
-		case <-s.grpcShutdownCtx.Done():
+		case <-ctx.Done():
 			s.logger.Info("shutting down scheduler loop due to grpc shutdown")
 			return false // stop iteration
 		case obj := <-wq.queue:
@@ -223,10 +221,10 @@ func (s *Scheduler) add(streamId string, wq *WriteQueue) bool {
 }
 
 func StartScheduler(ctx context.Context, wg *sync.WaitGroup, writeQueues *WriteQueues, internalQueue internalQueue, logger logrus.FieldLogger) {
-	scheduler := NewScheduler(ctx, writeQueues, internalQueue, logger)
+	scheduler := NewScheduler(writeQueues, internalQueue, logger)
 	wg.Add(1)
 	enterrors.GoWrapper(func() {
-		scheduler.Loop()
+		scheduler.Loop(ctx)
 		wg.Done()
 	}, logger)
 }
@@ -278,7 +276,6 @@ type (
 	internalQueue chan *ProcessRequest
 	writeQueue    chan *writeObject
 	readQueue     chan *readObject
-	readQueues    map[string]readQueue
 )
 
 // NewBatchWriteQueue creates a buffered channel to store objects for batch writing.
@@ -302,7 +299,7 @@ func NewBatchWriteQueues() *WriteQueues {
 
 func NewBatchReadQueues() *ReadQueues {
 	return &ReadQueues{
-		queues: make(readQueues),
+		queues: sync.Map{},
 	}
 }
 
@@ -339,42 +336,39 @@ func NewWriteObject(obj *pb.BatchObject) *writeObject {
 
 type ReadQueues struct {
 	lock   sync.RWMutex
-	queues readQueues
+	queues sync.Map // map[string]readQueue
 }
 
 // Get retrieves the read queue for the given stream ID.
 func (r *ReadQueues) Get(streamId string) (readQueue, bool) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
-	queue, ok := r.queues[streamId]
+	queue, ok := r.queues.Load(streamId)
 	if !ok {
 		return nil, false
 	}
-	return queue, true
+	return queue.(readQueue), true
 }
 
 // Delete removes the read queue for the given stream ID.
 func (r *ReadQueues) Delete(streamId string) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	close(r.queues[streamId])
-	delete(r.queues, streamId)
+	if queue, ok := r.queues.Load(streamId); ok {
+		close(queue.(readQueue))
+		r.queues.Delete(streamId)
+	}
 }
 
 func (r *ReadQueues) Close() {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	for _, queue := range r.queues {
-		close(queue)
-	}
+	r.queues.Range(func(key, value any) bool {
+		close(value.(readQueue))
+		return true
+	})
 }
 
 // Make initializes a read queue for the given stream ID if it does not already exist.
 func (r *ReadQueues) Make(streamId string) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	if _, ok := r.queues[streamId]; !ok {
-		r.queues[streamId] = make(readQueue)
+	if _, ok := r.queues.Load(streamId); !ok {
+		r.queues.Store(streamId, make(readQueue))
 	}
 }
 
@@ -386,7 +380,7 @@ type WriteQueue struct {
 }
 
 type WriteQueues struct {
-	queues sync.Map
+	queues sync.Map // map[string]*WriteQueue
 }
 
 func (w *WriteQueues) Get(streamId string) (writeQueue, bool) {
