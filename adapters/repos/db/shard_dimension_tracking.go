@@ -108,22 +108,27 @@ func (dm DimensionMetrics) Add(add DimensionMetrics) DimensionMetrics {
 	}
 }
 
-// Vector dimension metrics are collected on the node level and
-// are normally _polled_ from each shard. Shard SHOULD only update
-// its dimension metrics on its own iff it is being shut down or dropped
-// and metrics grouping is disabled.
-// If metrics grouping is enabled, the difference is eventually
-// accounted for the next time nodeWideMetricsObserver recalculates
-// total vector dimensions, because only _active_ shards are considered.
+// Set shard's vector_dimensions_sum and vector_segments_sum metrics to 0.
 func (s *Shard) clearDimensionMetrics() {
-	if s.promMetrics == nil || s.promMetrics.Group {
+	if s.promMetrics == nil {
 		return
 	}
-	clearDimensionMetrics(s.promMetrics, s.index.Config.ClassName.String(), s.name)
+	clearDimensionMetrics(s.index.Config, s.promMetrics, s.index.Config.ClassName.String(), s.name)
 }
 
 // Set shard's vector_dimensions_sum and vector_segments_sum metrics to 0.
-func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics, className, shardName string) {
+//
+// Vector dimension metrics are collected on the node level and
+// are normally _polled_ from each shard. Shard dimension metrics
+// should only be updated on the shard level iff it is being shut
+// down or dropped and metrics grouping is disabled.
+// If metrics grouping is enabled, the difference is eventually
+// accounted for the next time nodeWideMetricsObserver recalculates
+// total vector dimensions, because only _active_ shards are considered.
+func clearDimensionMetrics(cfg IndexConfig, promMetrics *monitoring.PrometheusMetrics, className, shardName string) {
+	if !cfg.TrackVectorDimensions || promMetrics.Group {
+		return
+	}
 	if g, err := promMetrics.VectorDimensionsSum.
 		GetMetricWithLabelValues(className, shardName); err == nil {
 		g.Set(0)

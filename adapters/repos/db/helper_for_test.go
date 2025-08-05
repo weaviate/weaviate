@@ -221,8 +221,10 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMetrics, classes ...*models.Class) *DB {
 	t.Helper()
 
+	require.NotNil(t, metrics, "metrics parameter cannot be nil")
 	metricsCopy := *metrics
 	metricsCopy.Registerer = monitoring.NoopRegisterer
+
 	db, err := New(logrus.New(), Config{
 		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10000,
