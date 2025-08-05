@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -192,6 +194,12 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				vectorConfigs = tt.vectorConfigs
 			}
 
+			mockRouter := types.NewMockRouter(t)
+			mockRouter.EXPECT().GetWriteReplicasLocation(tt.className, mock.Anything, tt.shardName).
+				Return(types.WriteReplicaSet{
+					Replicas:           []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "10.14.57.56"}},
+					AdditionalReplicas: nil,
+				}, nil).Maybe()
 			index, err := NewIndex(ctx, IndexConfig{
 				RootPath:              dirName,
 				ClassName:             schema.ClassName(tt.className),
@@ -455,6 +463,12 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 					VectorCacheMaxObjects: 1000,
 				},
 			}
+			mockRouter := types.NewMockRouter(t)
+			mockRouter.EXPECT().GetWriteReplicasLocation(tt.className, mock.Anything, tt.shardName).
+				Return(types.WriteReplicaSet{
+					Replicas:           []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "10.14.57.56"}},
+					AdditionalReplicas: nil,
+				}, nil).Maybe()
 			index, err := NewIndex(ctx, IndexConfig{
 				RootPath:              dirName,
 				ClassName:             schema.ClassName(tt.className),
@@ -636,6 +650,12 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 	mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return("test-shard").Maybe()
 
+	mockRouter := types.NewMockRouter(t)
+	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, shardName).
+		Return(types.WriteReplicaSet{
+			Replicas:           []types.Replica{{NodeName: "test-node", ShardName: shardName, HostAddr: "10.14.57.56"}},
+			AdditionalReplicas: nil,
+		}, nil).Maybe()
 	// Create index with lazy loading disabled to test active calculation methods
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:              dirName,

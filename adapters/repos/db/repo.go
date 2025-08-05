@@ -48,6 +48,7 @@ import (
 
 type DB struct {
 	logger            logrus.FieldLogger
+	localNodeName     string
 	schemaGetter      schemaUC.SchemaGetter
 	config            Config
 	indices           map[string]*Index
@@ -61,9 +62,6 @@ type DB struct {
 	startupComplete   atomic.Bool
 	resourceScanState *resourceScanState
 	memMonitor        *memwatch.Monitor
-	nodeSelector      cluster.NodeSelector
-	schemaReader      schemaUC.SchemaReader
-	replicationFSM    types.ReplicationFSMReader
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modification at a time. R/W can be a bit confusing here,
@@ -101,7 +99,10 @@ type DB struct {
 
 	shardLoadLimiter ShardLoadLimiter
 
-	reindexer ShardReindexerV3
+	reindexer      ShardReindexerV3
+	nodeSelector   cluster.NodeSelector
+	schemaReader   schemaUC.SchemaReader
+	replicationFSM types.ReplicationFSMReader
 
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
@@ -159,10 +160,11 @@ type IndexLike interface {
 	CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) (int64, error)
 }
 
-func New(logger logrus.FieldLogger, config Config,
+func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
+	nodeSelector cluster.NodeSelector, schemaReader schemaUC.SchemaReader, replicationFSM types.ReplicationFSMReader,
 ) (*DB, error) {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -174,6 +176,7 @@ func New(logger logrus.FieldLogger, config Config,
 
 	db := &DB{
 		logger:              logger,
+		localNodeName:       localNodeName,
 		config:              config,
 		indices:             map[string]*Index{},
 		remoteIndex:         remoteIndex,
@@ -187,6 +190,9 @@ func New(logger logrus.FieldLogger, config Config,
 		memMonitor:          memMonitor,
 		shardLoadLimiter:    NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
 		reindexer:           NewShardReindexerV3Noop(),
+		nodeSelector:        nodeSelector,
+		schemaReader:        schemaReader,
+		replicationFSM:      replicationFSM,
 		bitmapBufPool:       roaringset.NewBitmapBufPoolNoop(),
 		bitmapBufPoolClose:  func() {},
 	}

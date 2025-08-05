@@ -217,7 +217,7 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	}
 
 	// delete the DocIDs in given shards
-	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, deletionTime, params.DryRun, repl, schemaVersion)
+	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, deletionTime, params.DryRun, repl, schemaVersion, tenant)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot delete objects")
 	}

@@ -217,7 +217,6 @@ func TestUpdateIndexShards(t *testing.T) {
 				Logger:  logger,
 				Workers: 1,
 			})
-
 			// Create index with proper configuration
 			index, err := NewIndex(ctx, IndexConfig{
 				ClassName:         schema.ClassName("TestClass"),
