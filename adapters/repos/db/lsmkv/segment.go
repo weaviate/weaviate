@@ -187,7 +187,9 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
 	}
 
-	logger.Warnf("validating segment %q checksum", path)
+	logger.WithField("size", fileInfo.Size()).
+		Infof("validating checksum segment %q", path)
+
 	start := time.Now()
 
 	file.Seek(0, io.SeekStart)
@@ -196,10 +198,19 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	if header.Strategy == segmentindex.StrategyInverted {
 		headerSize += int64(segmentindex.HeaderInvertedSize)
 	}
-	if err := segmentFile.ValidateChecksum(fileInfo.Size(), headerSize); err != nil {
+	fileSize := fileInfo.Size()
+	if err := segmentFile.ValidateChecksum(fileSize, headerSize); err != nil {
 		return nil, fmt.Errorf("validate segment %q: %w", path, err)
 	}
-	logger.WithField("duration", time.Since(start)/time.Millisecond).Infof("validated segment %q checksum", path)
+	total := time.Since(start) / time.Millisecond
+	if total == 0 {
+		total = 1 // avoid division by zero in the log
+	}
+
+	logger.WithField("duration", total).
+		WithField("size", fileInfo.Size()).
+		WithField("rate", float64(fileSize)/float64(total)).
+		Infof("validated checksum segment %q", path)
 
 	primaryIndex, err := header.PrimaryIndex(contents)
 	if err != nil {
