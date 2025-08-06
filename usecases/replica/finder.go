@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -31,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 )
 
 var (
@@ -194,6 +196,15 @@ type ShardDesc struct {
 func (f *Finder) CheckConsistency(ctx context.Context,
 	l types.ConsistencyLevel, xs []*storobj.Object,
 ) error {
+	// Start tracing span for consistency check
+	ctx, span := opentelemetry.StartSpan(ctx, "replica_consistency_check")
+	defer span.End()
+
+	opentelemetry.SetAttributes(ctx,
+		attribute.String("weaviate.replica.consistency_level", string(l)),
+		attribute.Int("weaviate.replica.objects_count", len(xs)),
+	)
+
 	if len(xs) == 0 {
 		return nil
 	}
@@ -217,10 +228,22 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	for _, part := range cluster(createBatch(xs)) {
 		part := part
 		gr.Go(func() error {
-			_, err := f.checkShardConsistency(ctx, l, part)
+			// Start tracing span for individual shard consistency check
+			shardCtx, shardSpan := opentelemetry.StartSpan(ctx, "shard_consistency_check")
+			defer shardSpan.End()
+
+			opentelemetry.SetAttributes(shardCtx,
+				attribute.String("weaviate.replica.shard", part.Shard),
+				attribute.Int("weaviate.replica.shard_objects_count", len(part.Index)),
+			)
+
+			_, err := f.checkShardConsistency(shardCtx, l, part)
 			if err != nil {
+				opentelemetry.RecordError(shardCtx, err)
 				f.log.WithField("op", "check_shard_consistency").
 					WithField("shard", part.Shard).Error(err)
+			} else {
+				opentelemetry.SetAttributes(shardCtx, attribute.Bool("weaviate.replica.shard_consistent", true))
 			}
 			return err
 		}, part)

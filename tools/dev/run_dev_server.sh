@@ -215,6 +215,10 @@ case $CONFIG in
   ;;
 
   local-development)
+      OTEL_ENABLED=true \
+      OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 \
+      OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+      OTEL_TRACES_SAMPLER_ARG=1.0 \
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-0" \
@@ -237,6 +241,10 @@ case $CONFIG in
         --write-timeout=600s
     ;;
   second-node)
+      OTEL_ENABLED=true \
+      OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 \
+      OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+      OTEL_TRACES_SAMPLER_ARG=1.0 \
       GRPC_PORT=50052 \
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
@@ -265,6 +273,10 @@ case $CONFIG in
     ;;
 
     third-node)
+        OTEL_ENABLED=true \
+        OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 \
+        OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+        OTEL_TRACES_SAMPLER_ARG=1.0 \
         GRPC_PORT=50053 \
         CONTEXTIONARY_URL=localhost:9999 \
         AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \

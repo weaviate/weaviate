@@ -1,4 +1,3 @@
-import time
 import weaviate
 
 COLLECTION_NAME = 'MyCollection'
@@ -6,7 +5,6 @@ COLLECTION_NAME = 'MyCollection'
 with weaviate.connect_to_local() as client:
     if client.collections.exists(COLLECTION_NAME):
         client.collections.delete(COLLECTION_NAME)
-        time.sleep(0.1)
 
     my_collection = client.collections.create(
         name=COLLECTION_NAME,
@@ -14,13 +12,21 @@ with weaviate.connect_to_local() as client:
             weaviate.classes.config.Property(name='my_property', data_type=weaviate.classes.config.DataType.TEXT)
         ],
         vectorizer_config=weaviate.classes.config.Configure.Vectorizer.none(),
+        replication_config=weaviate.classes.config.Configure.replication(
+            factor=2,
+        ),
+        sharding_config=weaviate.classes.config.Configure.sharding(
+            desired_count=3,
+        ),
     )
-    o = my_collection.data.insert(
-        properties={
-            'my_property': 'blue elephant',
-        },
-        vector=[0.1] * 1536,
-    )
-    r = my_collection.query.fetch_objects()
+    my_col = my_collection.with_consistency_level(weaviate.classes.config.ConsistencyLevel.ALL)
+    for i in range(20):
+        o = my_col.data.insert(
+            properties={
+                'my_property': f'blue elephant {i}',
+            },
+            vector=[0.1] * 1536,
+        )
+    r = my_col.query.fetch_objects()
     for o in r.objects:
         print(o)

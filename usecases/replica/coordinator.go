@@ -21,8 +21,10 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const (
@@ -223,13 +225,33 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	op readOp[T], directCandidate string,
 	timeout time.Duration,
 ) (<-chan _Result[T], int, error) {
+	// Start tracing span for coordinator pull operation
+	ctx, span := opentelemetry.StartSpan(ctx, "coordinator_pull")
+	defer span.End()
+
+	opentelemetry.SetAttributes(ctx,
+		attribute.String("weaviate.coordinator.class", c.Class),
+		attribute.String("weaviate.coordinator.shard", c.Shard),
+		attribute.String("weaviate.coordinator.consistency_level", string(cl)),
+		attribute.String("weaviate.coordinator.direct_candidate", directCandidate),
+		attribute.Float64("weaviate.coordinator.timeout_seconds", timeout.Seconds()),
+	)
+
 	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, directCandidate)
 	readRoutingPlan, err := c.Router.BuildReadRoutingPlan(options)
 	if err != nil {
+		opentelemetry.RecordError(ctx, err)
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
+
 	level := readRoutingPlan.IntConsistencyLevel
 	hosts := readRoutingPlan.HostAddresses()
+
+	opentelemetry.SetAttributes(ctx,
+		attribute.Int("weaviate.coordinator.consistency_level_int", level),
+		attribute.Int("weaviate.coordinator.hosts_count", len(hosts)),
+	)
+
 	replyCh := make(chan _Result[T], level)
 	f := func() {
 		hostRetryQueue := make(chan hostRetry, len(hosts))
@@ -250,7 +272,18 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			isFullReadWorker := hostIndex == 0 // first worker will perform the fullRead
 			workerFunc := func() {
 				defer wg.Done()
-				workerCtx, workerCancel := context.WithTimeout(ctx, timeout)
+
+				// Start tracing span for individual worker
+				workerCtx, workerSpan := opentelemetry.StartSpan(ctx, "coordinator_worker")
+				defer workerSpan.End()
+
+				opentelemetry.SetAttributes(workerCtx,
+					attribute.Int("weaviate.coordinator.worker_index", hostIndex),
+					attribute.String("weaviate.coordinator.worker_host", hosts[hostIndex]),
+					attribute.Bool("weaviate.coordinator.worker_full_read", isFullReadWorker),
+				)
+
+				workerCtx, workerCancel := context.WithTimeout(workerCtx, timeout)
 				defer workerCancel()
 				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
 				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]
@@ -261,9 +294,14 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				// TODO return retryable info here, for now should be fine since most errors are considered retryable
 				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
 				if err == nil {
+					opentelemetry.SetAttributes(workerCtx, attribute.Bool("weaviate.coordinator.worker_success", true))
 					replyCh <- _Result[T]{resp, err}
 					return
 				}
+
+				opentelemetry.RecordError(workerCtx, err)
+				opentelemetry.SetAttributes(workerCtx, attribute.Bool("weaviate.coordinator.worker_retrying", true))
+
 				// this host failed op on the first try, put it on the retry queue
 				hostRetryQueue <- hostRetry{
 					hosts[hostIndex],
@@ -271,18 +309,35 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				}
 
 				// let's fallback to the backups in the retry queue
+				retryCount := 0
 				for hr := range hostRetryQueue {
-					resp, err := op(workerCtx, hr.host, isFullReadWorker)
+					retryCount++
+
+					// Start tracing span for retry attempt
+					retryCtx, retrySpan := opentelemetry.StartSpan(workerCtx, "coordinator_retry")
+					opentelemetry.SetAttributes(retryCtx,
+						attribute.String("weaviate.coordinator.retry_host", hr.host),
+						attribute.Int("weaviate.coordinator.retry_count", retryCount),
+					)
+
+					resp, err := op(retryCtx, hr.host, isFullReadWorker)
 					if err == nil {
+						opentelemetry.SetAttributes(retryCtx, attribute.Bool("weaviate.coordinator.retry_success", true))
+						retrySpan.End()
 						replyCh <- _Result[T]{resp, err}
 						return
 					}
+
+					opentelemetry.RecordError(retryCtx, err)
+					retrySpan.End()
+
 					nextBackOff := hr.currentBackOff.NextBackOff()
 					if nextBackOff == backoff.Stop {
 						// this host has run out of retries, send the result and note that
 						// we have the worker exit here with the assumption that once we've reached
 						// this many failures for this host, we've tried all other hosts enough
 						// that we're not going to reach level successes
+						opentelemetry.SetAttributes(workerCtx, attribute.Bool("weaviate.coordinator.worker_exhausted_retries", true))
 						replyCh <- _Result[T]{resp, err}
 						return
 					}
@@ -291,6 +346,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					select {
 					case <-workerCtx.Done():
 						timer.Stop()
+						opentelemetry.SetAttributes(workerCtx, attribute.Bool("weaviate.coordinator.worker_timeout", true))
 						replyCh <- _Result[T]{resp, err}
 						return
 					case <-timer.C:
