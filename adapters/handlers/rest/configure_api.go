@@ -682,17 +682,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	// Add dimensions to all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && appState.DB.GetConfig().TrackVectorDimensions {
-		enterrors.GoWrapper(func() {
-			// wait until meta store is ready, as reindex tasks needs schema
-			<-storeReadyCtx.Done()
-			if errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
-
-				appState.Logger.
-					WithField("action", "startup").
-					Info("Reindexing dimensions")
-				appState.Migrator.RecalculateVectorDimensions(ctx)
-			}
-		}, appState.Logger)
+		appState.Logger.
+			WithField("action", "startup").
+			Info("Reindexing dimensions")
+		appState.Migrator.RecalculateVectorDimensions(ctx)
 	}
 
 	// TODO-RAFT: refactor remove this sleep
