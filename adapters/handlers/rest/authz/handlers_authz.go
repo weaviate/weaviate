@@ -478,12 +478,7 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles requested doesn't exist")))
 	}
 
-	userType, err := validateUserTypeInput(string(params.Body.UserType))
-	if err != nil {
-		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown groupType: %v", userType)))
-	}
-
-	userTypes, err := h.getUserTypesAndValidateExistence(params.ID, userType)
+	userTypes, err := h.getUserTypesAndValidateExistence(params.ID, authentication.AuthType(params.Body.UserType))
 	if err != nil {
 		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user exists: %w", err)))
 	}
@@ -880,11 +875,6 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("roles can not be empty")))
 	}
 
-	userType, err := validateUserTypeInput(string(params.Body.UserType))
-	if err != nil {
-		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown groupType: %v", userType)))
-	}
-
 	if err := h.authorizer.Authorize(ctx, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(params.ID)...); err != nil {
 		return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -898,7 +888,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the request roles doesn't exist")))
 	}
 
-	userTypes, err := h.getUserTypesAndValidateExistence(params.ID, userType)
+	userTypes, err := h.getUserTypesAndValidateExistence(params.ID, authentication.AuthType(params.Body.UserType))
 	if err != nil {
 		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user exists: %w", err)))
 	}
