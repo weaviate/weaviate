@@ -43,10 +43,20 @@ func (h *authNHandlers) getOwnInfo(_ users.GetOwnInfoParams, principal *models.P
 	}
 
 	var roles []*models.Role
+	rolenames := map[string]struct{}{}
 	if h.rbacConfig.Enabled {
 		existingRoles, err := h.authzController.GetRolesForUserOrGroup(principal.Username, principal.UserType, false)
 		if err != nil {
 			return users.NewGetOwnInfoInternalServerError()
+		}
+		for _, group := range principal.Groups {
+			groupRoles, err := h.authzController.GetRolesForUserOrGroup(group, principal.UserType, true)
+			if err != nil {
+				return users.NewGetOwnInfoInternalServerError()
+			}
+			for roleName, policies := range groupRoles {
+				existingRoles[roleName] = policies
+			}
 		}
 		for roleName, policies := range existingRoles {
 			perms, err := authzConv.PoliciesToPermission(policies...)
@@ -57,6 +67,7 @@ func (h *authNHandlers) getOwnInfo(_ users.GetOwnInfoParams, principal *models.P
 				Name:        &roleName,
 				Permissions: perms,
 			})
+			rolenames[roleName] = struct{}{}
 		}
 	}
 

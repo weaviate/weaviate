@@ -276,6 +276,11 @@ func TestRbacWithOIDCGroups(t *testing.T) {
 			err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
 			require.NoError(t, err)
 
+			ownInfo := helper.GetInfoForOwnUser(t, tokenCustom)
+			require.Contains(t, ownInfo.Groups, "custom-group")
+			require.Len(t, ownInfo.Roles, 1)
+			require.Equal(t, *ownInfo.Roles[0].Name, createSchemaRoleName)
+
 			rolesWithRoles := helper.GetRolesForGroup(t, tokenAdmin, "custom-group", true)
 			require.Len(t, rolesWithRoles, 1)
 			require.Equal(t, *rolesWithRoles[0].Name, createSchemaRoleName)
