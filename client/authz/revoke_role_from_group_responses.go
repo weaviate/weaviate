@@ -457,7 +457,7 @@ swagger:model RevokeRoleFromGroupBody
 type RevokeRoleFromGroupBody struct {
 
 	// group type
-	GroupType models.UserAndGroupTypeInput `json:"groupType,omitempty"`
+	GroupType models.GroupType `json:"groupType,omitempty"`
 
 	// the roles that revoked from group
 	Roles []string `json:"roles"`

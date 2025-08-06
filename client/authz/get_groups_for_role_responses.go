@@ -472,7 +472,7 @@ type GetGroupsForRoleOKBodyItems0 struct {
 
 	// group type
 	// Required: true
-	GroupType *models.UserAndGroupTypeInput `json:"groupType"`
+	GroupType *models.GroupType `json:"groupType"`
 }
 
 // Validate validates this get groups for role o k body items0

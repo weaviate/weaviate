@@ -42,7 +42,7 @@ func GetRoles(t *testing.T, key string) []*models.Role {
 
 func GetRolesForUser(t *testing.T, user, key string, includeRoles bool) []*models.Role {
 	t.Helper()
-	userType := models.UserAndGroupTypeInputDb
+	userType := models.UserTypeInputDb
 	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user).WithUserType(string(userType)).WithIncludeFullRoles(&includeRoles), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
@@ -52,7 +52,7 @@ func GetRolesForUser(t *testing.T, user, key string, includeRoles bool) []*model
 func GetRolesForUserOIDC(t *testing.T, user, key string) []*models.Role {
 	t.Helper()
 	truep := true
-	userType := models.UserAndGroupTypeInputOidc
+	userType := models.UserTypeInputOidc
 	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user).WithUserType(string(userType)).WithIncludeFullRoles(&truep), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
@@ -206,9 +206,9 @@ func GetRoleByName(t *testing.T, key, role string) *models.Role {
 
 func AssignRoleToUser(t *testing.T, key, role, user string) {
 	t.Helper()
-	userType := models.UserAndGroupTypeInputDb
+	userType := models.UserTypeInputDb
 	resp, err := Client(t).Authz.AssignRoleToUser(
-		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}, GroupType: userType}),
+		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}, UserType: userType}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
@@ -217,9 +217,9 @@ func AssignRoleToUser(t *testing.T, key, role, user string) {
 
 func AssignRoleToUserOIDC(t *testing.T, key, role, user string) {
 	t.Helper()
-	userType := models.UserAndGroupTypeInputOidc
+	userType := models.UserTypeInputOidc
 	resp, err := Client(t).Authz.AssignRoleToUser(
-		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}, GroupType: userType}),
+		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}, UserType: userType}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
@@ -227,10 +227,10 @@ func AssignRoleToUserOIDC(t *testing.T, key, role, user string) {
 }
 
 func RevokeRoleFromUser(t *testing.T, key, role, user string) {
-	userType := models.UserAndGroupTypeInputDb
+	userType := models.UserTypeInputDb
 
 	resp, err := Client(t).Authz.RevokeRoleFromUser(
-		authz.NewRevokeRoleFromUserParams().WithID(user).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{role}, GroupType: userType}),
+		authz.NewRevokeRoleFromUserParams().WithID(user).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{role}, UserType: userType}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
@@ -240,7 +240,7 @@ func RevokeRoleFromUser(t *testing.T, key, role, user string) {
 func AssignRoleToGroup(t *testing.T, key, role, group string) {
 	t.Helper()
 	resp, err := Client(t).Authz.AssignRoleToGroup(
-		authz.NewAssignRoleToGroupParams().WithID(group).WithBody(authz.AssignRoleToGroupBody{Roles: []string{role}, GroupType: models.UserAndGroupTypeInputOidc}),
+		authz.NewAssignRoleToGroupParams().WithID(group).WithBody(authz.AssignRoleToGroupBody{Roles: []string{role}, GroupType: models.GroupTypeOidc}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
@@ -250,7 +250,7 @@ func AssignRoleToGroup(t *testing.T, key, role, group string) {
 func RevokeRoleFromGroup(t *testing.T, key, role, group string) {
 	t.Helper()
 	resp, err := Client(t).Authz.RevokeRoleFromGroup(
-		authz.NewRevokeRoleFromGroupParams().WithID(group).WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{role}, GroupType: models.UserAndGroupTypeInputOidc}),
+		authz.NewRevokeRoleFromGroupParams().WithID(group).WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{role}, GroupType: models.GroupTypeOidc}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
@@ -260,7 +260,7 @@ func RevokeRoleFromGroup(t *testing.T, key, role, group string) {
 func GetRolesForGroup(t *testing.T, key, group string, includeRoles bool) []*models.Role {
 	includeRolesP := &includeRoles
 	resp, err := Client(t).Authz.GetRolesForGroup(
-		authz.NewGetRolesForGroupParams().WithID(group).WithGroupType(string(models.UserAndGroupTypeInputOidc)).WithIncludeFullRoles(includeRolesP),
+		authz.NewGetRolesForGroupParams().WithID(group).WithGroupType(string(models.GroupTypeOidc)).WithIncludeFullRoles(includeRolesP),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
@@ -270,7 +270,7 @@ func GetRolesForGroup(t *testing.T, key, group string, includeRoles bool) []*mod
 
 func GetKnownGroups(t *testing.T, key string) []string {
 	resp, err := Client(t).Authz.GetGroups(
-		authz.NewGetGroupsParams().WithGroupType(string(models.UserAndGroupTypeInputOidc)), CreateAuth(key),
+		authz.NewGetGroupsParams().WithGroupType(string(models.GroupTypeOidc)), CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)

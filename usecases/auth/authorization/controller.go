@@ -11,7 +11,9 @@
 
 package authorization
 
-import "github.com/weaviate/weaviate/entities/models"
+import (
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+)
 
 type Controller interface {
 	UpdateRolesPermissions(roles map[string][]Policy) error
@@ -19,10 +21,10 @@ type Controller interface {
 	GetRoles(names ...string) (map[string][]Policy, error)
 	DeleteRoles(roles ...string) error
 	AddRolesForUser(user string, roles []string) error
-	GetRolesForUserOrGroup(user string, userType models.UserAndGroupTypeInput, isGroup bool) (map[string][]Policy, error)
-	GetUsersOrGroupForRole(role string, userType models.UserAndGroupTypeInput, IsGroup bool) ([]string, error)
+	GetRolesForUserOrGroup(user string, authMethod authentication.AuthType, isGroup bool) (map[string][]Policy, error)
+	GetUsersOrGroupForRole(role string, authMethod authentication.AuthType, IsGroup bool) ([]string, error)
 	RevokeRolesForUser(user string, roles ...string) error
 	RemovePermissions(role string, permissions []*Policy) error
 	HasPermission(role string, permission *Policy) (bool, error)
-	GetUsersOrGroupsWithRoles(isGroup bool, authType models.UserAndGroupTypeInput) ([]string, error)
+	GetUsersOrGroupsWithRoles(isGroup bool, authMethod authentication.AuthType) ([]string, error)
 }

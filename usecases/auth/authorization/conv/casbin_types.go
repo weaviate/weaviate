@@ -16,6 +16,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -246,13 +248,13 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			if permission.Groups.Group != nil {
 				group = *permission.Groups.Group
 			}
-			if permission.Groups.GroupType != models.UserAndGroupTypeInputOidc {
+			if permission.Groups.GroupType != models.GroupTypeOidc {
 				return nil, fmt.Errorf("invalid groups type: %v", permission.Groups.GroupType)
 			}
 		} else {
 			return nil, fmt.Errorf("invalid permission: %v", permission)
 		}
-		resource = CasbinGroups(group, string(models.UserAndGroupTypeInputOidc))
+		resource = CasbinGroups(group, string(models.GroupTypeOidc))
 	case authorization.UsersDomain:
 		user := "*"
 		if permission.Users != nil && permission.Users.Users != nil {
@@ -467,7 +469,7 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 	case authorization.GroupsDomain:
 		permission.Groups = &models.PermissionGroups{
 			Group:     &splits[2],
-			GroupType: models.UserAndGroupTypeInput(splits[1]),
+			GroupType: models.GroupType(splits[1]),
 		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups
@@ -529,8 +531,8 @@ func UserNameWithTypeFromPrincipal(principal *models.Principal) string {
 	return fmt.Sprintf("%s:%s", principal.UserType, principal.Username)
 }
 
-func UserNameWithTypeFromId(username string, userType models.UserAndGroupTypeInput) string {
-	return fmt.Sprintf("%s:%s", userType, username)
+func UserNameWithTypeFromId(username string, authType authentication.AuthType) string {
+	return fmt.Sprintf("%s:%s", authType, username)
 }
 
 func TrimRoleNamePrefix(name string) string {

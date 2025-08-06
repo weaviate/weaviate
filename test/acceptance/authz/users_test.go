@@ -63,7 +63,7 @@ func TestAuthzRolesForUsers(t *testing.T) {
 	})
 
 	t.Run("get roles for non existing user", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID("notExists").WithUserType(string(models.UserAndGroupTypeInputDb)), helper.CreateAuth(adminKey))
+		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID("notExists").WithUserType(string(models.UserTypeInputDb)), helper.CreateAuth(adminKey))
 		require.NotNil(t, err)
 		var targetErr *authz.GetRolesForUserNotFound
 		require.True(t, errors.As(err, &targetErr))
@@ -282,7 +282,7 @@ func TestReadUserPermissions(t *testing.T) {
 	})
 
 	t.Run("user cannot return roles for other user", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(secondUser).WithUserType(string(models.UserAndGroupTypeInputDb)), helper.CreateAuth(customKey))
+		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(secondUser).WithUserType(string(models.UserTypeInputDb)), helper.CreateAuth(customKey))
 		require.Error(t, err)
 		var errType *authz.GetRolesForUserForbidden
 		require.True(t, errors.As(err, &errType))

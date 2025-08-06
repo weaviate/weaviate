@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 
@@ -67,7 +69,7 @@ func (m *Manager) CreateRolesPermissions(roles map[string][]authorization.Policy
 	return m.upsertRolesPermissions(roles)
 }
 
-func (m *Manager) GetUsersOrGroupsWithRoles(isGroup bool, authType models.UserAndGroupTypeInput) ([]string, error) {
+func (m *Manager) GetUsersOrGroupsWithRoles(isGroup bool, authType authentication.AuthType) ([]string, error) {
 	roles, err := m.casbin.GetAllSubjects()
 	if err != nil {
 		return nil, err
@@ -82,16 +84,16 @@ func (m *Manager) GetUsersOrGroupsWithRoles(isGroup bool, authType models.UserAn
 			name, _ := conv.GetUserAndPrefix(userOrGroup)
 			if isGroup {
 				// groups are only supported for OIDC
-				if authType == models.UserAndGroupTypeInputOidc && strings.HasPrefix(userOrGroup, conv.OIDC_GROUP_NAME_PREFIX) {
+				if authType == authentication.AuthTypeOIDC && strings.HasPrefix(userOrGroup, conv.OIDC_GROUP_NAME_PREFIX) {
 					usersOrGroups[name] = struct{}{}
 				}
 			} else {
 				// groups are only supported for OIDC
-				if authType == models.UserAndGroupTypeInputOidc && strings.HasPrefix(userOrGroup, string(models.UserAndGroupTypeInputOidc)) {
+				if authType == authentication.AuthTypeOIDC && strings.HasPrefix(userOrGroup, string(authentication.AuthTypeOIDC)) {
 					usersOrGroups[name] = struct{}{}
 				}
 
-				if authType == models.UserAndGroupTypeInputDb && strings.HasPrefix(userOrGroup, string(models.UserAndGroupTypeInputDb)) {
+				if authType == authentication.AuthTypeDb && strings.HasPrefix(userOrGroup, string(authentication.AuthTypeDb)) {
 					usersOrGroups[name] = struct{}{}
 				}
 
@@ -111,7 +113,7 @@ func (m *Manager) upsertRolesPermissions(roles map[string][]authorization.Policy
 	for roleName, policies := range roles {
 		// assign role to internal user to make sure to catch empty roles
 		// e.g. : g, user:wv_internal_empty, role:roleName
-		if _, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, models.UserAndGroupTypeInputDb), conv.PrefixRoleName(roleName)); err != nil {
+		if _, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), conv.PrefixRoleName(roleName)); err != nil {
 			return fmt.Errorf("AddRoleForUser: %w", err)
 		}
 		for _, policy := range policies {
@@ -269,7 +271,7 @@ func (m *Manager) AddRolesForUser(user string, roles []string) error {
 	return nil
 }
 
-func (m *Manager) GetRolesForUserOrGroup(userName string, userType models.UserAndGroupTypeInput, isGroup bool) (map[string][]authorization.Policy, error) {
+func (m *Manager) GetRolesForUserOrGroup(userName string, authType authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error) {
 	m.backupLock.RLock()
 	defer m.backupLock.RUnlock()
 
@@ -281,7 +283,7 @@ func (m *Manager) GetRolesForUserOrGroup(userName string, userType models.UserAn
 			return nil, fmt.Errorf("GetRolesForUserOrGroup: %w", err)
 		}
 	} else {
-		rolesNames, err = m.casbin.GetRolesForUser(conv.UserNameWithTypeFromId(userName, userType))
+		rolesNames, err = m.casbin.GetRolesForUser(conv.UserNameWithTypeFromId(userName, authType))
 		if err != nil {
 			return nil, fmt.Errorf("GetRolesForUserOrGroup: %w", err)
 		}
@@ -296,7 +298,7 @@ func (m *Manager) GetRolesForUserOrGroup(userName string, userType models.UserAn
 	return roles, err
 }
 
-func (m *Manager) GetUsersOrGroupForRole(roleName string, authType models.UserAndGroupTypeInput, isGroup bool) ([]string, error) {
+func (m *Manager) GetUsersOrGroupForRole(roleName string, authType authentication.AuthType, isGroup bool) ([]string, error) {
 	m.backupLock.RLock()
 	defer m.backupLock.RUnlock()
 
@@ -311,7 +313,7 @@ func (m *Manager) GetUsersOrGroupForRole(roleName string, authType models.UserAn
 			continue
 		}
 		if isGroup {
-			if authType == models.UserAndGroupTypeInputOidc && strings.HasPrefix(conv.OIDC_GROUP_NAME_PREFIX, prefix) {
+			if authType == authentication.AuthTypeOIDC && strings.HasPrefix(conv.OIDC_GROUP_NAME_PREFIX, prefix) {
 				users = append(users, userOrGroup)
 			}
 		} else {

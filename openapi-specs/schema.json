@@ -5,13 +5,21 @@
     "application/json"
   ],
   "definitions": {
-    "UserAndGroupTypeInput": {
+    "UserTypeInput": {
       "type": "string",
       "enum": [
         "db",
         "oidc"
       ],
       "description": "the type of user or group"
+    },
+    "GroupType": {
+      "type": "string",
+      "enum": [
+        "db",
+        "oidc"
+      ],
+      "description": "the type group"
     },
     "UserTypeOutput": {
       "type": "string",
@@ -217,7 +225,7 @@
               "description": "string or regex. if a specific name, if left empty it will be ALL or *"
             },
             "groupType": {
-              "$ref": "#/definitions/UserAndGroupTypeInput"
+              "$ref": "#/definitions/GroupType"
             }
           }
         },
@@ -387,7 +395,7 @@
           }
         },
         "userType": {
-          "$ref": "#/definitions/UserAndGroupTypeInput"
+          "$ref": "#/definitions/UserTypeInput"
         }
       }
     },
@@ -4761,7 +4769,7 @@
                     "type": "string"
                   },
                   "groupType": {
-                    "$ref": "#/definitions/UserAndGroupTypeInput"
+                    "$ref": "#/definitions/GroupType"
                   }
                 },
                 "required": [
@@ -4968,8 +4976,8 @@
                     "type": "string"
                   }
                 },
-                "groupType": {
-                  "$ref": "#/definitions/UserAndGroupTypeInput"
+                "userType": {
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
@@ -5041,8 +5049,8 @@
                     "type": "string"
                   }
                 },
-                "groupType": {
-                  "$ref": "#/definitions/UserAndGroupTypeInput"
+                "userType": {
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
@@ -5115,7 +5123,7 @@
                   }
                 },
                 "groupType": {
-                  "$ref": "#/definitions/UserAndGroupTypeInput"
+                  "$ref": "#/definitions/GroupType"
                 }
               }
             }
@@ -5185,7 +5193,7 @@
                   }
                 },
                 "groupType": {
-                  "$ref": "#/definitions/UserAndGroupTypeInput"
+                  "$ref": "#/definitions/GroupType"
                 }
               }
             }

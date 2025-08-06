@@ -42,14 +42,14 @@ func TestAuthzRolesForGroups(t *testing.T) {
 		Name: &groupReadName,
 		Permissions: []*models.Permission{{
 			Action: &authorization.ReadGroups,
-			Groups: &models.PermissionGroups{Group: &all, GroupType: models.UserAndGroupTypeInputOidc},
+			Groups: &models.PermissionGroups{Group: &all, GroupType: models.GroupTypeOidc},
 		}},
 	}
 	groupAssign := &models.Role{
 		Name: &groupAssignName,
 		Permissions: []*models.Permission{{
 			Action: &authorization.AssignAndRevokeGroups,
-			Groups: &models.PermissionGroups{Group: &all, GroupType: models.UserAndGroupTypeInputOidc},
+			Groups: &models.PermissionGroups{Group: &all, GroupType: models.GroupTypeOidc},
 		}},
 	}
 	roleRead := &models.Role{
@@ -89,7 +89,7 @@ func TestAuthzRolesForGroups(t *testing.T) {
 	t.Run("assign group", func(t *testing.T) {
 		group := "some-group"
 		_, err := helper.Client(t).Authz.AssignRoleToGroup(
-			authz.NewAssignRoleToGroupParams().WithID(group).WithBody(authz.AssignRoleToGroupBody{GroupType: models.UserAndGroupTypeInputOidc, Roles: []string{groupReadName}}),
+			authz.NewAssignRoleToGroupParams().WithID(group).WithBody(authz.AssignRoleToGroupBody{GroupType: models.GroupTypeOidc, Roles: []string{groupReadName}}),
 			helper.CreateAuth(customKey),
 		)
 		require.Error(t, err)
@@ -118,7 +118,7 @@ func TestAuthzRolesForGroups(t *testing.T) {
 
 		defer helper.RevokeRoleFromGroup(t, adminKey, groupReadName, group)
 		_, err := helper.Client(t).Authz.RevokeRoleFromGroup(
-			authz.NewRevokeRoleFromGroupParams().WithID(group).WithBody(authz.RevokeRoleFromGroupBody{GroupType: models.UserAndGroupTypeInputOidc, Roles: []string{groupReadName}}),
+			authz.NewRevokeRoleFromGroupParams().WithID(group).WithBody(authz.RevokeRoleFromGroupBody{GroupType: models.GroupTypeOidc, Roles: []string{groupReadName}}),
 			helper.CreateAuth(customKey),
 		)
 		require.Error(t, err)
@@ -144,7 +144,7 @@ func TestAuthzRolesForGroups(t *testing.T) {
 		defer helper.RevokeRoleFromGroup(t, adminKey, groupAssignName, group)
 
 		_, err := helper.Client(t).Authz.GetRolesForGroup(
-			authz.NewGetRolesForGroupParams().WithID(group).WithGroupType(string(models.UserAndGroupTypeInputOidc)),
+			authz.NewGetRolesForGroupParams().WithID(group).WithGroupType(string(models.GroupTypeOidc)),
 			helper.CreateAuth(customKey),
 		)
 		require.Error(t, err)
@@ -158,7 +158,7 @@ func TestAuthzRolesForGroups(t *testing.T) {
 		// get roles for groups
 		truep := true
 		_, err = helper.Client(t).Authz.GetRolesForGroup(
-			authz.NewGetRolesForGroupParams().WithID(group).WithGroupType(string(models.UserAndGroupTypeInputOidc)).WithIncludeFullRoles(&truep),
+			authz.NewGetRolesForGroupParams().WithID(group).WithGroupType(string(models.GroupTypeOidc)).WithIncludeFullRoles(&truep),
 			helper.CreateAuth(customKey),
 		)
 		require.Error(t, err)

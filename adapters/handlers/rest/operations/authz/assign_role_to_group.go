@@ -91,7 +91,7 @@ func (o *AssignRoleToGroup) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 type AssignRoleToGroupBody struct {
 
 	// group type
-	GroupType models.UserAndGroupTypeInput `json:"groupType,omitempty" yaml:"groupType,omitempty"`
+	GroupType models.GroupType `json:"groupType,omitempty" yaml:"groupType,omitempty"`
 
 	// the roles that assigned to group
 	Roles []string `json:"roles" yaml:"roles"`

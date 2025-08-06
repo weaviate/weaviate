@@ -468,18 +468,18 @@ swagger:model RevokeRoleFromUserBody
 */
 type RevokeRoleFromUserBody struct {
 
-	// group type
-	GroupType models.UserAndGroupTypeInput `json:"groupType,omitempty"`
-
 	// the roles that revoked from the key or user
 	Roles []string `json:"roles"`
+
+	// user type
+	UserType models.UserTypeInput `json:"userType,omitempty"`
 }
 
 // Validate validates this revoke role from user body
 func (o *RevokeRoleFromUserBody) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := o.validateGroupType(formats); err != nil {
+	if err := o.validateUserType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -489,16 +489,16 @@ func (o *RevokeRoleFromUserBody) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (o *RevokeRoleFromUserBody) validateGroupType(formats strfmt.Registry) error {
-	if swag.IsZero(o.GroupType) { // not required
+func (o *RevokeRoleFromUserBody) validateUserType(formats strfmt.Registry) error {
+	if swag.IsZero(o.UserType) { // not required
 		return nil
 	}
 
-	if err := o.GroupType.Validate(formats); err != nil {
+	if err := o.UserType.Validate(formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("body" + "." + "groupType")
+			return ve.ValidateName("body" + "." + "userType")
 		} else if ce, ok := err.(*errors.CompositeError); ok {
-			return ce.ValidateName("body" + "." + "groupType")
+			return ce.ValidateName("body" + "." + "userType")
 		}
 		return err
 	}
@@ -510,7 +510,7 @@ func (o *RevokeRoleFromUserBody) validateGroupType(formats strfmt.Registry) erro
 func (o *RevokeRoleFromUserBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
-	if err := o.contextValidateGroupType(ctx, formats); err != nil {
+	if err := o.contextValidateUserType(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -520,13 +520,13 @@ func (o *RevokeRoleFromUserBody) ContextValidate(ctx context.Context, formats st
 	return nil
 }
 
-func (o *RevokeRoleFromUserBody) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
+func (o *RevokeRoleFromUserBody) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
 
-	if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
+	if err := o.UserType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("body" + "." + "groupType")
+			return ve.ValidateName("body" + "." + "userType")
 		} else if ce, ok := err.(*errors.CompositeError); ok {
-			return ce.ValidateName("body" + "." + "groupType")
+			return ce.ValidateName("body" + "." + "userType")
 		}
 		return err
 	}

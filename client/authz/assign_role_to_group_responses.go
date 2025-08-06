@@ -457,7 +457,7 @@ swagger:model AssignRoleToGroupBody
 type AssignRoleToGroupBody struct {
 
 	// group type
-	GroupType models.UserAndGroupTypeInput `json:"groupType,omitempty"`
+	GroupType models.GroupType `json:"groupType,omitempty"`
 
 	// the roles that assigned to group
 	Roles []string `json:"roles"`

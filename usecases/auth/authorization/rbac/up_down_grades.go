@@ -16,8 +16,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	"github.com/casbin/casbin/v2"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -40,7 +41,7 @@ func upgradeGroupingsFrom129(enforcer *casbin.SyncedCachedEnforcer, authNconf co
 					return err
 				}
 
-				if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, models.UserAndGroupTypeInputDb), role); err != nil {
+				if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), role); err != nil {
 					return err
 				}
 			} else if strings.HasPrefix(user, "user:") {
@@ -49,12 +50,12 @@ func upgradeGroupingsFrom129(enforcer *casbin.SyncedCachedEnforcer, authNconf co
 					return err
 				}
 				if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, userNoPrefix) {
-					if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(userNoPrefix, models.UserAndGroupTypeInputDb), role); err != nil {
+					if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(userNoPrefix, authentication.AuthTypeDb), role); err != nil {
 						return err
 					}
 				}
 				if authNconf.OIDC.Enabled {
-					if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(userNoPrefix, models.UserAndGroupTypeInputOidc), role); err != nil {
+					if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(userNoPrefix, authentication.AuthTypeOIDC), role); err != nil {
 						return err
 					}
 				}

@@ -495,7 +495,7 @@ func init() {
               "type": "object",
               "properties": {
                 "groupType": {
-                  "$ref": "#/definitions/UserAndGroupTypeInput"
+                  "$ref": "#/definitions/GroupType"
                 },
                 "roles": {
                   "description": "the roles that assigned to group",
@@ -565,7 +565,7 @@ func init() {
               "type": "object",
               "properties": {
                 "groupType": {
-                  "$ref": "#/definitions/UserAndGroupTypeInput"
+                  "$ref": "#/definitions/GroupType"
                 },
                 "roles": {
                   "description": "the roles that revoked from group",
@@ -994,7 +994,7 @@ func init() {
                     "type": "string"
                   },
                   "groupType": {
-                    "$ref": "#/definitions/UserAndGroupTypeInput"
+                    "$ref": "#/definitions/GroupType"
                   }
                 }
               }
@@ -1317,15 +1317,15 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
-                "groupType": {
-                  "$ref": "#/definitions/UserAndGroupTypeInput"
-                },
                 "roles": {
                   "description": "the roles that assigned to user",
                   "type": "array",
                   "items": {
                     "type": "string"
                   }
+                },
+                "userType": {
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
@@ -1390,15 +1390,15 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
-                "groupType": {
-                  "$ref": "#/definitions/UserAndGroupTypeInput"
-                },
                 "roles": {
                   "description": "the roles that revoked from the key or user",
                   "type": "array",
                   "items": {
                     "type": "string"
                   }
+                },
+                "userType": {
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
@@ -6896,6 +6896,14 @@ func init() {
         "$ref": "#/definitions/GraphQLResponse"
       }
     },
+    "GroupType": {
+      "description": "the type group",
+      "type": "string",
+      "enum": [
+        "db",
+        "oidc"
+      ]
+    },
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate (default: 60).",
       "type": "object",
@@ -7522,7 +7530,7 @@ func init() {
               "default": "*"
             },
             "groupType": {
-              "$ref": "#/definitions/UserAndGroupTypeInput"
+              "$ref": "#/definitions/GroupType"
             }
           }
         },
@@ -7655,7 +7663,7 @@ func init() {
           }
         },
         "userType": {
-          "$ref": "#/definitions/UserAndGroupTypeInput"
+          "$ref": "#/definitions/UserTypeInput"
         },
         "username": {
           "description": "The username that was extracted either from the authentication information",
@@ -8474,14 +8482,6 @@ func init() {
         }
       }
     },
-    "UserAndGroupTypeInput": {
-      "description": "the type of user or group",
-      "type": "string",
-      "enum": [
-        "db",
-        "oidc"
-      ]
-    },
     "UserApiKey": {
       "type": "object",
       "required": [
@@ -8520,6 +8520,14 @@ func init() {
           "type": "string"
         }
       }
+    },
+    "UserTypeInput": {
+      "description": "the type of user or group",
+      "type": "string",
+      "enum": [
+        "db",
+        "oidc"
+      ]
     },
     "UserTypeOutput": {
       "description": "the type of user",
@@ -9329,7 +9337,7 @@ func init() {
               "type": "object",
               "properties": {
                 "groupType": {
-                  "$ref": "#/definitions/UserAndGroupTypeInput"
+                  "$ref": "#/definitions/GroupType"
                 },
                 "roles": {
                   "description": "the roles that assigned to group",
@@ -9399,7 +9407,7 @@ func init() {
               "type": "object",
               "properties": {
                 "groupType": {
-                  "$ref": "#/definitions/UserAndGroupTypeInput"
+                  "$ref": "#/definitions/GroupType"
                 },
                 "roles": {
                   "description": "the roles that revoked from group",
@@ -10127,15 +10135,15 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
-                "groupType": {
-                  "$ref": "#/definitions/UserAndGroupTypeInput"
-                },
                 "roles": {
                   "description": "the roles that assigned to user",
                   "type": "array",
                   "items": {
                     "type": "string"
                   }
+                },
+                "userType": {
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
@@ -10200,15 +10208,15 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
-                "groupType": {
-                  "$ref": "#/definitions/UserAndGroupTypeInput"
-                },
                 "roles": {
                   "description": "the roles that revoked from the key or user",
                   "type": "array",
                   "items": {
                     "type": "string"
                   }
+                },
+                "userType": {
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
@@ -15915,7 +15923,7 @@ func init() {
           "type": "string"
         },
         "groupType": {
-          "$ref": "#/definitions/UserAndGroupTypeInput"
+          "$ref": "#/definitions/GroupType"
         }
       }
     },
@@ -16018,6 +16026,14 @@ func init() {
       "items": {
         "$ref": "#/definitions/GraphQLResponse"
       }
+    },
+    "GroupType": {
+      "description": "the type group",
+      "type": "string",
+      "enum": [
+        "db",
+        "oidc"
+      ]
     },
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate (default: 60).",
@@ -16662,7 +16678,7 @@ func init() {
               "default": "*"
             },
             "groupType": {
-              "$ref": "#/definitions/UserAndGroupTypeInput"
+              "$ref": "#/definitions/GroupType"
             }
           }
         },
@@ -16820,7 +16836,7 @@ func init() {
           "default": "*"
         },
         "groupType": {
-          "$ref": "#/definitions/UserAndGroupTypeInput"
+          "$ref": "#/definitions/GroupType"
         }
       }
     },
@@ -16951,7 +16967,7 @@ func init() {
           }
         },
         "userType": {
-          "$ref": "#/definitions/UserAndGroupTypeInput"
+          "$ref": "#/definitions/UserTypeInput"
         },
         "username": {
           "description": "The username that was extracted either from the authentication information",
@@ -17770,14 +17786,6 @@ func init() {
         }
       }
     },
-    "UserAndGroupTypeInput": {
-      "description": "the type of user or group",
-      "type": "string",
-      "enum": [
-        "db",
-        "oidc"
-      ]
-    },
     "UserApiKey": {
       "type": "object",
       "required": [
@@ -17816,6 +17824,14 @@ func init() {
           "type": "string"
         }
       }
+    },
+    "UserTypeInput": {
+      "description": "the type of user or group",
+      "type": "string",
+      "enum": [
+        "db",
+        "oidc"
+      ]
     },
     "UserTypeOutput": {
       "description": "the type of user",

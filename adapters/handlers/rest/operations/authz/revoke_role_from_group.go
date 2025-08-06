@@ -91,7 +91,7 @@ func (o *RevokeRoleFromGroup) ServeHTTP(rw http.ResponseWriter, r *http.Request)
 type RevokeRoleFromGroupBody struct {
 
 	// group type
-	GroupType models.UserAndGroupTypeInput `json:"groupType,omitempty" yaml:"groupType,omitempty"`
+	GroupType models.GroupType `json:"groupType,omitempty" yaml:"groupType,omitempty"`
 
 	// the roles that revoked from group
 	Roles []string `json:"roles" yaml:"roles"`

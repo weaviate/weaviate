@@ -20,6 +20,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 
 	"github.com/go-openapi/runtime/middleware"
@@ -476,7 +478,12 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles requested doesn't exist")))
 	}
 
-	userTypes, err := h.getUserTypesAndValidateExistence(params.ID, params.Body.GroupType)
+	userType, err := validateUserTypeInput(string(params.Body.UserType))
+	if err != nil {
+		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown groupType: %v", userType)))
+	}
+
+	userTypes, err := h.getUserTypesAndValidateExistence(params.ID, userType)
 	if err != nil {
 		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user exists: %w", err)))
 	}
@@ -518,7 +525,7 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 	}
 
 	groupType, err := validateUserTypeInput(string(params.Body.GroupType))
-	if err != nil || groupType != models.UserAndGroupTypeInputOidc {
+	if err != nil || groupType != authentication.AuthTypeOIDC {
 		return authz.NewAssignRoleToGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown groupType: %v", params.Body.GroupType)))
 	}
 
@@ -574,11 +581,11 @@ func (h *authZHandlers) getRolesForUserDeprecated(params authz.GetRolesForUserDe
 		return authz.NewGetRolesForUserDeprecatedNotFound()
 	}
 
-	existingRolesDB, err := h.controller.GetRolesForUserOrGroup(params.ID, models.UserAndGroupTypeInputDb, false)
+	existingRolesDB, err := h.controller.GetRolesForUserOrGroup(params.ID, authentication.AuthTypeDb, false)
 	if err != nil {
 		return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersOrGroupsWithRoles: %w", err)))
 	}
-	existingRolesOIDC, err := h.controller.GetRolesForUserOrGroup(params.ID, models.UserAndGroupTypeInputOidc, false)
+	existingRolesOIDC, err := h.controller.GetRolesForUserOrGroup(params.ID, authentication.AuthTypeOIDC, false)
 	if err != nil {
 		return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersOrGroupsWithRoles: %w", err)))
 	}
@@ -710,7 +717,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 	}
 
 	var response []*authz.GetUsersForRoleOKBodyItems0
-	for _, userType := range []models.UserAndGroupTypeInput{models.UserAndGroupTypeInputOidc, models.UserAndGroupTypeInputDb} {
+	for _, userType := range []authentication.AuthType{authentication.AuthTypeOIDC, authentication.AuthTypeDb} {
 		users, err := h.controller.GetUsersOrGroupForRole(params.ID, userType, false)
 		if err != nil {
 			return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersOrGroupForRole: %w", err)))
@@ -728,7 +735,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 			}
 		}
 		slices.Sort(filteredUsers)
-		if userType == models.UserAndGroupTypeInputOidc {
+		if userType == authentication.AuthTypeOIDC {
 			for _, userId := range filteredUsers {
 				response = append(response, &authz.GetUsersForRoleOKBodyItems0{UserID: userId, UserType: models.NewUserTypeOutput(models.UserTypeOutputOidc)})
 			}
@@ -770,7 +777,7 @@ func (h *authZHandlers) getGroupsForRole(params authz.GetGroupsForRoleParams, pr
 		return authz.NewGetGroupsForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	users, err := h.controller.GetUsersOrGroupForRole(params.ID, models.UserAndGroupTypeInputOidc, true)
+	users, err := h.controller.GetUsersOrGroupForRole(params.ID, authentication.AuthTypeOIDC, true)
 	if err != nil {
 		return authz.NewGetGroupsForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersOrGroupForRole: %w", err)))
 	}
@@ -789,7 +796,7 @@ func (h *authZHandlers) getGroupsForRole(params authz.GetGroupsForRoleParams, pr
 	slices.Sort(filteredUsers)
 
 	// only OIDC groups so far
-	oidc := models.UserAndGroupTypeInputOidc
+	oidc := models.GroupTypeOidc
 	var response []*authz.GetGroupsForRoleOKBodyItems0
 	for _, userId := range filteredUsers {
 		response = append(response, &authz.GetGroupsForRoleOKBodyItems0{GroupID: userId, GroupType: &oidc})
@@ -820,7 +827,7 @@ func (h *authZHandlers) getUsersForRoleDeprecated(params authz.GetUsersForRoleDe
 	foundUsers := map[string]struct{}{} // no duplicates
 	filteredUsers := make([]string, 0)
 
-	for _, userType := range []models.UserAndGroupTypeInput{models.UserAndGroupTypeInputDb, models.UserAndGroupTypeInputOidc} {
+	for _, userType := range []authentication.AuthType{authentication.AuthTypeDb, authentication.AuthTypeOIDC} {
 		users, err := h.controller.GetUsersOrGroupForRole(params.ID, userType, false)
 		if err != nil {
 			return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersOrGroupForRole: %w", err)))
@@ -873,6 +880,11 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("roles can not be empty")))
 	}
 
+	userType, err := validateUserTypeInput(string(params.Body.UserType))
+	if err != nil {
+		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown groupType: %v", userType)))
+	}
+
 	if err := h.authorizer.Authorize(ctx, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(params.ID)...); err != nil {
 		return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -886,7 +898,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the request roles doesn't exist")))
 	}
 
-	userTypes, err := h.getUserTypesAndValidateExistence(params.ID, params.Body.GroupType)
+	userTypes, err := h.getUserTypesAndValidateExistence(params.ID, userType)
 	if err != nil {
 		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user exists: %w", err)))
 	}
@@ -927,7 +939,7 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 	}
 
 	groupType, err := validateUserTypeInput(string(params.Body.GroupType))
-	if err != nil || groupType != models.UserAndGroupTypeInputOidc {
+	if err != nil || groupType != authentication.AuthTypeOIDC {
 		return authz.NewRevokeRoleFromGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown groupType: %v", params.Body.GroupType)))
 	}
 
@@ -965,15 +977,15 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 
 func (h *authZHandlers) getGroups(params authz.GetGroupsParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	userType, err := validateUserTypeInput(params.GroupType)
-	if err != nil || userType != models.UserAndGroupTypeInputOidc {
+	groupType, err := validateUserTypeInput(params.GroupType)
+	if err != nil || groupType != authentication.AuthTypeOIDC {
 		return authz.NewGetGroupsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown groupType: %v", params.GroupType)))
 	}
-	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Groups(string(userType))...); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Groups(string(groupType))...); err != nil {
 		return authz.NewGetGroupsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	users, err := h.controller.GetUsersOrGroupsWithRoles(true, userType)
+	users, err := h.controller.GetUsersOrGroupsWithRoles(true, groupType)
 	if err != nil {
 		return nil
 	}
@@ -985,20 +997,20 @@ func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, pr
 	ownGroup := slices.Contains(principal.Groups, params.ID) && params.GroupType == string(principal.UserType)
 	ctx := params.HTTPRequest.Context()
 
-	userType, err := validateUserTypeInput(params.GroupType)
-	if err != nil || userType != models.UserAndGroupTypeInputOidc {
+	groupType, err := validateUserTypeInput(params.GroupType)
+	if err != nil || groupType != authentication.AuthTypeOIDC {
 		return authz.NewGetRolesForGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown groupType: %v", params.GroupType)))
 	}
 
 	if !ownGroup {
-		if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Groups(string(userType), params.ID)...); err != nil {
+		if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Groups(string(groupType), params.ID)...); err != nil {
 			return authz.NewGetRolesForGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 	}
 
 	includeFullRoles := params.IncludeFullRoles != nil && *params.IncludeFullRoles
 
-	existingRoles, err := h.controller.GetRolesForUserOrGroup(params.ID, userType, true)
+	existingRoles, err := h.controller.GetRolesForUserOrGroup(params.ID, groupType, true)
 	if err != nil {
 		return authz.NewGetRolesForGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUserOrGroup: %w", err)))
 	}
@@ -1040,14 +1052,14 @@ func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, pr
 	return authz.NewGetRolesForGroupOK().WithPayload(roles)
 }
 
-func (h *authZHandlers) userExists(user string, userType models.UserAndGroupTypeInput) (bool, error) {
+func (h *authZHandlers) userExists(user string, userType authentication.AuthType) (bool, error) {
 	switch userType {
-	case models.UserAndGroupTypeInputOidc:
+	case authentication.AuthTypeOIDC:
 		if !h.oidcConfigs.Enabled {
 			return false, fmt.Errorf("oidc is not enabled")
 		}
 		return true, nil
-	case models.UserAndGroupTypeInputDb:
+	case authentication.AuthTypeDb:
 		if h.apiKeysConfigs.Enabled {
 			for _, apiKey := range h.apiKeysConfigs.Users {
 				if apiKey == user {
@@ -1105,7 +1117,7 @@ func (h *authZHandlers) validateRootGroup(name string) error {
 	return nil
 }
 
-func (h *authZHandlers) getUserTypesAndValidateExistence(id string, userTypeParam models.UserAndGroupTypeInput) ([]models.UserAndGroupTypeInput, error) {
+func (h *authZHandlers) getUserTypesAndValidateExistence(id string, userTypeParam authentication.AuthType) ([]authentication.AuthType, error) {
 	if userTypeParam == "" {
 		exists, err := h.userExistsDeprecated(id)
 		if err != nil {
@@ -1115,7 +1127,7 @@ func (h *authZHandlers) getUserTypesAndValidateExistence(id string, userTypePara
 			return nil, nil
 		}
 
-		return []models.UserAndGroupTypeInput{models.UserAndGroupTypeInputOidc, models.UserAndGroupTypeInputDb}, nil
+		return []authentication.AuthType{authentication.AuthTypeOIDC, authentication.AuthTypeDb}, nil
 	} else {
 		exists, err := h.userExists(id, userTypeParam)
 		if err != nil {
@@ -1125,7 +1137,7 @@ func (h *authZHandlers) getUserTypesAndValidateExistence(id string, userTypePara
 			return nil, nil
 		}
 
-		return []models.UserAndGroupTypeInput{userTypeParam}, nil
+		return []authentication.AuthType{userTypeParam}, nil
 	}
 }
 
@@ -1154,12 +1166,12 @@ func sortByName(roles []*models.Role) {
 	})
 }
 
-func validateUserTypeInput(userTypeInput string) (models.UserAndGroupTypeInput, error) {
-	var userType models.UserAndGroupTypeInput
-	if userTypeInput == string(models.UserAndGroupTypeInputOidc) {
-		userType = models.UserAndGroupTypeInputOidc
-	} else if userTypeInput == string(models.UserAndGroupTypeInputDb) {
-		userType = models.UserAndGroupTypeInputDb
+func validateUserTypeInput(userTypeInput string) (authentication.AuthType, error) {
+	var userType authentication.AuthType
+	if userTypeInput == string(authentication.AuthTypeOIDC) {
+		userType = authentication.AuthTypeOIDC
+	} else if userTypeInput == string(authentication.AuthTypeDb) {
+		userType = authentication.AuthTypeDb
 	} else {
 		return userType, fmt.Errorf("unknown userType: %v", userTypeInput)
 	}

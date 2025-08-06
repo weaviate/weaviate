@@ -33,7 +33,7 @@ type Principal struct {
 	Groups []string `json:"groups"`
 
 	// user type
-	UserType UserAndGroupTypeInput `json:"userType,omitempty"`
+	UserType UserTypeInput `json:"userType,omitempty"`
 
 	// The username that was extracted either from the authentication information
 	Username string `json:"username,omitempty"`

@@ -15,6 +15,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	"github.com/stretchr/testify/mock"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -34,8 +36,8 @@ func TestDeleteSuccess(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetRolesForUserOrGroup", "user", models.UserAndGroupTypeInputDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
-	dynUser.On("RevokeRolesForUser", conv.UserNameWithTypeFromId("user", models.UserAndGroupTypeInputDb), "role").Return(nil)
+	dynUser.On("GetRolesForUserOrGroup", "user", models.UserTypeInputDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
+	dynUser.On("RevokeRolesForUser", conv.UserNameWithTypeFromId("user", authentication.AuthType(models.UserTypeInputDb)), "role").Return(nil)
 	dynUser.On("DeleteUser", "user").Return(nil)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {}}, nil)
 

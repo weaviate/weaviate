@@ -74,7 +74,7 @@ var (
 	}
 	AllOIDCGroups = &models.PermissionGroups{
 		Group:     All,
-		GroupType: models.UserAndGroupTypeInputOidc,
+		GroupType: models.GroupTypeOidc,
 	}
 	AllRoles = &models.PermissionRoles{
 		Role:  All,

@@ -46,14 +46,14 @@ func TestGroups(t *testing.T) {
 		groups   []string
 		expected []string
 	}{
-		{"No groups", []string{}, []string{fmt.Sprintf("%s/%s/*", GroupsDomain, models.UserAndGroupTypeInputOidc)}},
-		{"Single group", []string{"group1"}, []string{fmt.Sprintf("%s/%s/group1", GroupsDomain, models.UserAndGroupTypeInputOidc)}},
-		{"Multiple groups", []string{"group1", "group2"}, []string{fmt.Sprintf("%s/%s/group1", GroupsDomain, models.UserAndGroupTypeInputOidc), fmt.Sprintf("%s/%s/group2", GroupsDomain, models.UserAndGroupTypeInputOidc)}},
+		{"No groups", []string{}, []string{fmt.Sprintf("%s/%s/*", GroupsDomain, models.GroupTypeOidc)}},
+		{"Single group", []string{"group1"}, []string{fmt.Sprintf("%s/%s/group1", GroupsDomain, models.GroupTypeOidc)}},
+		{"Multiple groups", []string{"group1", "group2"}, []string{fmt.Sprintf("%s/%s/group1", GroupsDomain, models.GroupTypeOidc), fmt.Sprintf("%s/%s/group2", GroupsDomain, models.GroupTypeOidc)}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := Groups(string(models.UserAndGroupTypeInputOidc), tt.groups...)
+			result := Groups(string(models.GroupTypeOidc), tt.groups...)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

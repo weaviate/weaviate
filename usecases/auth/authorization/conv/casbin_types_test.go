@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -857,7 +859,7 @@ func Test_permission(t *testing.T) {
 			permission: &models.Permission{
 				Groups: &models.PermissionGroups{
 					Group:     baz,
-					GroupType: models.UserAndGroupTypeInputOidc,
+					GroupType: models.GroupTypeOidc,
 				},
 			},
 			tests: groupTests,
@@ -868,7 +870,7 @@ func Test_permission(t *testing.T) {
 			permission: &models.Permission{
 				Groups: &models.PermissionGroups{
 					Group:     authorization.All,
-					GroupType: models.UserAndGroupTypeInputOidc,
+					GroupType: models.GroupTypeOidc,
 				},
 			},
 			tests: groupTests,
@@ -918,14 +920,14 @@ func Test_pGroups(t *testing.T) {
 		group    string
 		expected string
 	}{
-		{group: "", expected: fmt.Sprintf("%s/%s/.*", authorization.GroupsDomain, models.UserAndGroupTypeInputOidc)},
-		{group: "*", expected: fmt.Sprintf("%s/%s/.*", authorization.GroupsDomain, models.UserAndGroupTypeInputOidc)},
-		{group: "foo", expected: fmt.Sprintf("%s/%s/foo", authorization.GroupsDomain, models.UserAndGroupTypeInputOidc)},
+		{group: "", expected: fmt.Sprintf("%s/%s/.*", authorization.GroupsDomain, authentication.AuthTypeOIDC)},
+		{group: "*", expected: fmt.Sprintf("%s/%s/.*", authorization.GroupsDomain, authentication.AuthTypeOIDC)},
+		{group: "foo", expected: fmt.Sprintf("%s/%s/foo", authorization.GroupsDomain, authentication.AuthTypeOIDC)},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("group: %s", tt.group)
 		t.Run(name, func(t *testing.T) {
-			p := CasbinGroups(tt.group, string(models.UserAndGroupTypeInputOidc))
+			p := CasbinGroups(tt.group, string(authentication.AuthTypeOIDC))
 			require.Equal(t, tt.expected, p)
 		})
 	}

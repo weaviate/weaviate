@@ -16,7 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -50,7 +50,7 @@ func (s *Raft) GetRoles(names ...string) (map[string][]authorization.Policy, err
 	return response.Roles, nil
 }
 
-func (s *Raft) GetUsersOrGroupsWithRoles(isGroup bool, authType models.UserAndGroupTypeInput) ([]string, error) {
+func (s *Raft) GetUsersOrGroupsWithRoles(isGroup bool, authType authentication.AuthType) ([]string, error) {
 	req := cmd.QueryGetAllUsersOrGroupsWithRolesRequest{
 		IsGroup:  isGroup,
 		AuthType: authType,
@@ -79,10 +79,10 @@ func (s *Raft) GetUsersOrGroupsWithRoles(isGroup bool, authType models.UserAndGr
 	return response.UsersOrGroups, nil
 }
 
-func (s *Raft) GetRolesForUserOrGroup(user string, userType models.UserAndGroupTypeInput, isGroup bool) (map[string][]authorization.Policy, error) {
+func (s *Raft) GetRolesForUserOrGroup(user string, authType authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error) {
 	req := cmd.QueryGetRolesForUserOrGroupRequest{
 		User:     user,
-		UserType: userType,
+		UserType: authType,
 		IsGroup:  isGroup,
 	}
 
@@ -109,10 +109,10 @@ func (s *Raft) GetRolesForUserOrGroup(user string, userType models.UserAndGroupT
 	return response.Roles, nil
 }
 
-func (s *Raft) GetUsersOrGroupForRole(role string, userType models.UserAndGroupTypeInput, isGroup bool) ([]string, error) {
+func (s *Raft) GetUsersOrGroupForRole(role string, authType authentication.AuthType, isGroup bool) ([]string, error) {
 	req := cmd.QueryGetUsersForRoleRequest{
 		Role:     role,
-		UserType: userType,
+		UserType: authType,
 		IsGroup:  isGroup,
 	}
 

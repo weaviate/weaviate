@@ -12,7 +12,7 @@
 package api
 
 import (
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -87,7 +87,7 @@ type QueryHasPermissionResponse struct {
 
 type QueryGetAllUsersOrGroupsWithRolesRequest struct {
 	IsGroup  bool
-	AuthType models.UserAndGroupTypeInput
+	AuthType authentication.AuthType
 }
 
 type QueryGetAllUsersOrGroupsWithRolesResponse struct {
@@ -104,7 +104,7 @@ type QueryGetRolesResponse struct {
 
 type QueryGetRolesForUserOrGroupRequest struct {
 	User     string
-	UserType models.UserAndGroupTypeInput
+	UserType authentication.AuthType
 	IsGroup  bool
 }
 
@@ -114,7 +114,7 @@ type QueryGetRolesForUserOrGroupResponse struct {
 
 type QueryGetUsersForRoleRequest struct {
 	Role     string
-	UserType models.UserAndGroupTypeInput
+	UserType authentication.AuthType
 	IsGroup  bool
 }
 

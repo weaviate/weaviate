@@ -16,9 +16,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/config"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -250,12 +250,12 @@ func migrateRevokeRolesV0(req *cmd.RevokeRolesForUserRequest) []*cmd.RevokeRoles
 	req1 := &cmd.RevokeRolesForUserRequest{
 		Version: req.Version + 1,
 		Roles:   req.Roles,
-		User:    conv.UserNameWithTypeFromId(user, models.UserAndGroupTypeInputDb),
+		User:    conv.UserNameWithTypeFromId(user, authentication.AuthTypeDb),
 	}
 	req2 := &cmd.RevokeRolesForUserRequest{
 		Version: req.Version + 1,
 		Roles:   req.Roles,
-		User:    conv.UserNameWithTypeFromId(user, models.UserAndGroupTypeInputOidc),
+		User:    conv.UserNameWithTypeFromId(user, authentication.AuthTypeOIDC),
 	}
 
 	return []*cmd.RevokeRolesForUserRequest{req1, req2}
@@ -276,7 +276,7 @@ func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest, authNconfig config.A
 		reqs = append(reqs, &cmd.AddRolesForUsersRequest{
 			Version: req.Version + 1,
 			Roles:   req.Roles,
-			User:    conv.UserNameWithTypeFromId(user, models.UserAndGroupTypeInputDb),
+			User:    conv.UserNameWithTypeFromId(user, authentication.AuthTypeDb),
 		})
 	}
 
@@ -284,7 +284,7 @@ func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest, authNconfig config.A
 		reqs = append(reqs, &cmd.AddRolesForUsersRequest{
 			Version: req.Version + 1,
 			Roles:   req.Roles,
-			User:    conv.UserNameWithTypeFromId(user, models.UserAndGroupTypeInputOidc),
+			User:    conv.UserNameWithTypeFromId(user, authentication.AuthTypeOIDC),
 		})
 	}
 

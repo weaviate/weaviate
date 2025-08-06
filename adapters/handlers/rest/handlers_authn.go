@@ -14,6 +14,7 @@ package rest
 import (
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
 	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -45,12 +46,12 @@ func (h *authNHandlers) getOwnInfo(_ users.GetOwnInfoParams, principal *models.P
 	var roles []*models.Role
 	rolenames := map[string]struct{}{}
 	if h.rbacConfig.Enabled {
-		existingRoles, err := h.authzController.GetRolesForUserOrGroup(principal.Username, principal.UserType, false)
+		existingRoles, err := h.authzController.GetRolesForUserOrGroup(principal.Username, authentication.AuthType(principal.UserType), false)
 		if err != nil {
 			return users.NewGetOwnInfoInternalServerError()
 		}
 		for _, group := range principal.Groups {
-			groupRoles, err := h.authzController.GetRolesForUserOrGroup(group, principal.UserType, true)
+			groupRoles, err := h.authzController.GetRolesForUserOrGroup(group, authentication.AuthType(principal.UserType), true)
 			if err != nil {
 				return users.NewGetOwnInfoInternalServerError()
 			}

@@ -844,7 +844,7 @@ type PermissionGroups struct {
 	Group *string `json:"group,omitempty"`
 
 	// group type
-	GroupType UserAndGroupTypeInput `json:"groupType,omitempty"`
+	GroupType GroupType `json:"groupType,omitempty"`
 }
 
 // Validate validates this permission groups
