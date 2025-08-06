@@ -467,6 +467,7 @@ func TestRbacWithOIDCAssignRevokeGroups(t *testing.T) {
 		})
 	}
 }
+
 func TestOidcRootAndDynamicUsersWithCertificate(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithDbUsers().Start(ctx)

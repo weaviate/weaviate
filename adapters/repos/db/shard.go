@@ -246,7 +246,7 @@ type Shard struct {
 	statusLock          sync.RWMutex
 	propertyIndicesLock sync.RWMutex
 
-	dimensionTrackingLock        sync.Mutex
+	dimensionTrackingLock sync.Mutex
 
 	centralJobQueue chan job // reference to queue used by all shards
 
