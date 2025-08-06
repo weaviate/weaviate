@@ -13,7 +13,6 @@ package spfresh
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 
 	"github.com/pkg/errors"
@@ -26,7 +25,9 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 	}
 
 	// track the dimensions of the vectors to ensure they are consistent
-	s.dims.CompareAndSwap(0, int32(len(vector)))
+	s.trackDimensionsOnce.Do(func() {
+		s.dims.Store(int32(len(vector)))
+	})
 
 	v := distancer.Normalize(vector)
 	compressed := s.Quantizer.Encode(v)
@@ -67,10 +68,7 @@ func (s *SPFresh) addOne(ctx context.Context, id uint64, vector []byte) error {
 
 	s.VersionMap.AllocPageFor(id)
 
-	v := make(Vector, 8+1+len(vector))
-	binary.LittleEndian.PutUint64(v[:8], id)
-	v[8] = s.VersionMap.Get(id).Version()
-	copy(v[8:], vector)
+	v := NewVector(id, s.VersionMap.Get(id), vector)
 
 	for _, replica := range replicas {
 		_, err = s.append(ctx, v, replica, false)

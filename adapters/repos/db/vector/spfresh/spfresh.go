@@ -75,8 +75,10 @@ type SPFresh struct {
 
 	postingLocks *common.HashedLocks // Locks to prevent concurrent modifications to the same posting.
 
-	dims      atomic.Int32
-	distancer distancer.Provider
+	dims                atomic.Int32
+	vectorSize          int32 // Size of the compressed vectors in bytes
+	trackDimensionsOnce sync.Once
+	distancer           distancer.Provider
 }
 
 func (s *SPFresh) Start(ctx context.Context) {

@@ -27,6 +27,15 @@ const (
 
 type Vector []byte
 
+func NewVector(id uint64, version VectorVersion, data []byte) Vector {
+	v := make(Vector, 8+1+len(data))
+	binary.LittleEndian.PutUint64(v[:8], id)
+	v[8] = byte(version)
+	copy(v[9:], data)
+
+	return v
+}
+
 func (v Vector) ID() uint64 {
 	return binary.LittleEndian.Uint64(v[:8])
 }
@@ -41,17 +50,22 @@ func (v Vector) Data() []byte {
 
 // A Posting is a collection of vectors associated with the same centroid.
 type Posting struct {
-	dims int32
-	data []byte
+	// total size in bytes of each vector
+	vectorSize int
+	data       []byte
+}
+
+func (p *Posting) AddVector(v Vector) {
+	p.data = append(p.data, v...)
 }
 
 // GarbageCollect filters out vectors that are marked as deleted in the version map
 // and return the filtered posting.
 // This method doesn't allocate a new slice, the filtering is done in-place.
 func (p *Posting) GarbageCollect(versionMap *VersionMap) *Posting {
-	var i int32
-	step := 8 + 1 + p.dims*4
-	for int(i) < len(p.data) {
+	var i int
+	step := 8 + 1 + p.vectorSize
+	for i < len(p.data) {
 		id := binary.LittleEndian.Uint64(p.data[i : i+8])
 		version := versionMap.Get(id)
 		if !version.Deleted() && version.Version() <= p.data[i+8] {
@@ -68,7 +82,7 @@ func (p *Posting) GarbageCollect(versionMap *VersionMap) *Posting {
 }
 
 func (p *Posting) Len() int {
-	step := int(8 + 1 + p.dims*4)
+	step := int(8 + 1 + p.vectorSize)
 	var j int
 	for i := 0; i < len(p.data); i += step {
 		j++
@@ -78,7 +92,7 @@ func (p *Posting) Len() int {
 }
 
 func (p *Posting) Iter() iter.Seq2[int, Vector] {
-	step := 8 + 1 + int(p.dims)*4
+	step := 8 + 1 + p.vectorSize
 	return func(yield func(int, Vector) bool) {
 		var j int
 		for i := 0; i < len(p.data); i += step {
@@ -91,7 +105,7 @@ func (p *Posting) Iter() iter.Seq2[int, Vector] {
 }
 
 func (p *Posting) GetAt(i int) Vector {
-	step := int(8 + 1 + p.dims*4)
+	step := int(8 + 1 + p.vectorSize)
 	idx := i * step
 	return p.data[idx : idx+step]
 }

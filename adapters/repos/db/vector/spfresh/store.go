@@ -20,17 +20,22 @@ import (
 )
 
 type LSMStore struct {
-	store  *lsmkv.Store
-	bucket *lsmkv.Bucket
-	dims   int32
+	store      *lsmkv.Store
+	bucket     *lsmkv.Bucket
+	vectorSize int
 }
 
-func NewLSMStore(store *lsmkv.Store, dims int32, bucketName string) *LSMStore {
-	return &LSMStore{
-		store:  store,
-		bucket: store.Bucket(bucketName),
-		dims:   dims,
+func NewLSMStore(store *lsmkv.Store, vectorSize int32, bucketName string) (*LSMStore, error) {
+	err := store.CreateOrLoadBucket(context.TODO(), bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bucketName)
 	}
+
+	return &LSMStore{
+		store:      store,
+		bucket:     store.Bucket(bucketName),
+		vectorSize: int(vectorSize),
+	}, nil
 }
 
 func (l *LSMStore) Get(ctx context.Context, postingID uint64) (*Posting, error) {
@@ -40,10 +45,13 @@ func (l *LSMStore) Get(ctx context.Context, postingID uint64) (*Posting, error) 
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
+	if len(list) == 0 {
+		return nil, ErrPostingNotFound
+	}
 
 	posting := Posting{
-		dims: l.dims,
-		data: make([]byte, 0, int32(len(list))*(8+1+l.dims*4)),
+		vectorSize: int(l.vectorSize),
+		data:       make([]byte, 0, len(list)*(8+1+l.vectorSize)),
 	}
 
 	for _, v := range list {
@@ -68,10 +76,22 @@ func (l *LSMStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]*Postin
 }
 
 func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting *Posting) error {
+	if posting == nil {
+		return errors.New("posting cannot be nil")
+	}
+	if posting.vectorSize != l.vectorSize {
+		return errors.Errorf("posting vector size %d does not match store vector size %d", posting.vectorSize, l.vectorSize)
+	}
+
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 
-	// TODO: this is a very slow way of replacing the entire posting.
+	set := make([][]byte, posting.Len())
+	for i, v := range posting.Iter() {
+		set[i] = v
+	}
+
+	// TODO: this is slow and not atomic, this might impact recall
 	list, err := l.bucket.SetList(buf[:])
 	if err != nil {
 		return errors.Wrapf(err, "failed to get posting %d", postingID)
@@ -81,12 +101,6 @@ func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting *Posting) 
 		if err != nil {
 			return errors.Wrapf(err, "failed to delete old vector from posting %d", postingID)
 		}
-	}
-
-	set := make([][]byte, posting.Len())
-
-	for i, v := range posting.Iter() {
-		set[i] = v
 	}
 
 	return l.bucket.SetAdd(buf[:], set)

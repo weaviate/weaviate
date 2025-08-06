@@ -13,11 +13,92 @@ package spfresh
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
 func TestStore(t *testing.T) {
+	ctx := t.Context()
 	t.Run("get", func(t *testing.T) {
-		// store := testinghelpers.NewDummyStore(t)
-		// s := NewLSMStore(store)
+		store := testinghelpers.NewDummyStore(t)
+		s, err := NewLSMStore(store, 10, "test_bucket")
+		require.NoError(t, err)
+
+		// unknown posting
+		p, err := s.Get(ctx, 1)
+		require.ErrorIs(t, err, ErrPostingNotFound)
+		require.Nil(t, p)
+
+		// create a posting
+		posting := Posting{
+			vectorSize: 10,
+		}
+		posting.AddVector(NewVector(1, 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}))
+		err = s.Put(ctx, 1, &posting)
+		require.NoError(t, err)
+
+		// get the posting
+		p, err = s.Get(ctx, 1)
+		require.NoError(t, err)
+		require.Equal(t, &posting, p)
+
+		// get a different posting
+		p, err = s.Get(ctx, 2)
+		require.ErrorIs(t, err, ErrPostingNotFound)
+		require.Nil(t, p)
+	})
+
+	t.Run("multi-get", func(t *testing.T) {
+		store := testinghelpers.NewDummyStore(t)
+		s, err := NewLSMStore(store, 10, "test_bucket")
+		require.NoError(t, err)
+
+		// nil
+		ps, err := s.MultiGet(ctx, nil)
+		require.NoError(t, err)
+		require.Len(t, ps, 0)
+
+		// unknown postings
+		ps, err = s.MultiGet(ctx, []uint64{1, 2, 3})
+		require.ErrorIs(t, err, ErrPostingNotFound)
+
+		var postings []*Posting
+		// create a few postings
+		for i := range 5 {
+			posting := Posting{
+				vectorSize: 10,
+			}
+			posting.AddVector(NewVector(uint64(i), 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}))
+			postings = append(postings, &posting)
+			err = s.Put(ctx, uint64(i), &posting)
+			require.NoError(t, err)
+		}
+
+		// get some postings
+		ps, err = s.MultiGet(ctx, []uint64{1, 2, 4})
+		require.NoError(t, err)
+		require.Len(t, ps, 3)
+		require.Equal(t, postings[1], ps[0])
+		require.Equal(t, postings[2], ps[1])
+		require.Equal(t, postings[4], ps[2])
+	})
+
+	t.Run("put", func(t *testing.T) {
+		store := testinghelpers.NewDummyStore(t)
+		s, err := NewLSMStore(store, 10, "test_bucket")
+		require.NoError(t, err)
+
+		// nil posting
+		err = s.Put(ctx, 1, nil)
+		require.Error(t, err)
+
+		// invalid posting vector size
+		err = s.Put(ctx, 1, &Posting{vectorSize: 5})
+		require.Error(t, err)
+
+		// empty posting
+		err = s.Put(ctx, 1, &Posting{vectorSize: 10})
+		require.NoError(t, err)
 	})
 }

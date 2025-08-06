@@ -135,8 +135,8 @@ func (s *SPFresh) doSplit(postingID uint64) error {
 		s.PostingSizes.Set(postingID, 1)
 
 		err = s.Store.Put(s.ctx, postingID, &Posting{
-			dims: filtered.dims,
-			data: filtered.GetAt(0),
+			vectorSize: filtered.vectorSize,
+			data:       filtered.GetAt(0),
 		})
 		if err != nil {
 			return errors.Wrapf(err, "failed to put single vector posting %d after split operation", postingID)
@@ -229,8 +229,8 @@ func (s *SPFresh) splitPosting(posting *Posting) ([]SplitResult, error) {
 		results[i] = SplitResult{
 			Centroid: s.Quantizer.Encode(enc.Centroid(byte(i))),
 			Posting: Posting{
-				dims: s.dims.Load(),
-				data: make([]byte, 0, len(posting.data)),
+				vectorSize: int(s.vectorSize),
+				data:       make([]byte, 0, len(posting.data)),
 			},
 		}
 	}
@@ -282,13 +282,13 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 				// compute distance from v to its new centroid
 				newDist, err := s.Quantizer.DistanceBetweenCompressedVectors(s.SPTAG.Get(newPostingIDs[i]), data)
 				if err != nil {
-					return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", v.ID, newPostingIDs[i])
+					return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[i])
 				}
 
 				// compute distance from v to the old centroid
 				oldDist, err := s.Quantizer.DistanceBetweenCompressedVectors(oldCentroid, data)
 				if err != nil {
-					return errors.Wrapf(err, "failed to compute distance for vector %d in old posting %d", v.ID, oldPostingID)
+					return errors.Wrapf(err, "failed to compute distance for vector %d in old posting %d", vid, oldPostingID)
 				}
 
 				if newDist >= oldDist {
@@ -296,9 +296,9 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 					// we need to reassign it
 					err = s.enqueueReassign(s.ctx, newPostingIDs[i], v)
 					if err != nil {
-						return errors.Wrapf(err, "failed to enqueue reassign for vector %d after split", v.ID)
+						return errors.Wrapf(err, "failed to enqueue reassign for vector %d after split", vid)
 					}
-					reassignedVectors[v.ID()] = struct{}{}
+					reassignedVectors[vid] = struct{}{}
 				}
 			}
 		}
@@ -350,22 +350,22 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 
 			distNeighbor, err := s.Quantizer.DistanceBetweenCompressedVectors(s.SPTAG.Get(neighbor.ID), data)
 			if err != nil {
-				return errors.Wrapf(err, "failed to compute distance for vector %d in neighbor posting %d", v.ID, neighbor.ID)
+				return errors.Wrapf(err, "failed to compute distance for vector %d in neighbor posting %d", vid, neighbor.ID)
 			}
 
 			distOld, err := s.Quantizer.DistanceBetweenCompressedVectors(oldCentroid, data)
 			if err != nil {
-				return errors.Wrapf(err, "failed to compute distance for vector %d in old posting %d", v.ID, oldPostingID)
+				return errors.Wrapf(err, "failed to compute distance for vector %d in old posting %d", vid, oldPostingID)
 			}
 
 			distA0, err := s.Quantizer.DistanceBetweenCompressedVectors(s.SPTAG.Get(newPostingIDs[0]), data)
 			if err != nil {
-				return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", v.ID, newPostingIDs[0])
+				return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[0])
 			}
 
 			distA1, err := s.Quantizer.DistanceBetweenCompressedVectors(s.SPTAG.Get(newPostingIDs[1]), data)
 			if err != nil {
-				return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", v.ID, newPostingIDs[1])
+				return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[1])
 			}
 
 			if distOld <= distA0 && distOld <= distA1 {
@@ -382,7 +382,7 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 			// the vector is closer to one of the new centroids, it needs to be reassigned
 			err = s.enqueueReassign(s.ctx, neighbor.ID, v)
 			if err != nil {
-				return errors.Wrapf(err, "failed to enqueue reassign for vector %d after split", v.ID)
+				return errors.Wrapf(err, "failed to enqueue reassign for vector %d after split", vid)
 			}
 			reassignedVectors[vid] = struct{}{}
 		}
