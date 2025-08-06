@@ -77,6 +77,37 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
+  local-single-node-otel)
+      echo "Starting Weaviate with OpenTelemetry tracing enabled..."
+      echo "Make sure to start monitoring first with: ./tools/dev/run_dev_server.sh local-prometheus"
+      echo ""
+      OTEL_ENABLED=true \
+      OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 \
+      OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+      OTEL_TRACES_SAMPLER_ARG=1.0 \
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      PERSISTENCE_DATA_PATH="./data-weaviate-0" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
+      PROMETHEUS_MONITORING_PORT="2112" \
+      PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      RAFT_BOOTSTRAP_EXPECT=1 \
+      RUNTIME_OVERRIDES_ENABLED=true \
+      RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
+      RUNTIME_OVERRIDES_LOAD_INTERVAL=30s \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
   local-single-node-rbac)
     AUTHENTICATION_APIKEY_ENABLED=true \
     AUTHORIZATION_RBAC_ENABLED=true \
@@ -1093,8 +1124,8 @@ local-usage-s3)
 
     cleanup() {
       echo "Cleaning up existing containers and volumes..."
-      docker stop prometheus grafana 2>/dev/null || true
-      docker rm -f prometheus grafana 2>/dev/null || true
+      docker stop prometheus grafana tempo 2>/dev/null || true
+      docker rm -f prometheus grafana tempo 2>/dev/null || true
       docker volume rm grafana_data 2>/dev/null || true
       docker network rm monitoring 2>/dev/null || true
       echo "Cleanup complete."
@@ -1106,6 +1137,16 @@ local-usage-s3)
 
     docker network create monitoring 2>/dev/null || true
 
+    echo "Starting Tempo..."
+    docker run -d \
+      --name tempo \
+      --network monitoring \
+      -p 3200:3200 \
+      -p 4317:4317 \
+      -p 4318:4318 \
+      -v "$(pwd)/examples/tempo.yaml:/etc/tempo.yaml" \
+      grafana/tempo:latest \
+      -config.file=/etc/tempo.yaml
 
     echo "Starting Prometheus..."
     docker run -d \
@@ -1114,8 +1155,8 @@ local-usage-s3)
       -p 9090:9090 \
       --add-host=host.docker.internal:host-gateway \
       -v "$(pwd)/tools/dev/prometheus_config/prometheus.yml:/etc/prometheus/prometheus.yml" \
-      prom/prometheus
-
+      prom/prometheus \
+      --web.enable-remote-write-receiver
 
     echo "Starting Grafana..."
     docker run -d \
@@ -1130,7 +1171,14 @@ local-usage-s3)
       grafana/grafana
 
     echo "Waiting for services to start..."
-    sleep 5
+    sleep 10
+
+    if docker ps | grep -q tempo; then
+      echo "Tempo is running"
+    else
+      echo "Error: Tempo failed to start"
+      docker logs tempo
+    fi
 
     if docker ps | grep -q prometheus; then
       echo "Prometheus is running"
@@ -1151,11 +1199,17 @@ local-usage-s3)
     fi
 
     echo "Setup complete! Services are available at:"
+    echo "Tempo: http://localhost:3200"
     echo "Prometheus: http://localhost:9090"
     echo "Grafana: http://localhost:3000 (admin/admin)"
+    echo "OTLP gRPC: localhost:4317"
+    echo "OTLP HTTP: localhost:4318"
     echo "Dashboards should be available at:"
     echo "- Overview: http://localhost:3000/d/weaviate-overview/weaviate-overview"
+    echo "- Tempo traces: http://localhost:3000/explore (select Tempo datasource)"
     ;;
+
+
   *)
     echo "Invalid config" 2>&1
     exit 1

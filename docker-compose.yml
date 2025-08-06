@@ -28,6 +28,7 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-remote-write-receiver'
     ports:
       - "9090:9090"
   grafana:
@@ -37,8 +38,18 @@ services:
     volumes:
       - ./tools/dev/grafana/grafana.ini:/etc/grafana/grafana.ini
       - ./tools/dev/grafana/datasource.yml:/etc/grafana/provisioning/datasources/prometheus.yml
+      - ./tools/dev/grafana/datasources/tempo.yml:/etc/grafana/provisioning/datasources/tempo.yml
       - ./tools/dev/grafana/dashboard_provider.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
       - ./tools/dev/grafana/dashboards:/var/lib/grafana/dashboards
+  tempo:
+    image: grafana/tempo:latest
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./examples/tempo.yaml:/etc/tempo.yaml
+    ports:
+      - "3200:3200"   # tempo
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
   keycloak:
     image: jboss/keycloak:5.0.0
     environment:
