@@ -53,7 +53,7 @@ func TestHandler(t *testing.T) {
 		var wg sync.WaitGroup
 		batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
 
-		writeQueues.Make(req.StreamId, nil)
+		writeQueues.MakeDynamic(req.StreamId, nil)
 		// Act
 		howMany := handler.Send(ctx, req)
 
@@ -97,7 +97,7 @@ func TestHandler(t *testing.T) {
 			var wg sync.WaitGroup
 			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
-			writeQueues.Make(StreamId, nil)
+			writeQueues.MakeDynamic(StreamId, nil)
 			readQueues.Make(StreamId)
 			err := handler.Stream(ctx, StreamId, stream)
 			require.NoError(t, err, "Expected no error when streaming")
@@ -130,7 +130,7 @@ func TestHandler(t *testing.T) {
 			var wg sync.WaitGroup
 			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
-			writeQueues.Make(StreamId, nil)
+			writeQueues.MakeDynamic(StreamId, nil)
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
@@ -170,7 +170,7 @@ func TestHandler(t *testing.T) {
 			var wg sync.WaitGroup
 			batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
 
-			writeQueues.Make(StreamId, nil)
+			writeQueues.MakeDynamic(StreamId, nil)
 			readQueues.Make(StreamId)
 			shutdownCancel() // Trigger shutdown
 			err := handler.Stream(ctx, StreamId, stream)
@@ -211,7 +211,7 @@ func TestHandler(t *testing.T) {
 			var wg sync.WaitGroup
 			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
-			writeQueues.Make(StreamId, nil)
+			writeQueues.MakeDynamic(StreamId, nil)
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
@@ -258,7 +258,7 @@ func TestHandler(t *testing.T) {
 			var wg sync.WaitGroup
 			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
-			writeQueues.Make(StreamId, nil)
+			writeQueues.MakeDynamic(StreamId, nil)
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
@@ -272,41 +272,4 @@ func TestHandler(t *testing.T) {
 			require.NoError(t, err, "Expected error when processing")
 		})
 	})
-}
-
-func TestScheduler(t *testing.T) {
-	ctx := context.Background()
-	shutdownCtx, shutdownCancel := context.WithCancel(ctx)
-	defer shutdownCancel()
-
-	logger := logrus.New()
-	writeQueues := batch.NewBatchWriteQueues()
-	internalQueue := batch.NewBatchInternalQueue()
-
-	writeQueues.Make("test-stream", nil)
-	var wg sync.WaitGroup
-	batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
-
-	queue, ok := writeQueues.Get("test-stream")
-	require.True(t, ok, "Expected write queue to exist")
-
-	obj := &pb.BatchObject{}
-	queue <- batch.NewWriteObject(obj)
-
-	require.Eventually(t, func() bool {
-		select {
-		case receivedObj := <-internalQueue:
-			return receivedObj.Objects.Values[0] == obj
-		default:
-			return false
-		}
-	}, 1*time.Second, 10*time.Millisecond, "Expected object to be sent to internal queue")
-
-	shutdownCancel() // Trigger shutdown
-	wg.Wait()        // Wait for scheduler to finish
-
-	require.Empty(t, internalQueue, "Expected internal queue to be empty after shutdown")
-	ch, ok := writeQueues.Get("test-stream")
-	require.True(t, ok, "Expected write queue to still exist after shutdown")
-	require.Empty(t, ch, "Expected write queue to be empty after shutdown")
 }

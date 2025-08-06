@@ -71,7 +71,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 
 	var wg sync.WaitGroup
 	numWorkers := 1
-	batch.StartBatchWorkers(grpcShutdownCtx, &wg, numWorkers, internalQueue, batchReadQueues, batchHandler, logger)
+	batch.StartBatchWorkers(grpcShutdownCtx, &wg, numWorkers, internalQueue, batchReadQueues, batchWriteQueues, batchHandler, logger)
 	batch.StartScheduler(grpcShutdownCtx, &wg, batchWriteQueues, internalQueue, logger)
 	enterrors.GoWrapper(func() {
 		for {
@@ -269,7 +269,7 @@ func (s *Service) BatchStream(req *pb.BatchStreamRequest, stream pb.Weaviate_Bat
 		return err
 	}
 	streamId := id.String()
-	s.batchQueuesHandler.Setup(streamId, req.ConsistencyLevel)
+	s.batchQueuesHandler.Setup(streamId, req)
 	defer s.batchQueuesHandler.Teardown(streamId)
 	return s.batchQueuesHandler.Stream(stream.Context(), streamId, stream)
 }

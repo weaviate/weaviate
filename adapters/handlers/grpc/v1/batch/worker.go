@@ -31,6 +31,7 @@ type Worker struct {
 	logger        logrus.FieldLogger
 	readQueues    *ReadQueues
 	internalQueue internalQueue
+	writeQueues   *WriteQueues
 }
 
 type SendObjects struct {
@@ -157,13 +158,13 @@ func (w *Worker) process(ctx context.Context, req *ProcessRequest) error {
 	return nil
 }
 
-func StartBatchWorkers(ctx context.Context, wg *sync.WaitGroup, concurrency int, internalQueue internalQueue, readQueues *ReadQueues, batcher Batcher, logger logrus.FieldLogger) {
+func StartBatchWorkers(ctx context.Context, wg *sync.WaitGroup, concurrency int, internalQueue internalQueue, readQueues *ReadQueues, writeQueues *WriteQueues, batcher Batcher, logger logrus.FieldLogger) {
 	eg := enterrors.NewErrorGroupWrapper(logger)
 	for range concurrency {
 		wg.Add(1)
 		eg.Go(func() error {
 			defer wg.Done()
-			w := &Worker{batcher: batcher, logger: logger, readQueues: readQueues, internalQueue: internalQueue}
+			w := &Worker{batcher: batcher, logger: logger, readQueues: readQueues, writeQueues: writeQueues, internalQueue: internalQueue}
 			return w.Loop(ctx, pb.ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM)
 		})
 	}

@@ -13,12 +13,12 @@ package batch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
@@ -96,9 +96,17 @@ func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) 
 }
 
 // Setup initializes a read queue for the given stream ID and adds it to the read queues map.
-func (h *QueuesHandler) Setup(streamId string, consistencyLevel *pb.ConsistencyLevel) {
+func (h *QueuesHandler) Setup(streamId string, req *pb.BatchStreamRequest) {
 	h.readQueues.Make(streamId)
-	h.writeQueues.Make(streamId, consistencyLevel)
+	if req.GetDynamic() != nil {
+		h.writeQueues.MakeDynamic(streamId, req.ConsistencyLevel)
+	}
+	if req.GetFixedSize() != nil {
+		h.writeQueues.MakeFixedSize(streamId, req.ConsistencyLevel, int(req.GetFixedSize().GetSize()))
+	}
+	if req.GetRateLimited() != nil {
+		h.writeQueues.MakeRateLimited(streamId, req.ConsistencyLevel, int(req.GetRateLimited().GetRate()))
+	}
 }
 
 // Teardown closes the read queue for the given stream ID and removes it from the read queues map.
@@ -113,120 +121,6 @@ func (h *QueuesHandler) Teardown(streamId string) {
 	} else {
 		h.logger.WithField("streamId", streamId).Warn("teardown called for non-existing write queue")
 	}
-}
-
-type Scheduler struct {
-	logger        logrus.FieldLogger
-	writeQueues   *WriteQueues
-	internalQueue internalQueue
-}
-
-func NewScheduler(writeQueues *WriteQueues, internalQueue internalQueue, logger logrus.FieldLogger) *Scheduler {
-	return &Scheduler{
-		logger:        logger,
-		writeQueues:   writeQueues,
-		internalQueue: internalQueue,
-	}
-}
-
-func (s *Scheduler) Loop(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			s.logger.Info("shutting down scheduler loop")
-			return
-		default:
-			s.writeQueues.queues.Range(func(key, value any) bool {
-				streamId, ok := key.(string)
-				if !ok {
-					s.logger.WithField("key", key).Error("expected string key in write queues")
-					return true // continue iteration
-				}
-				wq, ok := value.(*WriteQueue)
-				if !ok {
-					s.logger.WithField("value", value).Error("expected WriteQueue value in write queues")
-					return true // continue iteration
-				}
-				if len(wq.queue) == 0 {
-					return true // continue iteration if queue is empty
-				}
-				return s.add(ctx, streamId, wq)
-			})
-			time.Sleep(time.Millisecond * 100)
-		}
-	}
-}
-
-func (s *Scheduler) add(ctx context.Context, streamId string, wq *WriteQueue) bool {
-	weight := len(wq.queue) // or smoothed average
-	objs := make([]*pb.BatchObject, 0, weight)
-	refs := make([]*pb.BatchReference, 0, weight)
-	stop := false
-	for i := 0; i < weight && len(wq.queue) > 0; i++ {
-		select {
-		case <-ctx.Done():
-			s.logger.Info("shutting down scheduler loop due to grpc shutdown")
-			return false // stop iteration
-		case obj := <-wq.queue:
-			if obj.Object != nil {
-				objs = append(objs, obj.Object)
-			}
-			if obj.Reference != nil {
-				refs = append(refs, obj.Reference)
-			}
-			if obj.Stop {
-				stop = true
-			}
-		default:
-		}
-	}
-	if len(objs) > 0 {
-		s.internalQueue <- &ProcessRequest{
-			StreamId: streamId,
-			Objects: &SendObjects{
-				Values:           objs,
-				ConsistencyLevel: wq.consistencyLevel,
-				Index:            wq.objIndex,
-			},
-		}
-		wq.objIndex += int32(len(objs))
-		s.logger.WithFields(logrus.Fields{
-			"streamId": streamId,
-			"count":    len(objs),
-		}).Debug("scheduled batch write request")
-	}
-	if len(refs) > 0 {
-		s.internalQueue <- &ProcessRequest{
-			StreamId: streamId,
-			References: &SendReferences{
-				Values:           refs,
-				ConsistencyLevel: wq.consistencyLevel,
-				Index:            wq.refIndex,
-			},
-		}
-		wq.refIndex += int32(len(refs))
-		s.logger.WithFields(logrus.Fields{
-			"streamId": streamId,
-			"count":    len(refs),
-		}).Debug("scheduled batch reference request")
-	}
-	if stop {
-		s.internalQueue <- &ProcessRequest{
-			StreamId: streamId,
-			Stop:     true,
-		}
-	}
-	time.Sleep(time.Millisecond * 5)
-	return true
-}
-
-func StartScheduler(ctx context.Context, wg *sync.WaitGroup, writeQueues *WriteQueues, internalQueue internalQueue, logger logrus.FieldLogger) {
-	scheduler := NewScheduler(writeQueues, internalQueue, logger)
-	wg.Add(1)
-	enterrors.GoWrapper(func() {
-		scheduler.Loop(ctx)
-		wg.Done()
-	}, logger)
 }
 
 func newBatchStartMessage(streamId string) *pb.BatchStreamMessage {
@@ -372,11 +266,77 @@ func (r *ReadQueues) Make(streamId string) {
 	}
 }
 
+type dynamic struct{}
+
+func dynamicFromProto(proto *pb.BatchStreamRequest_Dynamic) *dynamic {
+	if proto == nil {
+		return nil
+	}
+	return &dynamic{}
+}
+
+type fixedSize struct {
+	size int
+}
+
+func fixedSizeFromProto(proto *pb.BatchStreamRequest_FixedSize) *fixedSize {
+	if proto == nil {
+		return nil
+	}
+	return &fixedSize{
+		size: int(proto.Size),
+	}
+}
+
+type rateLimited struct {
+	desiredRate       int
+	howManyToSendNext int
+	whenToSendNext    time.Time
+}
+
+func rateLimitedFromProto(proto *pb.BatchStreamRequest_RateLimited) *rateLimited {
+	if proto == nil {
+		return nil
+	}
+	return &rateLimited{
+		desiredRate:       int(proto.Rate),
+		howManyToSendNext: int(proto.Rate),
+		whenToSendNext:    time.Now().Add(time.Second), // Start with a 1 second delay
+	}
+}
+
 type WriteQueue struct {
 	queue            writeQueue
 	consistencyLevel *pb.ConsistencyLevel
 	objIndex         int32
 	refIndex         int32
+	dynamic          *dynamic
+	fixedSize        *fixedSize
+	rateLimited      *rateLimited
+}
+
+func (w *WriteQueue) BatchSize() (int, error) {
+	if w.dynamic != nil {
+		return min(len(w.queue), 1000), nil
+	}
+	if w.fixedSize != nil {
+		return int(w.fixedSize.size), nil
+	}
+	if w.rateLimited != nil {
+		now := time.Now()
+		// If we are past the next scheduled time, we can send the desired rate
+		if now.After(w.rateLimited.whenToSendNext) {
+			toSend := w.rateLimited.desiredRate
+
+			w.rateLimited.howManyToSendNext = w.rateLimited.desiredRate
+			w.rateLimited.whenToSendNext = now.Add(time.Second)
+
+			return toSend, nil
+		}
+		// Otherwise, skip. TODO: can we optimise better here to send some partial list of objects?
+		return 0, nil
+	}
+	return 0, errors.New("unknown batch size")
 }
 
 type WriteQueues struct {
@@ -408,11 +368,48 @@ func (w *WriteQueues) Close() {
 	w.queues = sync.Map{} // Clear the map after closing all queues
 }
 
-func (w *WriteQueues) Make(streamId string, consistencyLevel *pb.ConsistencyLevel) {
+type makeWriteQueueOptions struct {
+	consistencyLevel *pb.ConsistencyLevel
+	dynamic          *dynamic
+	fixedSize        *fixedSize
+	rateLimited      *rateLimited
+}
+
+func NewMakeWriteQueueOptions(consistencyLevel *pb.ConsistencyLevel, dynamic *dynamic, fixedSize *fixedSize, rateLimited *rateLimited) *makeWriteQueueOptions {
+	return &makeWriteQueueOptions{
+		consistencyLevel: consistencyLevel,
+		dynamic:          dynamic,
+		fixedSize:        fixedSize,
+		rateLimited:      rateLimited,
+	}
+}
+
+func (w *WriteQueues) MakeDynamic(streamId string, consistencyLevel *pb.ConsistencyLevel) {
 	if _, ok := w.queues.Load(streamId); !ok {
 		w.queues.Store(streamId, &WriteQueue{
 			queue:            NewBatchWriteQueue(),
 			consistencyLevel: consistencyLevel,
+			dynamic:          &dynamic{},
+		})
+	}
+}
+
+func (w *WriteQueues) MakeFixedSize(streamId string, consistencyLevel *pb.ConsistencyLevel, size int) {
+	if _, ok := w.queues.Load(streamId); !ok {
+		w.queues.Store(streamId, &WriteQueue{
+			queue:            NewBatchWriteQueue(),
+			consistencyLevel: consistencyLevel,
+			fixedSize:        &fixedSize{size: size},
+		})
+	}
+}
+
+func (w *WriteQueues) MakeRateLimited(streamId string, consistencyLevel *pb.ConsistencyLevel, rate int) {
+	if _, ok := w.queues.Load(streamId); !ok {
+		w.queues.Store(streamId, &WriteQueue{
+			queue:            NewBatchWriteQueue(),
+			consistencyLevel: consistencyLevel,
+			rateLimited:      &rateLimited{desiredRate: rate, howManyToSendNext: rate, whenToSendNext: time.Now().Add(time.Second)},
 		})
 	}
 }

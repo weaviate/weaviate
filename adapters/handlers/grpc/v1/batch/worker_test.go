@@ -42,6 +42,8 @@ func TestWorkerLoop(t *testing.T) {
 
 		readQueues := batch.NewBatchReadQueues()
 		readQueues.Make(StreamId)
+		writeQueues := batch.NewBatchWriteQueues()
+		writeQueues.MakeDynamic(StreamId, nil)
 		internalQueue := batch.NewBatchInternalQueue()
 
 		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
@@ -53,7 +55,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: nil,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, writeQueues, mockBatcher, logger)
 
 		// Send data
 		internalQueue <- &batch.ProcessRequest{
@@ -95,6 +97,8 @@ func TestWorkerLoop(t *testing.T) {
 
 		readQueues := batch.NewBatchReadQueues()
 		readQueues.Make(StreamId)
+		writeQueues := batch.NewBatchWriteQueues()
+		writeQueues.MakeDynamic(StreamId, nil)
 		internalQueue := batch.NewBatchInternalQueue()
 
 		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
@@ -106,7 +110,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: nil,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, writeQueues, mockBatcher, logger)
 
 		cancel() // Cancel the context to simulate shutdown
 		// Send data after context cancellation to ensure that the worker processes it
@@ -149,6 +153,8 @@ func TestWorkerLoop(t *testing.T) {
 
 		readQueues := batch.NewBatchReadQueues()
 		readQueues.Make(StreamId)
+		writeQueues := batch.NewBatchWriteQueues()
+		writeQueues.MakeDynamic(StreamId, nil)
 		internalQueue := batch.NewBatchInternalQueue()
 
 		errorsObj := []*pb.BatchObjectsReply_BatchError{
@@ -172,7 +178,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: errorsRefs,
 		}, nil)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, writeQueues, mockBatcher, logger)
 
 		// Send data
 		obj := &pb.BatchObject{}
