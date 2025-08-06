@@ -145,7 +145,7 @@ func benchmarkHammingBitwise(b *testing.B, dims int, hammingBitwiseFn func(x []u
 func BenchmarkHammingBitwise(b *testing.B) {
 	dims := []int{2, 4, 6, 8, 10, 12, 16, 24, 30, 32, 128, 256, 300, 384, 512, 768, 1024, 1536}
 	for _, dim := range dims {
-		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
+		b.Run(fmt.Sprintf("dim%d-bits%d", dim, 64*dim), func(b *testing.B) {
 			benchmarkHammingBitwise(b, dim, asm.HammingBitwiseAVX256)
 
 			b.Run("pure go", func(b *testing.B) { benchmarkHammingBitwise(b, dim, HammingBitwiseGo) })
