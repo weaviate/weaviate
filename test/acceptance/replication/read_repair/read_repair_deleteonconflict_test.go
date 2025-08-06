@@ -26,7 +26,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func TestReadRepairDeleteOnConflict(t *testing.T) {
+func (suite *ReplicationTestSuite) TestReadRepairDeleteOnConflict() {
+	t := suite.T()
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
