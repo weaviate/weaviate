@@ -1,23 +1,6 @@
 version: '3.8'
 
 services:
-  # OpenTelemetry Collector
-  otel-collector:
-    image: otel/opentelemetry-collector:latest
-    command: ["--config=/etc/otel-collector-config.yaml"]
-    volumes:
-      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
-    ports:
-      - "4317:4317"   # OTLP gRPC receiver
-      - "4318:4318"   # OTLP HTTP receiver
-      - "8888:8888"   # Prometheus metrics exposed by the collector
-      - "8889:8889"   # Prometheus exporter metrics
-    depends_on:
-      - jaeger
-      - zipkin
-    networks:
-      - otel-testing
-
   # Jaeger for trace visualization
   jaeger:
     image: jaegertracing/all-in-one:latest
@@ -25,6 +8,8 @@ services:
       - "16686:16686"  # Jaeger UI
       - "14250:14250"  # Jaeger gRPC
       - "14268:14268"  # Jaeger HTTP
+      - "4317:4317"    # OTLP gRPC
+      - "4318:4318"    # OTLP HTTP
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     networks:

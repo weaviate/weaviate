@@ -20,19 +20,10 @@ processors:
         action: upsert
 
 exporters:
-  logging:
-    loglevel: debug
-    sampling_initial: 1
-    sampling_thereafter: 1
-  jaeger:
-    endpoint: jaeger:14250
-    tls:
-      insecure: true
-  zipkin:
-    endpoint: http://zipkin:9411/api/v2/spans
-    format: proto
-  otlp:
-    endpoint: http://localhost:4317
+  debug:
+    verbosity: detailed
+  otlp/jaeger:
+    endpoint: jaeger:4317
     tls:
       insecure: true
 
@@ -41,14 +32,14 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch, resource]
-      exporters: [logging, jaeger, zipkin]
+      exporters: [debug, otlp/jaeger]
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch, resource]
-      exporters: [logging]
+      exporters: [debug]
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch, resource]
-      exporters: [logging]
+      exporters: [debug]
 
   extensions: [health_check, pprof, zpages] 

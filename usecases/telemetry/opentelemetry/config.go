@@ -14,6 +14,7 @@ package opentelemetry
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/config"
@@ -37,8 +38,8 @@ func DefaultConfig() *Config {
 		Enabled:            false,
 		ServiceName:        "weaviate",
 		Environment:        "development",
-		ExporterEndpoint:   "http://localhost:4317",
-		ExporterProtocol:   "http",
+		ExporterEndpoint:   "localhost:4317",
+		ExporterProtocol:   "grpc",
 		SamplingRate:       0.1, // 10% sampling by default
 		BatchTimeout:       5 * time.Second,
 		MaxExportBatchSize: 512,
@@ -71,6 +72,19 @@ func FromEnvironment() *Config {
 
 	if protocol := os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL"); protocol != "" {
 		cfg.ExporterProtocol = protocol
+	}
+
+	// Ensure endpoint format matches protocol
+	if cfg.ExporterProtocol == "grpc" && (strings.HasPrefix(cfg.ExporterEndpoint, "http://") || strings.HasPrefix(cfg.ExporterEndpoint, "https://")) {
+		// Remove http/https prefix for gRPC
+		if strings.HasPrefix(cfg.ExporterEndpoint, "http://") {
+			cfg.ExporterEndpoint = strings.TrimPrefix(cfg.ExporterEndpoint, "http://")
+		} else if strings.HasPrefix(cfg.ExporterEndpoint, "https://") {
+			cfg.ExporterEndpoint = strings.TrimPrefix(cfg.ExporterEndpoint, "https://")
+		}
+	} else if cfg.ExporterProtocol == "http" && !strings.HasPrefix(cfg.ExporterEndpoint, "http://") && !strings.HasPrefix(cfg.ExporterEndpoint, "https://") {
+		// Add http prefix for HTTP if not present
+		cfg.ExporterEndpoint = "http://" + cfg.ExporterEndpoint
 	}
 
 	// Sampling configuration

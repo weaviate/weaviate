@@ -14,6 +14,7 @@ package opentelemetry
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -118,8 +119,16 @@ func createHTTPExporter(cfg *Config) (sdktrace.SpanExporter, error) {
 
 // createGRPCExporter creates a gRPC OTLP exporter
 func createGRPCExporter(cfg *Config) (sdktrace.SpanExporter, error) {
+	// Parse the endpoint to extract host:port for gRPC
+	endpoint := cfg.ExporterEndpoint
+	if strings.HasPrefix(endpoint, "http://") {
+		endpoint = strings.TrimPrefix(endpoint, "http://")
+	} else if strings.HasPrefix(endpoint, "https://") {
+		endpoint = strings.TrimPrefix(endpoint, "https://")
+	}
+
 	client := otlptracegrpc.NewClient(
-		otlptracegrpc.WithEndpoint(cfg.ExporterEndpoint),
+		otlptracegrpc.WithEndpoint(endpoint),
 		otlptracegrpc.WithInsecure(), // TODO: make configurable
 	)
 

@@ -13,7 +13,7 @@ This directory contains everything you need to test the OpenTelemetry integratio
 2. **Configure Weaviate to send traces:**
    ```bash
    export OTEL_ENABLED=true
-   export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+   export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
    export OTEL_EXPORTER_OTLP_PROTOCOL=grpc
    export OTEL_TRACES_SAMPLER_ARG=1.0
    ```
@@ -45,6 +45,32 @@ This directory contains everything you need to test the OpenTelemetry integratio
 - `prometheus.yml` - Prometheus configuration
 - `start-otel-testing.sh` - Startup script
 
+## Automatic Tracing
+
+Weaviate now includes automatic tracing middleware for both HTTP and gRPC requests:
+
+### HTTP Tracing
+- **Automatic span creation** for all HTTP requests
+- **Request/response attributes** (method, URL, status code, duration, size)
+- **Trace context propagation** via headers
+- **Error tracking** with appropriate span status
+- **Custom attributes** (User-Agent, Request-ID)
+
+### gRPC Tracing
+- **Automatic span creation** for all gRPC calls
+- **Unary and streaming** interceptor support
+- **Metadata propagation** for trace context
+- **Error tracking** with gRPC status codes
+- **Performance metrics** (duration, method)
+
+### Trace Attributes
+
+Each trace includes:
+- **HTTP requests**: method, URL, status code, response size, duration
+- **gRPC calls**: service, method, status code, duration
+- **Request context**: User-Agent, Request-ID, source IP
+- **Error details**: error messages, stack traces (when available)
+
 ## Manual Setup
 
 If you prefer to start services manually:
@@ -67,7 +93,7 @@ docker-compose -f docker-compose-otel-testing.yml down
 
 ### Test with HTTP Exporter
 ```bash
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4318
 export OTEL_EXPORTER_OTLP_PROTOCOL=http
 ```
 
@@ -88,6 +114,50 @@ export OTEL_TRACES_SAMPLER_ARG=0.0
 export OTEL_SERVICE_NAME=weaviate-test
 export OTEL_ENVIRONMENT=development
 ```
+
+## Testing the Tracing
+
+### HTTP API Testing
+```bash
+# Test HTTP tracing
+curl -X GET http://localhost:8080/v1/schema
+
+# Test with trace context
+curl -X POST http://localhost:8080/v1/objects \
+  -H "Content-Type: application/json" \
+  -H "traceparent: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01" \
+  -d '{"class": "TestClass", "properties": {"name": "test"}}'
+```
+
+### gRPC API Testing
+```bash
+# Test gRPC tracing (requires gRPC client)
+grpcurl -plaintext localhost:50051 list
+
+# Test with trace context
+grpcurl -plaintext \
+  -H "traceparent: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01" \
+  localhost:50051 weaviate.v1.Weaviate/Search
+```
+
+### Viewing Traces
+
+1. **Open Jaeger UI**: http://localhost:16686
+2. **Select service**: `weaviate` (or your configured service name)
+3. **Search traces** by:
+   - Service name
+   - Operation name (e.g., "GET /v1/schema")
+   - Tags (e.g., `http.status_code=200`)
+   - Time range
+
+### Trace Examples
+
+You should see traces like:
+- `GET /v1/schema` - Schema operations
+- `POST /v1/objects` - Object creation
+- `POST /v1/graphql` - GraphQL queries
+- `POST /v1/batch/objects` - Batch operations
+- `weaviate.v1.Weaviate/Search` - gRPC search calls
 
 ## Troubleshooting
 
@@ -118,6 +188,13 @@ docker-compose -f docker-compose-otel-testing.yml logs
 3. Verify network connectivity:
    ```bash
    curl http://localhost:4318/health
+   ```
+
+4. Check Weaviate logs for tracing messages:
+   ```bash
+   # Look for messages like:
+   # "Adding OpenTelemetry HTTP tracing middleware"
+   # "Adding OpenTelemetry gRPC tracing interceptors"
    ```
 
 ### Performance Issues
@@ -192,4 +269,6 @@ Once you've verified the basic OpenTelemetry integration works:
 1. **Test with real Weaviate operations** - Create objects, perform searches, etc.
 2. **Monitor performance impact** - Check CPU and memory usage
 3. **Configure production settings** - Adjust sampling rates and batch sizes
-4. **Integrate with your observability stack** - Send traces to your preferred backend 
+4. **Integrate with your observability stack** - Send traces to your preferred backend
+5. **Add custom spans** - Instrument specific business logic
+6. **Correlate with logs** - Link trace IDs with log entries 
