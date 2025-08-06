@@ -11,6 +11,8 @@
 
 package types
 
+import "github.com/weaviate/weaviate/entities/models"
+
 // Report represents the usage metrics report from the metrics endpoint
 type Report struct {
 	// The version of usage policy, date based versioning
@@ -26,8 +28,11 @@ type Report struct {
 	// List of backups and their metrics
 	Backups []*BackupUsage `json:"backups,omitempty"`
 
-	// CollectingTIme The time of the collection of the metric
-	CollectingTIme string `json:"-"`
+	// CollectingTime The time of the collection of the metric
+	CollectingTime string `json:"-"`
+
+	// The local node's view of the schema
+	Schema *models.Schema `json:"schema,omitempty"`
 }
 
 // CollectionUsage represents metrics for a single collection
