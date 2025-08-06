@@ -14,6 +14,8 @@ package v1
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -69,8 +71,18 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
 	batchQueuesHandler := batch.NewQueuesHandler(grpcShutdownCtx, batchWriteQueues, batchReadQueues, logger)
 
+	var numWorkers int
+	numWorkersStr := os.Getenv("GRPC_BATCH_WORKERS_COUNT")
+	if numWorkersStr != "" {
+		x, err := strconv.Atoi(numWorkersStr)
+		if err == nil {
+			numWorkers = x
+		}
+	} else {
+		numWorkers = 4
+	}
+
 	var wg sync.WaitGroup
-	numWorkers := 1
 	batch.StartBatchWorkers(grpcShutdownCtx, &wg, numWorkers, internalQueue, batchReadQueues, batchWriteQueues, batchHandler, logger)
 	batch.StartScheduler(grpcShutdownCtx, &wg, batchWriteQueues, internalQueue, logger)
 	enterrors.GoWrapper(func() {
