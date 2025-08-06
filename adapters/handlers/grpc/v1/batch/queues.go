@@ -98,6 +98,9 @@ func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) 
 // Setup initializes a read queue for the given stream ID and adds it to the read queues map.
 func (h *QueuesHandler) Setup(streamId string, req *pb.BatchStreamRequest) {
 	h.readQueues.Make(streamId)
+	if req.Type == nil {
+		h.writeQueues.MakeDynamic(streamId, req.ConsistencyLevel)
+	}
 	if req.GetDynamic() != nil {
 		h.writeQueues.MakeDynamic(streamId, req.ConsistencyLevel)
 	}
