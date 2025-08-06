@@ -24,7 +24,6 @@ import (
 
 type BinaryRotationalQuantizer struct {
 	inputDim  uint32
-	outputDim uint32
 	rotation  *FastRotation
 	distancer distancer.Provider
 	rounding  []float32
@@ -61,7 +60,6 @@ func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer
 
 	rq := &BinaryRotationalQuantizer{
 		inputDim:  uint32(inputDim),
-		outputDim: uint32(rotation.OutputDim),
 		rotation:  rotation,
 		distancer: distancer,
 		rounding:  rounding,
