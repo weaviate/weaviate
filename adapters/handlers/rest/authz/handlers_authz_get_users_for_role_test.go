@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	"github.com/stretchr/testify/mock"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -46,8 +48,8 @@ func TestGetUsersForRoleSuccess(t *testing.T) {
 
 	authorizer.On("Authorize", mock.Anything, principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.ID)[0]).Return(nil)
 	authorizer.On("AuthorizeSilent", mock.Anything, principal, authorization.READ, authorization.Users(expectedUsers...)[1]).Return(nil)
-	controller.On("GetUsersOrGroupForRole", params.ID, models.UserTypeInputDb, false).Return(expectedUsers, nil)
-	controller.On("GetUsersOrGroupForRole", params.ID, models.UserTypeInputOidc, false).Return(expectedUsers, nil)
+	controller.On("GetUsersOrGroupForRole", params.ID, authentication.AuthTypeDb, false).Return(expectedUsers, nil)
+	controller.On("GetUsersOrGroupForRole", params.ID, authentication.AuthTypeOIDC, false).Return(expectedUsers, nil)
 	controller.On("GetUsers", expectedUsers[0], expectedUsers[1]).Return(nil, nil)
 
 	h := &authZHandlers{
@@ -154,7 +156,7 @@ func TestGetUsersForRoleInternalServerError(t *testing.T) {
 
 			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
 
-			controller.On("GetUsersOrGroupForRole", tt.params.ID, models.UserTypeInputOidc, false).Return(nil, tt.getUsersErr)
+			controller.On("GetUsersOrGroupForRole", tt.params.ID, authentication.AuthTypeOIDC, false).Return(nil, tt.getUsersErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,

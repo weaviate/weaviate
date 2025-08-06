@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	"github.com/stretchr/testify/mock"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -96,7 +98,7 @@ func TestGetRolesForGroupSuccess(t *testing.T) {
 					authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(nil)
 				}
 			}
-			controller.On("GetRolesForUserOrGroup", tt.params.ID, models.GroupTypeOidc, true).Return(returnedPolices, nil)
+			controller.On("GetRolesForUserOrGroup", tt.params.ID, authentication.AuthTypeOIDC, true).Return(returnedPolices, nil)
 			// controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{"testUser": {}}, nil)
 
 			h := &authZHandlers{
@@ -176,7 +178,7 @@ func TestGetRolesForGroupForbidden(t *testing.T) {
 				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
 				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
 			}
-			controller.On("GetRolesForUserOrGroup", tt.params.ID, models.GroupTypeOidc, true).Return(returnedPolices, nil)
+			controller.On("GetRolesForUserOrGroup", tt.params.ID, authentication.AuthTypeOIDC, true).Return(returnedPolices, nil)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -224,7 +226,7 @@ func TestGetRolesForGroupInternalServerError(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Groups(string(models.GroupTypeOidc), tt.params.ID)[0]).Return(nil)
-			controller.On("GetRolesForUserOrGroup", tt.params.ID, models.GroupTypeOidc, true).Return(nil, tt.getRolesErr)
+			controller.On("GetRolesForUserOrGroup", tt.params.ID, authentication.AuthTypeOIDC, true).Return(nil, tt.getRolesErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
