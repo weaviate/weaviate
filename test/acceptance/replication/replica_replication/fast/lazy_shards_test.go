@@ -12,6 +12,7 @@
 package replication
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -26,11 +27,27 @@ import (
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
+	"github.com/weaviate/weaviate/test/docker"
 )
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateWithLazyShardLoading() {
-	t := suite.T()
-	helper.SetupClient(suite.compose.GetWeaviate().URI())
+func  TestReplicationReplicateWithLazyShardLoading(t *testing.T) {
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+
+	mainCtx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "100").
+		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
+		Start(mainCtx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(mainCtx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}	()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
 
 	cls := articles.ParagraphsClass()
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{

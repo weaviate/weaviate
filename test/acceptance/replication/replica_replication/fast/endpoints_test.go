@@ -67,10 +67,24 @@ func TestReplicationTestSuite(t *testing.T) {
 	suite.Run(t, new(ReplicationTestSuite))
 }
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
-	t := suite.T()
+func TestReplicationReplicateEndpoints(t *testing.T) {
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 
-	helper.SetupClient(suite.compose.GetWeaviate().URI())
+	mainCtx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "100").
+		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
+		Start(mainCtx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(mainCtx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
 	helper.DeleteClass(t, paragraphClass.Class)
 	helper.CreateClass(t, paragraphClass)

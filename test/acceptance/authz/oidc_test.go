@@ -468,25 +468,7 @@ func TestRbacWithOIDCAssignRevokeGroups(t *testing.T) {
 	}
 }
 
-func TestOidcRootAndDynamicUsersWithoutCertificate(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithDbUsers().Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
 
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
-
-	tokenAdmin, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
-
-	helper.DeleteUser(t, "dynamic1", tokenAdmin)
-	apiKey := helper.CreateUser(t, "dynamic1", tokenAdmin)
-
-	info := helper.GetInfoForOwnUser(t, apiKey)
-	require.Equal(t, *info.Username, "dynamic1")
-}
 
 func TestOidcRootAndDynamicUsersWithCertificate(t *testing.T) {
 	ctx := context.Background()
@@ -537,3 +519,24 @@ func TestOidcWrongCertificate(t *testing.T) {
 	require.NoError(t, compose.Terminate(ctx))
 }
 
+
+
+func TestOidcRootAndDynamicUsersWithoutCertificate(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithDbUsers().Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	tokenAdmin, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
+
+	helper.DeleteUser(t, "dynamic1", tokenAdmin)
+	apiKey := helper.CreateUser(t, "dynamic1", tokenAdmin)
+
+	info := helper.GetInfoForOwnUser(t, apiKey)
+	require.Equal(t, *info.Username, "dynamic1")
+}
