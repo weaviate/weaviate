@@ -16,6 +16,7 @@ import (
 	"net/http"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
@@ -85,5 +86,4 @@ type ModuleWithUsageService interface {
 	Module
 	Logger() logrus.FieldLogger
 	SetUsageService(usageService any) // Using interface{} to avoid circular dependency
-	SetSchemaGetter(getter any)       // Using interface{} to avoid circular dependency
 }

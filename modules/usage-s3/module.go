@@ -41,10 +41,6 @@ func (m *module) SetUsageService(usageService any) {
 	m.BaseModule.SetUsageService(usageService)
 }
 
-func (m *module) SetSchemaGetter(getter any) {
-	m.BaseModule.SetSchemaGetter(getter)
-}
-
 func (m *module) Name() string {
 	return Name
 }

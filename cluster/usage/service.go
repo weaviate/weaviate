@@ -73,8 +73,10 @@ func (s *service) addJitter() {
 // Usage service collects usage metrics for the node and shall return error in case of any error
 // to avoid reporting partial data
 func (m *service) Usage(ctx context.Context) (*types.Report, error) {
-	collections := m.schemaManager.GetSchemaSkipAuth().Objects.Classes
+	schema := m.schemaManager.GetSchemaSkipAuth().Objects
+	collections := schema.Classes
 	usage := &types.Report{
+		Schema:      schema,
 		Node:        m.schemaManager.NodeName(),
 		Collections: make([]*types.CollectionUsage, 0, len(collections)),
 		Backups:     make([]*types.BackupUsage, 0),

@@ -18,12 +18,12 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	clusterusage "github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/config"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 const (
@@ -46,7 +46,6 @@ type BaseModule struct {
 	stopChan      chan struct{}
 	metrics       *Metrics
 	usageService  clusterusage.Service
-	schemaGetter  schemaUC.SchemaGetter
 	logger        logrus.FieldLogger
 	// mu mutex to protect shared fields to run concurrently the collection and upload
 	// to avoid interval overlap for the tickers
@@ -68,12 +67,6 @@ func (b *BaseModule) SetUsageService(usageService any) {
 	if service, ok := usageService.(clusterusage.Service); ok {
 		b.usageService = service
 		service.SetJitterInterval(b.shardJitter)
-	}
-}
-
-func (b *BaseModule) SetSchemaGetter(schemaGetter any) {
-	if getter, ok := schemaGetter.(schemaUC.SchemaGetter); ok {
-		b.schemaGetter = getter
 	}
 }
 
@@ -239,7 +232,6 @@ func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
 	defer b.mu.Unlock()
 	usage.Version = b.policyVersion
 	usage.CollectingTime = collectionTime
-	usage.Schema = b.schemaGetter.GetSchemaSkipAuth().Objects
 
 	return b.storage.UploadUsageData(ctx, usage)
 }
