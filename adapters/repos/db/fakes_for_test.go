@@ -55,10 +55,6 @@ func (f *fakeSchemaGetter) ResolveAlias(string) string {
 	return ""
 }
 
-func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
-	return f.shardState
-}
-
 func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error) {
 	ss := f.shardState
 	x, ok := ss.Physical[shard]
@@ -125,7 +121,7 @@ func singleShardState() *sharding.State {
 		panic(err)
 	}
 
-	selector := mocks.NewMockNodeSelector("node1")
+	selector := mocks.NewMockNodeSelector("node_ehi")
 	s, err := sharding.InitState("test-index", config, selector.LocalName(), selector.StorageCandidates(), 1, false)
 	if err != nil {
 		panic(err)

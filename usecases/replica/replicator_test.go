@@ -840,8 +840,8 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 			}, nil
 		}).Maybe()
 	schemaReaderMock := schemaTypes.NewMockSchemaReader(f.t)
-	schemaReaderMock.EXPECT().CopyShardingState(mock.Anything).RunAndReturn(func(class string) *sharding.State {
-		state := &sharding.State{
+	schemaReaderMock.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		shardingState := &sharding.State{
 			IndexID:             "idx-123",
 			Config:              config.Config{},
 			Physical:            map[string]sharding.Physical{},
@@ -855,10 +855,12 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 				BelongsToNodes: replicaNodes,
 				Status:         models.TenantActivityStatusHOT,
 			}
-			state.Physical[shard] = physical
+
+			shardingState.Physical[shard] = physical
 		}
 
-		return state
+		class := &models.Class{Class: className}
+		return readFunc(class, shardingState)
 	}).Maybe()
 	schemaReaderMock.EXPECT().ShardReplicas(mock.Anything, mock.Anything).RunAndReturn(func(class string, shard string) ([]string, error) {
 		v, ok := f.Shard2replicas[shard]

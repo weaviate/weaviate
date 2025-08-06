@@ -218,16 +218,6 @@ func (f *fakeSchemaManager) Aliases() map[string]string {
 	return nil
 }
 
-func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
-	args := f.Called(class)
-	return args.Get(0).(*sharding.State)
-}
-
-func (f *fakeSchemaManager) CopyShardingStateWithVersion(ctx context.Context, class string, version uint64) (*sharding.State, error) {
-	args := f.Called(ctx, class, version)
-	return args.Get(0).(*sharding.State), args.Error(1)
-}
-
 func (f *fakeSchemaManager) ShardReplicas(class, shard string) ([]string, error) {
 	args := f.Called(class, shard)
 	return args.Get(0).([]string), args.Error(1)

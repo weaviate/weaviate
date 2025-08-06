@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -25,12 +27,15 @@ import (
 
 const vectorIndexCommitLog = `hnsw.commitlog.d`
 
-func MigrateToHierarchicalFS(rootPath string, s schemaGetter) error {
+func MigrateToHierarchicalFS(rootPath string, s schemaReader) error {
 	root, err := os.ReadDir(rootPath)
 	if err != nil {
 		return fmt.Errorf("read source path %q: %w", rootPath, err)
 	}
-	fm := newFileMatcher(s, rootPath)
+	fm, err := newFileMatcher(s, rootPath)
+	if err != nil {
+		return fmt.Errorf("error while migrating to hierarchical fs: %w", err)
+	}
 	plan, err := assembleFSMigrationPlan(root, rootPath, fm)
 	if err != nil {
 		return err
@@ -146,20 +151,31 @@ type fileMatcher struct {
 	classes             map[string][]*classShard
 }
 
-type schemaGetter interface {
-	CopyShardingState(class string) *sharding.State
-	GetSchemaSkipAuth() entschema.Schema
+type schemaReader interface {
+	Read(class string, reader func(*models.Class, *sharding.State) error) error
+	ReadOnlySchema() models.Schema
 }
 
-func newFileMatcher(schemaGetter schemaGetter, rootPath string) *fileMatcher {
+func newFileMatcher(schemaReader schemaReader, rootPath string) (*fileMatcher, error) {
 	shardLsmDirs := make(map[string]*classShard)
 	shardFilePrefixes := make(map[string]*classShard)
 	shardGeoDirPrefixes := make(map[string]*classShardGeoProp)
 	classes := make(map[string][]*classShard)
 
-	sch := schemaGetter.GetSchemaSkipAuth()
-	for _, class := range sch.Objects.Classes {
-		shards := schemaGetter.CopyShardingState(class.Class).AllLocalPhysicalShards()
+	schema := schemaReader.ReadOnlySchema()
+	for _, class := range schema.Classes {
+		var shards []string
+		className := class.Class
+		err := schemaReader.Read(className, func(class *models.Class, state *sharding.State) error {
+			if state == nil {
+				return fmt.Errorf("unable to retrieve sharding state for class %q", className)
+			}
+			shards = state.AllPhysicalShards()
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("unable to retrieve sharding state for class %q", className)
+		}
 		lowercasedClass := strings.ToLower(class.Class)
 
 		var geoProps []string
@@ -189,7 +205,7 @@ func newFileMatcher(schemaGetter schemaGetter, rootPath string) *fileMatcher {
 		shardFilePrefixes:   shardFilePrefixes,
 		shardGeoDirPrefixes: shardGeoDirPrefixes,
 		classes:             classes,
-	}
+	}, nil
 }
 
 // Checks if entry is directory with name (class is lowercased):

@@ -519,7 +519,15 @@ func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State,
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		for _, class := range classes {
+			if className == class.Class {
+				return readFunc(class, shardState)
+			}
+		}
+		return nil
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: classes}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()

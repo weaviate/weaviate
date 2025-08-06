@@ -96,7 +96,11 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 	nodesClient := clients.NewRemoteNode(&http.Client{})
 	replicaClient := clients.NewReplicationClient(&http.Client{})
 	mockSchemaReader := types.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().
 		ShardReplicas(mock.Anything, mock.Anything).
 		RunAndReturn(func(class string, shard string) ([]string, error) {
@@ -217,10 +221,6 @@ func (f *fakeSchemaManager) ReadOnlyClassWithVersion(ctx context.Context, class 
 
 func (f *fakeSchemaManager) ResolveAlias(string) string {
 	return ""
-}
-
-func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
-	return f.shardState
 }
 
 func (f *fakeSchemaManager) Statistics() map[string]any {

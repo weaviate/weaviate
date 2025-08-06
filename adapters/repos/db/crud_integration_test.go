@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/sharding"
+
 	"github.com/stretchr/testify/mock"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
@@ -95,7 +97,10 @@ func TestCRUD(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		return readFunc(actionclass, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -118,12 +123,12 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), thingclass, schemaGetter.shardState))
+			migrator.AddClass(context.Background(), thingclass))
 	})
 
 	t.Run("creating the action class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), actionclass, schemaGetter.shardState))
+			migrator.AddClass(context.Background(), actionclass))
 	})
 
 	// update schema getter so it's in sync with class
@@ -1315,7 +1320,11 @@ func TestCRUD_Query(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -1338,7 +1347,7 @@ func TestCRUD_Query(t *testing.T) {
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), thingclass, schemaGetter.shardState))
+			migrator.AddClass(context.Background(), thingclass))
 	})
 
 	// update schema getter so it's in sync with class
@@ -1565,7 +1574,10 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -1613,7 +1625,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 			InvertedIndexConfig: invertedConfig(),
 		}
 		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+			migrator.AddClass(context.Background(), class))
 	})
 
 	// update schema getter so it's in sync with class
@@ -1720,6 +1732,17 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 func TestVectorSearch_ByDistance(t *testing.T) {
 	className := "SomeClass"
 	var class *models.Class
+	class = &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				DataType: []string{string(schema.DataTypeInt)},
+				Name:     "int_prop",
+			},
+		},
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+	}
 
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -1730,7 +1753,10 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -1755,19 +1781,8 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("create required schema", func(t *testing.T) {
-		class = &models.Class{
-			Class: className,
-			Properties: []*models.Property{
-				{
-					DataType: []string{string(schema.DataTypeInt)},
-					Name:     "int_prop",
-				},
-			},
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: invertedConfig(),
-		}
 		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+			migrator.AddClass(context.Background(), class))
 	})
 
 	// update schema getter so it's in sync with class
@@ -1868,6 +1883,17 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 func TestVectorSearch_ByCertainty(t *testing.T) {
 	className := "SomeClass"
 	var class *models.Class
+	class = &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				DataType: []string{string(schema.DataTypeInt)},
+				Name:     "int_prop",
+			},
+		},
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+	}
 
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -1878,7 +1904,10 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -1903,19 +1932,8 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("create required schema", func(t *testing.T) {
-		class = &models.Class{
-			Class: className,
-			Properties: []*models.Property{
-				{
-					DataType: []string{string(schema.DataTypeInt)},
-					Name:     "int_prop",
-				},
-			},
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: invertedConfig(),
-		}
 		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+			migrator.AddClass(context.Background(), class))
 	})
 
 	// update schema getter so it's in sync with class
@@ -2038,7 +2056,11 @@ func Test_PutPatchRestart(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -2060,7 +2082,7 @@ func Test_PutPatchRestart(t *testing.T) {
 	migrator := NewMigrator(repo, logger, "node1")
 
 	require.Nil(t,
-		migrator.AddClass(ctx, testClass, schemaGetter.shardState))
+		migrator.AddClass(ctx, testClass))
 
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
@@ -2193,7 +2215,10 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -2214,11 +2239,11 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
 	require.Nil(t,
-		migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+		migrator.AddClass(context.Background(), class))
 	require.Nil(t,
-		migrator.AddClass(context.Background(), classRef, schemaGetter.shardState))
+		migrator.AddClass(context.Background(), classRef))
 	require.Nil(t,
-		migrator.AddClass(context.Background(), classWithRefs, schemaGetter.shardState))
+		migrator.AddClass(context.Background(), classWithRefs))
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
@@ -2337,7 +2362,10 @@ func TestOverwriteObjects(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -2360,7 +2388,7 @@ func TestOverwriteObjects(t *testing.T) {
 	migrator := NewMigrator(repo, logger, "node1")
 	t.Run("create the class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+			migrator.AddClass(context.Background(), class))
 	})
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
@@ -2450,7 +2478,10 @@ func TestIndexDigestObjects(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -2473,7 +2504,7 @@ func TestIndexDigestObjects(t *testing.T) {
 	migrator := NewMigrator(repo, logger, "node1")
 	t.Run("create the class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+			migrator.AddClass(context.Background(), class))
 	})
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
@@ -2588,7 +2619,10 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -2609,7 +2643,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
-	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+	require.Nil(t, migrator.AddClass(context.Background(), class))
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{

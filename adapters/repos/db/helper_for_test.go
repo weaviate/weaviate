@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/sharding"
+
 	"github.com/stretchr/testify/mock"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
@@ -232,7 +234,15 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 
 	shardState := singleShardState()
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		for _, class := range classes {
+			if className == class.Class {
+				return readFunc(class, shardState)
+			}
+		}
+		return nil
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -251,7 +261,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 
 	db.SetSchemaGetter(&fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: classes}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	})
 
 	require.Nil(t, db.WaitForStartup(t.Context()))
@@ -295,7 +305,9 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 
 	shardState := singleShardState()
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		return readFunc(class, shardState)
+	}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()

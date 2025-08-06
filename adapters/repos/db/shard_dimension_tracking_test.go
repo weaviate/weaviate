@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/sharding"
+
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/usecases/cluster"
 
@@ -52,7 +54,11 @@ func Benchmark_Migration(b *testing.B) {
 				shardState: shardState,
 			}
 			mockSchemaReader := schemaTypes.NewMockSchemaReader(b)
-			mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				class := &models.Class{Class: className}
+				return readFunc(class, shardState)
+			}).Maybe()
+			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 			mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 			mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(b)
 			mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -85,7 +91,7 @@ func Benchmark_Migration(b *testing.B) {
 				},
 			}
 
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+			migrator.AddClass(context.Background(), class)
 
 			schemaGetter.schema = schema
 
@@ -127,7 +133,10 @@ func Test_Migration(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -162,7 +171,7 @@ func Test_Migration(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+			migrator.AddClass(context.Background(), class))
 
 		schemaGetter.schema = schema
 	})
@@ -205,7 +214,10 @@ func Test_DimensionTracking(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -239,7 +251,7 @@ func Test_DimensionTracking(t *testing.T) {
 			},
 		}
 
-		require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+		require.Nil(t, migrator.AddClass(context.Background(), class))
 
 		schemaGetter.schema = schema
 	})
