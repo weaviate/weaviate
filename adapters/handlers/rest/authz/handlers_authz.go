@@ -770,30 +770,29 @@ func (h *authZHandlers) getGroupsForRole(params authz.GetGroupsForRoleParams, pr
 		return authz.NewGetGroupsForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
+	users, err := h.controller.GetUsersOrGroupForRole(params.ID, models.UserAndGroupTypeInputOidc, true)
+	if err != nil {
+		return authz.NewGetGroupsForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersOrGroupForRole: %w", err)))
+	}
+
+	filteredUsers := make([]string, 0, len(users))
+	for _, userName := range users {
+		if userName == principal.Username {
+			// own username
+			filteredUsers = append(filteredUsers, userName)
+			continue
+		}
+		if err := h.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Users(userName)...); err == nil {
+			filteredUsers = append(filteredUsers, userName)
+		}
+	}
+	slices.Sort(filteredUsers)
+
+	// only OIDC groups so far
+	oidc := models.UserAndGroupTypeInputOidc
 	var response []*authz.GetGroupsForRoleOKBodyItems0
-	for _, userType := range []models.UserAndGroupTypeInput{models.UserAndGroupTypeInputOidc, models.UserAndGroupTypeInputDb} {
-		users, err := h.controller.GetUsersOrGroupForRole(params.ID, userType, true)
-		if err != nil {
-			return authz.NewGetGroupsForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetUsersOrGroupForRole: %w", err)))
-		}
-
-		filteredUsers := make([]string, 0, len(users))
-		for _, userName := range users {
-			if userName == principal.Username {
-				// own username
-				filteredUsers = append(filteredUsers, userName)
-				continue
-			}
-			if err := h.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Users(userName)...); err == nil {
-				filteredUsers = append(filteredUsers, userName)
-			}
-		}
-		slices.Sort(filteredUsers)
-
-		// only OIDC groups so far
-		for _, userId := range filteredUsers {
-			response = append(response, &authz.GetGroupsForRoleOKBodyItems0{UserID: userId, GroupType: models.UserAndGroupTypeInputOidc})
-		}
+	for _, userId := range filteredUsers {
+		response = append(response, &authz.GetGroupsForRoleOKBodyItems0{GroupID: userId, GroupType: &oidc})
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -929,7 +928,7 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 
 	groupType, err := validateUserTypeInput(string(params.Body.GroupType))
 	if err != nil || groupType != models.UserAndGroupTypeInputOidc {
-		return authz.NewGetRolesForGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown groupType: %v", params.Body.GroupType)))
+		return authz.NewRevokeRoleFromGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown groupType: %v", params.Body.GroupType)))
 	}
 
 	if err := h.authorizer.Authorize(ctx, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(string(groupType), params.ID)...); err != nil {
@@ -950,7 +949,7 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 	}
 
 	if err := h.controller.RevokeRolesForUser(conv.PrefixGroupName(params.ID), params.Body.Roles...); err != nil {
-		return authz.NewRevokeRoleFromGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("RevokeRolesForUser: %w", err)))
+		return authz.NewRevokeRoleFromGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("RevokeRolesForGroup: %w", err)))
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -971,10 +970,10 @@ func (h *authZHandlers) getGroups(params authz.GetGroupsParams, principal *model
 		return authz.NewGetGroupsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown groupType: %v", params.GroupType)))
 	}
 	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Groups(string(userType))...); err != nil {
-		return authz.NewGetRolesForGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return authz.NewGetGroupsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	users, err := h.controller.GetUsersOrGroupsWithRoles(true, string(userType))
+	users, err := h.controller.GetUsersOrGroupsWithRoles(true, userType)
 	if err != nil {
 		return nil
 	}

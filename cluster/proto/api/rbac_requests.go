@@ -87,7 +87,7 @@ type QueryHasPermissionResponse struct {
 
 type QueryGetAllUsersOrGroupsWithRolesRequest struct {
 	IsGroup  bool
-	AuthType string
+	AuthType models.UserAndGroupTypeInput
 }
 
 type QueryGetAllUsersOrGroupsWithRolesResponse struct {

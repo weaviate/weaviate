@@ -4757,7 +4757,7 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "userId": {
+                  "groupId": {
                     "type": "string"
                   },
                   "groupType": {
@@ -4766,7 +4766,7 @@
                 },
                 "required": [
                   "name",
-                  "userType"
+                  "groupType"
                 ]
               }
             }
@@ -5323,7 +5323,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Roles assigned to group",
+            "description": "Rolenames assigned to group",
             "schema": {
               "type": "array",
               "items": {

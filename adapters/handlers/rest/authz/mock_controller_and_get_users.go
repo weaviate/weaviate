@@ -450,7 +450,7 @@ func (_c *MockControllerAndGetUsers_GetUsersOrGroupForRole_Call) RunAndReturn(ru
 }
 
 // GetUsersOrGroupsWithRoles provides a mock function with given fields: isGroup, authType
-func (_m *MockControllerAndGetUsers) GetUsersOrGroupsWithRoles(isGroup bool, authType string) ([]string, error) {
+func (_m *MockControllerAndGetUsers) GetUsersOrGroupsWithRoles(isGroup bool, authType models.UserAndGroupTypeInput) ([]string, error) {
 	ret := _m.Called(isGroup, authType)
 
 	if len(ret) == 0 {
@@ -459,10 +459,10 @@ func (_m *MockControllerAndGetUsers) GetUsersOrGroupsWithRoles(isGroup bool, aut
 
 	var r0 []string
 	var r1 error
-	if rf, ok := ret.Get(0).(func(bool, string) ([]string, error)); ok {
+	if rf, ok := ret.Get(0).(func(bool, models.UserAndGroupTypeInput) ([]string, error)); ok {
 		return rf(isGroup, authType)
 	}
-	if rf, ok := ret.Get(0).(func(bool, string) []string); ok {
+	if rf, ok := ret.Get(0).(func(bool, models.UserAndGroupTypeInput) []string); ok {
 		r0 = rf(isGroup, authType)
 	} else {
 		if ret.Get(0) != nil {
@@ -470,7 +470,7 @@ func (_m *MockControllerAndGetUsers) GetUsersOrGroupsWithRoles(isGroup bool, aut
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(bool, string) error); ok {
+	if rf, ok := ret.Get(1).(func(bool, models.UserAndGroupTypeInput) error); ok {
 		r1 = rf(isGroup, authType)
 	} else {
 		r1 = ret.Error(1)
@@ -486,14 +486,14 @@ type MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call struct {
 
 // GetUsersOrGroupsWithRoles is a helper method to define mock.On call
 //   - isGroup bool
-//   - authType string
+//   - authType models.UserAndGroupTypeInput
 func (_e *MockControllerAndGetUsers_Expecter) GetUsersOrGroupsWithRoles(isGroup interface{}, authType interface{}) *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call {
 	return &MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call{Call: _e.mock.On("GetUsersOrGroupsWithRoles", isGroup, authType)}
 }
 
-func (_c *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call) Run(run func(isGroup bool, authType string)) *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call {
+func (_c *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call) Run(run func(isGroup bool, authType models.UserAndGroupTypeInput)) *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(bool), args[1].(string))
+		run(args[0].(bool), args[1].(models.UserAndGroupTypeInput))
 	})
 	return _c
 }
@@ -503,7 +503,7 @@ func (_c *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call) Return(_a0 [
 	return _c
 }
 
-func (_c *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call) RunAndReturn(run func(bool, string) ([]string, error)) *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call {
+func (_c *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call) RunAndReturn(run func(bool, models.UserAndGroupTypeInput) ([]string, error)) *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -277,6 +277,22 @@ func GetKnownGroups(t *testing.T, key string) []string {
 	return resp.Payload
 }
 
+func GetGroupsForRole(t *testing.T, key, roleName string) []string {
+	resp, err := Client(t).Authz.GetGroupsForRole(
+		authz.NewGetGroupsForRoleParams().WithID(roleName),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+
+	// there are only OIDC groups right now
+	groupNames := make([]string, 0)
+	for _, group := range resp.Payload {
+		groupNames = append(groupNames, group.GroupID)
+	}
+	return groupNames
+}
+
 func AddPermissions(t *testing.T, key, role string, permissions ...*models.Permission) {
 	resp, err := Client(t).Authz.AddPermissions(
 		authz.NewAddPermissionsParams().WithID(role).WithBody(authz.AddPermissionsBody{

@@ -83,7 +83,7 @@ func NewGetGroupsOK() *GetGroupsOK {
 /*
 GetGroupsOK describes a response with status code 200, with default header values.
 
-Roles assigned to group
+Rolenames assigned to group
 */
 type GetGroupsOK struct {
 	Payload []string

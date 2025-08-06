@@ -173,7 +173,7 @@ func TestAuthzRolesForGroups(t *testing.T) {
 		helper.RevokeRoleFromUser(t, adminKey, roleReadName, customUser)
 	})
 
-	t.Run("list all known groups", func(t *testing.T) {
+	t.Run("list all known groups and groups for roles", func(t *testing.T) {
 		group1 := "list-group1"
 		group2 := "list-group2"
 
@@ -182,6 +182,16 @@ func TestAuthzRolesForGroups(t *testing.T) {
 
 		groups := helper.GetKnownGroups(t, adminKey)
 		require.Len(t, groups, 2)
+		require.Contains(t, groups, group1)
+		require.Contains(t, groups, group2)
+
+		groupsForRead := helper.GetGroupsForRole(t, adminKey, groupReadName)
+		require.Len(t, groupsForRead, 1)
+		require.Contains(t, groupsForRead, group1)
+
+		groupsForAssign := helper.GetGroupsForRole(t, adminKey, groupAssignName)
+		require.Len(t, groupsForAssign, 1)
+		require.Contains(t, groupsForAssign, group2)
 
 		helper.RevokeRoleFromGroup(t, adminKey, groupReadName, group1)
 		helper.RevokeRoleFromGroup(t, adminKey, groupAssignName, group2)

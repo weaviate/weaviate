@@ -50,7 +50,7 @@ func (s *Raft) GetRoles(names ...string) (map[string][]authorization.Policy, err
 	return response.Roles, nil
 }
 
-func (s *Raft) GetUsersOrGroupsWithRoles(isGroup bool, authType string) ([]string, error) {
+func (s *Raft) GetUsersOrGroupsWithRoles(isGroup bool, authType models.UserAndGroupTypeInput) ([]string, error) {
 	req := cmd.QueryGetAllUsersOrGroupsWithRolesRequest{
 		IsGroup:  isGroup,
 		AuthType: authType,

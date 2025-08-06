@@ -431,7 +431,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Roles assigned to group",
+            "description": "Rolenames assigned to group",
             "schema": {
               "type": "array",
               "items": {
@@ -987,14 +987,14 @@ func init() {
                 "type": "object",
                 "required": [
                   "name",
-                  "userType"
+                  "groupType"
                 ],
                 "properties": {
+                  "groupId": {
+                    "type": "string"
+                  },
                   "groupType": {
                     "$ref": "#/definitions/UserAndGroupTypeInput"
-                  },
-                  "userId": {
-                    "type": "string"
                   }
                 }
               }
@@ -9265,7 +9265,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Roles assigned to group",
+            "description": "Rolenames assigned to group",
             "schema": {
               "type": "array",
               "items": {
@@ -15908,14 +15908,14 @@ func init() {
       "type": "object",
       "required": [
         "name",
-        "userType"
+        "groupType"
       ],
       "properties": {
+        "groupId": {
+          "type": "string"
+        },
         "groupType": {
           "$ref": "#/definitions/UserAndGroupTypeInput"
-        },
-        "userId": {
-          "type": "string"
         }
       }
     },

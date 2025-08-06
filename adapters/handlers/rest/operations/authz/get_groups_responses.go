@@ -28,7 +28,7 @@ import (
 const GetGroupsOKCode int = 200
 
 /*
-GetGroupsOK Roles assigned to group
+GetGroupsOK Rolenames assigned to group
 
 swagger:response getGroupsOK
 */

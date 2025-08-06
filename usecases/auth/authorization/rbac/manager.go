@@ -67,7 +67,7 @@ func (m *Manager) CreateRolesPermissions(roles map[string][]authorization.Policy
 	return m.upsertRolesPermissions(roles)
 }
 
-func (m *Manager) GetUsersOrGroupsWithRoles(isGroup bool, authType string) ([]string, error) {
+func (m *Manager) GetUsersOrGroupsWithRoles(isGroup bool, authType models.UserAndGroupTypeInput) ([]string, error) {
 	roles, err := m.casbin.GetAllSubjects()
 	if err != nil {
 		return nil, err
@@ -78,9 +78,23 @@ func (m *Manager) GetUsersOrGroupsWithRoles(isGroup bool, authType string) ([]st
 		if err != nil {
 			return nil, err
 		}
-		for _, user := range users {
-			if isGroup && strings.HasPrefix(user, conv.GROUP_NAME_PREFIX) {
-				usersOrGroups[user] = struct{}{}
+		for _, userOrGroup := range users {
+			name, _ := conv.GetUserAndPrefix(userOrGroup)
+			if isGroup {
+				// groups are only supported for OIDC
+				if authType == models.UserAndGroupTypeInputOidc && strings.HasPrefix(userOrGroup, conv.OIDC_GROUP_NAME_PREFIX) {
+					usersOrGroups[name] = struct{}{}
+				}
+			} else {
+				// groups are only supported for OIDC
+				if authType == models.UserAndGroupTypeInputOidc && strings.HasPrefix(userOrGroup, string(models.UserAndGroupTypeInputOidc)) {
+					usersOrGroups[name] = struct{}{}
+				}
+
+				if authType == models.UserAndGroupTypeInputDb && strings.HasPrefix(userOrGroup, string(models.UserAndGroupTypeInputDb)) {
+					usersOrGroups[name] = struct{}{}
+				}
+
 			}
 		}
 	}
@@ -256,6 +270,9 @@ func (m *Manager) AddRolesForUser(user string, roles []string) error {
 }
 
 func (m *Manager) GetRolesForUserOrGroup(userName string, userType models.UserAndGroupTypeInput, isGroup bool) (map[string][]authorization.Policy, error) {
+	m.backupLock.RLock()
+	defer m.backupLock.RUnlock()
+
 	var rolesNames []string
 	var err error
 	if isGroup {
@@ -279,31 +296,29 @@ func (m *Manager) GetRolesForUserOrGroup(userName string, userType models.UserAn
 	return roles, err
 }
 
-func (m *Manager) GetUsersOrGroupForRole(roleName string, userType models.UserAndGroupTypeInput, isGroup bool) ([]string, error) {
+func (m *Manager) GetUsersOrGroupForRole(roleName string, authType models.UserAndGroupTypeInput, isGroup bool) ([]string, error) {
 	m.backupLock.RLock()
 	defer m.backupLock.RUnlock()
 
-	var prefixedName string
-	if isGroup {
-		prefixedName = conv.PrefixGroupName(roleName)
-	} else {
-		prefixedName = conv.PrefixRoleName(roleName)
-	}
-
-	pusers, err := m.casbin.GetUsersForRole(prefixedName)
+	pusers, err := m.casbin.GetUsersForRole(conv.PrefixRoleName(roleName))
 	if err != nil {
 		return nil, fmt.Errorf("GetUsersOrGroupForRole: %w", err)
 	}
 	users := make([]string, 0, len(pusers))
 	for idx := range pusers {
-		user, prefix := conv.GetUserAndPrefix(pusers[idx])
-		if user == conv.InternalPlaceHolder {
+		userOrGroup, prefix := conv.GetUserAndPrefix(pusers[idx])
+		if userOrGroup == conv.InternalPlaceHolder {
 			continue
 		}
-		if prefix != string(userType) {
-			continue
+		if isGroup {
+			if authType == models.UserAndGroupTypeInputOidc && strings.HasPrefix(conv.OIDC_GROUP_NAME_PREFIX, prefix) {
+				users = append(users, userOrGroup)
+			}
+		} else {
+			if prefix == string(authType) {
+				users = append(users, userOrGroup)
+			}
 		}
-		users = append(users, user)
 	}
 	return users, nil
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -466,11 +467,12 @@ swagger:model GetGroupsForRoleOKBodyItems0
 */
 type GetGroupsForRoleOKBodyItems0 struct {
 
-	// group type
-	GroupType models.UserAndGroupTypeInput `json:"groupType,omitempty"`
+	// group Id
+	GroupID string `json:"groupId,omitempty"`
 
-	// user Id
-	UserID string `json:"userId,omitempty"`
+	// group type
+	// Required: true
+	GroupType *models.UserAndGroupTypeInput `json:"groupType"`
 }
 
 // Validate validates this get groups for role o k body items0
@@ -488,17 +490,24 @@ func (o *GetGroupsForRoleOKBodyItems0) Validate(formats strfmt.Registry) error {
 }
 
 func (o *GetGroupsForRoleOKBodyItems0) validateGroupType(formats strfmt.Registry) error {
-	if swag.IsZero(o.GroupType) { // not required
-		return nil
+
+	if err := validate.Required("groupType", "body", o.GroupType); err != nil {
+		return err
 	}
 
-	if err := o.GroupType.Validate(formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("groupType")
-		} else if ce, ok := err.(*errors.CompositeError); ok {
-			return ce.ValidateName("groupType")
-		}
+	if err := validate.Required("groupType", "body", o.GroupType); err != nil {
 		return err
+	}
+
+	if o.GroupType != nil {
+		if err := o.GroupType.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("groupType")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("groupType")
+			}
+			return err
+		}
 	}
 
 	return nil
@@ -520,13 +529,15 @@ func (o *GetGroupsForRoleOKBodyItems0) ContextValidate(ctx context.Context, form
 
 func (o *GetGroupsForRoleOKBodyItems0) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
 
-	if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("groupType")
-		} else if ce, ok := err.(*errors.CompositeError); ok {
-			return ce.ValidateName("groupType")
+	if o.GroupType != nil {
+		if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("groupType")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("groupType")
+			}
+			return err
 		}
-		return err
 	}
 
 	return nil
