@@ -185,7 +185,7 @@ func NewBatchInternalQueue() internalQueue {
 }
 
 func NewBatchWriteQueue() writeQueue {
-	return make(writeQueue, 1000) // Adjust buffer size as needed
+	return make(writeQueue, 100000) // Adjust buffer size as needed
 }
 
 func NewBatchWriteQueues() *WriteQueues {
