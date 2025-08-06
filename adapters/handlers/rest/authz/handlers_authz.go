@@ -524,7 +524,7 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 		return authz.NewAssignRoleToGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown groupType: %v", params.Body.GroupType)))
 	}
 
-	if err := h.authorizer.Authorize(ctx, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(string(groupType), params.ID)...); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(groupType, params.ID)...); err != nil {
 		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -933,7 +933,7 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 		return authz.NewRevokeRoleFromGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown groupType: %v", params.Body.GroupType)))
 	}
 
-	if err := h.authorizer.Authorize(ctx, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(string(groupType), params.ID)...); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(groupType, params.ID)...); err != nil {
 		return authz.NewRevokeRoleFromGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -971,16 +971,32 @@ func (h *authZHandlers) getGroups(params authz.GetGroupsParams, principal *model
 	if err != nil || groupType != authentication.AuthTypeOIDC {
 		return authz.NewGetGroupsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown groupType: %v", params.GroupType)))
 	}
-	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Groups(string(groupType))...); err != nil {
-		return authz.NewGetGroupsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-	}
 
-	users, err := h.controller.GetUsersOrGroupsWithRoles(true, groupType)
+	groups, err := h.controller.GetUsersOrGroupsWithRoles(true, groupType)
 	if err != nil {
 		return nil
 	}
 
-	return authz.NewGetGroupsOK().WithPayload(users)
+	// Filter roles based on authorization
+	resourceFilter := filter.New[string](h.authorizer, h.rbacconfig)
+	filteredGroups := resourceFilter.Filter(
+		ctx,
+		h.logger,
+		principal,
+		groups,
+		authorization.READ,
+		func(group string) string {
+			return authorization.Groups(authentication.AuthTypeOIDC, group)[0]
+		},
+	)
+
+	h.logger.WithFields(logrus.Fields{
+		"action":    "get_groups",
+		"component": authorization.ComponentName,
+		"user":      principal.Username,
+	}).Info("groups requested")
+
+	return authz.NewGetGroupsOK().WithPayload(filteredGroups)
 }
 
 func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, principal *models.Principal) middleware.Responder {
@@ -993,7 +1009,7 @@ func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, pr
 	}
 
 	if !ownGroup {
-		if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Groups(string(groupType), params.ID)...); err != nil {
+		if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Groups(groupType, params.ID)...); err != nil {
 			return authz.NewGetRolesForGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 	}
@@ -1033,11 +1049,11 @@ func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, pr
 	sortByName(roles)
 
 	h.logger.WithFields(logrus.Fields{
-		"action":                "get_roles_for_user",
-		"component":             authorization.ComponentName,
-		"user":                  principal.Username,
-		"user_to_get_roles_for": params.ID,
-	}).Info("roles requested")
+		"action":                 "get_roles_for_group",
+		"component":              authorization.ComponentName,
+		"user":                   principal.Username,
+		"group_to_get_roles_for": params.ID,
+	}).Info("roles for group requested")
 
 	return authz.NewGetRolesForGroupOK().WithPayload(roles)
 }

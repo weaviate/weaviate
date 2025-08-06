@@ -91,7 +91,7 @@ func TestGetRolesForGroupSuccess(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.expectAuthz {
 				if tt.expectAuthz {
-					authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Groups(tt.params.GroupType, tt.params.ID)[0]).Return(nil)
+					authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Groups(authentication.AuthType(tt.params.GroupType), tt.params.ID)[0]).Return(nil)
 				}
 
 				if *tt.params.IncludeFullRoles {
@@ -172,7 +172,7 @@ func TestGetRolesForGroupForbidden(t *testing.T) {
 				},
 			}
 
-			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Groups(string(models.GroupTypeOidc), tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Groups(authentication.AuthType(models.GroupTypeOidc), tt.params.ID)[0]).Return(nil)
 
 			if tt.authorizeErr != nil {
 				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
@@ -225,7 +225,7 @@ func TestGetRolesForGroupInternalServerError(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Groups(string(models.GroupTypeOidc), tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Groups(authentication.AuthType(models.GroupTypeOidc), tt.params.ID)[0]).Return(nil)
 			controller.On("GetRolesForUserOrGroup", tt.params.ID, authentication.AuthTypeOIDC, true).Return(nil, tt.getRolesErr)
 
 			h := &authZHandlers{

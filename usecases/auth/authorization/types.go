@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -276,7 +278,7 @@ func Nodes(verbosity string, classes ...string) []string {
 // Returns:
 //
 //	A slice of strings where each string is a formatted user resource string.
-func Groups(groupType string, groups ...string) []string {
+func Groups(groupType authentication.AuthType, groups ...string) []string {
 	if len(groups) == 0 || (len(groups) == 1 && (groups[0] == "" || groups[0] == "*")) {
 		return []string{
 			fmt.Sprintf("%s/%s/*", GroupsDomain, groupType),

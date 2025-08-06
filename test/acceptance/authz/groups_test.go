@@ -34,8 +34,10 @@ func TestAuthzRolesForGroups(t *testing.T) {
 	defer down()
 
 	all := "*"
+	groupsStart := "Prefix*"
 
 	groupReadName := "groupRead"
+	groupReadFilterName := "groupReadFilter"
 	groupAssignName := "groupAssign"
 	roleReadName := "roleRead"
 	groupRead := &models.Role{
@@ -43,6 +45,13 @@ func TestAuthzRolesForGroups(t *testing.T) {
 		Permissions: []*models.Permission{{
 			Action: &authorization.ReadGroups,
 			Groups: &models.PermissionGroups{Group: &all, GroupType: models.GroupTypeOidc},
+		}},
+	}
+	groupReadFilter := &models.Role{
+		Name: &groupReadFilterName,
+		Permissions: []*models.Permission{{
+			Action: &authorization.ReadGroups,
+			Groups: &models.PermissionGroups{Group: &groupsStart, GroupType: models.GroupTypeOidc},
 		}},
 	}
 	groupAssign := &models.Role{
@@ -61,12 +70,15 @@ func TestAuthzRolesForGroups(t *testing.T) {
 	}
 
 	helper.DeleteRole(t, adminKey, groupReadName)
+	helper.DeleteRole(t, adminKey, groupReadFilterName)
 	helper.DeleteRole(t, adminKey, groupAssignName)
 	helper.DeleteRole(t, adminKey, roleReadName)
 	helper.CreateRole(t, adminKey, groupRead)
+	helper.CreateRole(t, adminKey, groupReadFilter)
 	helper.CreateRole(t, adminKey, groupAssign)
 	helper.CreateRole(t, adminKey, roleRead)
 	defer helper.DeleteRole(t, adminKey, groupReadName)
+	defer helper.DeleteRole(t, adminKey, groupReadFilterName)
 	defer helper.DeleteRole(t, adminKey, groupAssignName)
 	defer helper.DeleteRole(t, adminKey, roleReadName)
 
@@ -195,5 +207,31 @@ func TestAuthzRolesForGroups(t *testing.T) {
 
 		helper.RevokeRoleFromGroup(t, adminKey, groupReadName, group1)
 		helper.RevokeRoleFromGroup(t, adminKey, groupAssignName, group2)
+	})
+
+	t.Run("list all known groups with filter", func(t *testing.T) {
+		helper.AssignRoleToUser(t, adminKey, groupReadFilterName, customUser)
+
+		group1 := "list-group1"
+		group2 := "list-group2"
+		group3 := groupsStart + "3"
+		group4 := groupsStart + "4"
+
+		helper.AssignRoleToGroup(t, adminKey, groupReadName, group1)
+		helper.AssignRoleToGroup(t, adminKey, groupAssignName, group2)
+		helper.AssignRoleToGroup(t, adminKey, groupReadName, group3)
+		helper.AssignRoleToGroup(t, adminKey, groupAssignName, group4)
+
+		groups := helper.GetKnownGroups(t, adminKey)
+		require.Len(t, groups, 4)
+
+		groups = helper.GetKnownGroups(t, customKey)
+		require.Len(t, groups, 2)
+
+		helper.RevokeRoleFromGroup(t, adminKey, groupReadName, group1)
+		helper.RevokeRoleFromGroup(t, adminKey, groupAssignName, group2)
+		helper.RevokeRoleFromGroup(t, adminKey, groupReadName, group3)
+		helper.RevokeRoleFromGroup(t, adminKey, groupAssignName, group4)
+		helper.RevokeRoleFromUser(t, adminKey, groupReadFilterName, customUser)
 	})
 }
