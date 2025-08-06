@@ -76,30 +76,30 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 			obj := objWrappers[0]
 			require.NotNil(t, obj)
 
-			assert.Len(t, obj.Vector, 300)
+			assert.Len(t, obj.Vector, 512)
 
 			require.Len(t, obj.Vectors, 3)
-			assert.Equal(t, []float32(obj.Vector), obj.Vectors["contextionary"].([]float32))
-			assert.Len(t, obj.Vectors["contextionary_with_class_name"], 300)
-			assert.Len(t, obj.Vectors["transformers"], 384)
+			assert.Equal(t, []float32(obj.Vector), obj.Vectors[model2vec].([]float32))
+			assert.Len(t, obj.Vectors["model2vec_with_class_name"], 512)
+			assert.Len(t, obj.Vectors["transformers"], 256)
 
 			// as these vectors were made using different module parameters, they should be different
-			assert.NotEqual(t, obj.Vector, obj.Vectors["contextionary_with_class_name"], 300)
+			assert.NotEqual(t, obj.Vector, obj.Vectors["model2vec_with_class_name"], 512)
 		})
 
 		t.Run("GraphQL get vectors", func(t *testing.T) {
 			resultVectors := getVectors(t, client, class.Class, id1, "", transformers)
 			require.Len(t, resultVectors, 2)
-			require.Len(t, resultVectors[""], 300)
-			require.Len(t, resultVectors[transformers], 384)
+			require.Len(t, resultVectors[""], 512)
+			require.Len(t, resultVectors[transformers], 256)
 		})
 
-		for _, targetVector := range []string{"", modelsext.DefaultNamedVectorName, contextionary} {
+		for _, targetVector := range []string{"", modelsext.DefaultNamedVectorName, model2vec} {
 			t.Run(fmt.Sprintf("targetVector=%q", targetVector), func(t *testing.T) {
 				t.Run("nearText search", func(t *testing.T) {
 					nearText := client.GraphQL().NearTextArgBuilder().
 						WithConcepts([]string{"book"}).
-						WithCertainty(0.9)
+						WithCertainty(0.7)
 
 					if targetVector != "" {
 						nearText = nearText.WithTargetVectors(targetVector)
@@ -129,13 +129,13 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 				})
 
 				t.Run("nearVector search", func(t *testing.T) {
-					vectors := getVectors(t, client, class.Class, id1, contextionary)
+					vectors := getVectors(t, client, class.Class, id1, model2vec)
 					require.Len(t, vectors, 1)
-					require.Len(t, vectors[contextionary], 300)
-					obj1C11YVector := vectors[contextionary].([]float32)
+					require.Len(t, vectors[model2vec], 512)
+					obj1M2VecVector := vectors[model2vec].([]float32)
 
 					nearVector := client.GraphQL().NearVectorArgBuilder().
-						WithVector(obj1C11YVector).
+						WithVector(obj1M2VecVector).
 						WithCertainty(0.9)
 
 					if targetVector != "" {
@@ -157,7 +157,7 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 				WithNearText(client.GraphQL().
 					NearTextArgBuilder().
 					WithConcepts([]string{"reading", "book"}).
-					WithTargetVectors("contextionary", modelsext.DefaultNamedVectorName)).
+					WithTargetVectors(model2vec, modelsext.DefaultNamedVectorName)).
 				WithLimit(1).
 				WithFields(idField).
 				Do(ctx)
@@ -167,7 +167,7 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 		})
 
 		t.Run("update object", func(t *testing.T) {
-			vectorsToCheck := []string{"", contextionary}
+			vectorsToCheck := []string{"", model2vec}
 
 			beforeUpdate := getVectors(t, client, class.Class, id1, vectorsToCheck...)
 			require.NoError(t, client.Data().Updater().
@@ -187,7 +187,7 @@ func testMixedVectorsObject(host string) func(t *testing.T) {
 		})
 
 		t.Run("update object with merge", func(t *testing.T) {
-			vectorsToCheck := []string{"", contextionary}
+			vectorsToCheck := []string{"", model2vec}
 			beforeUpdate := getVectors(t, client, class.Class, id1, vectorsToCheck...)
 			require.NoError(t, client.Data().Updater().
 				WithClassName(className).
@@ -236,7 +236,7 @@ func testMixedVectorsBatchBYOV(host string) func(t *testing.T) {
 				},
 				Vector: data.vector,
 				Vectors: models.Vectors{
-					contextionary: data.vector,
+					model2vec: data.vector,
 				},
 			})
 		}
@@ -251,18 +251,18 @@ func testMixedVectorsBatchBYOV(host string) func(t *testing.T) {
 		}
 
 		for _, obj := range objects {
-			vectors := getVectors(t, client, class.Class, obj.ID.String(), "", contextionary, transformers)
+			vectors := getVectors(t, client, class.Class, obj.ID.String(), "", model2vec, transformers)
 			require.Len(t, vectors, 3)
 			require.Equal(t, []float32(obj.Vector), vectors[""].([]float32))
-			require.Equal(t, []float32(obj.Vector), vectors[contextionary].([]float32))
-			require.Len(t, vectors[transformers], 384)
+			require.Equal(t, []float32(obj.Vector), vectors[model2vec].([]float32))
+			require.Len(t, vectors[transformers], 256)
 		}
 	}
 }
 
 func createMixedVectorsSchema(t *testing.T, client *wvt.Client) *models.Class {
-	contextionaryConfig := map[string]interface{}{
-		text2vecContextionary: map[string]interface{}{
+	model2vecConfig := map[string]interface{}{
+		text2vecModel2Vec: map[string]interface{}{
 			"vectorizeClassName": false,
 		},
 	}
@@ -279,16 +279,16 @@ func createMixedVectorsSchema(t *testing.T, client *wvt.Client) *models.Class {
 				DataType: schema.DataTypeInt.PropString(),
 			},
 		},
-		Vectorizer:   text2vecContextionary,
-		ModuleConfig: contextionaryConfig,
+		Vectorizer:   text2vecModel2Vec,
+		ModuleConfig: model2vecConfig,
 		VectorConfig: map[string]models.VectorConfig{
-			contextionary: {
-				Vectorizer:      contextionaryConfig,
+			model2vec: {
+				Vectorizer:      model2vecConfig,
 				VectorIndexType: "hnsw",
 			},
-			"contextionary_with_class_name": {
+			"model2vec_with_class_name": {
 				Vectorizer: map[string]interface{}{
-					text2vecContextionary: map[string]interface{}{
+					text2vecModel2Vec: map[string]interface{}{
 						"vectorizeClassName": true,
 					},
 				},
