@@ -665,7 +665,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	reindexer := configureReindexer(appState, reindexCtx)
 	repo.WithReindexer(reindexer)
 
-metaStoreReadyErr := fmt.Errorf("meta store ready")
+	metaStoreReadyErr := fmt.Errorf("meta store ready")
 	metaStoreFailedErr := fmt.Errorf("meta store failed")
 	storeReadyCtx, storeReadyCancel := context.WithCancelCause(context.Background())
 	enterrors.GoWrapper(func() {
@@ -682,10 +682,17 @@ metaStoreReadyErr := fmt.Errorf("meta store ready")
 
 	// Add dimensions to all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && appState.DB.GetConfig().TrackVectorDimensions {
-		appState.Logger.
-			WithField("action", "startup").
-			Info("Reindexing dimensions")
-		appState.Migrator.RecalculateVectorDimensions(ctx)
+		enterrors.GoWrapper(func() {
+			// wait until meta store is ready, as reindex tasks needs schema
+			<-storeReadyCtx.Done()
+			if errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
+
+				appState.Logger.
+					WithField("action", "startup").
+					Info("Reindexing dimensions")
+				appState.Migrator.RecalculateVectorDimensions(ctx)
+			}
+		}, appState.Logger)
 	}
 
 	// TODO-RAFT: refactor remove this sleep
