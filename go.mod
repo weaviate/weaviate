@@ -56,7 +56,7 @@ require (
 	github.com/launchdarkly/go-sdk-common/v3 v3.2.0
 	github.com/launchdarkly/go-server-sdk/v7 v7.8.0
 	github.com/minio/minio-go/v7 v7.0.91
-	github.com/nyaruka/phonenumbers v1.0.54
+	github.com/nyaruka/phonenumbers v1.6.4
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.20.5
@@ -77,7 +77,7 @@ require (
 	github.com/weaviate/sroar v0.0.11
 	github.com/weaviate/tiktoken-go v0.0.2
 	go.etcd.io/bbolt v1.3.11
-	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa
+	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394
 	golang.org/x/net v0.42.0
 	golang.org/x/oauth2 v0.30.0
 	golang.org/x/sync v0.16.0
