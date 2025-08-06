@@ -268,41 +268,14 @@ func (r *ReadQueues) Make(streamId string) {
 
 type dynamic struct{}
 
-func dynamicFromProto(proto *pb.BatchStreamRequest_Dynamic) *dynamic {
-	if proto == nil {
-		return nil
-	}
-	return &dynamic{}
-}
-
 type fixedSize struct {
 	size int
-}
-
-func fixedSizeFromProto(proto *pb.BatchStreamRequest_FixedSize) *fixedSize {
-	if proto == nil {
-		return nil
-	}
-	return &fixedSize{
-		size: int(proto.Size),
-	}
 }
 
 type rateLimited struct {
 	desiredRate       int
 	howManyToSendNext int
 	whenToSendNext    time.Time
-}
-
-func rateLimitedFromProto(proto *pb.BatchStreamRequest_RateLimited) *rateLimited {
-	if proto == nil {
-		return nil
-	}
-	return &rateLimited{
-		desiredRate:       int(proto.Rate),
-		howManyToSendNext: int(proto.Rate),
-		whenToSendNext:    time.Now().Add(time.Second), // Start with a 1 second delay
-	}
 }
 
 type WriteQueue struct {
