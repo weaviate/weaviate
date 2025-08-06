@@ -8522,7 +8522,7 @@ func init() {
       }
     },
     "UserTypeInput": {
-      "description": "the type of user or group",
+      "description": "the type of user",
       "type": "string",
       "enum": [
         "db",
@@ -17826,7 +17826,7 @@ func init() {
       }
     },
     "UserTypeInput": {
-      "description": "the type of user or group",
+      "description": "the type of user",
       "type": "string",
       "enum": [
         "db",

@@ -11,7 +11,7 @@
         "db",
         "oidc"
       ],
-      "description": "the type of user or group"
+      "description": "the type of user"
     },
     "GroupType": {
       "type": "string",
