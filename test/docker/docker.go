@@ -124,7 +124,7 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 			continue
 		}
 		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
-		if err := waitStrategy.WithStartupTimeout(120 * time.Second).WaitUntilReady(ctx, c.container); err != nil {
+		if err := waitStrategy.WithStartupTimeout(120*time.Second).WaitUntilReady(ctx, c.container); err != nil {
 			return err
 		}
 	}

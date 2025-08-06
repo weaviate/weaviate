@@ -467,9 +467,6 @@ func TestRbacWithOIDCAssignRevokeGroups(t *testing.T) {
 		})
 	}
 }
-
-
-
 func TestOidcRootAndDynamicUsersWithCertificate(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithDbUsers().Start(ctx)
@@ -501,7 +498,6 @@ func TestOidcProperCertificate(t *testing.T) {
 	require.NoError(t, compose.Terminate(ctx))
 }
 
-
 func TestOidcWrongCertificate(t *testing.T) {
 	ctx := context.Background()
 	// MockOIDC server has been created with it's own certifcates but we pass here some other certifcate, this situation should
@@ -518,8 +514,6 @@ func TestOidcWrongCertificate(t *testing.T) {
 	require.Error(t, err)
 	require.NoError(t, compose.Terminate(ctx))
 }
-
-
 
 func TestOidcRootAndDynamicUsersWithoutCertificate(t *testing.T) {
 	ctx := context.Background()

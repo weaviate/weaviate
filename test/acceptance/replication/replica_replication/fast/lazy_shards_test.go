@@ -25,12 +25,12 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
-	"github.com/weaviate/weaviate/test/docker"
 )
 
-func  TestReplicationReplicateWithLazyShardLoading(t *testing.T) {
+func TestReplicationReplicateWithLazyShardLoading(t *testing.T) {
 	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 
 	mainCtx := context.Background()
@@ -45,7 +45,7 @@ func  TestReplicationReplicateWithLazyShardLoading(t *testing.T) {
 		if err := compose.Terminate(mainCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
-	}	()
+	}()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 
