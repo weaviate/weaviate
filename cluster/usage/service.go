@@ -73,8 +73,10 @@ func (s *service) addJitter() {
 // Usage service collects usage metrics for the node and shall return error in case of any error
 // to avoid reporting partial data
 func (m *service) Usage(ctx context.Context) (*types.Report, error) {
-	collections := m.schemaManager.GetSchemaSkipAuth().Objects.Classes
+	schema := m.schemaManager.GetSchemaSkipAuth().Objects
+	collections := schema.Classes
 	usage := &types.Report{
+		Schema:      schema,
 		Node:        m.schemaManager.NodeName(),
 		Collections: make([]*types.CollectionUsage, 0, len(collections)),
 		Backups:     make([]*types.BackupUsage, 0),
@@ -163,11 +165,20 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 					category := db.DimensionCategoryStandard // Default category
 					indexType := ""
 					var bits int16
-					if vectorIndexConfig, ok := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+
+					// Check if this is a named vector configuration
+					if vectorConfig, exists := collection.VectorConfig[targetVector]; exists {
+						// Use the named vector's configuration
+						if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+							category, _ = db.GetDimensionCategory(vectorIndexConfig)
+							indexType = vectorIndexConfig.IndexType()
+							bits = enthnsw.GetRQBits(vectorIndexConfig)
+						}
+					} else if vectorIndexConfig, ok := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+						// Fall back to legacy single vector configuration
 						category, _ = db.GetDimensionCategory(vectorIndexConfig)
 						indexType = vectorIndexConfig.IndexType()
 						bits = enthnsw.GetRQBits(vectorIndexConfig)
-
 					}
 
 					dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
