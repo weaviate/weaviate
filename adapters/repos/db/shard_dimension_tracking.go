@@ -22,30 +22,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-type DimensionCategory int
 
-const (
-	DimensionCategoryStandard DimensionCategory = iota
-	DimensionCategoryPQ
-	DimensionCategoryBQ
-	DimensionCategorySQ
-	DimensionCategoryRQ
-)
-
-func (c DimensionCategory) String() string {
-	switch c {
-	case DimensionCategoryPQ:
-		return "pq"
-	case DimensionCategoryBQ:
-		return "bq"
-	case DimensionCategorySQ:
-		return "sq"
-	case DimensionCategoryRQ:
-		return "rq"
-	default:
-		return "standard"
-	}
-}
 
 // DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
 func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (types.Dimensionality, error) {

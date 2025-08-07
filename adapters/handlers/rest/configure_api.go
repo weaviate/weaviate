@@ -1901,6 +1901,7 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+		registered.DefaultCompression = appState.ServerConfig.Config.DefaultCompression
 
 		if appState.Modules.UsageEnabled() {
 			// gcs config

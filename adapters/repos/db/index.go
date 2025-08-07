@@ -732,6 +732,7 @@ type IndexConfig struct {
 	QuerySlowLogEnabled    *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold  *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled *configRuntime.DynamicValue[bool]
+	DefaultCompression   *configRuntime.DynamicValue[int]
 	MaintenanceModeEnabled func() bool
 }
 

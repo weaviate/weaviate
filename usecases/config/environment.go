@@ -23,6 +23,7 @@ import (
 
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/dimensioncategory"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
@@ -228,6 +229,7 @@ func FromEnv(config *Config) error {
 		config.Authentication.OIDC.GroupsClaim = runtime.NewDynamicValue(groupsClaim)
 		config.Authentication.OIDC.Certificate = runtime.NewDynamicValue(certificate)
 		config.Authentication.OIDC.JWKSUrl = runtime.NewDynamicValue(jwksUrl)
+
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
@@ -659,6 +661,12 @@ func FromEnv(config *Config) error {
 		autoSchemaEnabled = !(strings.ToLower(v) == "false")
 	}
 	config.AutoSchema.Enabled = runtime.NewDynamicValue(autoSchemaEnabled)
+
+	defaultCompression := ""
+	if v := os.Getenv("DEFAULT_COMPRESSION"); v != "" {
+		defaultCompression = strings.ToLower(v)
+	}
+	config.DefaultCompression = runtime.NewDynamicValue(int(dimensioncategory.NewDimensionCategoryFromString(defaultCompression)))
 
 	config.AutoSchema.DefaultString = schema.DataTypeText.String()
 	if v := os.Getenv("AUTOSCHEMA_DEFAULT_STRING"); v != "" {
