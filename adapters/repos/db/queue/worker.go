@@ -81,7 +81,7 @@ func (w *Worker) do(batch *Batch) (err error) {
 			if errors.Is(err, context.Canceled) {
 				return err
 			}
-			if errors.Is(err, common.WrongDimensionsError) {
+			if errors.Is(err, common.ErrWrongDimensions) {
 				w.logger.
 					WithError(err).
 					Error("task failed due to wrong dimensions, discarding")

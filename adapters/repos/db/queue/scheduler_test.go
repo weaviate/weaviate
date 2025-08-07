@@ -331,7 +331,7 @@ func TestScheduler(t *testing.T) {
 
 				called[t.key]++
 				if t.key == 3 {
-					return common.WrongDimensionsError
+					return common.ErrWrongDimensions
 				}
 
 				return nil
