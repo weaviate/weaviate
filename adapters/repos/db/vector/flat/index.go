@@ -332,8 +332,13 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 			index.bq = compressionhelpers.NewBinaryQuantizer(nil)
 		}
 	})
-	if len(vector) != int(index.dims) {
-		return errors.Errorf("insert called with a vector of the wrong size")
+	// disable global check and just compare with the first vector (if available)
+	byId, err := index.vectorById(0)
+	if err == nil && len(byId) > 0 {
+		vectorLength := len(byId) / 4
+		if len(vector) != int(vectorLength) {
+			return errors.Errorf("insert called with a vector of the wrong size")
+		}
 	}
 	vector = index.normalized(vector)
 	slice := make([]byte, len(vector)*4)
