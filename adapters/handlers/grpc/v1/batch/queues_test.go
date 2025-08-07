@@ -58,7 +58,7 @@ func TestHandler(t *testing.T) {
 		howMany := handler.Send(ctx, req)
 
 		// Assert
-		require.Equal(t, int32(1), howMany, "Expected to send one object")
+		require.Equal(t, 1, howMany, "Expected to send one object")
 
 		// Verify that the internal queue has the object
 		obj := <-internalQueue
