@@ -611,13 +611,12 @@ func (i *Index) ForEachPhysicalShard(f func(name string, shard ShardLike) error)
 	shardingState := i.ShardState()
 	physicalShards := shardingState.AllPhysicalShards()
 	for _, shardName := range physicalShards {
-		sl , release, err:= i.GetShard(context.TODO(),shardName)
+		sl, release, err := i.GetShard(context.TODO(), shardName)
 		if err != nil {
 			return fmt.Errorf("getting shard %s: %w", shardName, err)
 		}
 
 		defer release()
-
 
 		err = f(shardName, sl)
 		if err != nil {

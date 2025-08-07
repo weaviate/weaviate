@@ -504,7 +504,6 @@ func (l *LazyLoadShard) resetDimensionsLSM(ctx context.Context) (time.Time, erro
 	return l.shard.resetDimensionsLSM(ctx)
 }
 
-
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
