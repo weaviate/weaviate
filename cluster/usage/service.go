@@ -198,11 +198,20 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 					category := db.DimensionCategoryStandard // Default category
 					indexType := ""
 					var bits int16
-					if vectorIndexConfig, ok := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+
+					// Check if this is a named vector configuration
+					if vectorConfig, exists := collection.VectorConfig[targetVector]; exists {
+						// Use the named vector's configuration
+						if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+							category, _ = db.GetDimensionCategory(vectorIndexConfig)
+							indexType = vectorIndexConfig.IndexType()
+							bits = enthnsw.GetRQBits(vectorIndexConfig)
+						}
+					} else if vectorIndexConfig, ok := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+						// Fall back to legacy single vector configuration
 						category, _ = db.GetDimensionCategory(vectorIndexConfig)
 						indexType = vectorIndexConfig.IndexType()
 						bits = enthnsw.GetRQBits(vectorIndexConfig)
-
 					}
 
 					dimensionality, err := shard.DimensionsUsage(ctx, targetVector)

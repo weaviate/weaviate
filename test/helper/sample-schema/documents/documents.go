@@ -69,7 +69,8 @@ func ClassesModel2VecVectorizer(multishard bool) []*models.Class {
 
 func document(vectorizer string, multishard bool) *models.Class {
 	class := &models.Class{
-		Class: Document,
+		Class:      Document,
+		Vectorizer: vectorizer,
 		ModuleConfig: map[string]interface{}{
 			vectorizer: map[string]interface{}{
 				"vectorizeClassName": false,
@@ -115,7 +116,8 @@ func document(vectorizer string, multishard bool) *models.Class {
 
 func passage(vectorizer string, multishard bool) *models.Class {
 	class := &models.Class{
-		Class: Passage,
+		Class:      Passage,
+		Vectorizer: vectorizer,
 		ModuleConfig: map[string]interface{}{
 			vectorizer: map[string]interface{}{
 				"vectorizeClassName": false,
