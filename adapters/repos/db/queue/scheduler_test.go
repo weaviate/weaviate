@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
@@ -213,6 +214,104 @@ func TestScheduler(t *testing.T) {
 		err = q.Close()
 		require.NoError(t, err)
 	})
+
+	t.Run("invalid tasks", func(t *testing.T) {
+		s := makeScheduler(t, 1)
+		s.ScheduleInterval = 200 * time.Millisecond
+		s.RetryInterval = 100 * time.Millisecond
+		s.Start()
+
+		called := make(map[uint64]int)
+
+		started := make(chan struct{})
+		e := mockTaskDecoder{
+			execFn: func(ctx context.Context, t *mockTask) error {
+				if t.key == 0 {
+					close(started)
+				}
+
+				called[t.key]++
+				if t.key == 3 {
+					return errors.New("invalid task")
+				}
+
+				return nil
+			},
+		}
+
+		q := makeQueue(t, s, &e)
+
+		var batch []uint64
+		for i := 0; i < 30; i++ {
+			batch = append(batch, uint64(i))
+		}
+		pushMany(t, q, 1, batch...)
+
+		s.Schedule(t.Context())
+		<-started
+		s.Wait(q.ID())
+
+		for i := 0; i < 30; i++ {
+			if i == 3 {
+				require.Equal(t, 3, called[uint64(i)])
+				continue
+			}
+
+			require.Equal(t, 1, called[uint64(i)], "task %d should have been executed once", i)
+		}
+
+		err := q.Close()
+		require.NoError(t, err)
+	})
+
+	t.Run("transient error", func(t *testing.T) {
+		s := makeScheduler(t, 1)
+		s.ScheduleInterval = 200 * time.Millisecond
+		s.RetryInterval = 100 * time.Millisecond
+		s.Start()
+
+		called := make(map[uint64]int)
+
+		started := make(chan struct{})
+		e := mockTaskDecoder{
+			execFn: func(ctx context.Context, t *mockTask) error {
+				if t.key == 0 {
+					close(started)
+				}
+
+				called[t.key]++
+				if t.key == 3 && called[t.key] < 3 {
+					return errors.New("invalid task")
+				}
+
+				return nil
+			},
+		}
+
+		q := makeQueue(t, s, &e)
+
+		var batch []uint64
+		for i := 0; i < 30; i++ {
+			batch = append(batch, uint64(i))
+		}
+		pushMany(t, q, 1, batch...)
+
+		s.Schedule(t.Context())
+		<-started
+		s.Wait(q.ID())
+
+		for i := 0; i < 30; i++ {
+			if i == 3 {
+				require.Equal(t, 3, called[uint64(i)])
+				continue
+			}
+
+			require.Equal(t, 1, called[uint64(i)], "task %d should have been executed once", i)
+		}
+
+		err := q.Close()
+		require.NoError(t, err)
+	})
 }
 
 func makeScheduler(t testing.TB, workers ...int) *Scheduler {
@@ -230,6 +329,7 @@ func makeScheduler(t testing.TB, workers ...int) *Scheduler {
 		Logger:           logger,
 		Workers:          w,
 		ScheduleInterval: 50 * time.Millisecond,
+		RetryInterval:    100 * time.Millisecond,
 	})
 }
 

@@ -13,10 +13,14 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	maxRetry = 3
 )
 
 type Worker struct {
@@ -55,38 +59,63 @@ func (w *Worker) do(batch *Batch) (err error) {
 		}
 	}()
 
-	for _, t := range batch.Tasks {
-		err = w.processTask(batch.Ctx, t)
-		if err != nil {
-			return err
-		}
-	}
+	attempts := 1
 
-	return nil
-}
+	// keep track of failed tasks
+	var failed []Task
+	var errs []error
 
-func (w *Worker) processTask(ctx context.Context, task Task) error {
 	for {
-		err := task.Execute(ctx)
-		if err == nil {
+		tasks := batch.Tasks
+
+		if len(failed) > 0 {
+			tasks = failed
+			failed = nil // reset failed tasks for the next iteration
+			errs = nil
+		}
+
+		for i, t := range tasks {
+			err = t.Execute(batch.Ctx)
+			// check if the full batch was canceled
+			if errors.Is(err, context.Canceled) {
+				return err
+			}
+			// if the task failed, add it to the failed list
+			if err != nil {
+				errs = append(errs, err)
+				failed = append(failed, tasks[i])
+			}
+		}
+
+		if len(failed) == 0 {
+			return nil // all tasks succeeded
+		}
+
+		if attempts >= maxRetry {
+			w.logger.
+				WithError(errors.Join(errs...)).
+				WithField("failed", len(failed)).
+				WithField("attempts", attempts).
+				Error("failed to process task, discarding")
 			return nil
 		}
 
-		if errors.Is(err, context.Canceled) {
-			return err
-		}
-
-		w.logger.WithError(err).Infof("failed to process task, retrying in %s", w.retryInterval.String())
+		w.logger.
+			WithError(errors.Join(errs...)).
+			WithField("failed", len(failed)).
+			WithField("attempts", attempts).
+			Infof("failed to process task, retrying in %s", w.retryInterval.String())
+		attempts++
 
 		t := time.NewTimer(w.retryInterval)
 		select {
-		case <-ctx.Done():
+		case <-batch.Ctx.Done():
 			// drain the timer
 			if !t.Stop() {
 				<-t.C
 			}
 
-			return ctx.Err()
+			return batch.Ctx.Err()
 		case <-t.C:
 		}
 	}
