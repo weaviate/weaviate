@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -257,18 +256,6 @@ func (r *ReadQueues) Make(streamId string) {
 	}
 }
 
-type dynamic struct{}
-
-type fixedSize struct {
-	size int
-}
-
-type rateLimited struct {
-	desiredRate       int
-	howManyToSendNext int
-	whenToSendNext    time.Time
-}
-
 type WriteQueue struct {
 	queue            writeQueue
 	consistencyLevel *pb.ConsistencyLevel
@@ -315,18 +302,6 @@ func (w *WriteQueues) Close() {
 
 type makeWriteQueueOptions struct {
 	consistencyLevel *pb.ConsistencyLevel
-	dynamic          *dynamic
-	fixedSize        *fixedSize
-	rateLimited      *rateLimited
-}
-
-func NewMakeWriteQueueOptions(consistencyLevel *pb.ConsistencyLevel, dynamic *dynamic, fixedSize *fixedSize, rateLimited *rateLimited) *makeWriteQueueOptions {
-	return &makeWriteQueueOptions{
-		consistencyLevel: consistencyLevel,
-		dynamic:          dynamic,
-		fixedSize:        fixedSize,
-		rateLimited:      rateLimited,
-	}
 }
 
 func (w *WriteQueues) Make(streamId string, consistencyLevel *pb.ConsistencyLevel) {
