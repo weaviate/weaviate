@@ -73,7 +73,7 @@ func (s *SPFresh) addOne(ctx context.Context, id uint64, vector []byte) error {
 	for _, replica := range replicas {
 		_, err = s.append(ctx, v, replica, false)
 		if err != nil {
-			return errors.Wrapf(err, "failed to append vector %d to replica %d", id, replica)
+			return errors.Wrapf(err, "failed to append vector %d to replica %d", id, replica.ID)
 		}
 	}
 
@@ -82,37 +82,48 @@ func (s *SPFresh) addOne(ctx context.Context, id uint64, vector []byte) error {
 
 // append adds a vector to the specified posting.
 // It returns true if the vector was successfully added, false if the posting no longer exists.
-func (s *SPFresh) append(ctx context.Context, vector Vector, postingID uint64, reassigned bool) (bool, error) {
-	s.postingLocks.Lock(postingID)
+func (s *SPFresh) append(ctx context.Context, vector Vector, centroid SearchResult, reassigned bool) (bool, error) {
+	s.postingLocks.Lock(centroid.ID)
 
 	// check if the posting still exists
-	if !s.SPTAG.Exists(postingID) {
+	if !s.SPTAG.Exists(centroid.ID) {
 		// the vector might have been deleted concurrently,
 		// might happen if we are reassigning
 		if s.VersionMap.Get(vector.ID()) == vector.Version() {
-			err := s.enqueueReassign(ctx, postingID, vector)
+			err := s.enqueueReassign(ctx, centroid.ID, vector)
 			if err != nil {
-				s.postingLocks.Unlock(postingID)
+				s.postingLocks.Unlock(centroid.ID)
 				return false, err
 			}
 		}
-		s.postingLocks.Unlock(postingID)
+
+		s.postingLocks.Unlock(centroid.ID)
 		return false, nil
 	}
 
 	// append the new vector to the existing posting
-	err := s.Store.Merge(ctx, postingID, vector)
+	err := s.Store.Merge(ctx, centroid.ID, vector)
 	if err != nil {
-		s.postingLocks.Unlock(postingID)
+		s.postingLocks.Unlock(centroid.ID)
 		return false, err
 	}
 	// increment the size of the posting
-	s.PostingSizes.Inc(postingID, 1)
+	s.PostingSizes.Inc(centroid.ID, 1)
 
-	s.postingLocks.Unlock(postingID)
+	// Update the radius of the associated centroid
+	prev := s.SPTAG.Get(centroid.ID)
+	err = s.SPTAG.Upsert(centroid.ID, &Centroid{
+		Vector: prev.Vector,
+		Radius: max(prev.Radius, centroid.Distance),
+	})
+	if err != nil {
+		return false, err
+	}
+
+	s.postingLocks.Unlock(centroid.ID)
 
 	// ensure the posting size is within the configured limits
-	count := s.PostingSizes.Get(postingID)
+	count := s.PostingSizes.Get(centroid.ID)
 
 	// If the posting is too big, we need to split it.
 	// During an insert, we want to split asynchronously
@@ -125,9 +136,9 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, postingID uint64, r
 	}
 	if count > max {
 		if reassigned {
-			err = s.doSplit(postingID)
+			err = s.doSplit(centroid.ID)
 		} else {
-			err = s.enqueueSplit(ctx, postingID)
+			err = s.enqueueSplit(ctx, centroid.ID)
 		}
 		if err != nil {
 			return false, err

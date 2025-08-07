@@ -91,8 +91,8 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	for _, replica := range replicas {
 		ok, err := s.append(s.ctx, op.Vector, replica, true)
 		if !ok {
-			s.Logger.WithField("vectorID", op.Vector.ID).
-				WithField("replicaID", replica).
+			s.Logger.WithField("vectorID", op.Vector.ID()).
+				WithField("replicaID", replica.ID).
 				Debug("Posting no longer exists, reassigning")
 			continue // Skip if the vector already exists in the replica
 		}
@@ -101,16 +101,18 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 		}
 	}
 
+	// TODO: WHAT ABOUT THE OLD POSTING?
+
 	return nil
 }
 
-func (s *SPFresh) selectReplicas(query []byte, unless uint64) ([]uint64, bool, error) {
+func (s *SPFresh) selectReplicas(query []byte, unless uint64) ([]SearchResult, bool, error) {
 	results, err := s.SPTAG.Search(query, s.UserConfig.InternalPostingCandidates)
 	if err != nil {
 		return nil, false, errors.Wrap(err, "failed to search for nearest neighbors")
 	}
 
-	replicas := make([]uint64, 0, s.UserConfig.Replicas)
+	replicas := make([]SearchResult, 0, s.UserConfig.Replicas)
 
 LOOP:
 	for i := 0; i < len(results) && len(replicas) < s.UserConfig.Replicas; i++ {
@@ -118,9 +120,9 @@ LOOP:
 
 		// determine if the candidate is too close to a pre-existing replica
 		for j := range replicas {
-			dist, err := s.Quantizer.DistanceBetweenCompressedVectors(s.SPTAG.Get(results[i].ID), s.SPTAG.Get(replicas[j]))
+			dist, err := s.Quantizer.DistanceBetweenCompressedVectors(s.SPTAG.Get(results[i].ID).Vector, s.SPTAG.Get(replicas[j].ID).Vector)
 			if err != nil {
-				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", results[i].ID, replicas[j])
+				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", results[i].ID, replicas[j].ID)
 			}
 
 			if s.UserConfig.RNGFactor*dist <= candidate.Distance {
@@ -134,7 +136,7 @@ LOOP:
 			return nil, false, nil
 		}
 
-		replicas = append(replicas, candidate.ID)
+		replicas = append(replicas, candidate)
 	}
 
 	return replicas, true, nil

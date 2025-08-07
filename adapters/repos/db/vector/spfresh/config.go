@@ -22,4 +22,10 @@ type UserConfig struct {
 	Replicas                  int     `json:"replicas,omitempty"`                  // Number of closure replicas to maintain
 	RNGFactor                 float32 `json:"rngFactor,omitempty"`                 // Distance factor used by the RNG rule to determine how spread out replica selections are
 	MaxDistanceRatio          float32 `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
+	PruningStrategy           string  `json:"pruningStrategy,omitempty"`           // Strategy to use for pruning postings during brute force
 }
+
+const (
+	SizeBasedPruningStrategy     = "size"     // Size pruning strategy for brute force search
+	DistanceBasedPruningStrategy = "distance" // Distance pruning strategy for brute force search
+)

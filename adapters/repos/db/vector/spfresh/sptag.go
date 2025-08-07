@@ -21,9 +21,9 @@ import (
 var _ SPTAG = (*BruteForceSPTAG)(nil)
 
 type SPTAG interface {
-	Get(id uint64) []byte
+	Get(id uint64) *Centroid
 	Exists(id uint64) bool
-	Upsert(id uint64, centroid []byte) error
+	Upsert(id uint64, centroid *Centroid) error
 	Delete(id uint64) error
 	Search(query []byte, k int) ([]SearchResult, error)
 }
@@ -33,31 +33,41 @@ type SearchResult struct {
 	Distance float32
 }
 
+type Centroid struct {
+	Vector []byte
+	Radius float32
+}
+
 type BruteForceSPTAG struct {
 	m         sync.RWMutex
-	Centroids map[uint64][]byte
+	Centroids map[uint64]Centroid
 	quantizer *compressionhelpers.RotationalQuantizer
 }
 
 func NewBruteForceSPTAG(quantizer *compressionhelpers.RotationalQuantizer) *BruteForceSPTAG {
 	return &BruteForceSPTAG{
-		Centroids: make(map[uint64][]byte),
+		Centroids: make(map[uint64]Centroid),
 		quantizer: quantizer,
 	}
 }
 
-func (s *BruteForceSPTAG) Get(id uint64) []byte {
+func (s *BruteForceSPTAG) Get(id uint64) *Centroid {
 	s.m.RLock()
 	defer s.m.RUnlock()
 
-	return s.Centroids[id]
+	centroid, exists := s.Centroids[id]
+	if !exists {
+		return nil
+	}
+
+	return &centroid
 }
 
-func (s *BruteForceSPTAG) Upsert(id uint64, centroid []byte) error {
+func (s *BruteForceSPTAG) Upsert(id uint64, centroid *Centroid) error {
 	s.m.Lock()
 	defer s.m.Unlock()
 
-	s.Centroids[id] = centroid
+	s.Centroids[id] = *centroid
 	return nil
 }
 
@@ -75,7 +85,7 @@ func (s *BruteForceSPTAG) Search(query []byte, k int) ([]SearchResult, error) {
 
 	q := priorityqueue.NewMin[uint64](k)
 	for id, centroid := range s.Centroids {
-		dist, err := s.quantizer.DistanceBetweenCompressedVectors(query, centroid)
+		dist, err := s.quantizer.DistanceBetweenCompressedVectors(query, centroid.Vector)
 		if err != nil {
 			return nil, err
 		}
