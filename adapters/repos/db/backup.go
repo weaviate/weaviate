@@ -44,9 +44,10 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 
 // ListBackupable returns a list of all classes which can be backed up.
 func (db *DB) ListBackupable() []string {
-	cs := make([]string, 0, len(db.Indices()))
+	indices := db.Indices()
+	cs := make([]string, 0, len(indices))
 
-	for _, idx := range db.Indices() {
+	for _, idx := range indices {
 		cls := string(idx.Config.ClassName)
 		cs = append(cs, cls)
 	}
