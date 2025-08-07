@@ -19,8 +19,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/batch"
 )
 
 func TestScheduler(t *testing.T) {
@@ -39,7 +39,7 @@ func TestScheduler(t *testing.T) {
 		var wg sync.WaitGroup
 		batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
 
-		queue, ok := writeQueues.Get("test-stream")
+		queue, ok := writeQueues.GetQueue("test-stream")
 		require.True(t, ok, "Expected write queue to exist")
 
 		obj := &pb.BatchObject{}

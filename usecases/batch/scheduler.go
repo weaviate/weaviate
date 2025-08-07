@@ -88,20 +88,15 @@ func (s *Scheduler) pull(ctx context.Context, queue writeQueue, max int) ([]*pb.
 }
 
 func (s *Scheduler) add(ctx context.Context, streamId string, wq *WriteQueue) bool {
-	batchSize := wq.BatchSize()
-	if batchSize == 0 {
-		s.logger.WithField("streamId", streamId).Debug("no batch size set, skipping")
-		return true // continue iteration
+	objs, refs, stop := s.pull(ctx, wq.queue, 1000)
+	req := &ProcessRequest{
+		StreamId: streamId,
 	}
-	objs, refs, stop := s.pull(ctx, wq.queue, batchSize)
 	if len(objs) > 0 {
-		s.internalQueue <- &ProcessRequest{
-			StreamId: streamId,
-			Objects: &SendObjects{
-				Values:           objs,
-				ConsistencyLevel: wq.consistencyLevel,
-				Index:            wq.objIndex,
-			},
+		req.Objects = &SendObjects{
+			Values:           objs,
+			ConsistencyLevel: wq.consistencyLevel,
+			Index:            wq.objIndex,
 		}
 		wq.objIndex += int32(len(objs))
 		s.logger.WithFields(logrus.Fields{
@@ -110,13 +105,10 @@ func (s *Scheduler) add(ctx context.Context, streamId string, wq *WriteQueue) bo
 		}).Debug("scheduled batch write request")
 	}
 	if len(refs) > 0 {
-		s.internalQueue <- &ProcessRequest{
-			StreamId: streamId,
-			References: &SendReferences{
-				Values:           refs,
-				ConsistencyLevel: wq.consistencyLevel,
-				Index:            wq.refIndex,
-			},
+		req.References = &SendReferences{
+			Values:           refs,
+			ConsistencyLevel: wq.consistencyLevel,
+			Index:            wq.refIndex,
 		}
 		wq.refIndex += int32(len(refs))
 		s.logger.WithFields(logrus.Fields{
@@ -125,11 +117,9 @@ func (s *Scheduler) add(ctx context.Context, streamId string, wq *WriteQueue) bo
 		}).Debug("scheduled batch reference request")
 	}
 	if stop {
-		s.internalQueue <- &ProcessRequest{
-			StreamId: streamId,
-			Stop:     true,
-		}
+		req.Stop = true
 	}
+	s.internalQueue <- req
 	time.Sleep(time.Millisecond * 5)
 	return true
 }

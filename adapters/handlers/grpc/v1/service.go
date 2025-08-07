@@ -24,9 +24,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/batch"
 
 	"github.com/weaviate/weaviate/usecases/config"
 
@@ -267,7 +267,7 @@ func (s *Service) BatchSend(ctx context.Context, req *pb.BatchSendRequest) (*pb.
 
 	if err := enterrors.GoWrapperWithBlock(func() {
 		next := s.batchQueuesHandler.Send(ctx, req)
-		result = &pb.BatchSendReply{Next: next}
+		result = &pb.BatchSendReply{Next: int32(next)}
 	}, s.logger); err != nil {
 		return nil, err
 	}

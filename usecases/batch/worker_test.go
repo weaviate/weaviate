@@ -20,9 +20,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
-	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/batch"
+	"github.com/weaviate/weaviate/usecases/batch/mocks"
 )
 
 var StreamId string = "329c306b-c912-4ec7-9b1d-55e5e0ca8dea"

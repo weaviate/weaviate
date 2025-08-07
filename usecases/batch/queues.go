@@ -75,10 +75,11 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 }
 
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
-func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) int32 {
-	queue, ok := h.writeQueues.Get(request.GetStreamId())
+func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) int {
+	streamId := request.GetStreamId()
+	queue, ok := h.writeQueues.GetQueue(streamId)
 	if !ok {
-		h.logger.WithField("streamId", request.GetStreamId()).Error("write queue not found")
+		h.logger.WithField("streamId", streamId).Error("write queue not found")
 		return 0
 	}
 	for _, obj := range request.GetObjects().GetValues() {
@@ -90,7 +91,7 @@ func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) 
 	if request.GetStop() != nil {
 		queue <- &writeObject{Stop: true}
 	}
-	return int32(len(request.GetObjects().GetValues()))
+	return h.writeQueues.BatchSize(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues()))
 }
 
 // Setup initializes a read queue for the given stream ID and adds it to the read queues map.
@@ -111,6 +112,7 @@ func (h *QueuesHandler) Teardown(streamId string) {
 	} else {
 		h.logger.WithField("streamId", streamId).Warn("teardown called for non-existing write queue")
 	}
+	h.logger.WithField("streamId", streamId).Info("teardown completed")
 }
 
 func newBatchStartMessage(streamId string) *pb.BatchStreamMessage {
@@ -171,8 +173,8 @@ func NewBatchInternalQueue() internalQueue {
 	return make(internalQueue, 10)
 }
 
-func NewBatchWriteQueue() writeQueue {
-	return make(writeQueue, 100000) // Adjust buffer size as needed
+func NewBatchWriteQueue(buffer int) writeQueue {
+	return make(writeQueue, buffer) // Adjust buffer size as needed
 }
 
 func NewBatchWriteQueues() *WriteQueues {
@@ -259,23 +261,67 @@ func (r *ReadQueues) Make(streamId string) {
 type WriteQueue struct {
 	queue            writeQueue
 	consistencyLevel *pb.ConsistencyLevel
-	objIndex         int32
-	refIndex         int32
+
+	// Indexes for the next object and reference to be sent
+	objIndex int32
+	refIndex int32
+
+	emaQueueLen      float32 // Exponential moving average of the queue length
+	buffer           int     // Buffer size for the write queue
+	alpha            float32 // Smoothing factor for EMA, typically between 0 and 1
+	initialBatchSize int     // The size of the first batch sent before scaling occurred
 }
 
-// BatchSize calculates the optimal number of objects to schedule from this batch depending on the priorty policy.
-//
-// In its current state, there is no priority policy, so it simply returns the length of the queue,
-// capped at 1000 to prevent excessive memory usage.
-func (w *WriteQueue) BatchSize() int {
-	return min(len(w.queue), 1000)
+func (w *WriteQueue) BatchSize(batch int) int {
+	if w.initialBatchSize == 0 {
+		w.initialBatchSize = batch // Store the initial batch size
+	}
+
+	nowLen := len(w.queue)
+	if w.emaQueueLen == 0 {
+		w.emaQueueLen = float32(nowLen)
+	} else {
+		w.emaQueueLen = w.alpha*float32(nowLen) + (1-w.alpha)*w.emaQueueLen
+	}
+	usageRatio := w.emaQueueLen / float32(w.buffer)
+	if usageRatio < 0.5 {
+		return w.initialBatchSize // If usage is low, return the original batch size
+	}
+
+	// quadratic scaling based on usage ratio
+	scaledSize := int(float32(batch) * usageRatio * usageRatio)
+	if scaledSize < 1 {
+		scaledSize = 1 // Ensure at least one object is requested
+	}
+
+	return scaledSize
 }
 
 type WriteQueues struct {
 	queues sync.Map // map[string]*WriteQueue
 }
 
-func (w *WriteQueues) Get(streamId string) (writeQueue, bool) {
+func (w *WriteQueues) BatchSize(streamId string, batch int) int {
+	wq, ok := w.Get(streamId)
+	if !ok {
+		return 0
+	}
+	return wq.BatchSize(batch)
+}
+
+func (w *WriteQueues) Get(streamId string) (*WriteQueue, bool) {
+	value, ok := w.queues.Load(streamId)
+	if !ok {
+		return nil, false
+	}
+	wq, ok := value.(*WriteQueue)
+	if !ok {
+		return nil, false
+	}
+	return wq, true
+}
+
+func (w *WriteQueues) GetQueue(streamId string) (writeQueue, bool) {
 	queue, ok := w.queues.Load(streamId)
 	if !ok {
 		return nil, false
@@ -284,7 +330,7 @@ func (w *WriteQueues) Get(streamId string) (writeQueue, bool) {
 }
 
 func (w *WriteQueues) Delete(streamId string) {
-	wq, ok := w.Get(streamId)
+	wq, ok := w.GetQueue(streamId)
 	if !ok {
 		return
 	}
@@ -301,10 +347,13 @@ func (w *WriteQueues) Close() {
 }
 
 func (w *WriteQueues) Make(streamId string, consistencyLevel *pb.ConsistencyLevel) {
+	buffer := 10000 // Default buffer size
 	if _, ok := w.queues.Load(streamId); !ok {
 		w.queues.Store(streamId, &WriteQueue{
-			queue:            NewBatchWriteQueue(),
+			queue:            NewBatchWriteQueue(buffer),
 			consistencyLevel: consistencyLevel,
+			buffer:           buffer,
+			alpha:            0.2, // Smoothing factor for EMA of queue length
 		})
 	}
 }
