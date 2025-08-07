@@ -88,7 +88,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 		if shardingState == nil {
 			// this could happen in case the between getting the schema and getting the shard state the collection got deleted
 			// in the meantime, usually in automated tests or scripts
-			m.logger.WithFields(logrus.Fields{"class": collection.Class}).Debug("sharding state not found")
+			m.logger.WithFields(logrus.Fields{"class": collection.Class}).Debug("sharding state not found, could have been deleted in the meantime")
 			continue
 		}
 		collectionUsage := &types.CollectionUsage{
@@ -99,6 +99,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 		// Get shard usage
 		index := m.db.GetIndexLike(entschema.ClassName(collection.Class))
 		if index == nil {
+			m.logger.WithFields(logrus.Fields{"class": collection.Class}).Debug("index not found, could have been deleted in the meantime")
 			continue
 		}
 
@@ -127,6 +128,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 
 		if index == nil {
 			// index could be deleted in the meantime
+			m.logger.WithFields(logrus.Fields{"class": collection.Class}).Debug("index not found, could have been deleted in the meantime")
 			continue
 		}
 
