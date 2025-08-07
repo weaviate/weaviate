@@ -15,4 +15,5 @@ type VectorizationConfig struct {
 	ApiEndpoint string
 	ProjectID   string
 	Model       string
+	TaskType    string
 }
