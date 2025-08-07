@@ -43,20 +43,7 @@ message BatchSendReply {
 }
 
 message BatchStreamRequest {
-  message Dynamic {
-  }
-  message FixedSize {
-    int32 size = 1;
-  }
-  message RateLimited {
-    int32 rate = 1;
-  }
   optional ConsistencyLevel consistency_level = 1;
-  oneof type {
-    Dynamic dynamic = 2;
-    FixedSize fixed_size = 3;
-    RateLimited rate_limited = 4;
-  };
 }
 
 message BatchStart {

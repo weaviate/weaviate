@@ -35,7 +35,7 @@ func TestScheduler(t *testing.T) {
 		writeQueues := batch.NewBatchWriteQueues()
 		internalQueue := batch.NewBatchInternalQueue()
 
-		writeQueues.MakeDynamic("test-stream", nil)
+		writeQueues.Make("test-stream", nil)
 		var wg sync.WaitGroup
 		batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
 
@@ -59,88 +59,6 @@ func TestScheduler(t *testing.T) {
 
 		require.Empty(t, internalQueue, "Expected internal queue to be empty after shutdown")
 		ch, ok := writeQueues.Get("test-stream")
-		require.True(t, ok, "Expected write queue to still exist after shutdown")
-		require.Empty(t, ch, "Expected write queue to be empty after shutdown")
-	})
-
-	t.Run("fixed size", func(t *testing.T) {
-		shutdownCtx, shutdownCancel := context.WithCancel(ctx)
-		defer shutdownCancel()
-
-		writeQueues := batch.NewBatchWriteQueues()
-		internalQueue := batch.NewBatchInternalQueue()
-
-		streamId := "test-stream"
-		batchSize := 10
-		writeQueues.MakeFixedSize(streamId, nil, batchSize)
-
-		queue, ok := writeQueues.Get(streamId)
-		require.True(t, ok, "Expected write queue to exist")
-
-		totalObjects := 15
-		for i := 0; i < totalObjects; i++ {
-			obj := &pb.BatchObject{}
-			queue <- batch.NewWriteObject(obj)
-		}
-
-		var wg sync.WaitGroup
-		batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
-
-		req := <-internalQueue
-		require.Len(t, req.Objects.Values, batchSize, "Expected batch size to be %d", batchSize)
-
-		req = <-internalQueue
-		require.Len(t, req.Objects.Values, totalObjects-batchSize, "Expected remaining objects to be processed in the next batch")
-
-		shutdownCancel() // Trigger shutdown
-		wg.Wait()        // Wait for scheduler to finish
-
-		require.Empty(t, internalQueue, "Expected internal queue to be empty after shutdown")
-		ch, ok := writeQueues.Get(streamId)
-		require.True(t, ok, "Expected write queue to still exist after shutdown")
-		require.Empty(t, ch, "Expected write queue to be empty after shutdown")
-	})
-
-	t.Run("rate limited", func(t *testing.T) {
-		shutdownCtx, shutdownCancel := context.WithCancel(ctx)
-		defer shutdownCancel()
-
-		writeQueues := batch.NewBatchWriteQueues()
-		internalQueue := batch.NewBatchInternalQueue()
-
-		streamId := "test-stream"
-		rateLimit := 5
-		writeQueues.MakeRateLimited(streamId, nil, rateLimit)
-
-		queue, ok := writeQueues.Get(streamId)
-		require.True(t, ok, "Expected write queue to exist")
-
-		totalObjects := 15
-		for i := 0; i < totalObjects; i++ {
-			obj := &pb.BatchObject{}
-			queue <- batch.NewWriteObject(obj)
-		}
-
-		start := time.Now()
-		var wg sync.WaitGroup
-		batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
-
-		req := <-internalQueue
-		require.Len(t, req.Objects.Values, rateLimit, "Expected batch size to be %d", rateLimit)
-
-		req = <-internalQueue
-		require.Len(t, req.Objects.Values, rateLimit, "Expected next batch size to be %d", rateLimit)
-
-		req = <-internalQueue
-		require.Len(t, req.Objects.Values, rateLimit, "Expected final batch size to be %d", rateLimit)
-
-		require.True(t, time.Since(start) >= 3*time.Second, "Expected scheduler to respect rate limit, took at least 3 seconds")
-
-		shutdownCancel() // Trigger shutdown
-		wg.Wait()        // Wait for scheduler to finish
-
-		require.Empty(t, internalQueue, "Expected internal queue to be empty after shutdown")
-		ch, ok := writeQueues.Get(streamId)
 		require.True(t, ok, "Expected write queue to still exist after shutdown")
 		require.Empty(t, ch, "Expected write queue to be empty after shutdown")
 	})

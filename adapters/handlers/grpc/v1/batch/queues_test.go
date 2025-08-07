@@ -53,7 +53,7 @@ func TestHandler(t *testing.T) {
 		var wg sync.WaitGroup
 		batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
 
-		writeQueues.MakeDynamic(req.StreamId, nil)
+		writeQueues.Make(req.StreamId, nil)
 		// Act
 		howMany := handler.Send(ctx, req)
 
@@ -97,7 +97,7 @@ func TestHandler(t *testing.T) {
 			var wg sync.WaitGroup
 			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
-			writeQueues.MakeDynamic(StreamId, nil)
+			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
 			err := handler.Stream(ctx, StreamId, stream)
 			require.NoError(t, err, "Expected no error when streaming")
@@ -130,7 +130,7 @@ func TestHandler(t *testing.T) {
 			var wg sync.WaitGroup
 			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
-			writeQueues.MakeDynamic(StreamId, nil)
+			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
@@ -170,7 +170,7 @@ func TestHandler(t *testing.T) {
 			var wg sync.WaitGroup
 			batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
 
-			writeQueues.MakeDynamic(StreamId, nil)
+			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
 			shutdownCancel() // Trigger shutdown
 			err := handler.Stream(ctx, StreamId, stream)
@@ -211,7 +211,7 @@ func TestHandler(t *testing.T) {
 			var wg sync.WaitGroup
 			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
-			writeQueues.MakeDynamic(StreamId, nil)
+			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
@@ -258,7 +258,7 @@ func TestHandler(t *testing.T) {
 			var wg sync.WaitGroup
 			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
-			writeQueues.MakeDynamic(StreamId, nil)
+			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")

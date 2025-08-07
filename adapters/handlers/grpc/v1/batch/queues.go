@@ -13,7 +13,6 @@ package batch
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -98,18 +97,7 @@ func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) 
 // Setup initializes a read queue for the given stream ID and adds it to the read queues map.
 func (h *QueuesHandler) Setup(streamId string, req *pb.BatchStreamRequest) {
 	h.readQueues.Make(streamId)
-	if req.Type == nil {
-		h.writeQueues.MakeDynamic(streamId, req.ConsistencyLevel)
-	}
-	if req.GetDynamic() != nil {
-		h.writeQueues.MakeDynamic(streamId, req.ConsistencyLevel)
-	}
-	if req.GetFixedSize() != nil {
-		h.writeQueues.MakeFixedSize(streamId, req.ConsistencyLevel, int(req.GetFixedSize().GetSize()))
-	}
-	if req.GetRateLimited() != nil {
-		h.writeQueues.MakeRateLimited(streamId, req.ConsistencyLevel, int(req.GetRateLimited().GetRate()))
-	}
+	h.writeQueues.Make(streamId, req.ConsistencyLevel)
 }
 
 // Teardown closes the read queue for the given stream ID and removes it from the read queues map.
@@ -286,33 +274,14 @@ type WriteQueue struct {
 	consistencyLevel *pb.ConsistencyLevel
 	objIndex         int32
 	refIndex         int32
-	dynamic          *dynamic
-	fixedSize        *fixedSize
-	rateLimited      *rateLimited
 }
 
-func (w *WriteQueue) BatchSize() (int, error) {
-	if w.dynamic != nil {
-		return min(len(w.queue), 1000), nil
-	}
-	if w.fixedSize != nil {
-		return int(w.fixedSize.size), nil
-	}
-	if w.rateLimited != nil {
-		now := time.Now()
-		// If we are past the next scheduled time, we can send the desired rate
-		if now.After(w.rateLimited.whenToSendNext) {
-			toSend := w.rateLimited.desiredRate
-
-			w.rateLimited.howManyToSendNext = w.rateLimited.desiredRate
-			w.rateLimited.whenToSendNext = now.Add(time.Second)
-
-			return toSend, nil
-		}
-		// Otherwise, skip. TODO: can we optimise better here to send some partial list of objects?
-		return 0, nil
-	}
-	return 0, errors.New("unknown batch size")
+// BatchSize calculates the optimal number of objects to schedule from this batch depending on the priorty policy.
+//
+// In its current state, there is no priority policy, so it simply returns the length of the queue,
+// capped at 1000 to prevent excessive memory usage.
+func (w *WriteQueue) BatchSize() int {
+	return min(len(w.queue), 1000)
 }
 
 type WriteQueues struct {
@@ -360,32 +329,11 @@ func NewMakeWriteQueueOptions(consistencyLevel *pb.ConsistencyLevel, dynamic *dy
 	}
 }
 
-func (w *WriteQueues) MakeDynamic(streamId string, consistencyLevel *pb.ConsistencyLevel) {
+func (w *WriteQueues) Make(streamId string, consistencyLevel *pb.ConsistencyLevel) {
 	if _, ok := w.queues.Load(streamId); !ok {
 		w.queues.Store(streamId, &WriteQueue{
 			queue:            NewBatchWriteQueue(),
 			consistencyLevel: consistencyLevel,
-			dynamic:          &dynamic{},
-		})
-	}
-}
-
-func (w *WriteQueues) MakeFixedSize(streamId string, consistencyLevel *pb.ConsistencyLevel, size int) {
-	if _, ok := w.queues.Load(streamId); !ok {
-		w.queues.Store(streamId, &WriteQueue{
-			queue:            NewBatchWriteQueue(),
-			consistencyLevel: consistencyLevel,
-			fixedSize:        &fixedSize{size: size},
-		})
-	}
-}
-
-func (w *WriteQueues) MakeRateLimited(streamId string, consistencyLevel *pb.ConsistencyLevel, rate int) {
-	if _, ok := w.queues.Load(streamId); !ok {
-		w.queues.Store(streamId, &WriteQueue{
-			queue:            NewBatchWriteQueue(),
-			consistencyLevel: consistencyLevel,
-			rateLimited:      &rateLimited{desiredRate: rate, howManyToSendNext: rate, whenToSendNext: time.Now().Add(time.Second)},
 		})
 	}
 }

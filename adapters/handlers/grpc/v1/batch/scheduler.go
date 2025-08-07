@@ -88,11 +88,7 @@ func (s *Scheduler) pull(ctx context.Context, queue writeQueue, max int) ([]*pb.
 }
 
 func (s *Scheduler) add(ctx context.Context, streamId string, wq *WriteQueue) bool {
-	batchSize, err := wq.BatchSize()
-	if err != nil {
-		s.logger.WithError(err).WithField("streamId", streamId).Error("failed to get batch size")
-		return true // continue iteration
-	}
+	batchSize := wq.BatchSize()
 	if batchSize == 0 {
 		s.logger.WithField("streamId", streamId).Debug("no batch size set, skipping")
 		return true // continue iteration

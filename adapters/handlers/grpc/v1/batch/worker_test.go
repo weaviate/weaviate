@@ -43,7 +43,7 @@ func TestWorkerLoop(t *testing.T) {
 		readQueues := batch.NewBatchReadQueues()
 		readQueues.Make(StreamId)
 		writeQueues := batch.NewBatchWriteQueues()
-		writeQueues.MakeDynamic(StreamId, nil)
+		writeQueues.Make(StreamId, nil)
 		internalQueue := batch.NewBatchInternalQueue()
 
 		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
@@ -98,7 +98,7 @@ func TestWorkerLoop(t *testing.T) {
 		readQueues := batch.NewBatchReadQueues()
 		readQueues.Make(StreamId)
 		writeQueues := batch.NewBatchWriteQueues()
-		writeQueues.MakeDynamic(StreamId, nil)
+		writeQueues.Make(StreamId, nil)
 		internalQueue := batch.NewBatchInternalQueue()
 
 		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
@@ -154,7 +154,7 @@ func TestWorkerLoop(t *testing.T) {
 		readQueues := batch.NewBatchReadQueues()
 		readQueues.Make(StreamId)
 		writeQueues := batch.NewBatchWriteQueues()
-		writeQueues.MakeDynamic(StreamId, nil)
+		writeQueues.Make(StreamId, nil)
 		internalQueue := batch.NewBatchInternalQueue()
 
 		errorsObj := []*pb.BatchObjectsReply_BatchError{
