@@ -742,8 +742,5 @@ func (s *schema) deleteAlias(alias string) error {
 }
 
 func (s *schema) unsafeResolveClass(class string) *metaClass {
-	// if cls := s.unsafeResolveAlias(class); cls != "" {
-	// 	return s.classes[cls]
-	// }
 	return s.classes[class]
 }
