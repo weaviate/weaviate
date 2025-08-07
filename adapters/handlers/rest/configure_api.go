@@ -670,16 +670,15 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	storeReadyCtx, storeReadyCancel := context.WithCancelCause(context.Background())
 
 	// Add dimensions to all the objects in the database, if requested by the user
-	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && appState.DB.GetConfig().TrackVectorDimensions {
-		enterrors.GoWrapper(func() {
-			// wait until meta store is ready, as reindex tasks needs schema
-			<-storeReadyCtx.Done()
-			appState.Logger.
-				WithField("action", "startup").
-				Info("Reindexing dimensions")
-			appState.Migrator.RecalculateVectorDimensions(ctx)
-		}, appState.Logger)
-	}
+
+	enterrors.GoWrapper(func() {
+		// wait until meta store is ready, as reindex tasks needs schema
+		<-storeReadyCtx.Done()
+		appState.Logger.
+			WithField("action", "startup").
+			Info("Reindexing dimensions")
+		appState.Migrator.RecalculateVectorDimensions(ctx, appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup, appState.DB.GetConfig().TrackVectorDimensions)
+	}, appState.Logger)
 
 	enterrors.GoWrapper(func() {
 		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {

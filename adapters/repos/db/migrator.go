@@ -798,7 +798,10 @@ func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string
 	return nil
 }
 
-func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
+func (m *Migrator) RecalculateVectorDimensions(ctx context.Context, reindexVectorDimensionsAtStartup bool, trackVectorDimensions bool) error {
+	if !trackVectorDimensions {
+		return nil
+	}
 	m.logger.
 		WithField("action", "reindex").
 		Info("Reindexing dimensions, this may take a while")
@@ -830,6 +833,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 		m.logger.WithField("action", "reindex").Infof("Found %v shards to reindex", len(shards))
 		err := index.ForEachPhysicalShard(func(name string, shard ShardLike) error {
 			// Iterate over all shards
+			if !m.detectDimensionBucketv2(shard) || reindexVectorDimensionsAtStartup {
 			m.logger.WithField("action", "reindex").Infof("resetting vector dimensions for shard %q", name)
 			rtime, err := shard.resetDimensionsLSM(ctx)
 			if err != nil {
@@ -885,6 +889,9 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 					})
 				})
 			}()
+			} else {
+				m.logger.WithField("action", "reindex").Infof("skipping shard %q, dimensions bucket already exists", name)
+			}
 
 			return nil
 		})
@@ -902,9 +909,20 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 		}
 	}
 	enterrors.GoWrapper(f, m.logger)
-
 	return nil
 }
+
+func (m *Migrator) detectDimensionBucketv2(s ShardLike) bool {
+		metrics := calculateShardDimensionMetrics(context.TODO(), s)
+		if metrics.Compressed + metrics.Uncompressed == 0 {
+			m.logger.WithField("action", "reindex").Infof("no dimensions found for shard %q", s.Name())
+			return false
+		}
+		return true
+}
+
+
+
 
 func (m *Migrator) RecountProperties(ctx context.Context) error {
 	count := 0
