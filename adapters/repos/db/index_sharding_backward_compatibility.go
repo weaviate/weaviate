@@ -17,9 +17,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
 	"github.com/pkg/errors"
 )
 
@@ -37,23 +34,14 @@ func (i *Index) checkSingleShardMigration() error {
 	var singleShardName string
 	className := i.Config.ClassName.String()
 
-	err = i.schemaReader.Read(className, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %q", className)
-		}
-
-		shards := state.AllPhysicalShards()
-		if len(shards) != 1 {
-			return errors.Errorf("cannot migrate '_single' shard into config with %d desired shards", len(shards))
-		}
-
-		singleShardName = shards[0]
-		return nil
-	})
+	shards, err := i.schemaReader.Shards(className)
 	if err != nil {
 		return err
 	}
-
+	if len(shards) < 1 {
+		return fmt.Errorf("no shards found for class %s", className)
+	}
+	singleShardName = shards[0]
 	for _, entry := range dirEntries {
 		if !strings.HasPrefix(entry.Name(), singleIndexId) {
 			continue

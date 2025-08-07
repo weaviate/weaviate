@@ -23,8 +23,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/usecases/sharding"
-
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -286,35 +284,26 @@ func (r *singleTenantRouter) getWriteReplicasLocation(collection string, tenant 
 }
 
 // targetShards returns either all shards or a single one, depending on the value of the shard parameter.
-func (r *singleTenantRouter) targetShards(collection, shard string) ([]string, error) {
-	var targetShards []string
-	err := r.schemaReader.Read(collection, func(class *models.Class, state *sharding.State) error {
-		if state == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %q", collection)
-		}
-		shardStateCopy := state.DeepCopy()
-		targetShards = shardStateCopy.AllPhysicalShards()
-		return nil
-	})
+func (r *singleTenantRouter) targetShards(collection, shardName string) ([]string, error) {
+	shards, err := r.schemaReader.Shards(collection)
 	if err != nil {
 		return nil, err
 	}
-
-	if shard == "" {
-		return targetShards, nil
+	if shardName == "" {
+		return shards, nil
 	}
 
 	found := false
-	for _, s := range targetShards {
-		if s == shard {
+	for _, shard := range shards {
+		if shard == shardName {
 			found = true
 			break
 		}
 	}
 	if !found {
-		return nil, fmt.Errorf("error while trying to find shard: %s in collection: %s", shard, collection)
+		return nil, fmt.Errorf("error while trying to find shard: %s in collection: %s", shardName, collection)
 	}
-	return []string{shard}, nil
+	return []string{shardName}, nil
 }
 
 // readReplicasForShard gathers only read replicas for one shard.

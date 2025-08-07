@@ -121,7 +121,7 @@ func singleShardState() *sharding.State {
 		panic(err)
 	}
 
-	selector := mocks.NewMockNodeSelector("node_ehi")
+	selector := mocks.NewMockNodeSelector("node1")
 	s, err := sharding.InitState("test-index", config, selector.LocalName(), selector.StorageCandidates(), 1, false)
 	if err != nil {
 		panic(err)

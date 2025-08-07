@@ -89,6 +89,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		},
 	}}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 		return readFunc(class, shardState)
 	}).Maybe()
@@ -223,6 +224,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			},
 		}
 		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 			class := &models.Class{Class: className}
 			return readFunc(class, shardState)
@@ -507,6 +509,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			},
 		}
 		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 			class := &models.Class{Class: className}
 			return readFunc(class, shardState)
@@ -877,6 +880,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			},
 		}
 		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 			class := &models.Class{Class: className}
 			return readFunc(class, shardState)

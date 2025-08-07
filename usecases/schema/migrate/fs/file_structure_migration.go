@@ -22,7 +22,6 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entschema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 const vectorIndexCommitLog = `hnsw.commitlog.d`
@@ -152,7 +151,7 @@ type fileMatcher struct {
 }
 
 type schemaReader interface {
-	Read(class string, reader func(*models.Class, *sharding.State) error) error
+	Shards(class string) ([]string, error)
 	ReadOnlySchema() models.Schema
 }
 
@@ -164,17 +163,10 @@ func newFileMatcher(schemaReader schemaReader, rootPath string) (*fileMatcher, e
 
 	schema := schemaReader.ReadOnlySchema()
 	for _, class := range schema.Classes {
-		var shards []string
 		className := class.Class
-		err := schemaReader.Read(className, func(class *models.Class, state *sharding.State) error {
-			if state == nil {
-				return fmt.Errorf("unable to retrieve sharding state for class %q", className)
-			}
-			shards = state.AllPhysicalShards()
-			return nil
-		})
+		shards, err := schemaReader.Shards(className)
 		if err != nil {
-			return nil, fmt.Errorf("unable to retrieve sharding state for class %q", className)
+			return nil, fmt.Errorf("unable to retrieve shards for class %q", className)
 		}
 		lowercasedClass := strings.ToLower(class.Class)
 

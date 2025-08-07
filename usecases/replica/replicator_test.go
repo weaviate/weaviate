@@ -839,26 +839,10 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 				tenant: models.TenantActivityStatusHOT,
 			}, nil
 		}).Maybe()
+	shardingState := createShardingStateMock(f)
 	schemaReaderMock := schemaTypes.NewMockSchemaReader(f.t)
+	schemaReaderMock.EXPECT().Shards(mock.Anything).Return(shardingState.AllPhysicalShards(), nil).Maybe()
 	schemaReaderMock.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
-		shardingState := &sharding.State{
-			IndexID:             "idx-123",
-			Config:              config.Config{},
-			Physical:            map[string]sharding.Physical{},
-			Virtual:             nil,
-			PartitioningEnabled: f.isMultiTenant,
-		}
-
-		for shard, replicaNodes := range f.Shard2replicas {
-			physical := sharding.Physical{
-				Name:           shard,
-				BelongsToNodes: replicaNodes,
-				Status:         models.TenantActivityStatusHOT,
-			}
-
-			shardingState.Physical[shard] = physical
-		}
-
 		class := &models.Class{Class: className}
 		return readFunc(class, shardingState)
 	}).Maybe()
@@ -886,6 +870,27 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 			return shardReplicasLocation, []string{}
 		}).Maybe()
 	return clusterRouter.NewBuilder(f.CLS, f.isMultiTenant, clusterState, schemaGetterMock, schemaReaderMock, replicationFsmMock).Build()
+}
+
+func createShardingStateMock(f *fakeFactory) *sharding.State {
+	shardingState := &sharding.State{
+		IndexID:             "idx-123",
+		Config:              config.Config{},
+		Physical:            map[string]sharding.Physical{},
+		Virtual:             nil,
+		PartitioningEnabled: f.isMultiTenant,
+	}
+
+	for shard, replicaNodes := range f.Shard2replicas {
+		physical := sharding.Physical{
+			Name:           shard,
+			BelongsToNodes: replicaNodes,
+			Status:         models.TenantActivityStatusHOT,
+		}
+
+		shardingState.Physical[shard] = physical
+	}
+	return shardingState
 }
 
 func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Replicator {

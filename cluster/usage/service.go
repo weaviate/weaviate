@@ -89,7 +89,6 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 		type shardInfo struct {
 			name           string
 			activityStatus string
-			isLocal        bool
 		}
 
 		var uniqueShardCount int
@@ -112,7 +111,6 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 					localShards = append(localShards, shardInfo{
 						name:           shardName,
 						activityStatus: physical.ActivityStatus(),
-						isLocal:        isLocal,
 					})
 				}
 			}
@@ -127,7 +125,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 		collectionUsage := &types.CollectionUsage{
 			Name:              collection.Class,
 			ReplicationFactor: int(collection.ReplicationConfig.Factor),
-			UniqueShardCount:  uniqueShardCount, // ✅ Use extracted count
+			UniqueShardCount:  uniqueShardCount,
 		}
 
 		// Get shard usage

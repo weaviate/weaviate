@@ -265,6 +265,14 @@ func (s oneClassSchema) Read(_ string, reader func(*models.Class, *sharding.Stat
 	return reader(s.cls, s.ss)
 }
 
+func (s oneClassSchema) Shards(_ string) ([]string, error) {
+	return s.ss.AllPhysicalShards(), nil
+}
+
+func (s oneClassSchema) LocalShards() ([]string, error) {
+	return s.ss.AllLocalPhysicalShards(), nil
+}
+
 func (s oneClassSchema) ReadOnlySchema() models.Schema {
 	return models.Schema{
 		Classes: []*models.Class{s.cls},

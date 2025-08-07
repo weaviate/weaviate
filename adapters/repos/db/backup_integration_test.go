@@ -65,13 +65,10 @@ func TestBackup_DBLevel(t *testing.T) {
 		})
 
 		expectedNodeName := "node1"
-		var expectedShardName string
-		db.schemaReader.Read(className, func(class *models.Class, state *sharding.State) error {
-			expectedShardName = state.AllPhysicalShards()[0]
-			return nil
-		})
-		testShd := db.GetIndex(schema.ClassName(className)).
-			shards.Load(expectedShardName)
+		shards, err := db.schemaReader.Shards(className)
+		require.Nil(t, err)
+		expectedShardName := shards[0]
+		testShd := db.GetIndex(schema.ClassName(className)).shards.Load(expectedShardName)
 		expectedCounterPath, _ := filepath.Rel(testShd.Index().Config.RootPath, testShd.Counter().FileName())
 		expectedCounter, err := os.ReadFile(testShd.Counter().FileName())
 		require.Nil(t, err)
@@ -277,6 +274,7 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)

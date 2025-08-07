@@ -161,6 +161,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 				PartitioningEnabled: false,
 				ReplicationFactor:   1,
 			}
+			schemaReaderMock.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
 			schemaReaderMock.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
 				return readFunc(class, state)
@@ -328,6 +329,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 				PartitioningEnabled: false,
 				ReplicationFactor:   1,
 			}
+			schemaReaderMock.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
 			schemaReaderMock.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
 				return readFunc(class, state)

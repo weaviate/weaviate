@@ -208,6 +208,9 @@ func assertShardRootContents(t *testing.T, shardsByClass map[string][]string, ro
 func testDB(t *testing.T, root string, classes []*models.Class, states map[string]*sharding.State) *DB {
 	logger, _ := test.NewNullLogger()
 	mockSchemaReader := schema2.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).RunAndReturn(func(className string) ([]string, error) {
+		return states[className].AllPhysicalShards(), nil
+	}).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 		for _, class := range classes {
 			if className == class.Class {

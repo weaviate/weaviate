@@ -89,6 +89,25 @@ func (rs SchemaReader) Read(class string, reader func(*models.Class, *sharding.S
 	})
 }
 
+func (rs SchemaReader) Shards(class string) ([]string, error) {
+	var shards []string
+	err := rs.Read(class, func(class *models.Class, state *sharding.State) error {
+		shards = state.AllPhysicalShards()
+		return nil
+	})
+
+	return shards, err
+}
+
+func (rs SchemaReader) LocalShards(class string) ([]string, error) {
+	var shards []string
+	err := rs.Read(class, func(class *models.Class, state *sharding.State) error {
+		shards = state.AllLocalPhysicalShards()
+		return nil
+	})
+	return shards, err
+}
+
 // ReadOnlyClass returns a shallow copy of a class.
 // The copy is read-only and should not be modified.
 func (rs SchemaReader) ReadOnlyClass(class string) (cls *models.Class) {

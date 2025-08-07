@@ -295,6 +295,64 @@ func (_c *MockSchemaReader_GetShardsStatus_Call) RunAndReturn(run func(string, s
 	return _c
 }
 
+// LocalShards provides a mock function with given fields: class
+func (_m *MockSchemaReader) LocalShards(class string) ([]string, error) {
+	ret := _m.Called(class)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LocalShards")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string) ([]string, error)); ok {
+		return rf(class)
+	}
+	if rf, ok := ret.Get(0).(func(string) []string); ok {
+		r0 = rf(class)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string) error); ok {
+		r1 = rf(class)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSchemaReader_LocalShards_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LocalShards'
+type MockSchemaReader_LocalShards_Call struct {
+	*mock.Call
+}
+
+// LocalShards is a helper method to define mock.On call
+//   - class string
+func (_e *MockSchemaReader_Expecter) LocalShards(class interface{}) *MockSchemaReader_LocalShards_Call {
+	return &MockSchemaReader_LocalShards_Call{Call: _e.mock.On("LocalShards", class)}
+}
+
+func (_c *MockSchemaReader_LocalShards_Call) Run(run func(class string)) *MockSchemaReader_LocalShards_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockSchemaReader_LocalShards_Call) Return(_a0 []string, _a1 error) *MockSchemaReader_LocalShards_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSchemaReader_LocalShards_Call) RunAndReturn(run func(string) ([]string, error)) *MockSchemaReader_LocalShards_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // MultiTenancy provides a mock function with given fields: class
 func (_m *MockSchemaReader) MultiTenancy(class string) models.MultiTenancyConfig {
 	ret := _m.Called(class)
@@ -1029,6 +1087,64 @@ func (_c *MockSchemaReader_ShardReplicasWithVersion_Call) Return(_a0 []string, _
 }
 
 func (_c *MockSchemaReader_ShardReplicasWithVersion_Call) RunAndReturn(run func(context.Context, string, string, uint64) ([]string, error)) *MockSchemaReader_ShardReplicasWithVersion_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Shards provides a mock function with given fields: class
+func (_m *MockSchemaReader) Shards(class string) ([]string, error) {
+	ret := _m.Called(class)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Shards")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string) ([]string, error)); ok {
+		return rf(class)
+	}
+	if rf, ok := ret.Get(0).(func(string) []string); ok {
+		r0 = rf(class)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string) error); ok {
+		r1 = rf(class)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSchemaReader_Shards_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Shards'
+type MockSchemaReader_Shards_Call struct {
+	*mock.Call
+}
+
+// Shards is a helper method to define mock.On call
+//   - class string
+func (_e *MockSchemaReader_Expecter) Shards(class interface{}) *MockSchemaReader_Shards_Call {
+	return &MockSchemaReader_Shards_Call{Call: _e.mock.On("Shards", class)}
+}
+
+func (_c *MockSchemaReader_Shards_Call) Run(run func(class string)) *MockSchemaReader_Shards_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockSchemaReader_Shards_Call) Return(_a0 []string, _a1 error) *MockSchemaReader_Shards_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSchemaReader_Shards_Call) RunAndReturn(run func(string) ([]string, error)) *MockSchemaReader_Shards_Call {
 	_c.Call.Return(run)
 	return _c
 }

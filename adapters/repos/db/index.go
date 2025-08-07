@@ -390,7 +390,6 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			return fmt.Errorf("unable to retrieve sharding state for class %q", className)
 		}
 
-		localShards = make([]shardInfo, 0, len(state.Physical))
 		for shardName, physical := range state.Physical {
 			if state.IsLocalShard(shardName) {
 				localShards = append(localShards, shardInfo{
@@ -2593,15 +2592,8 @@ func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
 }
 
 func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[string]int64, error) {
-	var shardNames []string
 	className := i.Config.ClassName.String()
-	err := i.schemaReader.Read(className, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %q", className)
-		}
-		shardNames = state.AllPhysicalShards()
-		return nil
-	})
+	shardNames, err := i.schemaReader.Shards(className)
 	if err != nil {
 		return nil, err
 	}
@@ -2661,16 +2653,8 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 }
 
 func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]string, error) {
-	var shardNames []string
 	className := i.Config.ClassName.String()
-
-	err := i.schemaReader.Read(className, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %q", className)
-		}
-		shardNames = state.AllPhysicalShards()
-		return nil
-	})
+	shardNames, err := i.schemaReader.Shards(className)
 	if err != nil {
 		return nil, err
 	}

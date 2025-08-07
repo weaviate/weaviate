@@ -258,6 +258,16 @@ func (f *fakeSchemaManager) Read(class string, reader func(*models.Class, *shard
 	return args.Error(0)
 }
 
+func (f *fakeSchemaManager) Shards(class string) ([]string, error) {
+	args := f.Called(class)
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (f *fakeSchemaManager) LocalShards(class string) ([]string, error) {
+	args := f.Called(class)
+	return args.Get(0).([]string), args.Error(1)
+}
+
 func (f *fakeSchemaManager) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	args := f.Called(class, tenant)
 	return args.Get(0).(models.ShardStatusList), args.Error(1)
