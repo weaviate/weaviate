@@ -85,6 +85,12 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 	// Collect usage for each collection
 	for _, collection := range collections {
 		shardingState := m.schemaManager.CopyShardingState(collection.Class)
+		if shardingState == nil {
+			// this could happen in case the between getting the schema and getting the shard state the collection got deleted
+			// in the meantime, usually in automated tests or scripts
+			m.logger.WithFields(logrus.Fields{"class": collection.Class}).Debug("sharding state not found")
+			continue
+		}
 		collectionUsage := &types.CollectionUsage{
 			Name:              collection.Class,
 			ReplicationFactor: int(collection.ReplicationConfig.Factor),
