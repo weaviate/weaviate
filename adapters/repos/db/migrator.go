@@ -803,11 +803,14 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 		WithField("action", "reindex").
 		Info("Reindexing dimensions, this may take a while")
 
-	var indices map[string]*Index
+	indices := make(map[string]*Index)
 	func() {
 		m.db.indexLock.Lock()
 		defer m.db.indexLock.Unlock()
-		indices = m.db.indices
+		indices_orig := m.db.indices
+		for k,v := range indices_orig {
+			indices[k] = v
+		}
 	}()
 
 	m.logger.WithField("action", "reindex").Infof("Found %v indexes to reindex", len(indices))
