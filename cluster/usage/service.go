@@ -98,142 +98,139 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 		}
 		// Get shard usage
 		index := m.db.GetIndexLike(entschema.ClassName(collection.Class))
-		if index == nil {
-			m.logger.WithFields(logrus.Fields{"class": collection.Class}).Debug("index not found, could have been deleted in the meantime")
-			continue
-		}
+		if index != nil {
+			// First, collect cold tenants from sharding state
+			for shardName, physical := range shardingState.Physical {
+				// skip non-local shards
+				if !shardingState.IsLocalShard(shardName) {
+					continue
+				}
 
-		// First, collect cold tenants from sharding state
-		for shardName, physical := range shardingState.Physical {
-			// skip non-local shards
-			if !shardingState.IsLocalShard(shardName) {
+				// Only process COLD tenants here
+				if physical.ActivityStatus() == models.TenantActivityStatusCOLD {
+					// Add jitter between cold tenant processing (except for the first one)
+					if len(collectionUsage.Shards) > 0 {
+						m.addJitter()
+					}
+
+					shardUsage, err := calculateUnloadedShardUsage(ctx, index, shardName, collection.VectorConfig)
+					if err != nil {
+						return nil, err
+					}
+
+					collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
+				}
+			}
+
+			if index == nil {
+				// index could be deleted in the meantime
+				m.logger.WithFields(logrus.Fields{"class": collection.Class}).Debug("index not found, could have been deleted in the meantime")
 				continue
 			}
 
-			// Only process COLD tenants here
-			if physical.ActivityStatus() == models.TenantActivityStatusCOLD {
-				// Add jitter between cold tenant processing (except for the first one)
+			// Then, collect hot tenants from loaded shards
+			if err := index.ForEachShard(func(shardName string, shard db.ShardLike) error {
+				// skip non-local shards
+				if !shardingState.IsLocalShard(shardName) {
+					return nil
+				}
+
+				// Add jitter between hot shard processing (except for the first one)
 				if len(collectionUsage.Shards) > 0 {
 					m.addJitter()
 				}
 
-				shardUsage, err := calculateUnloadedShardUsage(ctx, index, shardName, collection.VectorConfig)
-				if err != nil {
-					return nil, err
+				// Check shard status without forcing load
+				if shard.GetStatusNoLoad() == storagestate.StatusLoading {
+					shardUsage, err := calculateUnloadedShardUsage(ctx, index, shardName, collection.VectorConfig)
+					if err != nil {
+						return err
+					}
+					collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
+					return nil
 				}
 
-				collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
-			}
-		}
-
-		if index == nil {
-			// index could be deleted in the meantime
-			m.logger.WithFields(logrus.Fields{"class": collection.Class}).Debug("index not found, could have been deleted in the meantime")
-			continue
-		}
-
-		// Then, collect hot tenants from loaded shards
-		if err := index.ForEachShard(func(shardName string, shard db.ShardLike) error {
-			// skip non-local shards
-			if !shardingState.IsLocalShard(shardName) {
-				return nil
-			}
-
-			// Add jitter between hot shard processing (except for the first one)
-			if len(collectionUsage.Shards) > 0 {
-				m.addJitter()
-			}
-
-			// Check shard status without forcing load
-			if shard.GetStatusNoLoad() == storagestate.StatusLoading {
-				shardUsage, err := calculateUnloadedShardUsage(ctx, index, shardName, collection.VectorConfig)
+				objectStorageSize, err := shard.ObjectStorageSize(ctx)
 				if err != nil {
 					return err
 				}
-				collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
-				return nil
-			}
+				objectCount, err := shard.ObjectCountAsync(ctx)
+				if err != nil {
+					return err
+				}
 
-			objectStorageSize, err := shard.ObjectStorageSize(ctx)
-			if err != nil {
-				return err
-			}
-			objectCount, err := shard.ObjectCountAsync(ctx)
-			if err != nil {
-				return err
-			}
+				vectorStorageSize, err := shard.VectorStorageSize(ctx)
+				if err != nil {
+					return err
+				}
 
-			vectorStorageSize, err := shard.VectorStorageSize(ctx)
-			if err != nil {
-				return err
-			}
+				shardUsage := &types.ShardUsage{
+					Name:                shardName,
+					Status:              strings.ToLower(models.TenantActivityStatusACTIVE),
+					ObjectsCount:        objectCount,
+					ObjectsStorageBytes: uint64(objectStorageSize),
+					VectorStorageBytes:  uint64(vectorStorageSize),
+				}
 
-			shardUsage := &types.ShardUsage{
-				Name:                shardName,
-				Status:              strings.ToLower(models.TenantActivityStatusACTIVE),
-				ObjectsCount:        objectCount,
-				ObjectsStorageBytes: uint64(objectStorageSize),
-				VectorStorageBytes:  uint64(vectorStorageSize),
-			}
+				// Get vector usage for each named vector
+				if err = shard.ForEachVectorIndex(func(targetVector string, vectorIndex db.VectorIndex) error {
+					category := db.DimensionCategoryStandard // Default category
+					indexType := ""
+					var bits int16
 
-			// Get vector usage for each named vector
-			if err = shard.ForEachVectorIndex(func(targetVector string, vectorIndex db.VectorIndex) error {
-				category := db.DimensionCategoryStandard // Default category
-				indexType := ""
-				var bits int16
-
-				// Check if this is a named vector configuration
-				if vectorConfig, exists := collection.VectorConfig[targetVector]; exists {
-					// Use the named vector's configuration
-					if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+					// Check if this is a named vector configuration
+					if vectorConfig, exists := collection.VectorConfig[targetVector]; exists {
+						// Use the named vector's configuration
+						if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+							category, _ = db.GetDimensionCategory(vectorIndexConfig)
+							indexType = vectorIndexConfig.IndexType()
+							bits = enthnsw.GetRQBits(vectorIndexConfig)
+						}
+					} else if vectorIndexConfig, ok := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+						// Fall back to legacy single vector configuration
 						category, _ = db.GetDimensionCategory(vectorIndexConfig)
 						indexType = vectorIndexConfig.IndexType()
 						bits = enthnsw.GetRQBits(vectorIndexConfig)
 					}
-				} else if vectorIndexConfig, ok := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
-					// Fall back to legacy single vector configuration
-					category, _ = db.GetDimensionCategory(vectorIndexConfig)
-					indexType = vectorIndexConfig.IndexType()
-					bits = enthnsw.GetRQBits(vectorIndexConfig)
-				}
 
-				dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
-				if err != nil {
+					dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
+					if err != nil {
+						return err
+					}
+
+					// For dynamic indexes, get the actual underlying index type
+					if dynamicIndex, ok := vectorIndex.(dynamic.Index); ok {
+						indexType = dynamicIndex.UnderlyingIndex().String()
+					}
+
+					vectorUsage := &types.VectorUsage{
+						Name:                   targetVector,
+						Compression:            category.String(),
+						VectorIndexType:        indexType,
+						IsDynamic:              common.IsDynamic(common.IndexType(indexType)),
+						VectorCompressionRatio: vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions),
+						Bits:                   bits,
+					}
+
+					// Only add dimensionalities if there's valid data
+					if dimensionality.Count > 0 || dimensionality.Dimensions > 0 {
+						vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &types.Dimensionality{
+							Dimensions: dimensionality.Dimensions,
+							Count:      dimensionality.Count,
+						})
+					}
+
+					shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
+					return nil
+				}); err != nil {
 					return err
 				}
 
-				// For dynamic indexes, get the actual underlying index type
-				if dynamicIndex, ok := vectorIndex.(dynamic.Index); ok {
-					indexType = dynamicIndex.UnderlyingIndex().String()
-				}
-
-				vectorUsage := &types.VectorUsage{
-					Name:                   targetVector,
-					Compression:            category.String(),
-					VectorIndexType:        indexType,
-					IsDynamic:              common.IsDynamic(common.IndexType(indexType)),
-					VectorCompressionRatio: vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions),
-					Bits:                   bits,
-				}
-
-				// Only add dimensionalities if there's valid data
-				if dimensionality.Count > 0 || dimensionality.Dimensions > 0 {
-					vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &types.Dimensionality{
-						Dimensions: dimensionality.Dimensions,
-						Count:      dimensionality.Count,
-					})
-				}
-
-				shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
+				collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
 				return nil
 			}); err != nil {
-				return err
+				return nil, err
 			}
-
-			collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
-			return nil
-		}); err != nil {
-			return nil, err
 		}
 
 		usage.Collections = append(usage.Collections, collectionUsage)
