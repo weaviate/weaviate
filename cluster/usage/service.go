@@ -123,6 +123,11 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 			}
 
 			// Then, collect hot tenants from loaded shards
+			if index == nil {
+				// index could be deleted in the meantime
+				continue
+			}
+
 			index.ForEachShard(func(shardName string, shard db.ShardLike) error {
 				// skip non-local shards
 				if !shardingState.IsLocalShard(shardName) {
