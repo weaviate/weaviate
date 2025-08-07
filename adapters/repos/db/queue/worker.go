@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 const (
@@ -80,6 +81,13 @@ func (w *Worker) do(batch *Batch) (err error) {
 			if errors.Is(err, context.Canceled) {
 				return err
 			}
+			if errors.Is(err, common.WrongDimensionsError) {
+				w.logger.
+					WithError(err).
+					Error("task failed due to wrong dimensions, discarding")
+				continue // skip this task
+			}
+
 			// if the task failed, add it to the failed list
 			if err != nil {
 				errs = append(errs, err)

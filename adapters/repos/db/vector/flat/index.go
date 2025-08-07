@@ -333,7 +333,7 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 		}
 	})
 	if len(vector) != int(index.dims) {
-		return errors.Errorf("insert called with a vector of the wrong size: %d. Saved length: %d, path: %s",
+		return errors.Wrapf(common.WrongDimensionsError, "insert called with a vector of the wrong size: %d. Saved length: %d, path: %s",
 			len(vector), index.dims, index.rootPath)
 	}
 	vector = index.normalized(vector)
