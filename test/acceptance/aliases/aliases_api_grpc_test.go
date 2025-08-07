@@ -81,16 +81,19 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		collection string
+		name        string
+		collection  string
+		accessUsing string
 	}{
 		{
-			name:       "search using collection name",
-			collection: books.DefaultClassName,
+			name:        "search using collection name",
+			collection:  books.DefaultClassName,
+			accessUsing: books.DefaultClassName,
 		},
 		{
-			name:       "search using alias",
-			collection: booksAliasName,
+			name:        "search using alias",
+			collection:  books.DefaultClassName,
+			accessUsing: booksAliasName,
 		},
 	}
 	for _, tt := range tests {
@@ -98,7 +101,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 			t.Run("search", func(t *testing.T) {
 				t.Run("get", func(t *testing.T) {
 					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-						Collection:  tt.collection,
+						Collection:  tt.accessUsing,
 						Uses_123Api: true,
 						Uses_125Api: true,
 						Uses_127Api: true,
