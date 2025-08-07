@@ -69,14 +69,11 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 	additional additional.Properties, tenant string,
 ) ([]search.Result, error) {
 	byIndex := map[string][]multi.Identifier{}
-	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
-
 	for i, q := range query {
 		// store original position to make assembly easier later
 		q.OriginalPosition = i
 
-		for _, index := range db.indices {
+		for _, index := range db.Indices() {
 			if index.Config.ClassName != schema.ClassName(q.ClassName) {
 				continue
 			}
@@ -89,7 +86,7 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 
 	out := make(search.Results, len(query))
 	for indexID, queries := range byIndex {
-		indexRes, err := db.indices[indexID].multiObjectByID(ctx, queries, tenant)
+		indexRes, err := db.Indices()[indexID].multiObjectByID(ctx, queries, tenant)
 		if err != nil {
 			return nil, fmt.Errorf("index %q: %w", indexID, err)
 		}
@@ -133,12 +130,10 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	var result []*storobj.Object
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
-	db.indexLock.RLock()
 
-	for _, index := range db.indices {
+	for _, index := range db.Indices() {
 		res, err := index.objectByID(ctx, id, props, additional, nil, tenant)
 		if err != nil {
-			db.indexLock.RUnlock()
 			switch {
 			case errors.As(err, &objects.ErrMultiTenancy{}):
 				return nil, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", index.ID(), err))
@@ -151,7 +146,6 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 			result = append(result, res)
 		}
 	}
-	db.indexLock.RUnlock()
 
 	if result == nil {
 		return nil, nil
@@ -221,10 +215,8 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 ) (bool, error) {
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
-	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
 
-	for _, index := range db.indices {
+	for _, index := range db.Indices() {
 		ok, err := index.exists(ctx, id, repl, "")
 		if err != nil {
 			switch {

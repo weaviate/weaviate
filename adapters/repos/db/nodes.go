@@ -124,9 +124,7 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 ) *models.NodeStats {
 	var objectCount, shardCount int64
 	if className == "" {
-		db.indexLock.RLock()
-		defer db.indexLock.RUnlock()
-		for name, idx := range db.indices {
+		for name, idx := range db.Indices() {
 			if idx == nil {
 				db.logger.WithField("action", "local_node_status_for_all").
 					Warningf("no resource found for index %q", name)

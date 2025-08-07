@@ -60,11 +60,8 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 
 	// wrapped by func to acquire and safely release indexLock only for duration of loop
 	func() {
-		db.indexLock.RLock()
-		defer db.indexLock.RUnlock()
-
 		for class, queue := range objectByClass {
-			index, ok := db.indices[indexID(schema.ClassName(class))]
+			index, ok := db.Indices()[indexID(schema.ClassName(class))]
 			if !ok {
 				msg := fmt.Sprintf("could not find index for class %v. It might have been deleted in the meantime", class)
 				db.logger.Warn(msg)
@@ -128,11 +125,8 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 
 	// wrapped by func to acquire and safely release indexLock only for duration of loop
 	func() {
-		db.indexLock.RLock()
-		defer db.indexLock.RUnlock()
-
 		for class, queue := range refByClass {
-			index, ok := db.indices[indexID(class)]
+			index, ok := db.Indices()[indexID(class)]
 			if !ok {
 				for _, item := range queue {
 					references[item.OriginalIndex].Err = fmt.Errorf("could not find index for class %v. It might have been deleted in the meantime", class)
