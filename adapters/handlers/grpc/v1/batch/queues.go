@@ -300,10 +300,6 @@ func (w *WriteQueues) Close() {
 	w.queues = sync.Map{} // Clear the map after closing all queues
 }
 
-type makeWriteQueueOptions struct {
-	consistencyLevel *pb.ConsistencyLevel
-}
-
 func (w *WriteQueues) Make(streamId string, consistencyLevel *pb.ConsistencyLevel) {
 	if _, ok := w.queues.Load(streamId); !ok {
 		w.queues.Store(streamId, &WriteQueue{
