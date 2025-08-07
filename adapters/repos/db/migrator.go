@@ -808,7 +808,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 		m.db.indexLock.Lock()
 		defer m.db.indexLock.Unlock()
 		indices_orig := m.db.indices
-		for k,v := range indices_orig {
+		for k, v := range indices_orig {
 			indices[k] = v
 		}
 	}()
