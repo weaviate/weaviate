@@ -226,7 +226,9 @@ func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{},
 	}
 	if params.Temperature == nil {
 		temperature := settings.Temperature()
-		params.Temperature = &temperature
+		if temperature != nil {
+			params.Temperature = temperature
+		}
 	}
 	if params.TopP == nil {
 		topP := settings.TopP()
@@ -241,8 +243,10 @@ func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{},
 		params.PresencePenalty = &presencePenalty
 	}
 	if params.MaxTokens == nil {
-		maxTokens := int(settings.MaxTokens())
-		params.MaxTokens = &maxTokens
+		if settings.MaxTokens() != nil && *settings.MaxTokens() != -1 {
+			maxTokens := int(*settings.MaxTokens())
+			params.MaxTokens = &maxTokens
+		}
 	}
 
 	params.Images = generative.ParseImageProperties(params.Images, params.ImageProperties, imagePropertiesArray)
@@ -315,7 +319,7 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params) (gener
 	} else {
 		var input generateInput
 
-		var content interface{}
+		var content any
 		if len(params.Images) > 0 {
 			imageInput := contentImageInput{}
 			imageInput = append(imageInput, contentText{
@@ -341,20 +345,21 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params) (gener
 
 		var tokens *int
 		var err error
-		if config.IsThirdPartyProvider(params.BaseURL, params.IsAzure, params.ResourceName, params.DeploymentID) {
-			tokens, err = v.determineTokens(config.GetMaxTokensForModel(params.Model), *params.MaxTokens, params.Model, messages)
+		maxTokensForModel := config.GetMaxTokensForModel(params.Model)
+		if config.IsThirdPartyProvider(params.BaseURL, params.IsAzure, params.ResourceName, params.DeploymentID) && maxTokensForModel != nil {
+			tokens, err = v.determineTokens(*maxTokensForModel, params.MaxTokens, params.Model, messages)
+			if err != nil {
+				return input, errors.Wrap(err, "determine tokens count")
+			}
 		} else {
 			tokens = params.MaxTokens
 		}
 
-		if err != nil {
-			return input, errors.Wrap(err, "determine tokens count")
-		}
 		input = generateInput{
 			Messages:            messages,
 			Stream:              false,
-			FrequencyPenalty:    params.FrequencyPenalty,
 			MaxCompletionTokens: tokens,
+			FrequencyPenalty:    params.FrequencyPenalty,
 			N:                   params.N,
 			PresencePenalty:     params.PresencePenalty,
 			Stop:                params.Stop,
@@ -364,6 +369,10 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params) (gener
 		if !config.IsAzure(params.IsAzure, params.ResourceName, params.DeploymentID) {
 			// model is mandatory for OpenAI calls, but obsolete for Azure calls
 			input.Model = params.Model
+			if strings.HasPrefix(input.Model, "gpt-4o") {
+				input.MaxCompletionTokens = nil
+				input.MaxTokens = tokens
+			}
 		}
 		return input, nil
 	}
@@ -385,15 +394,19 @@ func (v *openai) getError(statusCode int, requestID string, resBodyError *openAI
 	return errors.New(errorMsg)
 }
 
-func (v *openai) determineTokens(maxTokensSetting float64, classSetting int, model string, messages []message) (*int, error) {
+func (v *openai) determineTokens(maxTokensSetting float64, classSetting *int, model string, messages []message) (*int, error) {
 	monitoring.GetMetrics().ModuleExternalBatchLength.WithLabelValues("generate", "openai").Observe(float64(len(messages)))
 	tokenMessagesCount, err := getTokensCount(model, messages)
 	if err != nil {
-		maxTokens := 0
-		return &maxTokens, err
+		return nil, err
+	}
+	if classSetting == nil {
+		// if class setting is not set, assume that max value was requested
+		maxTokens := int(maxTokensSetting)
+		classSetting = &maxTokens
 	}
 	messageTokens := tokenMessagesCount
-	if messageTokens+classSetting >= int(maxTokensSetting) {
+	if *classSetting+messageTokens >= int(maxTokensSetting) {
 		// max token limit must be in range: [1, maxTokensSetting) that's why -1 is added
 		maxTokens := int(maxTokensSetting) - messageTokens - 1
 		return &maxTokens, nil
@@ -450,6 +463,7 @@ type generateInput struct {
 	Logprobs            *bool     `json:"logprobs,omitempty"`
 	TopLogprobs         *int      `json:"top_logprobs,omitempty"`
 	MaxCompletionTokens *int      `json:"max_completion_tokens,omitempty"`
+	MaxTokens           *int      `json:"max_tokens,omitempty"`
 	N                   *int      `json:"n,omitempty"`
 	PresencePenalty     *float64  `json:"presence_penalty,omitempty"`
 	Stop                []string  `json:"stop,omitempty"`
