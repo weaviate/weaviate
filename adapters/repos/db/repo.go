@@ -144,6 +144,30 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 	return nil
 }
 
+func (db *DB) Indices() map[string]*Index {
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
+
+	indices := make(map[string]*Index, len(db.indices))
+	for id, index := range db.indices {
+		indices[id] = index
+	}
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				db.logger.WithField("action", "indices").Errorf("failed to get classes from schema: %v", r)
+			}
+		}()
+		classes := db.ListClasses(context.Background())
+
+		if len(indices) != len(classes) {
+			db.logger.WithField("action", "indices").Warn("classes found in schema do not match indices found in db")
+		}
+	}()
+	return indices
+}
+
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
 
 // IndexGetter interface defines the methods that the service uses from db.IndexGetter
@@ -296,10 +320,7 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	)
 	// TODO-RAFT remove backoff. Eventual consistency handled by versioning
 	backoff.Retry(func() error {
-		db.indexLock.RLock()
-		defer db.indexLock.RUnlock()
-
-		index, exists = db.indices[indexID(className)]
+		index, exists = db.Indices()[indexID(className)]
 		if !exists {
 			return fmt.Errorf("index for class %v not found locally", index)
 		}
@@ -392,9 +413,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		db.metricsObserver.Shutdown()
 	}
 
-	db.indexLock.Lock()
-	defer db.indexLock.Unlock()
-	for id, index := range db.indices {
+	for id, index := range db.Indices() {
 		if err := index.Shutdown(ctx); err != nil {
 			return errors.Wrapf(err, "shutdown index %q", id)
 		}
