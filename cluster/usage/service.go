@@ -13,38 +13,61 @@ package usage
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	backupent "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/storagestate"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 type Service interface {
 	Usage(ctx context.Context) (*types.Report, error)
+	SetJitterInterval(interval time.Duration)
 }
 
 type service struct {
-	schemaManager schema.SchemaGetter
-	db            db.IndexGetter
-	backups       backup.BackupBackendProvider
-	logger        logrus.FieldLogger
+	schemaManager  schema.SchemaGetter
+	db             db.IndexGetter
+	backups        backup.BackupBackendProvider
+	logger         logrus.FieldLogger
+	jitterInterval time.Duration
 }
 
 func NewService(schemaManager schema.SchemaGetter, db db.IndexGetter, backups backup.BackupBackendProvider, logger logrus.FieldLogger) Service {
 	return &service{
-		schemaManager: schemaManager,
-		db:            db,
-		backups:       backups,
-		logger:        logger,
+		schemaManager:  schemaManager,
+		db:             db,
+		backups:        backups,
+		logger:         logger,
+		jitterInterval: 0, // Default to no jitter
 	}
+}
+
+// SetJitterInterval sets the jitter interval for shard processing
+func (s *service) SetJitterInterval(interval time.Duration) {
+	s.jitterInterval = interval
+	s.logger.WithFields(logrus.Fields{"jitter_interval": interval.String()}).Info("shard jitter interval updated")
+}
+
+// addJitter adds a small random delay if jitter interval is set
+func (s *service) addJitter() {
+	if s.jitterInterval <= 0 {
+		return // No jitter if interval is 0 or negative
+	}
+	jitter := time.Duration(time.Now().UnixNano() % int64(s.jitterInterval))
+	time.Sleep(jitter)
 }
 
 // Usage service collects usage metrics for the node and shall return error in case of any error
@@ -64,47 +87,52 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 			Name:              collection.Class,
 			ReplicationFactor: int(collection.ReplicationConfig.Factor),
 			UniqueShardCount:  int(len(shardingState.Physical)),
-			Shards:            make([]*types.ShardUsage, 0),
 		}
 		// Get shard usage
 		index := m.db.GetIndexLike(entschema.ClassName(collection.Class))
 		if index != nil {
 			// First, collect cold tenants from sharding state
-			coldTenants := make(map[string]*types.ShardUsage)
-			for tenantName, physical := range shardingState.Physical {
+			for shardName, physical := range shardingState.Physical {
 				// skip non-local shards
-				if !shardingState.IsLocalShard(tenantName) {
+				if !shardingState.IsLocalShard(shardName) {
 					continue
 				}
 
 				// Only process COLD tenants here
 				if physical.ActivityStatus() == models.TenantActivityStatusCOLD {
-					// Cold tenant: calculate from disk without loading
-					objectUsage, err := index.CalculateUnloadedObjectsMetrics(ctx, tenantName)
+					// Add jitter between cold tenant processing (except for the first one)
+					if len(collectionUsage.Shards) > 0 {
+						m.addJitter()
+					}
+
+					shardUsage, err := calculateUnloadedShardUsage(ctx, index, shardName, collection.VectorConfig)
 					if err != nil {
 						return nil, err
 					}
 
-					vectorStorageSize, err := index.CalculateUnloadedVectorsMetrics(ctx, tenantName)
-					if err != nil {
-						return nil, err
-					}
-
-					shardUsage := &types.ShardUsage{
-						Name:                tenantName,
-						ObjectsCount:        objectUsage.Count,
-						ObjectsStorageBytes: uint64(objectUsage.StorageBytes),
-						VectorStorageBytes:  uint64(vectorStorageSize),
-						NamedVectors:        make([]*types.VectorUsage, 0), // Empty for cold tenants
-					}
-					coldTenants[tenantName] = shardUsage
+					collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
 				}
 			}
 
 			// Then, collect hot tenants from loaded shards
-			index.ForEachShard(func(name string, shard db.ShardLike) error {
+			index.ForEachShard(func(shardName string, shard db.ShardLike) error {
 				// skip non-local shards
-				if !shardingState.IsLocalShard(name) {
+				if !shardingState.IsLocalShard(shardName) {
+					return nil
+				}
+
+				// Add jitter between hot shard processing (except for the first one)
+				if len(collectionUsage.Shards) > 0 {
+					m.addJitter()
+				}
+
+				// Check shard status without forcing load
+				if shard.GetStatusNoLoad() == storagestate.StatusLoading {
+					shardUsage, err := calculateUnloadedShardUsage(ctx, index, shardName, collection.VectorConfig)
+					if err != nil {
+						return err
+					}
+					collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
 					return nil
 				}
 
@@ -124,20 +152,32 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 				}
 
 				shardUsage := &types.ShardUsage{
-					Name:                name,
+					Name:                shardName,
+					Status:              strings.ToLower(models.TenantActivityStatusACTIVE),
 					ObjectsCount:        objectCount,
 					ObjectsStorageBytes: uint64(objectStorageSize),
 					VectorStorageBytes:  uint64(vectorStorageSize),
-					NamedVectors:        make([]*types.VectorUsage, 0),
 				}
 
 				// Get vector usage for each named vector
-				_ = shard.ForEachVectorIndex(func(targetVector string, vectorIndex db.VectorIndex) error {
+				if err = shard.ForEachVectorIndex(func(targetVector string, vectorIndex db.VectorIndex) error {
 					category := db.DimensionCategoryStandard // Default category
 					indexType := ""
-					if vectorIndexConfig, ok := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+					var bits int16
+
+					// Check if this is a named vector configuration
+					if vectorConfig, exists := collection.VectorConfig[targetVector]; exists {
+						// Use the named vector's configuration
+						if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+							category, _ = db.GetDimensionCategory(vectorIndexConfig)
+							indexType = vectorIndexConfig.IndexType()
+							bits = enthnsw.GetRQBits(vectorIndexConfig)
+						}
+					} else if vectorIndexConfig, ok := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+						// Fall back to legacy single vector configuration
 						category, _ = db.GetDimensionCategory(vectorIndexConfig)
 						indexType = vectorIndexConfig.IndexType()
+						bits = enthnsw.GetRQBits(vectorIndexConfig)
 					}
 
 					dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
@@ -145,30 +185,37 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 						return err
 					}
 
+					// For dynamic indexes, get the actual underlying index type
+					if dynamicIndex, ok := vectorIndex.(dynamic.Index); ok {
+						indexType = dynamicIndex.UnderlyingIndex().String()
+					}
+
 					vectorUsage := &types.VectorUsage{
 						Name:                   targetVector,
 						Compression:            category.String(),
 						VectorIndexType:        indexType,
+						IsDynamic:              common.IsDynamic(common.IndexType(indexType)),
 						VectorCompressionRatio: vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions),
+						Bits:                   bits,
 					}
 
-					vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &types.Dimensionality{
-						Dimensions: dimensionality.Dimensions,
-						Count:      dimensionality.Count,
-					})
+					// Only add dimensionalities if there's valid data
+					if dimensionality.Count > 0 || dimensionality.Dimensions > 0 {
+						vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &types.Dimensionality{
+							Dimensions: dimensionality.Dimensions,
+							Count:      dimensionality.Count,
+						})
+					}
 
 					shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
 					return nil
-				})
+				}); err != nil {
+					return err
+				}
 
 				collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
 				return nil
 			})
-
-			// Add cold tenants to the collection
-			for _, coldShard := range coldTenants {
-				collectionUsage.Shards = append(collectionUsage.Shards, coldShard)
-			}
 		}
 
 		usage.Collections = append(usage.Collections, collectionUsage)
@@ -196,4 +243,47 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 		}
 	}
 	return usage, nil
+}
+
+func calculateUnloadedShardUsage(ctx context.Context, index db.IndexLike, tenantName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
+	// Cold tenant: calculate from disk without loading
+	objectUsage, err := index.CalculateUnloadedObjectsMetrics(ctx, tenantName)
+	if err != nil {
+		return nil, err
+	}
+
+	vectorStorageSize, err := index.CalculateUnloadedVectorsMetrics(ctx, tenantName)
+	if err != nil {
+		return nil, err
+	}
+
+	shardUsage := &types.ShardUsage{
+		Name:                tenantName,
+		ObjectsCount:        objectUsage.Count,
+		Status:              strings.ToLower(models.TenantActivityStatusINACTIVE),
+		ObjectsStorageBytes: uint64(objectUsage.StorageBytes),
+		VectorStorageBytes:  uint64(vectorStorageSize),
+	}
+
+	// Get named vector data for cold shards from schema configuration
+	for targetVector, vectorConfig := range vectorConfigs {
+		// For cold shards, we can't get actual dimensionality from disk without loading
+		// So we'll use a placeholder or estimate based on the schema
+		vectorUsage := &types.VectorUsage{
+			Name:                   targetVector,
+			Compression:            db.DimensionCategoryStandard.String(),
+			VectorCompressionRatio: 1.0, // Default ratio for cold shards
+		}
+
+		if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+			category, _ := db.GetDimensionCategory(vectorIndexConfig)
+			vectorUsage.Compression = category.String()
+			vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
+			vectorUsage.Bits = enthnsw.GetRQBits(vectorIndexConfig)
+			vectorUsage.IsDynamic = common.IsDynamic(common.IndexType(vectorUsage.VectorIndexType))
+		}
+
+		shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
+	}
+	return shardUsage, err
 }

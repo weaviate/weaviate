@@ -18,6 +18,8 @@ import (
 
 	errors "github.com/go-openapi/errors"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -35,7 +37,8 @@ func Test_Middleware_NotConfigured(t *testing.T) {
 	}
 	expectedErr := errors.New(401, "oidc auth is not configured, please try another auth scheme or set up weaviate with OIDC configured")
 
-	client, err := New(cfg)
+	logger, _ := logrustest.NewNullLogger()
+	client, err := New(cfg, logger)
 	require.Nil(t, err)
 
 	principal, err := client.ValidateAndExtract("token-doesnt-matter", []string{})
@@ -54,14 +57,16 @@ func Test_Middleware_IncompleteConfiguration(t *testing.T) {
 	expectedErr := fmt.Errorf("oidc init: invalid config: missing required field 'issuer', " +
 		"missing required field 'username_claim', missing required field 'client_id': either set a client_id or explicitly disable the check with 'skip_client_id_check: true'")
 
-	_, err := New(cfg)
+	logger, _ := logrustest.NewNullLogger()
+	_, err := New(cfg, logger)
 	assert.ErrorAs(t, err, &expectedErr)
 }
 
 type claims struct {
 	jwt.StandardClaims
-	Email  string   `json:"email"`
-	Groups []string `json:"groups"`
+	Email         string   `json:"email"`
+	Groups        []string `json:"groups"`
+	GroupAsString string   `json:"group_as_string"`
 }
 
 func Test_Middleware_WithValidToken(t *testing.T) {
@@ -82,7 +87,8 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		}
 
 		token := token(t, "best-user", server.URL, "best_client")
-		client, err := New(cfg)
+		logger, _ := logrustest.NewNullLogger()
+		client, err := New(cfg, logger)
 		require.Nil(t, err)
 
 		principal, err := client.ValidateAndExtract(token, []string{})
@@ -108,7 +114,8 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		}
 
 		token := tokenWithEmail(t, "best-user", server.URL, "best_client", "foo@bar.com")
-		client, err := New(cfg)
+		logger, _ := logrustest.NewNullLogger()
+		client, err := New(cfg, logger)
 		require.Nil(t, err)
 
 		principal, err := client.ValidateAndExtract(token, []string{})
@@ -134,13 +141,42 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		}
 
 		token := tokenWithGroups(t, "best-user", server.URL, "best_client", []string{"group1", "group2"})
-		client, err := New(cfg)
+		logger, _ := logrustest.NewNullLogger()
+		client, err := New(cfg, logger)
 		require.Nil(t, err)
 
 		principal, err := client.ValidateAndExtract(token, []string{})
 		require.Nil(t, err)
 		assert.Equal(t, "best-user", principal.Username)
 		assert.Equal(t, []string{"group1", "group2"}, principal.Groups)
+	})
+
+	t.Run("with a string groups claim", func(t *testing.T) {
+		server := newOIDCServer(t)
+		defer server.Close()
+
+		cfg := config.Config{
+			Authentication: config.Authentication{
+				OIDC: config.OIDC{
+					Enabled:           true,
+					Issuer:            runtime.NewDynamicValue(server.URL),
+					ClientID:          runtime.NewDynamicValue("best_client"),
+					SkipClientIDCheck: runtime.NewDynamicValue(false),
+					UsernameClaim:     runtime.NewDynamicValue("sub"),
+					GroupsClaim:       runtime.NewDynamicValue("group_as_string"),
+				},
+			},
+		}
+
+		token := tokenWithStringGroups(t, "best-user", server.URL, "best_client", "group1")
+		logger, _ := logrustest.NewNullLogger()
+		client, err := New(cfg, logger)
+		require.Nil(t, err)
+
+		principal, err := client.ValidateAndExtract(token, []string{})
+		require.Nil(t, err)
+		assert.Equal(t, "best-user", principal.Username)
+		assert.Equal(t, []string{"group1"}, principal.Groups)
 	})
 }
 
@@ -164,6 +200,14 @@ func tokenWithGroups(t *testing.T, subject string, issuer string, aud string, gr
 	return tokenWithClaims(t, subject, issuer, aud, claims)
 }
 
+func tokenWithStringGroups(t *testing.T, subject string, issuer string, aud string, groups string) string {
+	claims := claims{
+		GroupAsString: groups,
+	}
+
+	return tokenWithClaims(t, subject, issuer, aud, claims)
+}
+
 func tokenWithClaims(t *testing.T, subject string, issuer string, aud string, claims claims) string {
 	claims.StandardClaims = jwt.StandardClaims{
 		Subject:   subject,
@@ -179,7 +223,9 @@ func tokenWithClaims(t *testing.T, subject string, issuer string, aud string, cl
 }
 
 func Test_Middleware_CertificateDownload(t *testing.T) {
-	newClientWithCertificate := func(certificate string) *Client {
+	newClientWithCertificate := func(certificate string) (*Client, *logrustest.Hook) {
+		logger, loggerHook := logrustest.NewNullLogger()
+		logger.SetLevel(logrus.InfoLevel)
 		cfg := config.Config{
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
@@ -190,28 +236,41 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 		}
 		client := &Client{
 			Config: cfg.Authentication.OIDC,
+			logger: logger.WithField("component", "oidc"),
 		}
-		return client
+		return client, loggerHook
+	}
+
+	verifyLogs := func(t *testing.T, loggerHook *logrustest.Hook, certificateSource string) {
+		for _, logEntry := range loggerHook.AllEntries() {
+			assert.Contains(t, logEntry.Message, "custom certificate is valid")
+			assert.Contains(t, logEntry.Data["source"], certificateSource)
+			assert.Contains(t, logEntry.Data["action"], "oidc_init")
+			assert.Contains(t, logEntry.Data["component"], "oidc")
+		}
 	}
 
 	t.Run("certificate string", func(t *testing.T) {
-		client := newClientWithCertificate(testingCertificate)
+		client, loggerHook := newClientWithCertificate(testingCertificate)
 		clientWithCertificate, err := client.useCertificate()
 		require.NoError(t, err)
 		require.NotNil(t, clientWithCertificate)
+		verifyLogs(t, loggerHook, "environment variable")
 	})
 
 	t.Run("certificate URL", func(t *testing.T) {
 		certificateServer := newServerWithCertificate()
 		defer certificateServer.Close()
-		client := newClientWithCertificate(certificateURL(certificateServer))
+		source := certificateURL(certificateServer)
+		client, loggerHook := newClientWithCertificate(source)
 		clientWithCertificate, err := client.useCertificate()
 		require.NoError(t, err)
 		require.NotNil(t, clientWithCertificate)
+		verifyLogs(t, loggerHook, source)
 	})
 
 	t.Run("unparseable string", func(t *testing.T) {
-		client := newClientWithCertificate("unparseable")
+		client, _ := newClientWithCertificate("unparseable")
 		clientWithCertificate, err := client.useCertificate()
 		require.Nil(t, clientWithCertificate)
 		require.Error(t, err)

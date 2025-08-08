@@ -126,9 +126,9 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:        "AddAlias",
-			additionalArgs:    []interface{}{&models.Alias{Class: "classname"}},
+			additionalArgs:    []interface{}{&models.Alias{Class: "classname", Alias: "aliasName"}},
 			expectedVerb:      authorization.CREATE,
-			expectedResources: authorization.Aliases("Classname"),
+			expectedResources: authorization.Aliases("Classname", "AliasName"),
 		},
 		{
 			methodName:        "UpdateAlias",
@@ -143,22 +143,10 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResources: authorization.Aliases("", "aliasName"),
 		},
 		{
-			methodName:        "GetAliases",
-			additionalArgs:    []interface{}{"", ""},
-			expectedVerb:      authorization.READ,
-			expectedResources: authorization.Aliases("", ""),
-		},
-		{
-			methodName:        "GetAliases",
-			additionalArgs:    []interface{}{"aliasName", ""},
+			methodName:        "GetAlias",
+			additionalArgs:    []interface{}{"aliasName"},
 			expectedVerb:      authorization.READ,
 			expectedResources: authorization.Aliases("", "aliasName"),
-		},
-		{
-			methodName:        "GetAliases",
-			additionalArgs:    []interface{}{"", "className"},
-			expectedVerb:      authorization.READ,
-			expectedResources: authorization.Aliases("className", ""),
 		},
 	}
 
@@ -181,7 +169,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				// Cluster/nodes related endpoint
 				"JoinNode", "RemoveNode", "Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
 				// revert to schema v0 (non raft),
-				"GetConsistentSchema", "GetConsistentTenants", "GetConsistentTenant",
+				"GetConsistentSchema", "GetConsistentTenants", "GetConsistentTenant", "GetAliases",
 				// ignored because it will check if schema has collections otherwise returns nothing
 				"StoreSchemaV1":
 				// don't require auth on methods which are exported because other
@@ -202,7 +190,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
 				fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{})
 				fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(models.Class{})
-				fakeSchemaManager.On("GetAliases", mock.Anything, mock.Anything, mock.Anything).Return([]*models.Alias{}, nil)
+				fakeSchemaManager.On("GetAliases", mock.Anything, mock.Anything, mock.Anything).Return([]*models.Alias{{}}, nil)
 
 				var args []interface{}
 				if test.methodName == "GetSchema" || test.methodName == "GetConsistentSchema" {

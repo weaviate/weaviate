@@ -12,15 +12,19 @@
 package docker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/docker/go-connections/nat"
 	"github.com/stretchr/testify/assert"
@@ -112,5 +116,67 @@ func GetTokensFromMockOIDCWithHelper(t *testing.T, mockOIDCHelperURI string) (st
 	if !ok {
 		t.Fatalf("failed to get refresh token from: %v", tokensResponse)
 	}
+	return accessToken, refreshToken
+}
+
+const (
+	authCode     = "auth"
+	clientSecret = "Secret"
+	clientID     = "mock-oidc-test"
+)
+
+func GetTokensFromMockOIDCWithHelperManualTest(t *testing.T, mockOIDCHelperURI string) (string, string) {
+	client := &http.Client{}
+
+	authEndpoint := "http://" + mockOIDCHelperURI + "/oidc/authorize"
+	tokenEndpoint := "http://" + mockOIDCHelperURI + "/oidc/token"
+
+	data := url.Values{}
+	data.Set("response_type", "code")
+	data.Set("code", authCode)
+	data.Set("redirect_uri", "google.com") // needs to be present
+	data.Set("client_id", clientID)
+	data.Set("client_secret", clientSecret)
+	data.Set("state", "email")
+	data.Set("scope", "openid groups")
+	req, err := http.NewRequest("POST", authEndpoint, bytes.NewBufferString(data.Encode()))
+	if err != nil {
+		return "", ""
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	// not getting a useful return value as we dont provide a valid redirect
+	resp, _ := client.Do(req)
+	require.NotNil(t, resp.Body)
+	defer resp.Body.Close()
+
+	data2 := url.Values{}
+	data2.Set("grant_type", "authorization_code")
+	data2.Set("client_id", clientID)
+	data2.Set("client_secret", clientSecret)
+	data2.Set("code", authCode)
+	data2.Set("scope", "email")
+	data2.Set("state", "email")
+	req2, err := http.NewRequest("POST", tokenEndpoint, bytes.NewBufferString(data2.Encode()))
+	if err != nil {
+		return "", ""
+	}
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp2, err := client.Do(req2)
+	if err != nil {
+		return "", ""
+	}
+	defer resp2.Body.Close()
+	body, _ := io.ReadAll(resp2.Body)
+	var tokenResponse map[string]interface{}
+	err = json.Unmarshal(body, &tokenResponse)
+	if err != nil {
+		return "", ""
+	}
+	accessToken, ok := tokenResponse["id_token"].(string)
+	require.True(t, ok, "failed to get access token from: %v", tokenResponse)
+	refreshToken, ok := tokenResponse["refresh_token"].(string)
+	require.True(t, ok, "failed to get refresh token from: %v", tokenResponse)
+
 	return accessToken, refreshToken
 }

@@ -26,6 +26,23 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+func TestCollectionNameConflictWithAlias(t *testing.T) {
+	var (
+		sc = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		ss = &sharding.State{Physical: make(map[string]sharding.Physical)}
+	)
+
+	require.Nil(t, sc.addClass(&models.Class{Class: "CoolCar"}, ss, 1))
+
+	err := sc.createAlias("CoolCar", "MyCar")
+	require.NoError(t, err)
+
+	// checking to see if class exists should consider the existing alias as well
+	got, isAlias := sc.ClassEqual("MyCar")
+	assert.NotEmpty(t, got)
+	assert.True(t, isAlias)
+}
+
 func Test_schemaCollectionMetrics(t *testing.T) {
 	r := prometheus.NewPedanticRegistry()
 
@@ -360,6 +377,7 @@ func TestCreateAlias(t *testing.T) {
 	)
 
 	require.Nil(t, sc.addClass(&models.Class{Class: "C"}, ss, 1))
+	require.Nil(t, sc.addClass(&models.Class{Class: "AnotherClass"}, ss, 1))
 
 	t.Run("successfully create alias", func(t *testing.T) {
 		err := sc.createAlias("C", "A1")
@@ -380,6 +398,44 @@ func TestCreateAlias(t *testing.T) {
 		err := sc.createAlias("D", "A1")
 		require.EqualError(t, err, "create alias: alias A1 already exists")
 	})
+	t.Run("fail on creating alias with existing class name", func(t *testing.T) {
+		// We have two collection. "C" and "AnotherClass"
+		// 1. We try to create alias with name "AnotherClass" to class "C".
+		// 2. Should fail saying class with "AnotherClass" already exists.
+		err := sc.createAlias("C", "AnotherClass")
+		require.EqualError(t, err, "create alias: class AnotherClass already exists")
+	})
+}
+
+func TestSchemaAliasCasing(t *testing.T) {
+	// Alias name should be case-insensitive similar to collection.
+	// Meaning, MyCar, MYCar, myCar all same.
+
+	var (
+		sc = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		ss = &sharding.State{Physical: make(map[string]sharding.Physical)}
+	)
+
+	require.Nil(t, sc.addClass(&models.Class{Class: "CoolCar"}, ss, 1))
+	err := sc.createAlias("CoolCar", "MyCar")
+	require.Nil(t, err)
+
+	// Try creating it with different cases.
+	err = sc.createAlias("CoolCar", "MYCar")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+
+	err = sc.createAlias("CoolCar", "mYCar")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+
+	err = sc.createAlias("CoolCar", "mycar")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+
+	err = sc.createAlias("CoolCar", "MYCAR")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
 }
 
 func TestReplaceAlias(t *testing.T) {

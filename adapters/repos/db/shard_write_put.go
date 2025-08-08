@@ -217,7 +217,7 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 
 	for targetVector, vector := range obj.MultiVectors {
 		if vectorIndex, ok := s.GetVectorIndex(targetVector); ok {
-			if err := vectorIndex.ValidateMultiBeforeInsert(vector); err != nil {
+			if err := vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(vector); err != nil {
 				return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
 			}
 		}
@@ -242,10 +242,16 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
+		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
+
+		err := s.waitForMinimalHashTreeInitialization(context.Background())
+		if err != nil {
+			return err
+		}
+
 		lock.Lock()
 		defer lock.Unlock()
-
-		var err error
 
 		before = time.Now()
 		prevObj, err = fetchObject(bucket, idBytes)
@@ -296,9 +302,6 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 }
 
 func (s *Shard) mayUpsertObjectHashTree(object *storobj.Object, uuidBytes []byte, status objectInsertStatus) error {
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
 	if s.hashtree == nil {
 		return nil
 	}

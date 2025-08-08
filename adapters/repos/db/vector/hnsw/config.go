@@ -27,23 +27,25 @@ import (
 // Config.UserConfig
 type Config struct {
 	// internal
-	RootPath                  string
-	ID                        string
-	MakeCommitLoggerThunk     MakeCommitLogger
-	VectorForIDThunk          common.VectorForID[float32]
-	MultiVectorForIDThunk     common.VectorForID[[]float32]
-	TempVectorForIDThunk      common.TempVectorForID[float32]
-	TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
-	Logger                    logrus.FieldLogger
-	DistanceProvider          distancer.Provider
-	PrometheusMetrics         *monitoring.PrometheusMetrics
-	AllocChecker              memwatch.AllocChecker
-	WaitForCachePrefill       bool
-	FlatSearchConcurrency     int
-	AcornFilterRatio          float64
-	DisableSnapshots          bool
-	SnapshotOnStartup         bool
-	LazyLoadSegments          bool
+	RootPath                     string
+	ID                           string
+	MakeCommitLoggerThunk        MakeCommitLogger
+	VectorForIDThunk             common.VectorForID[float32]
+	MultiVectorForIDThunk        common.VectorForID[[]float32]
+	TempVectorForIDThunk         common.TempVectorForID[float32]
+	TempMultiVectorForIDThunk    common.TempVectorForID[[]float32]
+	Logger                       logrus.FieldLogger
+	DistanceProvider             distancer.Provider
+	PrometheusMetrics            *monitoring.PrometheusMetrics
+	AllocChecker                 memwatch.AllocChecker
+	WaitForCachePrefill          bool
+	FlatSearchConcurrency        int
+	AcornFilterRatio             float64
+	DisableSnapshots             bool
+	SnapshotOnStartup            bool
+	LazyLoadSegments             bool
+	WriteSegmentInfoIntoFileName bool
+	WriteMetadataFilesEnabled    bool
 
 	// metadata for monitoring
 	ShardName string

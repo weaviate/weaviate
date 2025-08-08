@@ -62,6 +62,9 @@ packages:
   github.com/weaviate/weaviate/cluster/replication/copier/types:
     interfaces:
       RemoteIndex:
+  github.com/weaviate/weaviate/cluster/router/types:
+    interfaces:
+      Router:
   github.com/weaviate/weaviate/entities/moduletools:
     interfaces:
       ModuleInitParams:
@@ -74,6 +77,14 @@ packages:
       IndexGetter:
       IndexLike:
       VectorIndex:
+  github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic:
+    interfaces:
+      Index:
+      VectorIndex:
   github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers:
     interfaces:
       CompressionStats:
+  github.com/weaviate/weaviate/usecases/modulecomponents/usage:
+    interfaces:
+      StorageBackend:
+
