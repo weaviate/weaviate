@@ -608,7 +608,7 @@ func (i *Index) GetShardLike(shardName string) (ShardLike, error) {
 }
 
 func (i *Index) ForEachPhysicalShard(f func(name string, shard ShardLike) error) error {
-	shardingState := i.ShardState()
+	shardingState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
 	physicalShards := shardingState.AllPhysicalShards()
 	for _, shardName := range physicalShards {
 		sl, release, err := i.GetShard(context.TODO(), shardName)
