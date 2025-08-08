@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package helpers
+package tokenizer
 
 import (
 	"os"
