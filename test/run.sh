@@ -35,6 +35,7 @@ function main() {
   run_acceptance_go_client_named_vectors_single_node=false
   run_acceptance_go_client_named_vectors_cluster=false
   run_acceptance_lsmkv=false
+  run_packages_tests=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -124,7 +125,7 @@ function main() {
     echo_green "Integration tests successful"
   fi
 
-  if $run_packages_tests ||  $run_unit_and_integration_tests || $run_integration_tests || $run_all_tests
+  if $run_packages_tests ||  $run_unit_and_integration_tests || $run_all_tests
   then
     echo_green "Run package tests..."
     run_packages_tests "$@"
