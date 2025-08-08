@@ -451,7 +451,7 @@ func calcVectorDimensionMetrics(ctx context.Context, sl ShardLike, vecName strin
 			// bits=8: 8 bits per dimension (1 byte per dimension)
 			bytes = count
 		}
-		return DimensionMetrics{Uncompressed: 0, Compressed: bytes}
+		return DimensionMetrics{Uncompressed: bytes, Compressed: 0}
 	default:
 		count, _ := sl.Dimensions(ctx, vecName)
 		return DimensionMetrics{Uncompressed: count, Compressed: 0}

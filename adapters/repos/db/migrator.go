@@ -802,7 +802,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
 		err := index.ForEachShard(func(name string, shard ShardLike) error {
-			return shard.resetDimensionsLSM()
+			return shard.resetDimensionsLSM(ctx)
 		})
 		if err != nil {
 			m.logger.WithField("action", "reindex").WithError(err).Warn("could not reset vector dimensions")
