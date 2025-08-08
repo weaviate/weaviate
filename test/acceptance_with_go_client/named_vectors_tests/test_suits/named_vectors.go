@@ -12,7 +12,6 @@
 package test_suits
 
 import (
-	"os"
 	"testing"
 
 	"github.com/weaviate/weaviate/test/docker"
@@ -42,10 +41,6 @@ func ComposeModules() (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecModel2Vec().
 		WithText2VecTransformersImage("semitechnologies/model2vec-inference:minishlab-potion-base-8M-1.0.0").
-		WithText2VecOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
-		WithText2VecCohere(os.Getenv("COHERE_APIKEY")).
-		WithGenerativeOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
-		WithGenerativeCohere(os.Getenv("COHERE_APIKEY")).
-		WithText2MultivecJinaAI(os.Getenv("JINAAI_APIKEY"))
+		WithWeaviateEnv("ENABLE_API_BASED_MODULES", "true")
 	return
 }

@@ -716,7 +716,7 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 			if err := p.checkCapabilities(allAdditionalProperties, moduleParams, capability); err != nil {
 				return nil, err
 			}
-			cfg := NewClassBasedModuleConfig(class, "", "", "")
+			cfg := NewClassBasedModuleConfig(class, "", "", "", &p.cfg)
 			for name, value := range moduleParams {
 				additionalPropertyFn := p.getAdditionalPropertyFn(allAdditionalProperties[name], capability)
 				if additionalPropertyFn != nil && value != nil {
@@ -863,7 +863,7 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context, className, targetV
 	targetModule := p.getModuleNameForTargetVector(class, targetVector)
 
 	for _, mod := range p.GetAll() {
-		if found, vector, err := vectorFromSearchParam(ctx, class, mod, targetModule, targetVector, tenant, param, params, findVectorFn, p.isModuleNameEqual); found {
+		if found, vector, err := vectorFromSearchParam(ctx, class, mod, targetModule, targetVector, tenant, param, params, findVectorFn, p.isModuleNameEqual, &p.cfg); found {
 			return vector, err
 		}
 	}
@@ -884,7 +884,7 @@ func (p *Provider) MultiVectorFromSearchParam(ctx context.Context, className, ta
 	targetModule := p.getModuleNameForTargetVector(class, targetVector)
 
 	for _, mod := range p.GetAll() {
-		if found, vector, err := vectorFromSearchParam(ctx, class, mod, targetModule, targetVector, tenant, param, params, findVectorFn, p.isModuleNameEqual); found {
+		if found, vector, err := vectorFromSearchParam(ctx, class, mod, targetModule, targetVector, tenant, param, params, findVectorFn, p.isModuleNameEqual, &p.cfg); found {
 			return vector, err
 		}
 	}
@@ -900,7 +900,7 @@ func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 	findVectorFn modulecapabilities.FindVectorFn[[]float32],
 ) ([]float32, string, error) {
 	for _, mod := range p.GetAll() {
-		if found, vector, targetVector, err := crossClassVectorFromSearchParam(ctx, mod, param, params, findVectorFn, p.getTargetVector); found {
+		if found, vector, targetVector, err := crossClassVectorFromSearchParam(ctx, mod, param, params, findVectorFn, p.getTargetVector, p.cfg); found {
 			return vector, targetVector, err
 		}
 	}
@@ -916,7 +916,7 @@ func (p *Provider) MultiCrossClassVectorFromSearchParam(ctx context.Context,
 	findVectorFn modulecapabilities.FindVectorFn[[][]float32],
 ) ([][]float32, string, error) {
 	for _, mod := range p.GetAll() {
-		if found, vector, targetVector, err := crossClassVectorFromSearchParam(ctx, mod, param, params, findVectorFn, p.getTargetVector); found {
+		if found, vector, targetVector, err := crossClassVectorFromSearchParam(ctx, mod, param, params, findVectorFn, p.getTargetVector, p.cfg); found {
 			return vector, targetVector, err
 		}
 	}
@@ -971,7 +971,7 @@ func (p *Provider) VectorFromInput(ctx context.Context,
 	for _, mod := range p.GetAll() {
 		if p.isModuleNameEqual(mod, targetModule) {
 			if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type(), p.getModuleAltNames(mod)) {
-				if found, vector, err := vectorFromInput[[]float32](ctx, mod, class, input, targetVector); found {
+				if found, vector, err := vectorFromInput[[]float32](ctx, mod, class, input, targetVector, &p.cfg); found {
 					return vector, err
 				}
 			}
@@ -993,7 +993,7 @@ func (p *Provider) MultiVectorFromInput(ctx context.Context,
 	for _, mod := range p.GetAll() {
 		if p.isModuleNameEqual(mod, targetModule) {
 			if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type(), p.getModuleAltNames(mod)) {
-				if found, vector, err := vectorFromInput[[][]float32](ctx, mod, class, input, targetVector); found {
+				if found, vector, err := vectorFromInput[[][]float32](ctx, mod, class, input, targetVector, &p.cfg); found {
 					return vector, err
 				}
 			}
