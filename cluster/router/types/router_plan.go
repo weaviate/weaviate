@@ -53,6 +53,7 @@ func (o RoutingPlanBuildOptions) String() string {
 //   - ConsistencyLevel: The user-specified consistency level.
 //   - IntConsistencyLevel: The resolved numeric value for the consistency level.
 type ReadRoutingPlan struct {
+	LocalHostname       string
 	Shard               string
 	Tenant              string
 	ReplicaSet          ReadReplicaSet
