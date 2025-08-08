@@ -117,6 +117,18 @@ func Test_getTokensCount(t *testing.T) {
 			messages: exampleMessages,
 			want:     129,
 		},
+		{
+			name:     "gpt-5",
+			model:    "gpt-5",
+			messages: messages,
+			want:     117,
+		},
+		{
+			name:     "gpt-4o",
+			model:    "gpt-4o",
+			messages: messages,
+			want:     117,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
