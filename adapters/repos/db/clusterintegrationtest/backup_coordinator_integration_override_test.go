@@ -59,11 +59,9 @@ func TestDistributedBackupsOverride(t *testing.T) {
 
 	t.Run("apply schema", func(t *testing.T) {
 		for i := range nodes {
-			err := nodes[i].migrator.AddClass(context.Background(), class(),
-				nodes[i].schemaManager.shardState)
+			err := nodes[i].migrator.AddClass(context.Background(), class())
 			require.Nil(t, err)
-			err = nodes[i].migrator.AddClass(context.Background(), secondClassWithRef(),
-				nodes[i].schemaManager.shardState)
+			err = nodes[i].migrator.AddClass(context.Background(), secondClassWithRef())
 			require.Nil(t, err)
 			nodes[i].schemaManager.schema.Objects.Classes = append(nodes[i].schemaManager.schema.Objects.Classes,
 				class(), secondClassWithRef())

@@ -18,6 +18,8 @@ import (
 	"path"
 	"time"
 
+	"github.com/weaviate/weaviate/multitenancy"
+
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -80,12 +82,10 @@ func (db *DB) init(ctx context.Context) error {
 				return fmt.Errorf("replication config: %w", err)
 			}
 
-			shardingState := db.schemaGetter.CopyShardingState(class.Class)
 			collection := schema.ClassName(class.Class).String()
-			multiTenancyEnabled := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 			indexRouter := router.NewBuilder(
 				collection,
-				multiTenancyEnabled,
+				multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 				db.nodeSelector,
 				db.schemaGetter,
 				db.schemaReader,
@@ -139,11 +139,11 @@ func (db *DB) init(ctx context.Context) error {
 				QuerySlowLogThreshold:                        db.config.QuerySlowLogThreshold,
 				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
 				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
-			}, shardingState,
+			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
-				indexRouter, db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
+				indexRouter, db.schemaGetter, db.schemaReader, db, db.logger, db.nodeResolver, db.remoteIndex,
 				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
 				db.memMonitor, db.reindexer, db.bitmapBufPool)
 			if err != nil {
@@ -198,7 +198,7 @@ func (db *DB) migrateFileStructureIfNecessary() error {
 func (db *DB) migrateToHierarchicalFS() error {
 	before := time.Now()
 
-	if err := migratefs.MigrateToHierarchicalFS(db.config.RootPath, db.schemaGetter); err != nil {
+	if err := migratefs.MigrateToHierarchicalFS(db.config.RootPath, db.schemaReader); err != nil {
 		return err
 	}
 	db.logger.WithField("action", "hierarchical_fs_migration").

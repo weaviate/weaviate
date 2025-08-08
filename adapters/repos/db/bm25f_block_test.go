@@ -19,6 +19,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/sharding"
+
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/usecases/cluster"
 
@@ -47,7 +49,12 @@ func TestBM25FJourneyBlock(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -321,7 +328,12 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -387,7 +399,12 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -502,7 +519,12 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -585,7 +607,12 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -662,7 +689,12 @@ func TestBM25FCompareBlock(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -689,7 +721,8 @@ func TestBM25FCompareBlock(t *testing.T) {
 
 	for _, location := range []string{"memory", "disk"} {
 		t.Run("Compare with previous BM25 version "+location, func(t *testing.T) {
-			shardNames := idx.getSchema.CopyShardingState(idx.Config.ClassName.String()).AllPhysicalShards()
+			shardNames, err := idx.schemaReader.Shards("MyClass")
+			require.Nil(t, err)
 
 			for _, shardName := range shardNames {
 				shard := idx.shards.Load(shardName)
@@ -764,7 +797,12 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 		},
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -872,7 +910,12 @@ func TestBM25F_SortMultiPropBlock(t *testing.T) {
 		},
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -960,7 +1003,12 @@ func TestBM25FWithFiltersMemtable(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()

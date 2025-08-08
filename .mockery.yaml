@@ -26,6 +26,7 @@ packages:
   github.com/weaviate/weaviate/usecases/schema:
     interfaces:
       SchemaGetter:
+      SchemaReader:
   github.com/weaviate/weaviate/cluster/schema/types:
     interfaces:
       SchemaReader:
