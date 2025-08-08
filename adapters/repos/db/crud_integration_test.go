@@ -1565,7 +1565,6 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	individual := total / 4
 	className := "DeferredVector"
 	var data []*models.Object
-	var class *models.Class
 
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -1578,6 +1577,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
@@ -1616,7 +1616,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	})
 
 	t.Run("create required schema", func(t *testing.T) {
-		class = &models.Class{
+		class := &models.Class{
 			Class: className,
 			Properties: []*models.Property{
 				{
@@ -1634,7 +1634,17 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
-			Classes: []*models.Class{class},
+			Classes: []*models.Class{{
+				Class: className,
+				Properties: []*models.Property{
+					{
+						DataType: []string{string(schema.DataTypeInt)},
+						Name:     "int_prop",
+					},
+				},
+				VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+				InvertedIndexConfig: invertedConfig(),
+			}},
 		},
 	}
 
@@ -1734,8 +1744,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 
 func TestVectorSearch_ByDistance(t *testing.T) {
 	className := "SomeClass"
-	var class *models.Class
-	class = &models.Class{
+	class := &models.Class{
 		Class: className,
 		Properties: []*models.Property{
 			{
@@ -1886,8 +1895,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 
 func TestVectorSearch_ByCertainty(t *testing.T) {
 	className := "SomeClass"
-	var class *models.Class
-	class = &models.Class{
+	class := &models.Class{
 		Class: className,
 		Properties: []*models.Property{
 			{
