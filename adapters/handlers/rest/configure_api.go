@@ -57,6 +57,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
@@ -89,6 +90,7 @@ import (
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativexai "github.com/weaviate/weaviate/modules/generative-xai"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
+	modmulti2multivecjinaai "github.com/weaviate/weaviate/modules/multi2multivec-jinaai"
 	modbind "github.com/weaviate/weaviate/modules/multi2vec-bind"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
@@ -129,6 +131,7 @@ import (
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	modusagegcs "github.com/weaviate/weaviate/modules/usage-gcs"
+	modusages3 "github.com/weaviate/weaviate/modules/usage-s3"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -164,7 +167,6 @@ type vectorRepo interface {
 	objects.BatchVectorRepo
 	traverser.VectorSearcher
 	classification.VectorRepo
-	scaler.BackUpper
 	SetSchemaGetter(schema.SchemaGetter)
 	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
@@ -391,7 +393,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
 	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
-	repo, err := db.New(appState.Logger, db.Config{
+	repo, err := db.New(appState.Logger, appState.Cluster.LocalName(), db.Config{
 		ServerVersion:                       config.ServerVersion,
 		GitHash:                             build.Revision,
 		MemtablesFlushDirtyAfter:            appState.ServerConfig.Config.Persistence.MemtablesFlushDirtyAfter,
@@ -401,6 +403,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MemtablesMaxActiveSeconds:           appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
 		MinMMapSize:                         appState.ServerConfig.Config.Persistence.MinMMapSize,
 		LazySegmentsDisabled:                appState.ServerConfig.Config.Persistence.LazySegmentsDisabled,
+		SegmentInfoIntoFileNameEnabled:      appState.ServerConfig.Config.Persistence.SegmentInfoIntoFileNameEnabled,
+		WriteMetadataFilesEnabled:           appState.ServerConfig.Config.Persistence.WriteMetadataFilesEnabled,
 		MaxReuseWalSize:                     appState.ServerConfig.Config.Persistence.MaxReuseWalSize,
 		SegmentsCleanupIntervalSeconds:      appState.ServerConfig.Config.Persistence.LSMSegmentsCleanupIntervalSeconds,
 		SeparateObjectsCompactions:          appState.ServerConfig.Config.Persistence.LSMSeparateObjectsCompactions,
@@ -410,9 +414,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		RootPath:                            appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                          appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:                 appState.ServerConfig.Config.QueryMaximumResults,
+		QueryHybridMaximumResults:           appState.ServerConfig.Config.QueryHybridMaximumResults,
 		QueryNestedRefLimit:                 appState.ServerConfig.Config.QueryNestedCrossReferenceLimit,
 		MaxImportGoroutinesFactor:           appState.ServerConfig.Config.MaxImportGoroutinesFactor,
-		TrackVectorDimensions:               appState.ServerConfig.Config.TrackVectorDimensions,
+		TrackVectorDimensions:               appState.ServerConfig.Config.TrackVectorDimensions || appState.Modules.UsageEnabled(),
+		TrackVectorDimensionsInterval:       appState.ServerConfig.Config.TrackVectorDimensionsInterval,
+		UsageEnabled:                        appState.Modules.UsageEnabled(),
 		ResourceUsage:                       appState.ServerConfig.Config.ResourceUsage,
 		AvoidMMap:                           appState.ServerConfig.Config.AvoidMmap,
 		DisableLazyLoadShards:               appState.ServerConfig.Config.DisableLazyLoadShards,
@@ -446,7 +453,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
-	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
+	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -462,7 +469,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	setupLogRingBuffer(appState)
 	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
-	migrator := db.NewMigrator(repo, appState.Logger)
+	migrator := db.NewMigrator(repo, appState.Logger, appState.Cluster.LocalName())
 	migrator.SetNode(appState.Cluster.LocalName())
 	// TODO-offload: "offload-s3" has to come from config when enable modules more than S3
 	migrator.SetOffloadProvider(appState.Modules, "offload-s3")
@@ -493,10 +500,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	classifierRepo := classifications.NewDistributeRepo(classificationsTxClient,
 		appState.Cluster, localClassifierRepo, appState.Logger)
 	appState.ClassificationRepo = classifierRepo
-
-	scaler := scaler.New(appState.Cluster, vectorRepo,
-		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
-	appState.Scaler = scaler
 
 	server2port, err := parseNode2Port(appState)
 	if len(server2port) == 0 || err != nil {
@@ -541,7 +544,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	replicaCopier := copier.New(remoteClientFactory, remoteIndexClient, appState.Cluster,
-		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers, dataPath, appState.DB, appState.Logger)
+		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers, dataPath, appState.DB, nodeName, appState.Logger)
 
 	rConfig := rCluster.Config{
 		WorkDir:                         filepath.Join(dataPath, config.DefaultRaftDir),
@@ -613,7 +616,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		schemaRepo,
 		appState.Logger, appState.Authorizer, &appState.ServerConfig.Config.SchemaHandlerConfig, appState.ServerConfig.Config,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
-		appState.Modules, appState.Cluster, scaler,
+		appState.Modules, appState.Cluster,
 		offloadmod, *schemaParser,
 		collectionRetrievalStrategyConfigFlag,
 	)
@@ -656,6 +659,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState)
 	executor.RegisterSchemaUpdateCallback(updateSchemaCallback)
+
+	bitmapBufPool, bitmapBufPoolClose := configureBitmapBufPool(appState)
+	repo.WithBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
 	var reindexCtx context.Context
 	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(context.Background())
@@ -729,7 +735,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	configureServer = makeConfigureServer(appState)
 
 	// Add dimensions to all the objects in the database, if requested by the user
-	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup {
+	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && repo.GetConfig().TrackVectorDimensions {
 		appState.Logger.
 			WithField("action", "startup").
 			Info("Reindexing dimensions")
@@ -771,6 +777,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	return appState
+}
+
+func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPool, close func()) {
+	return roaringset.NewBitmapBufPoolDefault(appState.Logger, appState.Metrics,
+		appState.ServerConfig.Config.QueryBitmapBufsMaxBufSize,
+		appState.ServerConfig.Config.QueryBitmapBufsMaxMemory)
 }
 
 func configureReindexer(appState *state.State, reindexCtx context.Context) db.ShardReindexerV3 {
@@ -1145,6 +1157,7 @@ func registerModules(appState *state.State) error {
 		modtext2multivecjinaai.Name,
 		modnvidia.Name,
 		modmulti2vecnvidia.Name,
+		modmulti2multivecjinaai.Name,
 	}
 	defaultGenerative := []string{
 		modgenerativeanthropic.Name,
@@ -1345,6 +1358,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modmulti2vecjinaai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modmulti2multivecjinaai.Name]; ok {
+		appState.Modules.Register(modmulti2multivecjinaai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2multivecjinaai.Name).
 			Debug("enabled module")
 	}
 
@@ -1666,6 +1687,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modusages3.Name]; ok {
+		appState.Modules.Register(modusages3.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modusages3.Name).
+			Debug("enabled module")
+	}
+
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("completed registering modules")
@@ -1676,8 +1705,18 @@ func registerModules(appState *state.State) error {
 func postInitModules(appState *state.State) {
 	// Initialize usage service after all components are ready
 	if appState.Modules.UsageEnabled() {
-		if usageModule := appState.Modules.GetByName(modusagegcs.Name); usageModule != nil {
-			if usageModuleWithService, ok := usageModule.(modulecapabilities.ModuleWithUsageService); ok {
+		appState.Logger.WithField("action", "startup").Debug("initializing usage service")
+
+		// Initialize usage service for GCS
+		if usageGCSModule := appState.Modules.GetByName(modusagegcs.Name); usageGCSModule != nil {
+			if usageModuleWithService, ok := usageGCSModule.(modulecapabilities.ModuleWithUsageService); ok {
+				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, usageModuleWithService.Logger())
+				usageModuleWithService.SetUsageService(usageService)
+			}
+		}
+		// Initialize usage service for S3
+		if usageS3Module := appState.Modules.GetByName(modusages3.Name); usageS3Module != nil {
+			if usageModuleWithService, ok := usageS3Module.(modulecapabilities.ModuleWithUsageService); ok {
 				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, usageModuleWithService.Logger())
 				usageModuleWithService.SetUsageService(usageService)
 			}
@@ -1879,11 +1918,17 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 
 		if appState.Modules.UsageEnabled() {
+			// gcs config
 			registered.UsageGCSBucket = appState.ServerConfig.Config.Usage.GCSBucket
 			registered.UsageGCSPrefix = appState.ServerConfig.Config.Usage.GCSPrefix
-			registered.UsageGCSAuth = appState.ServerConfig.Config.Usage.GCSAuth
+			// s3 config
+			registered.UsageS3Bucket = appState.ServerConfig.Config.Usage.S3Bucket
+			registered.UsageS3Prefix = appState.ServerConfig.Config.Usage.S3Prefix
+			// common config
 			registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
+			registered.UsageShardJitterInterval = appState.ServerConfig.Config.Usage.ShardJitterInterval
 			registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
+			registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
 		}
 
 		hooks := make(map[string]func() error)

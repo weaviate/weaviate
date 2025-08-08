@@ -63,7 +63,7 @@ func (s *aliasesHandlers) getAlias(params schema.AliasesGetAliasParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	aliases, err := s.manager.GetAliases(ctx, principal, params.AliasName, "")
+	aliases, err := s.manager.GetAlias(ctx, principal, params.AliasName)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {

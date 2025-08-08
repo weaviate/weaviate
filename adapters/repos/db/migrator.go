@@ -17,8 +17,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -28,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -56,20 +55,22 @@ type processor interface {
 }
 
 type Migrator struct {
-	db      *DB
-	cloud   modulecapabilities.OffloadCloud
-	logger  logrus.FieldLogger
-	cluster processor
-	nodeId  string
+	db            *DB
+	cloud         modulecapabilities.OffloadCloud
+	logger        logrus.FieldLogger
+	cluster       processor
+	nodeId        string
+	localNodeName string
 
 	classLocks *esync.KeyLocker
 }
 
-func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
+func NewMigrator(db *DB, logger logrus.FieldLogger, localNodeName string) *Migrator {
 	return &Migrator{
-		db:         db,
-		logger:     logger,
-		classLocks: esync.NewKeyLocker(),
+		db:            db,
+		logger:        logger,
+		classLocks:    esync.NewKeyLocker(),
+		localNodeName: localNodeName,
 	}
 }
 
@@ -107,10 +108,11 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
-	shardingState := m.db.schemaGetter.CopyShardingState(class.Class)
+	multiTenancyEnabled := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
+	collection := schema.ClassName(class.Class).String()
 	indexRouter := router.NewBuilder(
-		schema.ClassName(class.Class).String(),
-		shardingState.PartitioningEnabled,
+		collection,
+		multiTenancyEnabled,
 		m.db.nodeSelector,
 		m.db.schemaGetter,
 		m.db.schemaReader,
@@ -122,6 +124,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			RootPath:                                     m.db.config.RootPath,
 			ResourceUsage:                                m.db.config.ResourceUsage,
 			QueryMaximumResults:                          m.db.config.QueryMaximumResults,
+			QueryHybridMaximumResults:                    m.db.config.QueryHybridMaximumResults,
 			QueryNestedRefLimit:                          m.db.config.QueryNestedRefLimit,
 			MemtablesFlushDirtyAfter:                     m.db.config.MemtablesFlushDirtyAfter,
 			MemtablesInitialSizeMB:                       m.db.config.MemtablesInitialSizeMB,
@@ -130,6 +133,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			MemtablesMaxActiveSeconds:                    m.db.config.MemtablesMaxActiveSeconds,
 			MinMMapSize:                                  m.db.config.MinMMapSize,
 			LazySegmentsDisabled:                         m.db.config.LazySegmentsDisabled,
+			SegmentInfoIntoFileNameEnabled:               m.db.config.SegmentInfoIntoFileNameEnabled,
+			WriteMetadataFilesEnabled:                    m.db.config.WriteMetadataFilesEnabled,
 			MaxReuseWalSize:                              m.db.config.MaxReuseWalSize,
 			SegmentsCleanupIntervalSeconds:               m.db.config.SegmentsCleanupIntervalSeconds,
 			SeparateObjectsCompactions:                   m.db.config.SeparateObjectsCompactions,
@@ -137,6 +142,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			IndexRangeableInMemory:                       m.db.config.IndexRangeableInMemory,
 			MaxSegmentSize:                               m.db.config.MaxSegmentSize,
 			TrackVectorDimensions:                        m.db.config.TrackVectorDimensions,
+			TrackVectorDimensionsInterval:                m.db.config.TrackVectorDimensionsInterval,
+			UsageEnabled:                                 m.db.config.UsageEnabled,
 			AvoidMMap:                                    m.db.config.AvoidMMap,
 			DisableLazyLoadShards:                        m.db.config.DisableLazyLoadShards,
 			ForceFullReplicasSearch:                      m.db.config.ForceFullReplicasSearch,
@@ -168,7 +175,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		convertToVectorIndexConfigs(class.VectorConfig),
 		indexRouter, m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
-		m.db.memMonitor, m.db.reindexer)
+		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}

@@ -13,7 +13,7 @@ package clients
 
 func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
-		"name":              "JinaAI Module",
+		"name":              "JinaAI Multivec Module",
 		"documentationHref": "https://jina.ai/embeddings/",
 	}, nil
 }

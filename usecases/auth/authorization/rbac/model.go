@@ -156,6 +156,15 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		return err
 	}
 
+	_, err = enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.ReadOnly))
+	if err != nil {
+		return err
+	}
+	_, err = enforcer.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(authorization.ReadOnly))
+	if err != nil {
+		return err
+	}
+
 	// add pre existing roles
 	for name, verb := range conv.BuiltInPolicies {
 		if verb == "" {
@@ -230,11 +239,11 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 	}
 
-	for _, viewerGroup := range conf.ViewerGroups {
+	for _, viewerGroup := range conf.ReadOnlyGroups {
 		if strings.TrimSpace(viewerGroup) == "" {
 			continue
 		}
-		if _, err := enforcer.AddRoleForUser(conv.PrefixGroupName(viewerGroup), conv.PrefixRoleName(authorization.Viewer)); err != nil {
+		if _, err := enforcer.AddRoleForUser(conv.PrefixGroupName(viewerGroup), conv.PrefixRoleName(authorization.ReadOnly)); err != nil {
 			return fmt.Errorf("add viewer role for group %s: %w", viewerGroup, err)
 		}
 	}

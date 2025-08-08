@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
@@ -37,16 +36,16 @@ var (
 	retrievalDocument taskType = "RETRIEVAL_DOCUMENT"
 )
 
-func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
+func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string {
 	if useGenerativeAI {
 		if isLegacyModel(modelID) {
 			// legacy PaLM API
 			return "https://generativelanguage.googleapis.com/v1beta3/models/embedding-gecko-001:batchEmbedText"
 		}
-		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1/models/%s:batchEmbedContents", modelID)
+		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:batchEmbedContents", modelID)
 	}
 	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/publishers/google/models/%s:predict"
-	return fmt.Sprintf(urlTemplate, apiEndoint, projectID, modelID)
+	return fmt.Sprintf(urlTemplate, apiEndpoint, projectID, modelID)
 }
 
 type google struct {
@@ -54,7 +53,7 @@ type google struct {
 	googleApiKey  *apikey.GoogleApiKey
 	useGoogleAuth bool
 	httpClient    *http.Client
-	urlBuilderFn  func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string
+	urlBuilderFn  func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string
 	logger        logrus.FieldLogger
 }
 
@@ -137,7 +136,7 @@ func (v *google) useGenerativeAIEndpoint(config ent.VectorizationConfig) bool {
 
 func (v *google) getPayload(useGenerativeAI bool, input []string,
 	taskType taskType, title string, config ent.VectorizationConfig,
-) interface{} {
+) any {
 	if useGenerativeAI {
 		if v.isLegacy(config) {
 			return batchEmbedTextRequestLegacy{Texts: input}
@@ -153,23 +152,22 @@ func (v *google) getPayload(useGenerativeAI bool, input []string,
 					Content: content{
 						Parts: parts,
 					},
-					TaskType: taskType,
-					Title:    title,
+					TaskType:             taskType,
+					Title:                title,
+					OutputDimensionality: config.Dimensions,
 				},
 			},
 		}
 		return req
 	}
-	isModelVersion001 := strings.HasSuffix(config.Model, "@001")
 	instances := make([]instance, len(input))
 	for i := range input {
-		if isModelVersion001 {
-			instances[i] = instance{Content: input[i]}
-		} else {
-			instances[i] = instance{Content: input[i], TaskType: taskType, Title: title}
-		}
+		instances[i] = instance{Content: input[i], TaskType: taskType, Title: title}
 	}
-	return embeddingsRequest{instances}
+	if config.Dimensions != nil {
+		return embeddingsRequest{Instances: instances, Parameters: &parameters{OutputDimensionality: config.Dimensions}}
+	}
+	return embeddingsRequest{Instances: instances}
 }
 
 func (v *google) checkResponse(statusCode int, googleApiError *googleApiError) error {
@@ -274,7 +272,12 @@ func isLegacyModel(model string) bool {
 }
 
 type embeddingsRequest struct {
-	Instances []instance `json:"instances,omitempty"`
+	Instances  []instance  `json:"instances,omitempty"`
+	Parameters *parameters `json:"parameters,omitempty"`
+}
+
+type parameters struct {
+	OutputDimensionality *int64 `json:"outputDimensionality,omitempty"`
 }
 
 type instance struct {
@@ -329,10 +332,11 @@ type batchEmbedContents struct {
 }
 
 type embedContentRequest struct {
-	Model    string   `json:"model"`
-	Content  content  `json:"content"`
-	TaskType taskType `json:"task_type,omitempty"`
-	Title    string   `json:"title,omitempty"`
+	Model                string   `json:"model"`
+	Content              content  `json:"content"`
+	TaskType             taskType `json:"taskType,omitempty"`
+	Title                string   `json:"title,omitempty"`
+	OutputDimensionality *int64   `json:"outputDimensionality,omitempty"`
 }
 
 type content struct {
