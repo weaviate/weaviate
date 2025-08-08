@@ -1556,7 +1556,12 @@ func TestService_Usage_NamedVectorsWithConfig(t *testing.T) {
 		},
 	}
 	shardingState.SetLocalName(nodeName)
-	mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardingState.AllPhysicalShards(), nil)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardingState)
+	}).Maybe()
 
 	mockDB := db.NewMockIndexGetter(t)
 	mockIndex := db.NewMockIndexLike(t)
@@ -1599,7 +1604,7 @@ func TestService_Usage_NamedVectorsWithConfig(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+	service := NewService(mockSchemaReader, mockDB, mockBackupProvider, nodeName, logger)
 
 	result, err := service.Usage(ctx)
 
