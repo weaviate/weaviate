@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"math"
 	"testing"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/tenantactivity"
 )
 
@@ -32,6 +34,7 @@ func TestShardActivity(t *testing.T) {
 					ClassName:         "Col1",
 					ReplicationFactor: 1,
 				},
+				closingCtx:          context.Background(),
 				partitioningEnabled: true,
 				shards:              shardMap{},
 			},
@@ -40,6 +43,7 @@ func TestShardActivity(t *testing.T) {
 					ClassName:         "NonMT",
 					ReplicationFactor: 1,
 				},
+				closingCtx:          context.Background(),
 				partitioningEnabled: false,
 				shards:              shardMap{},
 			},
