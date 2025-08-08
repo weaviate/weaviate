@@ -16,7 +16,7 @@ import (
 	"encoding/binary"
 
 	"github.com/google/uuid"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/packages/tokenizer"
 	ent "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -77,7 +77,7 @@ func (a *Analyzer) Text(tokenization, in string) []Countable {
 func (a *Analyzer) TextArray(tokenization string, inArr []string) []Countable {
 	var terms []string
 	for _, in := range inArr {
-		terms = append(terms, helpers.Tokenize(tokenization, in)...)
+		terms = append(terms, tokenizer.Tokenize(tokenization, in)...)
 	}
 
 	counts := map[string]uint64{}
