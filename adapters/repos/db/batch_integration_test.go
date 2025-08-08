@@ -85,8 +85,6 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 
 	simpleInsertObjects(t, repo, "ThingForBatching", 123)
 
-	time.Sleep(5 * time.Second)
-
 	dimAfter := getDimensionsFromRepo(context.Background(), repo, "ThingForBatching")
 	require.Equal(t, 369, dimAfter, "Dimensions are present after import")
 }
@@ -462,8 +460,6 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
 
 	simpleInsertObjects(t, repo, className, 103)
-
-	time.Sleep(5 * time.Second)
 
 	dimAfter := getDimensionsFromRepo(context.Background(), repo, className)
 	require.Equal(t, 309, dimAfter, "Dimensions are present before delete")
