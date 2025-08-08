@@ -302,15 +302,15 @@ func (v *openai) buildOpenAIUrl(ctx context.Context, params openaiparams.Params)
 func (v *openai) generateInput(prompt string, params openaiparams.Params) (generateInput, error) {
 	if config.IsLegacy(params.Model) {
 		return generateInput{
-			Prompt:           prompt,
-			Model:            params.Model,
-			FrequencyPenalty: params.FrequencyPenalty,
-			MaxTokens:        params.MaxTokens,
-			N:                params.N,
-			PresencePenalty:  params.PresencePenalty,
-			Stop:             params.Stop,
-			Temperature:      params.Temperature,
-			TopP:             params.TopP,
+			Prompt:              prompt,
+			Model:               params.Model,
+			FrequencyPenalty:    params.FrequencyPenalty,
+			MaxCompletionTokens: params.MaxTokens,
+			N:                   params.N,
+			PresencePenalty:     params.PresencePenalty,
+			Stop:                params.Stop,
+			Temperature:         params.Temperature,
+			TopP:                params.TopP,
 		}, nil
 	} else {
 		var input generateInput
@@ -351,15 +351,15 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params) (gener
 			return input, errors.Wrap(err, "determine tokens count")
 		}
 		input = generateInput{
-			Messages:         messages,
-			Stream:           false,
-			FrequencyPenalty: params.FrequencyPenalty,
-			MaxTokens:        tokens,
-			N:                params.N,
-			PresencePenalty:  params.PresencePenalty,
-			Stop:             params.Stop,
-			Temperature:      params.Temperature,
-			TopP:             params.TopP,
+			Messages:            messages,
+			Stream:              false,
+			FrequencyPenalty:    params.FrequencyPenalty,
+			MaxCompletionTokens: tokens,
+			N:                   params.N,
+			PresencePenalty:     params.PresencePenalty,
+			Stop:                params.Stop,
+			Temperature:         params.Temperature,
+			TopP:                params.TopP,
 		}
 		if !config.IsAzure(params.IsAzure, params.ResourceName, params.DeploymentID) {
 			// model is mandatory for OpenAI calls, but obsolete for Azure calls
@@ -442,19 +442,19 @@ func (v *openai) getOpenAIOrganization(ctx context.Context) string {
 }
 
 type generateInput struct {
-	Prompt           string    `json:"prompt,omitempty"`
-	Messages         []message `json:"messages,omitempty"`
-	Stream           bool      `json:"stream,omitempty"`
-	Model            string    `json:"model,omitempty"`
-	FrequencyPenalty *float64  `json:"frequency_penalty,omitempty"`
-	Logprobs         *bool     `json:"logprobs,omitempty"`
-	TopLogprobs      *int      `json:"top_logprobs,omitempty"`
-	MaxTokens        *int      `json:"max_tokens,omitempty"`
-	N                *int      `json:"n,omitempty"`
-	PresencePenalty  *float64  `json:"presence_penalty,omitempty"`
-	Stop             []string  `json:"stop,omitempty"`
-	Temperature      *float64  `json:"temperature,omitempty"`
-	TopP             *float64  `json:"top_p,omitempty"`
+	Prompt              string    `json:"prompt,omitempty"`
+	Messages            []message `json:"messages,omitempty"`
+	Stream              bool      `json:"stream,omitempty"`
+	Model               string    `json:"model,omitempty"`
+	FrequencyPenalty    *float64  `json:"frequency_penalty,omitempty"`
+	Logprobs            *bool     `json:"logprobs,omitempty"`
+	TopLogprobs         *int      `json:"top_logprobs,omitempty"`
+	MaxCompletionTokens *int      `json:"max_completion_tokens,omitempty"`
+	N                   *int      `json:"n,omitempty"`
+	PresencePenalty     *float64  `json:"presence_penalty,omitempty"`
+	Stop                []string  `json:"stop,omitempty"`
+	Temperature         *float64  `json:"temperature,omitempty"`
+	TopP                *float64  `json:"top_p,omitempty"`
 }
 
 type responseMessage struct {

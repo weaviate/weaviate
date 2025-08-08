@@ -46,17 +46,18 @@ var availableOpenAIModels = []string{
 	"gpt-4-1106-preview",
 	"gpt-4o",
 	"gpt-4o-mini",
+	"gpt-5",
 }
 
 var (
-	DefaultOpenAIModel            = "gpt-3.5-turbo"
+	DefaultOpenAIModel            = "gpt-5"
 	DefaultOpenAITemperature      = 0.0
 	DefaultOpenAIMaxTokens        = defaultMaxTokens[DefaultOpenAIModel]
 	DefaultOpenAIFrequencyPenalty = 0.0
 	DefaultOpenAIPresencePenalty  = 0.0
 	DefaultOpenAITopP             = 1.0
 	DefaultOpenAIBaseURL          = "https://api.openai.com"
-	DefaultApiVersion             = "2024-02-01"
+	DefaultApiVersion             = "2024-06-01"
 )
 
 // todo Need to parse the tokenLimits in a smarter way, as the prompt defines the max length
@@ -71,6 +72,7 @@ var defaultMaxTokens = map[string]float64{
 	"gpt-4-1106-preview": 128000,
 	"gpt-4o":             128000,
 	"gpt-4o-mini":        128000,
+	"gpt-5":              128000,
 }
 
 var availableApiVersions = []string{
