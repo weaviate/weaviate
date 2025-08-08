@@ -338,7 +338,7 @@ function run_acceptance_go_client_only_fast() {
     # tests with go client are in a separate package with its own dependencies to isolate them
     cd 'test/acceptance_with_go_client'
     for pkg in $(go list ./... | grep -v 'acceptance_tests_with_client/named_vectors_tests'); do
-      if ! go test -count 1 -race "$pkg" -timeout 20m; then
+      if ! go test -count 1 -race "$pkg" ; then
         echo "Test for $pkg failed" >&2
         return 1
       fi
@@ -411,7 +411,7 @@ function run_acceptance_replica_replication_slow_tests() {
 
 function run_acceptance_replication_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/read_repair'); do
-    if ! go test -count 1 -race "$pkg" -timeout 20m; then
+    if ! go test -count 1 -race "$pkg" ; then
       echo "Test for $pkg failed" >&2
       return 1
     fi

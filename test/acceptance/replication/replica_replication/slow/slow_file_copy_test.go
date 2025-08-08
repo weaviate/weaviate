@@ -67,7 +67,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy(
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 599*time.Second)
 	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
