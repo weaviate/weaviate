@@ -12,10 +12,15 @@
 package lsmkv
 
 import (
+	"encoding/binary"
+	"path/filepath"
 	"testing"
 
 	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 func TestSegmentGroup_Size(t *testing.T) {
@@ -379,6 +384,57 @@ func TestSegmentGroup_MetadataSize_ComplexScenarios(t *testing.T) {
 	}
 }
 
+func TestSegmentGroup_MetadataSize_WithWriteMetadata(t *testing.T) {
+	tests := []struct {
+		name          string
+		writeMetadata bool
+		segments      []*segment
+		expectedSize  int64
+		description   string
+	}{
+		{
+			name:          "writeMetadata disabled - count bloom filters and .cna files",
+			writeMetadata: false,
+			segments: []*segment{
+				createMockSegmentWithMetadata(true, 48, []int{}), // 48 bytes (bloom filter) + 12 bytes (.cna file)
+				createMockSegmentWithMetadata(true, 48, []int{}), // 48 bytes (bloom filter) + 12 bytes (.cna file)
+			},
+			expectedSize: 120, // 2 * (48 + 12) bytes
+			description:  "should count bloom filters and .cna files when writeMetadata is disabled",
+		},
+		{
+			name:          "writeMetadata enabled - count metadata files",
+			writeMetadata: true,
+			segments: []*segment{
+				createMockSegmentWithMetadataFile(t, true, 48, []int{}), // metadata file with bloom filter + count
+				createMockSegmentWithMetadataFile(t, true, 48, []int{}), // metadata file with bloom filter + count
+			},
+			// Expected size: 138 bytes (includes metadata file header overhead: checksum + version + length indicators)
+			expectedSize: 138, // Actual metadata file size (includes header overhead)
+			description:  "should count metadata files when writeMetadata is enabled (requires actual files)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Convert []*segment to []Segment for the test
+			segments := make([]Segment, len(tt.segments))
+			for i, seg := range tt.segments {
+				segments[i] = seg
+			}
+
+			sg := &SegmentGroup{
+				segments:      segments,
+				writeMetadata: tt.writeMetadata,
+			}
+
+			result := sg.MetadataSize()
+
+			assert.Equal(t, tt.expectedSize, result, tt.description)
+		})
+	}
+}
+
 // createTestBloomFilter creates a bloom filter with some data for testing
 func createTestBloomFilter() *bloom.BloomFilter {
 	// Create a bloom filter with the same parameters as the actual implementation
@@ -386,4 +442,80 @@ func createTestBloomFilter() *bloom.BloomFilter {
 	bf := bloom.NewWithEstimates(10, 0.001)
 	bf.Add([]byte("test"))
 	return bf
+}
+
+// createMockSegmentWithMetadataFile creates a segment with an actual metadata file for testing writeMetadata scenarios
+func createMockSegmentWithMetadataFile(t *testing.T, hasCNA bool, bloomFilterSize int, secondaryBloomFilterSizes []int) *segment {
+	seg := &segment{
+		calcCountNetAdditions: hasCNA,
+		useBloomFilter:        true,
+		strategy:              segmentindex.StrategyReplace,
+	}
+
+	// Create a temporary directory for the segment
+	tempDir := t.TempDir()
+	seg.path = filepath.Join(tempDir, "test.dat")
+
+	if bloomFilterSize > 0 {
+		// Create a bloom filter with some data
+		seg.bloomFilter = createTestBloomFilter()
+	}
+
+	if len(secondaryBloomFilterSizes) > 0 {
+		seg.secondaryIndexCount = uint16(len(secondaryBloomFilterSizes))
+		seg.secondaryBloomFilters = make([]*bloom.BloomFilter, len(secondaryBloomFilterSizes))
+		for i, size := range secondaryBloomFilterSizes {
+			if size > 0 {
+				seg.secondaryBloomFilters[i] = createTestBloomFilter()
+			}
+		}
+	}
+
+	// Use the actual implementation to write the metadata file
+	metadataPath := seg.metadataPath()
+	if metadataPath != "" {
+		// Create primary bloom filter data directly
+		var primaryBloom []byte
+		if seg.bloomFilter != nil {
+			bfSize := getBloomFilterSize(seg.bloomFilter)
+			rw := byteops.NewReadWriter(make([]byte, bfSize))
+			if _, err := seg.bloomFilter.WriteTo(&rw); err != nil {
+				t.Fatalf("failed to write primary bloom filter: %v", err)
+			}
+			primaryBloom = rw.Buffer
+		}
+
+		// Create secondary bloom filters data directly
+		var secondaryBloom [][]byte
+		if seg.secondaryIndexCount > 0 {
+			secondaryBloom = make([][]byte, seg.secondaryIndexCount)
+			for i, bf := range seg.secondaryBloomFilters {
+				if bf != nil {
+					bfSize := getBloomFilterSize(bf)
+					rw := byteops.NewReadWriter(make([]byte, bfSize))
+					if _, err := bf.WriteTo(&rw); err != nil {
+						t.Fatalf("failed to write secondary bloom filter %d: %v", i, err)
+					}
+					secondaryBloom[i] = rw.Buffer
+				}
+			}
+		}
+
+		// Create CNA data directly
+		var netAdditions []byte
+		if hasCNA {
+			// Create a simple CNA with a test count
+			cnaData := make([]byte, 8)
+			binary.LittleEndian.PutUint64(cnaData, 42) // Some test count
+			netAdditions = cnaData
+		}
+
+		// Use the actual implementation to write the metadata file
+		err := seg.writeMetadataToDisk(metadataPath, primaryBloom, secondaryBloom, netAdditions)
+		if err != nil {
+			t.Fatalf("failed to write metadata file: %v", err)
+		}
+	}
+
+	return seg
 }

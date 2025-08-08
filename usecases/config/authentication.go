@@ -69,6 +69,7 @@ type OIDC struct {
 	GroupsClaim       *runtime.DynamicValue[string]   `yaml:"groups_claim" json:"groups_claim"`
 	Scopes            *runtime.DynamicValue[[]string] `yaml:"scopes" json:"scopes"`
 	Certificate       *runtime.DynamicValue[string]   `yaml:"certificate" json:"certificate"`
+	JWKSUrl           *runtime.DynamicValue[string]   `yaml:"jwks_url" json:"jwks_url"`
 }
 
 type StaticAPIKey struct {

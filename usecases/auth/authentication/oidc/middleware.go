@@ -20,12 +20,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	errors "github.com/go-openapi/errors"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -34,16 +36,17 @@ import (
 // used with the goswagger API
 type Client struct {
 	Config   config.OIDC
-	provider *oidc.Provider
 	verifier *oidc.IDTokenVerifier
+	logger   logrus.FieldLogger
 }
 
 // New OIDC Client: It tries to retrieve the JWKs at startup (or fails), it
 // provides a middleware which can be used at runtime with a go-swagger style
 // API
-func New(cfg config.Config) (*Client, error) {
+func New(cfg config.Config, logger logrus.FieldLogger) (*Client, error) {
 	client := &Client{
 		Config: cfg.Authentication.OIDC,
+		logger: logger.WithField("component", "oidc"),
 	}
 
 	if !client.Config.Enabled {
@@ -64,6 +67,7 @@ func (c *Client) Init() error {
 	if err := c.validateConfig(); err != nil {
 		return fmt.Errorf("invalid config: %w", err)
 	}
+	c.logger.WithField("action", "oidc_init").Info("validated OIDC configuration")
 
 	ctx := context.Background()
 	if c.Config.Certificate.Get() != "" {
@@ -72,21 +76,33 @@ func (c *Client) Init() error {
 			return fmt.Errorf("could not setup client with custom certificate: %w", err)
 		}
 		ctx = oidc.ClientContext(ctx, client)
+		c.logger.WithField("action", "oidc_init").Info("configured OIDC client with custom certificate")
 	}
 
-	provider, err := oidc.NewProvider(ctx, c.Config.Issuer.Get())
-	if err != nil {
-		return fmt.Errorf("could not setup provider: %w", err)
+	if c.Config.JWKSUrl.Get() != "" {
+		keySet := oidc.NewRemoteKeySet(ctx, c.Config.JWKSUrl.Get())
+		verifier := oidc.NewVerifier(c.Config.Issuer.Get(), keySet, &oidc.Config{
+			ClientID:          c.Config.ClientID.Get(),
+			SkipClientIDCheck: c.Config.SkipClientIDCheck.Get(),
+		})
+		c.verifier = verifier
+		c.logger.WithField("action", "oidc_init").WithField("jwks_url", c.Config.JWKSUrl.Get()).Info("configured OIDC verifier")
+	} else {
+		provider, err := oidc.NewProvider(ctx, c.Config.Issuer.Get())
+		if err != nil {
+			return fmt.Errorf("could not setup provider: %w", err)
+		}
+		c.logger.WithField("action", "oidc_init").Info("configured OIDC provider")
+
+		// oauth2
+
+		verifier := provider.Verifier(&oidc.Config{
+			ClientID:          c.Config.ClientID.Get(),
+			SkipClientIDCheck: c.Config.SkipClientIDCheck.Get(),
+		})
+		c.verifier = verifier
+		c.logger.WithField("action", "oidc_init").Info("configured OIDC verifier")
 	}
-	c.provider = provider
-
-	// oauth2
-
-	verifier := provider.Verifier(&oidc.Config{
-		ClientID:          c.Config.ClientID.Get(),
-		SkipClientIDCheck: c.Config.SkipClientIDCheck.Get(),
-	})
-	c.verifier = verifier
 
 	return nil
 }
@@ -180,6 +196,10 @@ func (c *Client) extractGroups(claims map[string]interface{}) []string {
 
 	groupsSlice, ok := groupsUntyped.([]interface{})
 	if !ok {
+		groupAsString, ok := groupsUntyped.(string)
+		if ok {
+			return []string{groupAsString}
+		}
 		return groups
 	}
 
@@ -193,7 +213,7 @@ func (c *Client) extractGroups(claims map[string]interface{}) []string {
 }
 
 func (c *Client) useCertificate() (*http.Client, error) {
-	var certificate string
+	var certificate, certificateSource string
 	if strings.HasPrefix(c.Config.Certificate.Get(), "http") {
 		resp, err := http.Get(c.Config.Certificate.Get())
 		if err != nil {
@@ -208,16 +228,28 @@ func (c *Client) useCertificate() (*http.Client, error) {
 			return nil, fmt.Errorf("failed to read certificate from %s: %w", c.Config.Certificate.Get(), err)
 		}
 		certificate = string(certBytes)
+		certificateSource = c.Config.Certificate.Get()
 	} else if strings.HasPrefix(c.Config.Certificate.Get(), "s3://") {
 		parts := strings.TrimPrefix(c.Config.Certificate.Get(), "s3://")
 		segments := strings.SplitN(parts, "/", 2)
 		if len(segments) != 2 {
 			return nil, fmt.Errorf("invalid S3 URI, must contain bucket and key: %s", c.Config.Certificate.Get())
 		}
+		region := os.Getenv("AWS_REGION")
+		if region == "" {
+			region = os.Getenv("AWS_DEFAULT_REGION")
+		}
+		creds := credentials.NewIAM("")
+		// check if we are able to get the credentials using AWS IAM
+		if _, err := creds.GetWithContext(nil); err != nil {
+			// if IAM doesn't work, check environment settings for creds, set anonymous access if none found
+			creds = credentials.NewEnvAWS()
+		}
 		bucketName, objectKey := segments[0], segments[1]
 		minioClient, err := minio.New("s3.amazonaws.com", &minio.Options{
-			Creds:  credentials.NewEnvAWS(),
+			Creds:  creds,
 			Secure: true,
+			Region: region,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create S3 client: %w", err)
@@ -232,8 +264,10 @@ func (c *Client) useCertificate() (*http.Client, error) {
 			return nil, fmt.Errorf("failed to read certificate from %s: %w", c.Config.Certificate.Get(), err)
 		}
 		certificate = content.String()
+		certificateSource = c.Config.Certificate.Get()
 	} else {
 		certificate = c.Config.Certificate.Get()
+		certificateSource = "environment variable"
 	}
 
 	certBlock, _ := pem.Decode([]byte(certificate))
@@ -244,6 +278,8 @@ func (c *Client) useCertificate() (*http.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse certificate: %w", err)
 	}
+
+	c.logger.WithField("action", "oidc_init").WithField("source", certificateSource).Info("custom certificate is valid")
 
 	certPool := x509.NewCertPool()
 	certPool.AddCert(cert)

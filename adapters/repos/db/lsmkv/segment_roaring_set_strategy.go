@@ -12,65 +12,113 @@
 package lsmkv
 
 import (
-	"fmt"
-
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 // returned bitmaps are cloned and safe to mutate
-func (s *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
+func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool,
+) (l roaringset.BitmapLayer, release func(), err error) {
 	out := roaringset.BitmapLayer{}
 
-	if s.strategy != segmentindex.StrategyRoaringSet {
-		return out, fmt.Errorf("need strategy %s", StrategyRoaringSet)
+	if err := segmentindex.CheckExpectedStrategy(s.strategy, segmentindex.StrategyRoaringSet); err != nil {
+		return out, noopRelease, err
 	}
 
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
-		return out, lsmkv.NotFound
+		return out, noopRelease, lsmkv.NotFound
 	}
-
 	node, err := s.index.Get(key)
 	if err != nil {
-		return out, err
+		return out, noopRelease, err
 	}
 
-	sn, copied, err := s.segmentNodeFromBuffer(nodeOffset{node.Start, node.End})
-	if err != nil {
-		return out, err
-	}
-
-	if copied {
-		out.Additions = sn.Additions()
-		out.Deletions = sn.Deletions()
-	} else {
-		// make sure that any data is copied before exiting this method, otherwise we
-		// risk a SEGFAULT as described in
-		// https://github.com/weaviate/weaviate/issues/1837
-		out.Additions = sn.AdditionsWithCopy()
-		out.Deletions = sn.DeletionsWithCopy()
-	}
-	return out, nil
-}
-
-func (s *segment) segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentNode, bool, error) {
-	var contents []byte
-	copied := false
+	var releaseAdd, releaseDel func()
+	offset := nodeOffset{node.Start, node.End}
 	if s.readFromMemory {
-		contents = s.contents[offset.start:offset.end]
+		sn, err := s.segmentNodeFromBufferMmap(offset)
+		if err != nil {
+			return out, noopRelease, err
+		}
+		out.Deletions, releaseDel = bitmapBufPool.CloneToBuf(sn.Deletions())
+		out.Additions, releaseAdd = bitmapBufPool.CloneToBuf(sn.Additions())
 	} else {
-		contents = make([]byte, offset.end-offset.start)
-		r, err := s.bufferedReaderAt(offset.start, "roaringSetRead")
+		sn, release, err := s.segmentNodeFromBufferPread(offset, bitmapBufPool)
 		if err != nil {
-			return nil, false, err
+			return out, noopRelease, err
 		}
-		_, err = r.Read(contents)
-		if err != nil {
-			return nil, false, err
-		}
-		copied = true
+		out.Deletions, releaseDel = bitmapBufPool.CloneToBuf(sn.Deletions())
+		// reuse buffer of entire segment node.
+		// node's data might get overwritten by changes of underlying additions bitmap.
+		// overwrites should be safe, as other data is not used later on
+		out.Additions, releaseAdd = sn.AdditionsUnlimited(), release
 	}
 
-	return roaringset.NewSegmentNodeFromBuffer(contents), copied, nil
+	return out, func() { releaseAdd(); releaseDel() }, nil
 }
+
+func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool,
+) error {
+	if err := segmentindex.CheckExpectedStrategy(s.strategy, segmentindex.StrategyRoaringSet); err != nil {
+		return err
+	}
+
+	if s.useBloomFilter && !s.bloomFilter.Test(key) {
+		return nil
+	}
+	node, err := s.index.Get(key)
+	if err != nil {
+		if errors.Is(err, lsmkv.NotFound) {
+			return nil
+		}
+		return err
+	}
+
+	var sn *roaringset.SegmentNode
+	offset := nodeOffset{node.Start, node.End}
+	if s.readFromMemory {
+		sn, err = s.segmentNodeFromBufferMmap(offset)
+	} else {
+		var release func()
+		sn, release, err = s.segmentNodeFromBufferPread(offset, bitmapBufPool)
+		defer release()
+	}
+	if err != nil {
+		return err
+	}
+
+	input.Additions.
+		AndNotConc(sn.Deletions(), concurrency.SROAR_MERGE).
+		OrConc(sn.Additions(), concurrency.SROAR_MERGE)
+	return nil
+}
+
+func (s *segment) segmentNodeFromBufferMmap(offset nodeOffset,
+) (sn *roaringset.SegmentNode, err error) {
+	return roaringset.NewSegmentNodeFromBuffer(s.contents[offset.start:offset.end]), nil
+}
+
+func (s *segment) segmentNodeFromBufferPread(offset nodeOffset, bitmapBufPool roaringset.BitmapBufPool,
+) (sn *roaringset.SegmentNode, release func(), err error) {
+	reader, readerRelease, err := s.bufferedReaderAt(offset.start, "roaringSetRead")
+	if err != nil {
+		return nil, noopRelease, err
+	}
+	defer readerRelease()
+
+	ln := int(offset.end - offset.start)
+	contents, release := bitmapBufPool.Get(ln)
+	contents = contents[:ln]
+
+	_, err = reader.Read(contents)
+	if err != nil {
+		release()
+		return nil, noopRelease, err
+	}
+	return roaringset.NewSegmentNodeFromBuffer(contents), release, nil
+}
+
+var noopRelease = func() {}

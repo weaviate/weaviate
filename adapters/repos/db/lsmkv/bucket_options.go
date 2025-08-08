@@ -89,6 +89,14 @@ func WithSecondaryIndices(count uint16) BucketOption {
 	}
 }
 
+// WithWriteMetadata enables writing all metadata (primary+secondary bloom+ cna) in a single file instead of separate files
+func WithWriteMetadata(writeMetadata bool) BucketOption {
+	return func(b *Bucket) error {
+		b.writeMetadata = writeMetadata
+		return nil
+	}
+}
+
 func WithLegacyMapSorting() BucketOption {
 	return func(b *Bucket) error {
 		b.legacyMapSortingBeforeCompaction = true
@@ -123,6 +131,13 @@ func WithDynamicMemtableSizing(
 func WithAllocChecker(mm memwatch.AllocChecker) BucketOption {
 	return func(b *Bucket) error {
 		b.allocChecker = mm
+		return nil
+	}
+}
+
+func WithWriteSegmentInfoIntoFileName(writeSegmentInfoIntoFileName bool) BucketOption {
+	return func(b *Bucket) error {
+		b.writeSegmentInfoIntoFileName = writeSegmentInfoIntoFileName
 		return nil
 	}
 }

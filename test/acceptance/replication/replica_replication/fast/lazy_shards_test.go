@@ -63,7 +63,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWithLazyShardLoading(
 
 	// Get a random subset of tenants to replicate
 	t.Log("Selecting random tenants for replication")
-	randomTenants := randomTenants(tenantNames, len(tenantNames)/4)
+	randomTenants := random(tenantNames, len(tenantNames)/4)
 
 	// Find the nodes on which the tenants are located
 	t.Log("Finding nodes for tenants")
@@ -86,7 +86,6 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWithLazyShardLoading(
 			}
 		}
 	}
-	t.Log(replicaByTenant, nodeNames)
 
 	// Deactivate all the tenants
 	t.Log("Deactivating all tenants")
@@ -157,12 +156,12 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWithLazyShardLoading(
 	}, 300*time.Second, 5*time.Second, "replication operations did not complete in time")
 }
 
-func randomTenants(s []string, k int) []string {
+func random[T any](s []T, k int) []T {
 	if k > len(s) {
 		k = len(s)
 	}
 	indices := rand.Perm(len(s))[:k]
-	result := make([]string, k)
+	result := make([]T, k)
 	for i, idx := range indices {
 		result[i] = s[idx]
 	}

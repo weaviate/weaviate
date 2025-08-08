@@ -102,6 +102,11 @@ func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func
 			multimodal.InsertObjects(t, dataFolderPath, class.Class, true)
 		})
 
+		t.Run("check objects", func(t *testing.T) {
+			vectorNames := []string{"clip_google", "clip_google_128", "clip_google_256", "clip_google_video", "clip_google_weights"}
+			multimodal.CheckObjects(t, dataFolderPath, class.Class, vectorNames, nil)
+		})
+
 		t.Run("nearImage", func(t *testing.T) {
 			blob, err := multimodal.GetImageBlob(dataFolderPath, 2)
 			require.NoError(t, err)

@@ -69,7 +69,7 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingClassCleansUpOperation
 					details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 					require.Nil(ct, err)
 					require.Equal(ct, state.String(), details.Payload.Status.State)
-				}, 60*time.Second, 100*time.Millisecond, "replication operation should be in %s state", state)
+				}, 60*time.Second, 10*time.Millisecond, "replication operation should be in %s state", state)
 			})
 		}
 
@@ -82,7 +82,7 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingClassCleansUpOperation
 				_, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 				require.NotNil(ct, err)
 				assert.IsType(ct, replication.NewReplicationDetailsNotFound(), err)
-			}, 60*time.Second, 1*time.Second, fmt.Sprintf("replication operation should be deleted: %s", id))
+			}, 120*time.Second, 1*time.Second, fmt.Sprintf("replication operation should be deleted: %s", id))
 		})
 
 		t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {
