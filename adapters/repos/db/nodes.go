@@ -187,7 +187,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		className := i.Config.ClassName.String()
 		if lazy, ok := shard.(*LazyLoadShard); ok {
 			if !lazy.isLoaded() {
-				numberOfReplicas, replicationFactor := getShardReplicationDetails(i, shardName)
+				numberOfReplicas, replicationFactor := getShardReplicationDetails(i, shard.Name())
 				shardStatus := &models.NodeShardStatus{
 					Name:                 name,
 					Class:                className,
@@ -222,7 +222,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			return nil
 		})
 
-		numberOfReplicas, replicationFactor := getShardReplicationDetails(i, shardName)
+		numberOfReplicas, replicationFactor := getShardReplicationDetails(i, shard.Name())
 		if err != nil {
 			i.logger.Errorf("error while getting number of replicas for shard %s: %w", shard.Name(), err)
 		}
