@@ -585,8 +585,10 @@ func Test_Filters_Int(t *testing.T) {
 	t.Run("strategy roaringset", func(t *testing.T) {
 		propName := "inverted-without-frequency-roaringset"
 		bucketName := helpers.BucketFromPropNameLSM(propName)
-		require.NoError(t, store.CreateOrLoadBucket(context.Background(),
-			bucketName, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
+		require.NoError(t, store.CreateOrLoadBucket(context.Background(), bucketName,
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+			lsmkv.WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+		))
 		bucket := store.Bucket(bucketName)
 
 		t.Run("import data", func(t *testing.T) {
@@ -1232,6 +1234,14 @@ func createSchema() *schema.Schema {
 						{
 							Name:              "inverted-without-frequency-roaringset",
 							DataType:          schema.DataTypeInt.PropString(),
+							IndexFilterable:   &vTrue,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+						},
+						{
+							Name:              "inverted-text-roaringset",
+							DataType:          schema.DataTypeText.PropString(),
+							Tokenization:      models.PropertyTokenizationField,
 							IndexFilterable:   &vTrue,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,

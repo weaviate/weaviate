@@ -12,9 +12,11 @@
 package roaringset
 
 import (
+	"encoding/binary"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/sroar"
 )
 
 func TestCombinedCursor(t *testing.T) {
@@ -405,4 +407,45 @@ func createCursorKeyOnly(t *testing.T, bsts ...*BinarySearchTree) *CombinedCurso
 	c := createCursor(t, bsts...)
 	c.keyOnly = true
 	return c
+}
+
+// Previous implementation of cursor called recursively Next() when empty entry occurred,
+// which could lead to stack overflow. This test prevents a regression.
+func TestCombinedCursor_StackOverflow(t *testing.T) {
+	cursor := NewCombinedCursor([]InnerCursor{&emptyInnerCursor{}}, false)
+
+	k, bm := cursor.First()
+	assert.Nil(t, k)
+	assert.True(t, bm.IsEmpty())
+}
+
+type emptyInnerCursor struct {
+	key uint64
+}
+
+func (c *emptyInnerCursor) First() ([]byte, BitmapLayer, error) {
+	c.key = 0
+	return c.bytes(), c.layer(), nil
+}
+
+func (c *emptyInnerCursor) Next() ([]byte, BitmapLayer, error) {
+	if c.key > 1<<22 {
+		return nil, BitmapLayer{}, nil
+	}
+	c.key++
+	return c.bytes(), c.layer(), nil
+}
+
+func (c *emptyInnerCursor) Seek(key []byte) ([]byte, BitmapLayer, error) {
+	return c.First()
+}
+
+func (c *emptyInnerCursor) bytes() []byte {
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, c.key)
+	return b
+}
+
+func (c *emptyInnerCursor) layer() BitmapLayer {
+	return BitmapLayer{Additions: sroar.NewBitmap(), Deletions: sroar.NewBitmap()}
 }

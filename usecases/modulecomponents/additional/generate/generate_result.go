@@ -13,8 +13,8 @@ package generate
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -153,15 +153,22 @@ func (p *GenerateProvider) getProperties(result search.Result,
 
 		if dt, ok := propertyDataTypes[property]; ok {
 			switch dt {
-			// todo: add rest of types
-			case schema.DataTypeText:
-				textProperties[property] = value.(string)
-			case schema.DataTypeTextArray:
-				textProperties[property] = strings.Join(value.([]string), ",")
+			case schema.DataTypeTextArray, schema.DataTypeDateArray, schema.DataTypeStringArray,
+				schema.DataTypeNumberArray, schema.DataTypeIntArray, schema.DataTypeBooleanArray,
+				schema.DataTypeUUIDArray:
+				textProperties[property] = p.marshalInput(value)
+			case schema.DataTypeObject, schema.DataTypeObjectArray:
+				textProperties[property] = p.marshalInput(value)
+			case schema.DataTypePhoneNumber, schema.DataTypeGeoCoordinates:
+				textProperties[property] = p.marshalInput(value)
+			case schema.DataTypeCRef:
+				textProperties[property] = p.marshalInput(value)
 			case schema.DataTypeBlob:
 				v := value.(string)
 				blobProperties[property] = &v
 			default:
+				// all primitive types
+				textProperties[property] = fmt.Sprintf("%v", value)
 			}
 		}
 	}
@@ -169,6 +176,13 @@ func (p *GenerateProvider) getProperties(result search.Result,
 		Text: textProperties,
 		Blob: blobProperties,
 	}
+}
+
+func (p *GenerateProvider) marshalInput(in any) string {
+	if val, err := json.Marshal(in); err == nil {
+		return string(val)
+	}
+	return fmt.Sprintf("%v", in)
 }
 
 func (p *GenerateProvider) setCombinedResult(in []search.Result, i int,

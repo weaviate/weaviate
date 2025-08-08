@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	usagetypes "github.com/weaviate/weaviate/usecases/modulecomponents/usage/types"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -101,21 +102,13 @@ type RuntimeOverrides struct {
 	LoadInterval time.Duration `json:"load_interval" yaml:"load_interval"`
 }
 
-// UsageConfig holds configuration for usage data collection and upload
-type UsageConfig struct {
-	GCSAuth        *runtime.DynamicValue[bool]          `json:"usage_gcs_auth" yaml:"usage_gcs_auth"`
-	GCSBucket      *runtime.DynamicValue[string]        `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
-	GCSPrefix      *runtime.DynamicValue[string]        `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
-	ScrapeInterval *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
-	PolicyVersion  *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
-}
-
 // Config outline of the config file
 type Config struct {
 	Name                                string                   `json:"name" yaml:"name"`
 	Debug                               bool                     `json:"debug" yaml:"debug"`
 	QueryDefaults                       QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
 	QueryMaximumResults                 int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
+	QueryHybridMaximumResults           int64                    `json:"query_hybrid_maximum_results" yaml:"query_hybrid_maximum_results"`
 	QueryNestedCrossReferenceLimit      int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
 	QueryCrossReferenceDepthLimit       int                      `json:"query_cross_reference_depth_limit" yaml:"query_cross_reference_depth_limit"`
 	Contextionary                       Contextionary            `json:"contextionary" yaml:"contextionary"`
@@ -140,6 +133,7 @@ type Config struct {
 	MaximumConcurrentGetRequests        int                      `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
 	MaximumConcurrentShardLoads         int                      `json:"maximum_concurrent_shard_loads" yaml:"maximum_concurrent_shard_loads"`
 	TrackVectorDimensions               bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
+	TrackVectorDimensionsInterval       time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
 	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
 	DisableLazyLoadShards               bool                     `json:"disable_lazy_load_shards" yaml:"disable_lazy_load_shards"`
 	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
@@ -207,6 +201,9 @@ type Config struct {
 	QuerySlowLogEnabled   *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
 	QuerySlowLogThreshold *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
 
+	QueryBitmapBufsMaxMemory  int `json:"query_bitmap_bufs_max_memory" yaml:"query_bitmap_bufs_max_memory"`
+	QueryBitmapBufsMaxBufSize int `json:"query_bitmap_bufs_max_buf_size" yaml:"query_bitmap_bufs_max_buf_size"`
+
 	// InvertedSorterDisabled forces the "objects bucket" strategy and doesn't
 	// not consider inverted sorting, even when the query planner thinks this is
 	// the better option.
@@ -221,7 +218,7 @@ type Config struct {
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
 	// Usage configuration for the usage module
-	Usage UsageConfig `json:"usage" yaml:"usage"`
+	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
 }
 
 type MapToBlockamaxConfig struct {
@@ -337,11 +334,15 @@ func (a AutoSchema) Validate() error {
 
 // QueryDefaults for optional parameters
 type QueryDefaults struct {
-	Limit int64 `json:"limit" yaml:"limit"`
+	Limit        int64 `json:"limit" yaml:"limit"`
+	LimitGraphQL int64 `json:"limitGraphQL" yaml:"limitGraphQL"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
-const DefaultQueryDefaultsLimit int64 = 10
+const (
+	DefaultQueryDefaultsLimit        int64 = 10
+	DefaultQueryDefaultsLimitGraphQL int64 = 100
+)
 
 type Contextionary struct {
 	URL string `json:"url" yaml:"url"`
@@ -382,6 +383,8 @@ type Persistence struct {
 	IndexRangeableInMemory                       bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
 	MinMMapSize                                  int64  `json:"minMMapSize" yaml:"minMMapSize"`
 	LazySegmentsDisabled                         bool   `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
+	SegmentInfoIntoFileNameEnabled               bool   `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`
+	WriteMetadataFilesEnabled                    bool   `json:"writeMetadataFilesEnabled" yaml:"writeMetadataFilesEnabled"`
 	MaxReuseWalSize                              int64  `json:"MaxReuseWalSize" yaml:"MaxReuseWalSize"`
 	HNSWMaxLogSize                               int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 	HNSWDisableSnapshots                         bool   `json:"hnswDisableSnapshots" yaml:"hnswDisableSnapshots"`

@@ -18,12 +18,10 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 )
 
 func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, alias, className string) ([]*models.Alias, error) {
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.Aliases(className, alias)...); err != nil {
-		return nil, err
-	}
 	var class *models.Class
 	if className != "" {
 		name := schema.UppercaseClassName(className)
@@ -33,7 +31,27 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 	if err != nil {
 		return nil, err
 	}
-	return aliases, nil
+
+	filteredAliases := filter.New[*models.Alias](h.Authorizer, h.config.Authorization.Rbac).Filter(
+		ctx,
+		h.logger,
+		principal,
+		aliases,
+		authorization.READ,
+		func(alias *models.Alias) string {
+			return authorization.Aliases(className, alias.Alias)[0]
+		},
+	)
+
+	return filteredAliases, nil
+}
+
+func (h *Handler) GetAlias(ctx context.Context, principal *models.Principal, alias string) ([]*models.Alias, error) {
+	alias = schema.UppercaseClassName(alias)
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.Aliases("", alias)...); err != nil {
+		return nil, err
+	}
+	return h.GetAliases(ctx, principal, alias, "")
 }
 
 func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
@@ -41,10 +59,19 @@ func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
 ) (*models.Alias, uint64, error) {
 	alias.Class = schema.UppercaseClassName(alias.Class)
 	alias.Alias = schema.UppercaseClassName(alias.Alias)
+
 	err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Aliases(alias.Class, alias.Alias)...)
 	if err != nil {
 		return nil, 0, err
 	}
+
+	// alias should have same validation as collection.
+	al, err := schema.ValidateAliasName(alias.Alias)
+	if err != nil {
+		return nil, 0, err
+	}
+	alias.Alias = al
+
 	class := h.schemaReader.ReadOnlyClass(alias.Class)
 	version, err := h.schemaManager.CreateAlias(ctx, alias.Alias, class)
 	if err != nil {

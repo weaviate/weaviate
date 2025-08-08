@@ -155,6 +155,8 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		lsmkv.WithCalcCountNetAdditions(true),
 		// dont lazy segment load object bucket - we need it in most (all?) operations
+		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
+		lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
 	}
 
 	if s.metrics != nil && !s.metrics.grouped {
@@ -190,7 +192,6 @@ func (s *Shard) initIndexCounterVersionerAndBitmapFactory() error {
 		return fmt.Errorf("init index counter: %w", err)
 	}
 	s.counter = counter
-	s.bitmapBufPool = roaringset.NewBitmapBufPool(1024, 1.1)
 	// counter is incremented whenever new docID is fetched, therefore last docID is lower by 1
 	s.bitmapFactory = roaringset.NewBitmapFactory(s.bitmapBufPool, func() uint64 { return s.counter.Get() - 1 })
 
