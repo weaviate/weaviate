@@ -36,7 +36,6 @@ import (
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	backupusecase "github.com/weaviate/weaviate/usecases/backup"
-	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -1385,8 +1384,7 @@ func TestService_Usage_RQCompressionWithBits(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mockSchema := schema.NewMockSchemaGetter(t)
-			mockClassSchema := models.Schema{
+			sch := models.Schema{
 				Classes: []*models.Class{
 					{
 						Class: className,
@@ -1402,7 +1400,6 @@ func TestService_Usage_RQCompressionWithBits(t *testing.T) {
 					},
 				},
 			}
-			mockSchema.EXPECT().NodeName().Return(nodeName).Maybe()
 
 			shardingState := &sharding.State{
 				Physical: map[string]sharding.Physical{
@@ -1419,7 +1416,7 @@ func TestService_Usage_RQCompressionWithBits(t *testing.T) {
 				class := &models.Class{Class: className}
 				return readFunc(class, shardingState)
 			}).Maybe()
-			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: mockClassSchema.Classes}).Maybe()
+			mockSchemaReader.EXPECT().ReadOnlySchema().Return(sch).Maybe()
 
 			mockDB := db.NewMockIndexGetter(t)
 			mockIndex := db.NewMockIndexLike(t)
@@ -1480,7 +1477,7 @@ func TestService_Usage_RQCompressionWithBits(t *testing.T) {
 			assert.Equal(t, compressionRatio, vector.VectorCompressionRatio)
 			assert.Equal(t, tc.expected, vector.Bits, "Bits should match the RQ configuration")
 
-			mockSchema.AssertExpectations(t)
+			mockSchemaReader.AssertExpectations(t)
 			mockDB.AssertExpectations(t)
 			mockIndex.AssertExpectations(t)
 			mockShard.AssertExpectations(t)
@@ -1511,40 +1508,35 @@ func TestService_Usage_NamedVectorsWithConfig(t *testing.T) {
 
 	imageVectorType := "hnsw"
 	imageCompression := "standard"
-
-	mockSchema := schema.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{
-				{
-					Class: className,
-					// No legacy VectorIndexConfig - only named vectors
-					ReplicationConfig: &models.ReplicationConfig{Factor: int64(replication)},
-					VectorConfig: map[string]models.VectorConfig{
-						textVectorName: {
-							VectorIndexType: textVectorType,
-							VectorIndexConfig: func() hnsw.UserConfig {
-								config := hnsw.UserConfig{}
-								config.SetDefaults()
-								config.PQ.Enabled = true
-								return config
-							}(),
-						},
-						imageVectorName: {
-							VectorIndexType: imageVectorType,
-							VectorIndexConfig: func() hnsw.UserConfig {
-								config := hnsw.UserConfig{}
-								config.SetDefaults()
-								// PQ is disabled by default, so this should result in standard compression
-								return config
-							}(),
-						},
+	sch := models.Schema{
+		Classes: []*models.Class{
+			{
+				Class: className,
+				// No legacy VectorIndexConfig - only named vectors
+				ReplicationConfig: &models.ReplicationConfig{Factor: int64(replication)},
+				VectorConfig: map[string]models.VectorConfig{
+					textVectorName: {
+						VectorIndexType: textVectorType,
+						VectorIndexConfig: func() hnsw.UserConfig {
+							config := hnsw.UserConfig{}
+							config.SetDefaults()
+							config.PQ.Enabled = true
+							return config
+						}(),
+					},
+					imageVectorName: {
+						VectorIndexType: imageVectorType,
+						VectorIndexConfig: func() hnsw.UserConfig {
+							config := hnsw.UserConfig{}
+							config.SetDefaults()
+							// PQ is disabled by default, so this should result in standard compression
+							return config
+						}(),
 					},
 				},
 			},
 		},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
+	}
 
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{
@@ -1557,11 +1549,12 @@ func TestService_Usage_NamedVectorsWithConfig(t *testing.T) {
 	}
 	shardingState.SetLocalName(nodeName)
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardingState.AllPhysicalShards(), nil)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardingState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardingState)
 	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(sch).Maybe()
 
 	mockDB := db.NewMockIndexGetter(t)
 	mockIndex := db.NewMockIndexLike(t)
@@ -1646,7 +1639,7 @@ func TestService_Usage_NamedVectorsWithConfig(t *testing.T) {
 	assert.Equal(t, imageVectorType, imageVector.VectorIndexType)
 	assert.Equal(t, imageCompression, imageVector.Compression)
 
-	mockSchema.AssertExpectations(t)
+	mockSchemaReader.AssertExpectations(t)
 	mockDB.AssertExpectations(t)
 	mockIndex.AssertExpectations(t)
 	mockShard.AssertExpectations(t)
