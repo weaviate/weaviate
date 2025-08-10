@@ -53,6 +53,7 @@ func Test_UserConfig(t *testing.T) {
 					Segments:       DefaultPQSegments,
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
+					RescoreLimit:   DefaultPQRescoreLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -78,6 +79,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				BQ: BQConfig{
+					Enabled:      DefaultBQEnabled,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 			},
 		},
@@ -104,6 +109,7 @@ func Test_UserConfig(t *testing.T) {
 					Segments:       DefaultPQSegments,
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
+					RescoreLimit:   DefaultPQRescoreLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -129,6 +135,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				BQ: BQConfig{
+					Enabled:      DefaultBQEnabled,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 			},
 		},
@@ -166,6 +176,7 @@ func Test_UserConfig(t *testing.T) {
 					Segments:       DefaultPQSegments,
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
+					RescoreLimit:   DefaultPQRescoreLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -191,6 +202,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				BQ: BQConfig{
+					Enabled:      DefaultBQEnabled,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 			},
 		},
@@ -228,6 +243,7 @@ func Test_UserConfig(t *testing.T) {
 					Segments:       DefaultPQSegments,
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
+					RescoreLimit:   DefaultPQRescoreLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -253,6 +269,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				BQ: BQConfig{
+					Enabled:      DefaultBQEnabled,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 			},
 		},
@@ -291,6 +311,7 @@ func Test_UserConfig(t *testing.T) {
 					Segments:       DefaultPQSegments,
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
+					RescoreLimit:   DefaultPQRescoreLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -316,6 +337,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				BQ: BQConfig{
+					Enabled:      DefaultBQEnabled,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 			},
 		},
@@ -351,6 +376,7 @@ func Test_UserConfig(t *testing.T) {
 					Segments:       DefaultPQSegments,
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
+					RescoreLimit:   DefaultPQRescoreLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -376,6 +402,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				BQ: BQConfig{
+					Enabled:      DefaultBQEnabled,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 			},
 		},
@@ -420,6 +450,7 @@ func Test_UserConfig(t *testing.T) {
 					Segments:      64,
 					Centroids:     DefaultPQCentroids,
 					TrainingLimit: DefaultPQTrainingLimit,
+					RescoreLimit:  DefaultPQRescoreLimit,
 					Encoder: PQEncoder{
 						Type:         "tile",
 						Distribution: "normal",
@@ -445,6 +476,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				BQ: BQConfig{
+					Enabled:      DefaultBQEnabled,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 			},
 		},
@@ -488,6 +523,7 @@ func Test_UserConfig(t *testing.T) {
 					Segments:      64,
 					Centroids:     DefaultPQCentroids,
 					TrainingLimit: DefaultPQTrainingLimit,
+					RescoreLimit:  DefaultPQRescoreLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -513,6 +549,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				BQ: BQConfig{
+					Enabled:      DefaultBQEnabled,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 			},
 		},
@@ -576,6 +616,7 @@ func Test_UserConfig(t *testing.T) {
 					Segments:       DefaultPQSegments,
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
+					RescoreLimit:   DefaultPQRescoreLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -601,6 +642,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				BQ: BQConfig{
+					Enabled:      DefaultBQEnabled,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 			},
 		},
@@ -653,7 +698,8 @@ func Test_UserConfig(t *testing.T) {
 				"dynamicEfMax":           float64(18),
 				"dynamicEfFactor":        float64(19),
 				"bq": map[string]interface{}{
-					"enabled": true,
+					"enabled":      true,
+					"rescoreLimit": float64(100),
 				},
 			},
 			expected: UserConfig{
@@ -672,13 +718,15 @@ func Test_UserConfig(t *testing.T) {
 					Segments:      0,
 					Centroids:     DefaultPQCentroids,
 					TrainingLimit: DefaultPQTrainingLimit,
+					RescoreLimit:  DefaultPQRescoreLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					Enabled: true,
+					Enabled:      true,
+					RescoreLimit: 100,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
@@ -735,6 +783,7 @@ func Test_UserConfig(t *testing.T) {
 					Segments:      0,
 					Centroids:     DefaultPQCentroids,
 					TrainingLimit: DefaultPQTrainingLimit,
+					RescoreLimit:  DefaultPQRescoreLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -760,6 +809,10 @@ func Test_UserConfig(t *testing.T) {
 						DProjections: DefaultMultivectorDProjections,
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
+				},
+				BQ: BQConfig{
+					Enabled:      DefaultBQEnabled,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 			},
 		},
@@ -810,6 +863,7 @@ func Test_UserConfig(t *testing.T) {
 					Segments:       DefaultPQSegments,
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
+					RescoreLimit:   DefaultPQRescoreLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -836,6 +890,10 @@ func Test_UserConfig(t *testing.T) {
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
 				},
+				BQ: BQConfig{
+					Enabled:      DefaultBQEnabled,
+					RescoreLimit: DefaultBQRescoreLimit,
+				},
 			},
 		},
 		{
@@ -861,6 +919,7 @@ func Test_UserConfig(t *testing.T) {
 					Segments:       DefaultPQSegments,
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
+					RescoreLimit:   DefaultPQRescoreLimit,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -887,6 +946,10 @@ func Test_UserConfig(t *testing.T) {
 						Repetitions:  DefaultMultivectorRepetitions,
 					},
 				},
+				BQ: BQConfig{
+					Enabled:      DefaultBQEnabled,
+					RescoreLimit: DefaultBQRescoreLimit,
+				},
 			},
 		},
 		{
@@ -896,6 +959,129 @@ func Test_UserConfig(t *testing.T) {
 			},
 			expectErr:    true,
 			expectErrMsg: "maxConnections must be less than 2048",
+		},
+		{
+			name: "backward compatibility - old PQ config without rescoreLimit gets default",
+			input: map[string]interface{}{
+				"pq": map[string]interface{}{
+					"enabled":       true,
+					"segments":      float64(64),
+					"centroids":     float64(256),
+					"trainingLimit": float64(100000),
+					"encoder": map[string]interface{}{
+						"type":         "kmeans",
+						"distribution": "log-normal",
+					},
+				},
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
+				MaxConnections:         DefaultMaxConnections,
+				EFConstruction:         DefaultEFConstruction,
+				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
+				EF:                     DefaultEF,
+				Skip:                   DefaultSkip,
+				FlatSearchCutoff:       DefaultFlatSearchCutoff,
+				DynamicEFMin:           DefaultDynamicEFMin,
+				DynamicEFMax:           DefaultDynamicEFMax,
+				DynamicEFFactor:        DefaultDynamicEFFactor,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:        true,
+					BitCompression: DefaultPQBitCompression,
+					Segments:       64,
+					Centroids:      256,
+					TrainingLimit:  100000,
+					RescoreLimit:   DefaultPQRescoreLimit,
+					Encoder: PQEncoder{
+						Type:         "kmeans",
+						Distribution: "log-normal",
+					},
+				},
+				BQ: BQConfig{
+					Enabled:      DefaultBQEnabled,
+					RescoreLimit: DefaultBQRescoreLimit,
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
+				},
+			},
+		},
+		{
+			name: "backward compatibility - old BQ config without rescoreLimit gets default",
+			input: map[string]interface{}{
+				"bq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
+				MaxConnections:         DefaultMaxConnections,
+				EFConstruction:         DefaultEFConstruction,
+				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
+				EF:                     DefaultEF,
+				Skip:                   DefaultSkip,
+				FlatSearchCutoff:       DefaultFlatSearchCutoff,
+				DynamicEFMin:           DefaultDynamicEFMin,
+				DynamicEFMax:           DefaultDynamicEFMax,
+				DynamicEFFactor:        DefaultDynamicEFFactor,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:        DefaultPQEnabled,
+					BitCompression: DefaultPQBitCompression,
+					Segments:       DefaultPQSegments,
+					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
+					RescoreLimit:   DefaultPQRescoreLimit,
+					Encoder: PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
+				BQ: BQConfig{
+					Enabled:      true,
+					RescoreLimit: DefaultBQRescoreLimit,
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
+				},
+			},
 		},
 	}
 
