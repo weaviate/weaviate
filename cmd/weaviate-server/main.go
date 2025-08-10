@@ -14,6 +14,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 
@@ -57,6 +58,11 @@ func main() {
 			}
 		}
 		os.Exit(code)
+	}
+
+	if server.Version {
+		fmt.Printf("Weaviate v%s\n", rest.ParseVersionFromSwaggerSpec())
+		os.Exit(0)
 	}
 
 	server.ConfigureAPI()
