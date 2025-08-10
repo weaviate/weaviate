@@ -127,6 +127,12 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int) (
 	objs []replica.RepairResponse, err error,
 ) {
+	err = s.store.PauseCompaction(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("pausing compaction: %w", err)
+	}
+	defer s.store.ResumeCompaction(ctx)
+
 	initialUUIDBytes, err := uuid.MustParse(initialUUID.String()).MarshalBinary()
 	if err != nil {
 		return nil, err
