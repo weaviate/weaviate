@@ -29,8 +29,9 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 		className := "VectorizerTest"
 		class := companies.BaseClass(className)
 		tests := []struct {
-			name  string
-			model string
+			name     string
+			model    string
+			taskType string
 		}{
 			{
 				name:  "textembedding-gecko@latest",
@@ -52,19 +53,28 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 				name:  "gemini-embedding-001",
 				model: "gemini-embedding-001",
 			},
+			{
+				name:     "text-embedding-005 with FACT_VERIFICATION taskType",
+				model:    "text-embedding-005",
+				taskType: "FACT_VERIFICATION",
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				// Define class
+				vectorizerConfig := map[string]any{
+					"properties":         []any{"description"},
+					"vectorizeClassName": false,
+					"projectId":          gcpProject,
+					"modelId":            tt.model,
+				}
+				if tt.taskType != "" {
+					vectorizerConfig["taskType"] = tt.taskType
+				}
 				class.VectorConfig = map[string]models.VectorConfig{
 					"description": {
-						Vectorizer: map[string]interface{}{
-							vectorizerName: map[string]interface{}{
-								"properties":         []interface{}{"description"},
-								"vectorizeClassName": false,
-								"projectId":          gcpProject,
-								"modelId":            tt.model,
-							},
+						Vectorizer: map[string]any{
+							vectorizerName: vectorizerConfig,
 						},
 						VectorIndexType: "flat",
 					},
