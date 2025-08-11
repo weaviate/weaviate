@@ -34,11 +34,10 @@ You can easily start Weaviate with Docker:
 docker run -p 8080:8080 -p 50051:50051 -e ENABLE_API_BASED_MODULES=true cr.weaviate.io/semitechnologies/weaviate:1.32.2
 ```
 
-Install the Python client:
+Install the Python client (or use another [client library](#client-libraries-and-apis)):
 
 ```
 pip install -U weaviate-client
-
 ```
 
 The following Python example shows how easy it is to populate a Weaviate database with data, create vector embeddings and perform semantic search:
