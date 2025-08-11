@@ -1457,6 +1457,85 @@ func (x *Vectors) GetType() Vectors_VectorType {
 	return Vectors_VECTOR_TYPE_UNSPECIFIED
 }
 
+type ThirdPartyError struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	ProviderName      string `protobuf:"bytes,1,opt,name=provider_name,json=providerName,proto3" json:"provider_name,omitempty"`
+	ErrorFromProvider string `protobuf:"bytes,2,opt,name=error_from_provider,json=errorFromProvider,proto3" json:"error_from_provider,omitempty"`
+	FullError         string `protobuf:"bytes,3,opt,name=full_error,json=fullError,proto3" json:"full_error,omitempty"`
+	StatusCode        int32  `protobuf:"varint,4,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"`
+	RequestId         string `protobuf:"bytes,5,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+}
+
+func (x *ThirdPartyError) Reset() {
+	*x = ThirdPartyError{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_v1_base_proto_msgTypes[18]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ThirdPartyError) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ThirdPartyError) ProtoMessage() {}
+
+func (x *ThirdPartyError) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_base_proto_msgTypes[18]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ThirdPartyError.ProtoReflect.Descriptor instead.
+func (*ThirdPartyError) Descriptor() ([]byte, []int) {
+	return file_v1_base_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ThirdPartyError) GetProviderName() string {
+	if x != nil {
+		return x.ProviderName
+	}
+	return ""
+}
+
+func (x *ThirdPartyError) GetErrorFromProvider() string {
+	if x != nil {
+		return x.ErrorFromProvider
+	}
+	return ""
+}
+
+func (x *ThirdPartyError) GetFullError() string {
+	if x != nil {
+		return x.FullError
+	}
+	return ""
+}
+
+func (x *ThirdPartyError) GetStatusCode() int32 {
+	if x != nil {
+		return x.StatusCode
+	}
+	return 0
+}
+
+func (x *ThirdPartyError) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
 var File_v1_base_proto protoreflect.FileDescriptor
 
 var file_v1_base_proto_rawDesc = []byte{
@@ -1672,24 +1751,36 @@ var file_v1_base_proto_rawDesc = []byte{
 	0x45, 0x44, 0x10, 0x00, 0x12, 0x1b, 0x0a, 0x17, 0x56, 0x45, 0x43, 0x54, 0x4f, 0x52, 0x5f, 0x54,
 	0x59, 0x50, 0x45, 0x5f, 0x53, 0x49, 0x4e, 0x47, 0x4c, 0x45, 0x5f, 0x46, 0x50, 0x33, 0x32, 0x10,
 	0x01, 0x12, 0x1a, 0x0a, 0x16, 0x56, 0x45, 0x43, 0x54, 0x4f, 0x52, 0x5f, 0x54, 0x59, 0x50, 0x45,
-	0x5f, 0x4d, 0x55, 0x4c, 0x54, 0x49, 0x5f, 0x46, 0x50, 0x33, 0x32, 0x10, 0x02, 0x2a, 0x89, 0x01,
-	0x0a, 0x10, 0x43, 0x6f, 0x6e, 0x73, 0x69, 0x73, 0x74, 0x65, 0x6e, 0x63, 0x79, 0x4c, 0x65, 0x76,
-	0x65, 0x6c, 0x12, 0x21, 0x0a, 0x1d, 0x43, 0x4f, 0x4e, 0x53, 0x49, 0x53, 0x54, 0x45, 0x4e, 0x43,
-	0x59, 0x5f, 0x4c, 0x45, 0x56, 0x45, 0x4c, 0x5f, 0x55, 0x4e, 0x53, 0x50, 0x45, 0x43, 0x49, 0x46,
-	0x49, 0x45, 0x44, 0x10, 0x00, 0x12, 0x19, 0x0a, 0x15, 0x43, 0x4f, 0x4e, 0x53, 0x49, 0x53, 0x54,
-	0x45, 0x4e, 0x43, 0x59, 0x5f, 0x4c, 0x45, 0x56, 0x45, 0x4c, 0x5f, 0x4f, 0x4e, 0x45, 0x10, 0x01,
-	0x12, 0x1c, 0x0a, 0x18, 0x43, 0x4f, 0x4e, 0x53, 0x49, 0x53, 0x54, 0x45, 0x4e, 0x43, 0x59, 0x5f,
-	0x4c, 0x45, 0x56, 0x45, 0x4c, 0x5f, 0x51, 0x55, 0x4f, 0x52, 0x55, 0x4d, 0x10, 0x02, 0x12, 0x19,
-	0x0a, 0x15, 0x43, 0x4f, 0x4e, 0x53, 0x49, 0x53, 0x54, 0x45, 0x4e, 0x43, 0x59, 0x5f, 0x4c, 0x45,
-	0x56, 0x45, 0x4c, 0x5f, 0x41, 0x4c, 0x4c, 0x10, 0x03, 0x42, 0x6e, 0x0a, 0x23, 0x69, 0x6f, 0x2e,
-	0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x2e,
-	0x67, 0x72, 0x70, 0x63, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x2e, 0x76, 0x31,
-	0x42, 0x11, 0x57, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x42,
-	0x61, 0x73, 0x65, 0x5a, 0x34, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f,
-	0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74,
-	0x65, 0x2f, 0x67, 0x72, 0x70, 0x63, 0x2f, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x65, 0x64,
-	0x3b, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f,
-	0x33,
+	0x5f, 0x4d, 0x55, 0x4c, 0x54, 0x49, 0x5f, 0x46, 0x50, 0x33, 0x32, 0x10, 0x02, 0x22, 0xc5, 0x01,
+	0x0a, 0x0f, 0x54, 0x68, 0x69, 0x72, 0x64, 0x50, 0x61, 0x72, 0x74, 0x79, 0x45, 0x72, 0x72, 0x6f,
+	0x72, 0x12, 0x23, 0x0a, 0x0d, 0x70, 0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x5f, 0x6e, 0x61,
+	0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0c, 0x70, 0x72, 0x6f, 0x76, 0x69, 0x64,
+	0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x2e, 0x0a, 0x13, 0x65, 0x72, 0x72, 0x6f, 0x72, 0x5f,
+	0x66, 0x72, 0x6f, 0x6d, 0x5f, 0x70, 0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x18, 0x02, 0x20,
+	0x01, 0x28, 0x09, 0x52, 0x11, 0x65, 0x72, 0x72, 0x6f, 0x72, 0x46, 0x72, 0x6f, 0x6d, 0x50, 0x72,
+	0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x12, 0x1d, 0x0a, 0x0a, 0x66, 0x75, 0x6c, 0x6c, 0x5f, 0x65,
+	0x72, 0x72, 0x6f, 0x72, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x66, 0x75, 0x6c, 0x6c,
+	0x45, 0x72, 0x72, 0x6f, 0x72, 0x12, 0x1f, 0x0a, 0x0b, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 0x5f,
+	0x63, 0x6f, 0x64, 0x65, 0x18, 0x04, 0x20, 0x01, 0x28, 0x05, 0x52, 0x0a, 0x73, 0x74, 0x61, 0x74,
+	0x75, 0x73, 0x43, 0x6f, 0x64, 0x65, 0x12, 0x1d, 0x0a, 0x0a, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73,
+	0x74, 0x5f, 0x69, 0x64, 0x18, 0x05, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x72, 0x65, 0x71, 0x75,
+	0x65, 0x73, 0x74, 0x49, 0x64, 0x2a, 0x89, 0x01, 0x0a, 0x10, 0x43, 0x6f, 0x6e, 0x73, 0x69, 0x73,
+	0x74, 0x65, 0x6e, 0x63, 0x79, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x12, 0x21, 0x0a, 0x1d, 0x43, 0x4f,
+	0x4e, 0x53, 0x49, 0x53, 0x54, 0x45, 0x4e, 0x43, 0x59, 0x5f, 0x4c, 0x45, 0x56, 0x45, 0x4c, 0x5f,
+	0x55, 0x4e, 0x53, 0x50, 0x45, 0x43, 0x49, 0x46, 0x49, 0x45, 0x44, 0x10, 0x00, 0x12, 0x19, 0x0a,
+	0x15, 0x43, 0x4f, 0x4e, 0x53, 0x49, 0x53, 0x54, 0x45, 0x4e, 0x43, 0x59, 0x5f, 0x4c, 0x45, 0x56,
+	0x45, 0x4c, 0x5f, 0x4f, 0x4e, 0x45, 0x10, 0x01, 0x12, 0x1c, 0x0a, 0x18, 0x43, 0x4f, 0x4e, 0x53,
+	0x49, 0x53, 0x54, 0x45, 0x4e, 0x43, 0x59, 0x5f, 0x4c, 0x45, 0x56, 0x45, 0x4c, 0x5f, 0x51, 0x55,
+	0x4f, 0x52, 0x55, 0x4d, 0x10, 0x02, 0x12, 0x19, 0x0a, 0x15, 0x43, 0x4f, 0x4e, 0x53, 0x49, 0x53,
+	0x54, 0x45, 0x4e, 0x43, 0x59, 0x5f, 0x4c, 0x45, 0x56, 0x45, 0x4c, 0x5f, 0x41, 0x4c, 0x4c, 0x10,
+	0x03, 0x42, 0x6e, 0x0a, 0x23, 0x69, 0x6f, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
+	0x2e, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x2e, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x70, 0x72, 0x6f,
+	0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x2e, 0x76, 0x31, 0x42, 0x11, 0x57, 0x65, 0x61, 0x76, 0x69, 0x61,
+	0x74, 0x65, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x42, 0x61, 0x73, 0x65, 0x5a, 0x34, 0x67, 0x69, 0x74,
+	0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
+	0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x67, 0x72, 0x70, 0x63, 0x2f, 0x67,
+	0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x65, 0x64, 0x3b, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f,
+	0x6c, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -1704,34 +1795,38 @@ func file_v1_base_proto_rawDescGZIP() []byte {
 	return file_v1_base_proto_rawDescData
 }
 
-var file_v1_base_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_v1_base_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
-var file_v1_base_proto_goTypes = []any{
-	(ConsistencyLevel)(0),               // 0: weaviate.v1.ConsistencyLevel
-	(Filters_Operator)(0),               // 1: weaviate.v1.Filters.Operator
-	(Vectors_VectorType)(0),             // 2: weaviate.v1.Vectors.VectorType
-	(*NumberArrayProperties)(nil),       // 3: weaviate.v1.NumberArrayProperties
-	(*IntArrayProperties)(nil),          // 4: weaviate.v1.IntArrayProperties
-	(*TextArrayProperties)(nil),         // 5: weaviate.v1.TextArrayProperties
-	(*BooleanArrayProperties)(nil),      // 6: weaviate.v1.BooleanArrayProperties
-	(*ObjectPropertiesValue)(nil),       // 7: weaviate.v1.ObjectPropertiesValue
-	(*ObjectArrayProperties)(nil),       // 8: weaviate.v1.ObjectArrayProperties
-	(*ObjectProperties)(nil),            // 9: weaviate.v1.ObjectProperties
-	(*TextArray)(nil),                   // 10: weaviate.v1.TextArray
-	(*IntArray)(nil),                    // 11: weaviate.v1.IntArray
-	(*NumberArray)(nil),                 // 12: weaviate.v1.NumberArray
-	(*BooleanArray)(nil),                // 13: weaviate.v1.BooleanArray
-	(*Filters)(nil),                     // 14: weaviate.v1.Filters
-	(*FilterReferenceSingleTarget)(nil), // 15: weaviate.v1.FilterReferenceSingleTarget
-	(*FilterReferenceMultiTarget)(nil),  // 16: weaviate.v1.FilterReferenceMultiTarget
-	(*FilterReferenceCount)(nil),        // 17: weaviate.v1.FilterReferenceCount
-	(*FilterTarget)(nil),                // 18: weaviate.v1.FilterTarget
-	(*GeoCoordinatesFilter)(nil),        // 19: weaviate.v1.GeoCoordinatesFilter
-	(*Vectors)(nil),                     // 20: weaviate.v1.Vectors
-	(*structpb.Struct)(nil),             // 21: google.protobuf.Struct
-}
+var (
+	file_v1_base_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+	file_v1_base_proto_msgTypes  = make([]protoimpl.MessageInfo, 19)
+	file_v1_base_proto_goTypes   = []interface{}{
+		(ConsistencyLevel)(0),               // 0: weaviate.v1.ConsistencyLevel
+		(Filters_Operator)(0),               // 1: weaviate.v1.Filters.Operator
+		(Vectors_VectorType)(0),             // 2: weaviate.v1.Vectors.VectorType
+		(*NumberArrayProperties)(nil),       // 3: weaviate.v1.NumberArrayProperties
+		(*IntArrayProperties)(nil),          // 4: weaviate.v1.IntArrayProperties
+		(*TextArrayProperties)(nil),         // 5: weaviate.v1.TextArrayProperties
+		(*BooleanArrayProperties)(nil),      // 6: weaviate.v1.BooleanArrayProperties
+		(*ObjectPropertiesValue)(nil),       // 7: weaviate.v1.ObjectPropertiesValue
+		(*ObjectArrayProperties)(nil),       // 8: weaviate.v1.ObjectArrayProperties
+		(*ObjectProperties)(nil),            // 9: weaviate.v1.ObjectProperties
+		(*TextArray)(nil),                   // 10: weaviate.v1.TextArray
+		(*IntArray)(nil),                    // 11: weaviate.v1.IntArray
+		(*NumberArray)(nil),                 // 12: weaviate.v1.NumberArray
+		(*BooleanArray)(nil),                // 13: weaviate.v1.BooleanArray
+		(*Filters)(nil),                     // 14: weaviate.v1.Filters
+		(*FilterReferenceSingleTarget)(nil), // 15: weaviate.v1.FilterReferenceSingleTarget
+		(*FilterReferenceMultiTarget)(nil),  // 16: weaviate.v1.FilterReferenceMultiTarget
+		(*FilterReferenceCount)(nil),        // 17: weaviate.v1.FilterReferenceCount
+		(*FilterTarget)(nil),                // 18: weaviate.v1.FilterTarget
+		(*GeoCoordinatesFilter)(nil),        // 19: weaviate.v1.GeoCoordinatesFilter
+		(*Vectors)(nil),                     // 20: weaviate.v1.Vectors
+		(*ThirdPartyError)(nil),             // 21: weaviate.v1.ThirdPartyError
+		(*structpb.Struct)(nil),             // 22: google.protobuf.Struct
+	}
+)
+
 var file_v1_base_proto_depIdxs = []int32{
-	21, // 0: weaviate.v1.ObjectPropertiesValue.non_ref_properties:type_name -> google.protobuf.Struct
+	22, // 0: weaviate.v1.ObjectPropertiesValue.non_ref_properties:type_name -> google.protobuf.Struct
 	3,  // 1: weaviate.v1.ObjectPropertiesValue.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties
 	4,  // 2: weaviate.v1.ObjectPropertiesValue.int_array_properties:type_name -> weaviate.v1.IntArrayProperties
 	5,  // 3: weaviate.v1.ObjectPropertiesValue.text_array_properties:type_name -> weaviate.v1.TextArrayProperties
@@ -1767,7 +1862,7 @@ func file_v1_base_proto_init() {
 		return
 	}
 	if !protoimpl.UnsafeEnabled {
-		file_v1_base_proto_msgTypes[0].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NumberArrayProperties); i {
 			case 0:
 				return &v.state
@@ -1779,7 +1874,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[1].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*IntArrayProperties); i {
 			case 0:
 				return &v.state
@@ -1791,7 +1886,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[2].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*TextArrayProperties); i {
 			case 0:
 				return &v.state
@@ -1803,7 +1898,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[3].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*BooleanArrayProperties); i {
 			case 0:
 				return &v.state
@@ -1815,7 +1910,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[4].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ObjectPropertiesValue); i {
 			case 0:
 				return &v.state
@@ -1827,7 +1922,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[5].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ObjectArrayProperties); i {
 			case 0:
 				return &v.state
@@ -1839,7 +1934,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[6].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ObjectProperties); i {
 			case 0:
 				return &v.state
@@ -1851,7 +1946,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[7].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*TextArray); i {
 			case 0:
 				return &v.state
@@ -1863,7 +1958,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[8].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*IntArray); i {
 			case 0:
 				return &v.state
@@ -1875,7 +1970,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[9].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NumberArray); i {
 			case 0:
 				return &v.state
@@ -1887,7 +1982,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[10].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*BooleanArray); i {
 			case 0:
 				return &v.state
@@ -1899,7 +1994,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[11].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Filters); i {
 			case 0:
 				return &v.state
@@ -1911,7 +2006,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[12].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*FilterReferenceSingleTarget); i {
 			case 0:
 				return &v.state
@@ -1923,7 +2018,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[13].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*FilterReferenceMultiTarget); i {
 			case 0:
 				return &v.state
@@ -1935,7 +2030,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[14].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*FilterReferenceCount); i {
 			case 0:
 				return &v.state
@@ -1947,7 +2042,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[15].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*FilterTarget); i {
 			case 0:
 				return &v.state
@@ -1959,7 +2054,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[16].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GeoCoordinatesFilter); i {
 			case 0:
 				return &v.state
@@ -1971,7 +2066,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[17].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Vectors); i {
 			case 0:
 				return &v.state
@@ -1983,8 +2078,20 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
+		file_v1_base_proto_msgTypes[18].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ThirdPartyError); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
 	}
-	file_v1_base_proto_msgTypes[11].OneofWrappers = []any{
+	file_v1_base_proto_msgTypes[11].OneofWrappers = []interface{}{
 		(*Filters_ValueText)(nil),
 		(*Filters_ValueInt)(nil),
 		(*Filters_ValueBoolean)(nil),
@@ -1995,7 +2102,7 @@ func file_v1_base_proto_init() {
 		(*Filters_ValueNumberArray)(nil),
 		(*Filters_ValueGeo)(nil),
 	}
-	file_v1_base_proto_msgTypes[15].OneofWrappers = []any{
+	file_v1_base_proto_msgTypes[15].OneofWrappers = []interface{}{
 		(*FilterTarget_Property)(nil),
 		(*FilterTarget_SingleTarget)(nil),
 		(*FilterTarget_MultiTarget)(nil),
@@ -2007,7 +2114,7 @@ func file_v1_base_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_v1_base_proto_rawDesc,
 			NumEnums:      3,
-			NumMessages:   18,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

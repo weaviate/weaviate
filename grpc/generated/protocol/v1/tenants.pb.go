@@ -401,15 +401,18 @@ func file_v1_tenants_proto_rawDescGZIP() []byte {
 	return file_v1_tenants_proto_rawDescData
 }
 
-var file_v1_tenants_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_v1_tenants_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
-var file_v1_tenants_proto_goTypes = []any{
-	(TenantActivityStatus)(0), // 0: weaviate.v1.TenantActivityStatus
-	(*TenantsGetRequest)(nil), // 1: weaviate.v1.TenantsGetRequest
-	(*TenantNames)(nil),       // 2: weaviate.v1.TenantNames
-	(*TenantsGetReply)(nil),   // 3: weaviate.v1.TenantsGetReply
-	(*Tenant)(nil),            // 4: weaviate.v1.Tenant
-}
+var (
+	file_v1_tenants_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+	file_v1_tenants_proto_msgTypes  = make([]protoimpl.MessageInfo, 4)
+	file_v1_tenants_proto_goTypes   = []interface{}{
+		(TenantActivityStatus)(0), // 0: weaviate.v1.TenantActivityStatus
+		(*TenantsGetRequest)(nil), // 1: weaviate.v1.TenantsGetRequest
+		(*TenantNames)(nil),       // 2: weaviate.v1.TenantNames
+		(*TenantsGetReply)(nil),   // 3: weaviate.v1.TenantsGetReply
+		(*Tenant)(nil),            // 4: weaviate.v1.Tenant
+	}
+)
+
 var file_v1_tenants_proto_depIdxs = []int32{
 	2, // 0: weaviate.v1.TenantsGetRequest.names:type_name -> weaviate.v1.TenantNames
 	4, // 1: weaviate.v1.TenantsGetReply.tenants:type_name -> weaviate.v1.Tenant
@@ -427,7 +430,7 @@ func file_v1_tenants_proto_init() {
 		return
 	}
 	if !protoimpl.UnsafeEnabled {
-		file_v1_tenants_proto_msgTypes[0].Exporter = func(v any, i int) any {
+		file_v1_tenants_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*TenantsGetRequest); i {
 			case 0:
 				return &v.state
@@ -439,7 +442,7 @@ func file_v1_tenants_proto_init() {
 				return nil
 			}
 		}
-		file_v1_tenants_proto_msgTypes[1].Exporter = func(v any, i int) any {
+		file_v1_tenants_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*TenantNames); i {
 			case 0:
 				return &v.state
@@ -451,7 +454,7 @@ func file_v1_tenants_proto_init() {
 				return nil
 			}
 		}
-		file_v1_tenants_proto_msgTypes[2].Exporter = func(v any, i int) any {
+		file_v1_tenants_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*TenantsGetReply); i {
 			case 0:
 				return &v.state
@@ -463,7 +466,7 @@ func file_v1_tenants_proto_init() {
 				return nil
 			}
 		}
-		file_v1_tenants_proto_msgTypes[3].Exporter = func(v any, i int) any {
+		file_v1_tenants_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Tenant); i {
 			case 0:
 				return &v.state
@@ -476,7 +479,7 @@ func file_v1_tenants_proto_init() {
 			}
 		}
 	}
-	file_v1_tenants_proto_msgTypes[0].OneofWrappers = []any{
+	file_v1_tenants_proto_msgTypes[0].OneofWrappers = []interface{}{
 		(*TenantsGetRequest_Names)(nil),
 	}
 	type x struct{}

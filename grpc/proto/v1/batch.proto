@@ -56,6 +56,10 @@ message BatchObjectsReply {
   message BatchError {
     int32 index = 1;
     string error = 2;
+    //extendable
+    oneof errors {
+      ThirdPartyError third_party_error = 3;
+    };
   }
 
   float took = 1;

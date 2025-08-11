@@ -31,7 +31,8 @@ import (
 )
 
 const (
-	Name = "text2vec-openai"
+	Name           = "text2vec-" + ModuleProvider
+	ModuleProvider = "openai"
 )
 
 var batchSettings = batch.Settings{
@@ -108,7 +109,7 @@ func (m *OpenAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 	openAIOrganization := os.Getenv("OPENAI_ORGANIZATION")
 	azureApiKey := os.Getenv("AZURE_APIKEY")
 
-	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, timeout, logger)
+	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, timeout, logger, ModuleProvider)
 
 	m.vectorizer = text2vecbase.New(client,
 		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),

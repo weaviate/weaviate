@@ -96,7 +96,7 @@ func FuzzVectorizeTotal(f *testing.F) {
 			"DeploymentID": deployID,
 		}}
 
-		c := New(key, org, key, time.Second, nullLogger())
+		c := New(key, org, key, time.Second, nullLogger(), "")
 		c.buildUrlFn = func(_, _, _, _ string, _ bool) (string, error) {
 			return server.URL, nil
 		}
