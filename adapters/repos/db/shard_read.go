@@ -127,12 +127,6 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int) (
 	objs []types.RepairResponse, err error,
 ) {
-	err = s.store.PauseCompaction(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pausing compaction: %w", err)
-	}
-	defer s.store.ResumeCompaction(ctx)
-
 	initialUUIDBytes, err := uuid.MustParse(initialUUID.String()).MarshalBinary()
 	if err != nil {
 		return nil, err
@@ -145,75 +139,31 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
-	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
-	cursor := bucket.CursorOnDisk()
+	cursor := bucket.Cursor()
 	defer cursor.Close()
-
-	inmemProcessedDocIDs := make(map[uint64]struct{})
 
 	n := 0
 
-	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
-	err = func() error {
-		inMemCursor := bucket.CursorInMem()
-		defer inMemCursor.Close()
-
-		for k, v := inMemCursor.Seek(initialUUIDBytes); n < limit && k != nil && bytes.Compare(k, finalUUIDBytes) < 1; k, v = inMemCursor.Next() {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-				obj, err := storobj.FromBinaryUUIDOnly(v)
-				if err != nil {
-					return fmt.Errorf("cannot unmarshal object: %w", err)
-				}
-
-				replicaObj := types.RepairResponse{
-					ID:         obj.ID().String(),
-					UpdateTime: obj.LastUpdateTimeUnix(),
-					// TODO: use version when supported
-					Version: 0,
-				}
-
-				objs = append(objs, replicaObj)
-
-				inmemProcessedDocIDs[obj.DocID] = struct{}{}
-
-				n++
-			}
-		}
-
-		return nil
-	}()
-	if err != nil {
-		return nil, err
-	}
-
 	for k, v := cursor.Seek(initialUUIDBytes); n < limit && k != nil && bytes.Compare(k, finalUUIDBytes) < 1; k, v = cursor.Next() {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return objs, ctx.Err()
-		default:
-			obj, err := storobj.FromBinaryUUIDOnly(v)
-			if err != nil {
-				return objs, fmt.Errorf("cannot unmarshal object: %w", err)
-			}
-
-			if _, ok := inmemProcessedDocIDs[obj.DocID]; ok {
-				continue
-			}
-
-			replicaObj := types.RepairResponse{
-				ID:         obj.ID().String(),
-				UpdateTime: obj.LastUpdateTimeUnix(),
-				// TODO: use version when supported
-				Version: 0,
-			}
-
-			objs = append(objs, replicaObj)
-
-			n++
 		}
+
+		obj, err := storobj.FromBinaryUUIDOnly(v)
+		if err != nil {
+			return objs, fmt.Errorf("cannot unmarshal object: %w", err)
+		}
+
+		replicaObj := replica.RepairResponse{
+			ID:         obj.ID().String(),
+			UpdateTime: obj.LastUpdateTimeUnix(),
+			// TODO: use version when supported
+			Version: 0,
+		}
+
+		objs = append(objs, replicaObj)
+
+		n++
 	}
 
 	return objs, nil
