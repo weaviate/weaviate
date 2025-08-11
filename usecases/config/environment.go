@@ -443,11 +443,11 @@ func FromEnv(config *Config) error {
 	}
 	// ---- HNSW snapshots ----
 
-	defaultCompression := ""
-	if v := os.Getenv("DEFAULT_COMPRESSION"); v != "" {
-		defaultCompression = strings.ToLower(v)
+	defaultQuantization := ""
+	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
+		defaultQuantization = strings.ToLower(v)
 	}
-	config.DefaultCompression = runtime.NewDynamicValue(defaultCompression)
+	config.DefaultQuantization = runtime.NewDynamicValue(defaultQuantization)
 
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true

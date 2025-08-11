@@ -80,7 +80,7 @@ func (u UserConfig) IsMultiVector() bool {
 }
 
 // SetDefaults in the user-specifyable part of the config
-func (u *UserConfig) SetDefaults(defaultCompression *configRuntime.DynamicValue[string]) {
+func (u *UserConfig) SetDefaults(defaultQuantization *configRuntime.DynamicValue[string]) {
 	u.MaxConnections = DefaultMaxConnections
 	u.EFConstruction = DefaultEFConstruction
 	u.CleanupIntervalSeconds = DefaultCleanupIntervalSeconds
@@ -132,7 +132,7 @@ func (u *UserConfig) SetDefaults(defaultCompression *configRuntime.DynamicValue[
 		},
 	}
 
-	compression := defaultCompression.Get()
+	compression := defaultQuantization.Get()
 	if compression != "" && compression != vectorIndexCommon.NoCompression {
 		switch compression {
 		case vectorIndexCommon.CompressionBQ:
@@ -149,9 +149,9 @@ func (u *UserConfig) SetDefaults(defaultCompression *configRuntime.DynamicValue[
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseAndValidateConfig(input interface{}, isMultiVector bool, defaultCompression *configRuntime.DynamicValue[string]) (config.VectorIndexConfig, error) {
+func ParseAndValidateConfig(input interface{}, isMultiVector bool, defaultQuantization *configRuntime.DynamicValue[string]) (config.VectorIndexConfig, error) {
 	uc := UserConfig{}
-	uc.SetDefaults(defaultCompression)
+	uc.SetDefaults(defaultQuantization)
 
 	if input == nil {
 		return uc, nil
@@ -254,10 +254,10 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool, defaultCompre
 		return uc, err
 	}
 
-	return uc, uc.validate(defaultCompression)
+	return uc, uc.validate(defaultQuantization)
 }
 
-func (u *UserConfig) validate(defaultCompression *configRuntime.DynamicValue[string]) error {
+func (u *UserConfig) validate(defaultQuantization *configRuntime.DynamicValue[string]) error {
 	var errMsgs []string
 	if u.MaxConnections < MinmumMaxConnections {
 		errMsgs = append(errMsgs, fmt.Sprintf(
@@ -302,7 +302,7 @@ func (u *UserConfig) validate(defaultCompression *configRuntime.DynamicValue[str
 	if u.RQ.Enabled {
 		enabled++
 	}
-	compression := defaultCompression.Get()
+	compression := defaultQuantization.Get()
 	if enabled == 2 && compression != "" && compression != vectorIndexCommon.NoCompression {
 		switch compression {
 		case vectorIndexCommon.CompressionBQ:
@@ -327,15 +327,15 @@ func (u *UserConfig) validate(defaultCompression *configRuntime.DynamicValue[str
 	return nil
 }
 
-func NewDefaultUserConfig(defaultCompression *configRuntime.DynamicValue[string]) UserConfig {
+func NewDefaultUserConfig(defaultQuantization *configRuntime.DynamicValue[string]) UserConfig {
 	uc := UserConfig{}
-	uc.SetDefaults(defaultCompression)
+	uc.SetDefaults(defaultQuantization)
 	return uc
 }
 
-func NewDefaultMultiVectorUserConfig(defaultCompression *configRuntime.DynamicValue[string]) UserConfig {
+func NewDefaultMultiVectorUserConfig(defaultQuantization *configRuntime.DynamicValue[string]) UserConfig {
 	uc := UserConfig{}
-	uc.SetDefaults(defaultCompression)
+	uc.SetDefaults(defaultQuantization)
 	uc.Multivector = MultivectorConfig{Enabled: true}
 	return uc
 }

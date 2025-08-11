@@ -41,20 +41,20 @@ type modulesProvider interface {
 }
 
 type Parser struct {
-	clusterState       clusterState
-	configParser       VectorConfigParser
-	validator          validator
-	modules            modulesProvider
-	defaultCompression *configRuntime.DynamicValue[string]
+	clusterState        clusterState
+	configParser        VectorConfigParser
+	validator           validator
+	modules             modulesProvider
+	defaultQuantization *configRuntime.DynamicValue[string]
 }
 
-func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider, defaultCompression *configRuntime.DynamicValue[string]) *Parser {
+func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider, defaultQuantization *configRuntime.DynamicValue[string]) *Parser {
 	return &Parser{
-		clusterState:       cs,
-		configParser:       vCfg,
-		validator:          v,
-		modules:            modules,
-		defaultCompression: defaultCompression,
+		clusterState:        cs,
+		configParser:        vCfg,
+		validator:           v,
+		modules:             modules,
+		defaultQuantization: defaultQuantization,
 	}
 }
 
@@ -156,7 +156,7 @@ func (p *Parser) moduleConfig(moduleConfig map[string]any) (map[string]any, erro
 
 func (p *Parser) parseVectorIndexConfig(class *models.Class) error {
 	if !hasTargetVectors(class) || class.VectorIndexType != "" {
-		parsed, err := p.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, p.modules.IsMultiVector(class.Vectorizer), p.defaultCompression)
+		parsed, err := p.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, p.modules.IsMultiVector(class.Vectorizer), p.defaultQuantization)
 		if err != nil {
 			return err
 		}
@@ -196,7 +196,7 @@ func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 				vectorizerModuleName = name
 			}
 		}
-		parsed, err := p.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig, isMultiVector, p.defaultCompression)
+		parsed, err := p.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig, isMultiVector, p.defaultQuantization)
 		if err != nil {
 			return fmt.Errorf("parse vector config for %s: %w", targetVector, err)
 		}
@@ -210,7 +210,7 @@ func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 }
 
 func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
-	vectorIndexConfig interface{}, isMultiVector bool, defaultCompression *configRuntime.DynamicValue[string],
+	vectorIndexConfig interface{}, isMultiVector bool, defaultQuantization *configRuntime.DynamicValue[string],
 ) (schemaConfig.VectorIndexConfig, error) {
 	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC {
 		return nil, errors.Errorf(
@@ -224,7 +224,7 @@ func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 			vectorIndexType)
 	}
 
-	parsed, err := p.configParser(vectorIndexConfig, vectorIndexType, isMultiVector, defaultCompression)
+	parsed, err := p.configParser(vectorIndexConfig, vectorIndexType, isMultiVector, defaultQuantization)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse vector index config")
 	}
