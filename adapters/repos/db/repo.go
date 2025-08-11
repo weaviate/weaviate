@@ -153,18 +153,6 @@ func (db *DB) Indices() map[string]*Index {
 		indices[id] = index
 	}
 
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				db.logger.WithField("action", "indices").Errorf("failed to get classes from schema: %v", r)
-			}
-		}()
-		classes := db.ListClasses(context.Background())
-
-		if len(indices) != len(classes) {
-			db.logger.WithField("action", "indices").Warn("classes found in schema do not match indices found in db")
-		}
-	}()
 	return indices
 }
 
