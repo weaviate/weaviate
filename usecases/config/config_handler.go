@@ -158,7 +158,7 @@ type Config struct {
 	DistributedTasks                    DistributedTasksConfig        `json:"distributed_tasks" yaml:"distributed_tasks"`
 	ReplicationEngineMaxWorkers         int                           `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	ReplicationEngineFileCopyWorkers    int                           `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
-	DefaultCompression                  *runtime.DynamicValue[string] `json:"default_compression" yaml:"default_compression"`
+	DefaultQuantization                 *runtime.DynamicValue[string] `json:"default_quantization" yaml:"default_quantization"`
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft
