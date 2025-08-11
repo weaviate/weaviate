@@ -7,7 +7,7 @@
 [![Coverage Status](https://codecov.io/gh/weaviate/weaviate/branch/main/graph/badge.svg)](https://codecov.io/gh/weaviate/weaviate)
 [![Slack](https://img.shields.io/badge/slack--channel-blue?logo=slack)](https://weaviate.io/slack)
 
-Weaviate is an open-source cloud-native vector database designed for building AI applications. It combines vector similarity search with keyword filtering, retrieval-augmented generation (RAG), and reranking within a single system. These features provide a reliable foundation for AI-powered applications such as RAG pipelines, chatbots, recommendation engines, summarizers, and classification systems.
+Weaviate is an open-source cloud-native vector database designed for building AI applications. It combines vector similarity search with keyword filtering, retrieval-augmented generation (RAG), and reranking within a single system. This provides a reliable foundation for AI-powered applications such as RAG pipelines, chatbots, recommendation engines, summarizers, and classification systems.
 
 Weaviate can vectorize your data at import time using AI models (OpenAI, Cohere, HuggingFace, etc.) or you can upload your own vector embeddings. Weaviate supports production-scale workloads by offering multi-tenancy, replication, authorization and [many more features](#weaviate-features).
 
@@ -16,57 +16,9 @@ To get started quickly, have a look at one of these tutorials:
 - [Quickstart - Weaviate Cloud](https://docs.weaviate.io/weaviate/quickstart)
 - [Quickstart - local Docker instance](https://docs.weaviate.io/weaviate/quickstart/local)
 
-<!--
-## Why Weaviate?
-
-Weaviate uses state-of-the-art machine learning (ML) models to turn your data - text, images, and more - into a searchable vector database.
-
-Here are some highlights.
-
-### Speed
-
-Weaviate is fast. The core engine can run a 10-NN nearest neighbor search on millions of objects in milliseconds. See [benchmarks](https://docs.weaviate.io/weaviate/benchmarks).
-
-### Flexibility
-
-Weaviate can **vectorize your data at import time**. Or, if you have already vectorized your data, you can **upload your own vectors** instead.
-
-Modules give you the flexibility to tune Weaviate for your needs. More than two dozen modules connect you to popular services and model hubs such as OpenAI, Cohere, VoyageAI and HuggingFace. Use custom modules to work with your own models or third party services.
-
-### Production-readiness
-
-Weaviate is built with [scaling](https://docs.weaviate.io/weaviate/concepts/cluster), [replication](https://docs.weaviate.io/weaviate/concepts/replication-architecture), and [security](https://docs.weaviate.io/weaviate/configuration/authentication) in mind so you can go smoothly from **rapid prototyping** to **production at scale**.
-
-### Beyond search
-
-Weaviate doesn't just power lightning-fast vector searches. Other superpowers include **recommendation**, **summarization**, and **integration with neural search frameworks**.
-
-## Who uses Weaviate?
-
-- **Software Engineers**
-
-  - Weaviate is an ML-first database engine
-  - Out-of-the-box modules for AI-powered searches, automatic classification, and LLM integration
-   - Full CRUD support
-   - Cloud-native, distributed system that runs well on Kubernetes
-   - Scales with your workloads
-
-- **Data Engineers**
-
-  - Weaviate is a fast, flexible vector database
-  - Use your own ML model or third party models
-  - Run locally or with an inference service
-
-- **Data Scientists**
-
-   - Seamless handover of Machine Learning models to engineers and MLOps
-   - Deploy and maintain your ML models in production reliably and efficiently
-   - Easily package custom trained models
--->
-
 ## Installation
 
-Weaviate offers a multitude of installation and deployment options:
+Weaviate offers multiple installation and deployment options:
 
 - [Docker](https://docs.weaviate.io/deploy/installation-guides/docker-installation)
 - [Kubernetes](https://docs.weaviate.io/deploy/installation-guides/k8s-installation)
@@ -75,6 +27,19 @@ Weaviate offers a multitude of installation and deployment options:
 See the [installation docs](https://docs.weaviate.io/deploy) for more deployment options like [AWS](https://docs.weaviate.io/deploy/installation-guides/aws-marketplace) and [GCP](https://docs.weaviate.io/deploy/installation-guides/gcp-marketplace).
 
 ## Getting started
+
+You can easily start Weaviate with docker:
+
+```
+docker run -p 8080:8080 -p 50051:50051 -e ENABLE_API_BASED_MODULES=true cr.weaviate.io/semitechnologies/weaviate:1.32.2
+```
+
+Install the Python client:
+
+```
+pip install -U weaviate-client
+
+```
 
 The following Python example shows how easy it is to populate a Weaviate database with data, create vector embeddings and perform semantic search:
 
@@ -125,28 +90,33 @@ Weaviate provides client libraries for several programming languages:
 
 There are also additional [community-maintained libraries](https://docs.weaviate.io/weaviate/client-libraries/community).
 
-Weaviate also exposes [REST API](https://docs.weaviate.io/weaviate/api/rest), [gRPC API](https://docs.weaviate.io/weaviate/api/grpc) and [GraphQL API](https://docs.weaviate.io/weaviate/api/graphql) to communicate with the database server.
+Weaviate exposes [REST API](https://docs.weaviate.io/weaviate/api/rest), [gRPC API](https://docs.weaviate.io/weaviate/api/grpc) and [GraphQL API](https://docs.weaviate.io/weaviate/api/graphql) to communicate with the database server.
 
 ## Weaviate features
 
-- **[Vector search](https://docs.weaviate.io/weaviate/search/similarity)**: Perform fast semantic searches on billions of vectors
-- **[Keyword search](https://docs.weaviate.io/weaviate/search/bm25)**: Keyword search is an exact matching-based search using strings
-- **[Hybrid search](https://docs.weaviate.io/weaviate/search/hybrid)**: Combine vector search with keyword (BM25) and filter operators
-- **[Integrated vectorizers](https://docs.weaviate.io/weaviate/model-providers)**: Built-in support for OpenAI, Cohere, HuggingFace, Google, Anthropic, and many other embedding model providers
-- **[Compression](https://docs.weaviate.io/weaviate/configuration/compression)**: Vector quantization and encoding can significantly lower resource consumption
-- **[RAG (generative search)](https://docs.weaviate.io/weaviate/search/generative)**: RAG pipelines with integrated LLMs for answer generation
-- **[Reranking](https://docs.weaviate.io/weaviate/search/rerank)**: Reorder search results according to a specific criteria
-- **[Multi-tenancy](https://docs.weaviate.io/weaviate/manage-collections/multi-tenancy)**: Isolate data per tenant with built-in access control
-- **[Horizontal scaling](https://docs.weaviate.io/deploy/configuration/horizontal-scaling)**: Distributed architecture for production workloads
-- **[Role-based access control (RBAC)](https://docs.weaviate.io/weaviate/configuration/rbac)**: Restrict access based on roles and users
+These features enable you to build AI-powered applications:
+
+- **⚡ Fast Search Performance**: Perform complex semantic [searches](https://docs.weaviate.io/weaviate/search/similarity) over billions of vectors in milliseconds. Weaviate's architecture is built in Go for speed and reliability, ensuring your AI applications are highly responsive even under heavy load. See our [ANN benchmarks](https://docs.weaviate.io/weaviate/benchmarks/ann) for more info.
+
+- **🔌 Flexible Vectorization**: Seamlessly vectorize data at import time with [integrated vectorizers](https://docs.weaviate.io/weaviate/model-providers) from OpenAI, Cohere, HuggingFace, Google, and more. Or you can import [your own vector embeddings](https://docs.weaviate.io/weaviate/starter-guides/custom-vectors).
+
+- **🔍 Advanced Hybrid & Image Search**: Combine the power of semantic search with traditional [keyword (BM25) search](https://docs.weaviate.io/weaviate/search/bm25), [image search](https://docs.weaviate.io/weaviate/search/image) and [advanced filtering](https://docs.weaviate.io/weaviate/search/filters) to get the best results with a single API call.
+
+- **🤖 Integrated RAG & Reranking**: Go beyond simple retrieval with built-in [generative search (RAG)](https://docs.weaviate.io/weaviate/search/generative) and [reranking](https://docs.weaviate.io/weaviate/search/rerank) capabilities. Power sophisticated Q&A systems, chatbots, and summarizers directly from your database without additional tooling.
+
+- **📈 Production-Ready & Scalable**: Weaviate is built for mission-critical applications. Go from rapid prototyping to production at scale with native support for [horizontal scaling](https://docs.weaviate.io/deploy/configuration/horizontal-scaling), [multi-tenancy](https://docs.weaviate.io/weaviate/manage-collections/multi-tenancy), replication, and fine-grained [role-based access control (RBAC)](https://docs.weaviate.io/weaviate/configuration/rbac).
+
+- **💰 Cost-Efficient Operations**: Radically lower resource consumption and operational costs with built-in [vector compression](https://docs.weaviate.io/weaviate/configuration/compression). Vector quantization and multi-vector encoding reduce memory usage with minimal impact on search performance.
 
 For a complete list of all functionalities, visit the [official Weaviate documentation](https://docs.weaviate.io).
 
-## Integrations
+## Useful resources
+
+### Integrations
 
 Weaviate integrates with many external services:
 
-| <!-- -->                                                                                   | <!-- -->                                                   | <!-- -->                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Category                                                                                   | Description                                                | Integrations                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **[Cloud Hyperscalers](https://docs.weaviate.io/integrations/cloud-hyperscalers)**         | Large-scale computing and storage                          | [AWS](https://docs.weaviate.io/integrations/cloud-hyperscalers/aws), [Google](https://docs.weaviate.io/integrations/cloud-hyperscalers/google)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | **[Compute Infrastructure](https://docs.weaviate.io/integrations/compute-infrastructure)** | Run and scale containerized applications                   | [Modal](https://docs.weaviate.io/integrations/compute-infrastructure/modal), [Replicate](https://docs.weaviate.io/integrations/compute-infrastructure/replicate), [Replicated](https://docs.weaviate.io/integrations/compute-infrastructure/replicated)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -154,7 +124,15 @@ Weaviate integrates with many external services:
 | **[LLM and Agent Frameworks](https://docs.weaviate.io/integrations/llm-agent-frameworks)** | Build agents and generative AI applications                | [Agno](https://docs.weaviate.io/integrations/llm-agent-frameworks/agno), [Composio](https://docs.weaviate.io/integrations/llm-agent-frameworks/composio), [CrewAI](https://docs.weaviate.io/integrations/llm-agent-frameworks/crewai), [DSPy](https://docs.weaviate.io/integrations/llm-agent-frameworks/dspy), [Dynamiq](https://docs.weaviate.io/integrations/llm-agent-frameworks/dynamiq), [Haystack](https://docs.weaviate.io/integrations/llm-agent-frameworks/haystack), [LangChain](https://docs.weaviate.io/integrations/llm-agent-frameworks/langchain), [LlamaIndex](https://docs.weaviate.io/integrations/llm-agent-frameworks/llamaindex), [N8n](https://docs.weaviate.io/integrations/llm-agent-frameworks/n8n), [Semantic Kernel](https://docs.weaviate.io/integrations/llm-agent-frameworks/semantic-kernel)                                   |
 | **[Operations](https://docs.weaviate.io/integrations/operations)**                         | Tools for monitoring and analyzing generative AI workflows | [AIMon](https://docs.weaviate.io/integrations/operations/aimon), [Arize](https://docs.weaviate.io/integrations/operations/arize), [Cleanlab](https://docs.weaviate.io/integrations/operations/cleanlab), [Comet](https://docs.weaviate.io/integrations/operations/comet), [DeepEval](https://docs.weaviate.io/integrations/operations/deepeval), [Langtrace](https://docs.weaviate.io/integrations/operations/langtrace), [LangWatch](https://docs.weaviate.io/integrations/operations/langwatch), [Nomic](https://docs.weaviate.io/integrations/operations/nomic), [Patronus AI](https://docs.weaviate.io/integrations/operations/patronus), [Ragas](https://docs.weaviate.io/integrations/operations/ragas), [TruLens](https://docs.weaviate.io/integrations/operations/trulens), [Weights & Biases](https://docs.weaviate.io/integrations/operations/wandb) |
 
-## Useful blog posts
+### Demo projects
+
+These demos are working applications that highlight some of Weaviate's capabilities. Their source code is available on GitHub.
+
+- [Verba](https://verba.weaviate.io) ([GitHub](https://github.com/weaviate/verba)): A community-driven open-source application designed to offer an end-to-end, streamlined, and user-friendly interface for Retrieval-Augmented Generation (RAG) out of the box.
+- [Healthsearch](https://healthsearch.weaviate.io) ([GitHub](https://github.com/weaviate/healthsearch-demo)): An open-source project aimed at showcasing the potential of leveraging user-written reviews and queries to retrieve supplement products based on specific health effects.
+- [Awesome-Moviate](https://awesome-moviate.weaviate.io/) ([GitHub](https://github.com/weaviate-tutorials/awesome-moviate)): A movie search and recommendation engine that allows keyword-based (BM25), semantic, and hybrid searches.
+
+### Blog posts
 
 - [What is a Vector Database](https://weaviate.io/blog/what-is-a-vector-database)
 - [What is Vector Search](https://weaviate.io/blog/vector-search-explained)
@@ -170,7 +148,7 @@ Weaviate integrates with many external services:
 
 ## Contributing
 
-We welcome and appreciate contributions! Please see our [Contributor Guide](https://docs.weaviate.io/contributor-guide) for the development setup, code style guidelines, testing requirements and the pull request process.
+We welcome and appreciate contributions! Please see our [Contributor guide](https://docs.weaviate.io/contributor-guide) for the development setup, code style guidelines, testing requirements and the pull request process.
 
 Join our [Slack community](https://weaviate.io/slack) or [Community forum](https://forum.weaviate.io/) to discuss ideas and get help.
 
