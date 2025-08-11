@@ -68,7 +68,6 @@ articles.data.insert_many(
         {"content": "Weaviate supports hybrid search capabilities"},
     ]
 )
-while len(articles) < 3: pass  # Wait for vectorization to complete
 
 # Perform semantic search
 results = articles.query.near_text(query="Search objects by meaning", limit=1)
