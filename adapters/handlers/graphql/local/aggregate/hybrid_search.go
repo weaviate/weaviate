@@ -68,10 +68,10 @@ func hybridOperands(classObject *graphql.Object,
 			Type:        graphql.NewList(graphql.String),
 		},
 		"properties": &graphql.InputObjectFieldConfig{
-			Description: "Target vectors",
+			Description: "Properties to search",
 			Type:        graphql.NewList(graphql.String),
 		},
-
+		"bm25SearchOperator": common_filters.GenerateBM25SearchOperatorFields(prefixName),
 		"searches": &graphql.InputObjectFieldConfig{
 			Description: "Subsearch list",
 			Type: graphql.NewList(graphql.NewInputObject(

@@ -14,7 +14,6 @@ package traverser
 import (
 	"context"
 	"fmt"
-	"math"
 
 	"github.com/go-openapi/strfmt"
 
@@ -44,6 +43,14 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 
 	if params.Pagination == nil {
 		return nil, "", fmt.Errorf("invalid params, pagination object is nil")
+	}
+
+	if params.HybridSearch.SearchOperator != "" {
+		params.KeywordRanking.SearchOperator = params.HybridSearch.SearchOperator
+	}
+
+	if params.HybridSearch.MinimumOrTokensMatch != 0 {
+		params.KeywordRanking.MinimumOrTokensMatch = params.HybridSearch.MinimumOrTokensMatch
 	}
 
 	totalLimit, err := e.CalculateTotalLimit(params.Pagination)
@@ -201,14 +208,14 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	// pagination is handled after combining results
 	vectorParams := params
 	vectorParams.Pagination = &filters.Pagination{
-		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(params.Pagination.Limit))),
+		Limit:   params.Pagination.Limit,
 		Offset:  0,
 		Autocut: -1,
 	}
 
 	keywordParams := params
 	keywordParams.Pagination = &filters.Pagination{
-		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(params.Pagination.Limit))),
+		Limit:   params.Pagination.Limit,
 		Offset:  0,
 		Autocut: -1,
 	}

@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 )
 
 func bm25Argument(className string) *graphql.ArgumentConfig {
@@ -39,5 +40,6 @@ func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
 			Description: "The properties to search in",
 			Type:        graphql.NewList(graphql.String),
 		},
+		"searchOperator": common_filters.GenerateBM25SearchOperatorFields(prefix),
 	}
 }
