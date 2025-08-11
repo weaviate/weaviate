@@ -730,22 +730,7 @@ func testConcurrentShardingStateOperations(t *testing.T, s *schema) {
 	const iterations = 100
 
 	var wg sync.WaitGroup
-	wg.Add(numGoroutines * 2) // For CopyShardingState and GetShardsStatus operations
-
-	// Test concurrent CopyShardingState operations
-	for i := 0; i < numGoroutines; i++ {
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
-				state, version := s.CopyShardingState("TestClass")
-				if state != nil {
-					assert.NotNil(t, state.Physical["shard1"])
-					assert.Greater(t, version, uint64(0))
-				}
-				time.Sleep(time.Microsecond)
-			}
-		}()
-	}
+	wg.Add(numGoroutines) // For GetShardsStatus operations
 
 	// Test concurrent GetShardsStatus operations
 	for i := 0; i < numGoroutines; i++ {

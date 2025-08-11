@@ -287,8 +287,8 @@ func (f *fakeMigrator) GetShardsQueueSize(ctx context.Context, className, tenant
 	return nil, nil
 }
 
-func (f *fakeMigrator) AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) error {
-	args := f.Called(ctx, cls, ss)
+func (f *fakeMigrator) AddClass(ctx context.Context, cls *models.Class) error {
+	args := f.Called(ctx, cls)
 	return args.Error(0)
 }
 
