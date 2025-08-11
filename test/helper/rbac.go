@@ -238,8 +238,9 @@ func RevokeRoleFromUser(t *testing.T, key, role, user string) {
 }
 
 func AssignRoleToGroup(t *testing.T, key, role, group string) {
+	t.Helper()
 	resp, err := Client(t).Authz.AssignRoleToGroup(
-		authz.NewAssignRoleToGroupParams().WithID(group).WithBody(authz.AssignRoleToGroupBody{Roles: []string{role}}),
+		authz.NewAssignRoleToGroupParams().WithID(group).WithBody(authz.AssignRoleToGroupBody{Roles: []string{role}, GroupType: models.GroupTypeOidc}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
@@ -247,12 +248,49 @@ func AssignRoleToGroup(t *testing.T, key, role, group string) {
 }
 
 func RevokeRoleFromGroup(t *testing.T, key, role, group string) {
+	t.Helper()
 	resp, err := Client(t).Authz.RevokeRoleFromGroup(
-		authz.NewRevokeRoleFromGroupParams().WithID(group).WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{role}}),
+		authz.NewRevokeRoleFromGroupParams().WithID(group).WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{role}, GroupType: models.GroupTypeOidc}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
+}
+
+func GetRolesForGroup(t *testing.T, key, group string, includeRoles bool) []*models.Role {
+	includeRolesP := &includeRoles
+	resp, err := Client(t).Authz.GetRolesForGroup(
+		authz.NewGetRolesForGroupParams().WithID(group).WithGroupType(string(models.GroupTypeOidc)).WithIncludeFullRoles(includeRolesP),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	return resp.Payload
+}
+
+func GetKnownGroups(t *testing.T, key string) []string {
+	resp, err := Client(t).Authz.GetGroups(
+		authz.NewGetGroupsParams().WithGroupType(string(models.GroupTypeOidc)), CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	return resp.Payload
+}
+
+func GetGroupsForRole(t *testing.T, key, roleName string) []string {
+	resp, err := Client(t).Authz.GetGroupsForRole(
+		authz.NewGetGroupsForRoleParams().WithID(roleName),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+
+	// there are only OIDC groups right now
+	groupNames := make([]string, 0)
+	for _, group := range resp.Payload {
+		groupNames = append(groupNames, group.GroupID)
+	}
+	return groupNames
 }
 
 func AddPermissions(t *testing.T, key, role string, permissions ...*models.Permission) {
