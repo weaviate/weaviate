@@ -154,7 +154,7 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 			return objs, fmt.Errorf("cannot unmarshal object: %w", err)
 		}
 
-		replicaObj := replica.RepairResponse{
+		replicaObj := types.RepairResponse{
 			ID:         obj.ID().String(),
 			UpdateTime: obj.LastUpdateTimeUnix(),
 			// TODO: use version when supported
