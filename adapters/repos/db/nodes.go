@@ -197,6 +197,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 					Loaded:               false,
 					ReplicationFactor:    shardingState.ReplicationFactor,
 					NumberOfReplicas:     numberOfReplicas,
+					Compressed:           isAnyVectorIndexCompressed(shard),
 				}
 				*status = append(*status, shardStatus)
 				shardCount++
@@ -218,12 +219,6 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			return nil
 		})
 
-		var compressed bool
-		_ = shard.ForEachVectorIndex(func(_ string, index VectorIndex) error {
-			compressed = compressed || index.Compressed()
-			return nil
-		})
-
 		class := shard.Index().Config.ClassName.String()
 		shardingState := shard.Index().getSchema.CopyShardingState(class)
 		numberOfReplicas, err := shardingState.NumberOfReplicas(shard.Name())
@@ -237,7 +232,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			ObjectCount:            int64(objectCount),
 			VectorIndexingStatus:   shard.GetStatus().String(),
 			VectorQueueLength:      queueLen,
-			Compressed:             compressed,
+			Compressed:             isAnyVectorIndexCompressed(shard),
 			Loaded:                 true,
 			AsyncReplicationStatus: shard.getAsyncReplicationStats(ctx),
 			ReplicationFactor:      shardingState.ReplicationFactor,
@@ -248,6 +243,15 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		return nil
 	})
 	return
+}
+
+func isAnyVectorIndexCompressed(shard ShardLike) bool {
+	var compressed bool
+	_ = shard.ForEachVectorIndex(func(_ string, index VectorIndex) error {
+		compressed = compressed || index.Compressed()
+		return nil
+	})
+	return compressed
 }
 
 func (db *DB) GetNodeStatistics(ctx context.Context) ([]*models.Statistics, error) {
