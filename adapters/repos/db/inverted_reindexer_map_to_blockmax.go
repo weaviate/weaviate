@@ -1231,7 +1231,7 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 	mdCh := make(chan *migrationData)
 
 	enterrors.GoWrapper(func() {
-		cursor := shard.Store().Bucket(helpers.ObjectsBucketLSM).CursorOnDisk()
+		cursor := shard.Store().Bucket(helpers.ObjectsBucketLSM).CursorOnDisk(false)
 		defer cursor.Close()
 
 		startedCh <- time.Now() // after cursor created (necessary locks acquired)

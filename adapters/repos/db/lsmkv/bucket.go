@@ -391,7 +391,7 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 	afterInMemCallback func(), f func(object *storobj.Object) error,
 ) error {
 	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
-	onDiskCursor := b.CursorOnDisk()
+	onDiskCursor := b.CursorOnDisk(true)
 	defer onDiskCursor.Close()
 
 	inmemProcessedDocIDs := make(map[uint64]struct{})

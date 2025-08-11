@@ -127,12 +127,6 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int) (
 	objs []replica.RepairResponse, err error,
 ) {
-	err = s.store.PauseCompaction(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pausing compaction: %w", err)
-	}
-	defer s.store.ResumeCompaction(ctx)
-
 	initialUUIDBytes, err := uuid.MustParse(initialUUID.String()).MarshalBinary()
 	if err != nil {
 		return nil, err
@@ -146,7 +140,8 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
 	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
-	cursor := bucket.CursorOnDisk()
+	// note: memtable flushing is blocked
+	cursor := bucket.CursorOnDisk(false)
 	defer cursor.Close()
 
 	inmemProcessedDocIDs := make(map[uint64]struct{})
