@@ -568,7 +568,7 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	// Check if the index is being dropped or shut down to avoid panics when the index is being deleted
 	if i.closingCtx.Err() != nil {
-		i.logger.WithField("action", "ForEachShard").Debug("index is being dropped or shut down")
+		i.logger.WithField("action", "for_each_shard").Debug("index is being dropped or shut down")
 		return nil
 	}
 
@@ -590,7 +590,7 @@ func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) e
 func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {
 	// Check if the index is being dropped or shut down to avoid panics when the index is being deleted
 	if i.closingCtx.Err() != nil {
-		i.logger.WithField("action", "ForEachShardConcurrently").Debug("index is being dropped or shut down")
+		i.logger.WithField("action", "for_each_shard_concurrently").Debug("index is being dropped or shut down")
 		return nil
 	}
 	return i.shards.RangeConcurrently(i.logger, f)
