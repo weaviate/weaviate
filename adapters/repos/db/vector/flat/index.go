@@ -332,9 +332,11 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 			index.bq = compressionhelpers.NewBinaryQuantizer(nil)
 		}
 	})
-	if len(vector) != int(index.dims) {
-		return errors.Errorf("insert called with a vector of the wrong size")
+
+	if err := index.ValidateBeforeInsert(vector); err != nil {
+		return err
 	}
+
 	vector = index.normalized(vector)
 	slice := make([]byte, len(vector)*4)
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
@@ -797,7 +799,11 @@ func (index *flat) GetKeys(id uint64) (uint64, uint64, error) {
 	return 0, 0, errors.Errorf("GetKeys is not supported for flat index")
 }
 
-func (i *flat) ValidateBeforeInsert(vector []float32) error {
+func (index *flat) ValidateBeforeInsert(vector []float32) error {
+	if index.dims != 0 && len(vector) != int(index.dims) {
+		return errors.Errorf("insert called with a vector of the wrong size")
+	}
+
 	return nil
 }
 
