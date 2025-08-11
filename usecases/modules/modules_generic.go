@@ -13,6 +13,7 @@ package modules
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -48,7 +49,7 @@ func vectorFromSearchParam[T dto.Embedding](
 			cfg := NewClassBasedModuleConfig(class, moduleName, tenant, targetVector)
 			vector, err := searchVectorFn.VectorForParams(ctx, params, class.Class, findVectorFn, cfg)
 			if err != nil {
-				return true, nil, errors.Errorf("vectorize params: %v", err)
+				return true, nil, fmt.Errorf("vectorize params: %w", err)
 			}
 			return true, vector, nil
 		}

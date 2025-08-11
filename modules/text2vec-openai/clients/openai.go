@@ -23,6 +23,8 @@ import (
 	"strconv"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -111,9 +113,10 @@ type client struct {
 	buildUrlFn         func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error)
 	logger             logrus.FieldLogger
 	sampledLogger      *logrusext.Sampler
+	name               string
 }
 
-func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *client {
+func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger, name string) *client {
 	return &client{
 		openAIApiKey:       openAIApiKey,
 		openAIOrganization: openAIOrganization,
@@ -124,6 +127,7 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 		buildUrlFn:    buildUrl,
 		logger:        logger,
 		sampledLogger: logrusext.NewSampler(logger, 5, time.Minute),
+		name:          name,
 	}
 }
 
@@ -194,7 +198,11 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 	}
 	if err != nil {
 		metrics.ModuleCallError.WithLabelValues("openai", endpoint, fmt.Sprintf("%v", err)).Inc()
-		return nil, nil, 0, errors.Wrap(err, "send POST request")
+		code := 0
+		if res != nil {
+			code = res.StatusCode
+		}
+		return nil, nil, 0, enterrors.NewErrThirdParty(err.Error(), err.Error(), v.name, code, "")
 	}
 	defer res.Body.Close()
 
@@ -213,7 +221,9 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {
-		return nil, nil, 0, v.getError(res.StatusCode, requestID, resBody.Error, config.IsAzure)
+		fullErr := v.getError(res.StatusCode, requestID, resBody.Error, config.IsAzure)
+		fullErrStr := fullErr.Error()
+		return nil, nil, 0, enterrors.NewErrThirdParty(fullErrStr, resBody.Error.Message, v.name, res.StatusCode, requestID)
 	}
 	rateLimit := ent.GetRateLimitsFromHeader(v.sampledLogger, res.Header, config.IsAzure)
 

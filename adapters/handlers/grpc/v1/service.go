@@ -13,6 +13,7 @@ package v1
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -329,7 +330,32 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 
 	res, err := s.traverser.GetClass(restCtx.AddPrincipalToContext(ctx, principal), principal, searchParams)
 	if err != nil {
-		return nil, err
+		var targetErr enterrors.ErrThirdParty
+
+		if !req.Uses_133Api {
+			return nil, err
+		}
+
+		if errors.As(err, &targetErr) {
+			return &pb.SearchReply{
+				Errors: &pb.SearchReply_ThirdPartyError{
+					ThirdPartyError: &pb.ThirdPartyError{
+						ProviderName:      targetErr.Provider,
+						ErrorFromProvider: targetErr.ErrorFromProvider,
+						FullError:         err.Error(),
+						RequestId:         targetErr.RequestID,
+						StatusCode:        int32(targetErr.StatusCode),
+					},
+				},
+			}, nil
+		}
+
+		return &pb.SearchReply{
+			Errors: &pb.SearchReply_InternalError{
+				InternalError: err.Error(),
+			},
+		}, nil
+
 	}
 
 	scheme := s.schemaManager.GetSchemaSkipAuth()

@@ -52,7 +52,8 @@ message SearchRequest {
 
   bool uses_123_api = 100 [deprecated = true];
   bool uses_125_api = 101 [deprecated = true];
-  bool uses_127_api = 102; 
+  bool uses_127_api = 102;
+  bool uses_133_api = 103;
 }
 
 message GroupBy {
@@ -111,12 +112,26 @@ message Rerank {
   optional string query = 2;
 }
 
+message ThirdPartyError {
+  string provider_name = 1;
+  string error_from_provider = 2;
+  string full_error = 3;
+  int32 status_code = 4;
+  string request_id = 5;
+}
+
+
 message SearchReply {
   float took = 1;
   repeated SearchResult results = 2;
   optional string generative_grouped_result = 3 [deprecated = true];
   repeated GroupByResult group_by_results = 4;
   optional GenerativeResult generative_grouped_results = 5;
+  // keep it extendable
+  oneof errors {
+    string internal_error = 6;
+    ThirdPartyError third_party_error = 7;
+  };
 }
 
 message RerankReply {

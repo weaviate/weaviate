@@ -123,11 +123,14 @@ func file_v0_batch_proto_rawDescGZIP() []byte {
 	return file_v0_batch_proto_rawDescData
 }
 
-var file_v0_batch_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
-var file_v0_batch_proto_goTypes = []any{
-	(*BatchObjectsRequest)(nil), // 0: weaviategrpc.BatchObjectsRequest
-	(*BatchObjectsReply)(nil),   // 1: weaviategrpc.BatchObjectsReply
-}
+var (
+	file_v0_batch_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+	file_v0_batch_proto_goTypes  = []interface{}{
+		(*BatchObjectsRequest)(nil), // 0: weaviategrpc.BatchObjectsRequest
+		(*BatchObjectsReply)(nil),   // 1: weaviategrpc.BatchObjectsReply
+	}
+)
+
 var file_v0_batch_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
 	0, // [0:0] is the sub-list for method input_type
@@ -142,7 +145,7 @@ func file_v0_batch_proto_init() {
 		return
 	}
 	if !protoimpl.UnsafeEnabled {
-		file_v0_batch_proto_msgTypes[0].Exporter = func(v any, i int) any {
+		file_v0_batch_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*BatchObjectsRequest); i {
 			case 0:
 				return &v.state
@@ -154,7 +157,7 @@ func file_v0_batch_proto_init() {
 				return nil
 			}
 		}
-		file_v0_batch_proto_msgTypes[1].Exporter = func(v any, i int) any {
+		file_v0_batch_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*BatchObjectsReply); i {
 			case 0:
 				return &v.state

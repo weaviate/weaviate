@@ -116,7 +116,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 
-		c := New("apiKey", "", "", 0, nullLogger())
+		c := New("apiKey", "", "", 0, nullLogger(), "")
 		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
@@ -143,7 +143,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t, noRlHeader: true})
 		defer server.Close()
 
-		c := New("apiKey", "", "", 0, nullLogger())
+		c := New("apiKey", "", "", 0, nullLogger(), "")
 		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
@@ -170,7 +170,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t, noRlHeader: false, RlValues: "0"})
 		defer server.Close()
 
-		c := New("apiKey", "", "", 0, nullLogger())
+		c := New("apiKey", "", "", 0, nullLogger(), "")
 		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
@@ -196,7 +196,7 @@ func TestClient(t *testing.T) {
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("apiKey", "", "", 0, nullLogger())
+		c := New("apiKey", "", "", 0, nullLogger(), "")
 		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
@@ -216,7 +216,7 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
-		c := New("apiKey", "", "", 0, nullLogger())
+		c := New("apiKey", "", "", 0, nullLogger(), "")
 		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
@@ -235,7 +235,7 @@ func TestClient(t *testing.T) {
 			headerRequestID: "some-request-id",
 		})
 		defer server.Close()
-		c := New("apiKey", "", "", 0, nullLogger())
+		c := New("apiKey", "", "", 0, nullLogger(), "")
 		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
@@ -250,7 +250,7 @@ func TestClient(t *testing.T) {
 	t.Run("when OpenAI key is passed using X-Openai-Api-Key header", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
@@ -274,7 +274,7 @@ func TestClient(t *testing.T) {
 	t.Run("when OpenAI key is empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
@@ -293,7 +293,7 @@ func TestClient(t *testing.T) {
 	t.Run("when X-Openai-Api-Key header is passed but empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
@@ -311,7 +311,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("when X-OpenAI-BaseURL header is passed", func(t *testing.T) {
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 
 		config := ent.VectorizationConfig{
 			Type:    "text",
@@ -332,7 +332,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("when X-Azure-* headers are passed", func(t *testing.T) {
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 
 		config := ent.VectorizationConfig{
 			IsAzure:    true,
@@ -350,7 +350,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("pass rate limit headers requests", func(t *testing.T) {
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Ratelimit-RequestPM-Embedding", []string{"50"})
@@ -361,7 +361,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("pass rate limit headers tokens", func(t *testing.T) {
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 
 		ctxWithValue := context.WithValue(context.Background(), "X-Openai-Ratelimit-TokenPM-Embedding", []string{"60"})
 
@@ -447,7 +447,7 @@ func nullLogger() logrus.FieldLogger {
 func TestGetApiKeyFromContext(t *testing.T) {
 	t.Run("value from context", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), "X-Openai-Api-Key", []string{"key-from-ctx"})
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 		key, err := c.getApiKey(ctx, false)
 		require.NoError(t, err)
 		assert.Equal(t, "key-from-ctx", key)
@@ -455,7 +455,7 @@ func TestGetApiKeyFromContext(t *testing.T) {
 
 	t.Run("value from env fallback", func(t *testing.T) {
 		ctx := context.Background()
-		c := New("env-key", "", "", 0, nullLogger())
+		c := New("env-key", "", "", 0, nullLogger(), "")
 		key, err := c.getApiKey(ctx, false)
 		require.NoError(t, err)
 		assert.Equal(t, "env-key", key)
@@ -463,7 +463,7 @@ func TestGetApiKeyFromContext(t *testing.T) {
 
 	t.Run("no value at all", func(t *testing.T) {
 		ctx := context.Background()
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 		_, err := c.getApiKey(ctx, false)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no api key found")
@@ -473,27 +473,27 @@ func TestGetApiKeyFromContext(t *testing.T) {
 func TestGetOpenAIOrganization(t *testing.T) {
 	t.Run("from context", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), "X-Openai-Organization", []string{"from-context"})
-		c := New("", "default-org", "", 0, nullLogger())
+		c := New("", "default-org", "", 0, nullLogger(), "")
 		assert.Equal(t, "from-context", c.getOpenAIOrganization(ctx))
 	})
 
 	t.Run("from default", func(t *testing.T) {
 		ctx := context.Background()
-		c := New("", "default-org", "", 0, nullLogger())
+		c := New("", "default-org", "", 0, nullLogger(), "")
 		assert.Equal(t, "default-org", c.getOpenAIOrganization(ctx))
 	})
 }
 
 func TestGetEmbeddingsRequest(t *testing.T) {
 	t.Run("Azure true omits model", func(t *testing.T) {
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 		req := c.getEmbeddingsRequest([]string{"foo"}, "model", true, nil)
 		assert.Equal(t, []string{"foo"}, req.Input)
 		assert.Equal(t, (*int64)(nil), req.Dimensions)
 		assert.Empty(t, req.Model)
 	})
 	t.Run("Non-Azure includes model", func(t *testing.T) {
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 		dim := int64(42)
 		req := c.getEmbeddingsRequest([]string{"foo"}, "model", false, &dim)
 		assert.Equal(t, []string{"foo"}, req.Input)
@@ -503,7 +503,7 @@ func TestGetEmbeddingsRequest(t *testing.T) {
 }
 
 func TestGetApiKeyHeaderAndValue(t *testing.T) {
-	c := New("", "", "", 0, nullLogger())
+	c := New("", "", "", 0, nullLogger(), "")
 	h, v := c.getApiKeyHeaderAndValue("some-key", true)
 	assert.Equal(t, "api-key", h)
 	assert.Equal(t, "some-key", v)
@@ -514,14 +514,14 @@ func TestGetApiKeyHeaderAndValue(t *testing.T) {
 }
 
 func TestGetApiKeyHash(t *testing.T) {
-	c := New("super-secret", "", "", 0, nullLogger())
+	c := New("super-secret", "", "", 0, nullLogger(), "")
 	hash := c.GetApiKeyHash(context.Background(), fakeClassConfig{})
 	assert.NotEqual(t, [32]byte{}, hash)
 	assert.Equal(t, hash, c.GetApiKeyHash(context.Background(), fakeClassConfig{}))
 }
 
 func TestGetErrorFormat(t *testing.T) {
-	c := New("", "", "", 0, nullLogger())
+	c := New("", "", "", 0, nullLogger(), "")
 	err := c.getError(403, "abc-123", &openAIApiError{Message: "denied"}, false)
 	assert.Contains(t, err.Error(), "403")
 	assert.Contains(t, err.Error(), "abc-123")

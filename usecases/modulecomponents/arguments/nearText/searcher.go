@@ -13,9 +13,9 @@ package nearText
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -61,7 +61,7 @@ func (s *vectorForParams[T]) vectorFromNearTextParam(ctx context.Context,
 	tenant := cfg.Tenant()
 	vector, err := s.vectorizer.Texts(ctx, params.Values, cfg)
 	if err != nil {
-		return nil, errors.Errorf("vectorize keywords: %v", err)
+		return nil, fmt.Errorf("vectorize keywords: %w", err)
 	}
 
 	moveTo := params.MoveTo
@@ -69,7 +69,7 @@ func (s *vectorForParams[T]) vectorFromNearTextParam(ctx context.Context,
 		moveToVector, err := s.vectorFromValuesAndObjects(ctx, moveTo.Values,
 			moveTo.Objects, className, findVectorFn, cfg, tenant)
 		if err != nil {
-			return nil, errors.Errorf("vectorize move to: %v", err)
+			return nil, fmt.Errorf("vectorize move to: %w", err)
 		}
 
 		afterMoveTo, err := s.movements.MoveTo(vector, moveToVector, moveTo.Force)
@@ -84,7 +84,7 @@ func (s *vectorForParams[T]) vectorFromNearTextParam(ctx context.Context,
 		moveAwayVector, err := s.vectorFromValuesAndObjects(ctx, moveAway.Values,
 			moveAway.Objects, className, findVectorFn, cfg, tenant)
 		if err != nil {
-			return nil, errors.Errorf("vectorize move away from: %v", err)
+			return nil, fmt.Errorf("vectorize move away from: %w", err)
 		}
 
 		afterMoveFrom, err := s.movements.MoveAwayFrom(vector, moveAwayVector, moveAway.Force)
@@ -108,7 +108,7 @@ func (s *vectorForParams[T]) vectorFromValuesAndObjects(ctx context.Context,
 	if len(values) > 0 {
 		moveToVector, err := s.vectorizer.Texts(ctx, values, cfg)
 		if err != nil {
-			return nil, errors.Errorf("vectorize move to: %v", err)
+			return nil, fmt.Errorf("vectorize move to: %w", err)
 		}
 		objectVectors = append(objectVectors, moveToVector)
 	}

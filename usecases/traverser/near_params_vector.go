@@ -209,7 +209,7 @@ func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 				className, targetVector, tenant, paramName, paramValue, generictypes.FindMultiVectorFn(v.findMultiVector),
 			)
 			if err != nil {
-				return nil, errors.Errorf("vectorize params: %v", err)
+				return nil, fmt.Errorf("vectorize params: %w", err)
 			}
 			return vector, nil
 		} else {
@@ -217,7 +217,7 @@ func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 				className, targetVector, tenant, paramName, paramValue, generictypes.FindVectorFn(v.findVector),
 			)
 			if err != nil {
-				return nil, errors.Errorf("vectorize params: %v", err)
+				return nil, fmt.Errorf("vectorize params: %w", err)
 			}
 			return vector, nil
 		}

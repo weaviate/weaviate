@@ -253,7 +253,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 
 			vec, err := e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i], i)
 			if err != nil {
-				return errors.Errorf("explorer: get class: vectorize search vector: %v", err)
+				return fmt.Errorf("explorer: get class: vectorize search vector: %w", err)
 			}
 			searchVectors[i] = vec
 			return nil
