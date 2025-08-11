@@ -800,7 +800,15 @@ func (index *flat) GetKeys(id uint64) (uint64, uint64, error) {
 }
 
 func (index *flat) ValidateBeforeInsert(vector []float32) error {
-	if index.dims != 0 && len(vector) != int(index.dims) {
+	dims := int(atomic.LoadInt32(&index.dims))
+
+	// no vectors exist
+	if dims == 0 {
+		return nil
+	}
+
+	// check if vector length is the same as existing nodes
+	if dims != len(vector) {
 		return errors.Errorf("insert called with a vector of the wrong size")
 	}
 
