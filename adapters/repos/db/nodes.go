@@ -247,7 +247,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 
 func isAnyVectorIndexCompressed(shard ShardLike) bool {
 	var compressed bool
-	_ = shard.ForEachVectorIndex(func(_ string, index VectorIndex) error {
+	shard.ForEachVectorIndex(func(_ string, index VectorIndex) error {
 		compressed = compressed || index.Compressed()
 		return nil
 	})
