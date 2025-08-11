@@ -187,14 +187,6 @@ func (m *Manager) resolveAlias(class string) (className, aliasName string) {
 	return alias.ResolveAlias(m.schemaManager, class)
 }
 
-func (m *Manager) classNameToAlias(obj *models.Object, aliasName string) *models.Object {
-	return alias.ClassNameToAlias(obj, aliasName)
-}
-
-func (m *Manager) classNamesToAliases(objs []*models.Object, aliasName string) []*models.Object {
-	return alias.ClassNamesToAliases(objs, aliasName)
-}
-
 func generateUUID() (strfmt.UUID, error) {
 	id, err := uuid.NewRandom()
 	if err != nil {

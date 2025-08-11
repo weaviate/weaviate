@@ -14,6 +14,7 @@ package hnsw
 import (
 	"errors"
 
+	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
@@ -70,4 +71,12 @@ func parseRQMap(in map[string]interface{}, rq *RQConfig) error {
 	}
 
 	return nil
+}
+
+// GetRQBits returns the bits value for RQ compression, or 0 if not RQ
+func GetRQBits(cfg config.VectorIndexConfig) int16 {
+	if hnswUserConfig, ok := cfg.(UserConfig); ok && hnswUserConfig.RQ.Enabled {
+		return hnswUserConfig.RQ.Bits
+	}
+	return 0
 }

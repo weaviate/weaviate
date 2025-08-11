@@ -1380,3 +1380,303 @@ func TestService_Usage_HotTenantWithLoadingStatus(t *testing.T) {
 	mockShard.AssertExpectations(t)
 	mockBackupProvider.AssertExpectations(t)
 }
+
+func TestService_Usage_RQCompressionWithBits(t *testing.T) {
+	ctx := context.Background()
+
+	nodeName := "test-node"
+	className := "RQTestClass"
+	replication := 1
+	shardName := "rq-shard"
+	objectCount := 1000
+	storageSize := int64(5000000)
+	vectorName := "default"
+	vectorType := "hnsw"
+	compression := "rq"
+	compressionRatio := 0.125
+	dimensionality := 1536
+	dimensionCount := 1000
+
+	// Test both bits=1 and bits=8
+	testCases := []struct {
+		name     string
+		bits     int16
+		expected int16
+	}{
+		{
+			name:     "RQ with bits=1",
+			bits:     1,
+			expected: 1,
+		},
+		{
+			name:     "RQ with bits=8",
+			bits:     8,
+			expected: 8,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockSchema := schema.NewMockSchemaGetter(t)
+			mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
+				Objects: &models.Schema{
+					Classes: []*models.Class{
+						{
+							Class: className,
+							VectorIndexConfig: hnsw.UserConfig{
+								RQ: hnsw.RQConfig{
+									Enabled: true,
+									Bits:    tc.bits,
+								},
+							},
+							ReplicationConfig: &models.ReplicationConfig{
+								Factor: int64(replication),
+							},
+						},
+					},
+				},
+			})
+			mockSchema.EXPECT().NodeName().Return(nodeName)
+
+			shardingState := &sharding.State{
+				Physical: map[string]sharding.Physical{
+					shardName: {
+						Name:           shardName,
+						BelongsToNodes: []string{nodeName},
+						Status:         models.TenantActivityStatusHOT,
+					},
+				},
+			}
+			shardingState.SetLocalName(nodeName)
+			mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+
+			mockDB := db.NewMockIndexGetter(t)
+			mockIndex := db.NewMockIndexLike(t)
+			mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
+
+			mockShard := db.NewMockShardLike(t)
+			mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
+			mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
+			mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
+			mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
+			mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(types.Dimensionality{
+				Dimensions: dimensionality,
+				Count:      dimensionCount,
+			}, nil)
+
+			mockVectorIndex := db.NewMockVectorIndex(t)
+			mockCompressionStats := compressionhelpers.NewMockCompressionStats(t)
+			mockCompressionStats.EXPECT().CompressionRatio(dimensionality).Return(compressionRatio)
+			mockVectorIndex.EXPECT().CompressionStats().Return(mockCompressionStats)
+
+			mockShard.On("ForEachVectorIndex", mock.AnythingOfType("func(string, db.VectorIndex) error")).Return(nil).Run(func(args mock.Arguments) {
+				f := args.Get(0).(func(string, db.VectorIndex) error)
+				f(vectorName, mockVectorIndex)
+			})
+
+			mockIndex.On("ForEachShard", mock.AnythingOfType("func(string, db.ShardLike) error")).Return(nil).Run(func(args mock.Arguments) {
+				f := args.Get(0).(func(string, db.ShardLike) error)
+				f(shardName, mockShard)
+			})
+
+			mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
+			mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
+
+			logger, _ := logrus.NewNullLogger()
+			service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+
+			result, err := service.Usage(ctx)
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, nodeName, result.Node)
+			assert.Len(t, result.Collections, 1)
+
+			collection := result.Collections[0]
+			assert.Equal(t, className, collection.Name)
+			assert.Len(t, collection.Shards, 1)
+
+			shard := collection.Shards[0]
+			assert.Equal(t, shardName, shard.Name)
+			assert.Equal(t, int64(objectCount), shard.ObjectsCount)
+			assert.Equal(t, uint64(storageSize), shard.ObjectsStorageBytes)
+			assert.Len(t, shard.NamedVectors, 1)
+
+			vector := shard.NamedVectors[0]
+			assert.Equal(t, vectorName, vector.Name)
+			assert.Equal(t, vectorType, vector.VectorIndexType)
+			assert.Equal(t, compression, vector.Compression)
+			assert.Equal(t, compressionRatio, vector.VectorCompressionRatio)
+			assert.Equal(t, tc.expected, vector.Bits, "Bits should match the RQ configuration")
+
+			mockSchema.AssertExpectations(t)
+			mockDB.AssertExpectations(t)
+			mockIndex.AssertExpectations(t)
+			mockShard.AssertExpectations(t)
+			mockVectorIndex.AssertExpectations(t)
+			mockCompressionStats.AssertExpectations(t)
+			mockBackupProvider.AssertExpectations(t)
+		})
+	}
+}
+
+func TestService_Usage_NamedVectorsWithConfig(t *testing.T) {
+	ctx := context.Background()
+
+	nodeName := "test-node"
+	className := "NamedVectorConfigClass"
+	replication := 1
+	shardName := ""
+	objectCount := 2000
+	storageSize := int64(10000000)
+
+	// Named vector configurations
+	textVectorName := "text"
+	imageVectorName := "image"
+
+	// Expected values from named vector configs
+	textVectorType := "hnsw"
+	textCompression := "pq"
+
+	imageVectorType := "hnsw"
+	imageCompression := "standard"
+
+	mockSchema := schema.NewMockSchemaGetter(t)
+	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class: className,
+					// No legacy VectorIndexConfig - only named vectors
+					ReplicationConfig: &models.ReplicationConfig{Factor: int64(replication)},
+					VectorConfig: map[string]models.VectorConfig{
+						textVectorName: {
+							VectorIndexType: textVectorType,
+							VectorIndexConfig: func() hnsw.UserConfig {
+								config := hnsw.UserConfig{}
+								config.SetDefaults()
+								config.PQ.Enabled = true
+								return config
+							}(),
+						},
+						imageVectorName: {
+							VectorIndexType: imageVectorType,
+							VectorIndexConfig: func() hnsw.UserConfig {
+								config := hnsw.UserConfig{}
+								config.SetDefaults()
+								// PQ is disabled by default, so this should result in standard compression
+								return config
+							}(),
+						},
+					},
+				},
+			},
+		},
+	})
+	mockSchema.EXPECT().NodeName().Return(nodeName)
+
+	shardingState := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			shardName: {
+				Name:           "",
+				BelongsToNodes: []string{nodeName},
+				Status:         models.TenantActivityStatusHOT,
+			},
+		},
+	}
+	shardingState.SetLocalName(nodeName)
+	mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+
+	mockDB := db.NewMockIndexGetter(t)
+	mockIndex := db.NewMockIndexLike(t)
+	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
+
+	mockShard := db.NewMockShardLike(t)
+	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
+	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
+	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
+	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
+
+	// Mock dimensions usage for both named vectors
+	mockShard.EXPECT().DimensionsUsage(ctx, textVectorName).Return(types.Dimensionality{}, nil)
+	mockShard.EXPECT().DimensionsUsage(ctx, imageVectorName).Return(types.Dimensionality{}, nil)
+
+	// Mock vector indexes for both named vectors
+	mockTextVectorIndex := db.NewMockVectorIndex(t)
+	mockImageVectorIndex := db.NewMockVectorIndex(t)
+
+	mockTextCompressionStats := compressionhelpers.NewMockCompressionStats(t)
+	mockTextCompressionStats.EXPECT().CompressionRatio(mock.Anything).Return(1)
+	mockTextVectorIndex.EXPECT().CompressionStats().Return(mockTextCompressionStats)
+
+	mockImageCompressionStats := compressionhelpers.NewMockCompressionStats(t)
+	mockImageCompressionStats.EXPECT().CompressionRatio(mock.Anything).Return(1)
+	mockImageVectorIndex.EXPECT().CompressionStats().Return(mockImageCompressionStats)
+
+	mockIndex.On("ForEachShard", mock.AnythingOfType("func(string, db.ShardLike) error")).Return(nil).Run(func(args mock.Arguments) {
+		f := args.Get(0).(func(string, db.ShardLike) error)
+		f(shardName, mockShard)
+	})
+
+	mockShard.On("ForEachVectorIndex", mock.AnythingOfType("func(string, db.VectorIndex) error")).Return(nil).Run(func(args mock.Arguments) {
+		f := args.Get(0).(func(string, db.VectorIndex) error)
+		f(textVectorName, mockTextVectorIndex)
+		f(imageVectorName, mockImageVectorIndex)
+	})
+
+	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
+	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
+
+	logger, _ := logrus.NewNullLogger()
+	service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+
+	result, err := service.Usage(ctx)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, nodeName, result.Node)
+	assert.Len(t, result.Collections, 1)
+
+	collection := result.Collections[0]
+	assert.Equal(t, className, collection.Name)
+	assert.Len(t, collection.Shards, 1)
+
+	shard := collection.Shards[0]
+	assert.Equal(t, shardName, shard.Name)
+	assert.Equal(t, int64(objectCount), shard.ObjectsCount)
+	assert.Equal(t, uint64(storageSize), shard.ObjectsStorageBytes)
+	assert.Len(t, shard.NamedVectors, 2)
+
+	// Find and verify text vector
+	var textVector, imageVector *types.VectorUsage
+	for _, vector := range shard.NamedVectors {
+		switch vector.Name {
+		case textVectorName:
+			textVector = vector
+		case imageVectorName:
+			imageVector = vector
+		}
+	}
+
+	// Verify text vector configuration
+	require.NotNil(t, textVector)
+	assert.Equal(t, textVectorName, textVector.Name)
+	assert.Equal(t, textVectorType, textVector.VectorIndexType)
+	t.Logf("Text vector compression: expected=%s, actual=%s", textCompression, textVector.Compression)
+
+	// Verify image vector configuration
+	require.NotNil(t, imageVector)
+	assert.Equal(t, imageVectorName, imageVector.Name)
+	assert.Equal(t, imageVectorType, imageVector.VectorIndexType)
+	assert.Equal(t, imageCompression, imageVector.Compression)
+
+	mockSchema.AssertExpectations(t)
+	mockDB.AssertExpectations(t)
+	mockIndex.AssertExpectations(t)
+	mockShard.AssertExpectations(t)
+	mockTextVectorIndex.AssertExpectations(t)
+	mockTextCompressionStats.AssertExpectations(t)
+	mockImageVectorIndex.AssertExpectations(t)
+	mockImageCompressionStats.AssertExpectations(t)
+	mockBackupProvider.AssertExpectations(t)
+}

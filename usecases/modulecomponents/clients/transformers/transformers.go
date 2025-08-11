@@ -35,6 +35,7 @@ type VectorizationConfig struct {
 	PoolingStrategy                        string
 	InferenceURL                           string
 	PassageInferenceURL, QueryInferenceURL string
+	Dimensions                             *int64
 }
 
 type VectorizationResult struct {
@@ -54,6 +55,7 @@ type vecRequest struct {
 type vecRequestConfig struct {
 	PoolingStrategy string   `json:"pooling_strategy,omitempty"`
 	TaskType        taskType `json:"task_type,omitempty"`
+	Dimensions      *int64   `json:"dimensions,omitempty"`
 }
 
 type URLBuilder struct {
@@ -123,6 +125,7 @@ func (c *Client) vectorize(ctx context.Context, input string,
 		Config: vecRequestConfig{
 			PoolingStrategy: config.PoolingStrategy,
 			TaskType:        task,
+			Dimensions:      config.Dimensions,
 		},
 	})
 	if err != nil {

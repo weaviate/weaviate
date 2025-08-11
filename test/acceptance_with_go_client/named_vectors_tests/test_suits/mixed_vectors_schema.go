@@ -214,7 +214,7 @@ func testMixedVectorsCreateSchema(host string) func(t *testing.T) {
 			}
 			require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
 
-			class.Vectorizer = text2vecContextionary
+			class.Vectorizer = text2vecModel2Vec
 			class.VectorIndexType = "hnsw"
 
 			err = client.Schema().ClassUpdater().WithClass(class).Do(ctx)
@@ -233,14 +233,14 @@ func testMixedVectorsCreateSchema(host string) func(t *testing.T) {
 						DataType: schema.DataTypeText.PropString(),
 					},
 				},
-				Vectorizer:      text2vecContextionary,
+				Vectorizer:      text2vecModel2Vec,
 				VectorIndexType: "hnsw",
 			}
 			require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
 
 			class.VectorConfig = map[string]models.VectorConfig{
 				modelsext.DefaultNamedVectorName: {
-					Vectorizer:      map[string]interface{}{text2vecContextionary: map[string]interface{}{}},
+					Vectorizer:      map[string]interface{}{text2vecModel2Vec: map[string]interface{}{}},
 					VectorIndexType: "hnsw",
 				},
 			}

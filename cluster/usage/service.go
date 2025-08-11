@@ -27,6 +27,7 @@ import (
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
@@ -72,8 +73,10 @@ func (s *service) addJitter() {
 // Usage service collects usage metrics for the node and shall return error in case of any error
 // to avoid reporting partial data
 func (m *service) Usage(ctx context.Context) (*types.Report, error) {
-	collections := m.schemaManager.GetSchemaSkipAuth().Objects.Classes
+	schema := m.schemaManager.GetSchemaSkipAuth().Objects
+	collections := schema.Classes
 	usage := &types.Report{
+		Schema:      schema,
 		Node:        m.schemaManager.NodeName(),
 		Collections: make([]*types.CollectionUsage, 0, len(collections)),
 		Backups:     make([]*types.BackupUsage, 0),
@@ -161,10 +164,21 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 				if err = shard.ForEachVectorIndex(func(targetVector string, vectorIndex db.VectorIndex) error {
 					category := db.DimensionCategoryStandard // Default category
 					indexType := ""
+					var bits int16
 
-					if vectorIndexConfig, ok := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+					// Check if this is a named vector configuration
+					if vectorConfig, exists := collection.VectorConfig[targetVector]; exists {
+						// Use the named vector's configuration
+						if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+							category, _ = db.GetDimensionCategory(vectorIndexConfig)
+							indexType = vectorIndexConfig.IndexType()
+							bits = enthnsw.GetRQBits(vectorIndexConfig)
+						}
+					} else if vectorIndexConfig, ok := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+						// Fall back to legacy single vector configuration
 						category, _ = db.GetDimensionCategory(vectorIndexConfig)
 						indexType = vectorIndexConfig.IndexType()
+						bits = enthnsw.GetRQBits(vectorIndexConfig)
 					}
 
 					dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
@@ -183,6 +197,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 						VectorIndexType:        indexType,
 						IsDynamic:              common.IsDynamic(common.IndexType(indexType)),
 						VectorCompressionRatio: vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions),
+						Bits:                   bits,
 					}
 
 					// Only add dimensionalities if there's valid data
@@ -231,7 +246,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 	return usage, nil
 }
 
-func calculateUnloadedShardUsage(ctx context.Context, index db.IndexLike, tenantName string, vectorConfig map[string]models.VectorConfig) (*types.ShardUsage, error) {
+func calculateUnloadedShardUsage(ctx context.Context, index db.IndexLike, tenantName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
 	// Cold tenant: calculate from disk without loading
 	objectUsage, err := index.CalculateUnloadedObjectsMetrics(ctx, tenantName)
 	if err != nil {
@@ -252,23 +267,24 @@ func calculateUnloadedShardUsage(ctx context.Context, index db.IndexLike, tenant
 	}
 
 	// Get named vector data for cold shards from schema configuration
-	for targetVector, vectorConfig := range vectorConfig {
+	for targetVector, vectorConfig := range vectorConfigs {
+		// For cold shards, we can't get actual dimensionality from disk without loading
+		// So we'll use a placeholder or estimate based on the schema
+		vectorUsage := &types.VectorUsage{
+			Name:                   targetVector,
+			Compression:            db.DimensionCategoryStandard.String(),
+			VectorCompressionRatio: 1.0, // Default ratio for cold shards
+		}
+
 		if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
 			category, _ := db.GetDimensionCategory(vectorIndexConfig)
-			indexType := vectorIndexConfig.IndexType()
-
-			// For cold shards, we can't get actual dimensionality from disk without loading
-			// So we'll use a placeholder or estimate based on the schema
-			vectorUsage := &types.VectorUsage{
-				Name:                   targetVector,
-				Compression:            category.String(),
-				VectorIndexType:        indexType,
-				IsDynamic:              common.IsDynamic(common.IndexType(indexType)),
-				VectorCompressionRatio: 1.0, // Default ratio for cold shards
-			}
-
-			shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
+			vectorUsage.Compression = category.String()
+			vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
+			vectorUsage.Bits = enthnsw.GetRQBits(vectorIndexConfig)
+			vectorUsage.IsDynamic = common.IsDynamic(common.IndexType(vectorUsage.VectorIndexType))
 		}
+
+		shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
 	}
 	return shardUsage, err
 }

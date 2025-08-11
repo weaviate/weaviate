@@ -105,39 +105,39 @@ func testCreateObject(host string) func(t *testing.T) {
 			})
 
 			t.Run("certainty checks", func(t *testing.T) {
-				var vectorC11y []float32
+				var vectorM2Vec []float32
 				t.Run("nearText", func(t *testing.T) {
 					nearText := client.GraphQL().NearTextArgBuilder().
 						WithConcepts([]string{"book"}).
-						WithTargetVectors(c11y)
-					resultVectors := getVectorsWithNearTextWithCertainty(t, client, className, id1, nearText, c11y)
-					require.NotEmpty(t, resultVectors[c11y])
-					require.IsType(t, []float32{}, resultVectors[c11y])
-					vectorC11y = resultVectors[c11y].([]float32)
+						WithTargetVectors(m2vec)
+					resultVectors := getVectorsWithNearTextWithCertainty(t, client, className, id1, nearText, m2vec)
+					require.NotEmpty(t, resultVectors[m2vec])
+					require.IsType(t, []float32{}, resultVectors[m2vec])
+					vectorM2Vec = resultVectors[m2vec].([]float32)
 				})
 
 				t.Run("nearVector", func(t *testing.T) {
 					nearVector := client.GraphQL().NearVectorArgBuilder().
-						WithVector(vectorC11y).
-						WithTargetVectors(c11y)
-					resultVectors := getVectorsWithNearVectorWithCertainty(t, client, className, id1, nearVector, c11y)
-					require.NotEmpty(t, resultVectors[c11y])
+						WithVector(vectorM2Vec).
+						WithTargetVectors(m2vec)
+					resultVectors := getVectorsWithNearVectorWithCertainty(t, client, className, id1, nearVector, m2vec)
+					require.NotEmpty(t, resultVectors[m2vec])
 				})
 
 				t.Run("nearObject", func(t *testing.T) {
 					nearObject := client.GraphQL().NearObjectArgBuilder().
 						WithID(id1).
-						WithTargetVectors(c11y)
-					resultVectors := getVectorsWithNearObjectWithCertainty(t, client, className, id1, nearObject, c11y)
-					require.NotEmpty(t, resultVectors[c11y])
+						WithTargetVectors(m2vec)
+					resultVectors := getVectorsWithNearObjectWithCertainty(t, client, className, id1, nearObject, m2vec)
+					require.NotEmpty(t, resultVectors[m2vec])
 				})
 			})
 
 			t.Run("nearText with certainty limit", func(t *testing.T) {
 				nearText := client.GraphQL().NearTextArgBuilder().
-					WithTargetVectors(c11y).
+					WithTargetVectors(m2vec).
 					WithConcepts([]string{"book"}).
-					WithCertainty(0.9)
+					WithCertainty(0.7)
 
 				res, err := client.GraphQL().Get().
 					WithClassName(className).
@@ -223,7 +223,7 @@ func testCreateObject(host string) func(t *testing.T) {
 					Name:     "dont_vectorize_property",
 					DataType: []string{schema.DataTypeText.String()},
 					ModuleConfig: map[string]interface{}{
-						text2vecContextionary: map[string]interface{}{
+						text2vecModel2Vec: map[string]interface{}{
 							"skip":                  true,
 							"vectorizePropertyName": "false",
 						},

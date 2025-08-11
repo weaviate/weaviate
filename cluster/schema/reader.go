@@ -68,7 +68,8 @@ func (rs SchemaReader) ClassInfo(class string) (ci ClassInfo) {
 // ClassEqual returns the name of an existing class with a similar name, and "" otherwise
 // strings.EqualFold is used to compare classes
 func (rs SchemaReader) ClassEqual(name string) string {
-	return rs.schema.ClassEqual(name)
+	x, _ := rs.schema.ClassEqual(name)
+	return x
 }
 
 func (rs SchemaReader) MultiTenancy(class string) models.MultiTenancyConfig {

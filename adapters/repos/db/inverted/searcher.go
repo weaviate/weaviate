@@ -84,7 +84,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 ) ([]*storobj.Object, error) {
 	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesNUMCPU(2))
 	beforeFilters := time.Now()
-	allowList, err := s.docIDs(ctx, filter, additional, className, limit)
+	allowList, err := s.docIDs(ctx, filter, className, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -205,29 +205,24 @@ func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
 	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesNUMCPU(2))
-	return s.docIDs(ctx, filter, additional, className, 0)
+	return s.docIDs(ctx, filter, className, 0)
 }
 
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
-	additional additional.Properties, className schema.ClassName,
-	limit int,
+	className schema.ClassName, limit int,
 ) (helpers.AllowList, error) {
 	pv, err := s.extractPropValuePair(ctx, filter.Root, className)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := pv.fetchDocIDs(ctx, s, limit); err != nil {
-		return nil, fmt.Errorf("fetch doc ids for prop/value pair: %w", err)
-	}
-
-	beforeMerge := time.Now()
-	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_merge_len", len(pv.children))
-	dbm, err := pv.mergeDocIDs()
+	beforeResolve := time.Now()
+	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_len", len(pv.children))
+	dbm, err := pv.resolveDocIDs(ctx, s, limit)
 	if err != nil {
-		return nil, fmt.Errorf("merge doc ids by operator: %w", err)
+		return nil, fmt.Errorf("resolve doc ids for prop/value pair: %w", err)
 	}
-	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_merge_took", time.Since(beforeMerge))
+	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_took", time.Since(beforeResolve))
 
 	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
 }

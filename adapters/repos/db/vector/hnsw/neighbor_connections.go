@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -31,17 +32,17 @@ func (h *hnsw) findAndConnectNeighbors(ctx context.Context, node *vertex,
 	denyList helpers.AllowList,
 ) error {
 	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
-		currentMaxLevel, denyList, false)
+		currentMaxLevel, denyList, false, nil)
 
 	return nfc.Do(ctx)
 }
 
 func (h *hnsw) reconnectNeighboursOf(ctx context.Context, node *vertex,
 	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
-	denyList helpers.AllowList,
+	denyList helpers.AllowList, processedIDs *sync.Map,
 ) error {
 	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
-		currentMaxLevel, denyList, true)
+		currentMaxLevel, denyList, true, processedIDs)
 
 	return nfc.Do(ctx)
 }
@@ -59,11 +60,12 @@ type neighborFinderConnector struct {
 	denyList        helpers.AllowList
 	// bufLinksLog     BufferedLinksLogger
 	tombstoneCleanupNodes bool
+	processedIDs          *sync.Map
 }
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 	nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
-	denyList helpers.AllowList, tombstoneCleanupNodes bool,
+	denyList helpers.AllowList, tombstoneCleanupNodes bool, processedIDs *sync.Map,
 ) *neighborFinderConnector {
 	return &neighborFinderConnector{
 		ctx:                   graph.shutdownCtx,
@@ -76,6 +78,7 @@ func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 		currentMaxLevel:       currentMaxLevel,
 		denyList:              denyList,
 		tombstoneCleanupNodes: tombstoneCleanupNodes,
+		processedIDs:          processedIDs,
 	}
 }
 
@@ -124,24 +127,41 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	nodesLen := uint64(len(n.graph.nodes))
 	n.graph.RUnlock()
 	var pending []uint64
+	// Check if already completed (not just started)
+	if n.processedIDs != nil {
+		if _, alreadyProcessed := n.processedIDs.Load(from); alreadyProcessed {
+			return nil
+		}
+	}
+
 	// lock the nodes slice
-	n.graph.shardedNodeLocks.RLock(from)
+	n.graph.shardedNodeLocks.Lock(from)
+	// Double-check after acquiring lock
+	if n.processedIDs != nil {
+		if _, alreadyProcessed := n.processedIDs.Load(from); alreadyProcessed {
+			n.graph.shardedNodeLocks.Unlock(from)
+			return nil
+		}
+	}
 	if nodesLen < from || n.graph.nodes[from] == nil {
 		n.graph.handleDeletedNode(from, "processRecursively")
-		n.graph.shardedNodeLocks.RUnlock(from)
+		if n.processedIDs != nil {
+			n.processedIDs.Store(from, struct{}{})
+		}
+		n.graph.shardedNodeLocks.Unlock(from)
 		return nil
 	}
 	// lock the node itself
 	n.graph.nodes[from].Lock()
 	if level >= int(n.graph.nodes[from].connections.Layers()) {
 		n.graph.nodes[from].Unlock()
-		n.graph.shardedNodeLocks.RUnlock(from)
+		n.graph.shardedNodeLocks.Unlock(from)
 		return nil
 	}
 	connections := make([]uint64, n.graph.nodes[from].connections.LenAtLayer(uint8(level)))
 	n.graph.nodes[from].connections.CopyLayer(connections, uint8(level))
 	n.graph.nodes[from].Unlock()
-	n.graph.shardedNodeLocks.RUnlock(from)
+	n.graph.shardedNodeLocks.Unlock(from)
 	for _, id := range connections {
 		if visited.Visited(id) {
 			continue

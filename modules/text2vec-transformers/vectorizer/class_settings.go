@@ -51,12 +51,16 @@ func (ic *classSettings) QueryInferenceURL() string {
 	return ic.getSetting("queryInferenceUrl")
 }
 
+func (ic *classSettings) Dimensions() *int64 {
+	return ic.BaseClassSettings.GetPropertyAsInt64("dimensions", nil)
+}
+
 func (ic *classSettings) getSetting(property string) string {
 	return ic.BaseClassSettings.GetPropertyAsString(property, "")
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
-	if err := ic.BaseClassSettings.ValidateClassSettings(); err != nil {
+	if err := ic.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}
 	if ic.InferenceURL() != "" && (ic.PassageInferenceURL() != "" || ic.QueryInferenceURL() != "") {

@@ -161,7 +161,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			} else {
 				assert.Equal(t, tt.wantApiEndpoint, ic.ApiEndpoint())
 				assert.Equal(t, tt.wantProjectID, ic.ProjectID())
-				assert.Equal(t, tt.wantModelID, ic.ModelID())
+				assert.Equal(t, tt.wantModelID, ic.Model())
 				assert.Equal(t, tt.wantTitle, ic.TitleProperty())
 			}
 		})

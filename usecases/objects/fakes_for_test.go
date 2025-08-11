@@ -50,6 +50,7 @@ type fakeSchemaManager struct {
 	GetSchemaResponse schema.Schema
 	GetschemaErr      error
 	tenantsEnabled    bool
+	resolveAliasTo    string
 }
 
 func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
@@ -199,7 +200,7 @@ func (f *fakeSchemaManager) StorageCandidates() []string {
 }
 
 func (f *fakeSchemaManager) ResolveAlias(alias string) string {
-	return ""
+	return f.resolveAliasTo
 }
 
 type fakeVectorRepo struct {

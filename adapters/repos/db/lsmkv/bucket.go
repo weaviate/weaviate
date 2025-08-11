@@ -248,7 +248,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
-		}, b.allocChecker, b.lazySegmentLoading, files)
+		}, b.allocChecker, b.lazySegmentLoading, files, b.bitmapBufPool)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}

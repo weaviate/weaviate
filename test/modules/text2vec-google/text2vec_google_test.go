@@ -25,12 +25,14 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 	return func(t *testing.T) {
 		helper.SetupClient(rest)
 		// Data
+		dimensions768 := 768
 		data := companies.Companies
 		className := "VectorizerTest"
 		class := companies.BaseClass(className)
 		tests := []struct {
-			name  string
-			model string
+			name       string
+			model      string
+			dimensions *int
 		}{
 			{
 				name:  "textembedding-gecko@latest",
@@ -52,19 +54,28 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 				name:  "gemini-embedding-001",
 				model: "gemini-embedding-001",
 			},
+			{
+				name:       "gemini-embedding-001 with 768 dimensions",
+				model:      "gemini-embedding-001",
+				dimensions: &dimensions768,
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				// Define class
+				vectorizerSettings := map[string]interface{}{
+					"properties":         []interface{}{"description"},
+					"vectorizeClassName": false,
+					"projectId":          gcpProject,
+					"modelId":            tt.model,
+				}
+				if tt.dimensions != nil {
+					vectorizerSettings["dimensions"] = *tt.dimensions
+				}
 				class.VectorConfig = map[string]models.VectorConfig{
 					"description": {
 						Vectorizer: map[string]interface{}{
-							vectorizerName: map[string]interface{}{
-								"properties":         []interface{}{"description"},
-								"vectorizeClassName": false,
-								"projectId":          gcpProject,
-								"modelId":            tt.model,
-							},
+							vectorizerName: vectorizerSettings,
 						},
 						VectorIndexType: "flat",
 					},
@@ -85,6 +96,9 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 							require.Len(t, obj.Vectors, 1)
 							require.IsType(t, []float32{}, obj.Vectors["description"])
 							assert.True(t, len(obj.Vectors["description"].([]float32)) > 0)
+							if tt.dimensions != nil {
+								assert.Equal(t, *tt.dimensions, len(obj.Vectors["description"].([]float32)))
+							}
 						})
 					}
 				})

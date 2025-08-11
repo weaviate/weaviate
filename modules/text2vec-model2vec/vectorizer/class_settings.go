@@ -24,12 +24,12 @@ const (
 )
 
 type classSettings struct {
-	basesettings.BaseClassSettings
+	*basesettings.BaseClassSettings
 	cfg moduletools.ClassConfig
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, false)}
+	return &classSettings{cfg: cfg, BaseClassSettings: basesettings.NewBaseClassSettings(cfg, false)}
 }
 
 func (ic *classSettings) InferenceURL() string {
@@ -37,7 +37,7 @@ func (ic *classSettings) InferenceURL() string {
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
-	if err := ic.BaseClassSettings.ValidateClassSettings(); err != nil {
+	if err := ic.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}
 	return nil

@@ -281,7 +281,7 @@ func testConcurrentSchemaOperations(t *testing.T, s *schema) {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
 				className := fmt.Sprintf("Class%d_%d", id, j)
-				_ = s.ClassEqual(className)
+				_, _ = s.ClassEqual(className)
 				time.Sleep(time.Microsecond)
 			}
 		}(i)
@@ -553,7 +553,7 @@ func testConcurrentClassInfoOperations(t *testing.T, s *schema) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				name := s.ClassEqual("testclass") // Testing case-insensitive match
+				name, _ := s.ClassEqual("testclass") // Testing case-insensitive match
 				if name != "" {
 					assert.Equal(t, "TestClass", name)
 				}

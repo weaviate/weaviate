@@ -61,7 +61,7 @@ func testMixedVectorsHybrid(host string) func(t *testing.T) {
 				HybridArgumentBuilder().
 				WithQuery("Some text goes here").
 				WithAlpha(0.5).
-				WithTargetVectors(contextionary)).
+				WithTargetVectors(model2vec)).
 			WithFields(field).
 			Do(ctx)
 		require.NoError(t, err)

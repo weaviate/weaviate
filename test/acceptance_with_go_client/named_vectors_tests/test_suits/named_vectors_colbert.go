@@ -538,9 +538,9 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 						},
 					},
 					VectorConfig: map[string]models.VectorConfig{
-						c11y: {
+						m2vec: {
 							Vectorizer: map[string]interface{}{
-								text2vecContextionary: map[string]interface{}{
+								text2vecModel2Vec: map[string]interface{}{
 									"vectorizeClassName": false,
 								},
 							},
@@ -555,7 +555,7 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 				}
 				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
 				require.Error(t, err)
-				assert.ErrorContains(t, err, `parse vector config for c11y: multi vector index configured but vectorizer: \"text2vec-contextionary\" doesn't support multi vectors`)
+				assert.ErrorContains(t, err, `parse vector config for m2vec: multi vector index configured but vectorizer: \"text2vec-model2vec\" doesn't support multi vectors`)
 			})
 			t.Run("named vector is colbert vectorizer with regular vector index", func(t *testing.T) {
 				cleanup()

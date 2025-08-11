@@ -347,7 +347,7 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	} else if !ok {
 		return executed, nil
 	}
-	h.reassignNeighbor(h.shutdownCtx, h.getEntrypoint(), deleteList, breakCleanUpTombstonedNodes)
+	h.reassignNeighbor(h.shutdownCtx, h.getEntrypoint(), deleteList, breakCleanUpTombstonedNodes, nil)
 
 	if ok, err := h.replaceDeletedEntrypoint(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
@@ -459,6 +459,8 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 	ch := make(chan uint64)
 	var cancelled atomic.Bool
 
+	processedIDs := &sync.Map{}
+
 	for i := 0; i < tombstoneDeletionConcurrency(); i++ {
 		g.Go(func() error {
 			for {
@@ -474,6 +476,11 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 					if !ok {
 						return nil
 					}
+					// Check if already COMPLETED processing
+					if _, alreadyProcessed := processedIDs.Load(deletedID); alreadyProcessed {
+						continue
+					}
+
 					h.shardedNodeLocks.RLock(deletedID)
 					if deletedID >= uint64(size) || deletedID >= uint64(len(h.nodes)) || h.nodes[deletedID] == nil {
 						h.shardedNodeLocks.RUnlock(deletedID)
@@ -482,7 +489,7 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 					h.shardedNodeLocks.RUnlock(deletedID)
 					h.resetLock.RLock()
 					if h.getEntrypoint() != deletedID {
-						if _, err := h.reassignNeighbor(ctx, deletedID, deleteList, breakCleanUpTombstonedNodes); err != nil {
+						if _, err := h.reassignNeighbor(ctx, deletedID, deleteList, breakCleanUpTombstonedNodes, processedIDs); err != nil {
 							h.logger.WithError(err).WithField("action", "hnsw_tombstone_cleanup_error").
 								Errorf("class %s: shard %s: reassign neighbor", h.className, h.shardName)
 						}
@@ -541,6 +548,7 @@ func (h *hnsw) reassignNeighbor(
 	neighbor uint64,
 	deleteList helpers.AllowList,
 	breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc,
+	processedIDs *sync.Map,
 ) (ok bool, err error) {
 	if breakCleanUpTombstonedNodes() {
 		return false, nil
@@ -597,7 +605,7 @@ func (h *hnsw) reassignNeighbor(
 	// just pass this dummy value to make the neighborFinderConnector happy
 	dummyEntrypoint := uint64(0)
 	if err := h.reconnectNeighboursOf(ctx, neighborNode, dummyEntrypoint, neighborVec, compressorDistancer,
-		neighborLevel, currentMaximumLayer, deleteList); err != nil {
+		neighborLevel, currentMaximumLayer, deleteList, processedIDs); err != nil {
 		return false, errors.Wrap(err, "find and connect neighbors")
 	}
 	neighborNode.unmarkAsMaintenance()

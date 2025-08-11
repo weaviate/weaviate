@@ -45,10 +45,9 @@ func testText2VecModel2Vec(host string) func(t *testing.T) {
 				// Define class
 				class.VectorConfig = map[string]models.VectorConfig{
 					"description": {
-						Vectorizer: map[string]interface{}{
-							"text2vec-model2vec": map[string]interface{}{
-								"properties":         []interface{}{"description"},
-								"vectorizeClassName": false,
+						Vectorizer: map[string]any{
+							"text2vec-model2vec": map[string]any{
+								"properties": []any{"description"},
 							},
 						},
 						VectorIndexType: "flat",

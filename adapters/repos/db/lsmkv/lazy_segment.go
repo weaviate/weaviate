@@ -248,9 +248,16 @@ func (s *lazySegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	return s.segment.replaceStratParseData(in)
 }
 
-func (s *lazySegment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
+func (s *lazySegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool,
+) (roaringset.BitmapLayer, func(), error) {
 	s.mustLoad()
-	return s.segment.roaringSetGet(key)
+	return s.segment.roaringSetGet(key, bitmapBufPool)
+}
+
+func (s *lazySegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool,
+) error {
+	s.mustLoad()
+	return s.segment.roaringSetMergeWith(key, input, bitmapBufPool)
 }
 
 func (s *lazySegment) numberFromPath(str string) (int, bool) {

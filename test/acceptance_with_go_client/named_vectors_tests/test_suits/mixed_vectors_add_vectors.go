@@ -49,7 +49,7 @@ func testMixedVectorsAddNewVectors(endpoint string) func(t *testing.T) {
 						Name: "text", DataType: []string{schema.DataTypeText.String()},
 					},
 				},
-				Vectorizer:      text2vecContextionary,
+				Vectorizer:      text2vecModel2Vec,
 				VectorIndexType: "hnsw",
 				VectorConfig:    map[string]models.VectorConfig{},
 			}
@@ -67,9 +67,9 @@ func testMixedVectorsAddNewVectors(endpoint string) func(t *testing.T) {
 			require.NoError(t, err)
 
 			// add a new named vector
-			class.VectorConfig[contextionary] = models.VectorConfig{
+			class.VectorConfig[model2vec] = models.VectorConfig{
 				Vectorizer: map[string]interface{}{
-					text2vecContextionary: map[string]interface{}{},
+					text2vecModel2Vec: map[string]interface{}{},
 				},
 				VectorIndexType: "flat",
 			}
@@ -103,18 +103,18 @@ func testMixedVectorsAddNewVectors(endpoint string) func(t *testing.T) {
 			require.NoError(t, err)
 
 			obj1 := fetchObject(t, UUID1)
-			require.Len(t, obj1.Vector, 300)
+			require.Len(t, obj1.Vector, 512)
 			require.Len(t, obj1.Vectors, 0)
 
 			obj2 := fetchObject(t, UUID2)
-			require.Len(t, obj2.Vector, 300)
+			require.Len(t, obj2.Vector, 512)
 			require.Len(t, obj2.Vectors, 1)
-			require.Equal(t, obj2.Vectors[contextionary].([]float32), []float32(obj2.Vector))
+			require.Equal(t, obj2.Vectors[model2vec].([]float32), []float32(obj2.Vector))
 
 			obj3 := fetchObject(t, UUID3)
-			require.Len(t, obj3.Vector, 300)
+			require.Len(t, obj3.Vector, 512)
 			require.Len(t, obj3.Vectors, 2)
-			require.Len(t, obj3.Vectors[transformers], 384)
+			require.Len(t, obj3.Vectors[transformers], 256)
 		})
 
 		t.Run("add vector to schema with named vector", func(t *testing.T) {
@@ -128,8 +128,8 @@ func testMixedVectorsAddNewVectors(endpoint string) func(t *testing.T) {
 					},
 				},
 				VectorConfig: map[string]models.VectorConfig{
-					contextionary: {
-						Vectorizer:      map[string]interface{}{text2vecContextionary: map[string]interface{}{}},
+					model2vec: {
+						Vectorizer:      map[string]interface{}{text2vecModel2Vec: map[string]interface{}{}},
 						VectorIndexType: "hnsw",
 					},
 				},
@@ -166,13 +166,13 @@ func testMixedVectorsAddNewVectors(endpoint string) func(t *testing.T) {
 			obj1 := fetchObject(t, UUID1)
 			require.Len(t, obj1.Vector, 0)
 			require.Len(t, obj1.Vectors, 1)
-			require.Len(t, obj1.Vectors[contextionary], 300)
+			require.Len(t, obj1.Vectors[model2vec], 512)
 
 			obj2 := fetchObject(t, UUID2)
 			require.Len(t, obj2.Vector, 0)
 			require.Len(t, obj2.Vectors, 2)
-			require.Len(t, obj2.Vectors[contextionary], 300)
-			require.Len(t, obj2.Vectors[transformers], 384)
+			require.Len(t, obj2.Vectors[model2vec], 512)
+			require.Len(t, obj2.Vectors[transformers], 256)
 		})
 
 		t.Run("add colbert vector to a schema with legacy vector", func(t *testing.T) {
@@ -185,7 +185,7 @@ func testMixedVectorsAddNewVectors(endpoint string) func(t *testing.T) {
 						Name: "text", DataType: []string{schema.DataTypeText.String()},
 					},
 				},
-				Vectorizer:      text2vecContextionary,
+				Vectorizer:      text2vecModel2Vec,
 				VectorIndexType: "flat",
 				VectorConfig:    map[string]models.VectorConfig{},
 			}
@@ -228,11 +228,11 @@ func testMixedVectorsAddNewVectors(endpoint string) func(t *testing.T) {
 			require.NoError(t, err)
 
 			obj1 := fetchObject(t, UUID1)
-			require.Len(t, obj1.Vector, 300)
+			require.Len(t, obj1.Vector, 512)
 			require.Len(t, obj1.Vectors, 0)
 
 			obj2 := fetchObject(t, UUID2)
-			require.Len(t, obj2.Vector, 300)
+			require.Len(t, obj2.Vector, 512)
 			require.Len(t, obj2.Vectors, 1)
 			require.Equal(t, multiVec, obj2.Vectors["multi"].([][]float32))
 

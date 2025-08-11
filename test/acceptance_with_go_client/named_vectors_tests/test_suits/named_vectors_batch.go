@@ -250,9 +250,9 @@ func testBatchObject(host string) func(t *testing.T) {
 							},
 							VectorIndexType: "flat",
 						},
-						c11y: {
+						m2vec: {
 							Vectorizer: map[string]interface{}{
-								text2vecContextionary: map[string]interface{}{
+								text2vecModel2Vec: map[string]interface{}{
 									"vectorizeClassName": false,
 								},
 							},
@@ -271,7 +271,7 @@ func testBatchObject(host string) func(t *testing.T) {
 						"none1": []float32{1, 2},
 						"none2": []float32{0.11, 0.22, 0.33},
 					},
-					generatedTargetVectors: []string{c11y, transformers_flat},
+					generatedTargetVectors: []string{m2vec, transformers_flat},
 				},
 			}
 			for _, tt := range tests {

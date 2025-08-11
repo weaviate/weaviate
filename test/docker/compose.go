@@ -111,6 +111,7 @@ type Compose struct {
 	withBackendAzure           bool
 	withBackendAzureContainer  string
 	withTransformers           bool
+	withTransformersImage      string
 	withModel2Vec              bool
 	withContextionary          bool
 	withQnATransformers        bool
@@ -167,6 +168,14 @@ func (d *Compose) WithAzurite() *Compose {
 
 func (d *Compose) WithText2VecTransformers() *Compose {
 	d.withTransformers = true
+	d.enableModules = append(d.enableModules, Text2VecTransformers)
+	d.defaultVectorizerModule = Text2VecTransformers
+	return d
+}
+
+func (d *Compose) WithText2VecTransformersImage(image string) *Compose {
+	d.withTransformers = true
+	d.withTransformersImage = image
 	d.enableModules = append(d.enableModules, Text2VecTransformers)
 	d.defaultVectorizerModule = Text2VecTransformers
 	return d
@@ -391,7 +400,6 @@ func (d *Compose) WithText2VecNvidia(apiKey string) *Compose {
 func (d *Compose) WithText2VecModel2Vec() *Compose {
 	d.withModel2Vec = true
 	d.enableModules = append(d.enableModules, modmodel2vec.Name)
-	d.defaultVectorizerModule = Text2VecModel2Vec
 	return d
 }
 
@@ -687,6 +695,9 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	}
 	if d.withTransformers {
 		image := os.Getenv(envTestText2vecTransformersImage)
+		if d.withTransformersImage != "" {
+			image = d.withTransformersImage
+		}
 		container, err := startT2VTransformers(ctx, networkName, image)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", Text2VecTransformers)

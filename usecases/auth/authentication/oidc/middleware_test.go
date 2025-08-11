@@ -64,8 +64,9 @@ func Test_Middleware_IncompleteConfiguration(t *testing.T) {
 
 type claims struct {
 	jwt.StandardClaims
-	Email  string   `json:"email"`
-	Groups []string `json:"groups"`
+	Email         string   `json:"email"`
+	Groups        []string `json:"groups"`
+	GroupAsString string   `json:"group_as_string"`
 }
 
 func Test_Middleware_WithValidToken(t *testing.T) {
@@ -149,6 +150,34 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		assert.Equal(t, "best-user", principal.Username)
 		assert.Equal(t, []string{"group1", "group2"}, principal.Groups)
 	})
+
+	t.Run("with a string groups claim", func(t *testing.T) {
+		server := newOIDCServer(t)
+		defer server.Close()
+
+		cfg := config.Config{
+			Authentication: config.Authentication{
+				OIDC: config.OIDC{
+					Enabled:           true,
+					Issuer:            runtime.NewDynamicValue(server.URL),
+					ClientID:          runtime.NewDynamicValue("best_client"),
+					SkipClientIDCheck: runtime.NewDynamicValue(false),
+					UsernameClaim:     runtime.NewDynamicValue("sub"),
+					GroupsClaim:       runtime.NewDynamicValue("group_as_string"),
+				},
+			},
+		}
+
+		token := tokenWithStringGroups(t, "best-user", server.URL, "best_client", "group1")
+		logger, _ := logrustest.NewNullLogger()
+		client, err := New(cfg, logger)
+		require.Nil(t, err)
+
+		principal, err := client.ValidateAndExtract(token, []string{})
+		require.Nil(t, err)
+		assert.Equal(t, "best-user", principal.Username)
+		assert.Equal(t, []string{"group1"}, principal.Groups)
+	})
 }
 
 func token(t *testing.T, subject string, issuer string, aud string) string {
@@ -166,6 +195,14 @@ func tokenWithEmail(t *testing.T, subject string, issuer string, aud string, ema
 func tokenWithGroups(t *testing.T, subject string, issuer string, aud string, groups []string) string {
 	claims := claims{
 		Groups: groups,
+	}
+
+	return tokenWithClaims(t, subject, issuer, aud, claims)
+}
+
+func tokenWithStringGroups(t *testing.T, subject string, issuer string, aud string, groups string) string {
+	claims := claims{
+		GroupAsString: groups,
 	}
 
 	return tokenWithClaims(t, subject, issuer, aud, claims)
