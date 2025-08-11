@@ -68,7 +68,7 @@ require (
 	github.com/weaviate/mockoidc v0.0.0-20250611114324-56bff60d94c2
 	github.com/weaviate/s5cmd/v2 v2.0.1
 	github.com/weaviate/sroar v0.0.9
-	github.com/weaviate/tiktoken-go v0.0.2
+	github.com/weaviate/tiktoken-go v0.0.3
 	go.etcd.io/bbolt v1.3.11
 	golang.org/x/net v0.41.0
 	golang.org/x/oauth2 v0.30.0
