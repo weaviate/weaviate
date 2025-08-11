@@ -274,7 +274,27 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 
 	for i, obj := range response {
 		if obj.Err != nil {
-			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(objOriginalIndex[i]), Error: obj.Err.Error()})
+
+			var thirdPartyError *pb.BatchObjectsReply_BatchError_ThirdPartyError
+			var targetErr enterrors.ErrThirdParty
+			if errors.As(obj.Err, &targetErr) {
+				thirdPartyError = &pb.BatchObjectsReply_BatchError_ThirdPartyError{
+					ThirdPartyError: &pb.ThirdPartyError{
+						ProviderName:      targetErr.Provider,
+						ErrorFromProvider: targetErr.ErrorFromProvider,
+						FullError:         obj.Err.Error(),
+						RequestId:         targetErr.RequestID,
+						StatusCode:        int32(targetErr.StatusCode),
+					},
+				}
+			}
+
+			objErrors = append(objErrors,
+				&pb.BatchObjectsReply_BatchError{
+					Index:  int32(objOriginalIndex[i]),
+					Error:  obj.Err.Error(),
+					Errors: thirdPartyError,
+				})
 		}
 	}
 
