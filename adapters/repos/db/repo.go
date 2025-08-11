@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"runtime"
 	"sync"
@@ -149,9 +150,7 @@ func (db *DB) Indices() map[string]*Index {
 	defer db.indexLock.RUnlock()
 
 	indices := make(map[string]*Index, len(db.indices))
-	for id, index := range db.indices {
-		indices[id] = index
-	}
+	maps.Copy(indices, db.indices)
 
 	return indices
 }
