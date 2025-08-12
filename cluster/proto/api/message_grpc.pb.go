@@ -94,7 +94,7 @@ type ClusterServiceServer interface {
 }
 
 // UnimplementedClusterServiceServer should be embedded to have forward compatible implementations.
-type UnimplementedClusterServiceServer struct{
+type UnimplementedClusterServiceServer struct {
 }
 
 func (UnimplementedClusterServiceServer) RemovePeer(context.Context, *RemovePeerRequest) (*RemovePeerResponse, error) {
