@@ -844,7 +844,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context, reindexVecto
 
 				resetTime := rtime.UnixNano() / int64(time.Millisecond) //
 
-				func() error {
+				err = func() error {
 					m.logger.WithField("action", "reindex").Infof("reindexing objects for shard %q", name)
 					return shard.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 						if object.Object.LastUpdateTimeUnix > resetTime {
