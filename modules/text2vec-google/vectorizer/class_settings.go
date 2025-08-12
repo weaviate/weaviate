@@ -36,11 +36,19 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	DefaultApiEndpoint           = "us-central1-aiplatform.googleapis.com"
-	DefaultModelID               = "gemini-embedding-001"
+	DefaultModel                 = "gemini-embedding-001"
 	DefaultAIStudioEndpoint      = "generativelanguage.googleapis.com"
-	DefaulAIStudioModelID        = "gemini-embedding-001"
+	DefaulAIStudioModel          = "gemini-embedding-001"
 	DefaultTaskType              = "RETRIEVAL_QUERY"
 )
+
+// default dimensions are set to 768 bc of being backward compatible with earlier models
+// textembedding-gecko@001 and embedding-001 that were default ones
+var DefaultDimensions int64 = 768
+
+var defaultModelDimensions = map[string]*int64{
+	"gemini-embedding-001": &DefaultDimensions,
+}
 
 var availableGoogleModels = []string{
 	"textembedding-gecko@001",
@@ -52,7 +60,7 @@ var availableGoogleModels = []string{
 	"textembedding-gecko@001",
 	"text-embedding-preview-0409",
 	"text-multilingual-embedding-preview-0409",
-	DefaultModelID,
+	DefaultModel,
 	"text-embedding-005",
 	"text-multilingual-embedding-002",
 }
@@ -60,7 +68,7 @@ var availableGoogleModels = []string{
 var availableGenerativeAIModels = []string{
 	"embedding-001",
 	"text-embedding-004",
-	DefaulAIStudioModelID,
+	DefaulAIStudioModel,
 	"text-embedding-005",
 	"text-multilingual-embedding-002",
 }
@@ -130,9 +138,9 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) string {
 
 func (ic *classSettings) getDefaultModel(apiEndpoint string) string {
 	if apiEndpoint == DefaultAIStudioEndpoint {
-		return DefaulAIStudioModelID
+		return DefaulAIStudioModel
 	}
-	return DefaultModelID
+	return DefaultModel
 }
 
 // Google params
@@ -156,7 +164,7 @@ func (ic *classSettings) TitleProperty() string {
 }
 
 func (ic *classSettings) Dimensions() *int64 {
-	return ic.GetPropertyAsInt64(dimensionsProperty, nil)
+	return ic.GetPropertyAsInt64(dimensionsProperty, defaultModelDimensions[ic.Model()])
 }
 
 func (ic *classSettings) TaskType() string {
