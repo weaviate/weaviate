@@ -63,14 +63,8 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return errors.New("empty config")
-	}
-
 	var errorMessages []string
-
-	if err := ic.BaseClassSettings.ValidateClassSettings(); err != nil {
+	if err := ic.BaseClassSettings.Validate(class); err != nil {
 		errorMessages = append(errorMessages, err.Error())
 	}
 
