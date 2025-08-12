@@ -282,9 +282,9 @@ func GenerateUniqueString(length int) (string, error) {
 }
 
 // Empty the dimensions bucket, quickly and efficiently
-func (s *Shard) resetDimensionsLSM() error {
+func (s *Shard) resetDimensionsLSM(ctx context.Context) error {
 	// Load the current one, or an empty one if it doesn't exist
-	err := s.store.CreateOrLoadBucket(context.Background(),
+	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.DimensionsBucketLSM,
 		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
