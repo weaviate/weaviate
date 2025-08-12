@@ -384,20 +384,26 @@ func Test_AliasesAPI(t *testing.T) {
 			params := schema.NewSchemaObjectsUpdateParams().WithClassName(aliasName).WithObjectClass(c)
 			resp, err := helper.Client(t).Schema.SchemaObjectsUpdate(params, nil)
 			require.Error(t, err)
-			fmt.Println("debug!!! error", err)
 			assert.Nil(t, resp)
 		})
 		t.Run("delete class with alias - should fail", func(t *testing.T) {
 			params := schema.NewSchemaObjectsDeleteParams().WithClassName(aliasName)
 			resp, err := helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
-			require.Error(t, err)
-			fmt.Println("Debug!!", "error", err)
-			assert.Nil(t, resp)
+			// even deleting non-existing class will return 200 OK for collection. so we verify by getting the collection back.
+			require.NoError(t, err)
+			assert.NotNil(t, resp)
+
+			gparams := schema.NewSchemaObjectsGetParams().WithClassName(books.DefaultClassName)
+			gresp, err := helper.Client(t).Schema.SchemaObjectsGet(gparams, nil)
+			require.NoError(t, err)
+			assert.NotNil(t, gresp)
+			assert.NotNil(t, gresp.Payload)
+			assert.Equal(t, books.DefaultClassName, gresp.Payload.Class)
 		})
 
 		// Tenants test via alias. Any collection tenants manipulation needs
 		// original class name, not the alias. Assumes we have collection: Book, alias: BookAlias.
-		t.Run("add tenants with alias - should fail", func(t *testing.T) {
+		t.Run("add_update_delete tenants withalias - should fail", func(t *testing.T) {
 			className := "MultiTenantClass"
 			testClass := models.Class{
 				Class: className,
@@ -464,9 +470,11 @@ func Test_AliasesAPI(t *testing.T) {
 			assert.Nil(t, uresp)
 
 			// try to delete tenants via alias
+			dparams := schema.NewTenantsDeleteParams().WithClassName(aliasName).WithTenants([]string{tenantName})
+			dresp, err := helper.Client(t).Schema.TenantsDelete(dparams, nil)
+			require.Error(t, err)
+			assert.Nil(t, dresp)
 		})
-		t.Run("update tenants status with alias - should fail", func(t *testing.T) {})
-		t.Run("delete tenants with alias - should fail", func(t *testing.T) {})
 
 		t.Run("create class with alias name", func(t *testing.T) {
 			class := books.ClassModel2VecVectorizerWithName(aliasName)
