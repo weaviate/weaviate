@@ -110,17 +110,16 @@ func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.Ge
 		if !ok {
 			return nil, "", nil, fmt.Errorf("could not parse returns %v", raw)
 		}
-		firstObject := i == 0
 
 		var props *pb.PropertiesResult
 		var err error
 
-		props, err = r.extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.Alias, searchParams.AdditionalProperties)
+		props, err = r.extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.Alias, searchParams.AdditionalProperties, searchParams)
 		if err != nil {
 			return nil, "", nil, err
 		}
 
-		additionalProps, err := r.extractAdditionalProps(asMap, searchParams.AdditionalProperties, firstObject, fromGroup)
+		additionalProps, err := r.extractAdditionalProps(asMap, searchParams.AdditionalProperties, fromGroup, searchParams)
 		if err != nil {
 			return nil, "", nil, err
 		}
@@ -156,7 +155,7 @@ func idToByte(idRaw interface{}) ([]byte, string, error) {
 	return hexInteger.Bytes(), idStrfmtStr, nil
 }
 
-func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*additionalProps, error) {
+func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, fromGroup bool, searchParams dto.GetParams) (*additionalProps, error) {
 	generativeSearchRaw, generativeSearchEnabled := additionalPropsParams.ModuleParams["generate"]
 	_, rerankEnabled := additionalPropsParams.ModuleParams["rerank"]
 
@@ -302,7 +301,22 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 			}
 			multiTargetDistances, ok2 := additionalPropertiesMap["multiTargetDistances"]
 			if ok2 {
-				addProps.Metadata.MultiTargetDistances = multiTargetDistances.([]float32)
+				multiTargetDistancesFloat := multiTargetDistances.([]float32)
+				distancesPerVector := make(map[string][]float32)
+				for i, target := range searchParams.TargetVectors {
+					if _, ok := distancesPerVector[target]; !ok {
+						distancesPerVector[target] = make([]float32, 0)
+					}
+					vectors := distancesPerVector[target]
+					vectors = append(vectors, multiTargetDistancesFloat[i])
+
+					distancesPerVector[target] = vectors
+				}
+				addProps.Metadata.MultiTargetDistances = make(map[string]*pb.MetadataResult_MultiTargetDistance)
+
+				for k, vec := range distancesPerVector {
+					addProps.Metadata.MultiTargetDistances[k] = &pb.MetadataResult_MultiTargetDistance{MultiTargetDistances: byteops.Fp32SliceToBytes(vec)}
+				}
 			}
 		}
 	}
@@ -476,7 +490,7 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schem
 	return ret, groupedGenerativeResults, nil
 }
 
-func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className, alias string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
+func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className, alias string, additionalPropsParams additional.Properties, searchParams dto.GetParams) (*pb.PropertiesResult, error) {
 	nonRefProps := &pb.Properties{
 		Fields: make(map[string]*pb.Value, 0),
 	}
@@ -532,11 +546,11 @@ func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[stri
 			if !ok {
 				continue
 			}
-			extractedRefProp, err := r.extractPropertiesAnswer(scheme, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, "", additionalPropsParams)
+			extractedRefProp, err := r.extractPropertiesAnswer(scheme, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, "", additionalPropsParams, searchParams)
 			if err != nil {
 				continue
 			}
-			additionalProps, err := r.extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, false)
+			additionalProps, err := r.extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, searchParams)
 			if err != nil {
 				return nil, err
 			}

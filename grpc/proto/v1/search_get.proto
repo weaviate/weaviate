@@ -142,6 +142,9 @@ message SearchResult {
 
 
 message MetadataResult {
+  message MultiTargetDistance {
+    bytes multi_target_distances = 1;
+  }
   string id = 1;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated float vector = 2 [deprecated = true];
@@ -166,7 +169,7 @@ message MetadataResult {
   double rerank_score = 21;
   bool rerank_score_present = 22;
   repeated Vectors vectors = 23;
-  repeated float multi_target_distances = 24;
+  map<string, MultiTargetDistance> multi_target_distances = 24;
 }
 
 message PropertiesResult {
