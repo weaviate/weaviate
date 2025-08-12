@@ -16,6 +16,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -26,6 +27,7 @@ import (
 const DefaultGoroutineFactor = 1.5
 
 func TestEnvironmentImportGoroutineFactor(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name            string
 		goroutineFactor []string
@@ -45,7 +47,7 @@ func TestEnvironmentImportGoroutineFactor(t *testing.T) {
 				t.Setenv("MAX_IMPORT_GOROUTINES_FACTOR", tt.goroutineFactor[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -57,6 +59,7 @@ func TestEnvironmentImportGoroutineFactor(t *testing.T) {
 }
 
 func TestEnvironmentSetFlushAfter_AllNames(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		flushAfter  []string
@@ -86,7 +89,7 @@ func TestEnvironmentSetFlushAfter_AllNames(t *testing.T) {
 						t.Setenv(n.envName, tt.flushAfter[0])
 					}
 					conf := Config{}
-					err := FromEnv(&conf)
+					err := FromEnv(&conf, logger)
 
 					if tt.expectedErr {
 						require.NotNil(t, err)
@@ -107,13 +110,15 @@ func TestEnvironmentFlushConflictingValues(t *testing.T) {
 	t.Setenv("PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS", "17")
 	t.Setenv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "18")
 	conf := Config{}
-	err := FromEnv(&conf)
+	logger := logrus.New()
+	err := FromEnv(&conf, logger)
 	require.Nil(t, err)
 
 	assert.Equal(t, 18, conf.Persistence.MemtablesFlushDirtyAfter)
 }
 
 func TestEnvironmentPersistence_dataPath(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name     string
 		value    []string
@@ -159,7 +164,7 @@ func TestEnvironmentPersistence_dataPath(t *testing.T) {
 				t.Setenv("PERSISTENCE_DATA_PATH", tt.value[0])
 			}
 			conf := tt.config
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 			require.Nil(t, err)
 			require.Equal(t, tt.expected, conf.Persistence.DataPath)
 		})
@@ -167,6 +172,7 @@ func TestEnvironmentPersistence_dataPath(t *testing.T) {
 }
 
 func TestEnvironmentMemtable_MaxSize(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -185,7 +191,7 @@ func TestEnvironmentMemtable_MaxSize(t *testing.T) {
 				t.Setenv("PERSISTENCE_MEMTABLES_MAX_SIZE_MB", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -197,6 +203,7 @@ func TestEnvironmentMemtable_MaxSize(t *testing.T) {
 }
 
 func TestEnvironmentMemtable_MinDuration(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -215,7 +222,7 @@ func TestEnvironmentMemtable_MinDuration(t *testing.T) {
 				t.Setenv("PERSISTENCE_MEMTABLES_MIN_ACTIVE_DURATION_SECONDS", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -227,6 +234,7 @@ func TestEnvironmentMemtable_MinDuration(t *testing.T) {
 }
 
 func TestEnvironmentMemtable_MaxDuration(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -245,7 +253,7 @@ func TestEnvironmentMemtable_MaxDuration(t *testing.T) {
 				t.Setenv("PERSISTENCE_MEMTABLES_MAX_ACTIVE_DURATION_SECONDS", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -349,10 +357,11 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 }
 
 func TestEnvironmentSetDefaultVectorDistanceMetric(t *testing.T) {
+	logger := logrus.New()
 	t.Run("DefaultVectorDistanceMetricIsEmpty", func(t *testing.T) {
 		os.Clearenv()
 		conf := Config{}
-		FromEnv(&conf)
+		FromEnv(&conf, logger)
 		require.Equal(t, "", conf.DefaultVectorDistanceMetric)
 	})
 
@@ -360,12 +369,13 @@ func TestEnvironmentSetDefaultVectorDistanceMetric(t *testing.T) {
 		os.Clearenv()
 		t.Setenv("DEFAULT_VECTOR_DISTANCE_METRIC", "l2-squared")
 		conf := Config{}
-		FromEnv(&conf)
+		FromEnv(&conf, logger)
 		require.Equal(t, "l2-squared", conf.DefaultVectorDistanceMetric)
 	})
 }
 
 func TestEnvironmentMaxConcurrentGetRequests(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -383,7 +393,7 @@ func TestEnvironmentMaxConcurrentGetRequests(t *testing.T) {
 				t.Setenv("MAXIMUM_CONCURRENT_GET_REQUESTS", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -395,6 +405,7 @@ func TestEnvironmentMaxConcurrentGetRequests(t *testing.T) {
 }
 
 func TestEnvironmentCORS_Origin(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -411,7 +422,7 @@ func TestEnvironmentCORS_Origin(t *testing.T) {
 				os.Setenv("CORS_ALLOW_ORIGIN", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -423,6 +434,7 @@ func TestEnvironmentCORS_Origin(t *testing.T) {
 }
 
 func TestEnvironmentGRPCPort(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -441,7 +453,7 @@ func TestEnvironmentGRPCPort(t *testing.T) {
 				t.Setenv("GRPC_PORT", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -453,6 +465,7 @@ func TestEnvironmentGRPCPort(t *testing.T) {
 }
 
 func TestEnvironmentCORS_Methods(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -469,7 +482,7 @@ func TestEnvironmentCORS_Methods(t *testing.T) {
 				os.Setenv("CORS_ALLOW_METHODS", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -481,6 +494,7 @@ func TestEnvironmentCORS_Methods(t *testing.T) {
 }
 
 func TestEnvironmentDisableGraphQL(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -501,7 +515,7 @@ func TestEnvironmentDisableGraphQL(t *testing.T) {
 				t.Setenv("DISABLE_GRAPHQL", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -513,6 +527,7 @@ func TestEnvironmentDisableGraphQL(t *testing.T) {
 }
 
 func TestEnvironmentCORS_Headers(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -529,7 +544,7 @@ func TestEnvironmentCORS_Headers(t *testing.T) {
 				os.Setenv("CORS_ALLOW_HEADERS", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -541,6 +556,7 @@ func TestEnvironmentCORS_Headers(t *testing.T) {
 }
 
 func TestEnvironmentPrometheusGroupClasses_OldName(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -562,7 +578,7 @@ func TestEnvironmentPrometheusGroupClasses_OldName(t *testing.T) {
 				t.Setenv("PROMETHEUS_MONITORING_GROUP_CLASSES", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -574,6 +590,7 @@ func TestEnvironmentPrometheusGroupClasses_OldName(t *testing.T) {
 }
 
 func TestEnvironmentPrometheusGroupClasses_NewName(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -595,7 +612,7 @@ func TestEnvironmentPrometheusGroupClasses_NewName(t *testing.T) {
 				t.Setenv("PROMETHEUS_MONITORING_GROUP", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -607,6 +624,7 @@ func TestEnvironmentPrometheusGroupClasses_NewName(t *testing.T) {
 }
 
 func TestEnvironmentMinimumReplicationFactor(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -625,7 +643,7 @@ func TestEnvironmentMinimumReplicationFactor(t *testing.T) {
 				t.Setenv("REPLICATION_MINIMUM_FACTOR", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -637,6 +655,7 @@ func TestEnvironmentMinimumReplicationFactor(t *testing.T) {
 }
 
 func TestEnvironmentQueryDefaults_Limit(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name     string
 		value    []string
@@ -682,7 +701,7 @@ func TestEnvironmentQueryDefaults_Limit(t *testing.T) {
 				t.Setenv("QUERY_DEFAULTS_LIMIT", tt.value[0])
 			}
 			conf := tt.config
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			require.Nil(t, err)
 			require.Equal(t, tt.expected, conf.QueryDefaults.Limit)
@@ -691,6 +710,7 @@ func TestEnvironmentQueryDefaults_Limit(t *testing.T) {
 }
 
 func TestEnvironmentAuthentication(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name         string
 		auth_env_var []string
@@ -754,7 +774,7 @@ func TestEnvironmentAuthentication(t *testing.T) {
 				t.Setenv(tt.auth_env_var[0], "true")
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 			require.Nil(t, err)
 			require.Equal(t, tt.expected, conf.Authentication)
 		})
@@ -762,6 +782,7 @@ func TestEnvironmentAuthentication(t *testing.T) {
 }
 
 func TestEnvironmentHNSWMaxLogSize(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -781,7 +802,7 @@ func TestEnvironmentHNSWMaxLogSize(t *testing.T) {
 				t.Setenv("PERSISTENCE_HNSW_MAX_LOG_SIZE", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -793,6 +814,7 @@ func TestEnvironmentHNSWMaxLogSize(t *testing.T) {
 }
 
 func TestEnvironmentHNSWWaitForPrefill(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -813,7 +835,7 @@ func TestEnvironmentHNSWWaitForPrefill(t *testing.T) {
 				t.Setenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -825,6 +847,7 @@ func TestEnvironmentHNSWWaitForPrefill(t *testing.T) {
 }
 
 func TestEnvironmentHNSWVisitedListPoolMaxSize(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -842,7 +865,7 @@ func TestEnvironmentHNSWVisitedListPoolMaxSize(t *testing.T) {
 				t.Setenv("HNSW_VISITED_LIST_POOL_MAX_SIZE", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -854,6 +877,7 @@ func TestEnvironmentHNSWVisitedListPoolMaxSize(t *testing.T) {
 }
 
 func TestEnvironmentHNSWFlatSearchConcurrency(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -871,7 +895,7 @@ func TestEnvironmentHNSWFlatSearchConcurrency(t *testing.T) {
 				t.Setenv("HNSW_FLAT_SEARCH_CONCURRENCY", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -883,6 +907,7 @@ func TestEnvironmentHNSWFlatSearchConcurrency(t *testing.T) {
 }
 
 func TestEnvironmentHNSWAcornFilterRatio(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -902,7 +927,7 @@ func TestEnvironmentHNSWAcornFilterRatio(t *testing.T) {
 				t.Setenv("HNSW_ACORN_FILTER_RATIO", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -1125,6 +1150,7 @@ func TestParseCollectionPropsTenants(t *testing.T) {
 }
 
 func TestEnvironmentPersistenceMinMMapSize(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -1144,7 +1170,7 @@ func TestEnvironmentPersistenceMinMMapSize(t *testing.T) {
 				t.Setenv("PERSISTENCE_MIN_MMAP_SIZE", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
@@ -1156,6 +1182,7 @@ func TestEnvironmentPersistenceMinMMapSize(t *testing.T) {
 }
 
 func TestEnvironmentPersistenceMaxReuseWalSize(t *testing.T) {
+	logger := logrus.New()
 	factors := []struct {
 		name        string
 		value       []string
@@ -1175,7 +1202,7 @@ func TestEnvironmentPersistenceMaxReuseWalSize(t *testing.T) {
 				t.Setenv("PERSISTENCE_MAX_REUSE_WAL_SIZE", tt.value[0])
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
+			err := FromEnv(&conf, logger)
 
 			if tt.expectedErr {
 				require.NotNil(t, err)
