@@ -35,7 +35,6 @@ function main() {
   run_acceptance_go_client_named_vectors_single_node=false
   run_acceptance_go_client_named_vectors_cluster=false
   run_acceptance_lsmkv=false
-  run_packages_tests=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -58,7 +57,6 @@ function main() {
           --acceptance-only-replica-replication-slow|-aorrs) run_all_tests=false; run_acceptance_replica_replication_slow_tests=true ;;
           --acceptance-only-async-replication|-aoar) run_all_tests=false; run_acceptance_async_replication_tests=true ;;
           --acceptance-only-objects|-aoob) run_all_tests=false; run_acceptance_objects=true ;;
-          --packages-only) run_packages_tests=true; run_all_tests=false ;;
           --only-acceptance-*|-oa)run_all_tests=false; only_acceptance=true;only_acceptance_value=$1;;
           --only-module-*|-om)run_all_tests=false; only_module=true;only_module_value=$1;;
           --acceptance-module-tests-only|--modules-only|-m) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true; run_module_except_backup_tests=true;run_module_only_offload_tests=true;run_module_except_offload_tests=true;;
@@ -123,13 +121,6 @@ function main() {
     echo_green "Run integration tests..."
     run_integration_tests "$@"
     echo_green "Integration tests successful"
-  fi
-
-  if $run_packages_tests ||  $run_unit_and_integration_tests || $run_all_tests
-  then
-    echo_green "Run package tests..."
-    run_packages_tests "$@"
-    echo_green "Package tests successful"
   fi
 
   if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_only_authz || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $only_acceptance || $run_acceptance_objects
@@ -254,18 +245,6 @@ function run_integration_tests() {
     ./test/integration/run.sh --include-slow
   fi
 }
-
-function run_packages_tests() {
-  if [[ "$*" == *--acceptance-only* ]]; then
-    echo "Skipping packages tests"
-    return
-  fi
-
-  # Run `go test` only on ./packages and its submodules
-  go test -race -coverprofile=coverage-packages.txt -covermode=atomic -count 1 ./packages/... \
-    | grep -v '\[no test files\]'
-}
-
 
 function run_acceptance_lsmkv() {
     echo "This test runs without the race detector because it asserts performance"

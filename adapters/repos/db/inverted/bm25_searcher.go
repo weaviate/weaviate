@@ -39,7 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/packages/tokenizer"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 )
 
 type BM25Searcher struct {

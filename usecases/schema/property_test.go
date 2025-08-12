@@ -22,7 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/packages/tokenizer"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 )
 
 func TestHandler_AddProperty(t *testing.T) {
