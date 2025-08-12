@@ -153,7 +153,7 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList, modul
 
 		distances := make(search.Distances, len(res))
 		for i := range res {
-			distances[i].Distance = dists[i]
+			distances[i] = &search.Distance{Distance: dists[i]}
 		}
 
 		return res, distances, nil
