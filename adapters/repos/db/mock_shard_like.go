@@ -4665,7 +4665,7 @@ type MockShardLike_resetDimensionsLSM_Call struct {
 
 // resetDimensionsLSM is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockShardLike_Expecter) resetDimensionsLSM(ctx interface{}) *MockShardLike_resetDimensionsLSM_Call {
+func (_e *MockShardLike_Expecter) resetDimensionsLSM(ctx context.Context) *MockShardLike_resetDimensionsLSM_Call {
 	return &MockShardLike_resetDimensionsLSM_Call{Call: _e.mock.On("resetDimensionsLSM", ctx)}
 }
 
