@@ -597,19 +597,19 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, search.Di
 
 	dists := make(search.Distances, distsLength)
 	for i := range dists {
-		dists[i].Distance = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
+		dists[i] = &search.Distance{Distance: math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))}
 		read += 4
 	}
 
 	// added in 1.33 - older versions do not include this in their message
-	if read+8 >= uint64(len(in)) {
+	if read+8 <= uint64(len(in)) {
 		multiTargetDistLength := int(binary.LittleEndian.Uint64(in[read : read+8]))
 		read += 8
 
-		eachEntryLength := multiTargetDistLength / len(dists) / 4
-		for i := 0; i < multiTargetDistLength; i++ {
+		eachEntryLength := multiTargetDistLength / len(dists)
+		for i := 0; i < len(dists); i++ {
 			dists[i].MultiTargetDistances = make([]float32, eachEntryLength)
-			for j := range dists {
+			for j := range dists[i].MultiTargetDistances {
 				dists[i].MultiTargetDistances[j] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
 				read += 4
 			}
@@ -651,10 +651,12 @@ func (p searchResultsPayload) Marshal(objs []*storobj.Object, dists search.Dista
 	}
 	out = append(out, distsBuf...)
 
-	binary.LittleEndian.PutUint64(reusableLengthBuf, uint64(multiTargetDistLength))
-	out = append(out, reusableLengthBuf...)
-
+	// older weaviate versions do not include multi-target distances and error if they encounter buffers with an unexpected
+	// length
 	if multiTargetDistLength > 0 {
+		binary.LittleEndian.PutUint64(reusableLengthBuf, uint64(multiTargetDistLength))
+		out = append(out, reusableLengthBuf...)
+
 		multiTargetDistsBuf := make([]byte, len(dists[0].MultiTargetDistances)*4)
 		rw := byteops.NewReadWriter(multiTargetDistsBuf)
 		for _, dist := range dists {

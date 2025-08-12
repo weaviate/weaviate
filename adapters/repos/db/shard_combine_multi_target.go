@@ -99,7 +99,7 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 		for i := range distances {
 			distances[i] = &search.Distance{
 				Distance:             distsPerTarget[0][i],
-				MultiTargetDistances: distsPerTarget[0],
+				MultiTargetDistances: []float32{distsPerTarget[0][i]},
 			}
 		}
 		return idsPerTarget[0], distances, nil
