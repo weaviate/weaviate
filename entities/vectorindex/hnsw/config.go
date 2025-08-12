@@ -134,8 +134,6 @@ func (u *UserConfig) SetDefaults(defaultQuantization *configRuntime.DynamicValue
 	}
 
 	compression := defaultQuantization.Get()
-	fmt.Println("compression", compression)
-	os.Exit(2)
 	if compression != int(dimensioncategory.DimensionCategoryStandard) {
 		switch compression {
 		case int(dimensioncategory.DimensionCategoryBQ):
