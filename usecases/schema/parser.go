@@ -45,10 +45,10 @@ type Parser struct {
 	configParser        VectorConfigParser
 	validator           validator
 	modules             modulesProvider
-	defaultQuantization *configRuntime.DynamicValue[string]
+	defaultQuantization *configRuntime.DynamicValue[int]
 }
 
-func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider, defaultQuantization *configRuntime.DynamicValue[string]) *Parser {
+func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider, defaultQuantization *configRuntime.DynamicValue[int]) *Parser {
 	return &Parser{
 		clusterState:        cs,
 		configParser:        vCfg,
@@ -210,7 +210,7 @@ func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 }
 
 func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
-	vectorIndexConfig interface{}, isMultiVector bool, defaultQuantization *configRuntime.DynamicValue[string],
+	vectorIndexConfig interface{}, isMultiVector bool, defaultQuantization *configRuntime.DynamicValue[int],
 ) (schemaConfig.VectorIndexConfig, error) {
 	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC {
 		return nil, errors.Errorf(

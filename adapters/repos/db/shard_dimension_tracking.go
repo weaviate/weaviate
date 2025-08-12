@@ -17,35 +17,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/cluster/usage/types"
+	"github.com/weaviate/weaviate/entities/dimensioncategory"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
-
-type DimensionCategory int
-
-const (
-	DimensionCategoryStandard DimensionCategory = iota
-	DimensionCategoryPQ
-	DimensionCategoryBQ
-	DimensionCategorySQ
-	DimensionCategoryRQ
-)
-
-func (c DimensionCategory) String() string {
-	switch c {
-	case DimensionCategoryPQ:
-		return "pq"
-	case DimensionCategoryBQ:
-		return "bq"
-	case DimensionCategorySQ:
-		return "sq"
-	case DimensionCategoryRQ:
-		return "rq"
-	default:
-		return "standard"
-	}
-}
 
 // DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
 func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (types.Dimensionality, error) {
@@ -139,24 +115,24 @@ func clearDimensionMetrics(cfg IndexConfig, promMetrics *monitoring.PrometheusMe
 	}
 }
 
-func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
+func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (dimensioncategory.DimensionCategory, int) {
 	// We have special dimension tracking for BQ and PQ to represent reduced costs
 	// these are published under the separate vector_segments_dimensions metric
 	if hnswUserConfig, ok := cfg.(hnswent.UserConfig); ok {
 		if hnswUserConfig.PQ.Enabled {
-			return DimensionCategoryPQ, hnswUserConfig.PQ.Segments
+			return dimensioncategory.DimensionCategoryPQ, hnswUserConfig.PQ.Segments
 		}
 		if hnswUserConfig.BQ.Enabled {
-			return DimensionCategoryBQ, 0
+			return dimensioncategory.DimensionCategoryBQ, 0
 		}
 		if hnswUserConfig.SQ.Enabled {
-			return DimensionCategorySQ, 0
+			return dimensioncategory.DimensionCategorySQ, 0
 		}
 		if hnswUserConfig.RQ.Enabled {
-			return DimensionCategoryRQ, 0
+			return dimensioncategory.DimensionCategoryRQ, 0
 		}
 	}
-	return DimensionCategoryStandard, 0
+	return dimensioncategory.DimensionCategoryStandard, 0
 }
 
 func correctEmptySegments(segments int, dimensions int) int {
