@@ -4664,7 +4664,7 @@ func (_c *MockShardLike_removeTargetNodeOverride_Call) RunAndReturn(run func(con
 }
 
 // resetDimensionsLSM provides a mock function with no fields
-func (_m *MockShardLike) resetDimensionsLSM() error {
+func (_m *MockShardLike) resetDimensionsLSM(ctx context.Context) error {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
@@ -4687,7 +4687,7 @@ type MockShardLike_resetDimensionsLSM_Call struct {
 }
 
 // resetDimensionsLSM is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) resetDimensionsLSM() *MockShardLike_resetDimensionsLSM_Call {
+func (_e *MockShardLike_Expecter) resetDimensionsLSM(ctx context.Context) *MockShardLike_resetDimensionsLSM_Call {
 	return &MockShardLike_resetDimensionsLSM_Call{Call: _e.mock.On("resetDimensionsLSM")}
 }
 
@@ -5040,7 +5040,8 @@ func (_c *MockShardLike_uuidFromDocID_Call) RunAndReturn(run func(uint64) (strfm
 func NewMockShardLike(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockShardLike {
+},
+) *MockShardLike {
 	mock := &MockShardLike{}
 	mock.Mock.Test(t)
 
