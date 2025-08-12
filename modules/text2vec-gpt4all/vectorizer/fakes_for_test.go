@@ -16,6 +16,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/modules/text2vec-gpt4all/ent"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 type fakeClient struct {
@@ -80,5 +81,9 @@ func (f fakeClassConfig) TargetVector() string {
 }
 
 func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
+}
+
+func (f fakeClassConfig) Config() *config.Config {
 	return nil
 }
