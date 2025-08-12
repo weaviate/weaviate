@@ -601,15 +601,18 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, search.Di
 		read += 4
 	}
 
-	multiTargetDistLength := int(binary.LittleEndian.Uint64(in[read : read+8]))
-	read += 8
+	// added in 1.33 - older versions do not include this in their message
+	if read+8 >= uint64(len(in)) {
+		multiTargetDistLength := int(binary.LittleEndian.Uint64(in[read : read+8]))
+		read += 8
 
-	eachEntryLength := multiTargetDistLength / len(dists) / 4
-	for i := 0; i < multiTargetDistLength; i++ {
-		dists[i].MultiTargetDistances = make([]float32, eachEntryLength)
-		for j := range dists {
-			dists[i].MultiTargetDistances[j] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
-			read += 4
+		eachEntryLength := multiTargetDistLength / len(dists) / 4
+		for i := 0; i < multiTargetDistLength; i++ {
+			dists[i].MultiTargetDistances = make([]float32, eachEntryLength)
+			for j := range dists {
+				dists[i].MultiTargetDistances[j] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
+				read += 4
+			}
 		}
 	}
 
