@@ -13,11 +13,11 @@ package nodes
 
 import (
 	"context"
+	"time"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 
-	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/verbosity"
 
 	"github.com/sirupsen/logrus"
@@ -37,12 +37,13 @@ type Manager struct {
 	db            db
 	schemaManager *schemaUC.Manager
 	rbacconfig    rbacconf.Config
+	minimumInternalTimeout time.Duration
 }
 
 func NewManager(logger logrus.FieldLogger, authorizer authorization.Authorizer,
-	db db, schemaManager *schemaUC.Manager, rbacconfig rbacconf.Config,
+	db db, schemaManager *schemaUC.Manager, rbacconfig rbacconf.Config, minimumInternalTimeout time.Duration,
 ) *Manager {
-	return &Manager{logger, authorizer, db, schemaManager, rbacconfig}
+	return &Manager{logger, authorizer, db, schemaManager, rbacconfig,  minimumInternalTimeout}
 }
 
 // GetNodeStatus aggregates the status across all nodes. It will try for a
@@ -50,7 +51,7 @@ func NewManager(logger logrus.FieldLogger, authorizer authorization.Authorizer,
 func (m *Manager) GetNodeStatus(ctx context.Context,
 	principal *models.Principal, className, shardName, verbosityString string,
 ) ([]*models.NodeStatus, error) {
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, config.MinimumTimeout())
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, m.minimumInternalTimeout)
 	defer cancel()
 
 	// filter output after getting results if info about all shards is requested
@@ -90,7 +91,7 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 func (m *Manager) GetNodeStatistics(ctx context.Context,
 	principal *models.Principal,
 ) ([]*models.Statistics, error) {
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, config.MinimumTimeout())
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, m.minimumInternalTimeout)
 	defer cancel()
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Cluster()); err != nil {

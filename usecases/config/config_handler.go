@@ -219,7 +219,12 @@ type Config struct {
 
 	// Usage configuration for the usage module
 	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
+
+	// The minimum timeout for the server to wait before it returns an error
+	MinimumInternalTimeout time.Duration `json:"minimum_internal_timeout" yaml:"minimum_internal_timeout"`
+
 }
+
 
 type MapToBlockamaxConfig struct {
 	SwapBuckets                bool                     `json:"swap_buckets" yaml:"swap_buckets"`

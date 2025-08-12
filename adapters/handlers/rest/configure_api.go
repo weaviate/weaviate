@@ -373,7 +373,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	limitResources(appState)
 
-	appState.ClusterHttpClient = reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig)
+	appState.ClusterHttpClient = reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig, appState.ServerConfig.Config.MinimumInternalTimeout)
 	appState.MemWatch = memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.97)
 
 	var vectorRepo vectorRepo
@@ -606,6 +606,18 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		configRuntime.CollectionRetrievalStrategyEnvVariable,
 		appState.Logger,
 	)
+
+	timeout := 30 * time.Second
+	opt := os.Getenv("WEAVIATE_MINIMUM_TIMEOUT")
+	if opt != "" {
+		if parsed, err := time.ParseDuration(opt); err == nil {
+			timeout = parsed
+		} else {
+			fmt.Printf("Invalid WEAVIATE_MINIMUM_TIMEOUT value: %s, using default %s\n", opt, timeout)
+		}
+	}
+
+	appState.ServerConfig.Config.MinimumInternalTimeout = timeout
 
 	schemaManager, err := schema.NewManager(migrator,
 		appState.ClusterService.Raft,
@@ -1757,11 +1769,11 @@ func (c clientWithAuth) RoundTrip(r *http.Request) (*http.Response, error) {
 	return c.r.RoundTrip(r)
 }
 
-func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
+func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout time.Duration) *http.Client {
 	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   entconfig.MinimumTimeout(),
+			Timeout:   minimumInternalTimeout,
 			KeepAlive: 120 * time.Second,
 		}).DialContext,
 		MaxIdleConnsPerHost:   100,
