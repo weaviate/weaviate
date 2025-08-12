@@ -89,7 +89,7 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 
 		distances := make(search.Distances, len(res))
 		for i := range res {
-			distances[i].Distance = dists[i]
+			distances[i] = &search.Distance{Distance: dists[i]}
 		}
 
 		return res, distances, nil
