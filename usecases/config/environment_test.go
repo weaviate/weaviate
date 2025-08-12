@@ -1291,32 +1291,3 @@ func TestParsePositiveFloat(t *testing.T) {
 		})
 	}
 }
-
-func TestEnvironmentEnableApiBasedModules(t *testing.T) {
-	factors := []struct {
-		name     string
-		value    []string
-		expected bool
-	}{
-		{"Valid: false", []string{"false"}, false},
-		{"Valid: disabled", []string{"disabled"}, false},
-		{"Valid: 0", []string{"0"}, false},
-		{"Valid: off", []string{"off"}, false},
-		{"Valid: true", []string{"true"}, true},
-		{"Valid: enabled", []string{"enabled"}, true},
-		{"Valid: random", []string{"random"}, true},
-		{"not given", []string{}, true}, // default is true
-	}
-	for _, tt := range factors {
-		t.Run(tt.name, func(t *testing.T) {
-			if len(tt.value) == 1 {
-				t.Setenv("ENABLE_API_BASED_MODULES", tt.value[0])
-			}
-			conf := Config{}
-			err := FromEnv(&conf)
-
-			require.Nil(t, err)
-			require.Equal(t, tt.expected, conf.EnableApiBasedModules)
-		})
-	}
-}

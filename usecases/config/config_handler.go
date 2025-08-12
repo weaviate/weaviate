@@ -118,6 +118,7 @@ type Config struct {
 	Persistence                         Persistence              `json:"persistence" yaml:"persistence"`
 	DefaultVectorizerModule             string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
 	DefaultVectorDistanceMetric         string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
+	DisableApiBasedModules              bool                     `json:"disable_api_based_modules" yaml:"disable_api_based_modules"`
 	EnableModules                       string                   `json:"enable_modules" yaml:"enable_modules"`
 	EnableApiBasedModules               bool                     `json:"enable_api_based_modules" yaml:"enable_api_based_modules"`
 	ModulesPath                         string                   `json:"modules_path" yaml:"modules_path"`
@@ -662,7 +663,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	}
 
 	// Load config from env
-	if err := FromEnv(&f.Config); err != nil {
+	if err := FromEnv(&f.Config, logger); err != nil {
 		return configErr(err)
 	}
 
