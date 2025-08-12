@@ -35,14 +35,14 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	DefaultApiEndpoint           = "us-central1-aiplatform.googleapis.com"
-	DefaultModelID               = "gemini-embedding-001"
+	DefaultModelID               = "textembedding-gecko@001"
 	DefaultAIStudioEndpoint      = "generativelanguage.googleapis.com"
-	DefaulAIStudioModelID        = "gemini-embedding-001"
+	DefaulAIStudioModelID        = "embedding-001"
 	DefaultTaskType              = "RETRIEVAL_QUERY"
 )
 
 var availableGoogleModels = []string{
-	"textembedding-gecko@001",
+	DefaultModelID,
 	"textembedding-gecko@latest",
 	"textembedding-gecko-multilingual@latest",
 	"textembedding-gecko@003",
@@ -51,15 +51,15 @@ var availableGoogleModels = []string{
 	"textembedding-gecko@001",
 	"text-embedding-preview-0409",
 	"text-multilingual-embedding-preview-0409",
-	DefaultModelID,
+	"gemini-embedding-001",
 	"text-embedding-005",
 	"text-multilingual-embedding-002",
 }
 
 var availableGenerativeAIModels = []string{
-	"embedding-001",
-	"text-embedding-004",
 	DefaulAIStudioModelID,
+	"text-embedding-004",
+	"gemini-embedding-001",
 	"text-embedding-005",
 	"text-multilingual-embedding-002",
 }
