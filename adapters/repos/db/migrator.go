@@ -884,6 +884,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context, reindexVecto
 						})
 					})
 				}()
+				return err
 			}
 
 			return nil
