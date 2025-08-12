@@ -72,6 +72,10 @@ func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	var result *pb.AggregateReply
 	var errInner error
 
+	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
+		req.Collection = class
+	}
+
 	if err := enterrors.GoWrapperWithBlock(func() {
 		result, errInner = s.aggregate(ctx, req)
 	}, s.logger); err != nil {
@@ -119,6 +123,10 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 
 func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*pb.TenantsGetReply, error) {
 	before := time.Now()
+
+	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
+		req.Collection = class
+	}
 
 	principal, err := s.principalFromContext(ctx)
 	if err != nil {
@@ -287,6 +295,10 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
 	var result *pb.SearchReply
 	var errInner error
+
+	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
+		req.Collection = class
+	}
 
 	if err := enterrors.GoWrapperWithBlock(func() {
 		result, errInner = s.search(ctx, req)

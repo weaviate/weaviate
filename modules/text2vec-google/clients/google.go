@@ -29,11 +29,27 @@ import (
 
 type taskType string
 
+// Retrieval Use cases
 var (
-	// Specifies the given text is a document in a search/retrieval setting
-	retrievalQuery taskType = "RETRIEVAL_QUERY"
+	// Document Task Type:
 	// Specifies the given text is a query in a search/retrieval setting
 	retrievalDocument taskType = "RETRIEVAL_DOCUMENT"
+	// Query Task Types:
+	// Standard search query where you want to find relevant documents
+	retrievalQuery taskType = "RETRIEVAL_QUERY"
+	// Queries are expected to be proper questions
+	questionAnswering taskType = "QUESTION_ANSWERING"
+	// Retrieve a document from your corpus that proves or disproves a statement
+	factVerification taskType = "FACT_VERIFICATION"
+	// Retrieve relevant code blocks using plain text queries
+	retrievalCode taskType = "CODE_RETRIEVAL_QUERY"
+)
+
+// Single-input Use Cases
+var (
+	classification     taskType = "CLASSIFICATION"
+	clustering         taskType = "CLUSTERING"
+	semanticSimilarity taskType = "SEMANTIC_SIMILARITY"
 )
 
 func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
@@ -73,13 +89,13 @@ func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus
 func (v *google) Vectorize(ctx context.Context, input []string,
 	config ent.VectorizationConfig, titlePropertyValue string,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, retrievalDocument, titlePropertyValue, config)
+	return v.vectorize(ctx, input, v.getDocumentTaskType(config.TaskType), titlePropertyValue, config)
 }
 
 func (v *google) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, retrievalQuery, "", config)
+	return v.vectorize(ctx, input, v.getQueryTaskType(config.TaskType), "", config)
 }
 
 func (v *google) vectorize(ctx context.Context, input []string, taskType taskType,
@@ -264,6 +280,41 @@ func (v *google) getModel(config ent.VectorizationConfig) string {
 
 func (v *google) isLegacy(config ent.VectorizationConfig) bool {
 	return isLegacyModel(config.Model)
+}
+
+func (v *google) getQueryTaskType(in string) taskType {
+	switch taskType(in) {
+	// Retrieval Use cases
+	case retrievalCode:
+		return retrievalCode
+	case questionAnswering:
+		return questionAnswering
+	case factVerification:
+		return factVerification
+	// Single-input Use Cases
+	case classification:
+		return classification
+	case clustering:
+		return clustering
+	case semanticSimilarity:
+		return semanticSimilarity
+	default:
+		return retrievalQuery
+	}
+}
+
+func (v *google) getDocumentTaskType(in string) taskType {
+	switch taskType(in) {
+	case classification:
+		return classification
+	case clustering:
+		return clustering
+	case semanticSimilarity:
+		return semanticSimilarity
+	default:
+		// default are retrieval use cases
+		return retrievalDocument
+	}
 }
 
 func isLegacyModel(model string) bool {

@@ -30,6 +30,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantProjectID   string
 		wantModelID     string
 		wantTitle       string
+		wantTaskType    string
 		wantErr         error
 	}{
 		{
@@ -42,6 +43,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
 			wantProjectID:   "projectId",
 			wantModelID:     "textembedding-gecko@001",
+			wantTaskType:    DefaultTaskType,
 			wantErr:         nil,
 		},
 		{
@@ -51,12 +53,14 @@ func Test_classSettings_Validate(t *testing.T) {
 					"apiEndpoint":   "google.com",
 					"projectId":     "projectId",
 					"titleProperty": "title",
+					"taskType":      "CODE_RETRIEVAL_QUERY",
 				},
 			},
 			wantApiEndpoint: "google.com",
 			wantProjectID:   "projectId",
 			wantModelID:     "textembedding-gecko@001",
 			wantTitle:       "title",
+			wantTaskType:    "CODE_RETRIEVAL_QUERY",
 			wantErr:         nil,
 		},
 		{
@@ -109,6 +113,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "embedding-001",
+			wantTaskType:    DefaultTaskType,
 			wantErr:         nil,
 		},
 		{
@@ -122,6 +127,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "embedding-gecko-001",
+			wantTaskType:    DefaultTaskType,
 			wantErr:         nil,
 		},
 		{
@@ -145,7 +151,19 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
 			wantProjectID:   "projectId",
 			wantModelID:     "textembedding-gecko@001",
+			wantTaskType:    DefaultTaskType,
 			wantErr:         errors.New("properties field needs to be of array type, got: string"),
+		},
+		{
+			name: "wrong taskType",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "projectId",
+					"taskType":  "wrong-task-type",
+				},
+			},
+			wantErr: errors.Errorf("wrong taskType supported task types are: " +
+				"[RETRIEVAL_QUERY QUESTION_ANSWERING FACT_VERIFICATION CODE_RETRIEVAL_QUERY CLASSIFICATION CLUSTERING SEMANTIC_SIMILARITY]"),
 		},
 	}
 	for _, tt := range tests {
@@ -163,6 +181,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantProjectID, ic.ProjectID())
 				assert.Equal(t, tt.wantModelID, ic.Model())
 				assert.Equal(t, tt.wantTitle, ic.TitleProperty())
+				assert.Equal(t, tt.wantTaskType, ic.TaskType())
 			}
 		})
 	}
