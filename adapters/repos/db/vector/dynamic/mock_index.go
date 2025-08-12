@@ -81,8 +81,7 @@ func (_c *MockIndex_UnderlyingIndex_Call) RunAndReturn(run func() common.IndexTy
 func NewMockIndex(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockIndex {
+}) *MockIndex {
 	mock := &MockIndex{}
 	mock.Mock.Test(t)
 

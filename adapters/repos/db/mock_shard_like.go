@@ -5040,8 +5040,7 @@ func (_c *MockShardLike_uuidFromDocID_Call) RunAndReturn(run func(uint64) (strfm
 func NewMockShardLike(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockShardLike {
+}) *MockShardLike {
 	mock := &MockShardLike{}
 	mock.Mock.Test(t)
 
