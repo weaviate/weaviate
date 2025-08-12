@@ -30,7 +30,7 @@ const (
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseAndValidateConfig(input interface{}, vectorIndexType string, isMultiVector bool, defaultQuantization *configRuntime.DynamicValue[string]) (schemaConfig.VectorIndexConfig, error) {
+func ParseAndValidateConfig(input interface{}, vectorIndexType string, isMultiVector bool, defaultQuantization *configRuntime.DynamicValue[int]) (schemaConfig.VectorIndexConfig, error) {
 	if len(vectorIndexType) == 0 {
 		vectorIndexType = DefaultVectorIndexType
 	}

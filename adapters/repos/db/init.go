@@ -23,11 +23,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/cluster/router"
+	"github.com/weaviate/weaviate/entities/dimensioncategory"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/tenantactivity"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/replica"
 	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
 )
@@ -136,6 +138,7 @@ func (db *DB) init(ctx context.Context) error {
 				QuerySlowLogEnabled:                          db.config.QuerySlowLogEnabled,
 				QuerySlowLogThreshold:                        db.config.QuerySlowLogThreshold,
 				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
+				DefaultQuantization:                          runtime.NewDynamicValue(int(dimensioncategory.DimensionCategoryStandard)),
 				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
 			}, shardingState,
 				inverted.ConfigFromModel(invertedConfig),

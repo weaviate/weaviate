@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/dimensioncategory"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -80,7 +81,7 @@ func (u UserConfig) IsMultiVector() bool {
 }
 
 // SetDefaults in the user-specifyable part of the config
-func (u *UserConfig) SetDefaults(defaultQuantization *configRuntime.DynamicValue[string]) {
+func (u *UserConfig) SetDefaults(defaultQuantization *configRuntime.DynamicValue[int]) {
 	u.MaxConnections = DefaultMaxConnections
 	u.EFConstruction = DefaultEFConstruction
 	u.CleanupIntervalSeconds = DefaultCleanupIntervalSeconds
@@ -133,15 +134,17 @@ func (u *UserConfig) SetDefaults(defaultQuantization *configRuntime.DynamicValue
 	}
 
 	compression := defaultQuantization.Get()
-	if compression != "" && compression != vectorIndexCommon.NoCompression {
+	fmt.Println("compression", compression)
+	os.Exit(2)
+	if compression != int(dimensioncategory.DimensionCategoryStandard) {
 		switch compression {
-		case vectorIndexCommon.CompressionBQ:
+		case int(dimensioncategory.DimensionCategoryBQ):
 			u.BQ.Enabled = true
-		case vectorIndexCommon.CompressionPQ:
+		case int(dimensioncategory.DimensionCategoryPQ):
 			u.PQ.Enabled = true
-		case vectorIndexCommon.CompressionSQ:
+		case int(dimensioncategory.DimensionCategorySQ):
 			u.SQ.Enabled = true
-		case vectorIndexCommon.CompressionRQ:
+		case int(dimensioncategory.DimensionCategoryRQ):
 			u.RQ.Enabled = true
 		}
 	}
@@ -149,7 +152,7 @@ func (u *UserConfig) SetDefaults(defaultQuantization *configRuntime.DynamicValue
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseAndValidateConfig(input interface{}, isMultiVector bool, defaultQuantization *configRuntime.DynamicValue[string]) (config.VectorIndexConfig, error) {
+func ParseAndValidateConfig(input interface{}, isMultiVector bool, defaultQuantization *configRuntime.DynamicValue[int]) (config.VectorIndexConfig, error) {
 	uc := UserConfig{}
 	uc.SetDefaults(defaultQuantization)
 
@@ -257,7 +260,7 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool, defaultQuanti
 	return uc, uc.validate(defaultQuantization)
 }
 
-func (u *UserConfig) validate(defaultQuantization *configRuntime.DynamicValue[string]) error {
+func (u *UserConfig) validate(defaultQuantization *configRuntime.DynamicValue[int]) error {
 	var errMsgs []string
 	if u.MaxConnections < MinmumMaxConnections {
 		errMsgs = append(errMsgs, fmt.Sprintf(
@@ -303,16 +306,16 @@ func (u *UserConfig) validate(defaultQuantization *configRuntime.DynamicValue[st
 		enabled++
 	}
 	compression := defaultQuantization.Get()
-	if enabled == 2 && compression != "" && compression != vectorIndexCommon.NoCompression {
+	if enabled == 2 && compression != int(dimensioncategory.DimensionCategoryStandard) {
 		switch compression {
-		case vectorIndexCommon.CompressionBQ:
+		case int(dimensioncategory.DimensionCategoryBQ):
 			u.BQ.Enabled = false
-		case vectorIndexCommon.CompressionPQ:
+		case int(dimensioncategory.DimensionCategoryPQ):
 			u.PQ.Enabled = false
-		case vectorIndexCommon.CompressionSQ:
+		case int(dimensioncategory.DimensionCategorySQ):
 			u.SQ.Enabled = false
-		case vectorIndexCommon.CompressionRQ:
-			u.RQ.Enabled = DefaultRQEnabled
+		case int(dimensioncategory.DimensionCategoryRQ):
+			u.RQ.Enabled = false
 		}
 		enabled--
 	}
@@ -327,13 +330,13 @@ func (u *UserConfig) validate(defaultQuantization *configRuntime.DynamicValue[st
 	return nil
 }
 
-func NewDefaultUserConfig(defaultQuantization *configRuntime.DynamicValue[string]) UserConfig {
+func NewDefaultUserConfig(defaultQuantization *configRuntime.DynamicValue[int]) UserConfig {
 	uc := UserConfig{}
 	uc.SetDefaults(defaultQuantization)
 	return uc
 }
 
-func NewDefaultMultiVectorUserConfig(defaultQuantization *configRuntime.DynamicValue[string]) UserConfig {
+func NewDefaultMultiVectorUserConfig(defaultQuantization *configRuntime.DynamicValue[int]) UserConfig {
 	uc := UserConfig{}
 	uc.SetDefaults(defaultQuantization)
 	uc.Multivector = MultivectorConfig{Enabled: true}
