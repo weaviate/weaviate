@@ -1704,32 +1704,35 @@ func file_v1_base_proto_rawDescGZIP() []byte {
 	return file_v1_base_proto_rawDescData
 }
 
-var file_v1_base_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_v1_base_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
-var file_v1_base_proto_goTypes = []any{
-	(ConsistencyLevel)(0),               // 0: weaviate.v1.ConsistencyLevel
-	(Filters_Operator)(0),               // 1: weaviate.v1.Filters.Operator
-	(Vectors_VectorType)(0),             // 2: weaviate.v1.Vectors.VectorType
-	(*NumberArrayProperties)(nil),       // 3: weaviate.v1.NumberArrayProperties
-	(*IntArrayProperties)(nil),          // 4: weaviate.v1.IntArrayProperties
-	(*TextArrayProperties)(nil),         // 5: weaviate.v1.TextArrayProperties
-	(*BooleanArrayProperties)(nil),      // 6: weaviate.v1.BooleanArrayProperties
-	(*ObjectPropertiesValue)(nil),       // 7: weaviate.v1.ObjectPropertiesValue
-	(*ObjectArrayProperties)(nil),       // 8: weaviate.v1.ObjectArrayProperties
-	(*ObjectProperties)(nil),            // 9: weaviate.v1.ObjectProperties
-	(*TextArray)(nil),                   // 10: weaviate.v1.TextArray
-	(*IntArray)(nil),                    // 11: weaviate.v1.IntArray
-	(*NumberArray)(nil),                 // 12: weaviate.v1.NumberArray
-	(*BooleanArray)(nil),                // 13: weaviate.v1.BooleanArray
-	(*Filters)(nil),                     // 14: weaviate.v1.Filters
-	(*FilterReferenceSingleTarget)(nil), // 15: weaviate.v1.FilterReferenceSingleTarget
-	(*FilterReferenceMultiTarget)(nil),  // 16: weaviate.v1.FilterReferenceMultiTarget
-	(*FilterReferenceCount)(nil),        // 17: weaviate.v1.FilterReferenceCount
-	(*FilterTarget)(nil),                // 18: weaviate.v1.FilterTarget
-	(*GeoCoordinatesFilter)(nil),        // 19: weaviate.v1.GeoCoordinatesFilter
-	(*Vectors)(nil),                     // 20: weaviate.v1.Vectors
-	(*structpb.Struct)(nil),             // 21: google.protobuf.Struct
-}
+var (
+	file_v1_base_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+	file_v1_base_proto_msgTypes  = make([]protoimpl.MessageInfo, 18)
+	file_v1_base_proto_goTypes   = []interface{}{
+		(ConsistencyLevel)(0),               // 0: weaviate.v1.ConsistencyLevel
+		(Filters_Operator)(0),               // 1: weaviate.v1.Filters.Operator
+		(Vectors_VectorType)(0),             // 2: weaviate.v1.Vectors.VectorType
+		(*NumberArrayProperties)(nil),       // 3: weaviate.v1.NumberArrayProperties
+		(*IntArrayProperties)(nil),          // 4: weaviate.v1.IntArrayProperties
+		(*TextArrayProperties)(nil),         // 5: weaviate.v1.TextArrayProperties
+		(*BooleanArrayProperties)(nil),      // 6: weaviate.v1.BooleanArrayProperties
+		(*ObjectPropertiesValue)(nil),       // 7: weaviate.v1.ObjectPropertiesValue
+		(*ObjectArrayProperties)(nil),       // 8: weaviate.v1.ObjectArrayProperties
+		(*ObjectProperties)(nil),            // 9: weaviate.v1.ObjectProperties
+		(*TextArray)(nil),                   // 10: weaviate.v1.TextArray
+		(*IntArray)(nil),                    // 11: weaviate.v1.IntArray
+		(*NumberArray)(nil),                 // 12: weaviate.v1.NumberArray
+		(*BooleanArray)(nil),                // 13: weaviate.v1.BooleanArray
+		(*Filters)(nil),                     // 14: weaviate.v1.Filters
+		(*FilterReferenceSingleTarget)(nil), // 15: weaviate.v1.FilterReferenceSingleTarget
+		(*FilterReferenceMultiTarget)(nil),  // 16: weaviate.v1.FilterReferenceMultiTarget
+		(*FilterReferenceCount)(nil),        // 17: weaviate.v1.FilterReferenceCount
+		(*FilterTarget)(nil),                // 18: weaviate.v1.FilterTarget
+		(*GeoCoordinatesFilter)(nil),        // 19: weaviate.v1.GeoCoordinatesFilter
+		(*Vectors)(nil),                     // 20: weaviate.v1.Vectors
+		(*structpb.Struct)(nil),             // 21: google.protobuf.Struct
+	}
+)
+
 var file_v1_base_proto_depIdxs = []int32{
 	21, // 0: weaviate.v1.ObjectPropertiesValue.non_ref_properties:type_name -> google.protobuf.Struct
 	3,  // 1: weaviate.v1.ObjectPropertiesValue.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties
@@ -1767,7 +1770,7 @@ func file_v1_base_proto_init() {
 		return
 	}
 	if !protoimpl.UnsafeEnabled {
-		file_v1_base_proto_msgTypes[0].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NumberArrayProperties); i {
 			case 0:
 				return &v.state
@@ -1779,7 +1782,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[1].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*IntArrayProperties); i {
 			case 0:
 				return &v.state
@@ -1791,7 +1794,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[2].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*TextArrayProperties); i {
 			case 0:
 				return &v.state
@@ -1803,7 +1806,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[3].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*BooleanArrayProperties); i {
 			case 0:
 				return &v.state
@@ -1815,7 +1818,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[4].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ObjectPropertiesValue); i {
 			case 0:
 				return &v.state
@@ -1827,7 +1830,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[5].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ObjectArrayProperties); i {
 			case 0:
 				return &v.state
@@ -1839,7 +1842,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[6].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ObjectProperties); i {
 			case 0:
 				return &v.state
@@ -1851,7 +1854,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[7].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*TextArray); i {
 			case 0:
 				return &v.state
@@ -1863,7 +1866,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[8].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*IntArray); i {
 			case 0:
 				return &v.state
@@ -1875,7 +1878,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[9].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NumberArray); i {
 			case 0:
 				return &v.state
@@ -1887,7 +1890,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[10].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*BooleanArray); i {
 			case 0:
 				return &v.state
@@ -1899,7 +1902,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[11].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Filters); i {
 			case 0:
 				return &v.state
@@ -1911,7 +1914,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[12].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*FilterReferenceSingleTarget); i {
 			case 0:
 				return &v.state
@@ -1923,7 +1926,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[13].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*FilterReferenceMultiTarget); i {
 			case 0:
 				return &v.state
@@ -1935,7 +1938,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[14].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*FilterReferenceCount); i {
 			case 0:
 				return &v.state
@@ -1947,7 +1950,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[15].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*FilterTarget); i {
 			case 0:
 				return &v.state
@@ -1959,7 +1962,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[16].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GeoCoordinatesFilter); i {
 			case 0:
 				return &v.state
@@ -1971,7 +1974,7 @@ func file_v1_base_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_proto_msgTypes[17].Exporter = func(v any, i int) any {
+		file_v1_base_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Vectors); i {
 			case 0:
 				return &v.state
@@ -1984,7 +1987,7 @@ func file_v1_base_proto_init() {
 			}
 		}
 	}
-	file_v1_base_proto_msgTypes[11].OneofWrappers = []any{
+	file_v1_base_proto_msgTypes[11].OneofWrappers = []interface{}{
 		(*Filters_ValueText)(nil),
 		(*Filters_ValueInt)(nil),
 		(*Filters_ValueBoolean)(nil),
@@ -1995,7 +1998,7 @@ func file_v1_base_proto_init() {
 		(*Filters_ValueNumberArray)(nil),
 		(*Filters_ValueGeo)(nil),
 	}
-	file_v1_base_proto_msgTypes[15].OneofWrappers = []any{
+	file_v1_base_proto_msgTypes[15].OneofWrappers = []interface{}{
 		(*FilterTarget_Property)(nil),
 		(*FilterTarget_SingleTarget)(nil),
 		(*FilterTarget_MultiTarget)(nil),

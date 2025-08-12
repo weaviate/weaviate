@@ -14,6 +14,8 @@ package db
 import (
 	"sort"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -22,7 +24,7 @@ import (
 // sorted according to their BM25 ranking
 type sortByScores struct {
 	objects []*storobj.Object
-	scores  []float32
+	scores  search.Distances
 }
 
 func (r *sortByScores) Swap(i, j int) {
@@ -31,7 +33,7 @@ func (r *sortByScores) Swap(i, j int) {
 }
 
 func (r *sortByScores) Less(i, j int) bool {
-	return r.scores[i] > r.scores[j]
+	return r.scores[i].Distance > r.scores[j].Distance
 }
 
 func (r *sortByScores) Len() int {
@@ -44,7 +46,7 @@ func newScoresSorter() *sortObjectsByScore {
 	return &sortObjectsByScore{}
 }
 
-func (s *sortObjectsByScore) sort(objects []*storobj.Object, scores []float32) ([]*storobj.Object, []float32) {
+func (s *sortObjectsByScore) sort(objects []*storobj.Object, scores search.Distances) ([]*storobj.Object, search.Distances) {
 	sbd := &sortByScores{objects, scores}
 	sort.Sort(sbd)
 	return sbd.objects, sbd.scores

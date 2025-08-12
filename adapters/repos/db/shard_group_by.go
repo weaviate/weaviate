@@ -17,6 +17,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -27,9 +29,9 @@ import (
 )
 
 func (s *Shard) groupResults(ctx context.Context, ids []uint64,
-	dists []float32, groupBy *searchparams.GroupBy,
+	dists search.Distances, groupBy *searchparams.GroupBy,
 	additional additional.Properties, properties []string,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, search.Distances, error) {
 	objsBucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	className := s.index.Config.ClassName
 	class := s.index.getSchema.ReadOnlyClass(className.String())
@@ -56,7 +58,7 @@ func (s *Shard) groupResults(ctx context.Context, ids []uint64,
 
 type grouper struct {
 	ids              []uint64
-	dists            []float32
+	dists            search.Distances
 	groupBy          *searchparams.GroupBy
 	additional       additional.Properties
 	propertyDataType schema.PropertyDataType
@@ -64,7 +66,7 @@ type grouper struct {
 	properties       []string
 }
 
-func newGrouper(ids []uint64, dists []float32,
+func newGrouper(ids []uint64, dists search.Distances,
 	groupBy *searchparams.GroupBy, objBucket *lsmkv.Bucket,
 	propertyDataType schema.PropertyDataType,
 	additional additional.Properties, properties []string,
@@ -80,13 +82,13 @@ func newGrouper(ids []uint64, dists []float32,
 	}
 }
 
-func (g *grouper) Do(ctx context.Context) ([]*storobj.Object, []float32, error) {
+func (g *grouper) Do(ctx context.Context) ([]*storobj.Object, search.Distances, error) {
 	docIDBytes := make([]byte, 8)
 
 	groupsOrdered := []string{}
 	groups := map[string][]uint64{}
 	docIDObject := map[uint64]*storobj.Object{}
-	docIDDistance := map[uint64]float32{}
+	docIDDistance := map[uint64]*search.Distance{}
 
 	propertyPaths := make([][]string, len(g.properties))
 	for j := range g.properties {
@@ -147,7 +149,7 @@ DOCS_LOOP:
 	}
 
 	objs := make([]*storobj.Object, len(groupsOrdered))
-	dists := make([]float32, len(groupsOrdered))
+	dists := make(search.Distances, len(groupsOrdered))
 	objIDs := []uint64{}
 	for i, val := range groupsOrdered {
 		docIDs := groups[val]
@@ -165,7 +167,7 @@ DOCS_LOOP:
 			}
 			props["_additional"] = &additional.GroupHitAdditional{
 				ID:       docIDObject[docID].ID(),
-				Distance: docIDDistance[docID],
+				Distance: docIDDistance[docID].Distance,
 				Vector:   docIDObject[docID].Vector,
 				Vectors:  docIDObject[docID].GetVectors(),
 			}
@@ -180,8 +182,8 @@ DOCS_LOOP:
 			},
 			Count:       len(hits),
 			Hits:        hits,
-			MinDistance: docIDDistance[docIDs[0]],
-			MaxDistance: docIDDistance[docIDs[len(docIDs)-1]],
+			MinDistance: docIDDistance[docIDs[0]].Distance,
+			MaxDistance: docIDDistance[docIDs[len(docIDs)-1]].Distance,
 		}
 
 		// add group

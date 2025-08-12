@@ -34,6 +34,10 @@ func res(id uint64, distance float32) search.Result {
 	return search.Result{DocID: &id, Dist: distance, ID: uid(id)}
 }
 
+func resWithDistances(id uint64, distance float32, distances []float32) search.Result {
+	return search.Result{DocID: &id, Dist: distance, ID: uid(id), Distances: distances}
+}
+
 func TestCombiner(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	searchesVectors := []models.Vector{[]float32{1, 0, 0}, []float32{0, 1, 0}, []float32{0, 1, 0}, []float32{0, 1, 0}} // not relevant for this test
@@ -74,14 +78,14 @@ func TestCombiner(t *testing.T) {
 			targets:    []string{"target1", "target2"},
 			joinMethod: &dto.TargetCombination{Weights: []float32{1, 1}},
 			in:         [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5), res(1, 0.6)}},
-			out:        []search.Result{res(0, 1), res(1, 1.2)},
+			out:        []search.Result{resWithDistances(0, 1, []float32{0.5, 0.5}), resWithDistances(1, 1.2, []float32{0.6, 0.6})},
 		},
 		{
 			name:       "minimum",
 			targets:    []string{"target1", "target2"},
 			joinMethod: &dto.TargetCombination{Type: dto.Minimum},
 			in:         [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5), res(1, 0.6)}},
-			out:        []search.Result{res(0, 0.5), res(1, 0.6)},
+			out:        []search.Result{resWithDistances(0, 0.5, []float32{0.5, 0.5}), resWithDistances(1, 0.6, []float32{0.6, 0.6})},
 		},
 		{
 			name:       "score fusion",
@@ -138,7 +142,11 @@ func TestCombiner(t *testing.T) {
 				{res(1, 0.2), res(2, 0.4), res(3, 0.6), res(4, 0.8)},
 				{res(6, 0.1), res(0, 0.3), res(2, 0.7), res(3, 0.9)},
 			},
-			out: []search.Result{res(1, 0.95), res(0, 1.23), res(2, 1.27)},
+			out: []search.Result{
+				resWithDistances(1, 0.95, []float32{0.6, 0.2, 0.2, 2}),
+				resWithDistances(0, 1.23, []float32{0.5, 0.4, 2, 0.3}),
+				resWithDistances(2, 1.27, []float32{0.8, 0.6, 0.4, 0.7}),
+			},
 		},
 		{
 			name:       "many documents (weights) and target Distance",
@@ -253,7 +261,10 @@ func TestCombiner(t *testing.T) {
 			for i, id := range ids {
 				// we do not want to compare ExplainScore etc
 				require.Equal(t, *(tt.out[i].DocID), id)
-				require.InDelta(t, tt.out[i].Dist, dists[i], 0.0001)
+				require.InDelta(t, tt.out[i].Dist, dists[i].Distance, 0.0001)
+				for j := range tt.out[i].Distances {
+					require.InDelta(t, tt.out[i].Distances[j], dists[i].MultiTargetDistances[j], 0.0001)
+				}
 			}
 		})
 	}

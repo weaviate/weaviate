@@ -44,12 +44,13 @@ var file_v0_weaviate_proto_rawDesc = []byte{
 	0x33,
 }
 
-var file_v0_weaviate_proto_goTypes = []any{
+var file_v0_weaviate_proto_goTypes = []interface{}{
 	(*SearchRequest)(nil),       // 0: weaviategrpc.SearchRequest
 	(*BatchObjectsRequest)(nil), // 1: weaviategrpc.BatchObjectsRequest
 	(*SearchReply)(nil),         // 2: weaviategrpc.SearchReply
 	(*BatchObjectsReply)(nil),   // 3: weaviategrpc.BatchObjectsReply
 }
+
 var file_v0_weaviate_proto_depIdxs = []int32{
 	0, // 0: weaviategrpc.Weaviate.Search:input_type -> weaviategrpc.SearchRequest
 	1, // 1: weaviategrpc.Weaviate.BatchObjects:input_type -> weaviategrpc.BatchObjectsRequest

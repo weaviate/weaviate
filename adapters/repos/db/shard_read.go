@@ -315,7 +315,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	additional additional.Properties, properties []string,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, search.Distances, error) {
 	var err error
 
 	// Report slow queries if this method takes longer than expected
@@ -375,7 +375,12 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 			return nil, nil, err
 		}
 
-		return bm25objs, bm25count, nil
+		distances := make(search.Distances, len(bm25count))
+		for i := range bm25count {
+			distances[i] = &search.Distance{Distance: bm25count[i]}
+		}
+
+		return bm25objs, distances, nil
 	}
 
 	if filters == nil {
@@ -420,7 +425,7 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	return distances, nil
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, search.Distances, error) {
 	startTime := time.Now()
 
 	defer func() {
@@ -680,8 +685,8 @@ func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.
 }
 
 func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
-	className schema.ClassName, docIDs []uint64, dists []float32,
-) ([]uint64, []float32, error) {
+	className schema.ClassName, docIDs []uint64, dists search.Distances,
+) ([]uint64, search.Distances, error) {
 	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.ReadOnlyClass,
 		className, s.index.Config.InvertedSorterDisabled)
 	if err != nil {

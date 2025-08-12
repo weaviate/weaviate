@@ -126,7 +126,7 @@ func (f *fakeVectorSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
 
 func (f *fakeVectorSearcher) SparseObjectSearch(ctx context.Context,
 	params dto.GetParams,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, search.Distances, error) {
 	return nil, nil, nil
 }
 

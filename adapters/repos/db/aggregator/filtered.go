@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 
@@ -71,7 +73,7 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 		return sparse, scores, nil
 	}
 
-	denseSearch := func(vec models.Vector) ([]*storobj.Object, []float32, error) {
+	denseSearch := func(vec models.Vector) ([]*storobj.Object, search.Distances, error) {
 		allowList, err := fa.buildAllowList(ctx)
 		if err != nil {
 			return nil, nil, err
@@ -85,7 +87,12 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 			return nil, nil, fmt.Errorf("aggregate dense search: %w", err)
 		}
 
-		return res, dists, nil
+		distances := make(search.Distances, len(res))
+		for i := range res {
+			distances[i].Distance = dists[i]
+		}
+
+		return res, distances, nil
 	}
 
 	res, err := hybrid.Search(ctx, &hybrid.Params{

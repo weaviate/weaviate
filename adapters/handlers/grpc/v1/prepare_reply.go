@@ -300,6 +300,10 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 				addProps.Metadata.Distance = distancefmt
 				addProps.Metadata.DistancePresent = true
 			}
+			multiTargetDistances, ok2 := additionalPropertiesMap["multiTargetDistances"]
+			if ok2 {
+				addProps.Metadata.MultiTargetDistances = multiTargetDistances.([]float32)
+			}
 		}
 	}
 

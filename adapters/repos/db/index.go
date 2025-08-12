@@ -1518,7 +1518,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 	properties []string,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, search.Distances, error) {
 	cl := i.consistencyLevel(replProps)
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
@@ -1543,7 +1543,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		// WEAVIATE-471 - error if we can't find a property to search
 		if len(keywordRanking.Properties) == 0 {
-			return nil, []float32{}, errors.New(
+			return nil, search.Distances{}, errors.New(
 				"No properties provided, and no indexed properties found in class")
 		}
 	}
@@ -1598,7 +1598,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	if autoCut > 0 {
-		cutOff := autocut.Autocut(outScores, autoCut)
+		cutOff := autocut.Autocut(outScores.ToDistances(), autoCut)
 		outObjects = outObjects[:cutOff]
 		outScores = outScores[:cutOff]
 	}
@@ -1633,7 +1633,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, tenant string, shards []string, properties []string,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, search.Distances, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
@@ -1645,7 +1645,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		eg.Go(func() error {
 			var (
 				objs     []*storobj.Object
-				scores   []float32
+				scores   search.Distances
 				nodeName string
 				err      error
 			)
@@ -1707,7 +1707,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		for i := range objs {
 			results[i] = resultSortable{
 				object: objs[i],
-				score:  scores[i],
+				score:  scores[i].Distance,
 			}
 		}
 
@@ -1720,10 +1720,10 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		})
 
 		finalObjs := make([]*storobj.Object, len(results))
-		finalScores := make([]float32, len(results))
+		finalScores := make(search.Distances, len(results))
 		for i, result := range results {
 			finalObjs[i] = result.object
-			finalScores[i] = result.score
+			finalScores[i] = &search.Distance{Distance: result.score}
 		}
 
 		return finalObjs, finalScores, nil
@@ -1732,27 +1732,27 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	return resultObjects, resultScores, nil
 }
 
-func (i *Index) sortByID(objects []*storobj.Object, scores []float32,
-) ([]*storobj.Object, []float32) {
+func (i *Index) sortByID(objects []*storobj.Object, scores search.Distances,
+) ([]*storobj.Object, search.Distances) {
 	return newIDSorter().sort(objects, scores)
 }
 
 func (i *Index) sortKeywordRanking(objects []*storobj.Object,
-	scores []float32,
-) ([]*storobj.Object, []float32) {
+	scores search.Distances,
+) ([]*storobj.Object, search.Distances) {
 	return newScoresSorter().sort(objects, scores)
 }
 
-func (i *Index) sort(objects []*storobj.Object, scores []float32,
+func (i *Index) sort(objects []*storobj.Object, scores search.Distances,
 	sort []filters.Sort, limit int,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, search.Distances, error) {
 	return sorter.NewObjectsSorter(i.getSchema.ReadOnlyClass).
 		Sort(objects, scores, limit, sort)
 }
 
-func (i *Index) mergeGroups(objects []*storobj.Object, dists []float32,
+func (i *Index) mergeGroups(objects []*storobj.Object, dists search.Distances,
 	groupBy *searchparams.GroupBy, limit, shardCount int,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, search.Distances, error) {
 	return newGroupMerger(objects, dists, groupBy).Do()
 }
 
@@ -1760,7 +1760,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	targetVectors []string, dist float32, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	shard ShardLike, targetCombination *dto.TargetCombination, properties []string,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, search.Distances, error) {
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
 	if shard.GetStatus() == storagestate.StatusLoading {
@@ -1778,7 +1778,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, tenantName string, shardName string,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, search.Distances, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, nil, err
@@ -1805,9 +1805,9 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 	targetVectors []string, distance float32, limit int, localFilters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, tenantName string, shardName string,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, search.Distances, error) {
 	var outObjects []*storobj.Object
-	var outScores []float32
+	var outScores search.Distances
 
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
@@ -1856,7 +1856,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter, sort []filters.Sort,
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, search.Distances, error) {
 	cl := i.consistencyLevel(replProps)
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
@@ -1889,7 +1889,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	m := &sync.Mutex{}
 
 	out := make([]*storobj.Object, 0, shardCap)
-	dists := make([]float32, 0, shardCap)
+	dists := make(search.Distances, 0, shardCap)
 	var localSearches int64
 	var localResponses atomic.Int64
 	var remoteSearches int64
@@ -1992,7 +1992,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, search.Distances, error) {
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return nil, nil, err
@@ -2857,14 +2857,14 @@ func defaultConsistency(l ...routerTypes.ConsistencyLevel) *additional.Replicati
 	return rp
 }
 
-func objectSearchPreallocate(limit int, shards []string) ([]*storobj.Object, []float32) {
+func objectSearchPreallocate(limit int, shards []string) ([]*storobj.Object, search.Distances) {
 	perShardLimit := config.DefaultQueryMaximumResults
 	if perShardLimit > int64(limit) {
 		perShardLimit = int64(limit)
 	}
 	capacity := perShardLimit * int64(len(shards))
 	objects := make([]*storobj.Object, 0, capacity)
-	scores := make([]float32, 0, capacity)
+	scores := make(search.Distances, 0, capacity)
 
 	return objects, scores
 }

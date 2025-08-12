@@ -166,6 +166,7 @@ message MetadataResult {
   double rerank_score = 21;
   bool rerank_score_present = 22;
   repeated Vectors vectors = 23;
+  repeated float multi_target_distances = 24;
 }
 
 message PropertiesResult {

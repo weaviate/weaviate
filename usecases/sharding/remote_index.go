@@ -89,7 +89,7 @@ type RemoteIndexClient interface {
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-	) ([]*storobj.Object, []float32, error)
+	) ([]*storobj.Object, search.Distances, error)
 
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
@@ -268,7 +268,7 @@ func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
 
 type ReplicasSearchResult struct {
 	Objects []*storobj.Object
-	Scores  []float32
+	Scores  search.Distances
 	Node    string
 }
 
@@ -313,10 +313,10 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	adds additional.Properties,
 	targetCombination *dto.TargetCombination,
 	properties []string,
-) ([]*storobj.Object, []float32, string, error) {
+) ([]*storobj.Object, search.Distances, string, error) {
 	type pair struct {
 		first  []*storobj.Object
-		second []float32
+		second search.Distances
 	}
 	f := func(node, host string) (interface{}, error) {
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,

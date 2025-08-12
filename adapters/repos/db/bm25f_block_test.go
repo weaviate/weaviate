@@ -288,15 +288,15 @@ func TestBM25FJourneyBlock(t *testing.T) {
 
 			require.Less(t, len(resAutoCut), len(resNoAutoCut))
 
-			EqualFloats(t, float32(0.5253056), noautocutscores[0], 5)
-			EqualFloats(t, float32(0.50612706), noautocutscores[1], 5) // <= autocut last element
-			EqualFloats(t, float32(0.35391074), noautocutscores[2], 5)
-			EqualFloats(t, float32(0.31824225), noautocutscores[3], 5)
-			EqualFloats(t, float32(0.28910512), noautocutscores[4], 5)
+			EqualFloats(t, float32(0.5253056), noautocutscores[0].Distance, 5)
+			EqualFloats(t, float32(0.50612706), noautocutscores[1].Distance, 5) // <= autocut last element
+			EqualFloats(t, float32(0.35391074), noautocutscores[2].Distance, 5)
+			EqualFloats(t, float32(0.31824225), noautocutscores[3].Distance, 5)
+			EqualFloats(t, float32(0.28910512), noautocutscores[4].Distance, 5)
 
 			require.Len(t, resAutoCut, 2)
-			EqualFloats(t, float32(0.5253056), autocutscores[0], 5)
-			EqualFloats(t, float32(0.50612706), autocutscores[1], 5)
+			EqualFloats(t, float32(0.5253056), autocutscores[0].Distance, 5)
+			EqualFloats(t, float32(0.50612706), autocutscores[1].Distance, 5)
 		})
 
 		for _, index := range repo.indices {
@@ -362,8 +362,8 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 			require.Equal(t, uint64(3), res[3].DocID)
 
 			// Check scores
-			EqualFloats(t, float32(0.6178051), scores[0], 5)
-			EqualFloats(t, float32(0.6178051), scores[1], 5)
+			EqualFloats(t, float32(0.6178051), scores[0].Distance, 5)
+			EqualFloats(t, float32(0.6178051), scores[1].Distance, 5)
 		})
 
 		for _, index := range repo.indices {
@@ -636,8 +636,8 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 			}
 
 			// Check scores
-			EqualFloats(t, float32(1.7730504), scores[0], 2)
-			EqualFloats(t, float32(1.7730504), scores[1], 2)
+			EqualFloats(t, float32(1.7730504), scores[0].Distance, 2)
+			EqualFloats(t, float32(1.7730504), scores[1].Distance, 2)
 		})
 
 		for _, index := range repo.indices {
@@ -717,7 +717,7 @@ func TestBM25FCompareBlock(t *testing.T) {
 				require.Equal(t, len(withBM25Fobjs), len(objs))
 				for i := range objs {
 					t.Logf("%v: BM25F score: %v, BM25 score: %v", i, withBM25Fscores[i], scores[i])
-					EqualFloats(t, withBM25Fscores[i], scores[i], 9)
+					EqualFloats(t, withBM25Fscores[i].Distance, scores[i].Distance, 9)
 				}
 
 				// Not all the scores are unique and the search is not stable, so pick ones that don't move
@@ -810,9 +810,9 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 			require.Len(t, res, 3)
 
 			// Check scores
-			EqualFloats(t, float32(0.93171), scores[0], 5)
-			EqualFloats(t, float32(0.54312956), scores[1], 5)
-			EqualFloats(t, float32(0.3794713), scores[2], 5)
+			EqualFloats(t, float32(0.93171), scores[0].Distance, 5)
+			EqualFloats(t, float32(0.54312956), scores[1].Distance, 5)
+			EqualFloats(t, float32(0.3794713), scores[2].Distance, 5)
 		})
 
 		t.Run("Results without stopwords "+location, func(t *testing.T) {
@@ -1016,7 +1016,7 @@ func TestBM25FWithFiltersMemtable(t *testing.T) {
 
 			for j, r := range res {
 				resultIds[i] = append(resultIds[i], r.DocID)
-				resultScores[i] = append(resultScores[i], scores[j])
+				resultScores[i] = append(resultScores[i], scores[j].Distance)
 			}
 		})
 
