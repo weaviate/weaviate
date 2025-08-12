@@ -16,9 +16,9 @@ import (
 	"encoding/binary"
 
 	"github.com/google/uuid"
+	"github.com/weaviate/weaviate/packages/tokenizer"
 	ent "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/packages/tokenizer"
 )
 
 type IsFallbackToSearchable func() bool
