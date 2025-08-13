@@ -63,6 +63,7 @@ type UserConfig struct {
 	RQ                     RQConfig          `json:"rq"`
 	FilterStrategy         string            `json:"filterStrategy"`
 	Multivector            MultivectorConfig `json:"multivector"`
+	TrackingDefault        bool              `json:"trackingDefault"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure

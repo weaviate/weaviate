@@ -23,6 +23,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/dimensioncategory"
 	"github.com/weaviate/weaviate/entities/modelsext"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -167,32 +169,40 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[int]) {
 	compression := dimensioncategory.DimensionCategory(defaultQuantization.Get()).String()
 	if !hasTargetVectors(class) || class.VectorIndexType != "" {
-		setDefaultQuantization(class.VectorIndexConfig, compression)
+		class.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
 	}
 
 	for _, vectorConfig := range class.VectorConfig {
-		setDefaultQuantization(vectorConfig.VectorIndexConfig, compression)
+		vectorConfig.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
 	}
 
 }
 
-func setDefaultQuantization(vectorIndexConfig interface{}, compression string) {
-	found := false
-	for _, quantization := range []string{"pq", "sq", "rq", "bq"} {
-		quantizationConfig := vectorIndexConfig.(map[string]interface{})[quantization]
-		if _, ok := quantizationConfig.(map[string]interface{})["enabled"]; ok {
-			found = true
-			break
+func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) schemaConfig.VectorIndexConfig {
+	if vectorIndexType == vectorindex.VectorIndexTypeHNSW {
+		hnswConfig := vectorIndexConfig.(hnsw.UserConfig)
+		pqEnabled := hnswConfig.PQ.Enabled
+		sqEnabled := hnswConfig.SQ.Enabled
+		rqEnabled := hnswConfig.RQ.Enabled
+		bqEnabled := hnswConfig.BQ.Enabled
+		if pqEnabled || sqEnabled || rqEnabled || bqEnabled {
+			return hnswConfig
 		}
-	}
-	if !found {
-		vectorIndexConfig.(map[string]interface{})[compression] = map[string]interface{}{
-			"enabled": true,
+		switch compression {
+		case "pq":
+			hnswConfig.PQ.Enabled = true
+		case "sq":
+			hnswConfig.SQ.Enabled = true
+		case "rq":
+			hnswConfig.RQ.Enabled = true
+		case "bq":
+			hnswConfig.BQ.Enabled = true
 		}
-		vectorIndexConfig.(map[string]interface{})["trackingDefault"] = true
+		hnswConfig.TrackingDefault = true
+		return hnswConfig
 	}
+	return vectorIndexConfig
 }
-
 
 func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string) error {
 	// get schema and sharding state
