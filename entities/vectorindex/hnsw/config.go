@@ -242,6 +242,12 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool, defaultQuanti
 		return uc, err
 	}
 
+	if err := vectorIndexCommon.OptionalBoolFromMap(asMap, "trackingDefault", func(v bool) {
+		uc.TrackingDefault = v
+	}); err != nil {
+		return uc, err
+	}
+
 	return uc, uc.validate(defaultQuantization)
 }
 
