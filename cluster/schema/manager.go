@@ -196,10 +196,6 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 	)
 }
 
-func hasTargetVectors(class *models.Class) bool {
-	return len(class.VectorConfig) > 0
-}
-
 func (s *SchemaManager) RestoreClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool, enableSchemaCallback bool) error {
 	req := command.AddClassRequest{}
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {

@@ -175,7 +175,6 @@ func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *c
 	for _, vectorConfig := range class.VectorConfig {
 		vectorConfig.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
 	}
-
 }
 
 func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) schemaConfig.VectorIndexConfig {
