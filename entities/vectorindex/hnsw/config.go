@@ -131,7 +131,6 @@ func (u *UserConfig) SetDefaults() {
 			Repetitions:  DefaultMultivectorRepetitions,
 		},
 	}
-
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
