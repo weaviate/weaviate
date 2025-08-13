@@ -36,51 +36,6 @@ func (_m *MockFileReplicationServiceClient) EXPECT() *MockFileReplicationService
 	return &MockFileReplicationServiceClient_Expecter{mock: &_m.Mock}
 }
 
-// Close provides a mock function with no fields
-func (_m *MockFileReplicationServiceClient) Close() error {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for Close")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func() error); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockFileReplicationServiceClient_Close_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Close'
-type MockFileReplicationServiceClient_Close_Call struct {
-	*mock.Call
-}
-
-// Close is a helper method to define mock.On call
-func (_e *MockFileReplicationServiceClient_Expecter) Close() *MockFileReplicationServiceClient_Close_Call {
-	return &MockFileReplicationServiceClient_Close_Call{Call: _e.mock.On("Close")}
-}
-
-func (_c *MockFileReplicationServiceClient_Close_Call) Run(run func()) *MockFileReplicationServiceClient_Close_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockFileReplicationServiceClient_Close_Call) Return(_a0 error) *MockFileReplicationServiceClient_Close_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockFileReplicationServiceClient_Close_Call) RunAndReturn(run func() error) *MockFileReplicationServiceClient_Close_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetFile provides a mock function with given fields: ctx, opts
 func (_m *MockFileReplicationServiceClient) GetFile(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[protocol.GetFileRequest, protocol.FileChunk], error) {
 	_va := make([]interface{}, len(opts))

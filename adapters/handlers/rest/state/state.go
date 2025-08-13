@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"sync"
 
+	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 
 	"github.com/sirupsen/logrus"
@@ -90,6 +91,8 @@ type State struct {
 
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator
+
+	GRPCConnManager *grpcconn.ConnManager
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

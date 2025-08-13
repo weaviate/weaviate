@@ -39,6 +39,10 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
+type FileReplicationServiceClient pbv1.FileReplicationServiceClient
+
+type FileReplicationServiceClientFactory func(ctx context.Context, address string) (FileReplicationServiceClient, error)
+
 // Copier for shard replicas, can copy a shard replica from one node to another.
 type Copier struct {
 	// clientFactory is a factory function to create a gRPC client for the remote node
@@ -91,7 +95,6 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	if err != nil {
 		return fmt.Errorf("failed to create gRPC client connection: %w", err)
 	}
-	defer client.Close()
 
 	_, err = client.PauseFileActivity(ctx, &pbv1.PauseFileActivityRequest{
 		IndexName:     collectionName,
