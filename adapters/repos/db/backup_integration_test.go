@@ -289,7 +289,7 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 
 func makeTestClass(className string) *models.Class {
 	return &models.Class{
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Class:               className,
 		Properties: []*models.Property{

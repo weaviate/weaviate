@@ -42,7 +42,7 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 		numberProp        = "someNumber"
 		boolProp          = "someBool"
 		vectorConfig      = map[string]models.VectorConfig{"vec1": {
-			VectorIndexConfig: hnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
 			VectorIndexType:   "hnsw",
 		}}
 		singleTenantTestClasses = map[string]*models.Class{

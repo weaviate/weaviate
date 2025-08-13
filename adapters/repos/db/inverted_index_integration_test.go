@@ -41,7 +41,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 
 	class := &models.Class{
 		Class:             "TestClass",
-		VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: &models.InvertedIndexConfig{
 			CleanupIntervalSeconds: 60,
 			Stopwords: &models.StopwordConfig{
@@ -218,7 +218,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 	t.Run("add classes", func(t *testing.T) {
 		class := &models.Class{
 			Class:             "TestClass",
-			VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexNullState:      true,
 				IndexTimestamps:     true,
@@ -236,7 +236,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 
 		refClass := &models.Class{
 			Class:             "RefClass",
-			VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexTimestamps:     true,
 				IndexPropertyLength: true,
@@ -486,7 +486,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 	t.Run("add classes", func(t *testing.T) {
 		class := &models.Class{
 			Class:             "TestClass",
-			VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexPropertyLength: true,
 				IndexTimestamps:     true,
@@ -507,7 +507,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 
 		refClass := &models.Class{
 			Class:             "RefClass",
-			VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexTimestamps:   true,
 				UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
@@ -841,7 +841,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 	t.Run("add classes", func(t *testing.T) {
 		class := &models.Class{
 			Class:             "TestClass",
-			VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexTimestamps:     true,
 				IndexPropertyLength: true,
@@ -858,7 +858,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 
 		refClass := &models.Class{
 			Class:             "RefClass",
-			VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexTimestamps:     true,
 				IndexPropertyLength: true,

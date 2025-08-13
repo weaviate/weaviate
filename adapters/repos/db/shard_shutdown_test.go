@@ -161,7 +161,7 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 	// set schema
 	class := &models.Class{
 		Class:               className,
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 	}
 	sch := schema.Schema{

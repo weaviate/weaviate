@@ -233,7 +233,7 @@ func classificationTestSchema() []*models.Class {
 	return []*models.Class{
 		{
 			Class:               "ExactCategory",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
@@ -245,7 +245,7 @@ func classificationTestSchema() []*models.Class {
 		},
 		{
 			Class:               "MainCategory",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
@@ -257,7 +257,7 @@ func classificationTestSchema() []*models.Class {
 		},
 		{
 			Class:               "Article",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{

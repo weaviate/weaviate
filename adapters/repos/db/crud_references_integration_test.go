@@ -41,7 +41,7 @@ func TestNestedReferences(t *testing.T) {
 			Classes: []*models.Class{
 				{
 					Class:               "Planet",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -53,7 +53,7 @@ func TestNestedReferences(t *testing.T) {
 				},
 				{
 					Class:               "Continent",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -69,7 +69,7 @@ func TestNestedReferences(t *testing.T) {
 				},
 				{
 					Class:               "Country",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -85,7 +85,7 @@ func TestNestedReferences(t *testing.T) {
 				},
 				{
 					Class:               "City",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -101,7 +101,7 @@ func TestNestedReferences(t *testing.T) {
 				},
 				{
 					Class:               "Place",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -550,7 +550,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			Classes: []*models.Class{
 				{
 					Class:               "AddingReferencesTestTarget",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -562,7 +562,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 				},
 				{
 					Class:               "AddingReferencesTestSource",
-					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
