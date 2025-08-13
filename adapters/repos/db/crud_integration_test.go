@@ -45,7 +45,7 @@ func TestCRUD(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Class:               "TheBestThingClass",
 		Properties: []*models.Property{
@@ -66,7 +66,7 @@ func TestCRUD(t *testing.T) {
 	}
 	actionclass := &models.Class{
 		Class:               "TheBestActionClass",
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
@@ -1282,7 +1282,7 @@ func TestCRUD_Query(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Class:               "TheBestThingClass",
 		Properties: []*models.Property{
@@ -1571,7 +1571,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 					Name:     "int_prop",
 				},
 			},
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 		}
 		require.Nil(t,
@@ -1714,7 +1714,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 					Name:     "int_prop",
 				},
 			},
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 		}
 		require.Nil(t,
@@ -1851,7 +1851,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 					Name:     "int_prop",
 				},
 			},
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 		}
 		require.Nil(t,
@@ -1960,7 +1960,7 @@ func Test_PutPatchRestart(t *testing.T) {
 	defer cancel()
 
 	testClass := &models.Class{
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Class:               "PutPatchRestart",
 		Properties: []*models.Property{
@@ -2069,7 +2069,7 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 
 	class := &models.Class{
 		Class:               "TestClass",
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
@@ -2089,7 +2089,7 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 	classRefName := "TestRefClass"
 	classRef := &models.Class{
 		Class:               classRefName,
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
@@ -2102,7 +2102,7 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 	classNameWithRefs := "TestClassWithRefs"
 	classWithRefs := &models.Class{
 		Class:               classNameWithRefs,
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
@@ -2238,7 +2238,7 @@ func TestOverwriteObjects(t *testing.T) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	class := &models.Class{
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Class:               "SomeClass",
 		Properties: []*models.Property{
@@ -2340,7 +2340,7 @@ func TestIndexDigestObjects(t *testing.T) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	class := &models.Class{
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Class:               "SomeClass",
 		Properties: []*models.Property{
@@ -2467,7 +2467,7 @@ func randomVector(r *rand.Rand, dim int) []float32 {
 func TestIndexDifferentVectorLength(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	class := &models.Class{
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Class:               "SomeClass",
 		Properties: []*models.Property{

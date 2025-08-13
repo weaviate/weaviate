@@ -33,7 +33,7 @@ func TestShared_GetVectorIndexAndQueue(t *testing.T) {
 		{
 			name: "only legacy initialized",
 			setup: func(idx *Index) {
-				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig(nil)
+				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
 			},
 			wantLegacyExists: true,
 			wantNamedExists:  false,
@@ -43,7 +43,7 @@ func TestShared_GetVectorIndexAndQueue(t *testing.T) {
 			setup: func(idx *Index) {
 				idx.vectorIndexUserConfig = nil
 				idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-					"named": hnsw.NewDefaultUserConfig(nil),
+					"named": hnsw.NewDefaultUserConfig(),
 					"foo":   flat.NewDefaultUserConfig(),
 				}
 			},
@@ -53,9 +53,9 @@ func TestShared_GetVectorIndexAndQueue(t *testing.T) {
 		{
 			name: "mixed initialized",
 			setup: func(idx *Index) {
-				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig(nil)
+				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
 				idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-					"named": hnsw.NewDefaultUserConfig(nil),
+					"named": hnsw.NewDefaultUserConfig(),
 					"foo":   flat.NewDefaultUserConfig(),
 				}
 			},
@@ -108,7 +108,7 @@ func TestShard_ForEachVectorIndexAndQueue(t *testing.T) {
 		{
 			name: "only legacy vector",
 			setConfigs: func(idx *Index) {
-				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig(nil)
+				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
 			},
 			expectIndexes: []string{""},
 		},
@@ -117,7 +117,7 @@ func TestShard_ForEachVectorIndexAndQueue(t *testing.T) {
 			setConfigs: func(idx *Index) {
 				idx.vectorIndexUserConfig = nil
 				idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-					"vector1": hnsw.NewDefaultUserConfig(nil),
+					"vector1": hnsw.NewDefaultUserConfig(),
 					"vector2": flat.NewDefaultUserConfig(),
 				}
 			},
@@ -126,9 +126,9 @@ func TestShard_ForEachVectorIndexAndQueue(t *testing.T) {
 		{
 			name: "mixed vectors",
 			setConfigs: func(idx *Index) {
-				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig(nil)
+				idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
 				idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-					"vector1": hnsw.NewDefaultUserConfig(nil),
+					"vector1": hnsw.NewDefaultUserConfig(),
 					"vector2": flat.NewDefaultUserConfig(),
 				}
 			},
@@ -136,7 +136,7 @@ func TestShard_ForEachVectorIndexAndQueue(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			shard, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "TestClass"}, hnsw.NewDefaultUserConfig(nil), false, true, tt.setConfigs)
+			shard, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "TestClass"}, hnsw.NewDefaultUserConfig(), false, true, tt.setConfigs)
 
 			capturedIndexes := make(map[string]any)
 			err := shard.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {

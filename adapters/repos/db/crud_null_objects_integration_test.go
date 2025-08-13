@@ -162,7 +162,7 @@ func createRepo(t *testing.T) (*Migrator, *DB, *fakeSchemaGetter) {
 
 func createClassWithEverything(IndexNullState bool, IndexPropertyLength bool) *models.Class {
 	return &models.Class{
-		VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: &models.InvertedIndexConfig{
 			CleanupIntervalSeconds: 60,
 			Stopwords: &models.StopwordConfig{

@@ -781,7 +781,7 @@ func TestDelete_WithCleaningUpTombstonesStoppedShouldNotRemoveTombstoneMarks(t *
 
 func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 	ctx := context.Background()
-	defaultUC := ent.NewDefaultUserConfig(nil)
+	defaultUC := ent.NewDefaultUserConfig()
 	var (
 		vectorIndex *hnsw
 		// there is a single bulk clean event after all the deletes
@@ -1025,7 +1025,7 @@ func TestDelete_ResetLockDoesNotLockForever(t *testing.T) {
 
 func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *testing.T) {
 	ctx := context.Background()
-	defaultUC := ent.NewDefaultUserConfig(nil)
+	defaultUC := ent.NewDefaultUserConfig()
 	var (
 		vectorIndex *hnsw
 		// there is a single bulk clean event after all the deletes

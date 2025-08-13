@@ -35,7 +35,7 @@ func TestRestartJourney(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Class:               "Class",
 		Properties: []*models.Property{

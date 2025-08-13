@@ -45,7 +45,7 @@ func Test_UpdateAction(t *testing.T) {
 			Classes: []*models.Class{
 				{
 					Class:             "ActionClass",
-					VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil),
+					VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 					Properties: []*models.Property{
 						{
 							DataType:     schema.DataTypeText.PropString(),
@@ -135,7 +135,7 @@ func Test_UpdateObject(t *testing.T) {
 			Classes: []*models.Class{
 				{
 					Class:             cls,
-					VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil),
+					VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 					Properties: []*models.Property{
 						{
 							DataType:     schema.DataTypeText.PropString(),

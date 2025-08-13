@@ -218,7 +218,7 @@ func TestSetClassDefaults(t *testing.T) {
 				},
 			},
 			Vectorizer:        "my-module",
-			VectorIndexConfig: hnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
 		}
 		expected := &models.Class{
 			Class: "Foo",
@@ -250,7 +250,7 @@ func TestSetClassDefaults(t *testing.T) {
 					"per-class-prop-2": "some default value",
 				},
 			},
-			VectorIndexConfig: hnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
 		}
 
 		p := NewProvider(logger, config.Config{})
@@ -410,7 +410,7 @@ func TestSetSinglePropertyDefaults_MixedVectors(t *testing.T) {
 				"per-class-prop-1": "overwritten by user",
 			},
 		},
-		VectorIndexConfig: hnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
 		VectorConfig: map[string]models.VectorConfig{
 			"vec1": {
 				Vectorizer: map[string]interface{}{

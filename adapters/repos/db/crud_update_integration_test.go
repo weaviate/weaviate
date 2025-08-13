@@ -306,7 +306,7 @@ func TestUpdateJourney(t *testing.T) {
 func updateTestClass() *models.Class {
 	return &models.Class{
 		Class:             "UpdateTestClass",
-		VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil),
+		VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: &models.InvertedIndexConfig{
 			CleanupIntervalSeconds: 3,
 			UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,

@@ -362,7 +362,7 @@ func addTestSchema(t *testing.T, host string) {
 		},
 	})
 
-	hnswConfig := enthnsw.NewDefaultUserConfig(nil)
+	hnswConfig := enthnsw.NewDefaultUserConfig()
 	hnswConfig.MaxConnections = 64 // RansomNote tests require higher default max connections (reduced in 1.26)
 	createObjectClass(t, &models.Class{
 		Class: "RansomNote",

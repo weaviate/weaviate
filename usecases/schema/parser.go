@@ -224,7 +224,7 @@ func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 			vectorIndexType)
 	}
 
-	parsed, err := p.configParser(vectorIndexConfig, vectorIndexType, isMultiVector, defaultQuantization)
+	parsed, err := p.configParser(vectorIndexConfig, vectorIndexType, isMultiVector)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse vector index config")
 	}

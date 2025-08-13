@@ -284,7 +284,7 @@ func (f fakeVectorConfig) IsMultiVector() bool {
 	return false
 }
 
-func dummyParseVectorConfig(in interface{}, vectorIndexType string, isMultiVector bool, defaultQuantization *runtime.DynamicValue[int]) (schemaConfig.VectorIndexConfig, error) {
+func dummyParseVectorConfig(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error) {
 	return fakeVectorConfig{raw: in}, nil
 }
 

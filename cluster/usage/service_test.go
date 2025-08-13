@@ -1554,7 +1554,7 @@ func TestService_Usage_NamedVectorsWithConfig(t *testing.T) {
 							VectorIndexType: textVectorType,
 							VectorIndexConfig: func() hnsw.UserConfig {
 								config := hnsw.UserConfig{}
-								config.SetDefaults(nil)
+								config.SetDefaults()
 								config.PQ.Enabled = true
 								return config
 							}(),
@@ -1563,7 +1563,7 @@ func TestService_Usage_NamedVectorsWithConfig(t *testing.T) {
 							VectorIndexType: imageVectorType,
 							VectorIndexConfig: func() hnsw.UserConfig {
 								config := hnsw.UserConfig{}
-								config.SetDefaults(nil)
+								config.SetDefaults()
 								// PQ is disabled by default, so this should result in standard compression
 								return config
 							}(),

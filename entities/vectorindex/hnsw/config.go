@@ -18,7 +18,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/schema/config"
 	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
-	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -81,7 +80,7 @@ func (u UserConfig) IsMultiVector() bool {
 }
 
 // SetDefaults in the user-specifyable part of the config
-func (u *UserConfig) SetDefaults(defaultQuantization *configRuntime.DynamicValue[int]) {
+func (u *UserConfig) SetDefaults() {
 	u.MaxConnections = DefaultMaxConnections
 	u.EFConstruction = DefaultEFConstruction
 	u.CleanupIntervalSeconds = DefaultCleanupIntervalSeconds
@@ -137,9 +136,9 @@ func (u *UserConfig) SetDefaults(defaultQuantization *configRuntime.DynamicValue
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseAndValidateConfig(input interface{}, isMultiVector bool, defaultQuantization *configRuntime.DynamicValue[int]) (config.VectorIndexConfig, error) {
+func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.VectorIndexConfig, error) {
 	uc := UserConfig{}
-	uc.SetDefaults(defaultQuantization)
+	uc.SetDefaults()
 
 	if input == nil {
 		return uc, nil
@@ -248,10 +247,10 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool, defaultQuanti
 		return uc, err
 	}
 
-	return uc, uc.validate(defaultQuantization)
+	return uc, uc.validate()
 }
 
-func (u *UserConfig) validate(defaultQuantization *configRuntime.DynamicValue[int]) error {
+func (u *UserConfig) validate() error {
 	var errMsgs []string
 	if u.MaxConnections < MinmumMaxConnections {
 		errMsgs = append(errMsgs, fmt.Sprintf(
@@ -307,15 +306,15 @@ func (u *UserConfig) validate(defaultQuantization *configRuntime.DynamicValue[in
 	return nil
 }
 
-func NewDefaultUserConfig(defaultQuantization *configRuntime.DynamicValue[int]) UserConfig {
+func NewDefaultUserConfig() UserConfig {
 	uc := UserConfig{}
-	uc.SetDefaults(defaultQuantization)
+	uc.SetDefaults()
 	return uc
 }
 
-func NewDefaultMultiVectorUserConfig(defaultQuantization *configRuntime.DynamicValue[int]) UserConfig {
+func NewDefaultMultiVectorUserConfig() UserConfig {
 	uc := UserConfig{}
-	uc.SetDefaults(defaultQuantization)
+	uc.SetDefaults()
 	uc.Multivector = MultivectorConfig{Enabled: true}
 	return uc
 }

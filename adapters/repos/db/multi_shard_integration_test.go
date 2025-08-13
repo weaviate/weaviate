@@ -165,7 +165,7 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 	t.Run("prepare", func(t *testing.T) {
 		class := &models.Class{
 			Class:             className,
-			VectorIndexConfig: enthnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				CleanupIntervalSeconds: 60,
 				UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
@@ -849,7 +849,7 @@ func bruteForceObjectsByQuery(objs []*models.Object,
 func testClassesForImporting() []*models.Class {
 	return []*models.Class{
 		{
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 			Class:               "TestClass",
 			Properties: []*models.Property{
@@ -877,7 +877,7 @@ func testClassesForImporting() []*models.Class {
 			},
 		},
 		{
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(nil),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 			Class:               "TestRefClass",
 			Properties: []*models.Property{
