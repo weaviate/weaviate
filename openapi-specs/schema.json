@@ -2778,7 +2778,8 @@
             "WithinGeoRange",
             "IsNull",
             "ContainsAny",
-            "ContainsAll"
+            "ContainsAll",
+            "ContainsNone"
           ],
           "example": "GreaterThanEqual"
         },
