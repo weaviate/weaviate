@@ -636,8 +636,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	return ec.ToError()
 }
 
-// DeleteTenants deletes tenants
-// CAUTION: will not delete inactive tenants (shard files will not be removed)
+// DeleteTenants deletes tenant from the database and data from the disk, no matter the current status of the tenant
 func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
 	indexID := indexID(schema.ClassName(class))
 
