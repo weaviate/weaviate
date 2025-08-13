@@ -172,12 +172,16 @@ func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *c
 		class.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
 	}
 
-	for _, vectorConfig := range class.VectorConfig {
+	for k, vectorConfig := range class.VectorConfig {
 		vectorConfig.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+		class.VectorConfig[k] = vectorConfig
 	}
 }
 
 func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) schemaConfig.VectorIndexConfig {
+	if len(vectorIndexType) == 0 {
+		vectorIndexType = vectorindex.DefaultVectorIndexType
+	}
 	if vectorIndexType == vectorindex.VectorIndexTypeHNSW {
 		hnswConfig := vectorIndexConfig.(hnsw.UserConfig)
 		pqEnabled := hnswConfig.PQ.Enabled
