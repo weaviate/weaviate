@@ -60,11 +60,11 @@ func (g *grpcFileReplicationServiceClient) addAuthMetadataToContext(ctx context.
 	return metadata.NewOutgoingContext(ctx, g.authMetadata)
 }
 
-func (g *grpcFileReplicationServiceClient) GetFile(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[pbv1.GetFileRequest, pbv1.FileChunk], error) {
+func (g *grpcFileReplicationServiceClient) GetFile(ctx context.Context, opts ...grpc.CallOption) (pbv1.FileReplicationService_GetFileClient, error) {
 	return g.client.GetFile(g.addAuthMetadataToContext(ctx), opts...)
 }
 
-func (g *grpcFileReplicationServiceClient) GetFileMetadata(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[pbv1.GetFileMetadataRequest, pbv1.FileMetadata], error) {
+func (g *grpcFileReplicationServiceClient) GetFileMetadata(ctx context.Context, opts ...grpc.CallOption) (pbv1.FileReplicationService_GetFileMetadataClient, error) {
 	return g.client.GetFileMetadata(g.addAuthMetadataToContext(ctx), opts...)
 }
 

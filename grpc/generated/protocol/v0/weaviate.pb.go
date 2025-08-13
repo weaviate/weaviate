@@ -44,7 +44,7 @@ var file_v0_weaviate_proto_rawDesc = []byte{
 	0x33,
 }
 
-var file_v0_weaviate_proto_goTypes = []any{
+var file_v0_weaviate_proto_goTypes = []interface{}{
 	(*SearchRequest)(nil),       // 0: weaviategrpc.SearchRequest
 	(*BatchObjectsRequest)(nil), // 1: weaviategrpc.BatchObjectsRequest
 	(*SearchReply)(nil),         // 2: weaviategrpc.SearchReply
