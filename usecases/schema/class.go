@@ -200,6 +200,8 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 			hnswConfig.RQ.Enabled = true
 		case "bq":
 			hnswConfig.BQ.Enabled = true
+		default:
+			return hnswConfig
 		}
 		hnswConfig.TrackingDefault = true
 		return hnswConfig
