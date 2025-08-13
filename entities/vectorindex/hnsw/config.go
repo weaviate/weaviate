@@ -16,7 +16,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/dimensioncategory"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -133,19 +132,6 @@ func (u *UserConfig) SetDefaults(defaultQuantization *configRuntime.DynamicValue
 		},
 	}
 
-	compression := defaultQuantization.Get()
-	if compression != int(dimensioncategory.DimensionCategoryStandard) {
-		switch compression {
-		case int(dimensioncategory.DimensionCategoryBQ):
-			u.BQ.Enabled = true
-		case int(dimensioncategory.DimensionCategoryPQ):
-			u.PQ.Enabled = true
-		case int(dimensioncategory.DimensionCategorySQ):
-			u.SQ.Enabled = true
-		case int(dimensioncategory.DimensionCategoryRQ):
-			u.RQ.Enabled = true
-		}
-	}
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -302,20 +288,6 @@ func (u *UserConfig) validate(defaultQuantization *configRuntime.DynamicValue[in
 	}
 	if u.RQ.Enabled {
 		enabled++
-	}
-	compression := defaultQuantization.Get()
-	if enabled == 2 && compression != int(dimensioncategory.DimensionCategoryStandard) {
-		switch compression {
-		case int(dimensioncategory.DimensionCategoryBQ):
-			u.BQ.Enabled = false
-		case int(dimensioncategory.DimensionCategoryPQ):
-			u.PQ.Enabled = false
-		case int(dimensioncategory.DimensionCategorySQ):
-			u.SQ.Enabled = false
-		case int(dimensioncategory.DimensionCategoryRQ):
-			u.RQ.Enabled = false
-		}
-		enabled--
 	}
 	if enabled > 1 {
 		return fmt.Errorf("invalid hnsw config: more than a single compression methods enabled")
