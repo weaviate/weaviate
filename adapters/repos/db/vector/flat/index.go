@@ -793,7 +793,8 @@ func (index *flat) ValidateBeforeInsert(vector []float32) error {
 
 	// check if vector length is the same as existing nodes
 	if dims != len(vector) {
-		return errors.Errorf("insert called with a vector of the wrong size")
+		return errors.Errorf("insert called with a vector of the wrong size: %d. Saved length: %d, path: %s",
+			len(vector), dims, index.rootPath)
 	}
 
 	return nil
