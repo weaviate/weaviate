@@ -2358,13 +2358,18 @@ func (i *Index) dropShards(names []string) error {
 
 			shard, ok := i.shards.LoadAndDelete(name)
 			if !ok {
-				return nil // shard already does not exist (or inactive)
-			}
-
-			if err := shard.drop(); err != nil {
-				ec.Add(err)
-				i.logger.WithField("action", "drop_shard").
-					WithField("shard", shard.ID()).Error(err)
+				// Ensure that if the shard is not loaded we delete any reference on disk for any data.
+				// This ensures that we also delete inactive shards/tenants
+				if err := os.RemoveAll(shardPath(i.path(), name)); err != nil {
+					ec.Add(err)
+					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
+				}
+			} else {
+				// If shard is loaded use the native primitive to drop it
+				if err := shard.drop(); err != nil {
+					ec.Add(err)
+					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
+				}
 			}
 
 			return nil
