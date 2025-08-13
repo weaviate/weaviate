@@ -22,7 +22,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/dimensioncategory"
 	"github.com/weaviate/weaviate/entities/models"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	gproto "google.golang.org/protobuf/proto"
 )
@@ -167,7 +169,7 @@ func (s *SchemaManager) Close(ctx context.Context) (err error) {
 	return s.db.Close(ctx)
 }
 
-func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool, enableSchemaCallback bool) error {
+func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool, enableSchemaCallback bool, defaultQuantization *configRuntime.DynamicValue[int]) error {
 	req := command.AddClassRequest{}
 	// dupa
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
@@ -184,6 +186,10 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 	// references to. As we will make modification to it to reflect change in the sharding state (adding/removing
 	// tenant) we don't want another goroutine holding a pointer to it and finding issues with concurrent read/writes.
 	shardingStateCopy := req.State.DeepCopy()
+
+	// Enable default quantization for each vector index config if no quantization is set by the user
+	s.enableQuantization(req.Class, defaultQuantization)
+
 	return s.apply(
 		applyOp{
 			op:                   cmd.GetType().String(),
@@ -193,6 +199,39 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
+}
+
+func hasTargetVectors(class *models.Class) bool {
+	return len(class.VectorConfig) > 0
+}
+
+func (s *SchemaManager) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[int]) {
+	compression := dimensioncategory.DimensionCategory(defaultQuantization.Get()).String()
+	if !hasTargetVectors(class) || class.VectorIndexType != "" {
+		setDefaultQuantization(class.VectorIndexConfig, compression)
+	}
+
+	for _, vectorConfig := range class.VectorConfig {
+		setDefaultQuantization(vectorConfig.VectorIndexConfig, compression)
+	}
+
+}
+
+func setDefaultQuantization(vectorIndexConfig interface{}, compression string) {
+	found := false
+	for _, quantization := range []string{"pq", "sq", "rq", "bq"} {
+		quantizationConfig := vectorIndexConfig.(map[string]interface{})[quantization]
+		if _, ok := quantizationConfig.(map[string]interface{})["enabled"]; ok {
+			found = true
+			break
+		}
+	}
+	if !found {
+		vectorIndexConfig.(map[string]interface{})[compression] = map[string]interface{}{
+			"enabled": true,
+		}
+		vectorIndexConfig.(map[string]interface{})["trackingDefault"] = true
+	}
 }
 
 func (s *SchemaManager) RestoreClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool, enableSchemaCallback bool) error {
