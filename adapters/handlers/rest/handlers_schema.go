@@ -38,7 +38,7 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
-	_, _, err := s.manager.AddClass(ctx, principal, params.ObjectClass)
+	_, _, err := s.manager.AddClass(ctx, principal, params.ObjectClass, s.manager.)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ObjectClass.Class, err)
 		switch {

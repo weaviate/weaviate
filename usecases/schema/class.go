@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/entities/dimensioncategory"
 	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -34,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -151,12 +153,46 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, 0, errors.Wrap(err, "init sharding state")
 	}
+
+	defaultQuantization := h.config.DefaultQuantization
+	h.enableQuantization(cls, defaultQuantization)
+
 	version, err := h.schemaManager.AddClass(ctx, cls, shardState)
 	if err != nil {
 		return nil, 0, err
 	}
 	return cls, version, err
 }
+
+func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[int]) {
+	compression := dimensioncategory.DimensionCategory(defaultQuantization.Get()).String()
+	if !hasTargetVectors(class) || class.VectorIndexType != "" {
+		setDefaultQuantization(class.VectorIndexConfig, compression)
+	}
+
+	for _, vectorConfig := range class.VectorConfig {
+		setDefaultQuantization(vectorConfig.VectorIndexConfig, compression)
+	}
+
+}
+
+func setDefaultQuantization(vectorIndexConfig interface{}, compression string) {
+	found := false
+	for _, quantization := range []string{"pq", "sq", "rq", "bq"} {
+		quantizationConfig := vectorIndexConfig.(map[string]interface{})[quantization]
+		if _, ok := quantizationConfig.(map[string]interface{})["enabled"]; ok {
+			found = true
+			break
+		}
+	}
+	if !found {
+		vectorIndexConfig.(map[string]interface{})[compression] = map[string]interface{}{
+			"enabled": true,
+		}
+		vectorIndexConfig.(map[string]interface{})["trackingDefault"] = true
+	}
+}
+
 
 func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string) error {
 	// get schema and sharding state
