@@ -1015,6 +1015,17 @@ local-usage-s3)
         --read-timeout=600s \
         --write-timeout=600s
     ;;
+  local-morph)
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-morph \
+      ENABLE_MODULES="text2vec-morph" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
 
   local-all-voyageai)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
