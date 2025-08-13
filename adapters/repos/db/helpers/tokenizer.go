@@ -287,7 +287,7 @@ func tokenizeGseCh(in string) []string {
 	gseLock.Lock()
 	defer gseLock.Unlock()
 	startTime := time.Now()
-	terms := gseTokenizerCh.CutAll(in)
+	terms := gseTokenizerCh.CutSearch(in, true)
 	ret := removeEmptyStrings(terms)
 
 	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("gse").Observe(float64(time.Since(startTime).Seconds()))
