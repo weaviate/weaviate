@@ -35,14 +35,16 @@ func TestCompactionCleanupBothSegmentsPresent(t *testing.T) {
 	// 1. The combined segment that is still a tmp file
 	// 2+3. The two source segment files
 	tests := []struct {
-		name      string
-		copyLeft  bool
-		copyRight bool
-		expectErr bool
+		name             string
+		copyLeft         bool
+		copyRight        bool
+		expectErr        bool
+		expectedSegments int
 	}{
 		{name: "only left present", copyLeft: true, copyRight: false, expectErr: true},
-		{name: "only right present", copyLeft: false, copyRight: true, expectErr: false},
-		{name: "nothing present", copyLeft: false, copyRight: false, expectErr: false},
+		{name: "only right present", copyLeft: false, copyRight: true, expectErr: false, expectedSegments: 1},
+		{name: "nothing present", copyLeft: false, copyRight: false, expectErr: false, expectedSegments: 1},
+		{name: "both present", copyLeft: true, copyRight: true, expectErr: false, expectedSegments: 2},
 	}
 
 	for _, tt := range tests {
@@ -137,10 +139,12 @@ func TestCompactionCleanupBothSegmentsPresent(t *testing.T) {
 							require.NotContains(t, entry.Name(), "_")
 						}
 					}
-					require.Len(t, b2.disk.segments, 1)
-					path := b2.disk.segments[0].getPath()
-					file := filepath.Base(path)
-					require.NotContains(t, file, "_")
+					require.Len(t, b2.disk.segments, tt.expectedSegments)
+					for _, segment := range b2.disk.segments {
+						path := segment.getPath()
+						file := filepath.Base(path)
+						require.NotContains(t, file, "_")
+					}
 				}
 			})
 		}
