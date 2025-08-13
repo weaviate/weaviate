@@ -312,7 +312,7 @@ func file_v1_batch_delete_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_batch_delete_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
-var file_v1_batch_delete_proto_goTypes = []any{
+var file_v1_batch_delete_proto_goTypes = []interface{}{
 	(*BatchDeleteRequest)(nil), // 0: weaviate.v1.BatchDeleteRequest
 	(*BatchDeleteReply)(nil),   // 1: weaviate.v1.BatchDeleteReply
 	(*BatchDeleteObject)(nil),  // 2: weaviate.v1.BatchDeleteObject
@@ -337,7 +337,7 @@ func file_v1_batch_delete_proto_init() {
 	}
 	file_v1_base_proto_init()
 	if !protoimpl.UnsafeEnabled {
-		file_v1_batch_delete_proto_msgTypes[0].Exporter = func(v any, i int) any {
+		file_v1_batch_delete_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*BatchDeleteRequest); i {
 			case 0:
 				return &v.state
@@ -349,7 +349,7 @@ func file_v1_batch_delete_proto_init() {
 				return nil
 			}
 		}
-		file_v1_batch_delete_proto_msgTypes[1].Exporter = func(v any, i int) any {
+		file_v1_batch_delete_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*BatchDeleteReply); i {
 			case 0:
 				return &v.state
@@ -361,7 +361,7 @@ func file_v1_batch_delete_proto_init() {
 				return nil
 			}
 		}
-		file_v1_batch_delete_proto_msgTypes[2].Exporter = func(v any, i int) any {
+		file_v1_batch_delete_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*BatchDeleteObject); i {
 			case 0:
 				return &v.state
@@ -374,8 +374,8 @@ func file_v1_batch_delete_proto_init() {
 			}
 		}
 	}
-	file_v1_batch_delete_proto_msgTypes[0].OneofWrappers = []any{}
-	file_v1_batch_delete_proto_msgTypes[2].OneofWrappers = []any{}
+	file_v1_batch_delete_proto_msgTypes[0].OneofWrappers = []interface{}{}
+	file_v1_batch_delete_proto_msgTypes[2].OneofWrappers = []interface{}{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

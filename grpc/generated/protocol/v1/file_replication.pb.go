@@ -827,7 +827,7 @@ func file_v1_file_replication_proto_rawDescGZIP() []byte {
 
 var file_v1_file_replication_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_v1_file_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
-var file_v1_file_replication_proto_goTypes = []any{
+var file_v1_file_replication_proto_goTypes = []interface{}{
 	(CompressionType)(0),               // 0: weaviate.v1.CompressionType
 	(*PauseFileActivityRequest)(nil),   // 1: weaviate.v1.PauseFileActivityRequest
 	(*PauseFileActivityResponse)(nil),  // 2: weaviate.v1.PauseFileActivityResponse
@@ -865,7 +865,7 @@ func file_v1_file_replication_proto_init() {
 		return
 	}
 	if !protoimpl.UnsafeEnabled {
-		file_v1_file_replication_proto_msgTypes[0].Exporter = func(v any, i int) any {
+		file_v1_file_replication_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PauseFileActivityRequest); i {
 			case 0:
 				return &v.state
@@ -877,7 +877,7 @@ func file_v1_file_replication_proto_init() {
 				return nil
 			}
 		}
-		file_v1_file_replication_proto_msgTypes[1].Exporter = func(v any, i int) any {
+		file_v1_file_replication_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PauseFileActivityResponse); i {
 			case 0:
 				return &v.state
@@ -889,7 +889,7 @@ func file_v1_file_replication_proto_init() {
 				return nil
 			}
 		}
-		file_v1_file_replication_proto_msgTypes[2].Exporter = func(v any, i int) any {
+		file_v1_file_replication_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ResumeFileActivityRequest); i {
 			case 0:
 				return &v.state
@@ -901,7 +901,7 @@ func file_v1_file_replication_proto_init() {
 				return nil
 			}
 		}
-		file_v1_file_replication_proto_msgTypes[3].Exporter = func(v any, i int) any {
+		file_v1_file_replication_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ResumeFileActivityResponse); i {
 			case 0:
 				return &v.state
@@ -913,7 +913,7 @@ func file_v1_file_replication_proto_init() {
 				return nil
 			}
 		}
-		file_v1_file_replication_proto_msgTypes[4].Exporter = func(v any, i int) any {
+		file_v1_file_replication_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ListFilesRequest); i {
 			case 0:
 				return &v.state
@@ -925,7 +925,7 @@ func file_v1_file_replication_proto_init() {
 				return nil
 			}
 		}
-		file_v1_file_replication_proto_msgTypes[5].Exporter = func(v any, i int) any {
+		file_v1_file_replication_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ListFilesResponse); i {
 			case 0:
 				return &v.state
@@ -937,7 +937,7 @@ func file_v1_file_replication_proto_init() {
 				return nil
 			}
 		}
-		file_v1_file_replication_proto_msgTypes[6].Exporter = func(v any, i int) any {
+		file_v1_file_replication_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GetFileMetadataRequest); i {
 			case 0:
 				return &v.state
@@ -949,7 +949,7 @@ func file_v1_file_replication_proto_init() {
 				return nil
 			}
 		}
-		file_v1_file_replication_proto_msgTypes[7].Exporter = func(v any, i int) any {
+		file_v1_file_replication_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*FileMetadata); i {
 			case 0:
 				return &v.state
@@ -961,7 +961,7 @@ func file_v1_file_replication_proto_init() {
 				return nil
 			}
 		}
-		file_v1_file_replication_proto_msgTypes[8].Exporter = func(v any, i int) any {
+		file_v1_file_replication_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GetFileRequest); i {
 			case 0:
 				return &v.state
@@ -973,7 +973,7 @@ func file_v1_file_replication_proto_init() {
 				return nil
 			}
 		}
-		file_v1_file_replication_proto_msgTypes[9].Exporter = func(v any, i int) any {
+		file_v1_file_replication_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*FileChunk); i {
 			case 0:
 				return &v.state

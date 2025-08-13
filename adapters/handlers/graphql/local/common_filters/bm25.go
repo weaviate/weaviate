@@ -82,7 +82,9 @@ func ExtractBM25(source map[string]interface{}, explainScore bool) searchparams.
 	if ok {
 		operator := operator.(map[string]interface{})
 		args.SearchOperator = operator["operator"].(string)
-		args.MinimumOrTokensMatch = int(operator["minimumOrTokensMatch"].(int))
+		if operator["minimumOrTokensMatch"] != nil {
+			args.MinimumOrTokensMatch = int(operator["minimumOrTokensMatch"].(int))
+		}
 	}
 
 	return args

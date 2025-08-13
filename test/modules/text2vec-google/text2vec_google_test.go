@@ -25,7 +25,7 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 	return func(t *testing.T) {
 		helper.SetupClient(rest)
 		// Data
-		dimensions768 := 768
+		dimensions1024 := 1024
 		data := companies.Companies
 		className := "VectorizerTest"
 		class := companies.BaseClass(className)
@@ -56,9 +56,9 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 				model: "gemini-embedding-001",
 			},
 			{
-				name:       "gemini-embedding-001 with 768 dimensions",
+				name:       "gemini-embedding-001 with 1024 dimensions",
 				model:      "gemini-embedding-001",
-				dimensions: &dimensions768,
+				dimensions: &dimensions1024,
 			},
 			{
 				name:     "text-embedding-005 with FACT_VERIFICATION taskType",
