@@ -201,7 +201,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	origParams := params
 	params.Pagination = &filters.Pagination{
-		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(params.Pagination.Limit))),
+		Limit:   params.Pagination.Limit,
 		Offset:  params.Pagination.Offset,
 		Autocut: params.Pagination.Autocut,
 	}
@@ -216,7 +216,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	keywordParams := params
 	keywordParams.Pagination = &filters.Pagination{
-		Limit:   params.Pagination.Limit,
+		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(params.Pagination.Limit))),
 		Offset:  0,
 		Autocut: -1,
 	}
