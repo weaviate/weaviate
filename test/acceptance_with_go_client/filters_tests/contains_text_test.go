@@ -145,6 +145,12 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 					expectedFound: false,
 				},
 				testCase{
+					propName:      "textField",
+					operator:      filters.ContainsNone,
+					values:        []string{"Hello You*-beautiful_world?!", "HoW yOU_DOin?"},
+					expectedFound: true,
+				},
+				testCase{
 					propName:      "textsField",
 					operator:      filters.ContainsAny,
 					values:        []string{"Hello You*-beautiful_world?!", "HoW yOU_DOin?"},
@@ -153,6 +159,12 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 				testCase{
 					propName:      "textsField",
 					operator:      filters.ContainsAll,
+					values:        []string{"Hello You*-beautiful_world?!", "HoW yOU_DOin?"},
+					expectedFound: true,
+				},
+				testCase{
+					propName:      "textsField",
+					operator:      filters.ContainsNone,
 					values:        []string{"Hello You*-beautiful_world?!", "HoW yOU_DOin?"},
 					expectedFound: true,
 				},
@@ -170,6 +182,12 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 					expectedFound: false,
 				},
 				testCase{
+					propName:      "textWord",
+					operator:      filters.ContainsNone,
+					values:        []string{"HELLO", "doin"},
+					expectedFound: true,
+				},
+				testCase{
 					propName:      "textsWord",
 					operator:      filters.ContainsAny,
 					values:        []string{"HELLO", "doin"},
@@ -178,6 +196,12 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 				testCase{
 					propName:      "textsWord",
 					operator:      filters.ContainsAll,
+					values:        []string{"HELLO", "doin"},
+					expectedFound: true,
+				},
+				testCase{
+					propName:      "textsWord",
+					operator:      filters.ContainsNone,
 					values:        []string{"HELLO", "doin"},
 					expectedFound: true,
 				},
@@ -195,6 +219,12 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 					expectedFound: false,
 				},
 				testCase{
+					propName:      "textField",
+					operator:      filters.ContainsNone,
+					values:        []string{"Hello", "HoW"},
+					expectedFound: false,
+				},
+				testCase{
 					propName:      "textsField",
 					operator:      filters.ContainsAny,
 					values:        []string{"Hello", "HoW"},
@@ -203,6 +233,12 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 				testCase{
 					propName:      "textsField",
 					operator:      filters.ContainsAll,
+					values:        []string{"Hello", "HoW"},
+					expectedFound: false,
+				},
+				testCase{
+					propName:      "textsField",
+					operator:      filters.ContainsNone,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: false,
 				},
@@ -219,6 +255,12 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 					expectedFound: false,
 				},
 				testCase{
+					propName:      "textWhitespace",
+					operator:      filters.ContainsNone,
+					values:        []string{"Hello", "HoW"},
+					expectedFound: true,
+				},
+				testCase{
 					propName:      "textsWhitespace",
 					operator:      filters.ContainsAny,
 					values:        []string{"Hello", "HoW"},
@@ -227,6 +269,12 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 				testCase{
 					propName:      "textsWhitespace",
 					operator:      filters.ContainsAll,
+					values:        []string{"Hello", "HoW"},
+					expectedFound: true,
+				},
+				testCase{
+					propName:      "textsWhitespace",
+					operator:      filters.ContainsNone,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: true,
 				},
@@ -243,6 +291,12 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 					expectedFound: false,
 				},
 				testCase{
+					propName:      "textLowercase",
+					operator:      filters.ContainsNone,
+					values:        []string{"Hello", "HoW"},
+					expectedFound: true,
+				},
+				testCase{
 					propName:      "textsLowercase",
 					operator:      filters.ContainsAny,
 					values:        []string{"Hello", "HoW"},
@@ -251,6 +305,12 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 				testCase{
 					propName:      "textsLowercase",
 					operator:      filters.ContainsAll,
+					values:        []string{"Hello", "HoW"},
+					expectedFound: true,
+				},
+				testCase{
+					propName:      "textsLowercase",
+					operator:      filters.ContainsNone,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: true,
 				},
@@ -267,6 +327,12 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 					expectedFound: false,
 				},
 				testCase{
+					propName:      "textWord",
+					operator:      filters.ContainsNone,
+					values:        []string{"Hello", "HoW"},
+					expectedFound: true,
+				},
+				testCase{
 					propName:      "textsWord",
 					operator:      filters.ContainsAny,
 					values:        []string{"Hello", "HoW"},
@@ -275,6 +341,12 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 				testCase{
 					propName:      "textsWord",
 					operator:      filters.ContainsAll,
+					values:        []string{"Hello", "HoW"},
+					expectedFound: true,
+				},
+				testCase{
+					propName:      "textsWord",
+					operator:      filters.ContainsNone,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: true,
 				},
@@ -294,6 +366,12 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 						values:        []string{"hello", "world"},
 						expectedFound: false,
 					},
+					testCase{
+						propName:      propName,
+						operator:      filters.ContainsNone,
+						values:        []string{"hello", "world"},
+						expectedFound: false,
+					},
 				)
 			}
 			for _, propName := range []string{"textWhitespace", "textsWhitespace"} {
@@ -307,6 +385,12 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 					testCase{
 						propName:      propName,
 						operator:      filters.ContainsAll,
+						values:        []string{"hello", "world"},
+						expectedFound: false,
+					},
+					testCase{
+						propName:      propName,
+						operator:      filters.ContainsNone,
 						values:        []string{"hello", "world"},
 						expectedFound: false,
 					},
@@ -326,6 +410,12 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 						values:        []string{"hello", "world"},
 						expectedFound: false,
 					},
+					testCase{
+						propName:      propName,
+						operator:      filters.ContainsNone,
+						values:        []string{"hello", "world"},
+						expectedFound: true,
+					},
 				)
 			}
 			for _, propName := range []string{"textWord", "textsWord"} {
@@ -339,6 +429,12 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 					testCase{
 						propName:      propName,
 						operator:      filters.ContainsAll,
+						values:        []string{"hello", "world"},
+						expectedFound: true,
+					},
+					testCase{
+						propName:      propName,
+						operator:      filters.ContainsNone,
 						values:        []string{"hello", "world"},
 						expectedFound: true,
 					},

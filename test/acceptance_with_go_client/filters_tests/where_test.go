@@ -20,7 +20,7 @@ import (
 )
 
 func TestWhereFilter_SingleNode_Contains(t *testing.T) {
-	t.Run("ContainsAny / ContainsAll", testContainsAnyAll(t, "localhost:8080"))
+	t.Run("ContainsAny / ContainsAll / ContainsNone", testContainsAnyAllNone(t, "localhost:8080"))
 	t.Run("Contains Text", testContainsText(t, "localhost:8080"))
 }
 
@@ -70,7 +70,7 @@ func TestWhereFilter_Cluster(t *testing.T) {
 
 	endpoint := compose.GetWeaviate().URI()
 
-	t.Run("ContainsAny / ContainsAll", testContainsAnyAll(t, endpoint))
+	t.Run("ContainsAny / ContainsAll / ContainsNone", testContainsAnyAllNone(t, endpoint))
 	t.Run("Contains Text", testContainsText(t, endpoint))
 	t.Run("Numerical filters", testNumericalFilters(endpoint))
 }
