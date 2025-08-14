@@ -33,6 +33,7 @@ import (
 	"github.com/getsentry/sentry-go"
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/runtime/logger"
 	"github.com/go-openapi/swag"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
@@ -613,7 +614,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		if parsed, err := time.ParseDuration(opt); err == nil {
 			timeout = parsed
 		} else {
-			fmt.Printf("Invalid WEAVIATE_MINIMUM_TIMEOUT value: %s, using default %s\n", opt, timeout)
+			appState.Logger.WithField("action", "startup").WithField("WEAVIATE_MINIMUM_TIMEOUT", opt).
+				Warn("Invalid WEAVIATE_MINIMUM_TIMEOUT value, using default")
 		}
 	}
 
