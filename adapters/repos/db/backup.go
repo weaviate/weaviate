@@ -36,7 +36,6 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	for _, c := range classes {
 		className := schema.ClassName(c)
 		idx := db.GetIndex(className)
-		fmt.Println("I'm here", "className", c, "config.ClassName", idx.Config.ClassName)
 		if idx == nil || idx.Config.ClassName != className {
 			return fmt.Errorf("class %v doesn't exist", c)
 		}
