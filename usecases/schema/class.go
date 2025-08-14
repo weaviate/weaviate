@@ -182,7 +182,7 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 	if len(vectorIndexType) == 0 {
 		vectorIndexType = vectorindex.DefaultVectorIndexType
 	}
-	if vectorIndexType == vectorindex.VectorIndexTypeHNSW {
+	if vectorIndexType == vectorindex.VectorIndexTypeHNSW && vectorIndexConfig.IndexType() == vectorindex.VectorIndexTypeHNSW {
 		hnswConfig := vectorIndexConfig.(hnsw.UserConfig)
 		pqEnabled := hnswConfig.PQ.Enabled
 		sqEnabled := hnswConfig.SQ.Enabled
