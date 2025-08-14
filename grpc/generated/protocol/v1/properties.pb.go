@@ -1046,25 +1046,23 @@ func file_v1_properties_proto_rawDescGZIP() []byte {
 	return file_v1_properties_proto_rawDescData
 }
 
-var (
-	file_v1_properties_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
-	file_v1_properties_proto_goTypes  = []any{
-		(*Properties)(nil),      // 0: weaviate.v1.Properties
-		(*Value)(nil),           // 1: weaviate.v1.Value
-		(*ListValue)(nil),       // 2: weaviate.v1.ListValue
-		(*NumberValues)(nil),    // 3: weaviate.v1.NumberValues
-		(*TextValues)(nil),      // 4: weaviate.v1.TextValues
-		(*BoolValues)(nil),      // 5: weaviate.v1.BoolValues
-		(*ObjectValues)(nil),    // 6: weaviate.v1.ObjectValues
-		(*DateValues)(nil),      // 7: weaviate.v1.DateValues
-		(*UuidValues)(nil),      // 8: weaviate.v1.UuidValues
-		(*IntValues)(nil),       // 9: weaviate.v1.IntValues
-		(*GeoCoordinate)(nil),   // 10: weaviate.v1.GeoCoordinate
-		(*PhoneNumber)(nil),     // 11: weaviate.v1.PhoneNumber
-		nil,                     // 12: weaviate.v1.Properties.FieldsEntry
-		(structpb.NullValue)(0), // 13: google.protobuf.NullValue
-	}
-)
+var file_v1_properties_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_v1_properties_proto_goTypes = []any{
+	(*Properties)(nil),      // 0: weaviate.v1.Properties
+	(*Value)(nil),           // 1: weaviate.v1.Value
+	(*ListValue)(nil),       // 2: weaviate.v1.ListValue
+	(*NumberValues)(nil),    // 3: weaviate.v1.NumberValues
+	(*TextValues)(nil),      // 4: weaviate.v1.TextValues
+	(*BoolValues)(nil),      // 5: weaviate.v1.BoolValues
+	(*ObjectValues)(nil),    // 6: weaviate.v1.ObjectValues
+	(*DateValues)(nil),      // 7: weaviate.v1.DateValues
+	(*UuidValues)(nil),      // 8: weaviate.v1.UuidValues
+	(*IntValues)(nil),       // 9: weaviate.v1.IntValues
+	(*GeoCoordinate)(nil),   // 10: weaviate.v1.GeoCoordinate
+	(*PhoneNumber)(nil),     // 11: weaviate.v1.PhoneNumber
+	nil,                     // 12: weaviate.v1.Properties.FieldsEntry
+	(structpb.NullValue)(0), // 13: google.protobuf.NullValue
+}
 var file_v1_properties_proto_depIdxs = []int32{
 	12, // 0: weaviate.v1.Properties.fields:type_name -> weaviate.v1.Properties.FieldsEntry
 	0,  // 1: weaviate.v1.Value.object_value:type_name -> weaviate.v1.Properties

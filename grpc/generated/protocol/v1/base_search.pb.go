@@ -1643,34 +1643,32 @@ func file_v1_base_search_proto_rawDescGZIP() []byte {
 	return file_v1_base_search_proto_rawDescData
 }
 
-var (
-	file_v1_base_search_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-	file_v1_base_search_proto_msgTypes  = make([]protoimpl.MessageInfo, 18)
-	file_v1_base_search_proto_goTypes   = []any{
-		(CombinationMethod)(0),              // 0: weaviate.v1.CombinationMethod
-		(SearchOperatorOptions_Operator)(0), // 1: weaviate.v1.SearchOperatorOptions.Operator
-		(Hybrid_FusionType)(0),              // 2: weaviate.v1.Hybrid.FusionType
-		(*WeightsForTarget)(nil),            // 3: weaviate.v1.WeightsForTarget
-		(*Targets)(nil),                     // 4: weaviate.v1.Targets
-		(*VectorForTarget)(nil),             // 5: weaviate.v1.VectorForTarget
-		(*SearchOperatorOptions)(nil),       // 6: weaviate.v1.SearchOperatorOptions
-		(*Hybrid)(nil),                      // 7: weaviate.v1.Hybrid
-		(*NearVector)(nil),                  // 8: weaviate.v1.NearVector
-		(*NearObject)(nil),                  // 9: weaviate.v1.NearObject
-		(*NearTextSearch)(nil),              // 10: weaviate.v1.NearTextSearch
-		(*NearImageSearch)(nil),             // 11: weaviate.v1.NearImageSearch
-		(*NearAudioSearch)(nil),             // 12: weaviate.v1.NearAudioSearch
-		(*NearVideoSearch)(nil),             // 13: weaviate.v1.NearVideoSearch
-		(*NearDepthSearch)(nil),             // 14: weaviate.v1.NearDepthSearch
-		(*NearThermalSearch)(nil),           // 15: weaviate.v1.NearThermalSearch
-		(*NearIMUSearch)(nil),               // 16: weaviate.v1.NearIMUSearch
-		(*BM25)(nil),                        // 17: weaviate.v1.BM25
-		nil,                                 // 18: weaviate.v1.Targets.WeightsEntry
-		nil,                                 // 19: weaviate.v1.NearVector.VectorPerTargetEntry
-		(*NearTextSearch_Move)(nil),         // 20: weaviate.v1.NearTextSearch.Move
-		(*Vectors)(nil),                     // 21: weaviate.v1.Vectors
-	}
-)
+var file_v1_base_search_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_v1_base_search_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_v1_base_search_proto_goTypes = []any{
+	(CombinationMethod)(0),              // 0: weaviate.v1.CombinationMethod
+	(SearchOperatorOptions_Operator)(0), // 1: weaviate.v1.SearchOperatorOptions.Operator
+	(Hybrid_FusionType)(0),              // 2: weaviate.v1.Hybrid.FusionType
+	(*WeightsForTarget)(nil),            // 3: weaviate.v1.WeightsForTarget
+	(*Targets)(nil),                     // 4: weaviate.v1.Targets
+	(*VectorForTarget)(nil),             // 5: weaviate.v1.VectorForTarget
+	(*SearchOperatorOptions)(nil),       // 6: weaviate.v1.SearchOperatorOptions
+	(*Hybrid)(nil),                      // 7: weaviate.v1.Hybrid
+	(*NearVector)(nil),                  // 8: weaviate.v1.NearVector
+	(*NearObject)(nil),                  // 9: weaviate.v1.NearObject
+	(*NearTextSearch)(nil),              // 10: weaviate.v1.NearTextSearch
+	(*NearImageSearch)(nil),             // 11: weaviate.v1.NearImageSearch
+	(*NearAudioSearch)(nil),             // 12: weaviate.v1.NearAudioSearch
+	(*NearVideoSearch)(nil),             // 13: weaviate.v1.NearVideoSearch
+	(*NearDepthSearch)(nil),             // 14: weaviate.v1.NearDepthSearch
+	(*NearThermalSearch)(nil),           // 15: weaviate.v1.NearThermalSearch
+	(*NearIMUSearch)(nil),               // 16: weaviate.v1.NearIMUSearch
+	(*BM25)(nil),                        // 17: weaviate.v1.BM25
+	nil,                                 // 18: weaviate.v1.Targets.WeightsEntry
+	nil,                                 // 19: weaviate.v1.NearVector.VectorPerTargetEntry
+	(*NearTextSearch_Move)(nil),         // 20: weaviate.v1.NearTextSearch.Move
+	(*Vectors)(nil),                     // 21: weaviate.v1.Vectors
+}
 var file_v1_base_search_proto_depIdxs = []int32{
 	0,  // 0: weaviate.v1.Targets.combination:type_name -> weaviate.v1.CombinationMethod
 	18, // 1: weaviate.v1.Targets.weights:type_name -> weaviate.v1.Targets.WeightsEntry
