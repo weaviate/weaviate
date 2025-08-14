@@ -37,6 +37,10 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 		DisablePersistence: false,
 		Logger:             s.index.logger,
 
+		HNSWMaxConnections: s.index.Config.HNSWGeoIndexMaxConnections,
+		HNSWEFConstruction: s.index.Config.HNSWGeoIndexEFConstruction,
+		HNSWEF:             s.index.Config.HNSWGeoIndexEF,
+
 		SnapshotDisabled:                         s.index.Config.HNSWDisableSnapshots,
 		SnapshotOnStartup:                        s.index.Config.HNSWSnapshotOnStartup,
 		SnapshotCreateInterval:                   time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds) * time.Second,

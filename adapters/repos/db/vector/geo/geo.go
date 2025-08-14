@@ -27,6 +27,12 @@ import (
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+const (
+	DefaultHNSWMaxConnections = 64
+	DefaultHNSWEFConstruction = 128
+	DefaultHNSWEF             = 800
+)
+
 // Index wraps another index to provide geo searches. This allows us to reuse
 // the hnsw vector index, without making geo searches dependent on
 // hnsw-specific features.
@@ -57,11 +63,36 @@ type Config struct {
 	RootPath           string
 	Logger             logrus.FieldLogger
 
+	HNSWMaxConnections int
+	HNSWEFConstruction int
+	HNSWEF             int
+
 	SnapshotDisabled                         bool
 	SnapshotOnStartup                        bool
 	SnapshotCreateInterval                   time.Duration
 	SnapshotMinDeltaCommitlogsNumer          int
 	SnapshotMinDeltaCommitlogsSizePercentage int
+}
+
+func (c Config) hnswEF() int {
+	if c.HNSWEF > 0 {
+		return c.HNSWEF
+	}
+	return DefaultHNSWEF
+}
+
+func (c Config) hnswMaxConnections() int {
+	if c.HNSWMaxConnections > 0 {
+		return c.HNSWMaxConnections
+	}
+	return DefaultHNSWMaxConnections
+}
+
+func (c Config) hnswEFConstruction() int {
+	if c.HNSWEFConstruction > 0 {
+		return c.HNSWEFConstruction
+	}
+	return DefaultHNSWEFConstruction
 }
 
 func NewIndex(config Config,
@@ -76,8 +107,8 @@ func NewIndex(config Config,
 		DisableSnapshots:      config.SnapshotDisabled,
 		SnapshotOnStartup:     config.SnapshotOnStartup,
 	}, hnswent.UserConfig{
-		MaxConnections:         64,
-		EFConstruction:         128,
+		MaxConnections:         config.hnswMaxConnections(),
+		EFConstruction:         config.hnswEFConstruction(),
 		CleanupIntervalSeconds: hnswent.DefaultCleanupIntervalSeconds,
 	}, tombstoneCleanupCallbacks, nil)
 	if err != nil {
@@ -146,7 +177,7 @@ func (i *Index) WithinRange(ctx context.Context,
 		return nil, errors.Wrap(err, "invalid arguments")
 	}
 
-	return i.vectorIndex.KnnSearchByVectorMaxDist(ctx, query, geoRange.Distance, 800, nil)
+	return i.vectorIndex.KnnSearchByVectorMaxDist(ctx, query, geoRange.Distance, i.config.hnswEF(), nil)
 }
 
 func (i *Index) Delete(id uint64) error {
