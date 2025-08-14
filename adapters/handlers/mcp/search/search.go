@@ -9,27 +9,31 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package query
+package search
 
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-type WeaviateQuerier struct {
+type WeaviateSearcher struct {
+	auth.Auth
+
 	traverser         traverser
 	defaultCollection string
 }
 
 type traverser interface {
-	GetClass(ctx context.Context, principal *models.Principal, params dto.GetParams) (any, error)
+	GetClass(ctx context.Context, principal *models.Principal, params dto.GetParams) ([]any, error)
 }
 
-func NewWeaviateCreator(traverser traverser) *WeaviateQuerier {
-	return &WeaviateQuerier{
+func NewWeaviateSearcher(auth *auth.Auth, traverser traverser) *WeaviateSearcher {
+	return &WeaviateSearcher{
 		defaultCollection: "DefaultCollection",
 		traverser:         traverser,
+		Auth:              *auth,
 	}
 }

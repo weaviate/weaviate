@@ -13,31 +13,25 @@ package create
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-func (c *WeaviateCreator) InsertOne(ctx context.Context, principal *models.Principal, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	targetCol := c.parseTargetCollection(req)
-	props := req.Params.Arguments.(map[string]any)["properties"]
+func (c *WeaviateCreator) InsertOne(ctx context.Context, req mcp.CallToolRequest, args InsertOneArgs) (*InsertOneResp, error) {
+	principal, err := c.PrincipalFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get principal: %w", err)
+	}
 
 	obj := models.Object{
-		Class:      targetCol,
-		Properties: props,
+		Class:      args.Collection,
+		Properties: args.Properties,
 	}
 	res, err := c.objectsManager.AddObject(ctx, principal, &obj, nil)
 	if err != nil {
-		return mcp.NewToolResultErrorFromErr("failed to insert object", err), nil
+		return nil, fmt.Errorf("failed to insert object: %w", err)
 	}
-	return mcp.NewToolResultText(res.ID.String()), nil
-}
-
-func (c *WeaviateCreator) parseTargetCollection(req mcp.CallToolRequest) string {
-	targetCol := c.defaultCollection
-	col, ok := req.Params.Arguments.(map[string]any)["collection"].(string)
-	if ok {
-		targetCol = col
-	}
-	return targetCol
+	return &InsertOneResp{ID: res.ID.String()}, nil
 }

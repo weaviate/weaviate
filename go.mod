@@ -51,7 +51,7 @@ require (
 	github.com/jonboulle/clockwork v0.5.0
 	github.com/launchdarkly/go-sdk-common/v3 v3.2.0
 	github.com/launchdarkly/go-server-sdk/v7 v7.8.0
-	github.com/mark3labs/mcp-go v0.29.0
+	github.com/mark3labs/mcp-go v0.37.1-0.20250812151906-9f16336f83e1
 	github.com/minio/minio-go/v7 v7.0.84
 	github.com/nyaruka/phonenumbers v1.0.54
 	github.com/oauth2-proxy/mockoidc v0.0.0-20240214162133-caebfff84d25
@@ -114,6 +114,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.29.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.16 // indirect
 	github.com/aws/smithy-go v1.22.2 // indirect
+	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.10.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.6.1 // indirect
@@ -157,6 +158,7 @@ require (
 	github.com/hashicorp/go-uuid v1.0.1 // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/ikawaha/kagome-dict v1.1.6 // indirect
+	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/karrick/godirwalk v1.15.3 // indirect
@@ -210,6 +212,7 @@ require (
 	github.com/vcaesar/cedar v0.20.2 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/willf/bitset v1.1.11 // indirect
+	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect

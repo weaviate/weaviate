@@ -14,11 +14,14 @@ package create
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 type WeaviateCreator struct {
+	auth.Auth
+
 	objectsManager    objectsManager
 	defaultCollection string
 }
@@ -28,9 +31,10 @@ type objectsManager interface {
 		*additional.ReplicationProperties) (*models.Object, error)
 }
 
-func NewWeaviateCreator(objectsManager objectsManager) *WeaviateCreator {
+func NewWeaviateCreator(auth *auth.Auth, objectsManager objectsManager) *WeaviateCreator {
 	return &WeaviateCreator{
 		defaultCollection: "DefaultCollection",
 		objectsManager:    objectsManager,
+		Auth:              *auth,
 	}
 }
