@@ -112,6 +112,15 @@ func TestGeoJourney(t *testing.T) {
 	})
 }
 
+func TestGeoConfig(t *testing.T) {
+	cfg := Config{}
+	require.Equal(t, 800, cfg.hnswEF())
+	cfg = Config{HNSWEF: 0}
+	require.Equal(t, 800, cfg.hnswEF())
+	cfg = Config{HNSWEF: 1900}
+	require.Equal(t, 1900, cfg.hnswEF())
+}
+
 func ptFloat32(in float32) *float32 {
 	return &in
 }
