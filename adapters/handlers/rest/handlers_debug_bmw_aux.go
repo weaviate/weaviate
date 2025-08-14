@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -65,13 +66,14 @@ func changeFile(filename string, delete bool, content []byte, logger *logrus.Ent
 			func(shardName string, shard db.ShardLike) error {
 				alreadyDid := false
 				if len(shardsToMigrate) == 0 || slices.Contains(shardsToMigrate, shardName) {
-					shardPath := rootPath + "/" + classNameString + "/" + shardName + "/lsm/.migrations/searchable_map_to_blockmax/"
+					shardPath := filepath.Join(rootPath, classNameString, shardName, "lsm", ".migrations", "searchable_map_to_blockmax")
+					filename = filepath.Join(shardPath, filename)
 					_, err := os.Stat(shardPath)
 					if err != nil {
 						return fmt.Errorf("shard not found or not ready")
 					}
 					if delete {
-						err = os.Remove(shardPath + filename)
+						err = os.Remove(filename)
 						if os.IsNotExist(err) {
 							alreadyDid = true
 						} else if err != nil {
@@ -79,11 +81,11 @@ func changeFile(filename string, delete bool, content []byte, logger *logrus.Ent
 						}
 					} else {
 						// check if the file already exists
-						_, err = os.Stat(shardPath + filename)
+						_, err = os.Stat(filename)
 						if err == nil {
 							alreadyDid = true
 						} else {
-							file, err := os.Create(shardPath + filename)
+							file, err := os.Create(filename)
 							if os.IsExist(err) {
 								alreadyDid = true
 							} else if err != nil {
@@ -93,7 +95,7 @@ func changeFile(filename string, delete bool, content []byte, logger *logrus.Ent
 						}
 
 						if content != nil {
-							file, err := os.Create(shardPath + filename)
+							file, err := os.Create(filename)
 							if err != nil {
 								return fmt.Errorf("failed to create %s: %w", filename, err)
 							}

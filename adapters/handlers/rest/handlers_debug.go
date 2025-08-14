@@ -100,6 +100,14 @@ func setupDebugHandlers(appState *state.State) {
 		changeFile("start.mig", true, nil, logger, appState, r, w)
 	}))
 
+	http.HandleFunc("/debug/index/rebuild/inverted/reset", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		changeFile("reset.mig", false, nil, logger, appState, r, w)
+	}))
+
+	http.HandleFunc("/debug/index/rebuild/inverted/unreset", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		changeFile("reset.mig", true, nil, logger, appState, r, w)
+	}))
+
 	http.HandleFunc("/debug/index/rebuild/inverted/setProperties", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		propertiesToMigrateString := strings.TrimSpace(r.URL.Query().Get("properties"))
 
