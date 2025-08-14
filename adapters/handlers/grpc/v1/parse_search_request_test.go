@@ -1363,7 +1363,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 			error: false,
 		},
 		{
-			name: "contains filter with int value on float prop",
+			name: "contains all filter with int value on float prop",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
 				Filters: &pb.Filters{
@@ -1389,6 +1389,62 @@ func TestGRPCSearchRequest(t *testing.T) {
 			},
 			error: false,
 		},
+		{
+			name: "contains none filter with text value",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_CONTAINS_NONE,
+					TestValue: &pb.Filters_ValueTextArray{ValueTextArray: &pb.TextArray{Values: []string{"name1", "name2"}}},
+					On:        []string{"name"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "name",
+						},
+						Operator: filters.ContainsNone,
+						Value:    &filters.Value{Value: []string{"name1", "name2"}, Type: schema.DataTypeText},
+					},
+				},
+			},
+			error: false,
+		},
+
+		{
+			name: "filter reference on array prop with contains",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_CONTAINS_ANY, TestValue: &pb.Filters_ValueTextArray{ValueTextArray: &pb.TextArray{Values: []string{"text"}}}, On: []string{"ref", refClass1, "somethings"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "ref",
+							Child: &filters.Path{
+								Class:    schema.ClassName(refClass1),
+								Property: "somethings",
+							},
+						},
+						Operator: filters.ContainsAny,
+						Value:    &filters.Value{Value: []string{"text"}, Type: schema.DataTypeText},
+					},
+				},
+			},
+			error: false,
+		},
+
 		{
 			name: "metadata filter id",
 			req: &pb.SearchRequest{
