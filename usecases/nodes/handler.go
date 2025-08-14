@@ -32,18 +32,18 @@ type db interface {
 }
 
 type Manager struct {
-	logger        logrus.FieldLogger
-	authorizer    authorization.Authorizer
-	db            db
-	schemaManager *schemaUC.Manager
-	rbacconfig    rbacconf.Config
+	logger                 logrus.FieldLogger
+	authorizer             authorization.Authorizer
+	db                     db
+	schemaManager          *schemaUC.Manager
+	rbacconfig             rbacconf.Config
 	minimumInternalTimeout time.Duration
 }
 
 func NewManager(logger logrus.FieldLogger, authorizer authorization.Authorizer,
 	db db, schemaManager *schemaUC.Manager, rbacconfig rbacconf.Config, minimumInternalTimeout time.Duration,
 ) *Manager {
-	return &Manager{logger, authorizer, db, schemaManager, rbacconfig,  minimumInternalTimeout}
+	return &Manager{logger, authorizer, db, schemaManager, rbacconfig, minimumInternalTimeout}
 }
 
 // GetNodeStatus aggregates the status across all nodes. It will try for a

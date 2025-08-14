@@ -23,4 +23,3 @@ func Enabled(value string) bool {
 		return false
 	}
 }
-
