@@ -92,7 +92,7 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 		left, right := sg.segments[leftId], sg.segments[leftId+1]
 
 		if left.getLevel() == right.getLevel() {
-			leftS, rightS := sg.segments[leftId].getSegment(), sg.segments[leftId+1].getSegment()
+			leftS, rightS := left.getSegment(), right.getSegment()
 			if leftS.secondaryIndexCount != rightS.secondaryIndexCount {
 				// only pair of segments with the same secondary indexes are compacted
 				continue
@@ -125,7 +125,7 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 				break
 			}
 			if sg.compactLeftOverSegments && !leftoverPairFound {
-				leftS, rightS := sg.segments[leftId].getSegment(), sg.segments[leftId+1].getSegment()
+				leftS, rightS := left.getSegment(), right.getSegment()
 				if leftS.secondaryIndexCount != rightS.secondaryIndexCount {
 					// only pair of segments with the same secondary indexes are compacted
 					continue
