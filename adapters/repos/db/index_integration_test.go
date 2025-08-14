@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/mock"
-
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 
 	"github.com/go-openapi/strfmt"
@@ -300,6 +299,23 @@ func TestIndex_DropReadOnlyEmptyIndex(t *testing.T) {
 	ctx := testCtx()
 	class := &models.Class{Class: "deletetest"}
 	shard, index := testShard(t, ctx, class.Class)
+
+	tenantName := ""
+	if index.partitioningEnabled {
+		tenantName = shard.Name()
+	}
+
+	err := index.updateShardStatus(ctx, tenantName, shard.Name(), storagestate.StatusReadOnly.String(), 0)
+	require.Nil(t, err)
+
+	err = index.drop()
+	require.Nil(t, err)
+}
+
+func TestIndex_DropReadOnlyEmptyIndex_MultiTenant(t *testing.T) {
+	ctx := testCtx()
+	class := &models.Class{Class: "deletetest"}
+	shard, index := testShardMultiTenant(t, ctx, class.Class)
 
 	tenantName := ""
 	if index.partitioningEnabled {

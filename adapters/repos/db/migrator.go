@@ -487,7 +487,7 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 
 	tenantName := ""
 	if idx.partitioningEnabled {
-		// If partitioning is enable dit means the collection is multi tenant and the shard name must match the tenant name
+		// If partitioning is enable it means the collection is multi tenant and the shard name must match the tenant name
 		// otherwise the tenant name is expected to be empty.
 		tenantName = shardName
 	}
