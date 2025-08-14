@@ -750,21 +750,23 @@ func file_v1_file_replication_proto_rawDescGZIP() []byte {
 	return file_v1_file_replication_proto_rawDescData
 }
 
-var file_v1_file_replication_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_v1_file_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
-var file_v1_file_replication_proto_goTypes = []any{
-	(CompressionType)(0),               // 0: weaviate.v1.CompressionType
-	(*PauseFileActivityRequest)(nil),   // 1: weaviate.v1.PauseFileActivityRequest
-	(*PauseFileActivityResponse)(nil),  // 2: weaviate.v1.PauseFileActivityResponse
-	(*ResumeFileActivityRequest)(nil),  // 3: weaviate.v1.ResumeFileActivityRequest
-	(*ResumeFileActivityResponse)(nil), // 4: weaviate.v1.ResumeFileActivityResponse
-	(*ListFilesRequest)(nil),           // 5: weaviate.v1.ListFilesRequest
-	(*ListFilesResponse)(nil),          // 6: weaviate.v1.ListFilesResponse
-	(*GetFileMetadataRequest)(nil),     // 7: weaviate.v1.GetFileMetadataRequest
-	(*FileMetadata)(nil),               // 8: weaviate.v1.FileMetadata
-	(*GetFileRequest)(nil),             // 9: weaviate.v1.GetFileRequest
-	(*FileChunk)(nil),                  // 10: weaviate.v1.FileChunk
-}
+var (
+	file_v1_file_replication_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+	file_v1_file_replication_proto_msgTypes  = make([]protoimpl.MessageInfo, 10)
+	file_v1_file_replication_proto_goTypes   = []any{
+		(CompressionType)(0),               // 0: weaviate.v1.CompressionType
+		(*PauseFileActivityRequest)(nil),   // 1: weaviate.v1.PauseFileActivityRequest
+		(*PauseFileActivityResponse)(nil),  // 2: weaviate.v1.PauseFileActivityResponse
+		(*ResumeFileActivityRequest)(nil),  // 3: weaviate.v1.ResumeFileActivityRequest
+		(*ResumeFileActivityResponse)(nil), // 4: weaviate.v1.ResumeFileActivityResponse
+		(*ListFilesRequest)(nil),           // 5: weaviate.v1.ListFilesRequest
+		(*ListFilesResponse)(nil),          // 6: weaviate.v1.ListFilesResponse
+		(*GetFileMetadataRequest)(nil),     // 7: weaviate.v1.GetFileMetadataRequest
+		(*FileMetadata)(nil),               // 8: weaviate.v1.FileMetadata
+		(*GetFileRequest)(nil),             // 9: weaviate.v1.GetFileRequest
+		(*FileChunk)(nil),                  // 10: weaviate.v1.FileChunk
+	}
+)
 var file_v1_file_replication_proto_depIdxs = []int32{
 	0,  // 0: weaviate.v1.GetFileRequest.compression:type_name -> weaviate.v1.CompressionType
 	1,  // 1: weaviate.v1.FileReplicationService.PauseFileActivity:input_type -> weaviate.v1.PauseFileActivityRequest

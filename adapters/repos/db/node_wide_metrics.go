@@ -416,13 +416,12 @@ func (o *nodeWideMetricsObserver) sendVectorDimensions(className, shardName stri
 
 // Calculate total vector dimensions for all vector indices in the shard's parent Index.
 func calculateShardDimensionMetrics(ctx context.Context, sl ShardLike) (total DimensionMetrics) {
-	defer func () {
+	defer func() {
 		if r := recover(); r != nil {
 			// If we panic, we still want to return a valid DimensionMetrics.
 			total = DimensionMetrics{Uncompressed: 0, Compressed: 0}
 		}
 	}()
-
 
 	for name, config := range sl.Index().GetVectorIndexConfigs() {
 		dim := calcVectorDimensionMetrics(ctx, sl, name, config)
