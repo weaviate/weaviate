@@ -237,7 +237,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 							vectors["text"][j] = float32(i+j) / 1000.0
 						}
 						storageObj := storobj.FromObject(obj, nil, vectors, nil)
-						err := index.putObject(ctx, storageObj, nil, 0)
+						err := index.putObject(ctx, storageObj, nil, obj.Tenant, 0)
 						require.NoError(t, err)
 					}
 				} else if len(tt.vectorConfigs) > 0 && tt.vectorConfigs[""] != nil {
@@ -255,7 +255,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 							vector[j] = float32(i+j) / 1000.0
 						}
 						storageObj := storobj.FromObject(obj, vector, nil, nil)
-						err := index.putObject(ctx, storageObj, nil, 0)
+						err := index.putObject(ctx, storageObj, nil, obj.Tenant, 0)
 						require.NoError(t, err)
 					}
 				}
@@ -521,7 +521,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 						storageObj = storobj.FromObject(obj, vector, nil, nil)
 					}
 
-					err := index.putObject(ctx, storageObj, nil, 0)
+					err := index.putObject(ctx, storageObj, nil, obj.Tenant, 0)
 					require.NoError(t, err)
 				}
 
@@ -694,7 +694,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		}
 		storageObj := storobj.FromObject(obj, vector, nil, nil)
 
-		err := index.putObject(ctx, storageObj, nil, 0)
+		err := index.putObject(ctx, storageObj, nil, obj.Tenant, 0)
 		require.NoError(t, err)
 	}
 

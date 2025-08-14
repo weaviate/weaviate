@@ -185,7 +185,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 						},
 					}
 					storageObj := storobj.FromObject(obj, nil, nil, nil)
-					err := index.putObject(ctx, storageObj, nil, 0)
+					err := index.putObject(ctx, storageObj, nil, obj.Tenant, 0)
 					require.NoError(t, err)
 				}
 
@@ -333,7 +333,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 			},
 		}
 		storageObj := storobj.FromObject(obj, nil, nil, nil)
-		err := index.putObject(ctx, storageObj, nil, 0)
+		err := index.putObject(ctx, storageObj, nil, obj.Tenant, 0)
 		require.NoError(t, err)
 	}
 

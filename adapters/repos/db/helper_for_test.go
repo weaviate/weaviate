@@ -22,6 +22,7 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/sharding"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -223,6 +224,11 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 		false, false, indexOpts...)
 }
 
+func testShardMultiTenant(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
+	return testShardWithMultiTenantSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
+		false, false, indexOpts...)
+}
+
 func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMetrics, classes ...*models.Class) *DB {
 	t.Helper()
 
@@ -286,14 +292,25 @@ func getSingleShardNameFromRepo(repo *DB, className string) string {
 	return shardName
 }
 
-func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints bool, indexOpts ...func(*Index),
+func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
+	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, multiTenant bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	maxResults := int64(10_000)
 
-	shardState := singleShardState()
+	var shardState *sharding.State
+	if multiTenant {
+		shardState = NewMultiTenantShardingStateBuilder().
+			WithIndexName("multi-tenant-index").
+			WithNodePrefix("node").
+			WithReplicationFactor(1).
+			WithTenant("foo-tenant", "HOT").
+			Build()
+	} else {
+		shardState = singleShardState()
+	}
+
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
@@ -370,6 +387,19 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 	idx.shards.Store(shardName, shard)
 
 	return idx.shards.Load(shardName), idx
+}
+
+// Simplified functions that delegate to the common helper
+func testShardWithMultiTenantSettings(t *testing.T, ctx context.Context, class *models.Class,
+	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints bool, indexOpts ...func(*Index),
+) (ShardLike, *Index) {
+	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, true, indexOpts...)
+}
+
+func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
+	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints bool, indexOpts ...func(*Index),
+) (ShardLike, *Index) {
+	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, false, indexOpts...)
 }
 
 func testObject(className string) *storobj.Object {
