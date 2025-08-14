@@ -712,6 +712,7 @@ func (s *schema) GetAliasesForClass(class string) []*models.Alias {
 	}
 	return res
 }
+
 func (s *schema) getAliases(alias, class string) map[string]string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
