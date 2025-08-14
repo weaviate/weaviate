@@ -49,7 +49,7 @@ func parseIndexAndShards(appState *state.State, r *http.Request) (string, []stri
 	return classNameString, shardsToMigrate, idx, nil
 }
 
-func changeFile(filename string, delete bool, logger *logrus.Entry, appState *state.State, r *http.Request, w http.ResponseWriter) {
+func changeFile(filename string, delete bool, content []byte, logger *logrus.Entry, appState *state.State, r *http.Request, w http.ResponseWriter) {
 	response := map[string]interface{}{}
 
 	func() {
@@ -89,7 +89,19 @@ func changeFile(filename string, delete bool, logger *logrus.Entry, appState *st
 							} else if err != nil {
 								return fmt.Errorf("failed to create %s: %w", filename, err)
 							}
-							defer file.Close()
+							file.Close()
+						}
+
+						if content != nil {
+							file, err := os.Create(shardPath + filename)
+							if err != nil {
+								return fmt.Errorf("failed to create %s: %w", filename, err)
+							}
+							_, err = file.Write(content)
+							if err != nil {
+								return fmt.Errorf("failed to write to %s: %w", filename, err)
+							}
+							file.Close()
 						}
 					}
 					response[shardName] = map[string]string{
@@ -104,6 +116,8 @@ func changeFile(filename string, delete bool, logger *logrus.Entry, appState *st
 								} else {
 									if alreadyDid {
 										return "already created"
+									} else if content != nil {
+										return "updated"
 									}
 								}
 								return "created"
