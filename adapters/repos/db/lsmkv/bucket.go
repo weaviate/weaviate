@@ -215,7 +215,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
 	}
 
-	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
+	// send noop callback to avoid nil pointers, proper callback is assigned later on newBucket
+	sg, err := newSegmentGroup(logger, metrics, cyclemanager.NewCallbackGroupNoop(),
 		sgConfig{
 			dir:                      dir,
 			strategy:                 b.strategy,
@@ -301,6 +302,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	// and we need to re-sort them to ensure the order is correct, as compations
 	// and other operations are based on the creation order of the segments
 
+	sg.maintenanceLock.Lock()
+	defer sg.maintenanceLock.Unlock()
 	sort.Slice(b.disk.segments, func(i, j int) bool {
 		return b.disk.segments[i].path < b.disk.segments[j].path
 	})
@@ -312,7 +315,12 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		}
 	}
 
-	id := "bucket/flush/" + b.dir
+	// properly register compaction callback after WAL recovery and sort
+	// TODO AL: use separate cycle callback for cleanup?
+	id := "segmentgroup/compaction/" + sg.dir
+	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
+
+	id = "bucket/flush/" + b.dir
 	b.flushCallbackCtrl = flushCallbacks.Register(id, b.flushAndSwitchIfThresholdsMet)
 
 	b.metrics.TrackStartupBucket(beforeAll)

@@ -366,7 +366,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	}
 	sg.segmentCleaner = sc
 
-	// TODO AL: use separate cycle callback for cleanup?
+	// add a noop callback to avoid nil pointers, proper callback is assigned later on newBucket
 	id := "segmentgroup/compaction/" + sg.dir
 	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
