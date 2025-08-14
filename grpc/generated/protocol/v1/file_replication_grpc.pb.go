@@ -120,23 +120,18 @@ type UnimplementedFileReplicationServiceServer struct{}
 func (UnimplementedFileReplicationServiceServer) PauseFileActivity(context.Context, *PauseFileActivityRequest) (*PauseFileActivityResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PauseFileActivity not implemented")
 }
-
 func (UnimplementedFileReplicationServiceServer) ResumeFileActivity(context.Context, *ResumeFileActivityRequest) (*ResumeFileActivityResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResumeFileActivity not implemented")
 }
-
 func (UnimplementedFileReplicationServiceServer) ListFiles(context.Context, *ListFilesRequest) (*ListFilesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListFiles not implemented")
 }
-
 func (UnimplementedFileReplicationServiceServer) GetFileMetadata(grpc.BidiStreamingServer[GetFileMetadataRequest, FileMetadata]) error {
 	return status.Errorf(codes.Unimplemented, "method GetFileMetadata not implemented")
 }
-
 func (UnimplementedFileReplicationServiceServer) GetFile(grpc.BidiStreamingServer[GetFileRequest, FileChunk]) error {
 	return status.Errorf(codes.Unimplemented, "method GetFile not implemented")
 }
-
 func (UnimplementedFileReplicationServiceServer) mustEmbedUnimplementedFileReplicationServiceServer() {
 }
 func (UnimplementedFileReplicationServiceServer) testEmbeddedByValue() {}
