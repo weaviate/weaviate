@@ -369,11 +369,15 @@ func FromEnv(config *Config) error {
 		config.Persistence.LazySegmentsDisabled = true
 	}
 
-	if entcfg.Enabled(os.Getenv("PERSISTENCE_SEGMENT_INFO_FROM_FILE_ENABLED")) {
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_SEGMENT_INFO_FROM_FILE_DISABLED")) {
+		config.Persistence.SegmentInfoIntoFileNameEnabled = false
+	} else {
 		config.Persistence.SegmentInfoIntoFileNameEnabled = true
 	}
 
-	if entcfg.Enabled(os.Getenv("PERSISTENCE_WRITE_METADATA_FILES_ENABLED")) {
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_WRITE_METADATA_FILES_DISABLED")) {
+		config.Persistence.WriteMetadataFilesEnabled = false
+	} else {
 		config.Persistence.WriteMetadataFilesEnabled = true
 	}
 

@@ -60,7 +60,7 @@ func (p *Provider) setClassDefaults(class *models.Class, vectorizer string,
 		return
 	}
 
-	cfg := NewClassBasedModuleConfig(class, vectorizer, "", targetVector)
+	cfg := NewClassBasedModuleConfig(class, vectorizer, "", targetVector, &p.cfg)
 
 	p.setPerClassConfigDefaults(cfg, cc, storeFn)
 	for _, prop := range class.Properties {
@@ -268,7 +268,7 @@ func (p *Provider) validateClassModuleConfig(ctx context.Context,
 		return nil
 	}
 
-	cfg := NewClassBasedModuleConfig(class, moduleName, "", targetVector)
+	cfg := NewClassBasedModuleConfig(class, moduleName, "", targetVector, &p.cfg)
 	err := cc.ValidateClass(ctx, class, cfg)
 	if err != nil {
 		return errors.Wrapf(err, "module '%s'", moduleName)

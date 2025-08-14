@@ -73,8 +73,10 @@ func (s *service) addJitter() {
 // Usage service collects usage metrics for the node and shall return error in case of any error
 // to avoid reporting partial data
 func (m *service) Usage(ctx context.Context) (*types.Report, error) {
-	collections := m.schemaManager.GetSchemaSkipAuth().Objects.Classes
+	schema := m.schemaManager.GetSchemaSkipAuth().Objects
+	collections := schema.Classes
 	usage := &types.Report{
+		Schema:      schema,
 		Node:        m.schemaManager.NodeName(),
 		Collections: make([]*types.CollectionUsage, 0, len(collections)),
 		Backups:     make([]*types.BackupUsage, 0),
@@ -83,6 +85,12 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 	// Collect usage for each collection
 	for _, collection := range collections {
 		shardingState := m.schemaManager.CopyShardingState(collection.Class)
+		if shardingState == nil {
+			// this could happen in case the between getting the schema and getting the shard state the collection got deleted
+			// in the meantime, usually in automated tests or scripts
+			m.logger.WithFields(logrus.Fields{"class": collection.Class}).Debug("sharding state not found, could have been deleted in the meantime")
+			continue
+		}
 		collectionUsage := &types.CollectionUsage{
 			Name:              collection.Class,
 			ReplicationFactor: int(collection.ReplicationConfig.Factor),
@@ -114,8 +122,14 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 				}
 			}
 
+			if index == nil {
+				// index could be deleted in the meantime
+				m.logger.WithFields(logrus.Fields{"class": collection.Class}).Debug("index not found, could have been deleted in the meantime")
+				continue
+			}
+
 			// Then, collect hot tenants from loaded shards
-			index.ForEachShard(func(shardName string, shard db.ShardLike) error {
+			if err := index.ForEachShard(func(shardName string, shard db.ShardLike) error {
 				// skip non-local shards
 				if !shardingState.IsLocalShard(shardName) {
 					return nil
@@ -214,7 +228,9 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 
 				collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
 				return nil
-			})
+			}); err != nil {
+				return nil, err
+			}
 		}
 
 		usage.Collections = append(usage.Collections, collectionUsage)

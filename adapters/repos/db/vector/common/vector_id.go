@@ -21,6 +21,8 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 )
 
+var ErrWrongDimensions = errors.New("vector dimensions do not match the index dimensions")
+
 type VectorIndex interface {
 	AddBatch(ctx context.Context, ids []uint64, vector [][]float32) error
 	ValidateBeforeInsert(vector []float32) error

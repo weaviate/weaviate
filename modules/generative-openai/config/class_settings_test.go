@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
@@ -25,8 +26,8 @@ func Test_classSettings_Validate(t *testing.T) {
 		name                 string
 		cfg                  moduletools.ClassConfig
 		wantModel            string
-		wantMaxTokens        float64
-		wantTemperature      float64
+		wantMaxTokens        *float64
+		wantTemperature      *float64
 		wantTopP             float64
 		wantFrequencyPenalty float64
 		wantPresencePenalty  float64
@@ -42,15 +43,15 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantModel:            "gpt-3.5-turbo",
-			wantMaxTokens:        4096,
-			wantTemperature:      0.0,
+			wantModel:            "gpt-5-mini",
+			wantMaxTokens:        nil,
+			wantTemperature:      nil,
 			wantTopP:             1,
 			wantFrequencyPenalty: 0.0,
 			wantPresencePenalty:  0.0,
 			wantErr:              nil,
 			wantBaseURL:          "https://api.openai.com",
-			wantApiVersion:       "2024-02-01",
+			wantApiVersion:       "2024-06-01",
 		},
 		{
 			name: "Everything non default configured",
@@ -65,14 +66,14 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantModel:            "gpt-3.5-turbo",
-			wantMaxTokens:        4096,
-			wantTemperature:      0.5,
+			wantMaxTokens:        ptrFloat64(4096),
+			wantTemperature:      ptrFloat64(0.5),
 			wantTopP:             3,
 			wantFrequencyPenalty: 0.1,
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
 			wantBaseURL:          "https://api.openai.com",
-			wantApiVersion:       "2024-02-01",
+			wantApiVersion:       "2024-06-01",
 		},
 		{
 			name: "OpenAI Proxy",
@@ -88,10 +89,10 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantBaseURL:          "https://proxy.weaviate.dev/",
-			wantApiVersion:       "2024-02-01",
+			wantApiVersion:       "2024-06-01",
 			wantModel:            "gpt-3.5-turbo",
-			wantMaxTokens:        4096,
-			wantTemperature:      0.5,
+			wantMaxTokens:        ptrFloat64(4096),
+			wantTemperature:      ptrFloat64(0.5),
 			wantTopP:             3,
 			wantFrequencyPenalty: 0.1,
 			wantPresencePenalty:  0.9,
@@ -110,14 +111,14 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantModel:            "text-davinci-003",
-			wantMaxTokens:        1200,
-			wantTemperature:      0.5,
+			wantMaxTokens:        ptrFloat64(1200),
+			wantTemperature:      ptrFloat64(0.5),
 			wantTopP:             3,
 			wantFrequencyPenalty: 0.1,
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
 			wantBaseURL:          "https://api.openai.com",
-			wantApiVersion:       "2024-02-01",
+			wantApiVersion:       "2024-06-01",
 		},
 		{
 			name: "Azure OpenAI config",
@@ -136,15 +137,15 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantResourceName:     "weaviate",
 			wantDeploymentID:     "gpt-3.5-turbo",
 			wantIsAzure:          true,
-			wantModel:            "gpt-3.5-turbo",
-			wantMaxTokens:        4096,
-			wantTemperature:      0.5,
+			wantModel:            "gpt-5-mini",
+			wantMaxTokens:        ptrFloat64(4096),
+			wantTemperature:      ptrFloat64(0.5),
 			wantTopP:             3,
 			wantFrequencyPenalty: 0.1,
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
 			wantBaseURL:          "https://api.openai.com",
-			wantApiVersion:       "2024-02-01",
+			wantApiVersion:       "2024-06-01",
 		},
 		{
 			name: "Azure OpenAI config with baseURL",
@@ -164,15 +165,15 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantResourceName:     "weaviate",
 			wantDeploymentID:     "gpt-3.5-turbo",
 			wantIsAzure:          true,
-			wantModel:            "gpt-3.5-turbo",
-			wantMaxTokens:        4096,
-			wantTemperature:      0.5,
+			wantModel:            "gpt-5-mini",
+			wantMaxTokens:        ptrFloat64(4096),
+			wantTemperature:      ptrFloat64(0.5),
 			wantTopP:             3,
 			wantFrequencyPenalty: 0.1,
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
 			wantBaseURL:          "some-base-url",
-			wantApiVersion:       "2024-02-01",
+			wantApiVersion:       "2024-06-01",
 		},
 		{
 			name: "With gpt-3.5-turbo-16k model",
@@ -187,14 +188,14 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantModel:            "gpt-3.5-turbo-16k",
-			wantMaxTokens:        4096,
-			wantTemperature:      0.5,
+			wantMaxTokens:        ptrFloat64(4096),
+			wantTemperature:      ptrFloat64(0.5),
 			wantTopP:             3,
 			wantFrequencyPenalty: 0.1,
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
 			wantBaseURL:          "https://api.openai.com",
-			wantApiVersion:       "2024-02-01",
+			wantApiVersion:       "2024-06-01",
 		},
 		{
 			name: "Wrong maxTokens configured",
@@ -223,7 +224,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"maxTokens": 4096,
 				},
 			},
-			wantErr: fmt.Errorf("wrong OpenAI model name, available model names are: [gpt-3.5-turbo gpt-3.5-turbo-16k gpt-3.5-turbo-1106 gpt-4 gpt-4-32k gpt-4-1106-preview gpt-4o gpt-4o-mini]"),
+			wantErr: fmt.Errorf("wrong OpenAI model name, available model names are: [gpt-3.5-turbo gpt-3.5-turbo-16k gpt-3.5-turbo-1106 gpt-4 gpt-4-32k gpt-4-1106-preview gpt-4o gpt-4o-mini gpt-5 gpt-5-mini gpt-5-nano]"),
 		},
 		{
 			name: "Wrong frequencyPenalty configured",
@@ -280,9 +281,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantErr: fmt.Errorf("wrong Azure OpenAI apiVersion, available api versions are: " +
-				"[2022-12-01 2023-03-15-preview 2023-05-15 2023-06-01-preview 2023-07-01-preview " +
-				"2023-08-01-preview 2023-09-01-preview 2023-12-01-preview 2024-02-15-preview " +
-				"2024-03-01-preview 2024-02-01 2024-06-01]"),
+				"[2022-12-01 2023-03-15-preview 2023-05-15 2023-06-01-preview 2023-07-01-preview 2023-08-01-preview 2023-09-01-preview 2023-12-01-preview 2024-02-15-preview 2024-03-01-preview 2024-02-01 2024-06-01]"),
 		},
 	}
 	for _, tt := range tests {
@@ -334,4 +333,12 @@ func (f fakeClassConfig) TargetVector() string {
 
 func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
 	return nil
+}
+
+func (f fakeClassConfig) Config() *config.Config {
+	return nil
+}
+
+func ptrFloat64(in float64) *float64 {
+	return &in
 }

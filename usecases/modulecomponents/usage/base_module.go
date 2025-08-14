@@ -231,7 +231,7 @@ func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	usage.Version = b.policyVersion
-	usage.CollectingTIme = collectionTime
+	usage.CollectingTime = collectionTime
 
 	return b.storage.UploadUsageData(ctx, usage)
 }

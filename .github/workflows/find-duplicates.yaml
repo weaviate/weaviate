@@ -10,6 +10,8 @@ permissions:
 jobs:
   triage:
     runs-on: ubuntu-latest
+    # Only run if issue has "bug" label or no labels
+    if: contains(github.event.issue.labels.*.name, 'bug') || toJSON(github.event.issue.labels) == '[]'
     steps:
       - name: Check for similar issues
         id: similarity-check

@@ -28,7 +28,7 @@ func TestClassSettings(t *testing.T) {
 			}},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "")
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
 		ic := NewClassSettings(cfg)
 
 		assert.True(t, ic.PropertyIndexed("someProp"))
@@ -68,7 +68,7 @@ func TestClassSettings(t *testing.T) {
 			}},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "")
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
 		ic := NewClassSettings(cfg)
 
 		assert.True(t, ic.PropertyIndexed("someProp"))
@@ -96,7 +96,7 @@ func TestClassSettings(t *testing.T) {
 			}},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "")
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
 		ic := NewClassSettings(cfg)
 
 		assert.False(t, ic.PropertyIndexed("someProp"))

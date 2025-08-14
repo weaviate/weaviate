@@ -81,16 +81,19 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		collection string
+		name        string
+		collection  string
+		accessUsing string
 	}{
 		{
-			name:       "search using collection name",
-			collection: books.DefaultClassName,
+			name:        "search using collection name",
+			collection:  books.DefaultClassName,
+			accessUsing: books.DefaultClassName,
 		},
 		{
-			name:       "search using alias",
-			collection: booksAliasName,
+			name:        "search using alias",
+			collection:  books.DefaultClassName,
+			accessUsing: booksAliasName,
 		},
 	}
 	for _, tt := range tests {
@@ -98,7 +101,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 			t.Run("search", func(t *testing.T) {
 				t.Run("get", func(t *testing.T) {
 					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-						Collection:  tt.collection,
+						Collection:  tt.accessUsing,
 						Uses_123Api: true,
 						Uses_125Api: true,
 						Uses_127Api: true,
@@ -110,7 +113,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 				})
 				t.Run("get with filters", func(t *testing.T) {
 					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-						Collection: tt.collection,
+						Collection: tt.accessUsing,
 						Metadata:   &pb.MetadataRequest{Vector: true, Uuid: true},
 						Filters: &pb.Filters{
 							Operator:  pb.Filters_OPERATOR_EQUAL,
@@ -130,7 +133,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 				})
 				t.Run("nearText", func(t *testing.T) {
 					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-						Collection: tt.collection,
+						Collection: tt.accessUsing,
 						Metadata:   &pb.MetadataRequest{Uuid: true},
 						NearText: &pb.NearTextSearch{
 							Query: []string{"Dune"},
@@ -147,7 +150,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 				})
 				t.Run("bm25", func(t *testing.T) {
 					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-						Collection: tt.collection,
+						Collection: tt.accessUsing,
 						Metadata:   &pb.MetadataRequest{Uuid: true},
 						Bm25Search: &pb.BM25{
 							Query:      "Dune",
@@ -165,7 +168,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 				})
 				t.Run("hybrid", func(t *testing.T) {
 					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-						Collection: tt.collection,
+						Collection: tt.accessUsing,
 						Metadata:   &pb.MetadataRequest{Uuid: true},
 						HybridSearch: &pb.Hybrid{
 							Query: "Project",
@@ -188,7 +191,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 			t.Run("aggregate using alias", func(t *testing.T) {
 				t.Run("count", func(t *testing.T) {
 					resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
-						Collection:   tt.collection,
+						Collection:   tt.accessUsing,
 						ObjectsCount: true,
 					})
 					require.NoError(t, err)
@@ -198,7 +201,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 				})
 				t.Run("count with filters", func(t *testing.T) {
 					resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
-						Collection: tt.collection,
+						Collection: tt.accessUsing,
 						Filters: &pb.Filters{
 							Operator:  pb.Filters_OPERATOR_EQUAL,
 							On:        []string{"title"},
@@ -214,7 +217,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 				t.Run("count with nearText", func(t *testing.T) {
 					certainty := float64(0.8)
 					resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
-						Collection: tt.collection,
+						Collection: tt.accessUsing,
 						Filters: &pb.Filters{
 							Operator:  pb.Filters_OPERATOR_EQUAL,
 							On:        []string{"title"},

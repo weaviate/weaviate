@@ -17,7 +17,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/modules"
 )
 
@@ -30,7 +32,7 @@ func TestClassSettings(t *testing.T) {
 			}},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "")
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
 		ic := NewClassSettings(cfg)
 
 		assert.True(t, ic.PropertyIndexed("someProp"))
@@ -72,7 +74,7 @@ func TestClassSettings(t *testing.T) {
 			}},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "")
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
 		ic := NewClassSettings(cfg)
 
 		assert.True(t, ic.PropertyIndexed("someProp"))
@@ -101,7 +103,7 @@ func TestClassSettings(t *testing.T) {
 			}},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "")
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
 		ic := NewClassSettings(cfg)
 
 		assert.False(t, ic.PropertyIndexed("someProp"))
@@ -142,7 +144,7 @@ func TestClassSettings(t *testing.T) {
 			},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", targetVector)
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", targetVector, nil)
 		ic := NewClassSettings(cfg)
 
 		assert.True(t, ic.PropertyIndexed(propertyToIndex))
@@ -188,7 +190,7 @@ func TestClassSettings(t *testing.T) {
 			}},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "withInferenceUrl")
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "withInferenceUrl", nil)
 		ic := NewClassSettings(cfg)
 
 		assert.False(t, ic.PropertyIndexed("someProp"))
@@ -199,7 +201,7 @@ func TestClassSettings(t *testing.T) {
 		assert.Empty(t, ic.PassageInferenceURL())
 		assert.Empty(t, ic.QueryInferenceURL())
 
-		cfg = modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "withPassageAndQueryInferenceUrl")
+		cfg = modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "withPassageAndQueryInferenceUrl", nil)
 		ic = NewClassSettings(cfg)
 
 		assert.False(t, ic.PropertyIndexed("someProp"))
@@ -297,17 +299,18 @@ func Test_classSettings_Validate(t *testing.T) {
 					},
 				},
 				Properties: []*models.Property{{
-					Name: "someProp",
+					Name:     "someProp",
+					DataType: []string{schema.DataTypeText.String()},
 					ModuleConfig: map[string]interface{}{
 						"my-module": map[string]interface{}{
-							"skip":                  true,
-							"vectorizePropertyName": true,
+							"skip":                  false,
+							"vectorizePropertyName": false,
 						},
 					},
 				}},
 			}
 
-			cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "namedVector")
+			cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", "namedVector", nil)
 			ic := NewClassSettings(cfg)
 			err := ic.Validate(class)
 			if tt.wantErr != nil {

@@ -16,4 +16,5 @@ type VectorizationConfig struct {
 	ProjectID   string
 	Model       string
 	Dimensions  *int64
+	TaskType    string
 }

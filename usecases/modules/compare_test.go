@@ -50,7 +50,7 @@ func TestCompareRevectorize(t *testing.T) {
 			{Name: "text_not_vectorized", DataType: []string{schema.DataTypeText.String()}, ModuleConfig: map[string]interface{}{"my-module": map[string]interface{}{"skip": true}}},
 		},
 	}
-	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "")
+	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
 	module := newDummyText2VecModule("my-module", []string{"image", "video"})
 
 	cases := []struct {
@@ -133,7 +133,7 @@ func TestCompareRevectorizeNamedVectors(t *testing.T) {
 			},
 		},
 	}
-	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "")
+	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
 	module := newDummyText2VecModule("my-module", []string{"image", "video"})
 
 	cases := []struct {
@@ -183,7 +183,7 @@ func TestCompareRevectorizeDisabled(t *testing.T) {
 			},
 		},
 	}
-	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "")
+	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
 	module := newDummyText2VecModule("my-module", []string{"image", "video"})
 
 	props := map[string]interface{}{
