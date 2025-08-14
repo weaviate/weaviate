@@ -25,7 +25,10 @@ const (
 	apiEndpointProperty = "apiEndpoint"
 	projectIDProperty   = "projectId"
 	modelIDProperty     = "modelId"
+	modelProperty       = "model"
 	titleProperty       = "titleProperty"
+	dimensionsProperty  = "dimensions"
+	taskTypeProperty    = "taskType"
 )
 
 const (
@@ -36,6 +39,7 @@ const (
 	DefaultModelID               = "textembedding-gecko@001"
 	DefaultAIStudioEndpoint      = "generativelanguage.googleapis.com"
 	DefaulAIStudioModelID        = "embedding-001"
+	DefaultTaskType              = "RETRIEVAL_QUERY"
 )
 
 var availableGoogleModels = []string{
@@ -61,6 +65,16 @@ var availableGenerativeAIModels = []string{
 	"text-multilingual-embedding-002",
 }
 
+var availableTaskTypes = []string{
+	DefaultTaskType,
+	"QUESTION_ANSWERING",
+	"FACT_VERIFICATION",
+	"CODE_RETRIEVAL_QUERY",
+	"CLASSIFICATION",
+	"CLUSTERING",
+	"SEMANTIC_SIMILARITY",
+}
+
 type classSettings struct {
 	basesettings.BaseClassSettings
 	cfg moduletools.ClassConfig
@@ -80,7 +94,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 
 	apiEndpoint := ic.ApiEndpoint()
-	model := ic.ModelID()
+	model := ic.Model()
 	if apiEndpoint == DefaultAIStudioEndpoint {
 		if model != "" && !ic.validateGoogleSetting(model, availableGenerativeAIModels) {
 			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available AI Studio model names are: %v", modelIDProperty, availableGenerativeAIModels))
@@ -93,6 +107,10 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		if model != "" && !ic.validateGoogleSetting(model, availableGoogleModels) {
 			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available model names are: %v", modelIDProperty, availableGoogleModels))
 		}
+	}
+
+	if !slices.Contains(availableTaskTypes, ic.TaskType()) {
+		errorMessages = append(errorMessages, fmt.Sprintf("wrong taskType supported task types are: %v", availableTaskTypes))
 	}
 
 	if len(errorMessages) > 0 {
@@ -126,10 +144,21 @@ func (ic *classSettings) ProjectID() string {
 	return ic.getStringProperty(projectIDProperty, "")
 }
 
-func (ic *classSettings) ModelID() string {
+func (ic *classSettings) Model() string {
+	if model := ic.getStringProperty(modelProperty, ""); model != "" {
+		return model
+	}
 	return ic.getStringProperty(modelIDProperty, ic.getDefaultModel(ic.ApiEndpoint()))
 }
 
 func (ic *classSettings) TitleProperty() string {
 	return ic.getStringProperty(titleProperty, "")
+}
+
+func (ic *classSettings) Dimensions() *int64 {
+	return ic.GetPropertyAsInt64(dimensionsProperty, nil)
+}
+
+func (ic *classSettings) TaskType() string {
+	return ic.getStringProperty(taskTypeProperty, DefaultTaskType)
 }

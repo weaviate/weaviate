@@ -260,10 +260,16 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 	}
 
 	start := time.Now()
+	className := s.index.Config.ClassName.String()
+	shardName := s.Name()
 
 	vectorIndex, ok := s.GetVectorIndex(targetVector)
 	if !ok {
-		s.index.logger.WithField("targetVector", targetVector).Warn("repair index: vector index not found")
+		s.index.logger.
+			WithField("class", className).
+			WithField("shard", shardName).
+			WithField("targetVector", targetVector).
+			Warn("repair index: vector index not found")
 		// shard was never initialized, possibly because of a failed shard
 		// initialization. No op.
 		return nil
@@ -281,18 +287,20 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 
 	q, ok := s.GetVectorIndexQueue(targetVector)
 	if !ok {
-		s.index.logger.WithField("targetVector", targetVector).Warn("repair index: queue not found")
+		s.index.logger.
+			WithField("class", className).
+			WithField("shard", shardName).
+			WithField("targetVector", targetVector).
+			Warn("repair index: queue not found")
 		// queue was never initialized, possibly because of a failed shard
 		// initialization. No op.
 		return nil
 	}
 
 	maxDocID := s.Counter().Get()
-
 	visited := visited.NewList(int(maxDocID))
 
 	var added, deleted int
-
 	var batch []common.VectorRecord
 
 	if vectorIndex.Multivector() {
@@ -301,9 +309,22 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 			visited.Visit(docID)
 
 			if vectorIndex.ContainsDoc(docID) {
+				s.index.logger.
+					WithField("class", className).
+					WithField("shard", shardName).
+					WithField("targetVector", targetVector).
+					WithField("docID", docID).
+					Info("repair index: skipping doc, already in index")
 				return nil
 			}
 			if len(vector) == 0 {
+				s.index.logger.
+					WithField("class", className).
+					WithField("shard", shardName).
+					WithField("targetVector", targetVector).
+					WithField("docID", docID).
+					WithField("vectorLen", 0).
+					Info("repair index: skipping doc, empty vector")
 				return nil
 			}
 
@@ -315,12 +336,39 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 
 			batch = append(batch, rec)
 
+			dim := 0
+			if len(vector[0]) > 0 {
+				dim = len(vector[0])
+			}
+			s.index.logger.
+				WithField("class", className).
+				WithField("shard", shardName).
+				WithField("targetVector", targetVector).
+				WithField("docID", docID).
+				WithField("vectorLen", len(vector)).
+				WithField("vectorDim", dim).
+				WithField("currentBatchSize", len(batch)).
+				Info("repair index: added doc to batch")
+
 			if len(batch) < 1000 {
 				return nil
 			}
 
+			s.index.logger.
+				WithField("class", className).
+				WithField("shard", shardName).
+				WithField("targetVector", targetVector).
+				WithField("batchSize", len(batch)).
+				Info("repair index: inserting batch")
+
 			err := q.Insert(ctx, batch...)
 			if err != nil {
+				s.index.logger.
+					WithError(err).
+					WithField("class", className).
+					WithField("shard", shardName).
+					WithField("targetVector", targetVector).
+					Warn("repair index: batch insert failed")
 				return err
 			}
 
@@ -336,9 +384,22 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 			visited.Visit(docID)
 
 			if vectorIndex.ContainsDoc(docID) {
+				s.index.logger.
+					WithField("class", className).
+					WithField("shard", shardName).
+					WithField("targetVector", targetVector).
+					WithField("docID", docID).
+					Info("repair index: iterateOnLSMVectors: skipping doc, already in index")
 				return nil
 			}
 			if len(vector) == 0 {
+				s.index.logger.
+					WithField("class", className).
+					WithField("shard", shardName).
+					WithField("targetVector", targetVector).
+					WithField("docID", docID).
+					WithField("vectorLen", 0).
+					Info("repair index: iterateOnLSMVectors: skipping doc, empty vector")
 				return nil
 			}
 
@@ -350,9 +411,26 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 
 			batch = append(batch, rec)
 
+			s.index.logger.
+				WithField("class", className).
+				WithField("shard", shardName).
+				WithField("targetVector", targetVector).
+				WithField("docID", docID).
+				WithField("vectorLen", len(vector)).
+				WithField("vectorDim", len(vector)).
+				WithField("currentBatchSize", len(batch)).
+				Info("repair index: iterateOnLSMVectors: added doc to batch")
+
 			if len(batch) < 1000 {
 				return nil
 			}
+
+			s.index.logger.
+				WithField("class", className).
+				WithField("shard", shardName).
+				WithField("targetVector", targetVector).
+				WithField("batchSize", len(batch)).
+				Info("repair index: iterateOnLSMVectors: inserting batch")
 
 			err := q.Insert(ctx, batch...)
 			if err != nil {
@@ -368,17 +446,44 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 	}
 
 	if len(batch) > 0 {
+		s.index.logger.
+			WithField("class", className).
+			WithField("shard", shardName).
+			WithField("targetVector", targetVector).
+			WithField("batchSize", len(batch)).
+			Info("repair index: flushing final batch")
+
 		err := q.Insert(ctx, batch...)
 		if err != nil {
 			return errors.Wrap(err, "insert batch")
 		}
 	}
 
+	s.index.logger.
+		WithField("class", className).
+		WithField("shard", shardName).
+		WithField("targetVector", targetVector).
+		WithField("visited", visited.Len()).
+		WithField("added", added).
+		Info("repair index: completed LSM iteration")
+
+	if visited.Len() > 0 && added == 0 {
+		s.index.logger.
+			WithField("class", className).
+			WithField("shard", shardName).
+			WithField("targetVector", targetVector).
+			WithField("visited", visited.Len()).
+			Warn("repair index: visited documents but none added — all already indexed?")
+	}
 	// if no nodes were visited, it either means the LSM store is empty or
 	// there was an uncaught error during the iteration.
 	// in any case, we should not touch the index.
 	if visited.Len() == 0 {
-		s.index.logger.Warn("repair index: empty LSM store")
+		s.index.logger.
+			WithField("class", className).
+			WithField("shard", shardName).
+			WithField("targetVector", targetVector).
+			Warn("repair index: empty LSM store")
 		return nil
 	}
 
@@ -390,12 +495,24 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 
 		deleted++
 		if vectorIndex.Multivector() {
-			if err := vectorIndex.DeleteMulti(docID); err != nil {
-				s.index.logger.WithError(err).WithField("id", docID).Warn("delete multi-vector from queue")
+			if err := vectorIndex.(VectorIndexMulti).DeleteMulti(docID); err != nil {
+				s.index.logger.
+					WithError(err).
+					WithField("class", className).
+					WithField("shard", shardName).
+					WithField("targetVector", targetVector).
+					WithField("id", docID).
+					Warn("delete multi-vector from queue")
 			}
 		} else {
 			if err := vectorIndex.Delete(docID); err != nil {
-				s.index.logger.WithError(err).WithField("id", docID).Warn("delete vector from queue")
+				s.index.logger.
+					WithError(err).
+					WithField("class", className).
+					WithField("shard", shardName).
+					WithField("targetVector", targetVector).
+					WithField("id", docID).
+					Warn("delete vector from queue")
 			}
 		}
 
@@ -403,11 +520,12 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 	})
 
 	s.index.logger.
+		WithField("class", className).
+		WithField("shard", shardName).
+		WithField("targetVector", targetVector).
 		WithField("added", added).
 		WithField("deleted", deleted).
-		WithField("shard_id", s.ID()).
 		WithField("took", time.Since(start)).
-		WithField("target_vector", targetVector).
 		Info("repaired vector index")
 
 	return nil

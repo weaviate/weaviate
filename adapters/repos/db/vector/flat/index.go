@@ -332,9 +332,11 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 			index.bq = compressionhelpers.NewBinaryQuantizer(nil)
 		}
 	})
-	if len(vector) != int(index.dims) {
-		return errors.Errorf("insert called with a vector of the wrong size")
+
+	if err := index.ValidateBeforeInsert(vector); err != nil {
+		return err
 	}
+
 	vector = index.normalized(vector)
 	slice := make([]byte, len(vector)*4)
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
@@ -359,14 +361,6 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 	return nil
 }
 
-func (index *flat) AddMulti(ctx context.Context, docID uint64, vectors [][]float32) error {
-	return errors.Errorf("AddMulti is not supported for flat index")
-}
-
-func (index *flat) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][]float32) error {
-	return errors.Errorf("AddMultiBatch is not supported for flat index")
-}
-
 func (index *flat) Delete(ids ...uint64) error {
 	for i := range ids {
 		if index.isBQCached() {
@@ -386,10 +380,6 @@ func (index *flat) Delete(ids ...uint64) error {
 		}
 	}
 	return nil
-}
-
-func (index *flat) DeleteMulti(ids ...uint64) error {
-	return errors.Errorf("DeleteMulti is not supported for flat index")
 }
 
 func (index *flat) searchTimeRescore(k int) int {
@@ -412,10 +402,6 @@ func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, 
 	default:
 		return index.searchByVector(ctx, vector, k, allow)
 	}
-}
-
-func (index *flat) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	return nil, nil, errors.Errorf("SearchByMultiVector is not supported for flat index")
 }
 
 func (index *flat) searchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
@@ -737,12 +723,6 @@ func (index *flat) SearchByVectorDistance(ctx context.Context, vector []float32,
 	return resultIDs, resultDist, nil
 }
 
-func (index *flat) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32,
-	targetDistance float32, maxLimit int64, allow helpers.AllowList,
-) ([]uint64, []float32, error) {
-	return nil, nil, errors.Errorf("SearchByMultiVectorDistance is not supported for flat index")
-}
-
 func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
 	parsed, ok := updated.(flatent.UserConfig)
 	if !ok {
@@ -799,11 +779,24 @@ func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, er
 	return files, nil
 }
 
-func (i *flat) ValidateBeforeInsert(vector []float32) error {
-	return nil
+func (index *flat) GetKeys(id uint64) (uint64, uint64, error) {
+	return 0, 0, errors.Errorf("GetKeys is not supported for flat index")
 }
 
-func (i *flat) ValidateMultiBeforeInsert(vector [][]float32) error {
+func (index *flat) ValidateBeforeInsert(vector []float32) error {
+	dims := int(atomic.LoadInt32(&index.dims))
+
+	// no vectors exist
+	if dims == 0 {
+		return nil
+	}
+
+	// check if vector length is the same as existing nodes
+	if dims != len(vector) {
+		return errors.Errorf("insert called with a vector of the wrong size: %d. Saved length: %d, path: %s",
+			len(vector), dims, index.rootPath)
+	}
+
 	return nil
 }
 
@@ -1037,10 +1030,6 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 		}
 	}
 	return common.QueryVectorDistancer{DistanceFunc: distFunc}
-}
-
-func (index *flat) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer {
-	return common.QueryVectorDistancer{}
 }
 
 func (index *flat) Type() common.IndexType {
