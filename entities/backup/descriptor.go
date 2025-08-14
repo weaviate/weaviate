@@ -247,6 +247,7 @@ type ClassDescriptor struct {
 	Shards                  []*ShardDescriptor `json:"shards"`
 	ShardingState           []byte             `json:"shardingState"`
 	Schema                  []byte             `json:"schema"`
+	Aliases                 []byte             `json:"aliases"`
 	Chunks                  map[int32][]string `json:"chunks,omitempty"`
 	Error                   error              `json:"-"`
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression

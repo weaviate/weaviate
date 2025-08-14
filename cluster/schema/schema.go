@@ -694,6 +694,24 @@ func (s *schema) canonicalAlias(alias string) string {
 	return strings.ToUpper(string(alias[0])) + alias[1:]
 }
 
+func (s *schema) GetAliasesForClass(class string) []*models.Alias {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	res := make([]*models.Alias, 0)
+	if class == "" {
+		return res
+	}
+	for alias, className := range s.aliases {
+		if className == class {
+			res = append(res, &models.Alias{
+				Alias: alias,
+				Class: className,
+			})
+		}
+	}
+	return res
+}
 func (s *schema) getAliases(alias, class string) map[string]string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

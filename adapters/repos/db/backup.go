@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -35,6 +36,7 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	for _, c := range classes {
 		className := schema.ClassName(c)
 		idx := db.GetIndex(className)
+		fmt.Println("I'm here", "className", c, "config.ClassName", idx.Config.ClassName)
 		if idx == nil || idx.Config.ClassName != className {
 			return fmt.Errorf("class %v doesn't exist", c)
 		}
@@ -238,6 +240,9 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	if desc.Schema, err = i.marshalSchema(); err != nil {
 		return fmt.Errorf("marshal schema %w", err)
 	}
+	if desc.Aliases, err = i.marshalAliases(); err != nil {
+		return fmt.Errorf("marshal aliases %w", err)
+	}
 	return ctx.Err()
 }
 
@@ -303,6 +308,15 @@ func (i *Index) marshalSchema() ([]byte, error) {
 		return nil, errors.Wrap(err, "marshal schema")
 	}
 
+	return b, err
+}
+
+func (i *Index) marshalAliases() ([]byte, error) {
+	aliases := i.getSchema.GetAliasesForClass(i.Config.ClassName.String())
+	b, err := json.Marshal(aliases)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal aliases failed to get aliases for collection")
+	}
 	return b, err
 }
 
