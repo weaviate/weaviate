@@ -20,11 +20,11 @@ import (
 )
 
 func (r *WeaviateReader) GetSchema(ctx context.Context, req mcp.CallToolRequest, args any) (*GetSchemaResp, error) {
-	principal, err := r.Authorize(req, authorization.READ)
+	principal, err := r.Authorize(ctx, req, authorization.READ)
 	if err != nil {
 		return nil, err
 	}
-	res, err := r.schemaReader.GetConsistentSchema(principal, true)
+	res, err := r.schemaReader.GetConsistentSchema(ctx, principal, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}

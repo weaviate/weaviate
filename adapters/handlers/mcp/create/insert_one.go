@@ -21,7 +21,7 @@ import (
 )
 
 func (c *WeaviateCreator) InsertOne(ctx context.Context, req mcp.CallToolRequest, args InsertOneArgs) (*InsertOneResp, error) {
-	principal, err := c.Authorize(req, authorization.CREATE)
+	principal, err := c.Authorize(ctx, req, authorization.CREATE)
 	if err != nil {
 		return nil, err
 	}

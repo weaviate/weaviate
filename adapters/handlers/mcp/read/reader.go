@@ -20,7 +20,7 @@ import (
 )
 
 type schemaReader interface {
-	GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error)
+	GetConsistentSchema(ctx context.Context, principal *models.Principal, consistency bool) (schema.Schema, error)
 	GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.Tenant, error)
 }
 

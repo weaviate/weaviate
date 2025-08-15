@@ -65,9 +65,7 @@ func (s *MCPServer) Serve() {
 }
 
 func (s *MCPServer) registerTools() {
-	var tools []server.ServerTool
-	tools = append(tools, create.Tools(s.creator)...)
-	tools = append(tools, search.Tools(s.searcher)...)
-	tools = append(tools, read.Tools(s.reader)...)
-	s.server.AddTools(tools...)
+	s.server.AddTools(create.Tools(s.creator)...)
+	s.server.AddTools(search.Tools(s.searcher)...)
+	s.server.AddTools(read.Tools(s.reader)...)
 }
