@@ -41,11 +41,12 @@ func TestSearchWithHybridTool(t *testing.T) {
 	defer cancel()
 
 	var results []any
-	callToolOnce[any](ctx, t, "search-with-hybrid", &search.SearchWithHybridArgs{
+	err := callToolOnce[any](ctx, t, "search-with-hybrid", &search.SearchWithHybridArgs{
 		Collection:       cls.Class,
 		Query:            contents,
 		TargetProperties: []string{cls.Properties[0].Name},
 	}, &results)
+	require.Nil(t, err)
 
 	require.Len(t, results, 1)
 	parsed, ok := results[0].(map[string]any)

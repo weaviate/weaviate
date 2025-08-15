@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes create_roles read_roles update_roles delete_roles create_collections read_collections update_collections delete_collections assign_and_revoke_users create_users read_users update_users delete_users create_tenants read_tenants update_tenants delete_tenants]
+	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes create_roles read_roles update_roles delete_roles create_collections read_collections update_collections delete_collections assign_and_revoke_users create_users read_users update_users delete_users create_tenants read_tenants update_tenants delete_tenants manage_mcp]
 	Action *string `json:"action"`
 
 	// backups
@@ -44,6 +44,9 @@ type Permission struct {
 
 	// data
 	Data *PermissionData `json:"data,omitempty"`
+
+	// resources applicable for MCP actions
+	Mcp interface{} `json:"mcp,omitempty"`
 
 	// nodes
 	Nodes *PermissionNodes `json:"nodes,omitempty"`
@@ -104,7 +107,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_backups","read_cluster","create_data","read_data","update_data","delete_data","read_nodes","create_roles","read_roles","update_roles","delete_roles","create_collections","read_collections","update_collections","delete_collections","assign_and_revoke_users","create_users","read_users","update_users","delete_users","create_tenants","read_tenants","update_tenants","delete_tenants"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_backups","read_cluster","create_data","read_data","update_data","delete_data","read_nodes","create_roles","read_roles","update_roles","delete_roles","create_collections","read_collections","update_collections","delete_collections","assign_and_revoke_users","create_users","read_users","update_users","delete_users","create_tenants","read_tenants","update_tenants","delete_tenants","manage_mcp"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -185,6 +188,9 @@ const (
 
 	// PermissionActionDeleteTenants captures enum value "delete_tenants"
 	PermissionActionDeleteTenants string = "delete_tenants"
+
+	// PermissionActionManageMcp captures enum value "manage_mcp"
+	PermissionActionManageMcp string = "manage_mcp"
 )
 
 // prop value enum

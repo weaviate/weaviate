@@ -26,15 +26,15 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func callToolOnce[I any, O any](ctx context.Context, t *testing.T, tool string, in I, out *O) {
+func callToolOnce[I any, O any](ctx context.Context, t *testing.T, tool string, in I, out *O) error {
 	client, err := client.NewStreamableHttpClient("http://localhost:9000/mcp")
 	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
+		return err
 	}
 
 	_, err = client.Initialize(ctx, mcp.InitializeRequest{})
 	if err != nil {
-		t.Fatalf("Failed to initialize client: %v", err)
+		return err
 	}
 
 	res, err := client.CallTool(ctx, mcp.CallToolRequest{
@@ -44,19 +44,21 @@ func callToolOnce[I any, O any](ctx context.Context, t *testing.T, tool string, 
 		},
 	})
 	if err != nil {
-		t.Fatalf("Failed to call tool: %v", err)
+		return err
 	}
 	require.NotNil(t, res)
+	require.False(t, res.IsError)
 	require.NotNil(t, res.StructuredContent)
 
 	bytes, err := json.Marshal(res.StructuredContent)
 	if err != nil {
-		t.Fatalf("Failed to marshal response: %v", err)
+		return err
 	}
 	err = json.Unmarshal(bytes, out)
 	if err != nil {
-		t.Fatalf("Failed to unmarshal response: %v", err)
+		return err
 	}
+	return nil
 }
 
 func TestGetSchemaTool(t *testing.T) {
@@ -71,7 +73,9 @@ func TestGetSchemaTool(t *testing.T) {
 	defer cancel()
 
 	var schema *read.GetSchemaResp
-	callToolOnce[any](ctx, t, "get-schema", nil, &schema)
+	err := callToolOnce[any](ctx, t, "get-schema", nil, &schema)
+	require.Nil(t, err)
+
 	require.NotNil(t, schema)
 	require.NotNil(t, schema.Schema)
 	require.Len(t, schema.Schema.Classes, 1)
@@ -94,7 +98,9 @@ func TestGetTenantsTool(t *testing.T) {
 	helper.CreateTenants(t, cls.Class, []*models.Tenant{{Name: "tenant1"}, {Name: "tenant2"}})
 
 	var tenants *read.GetTenantsResp
-	callToolOnce(ctx, t, "get-tenants", &read.GetTenantsArgs{Collection: cls.Class}, &tenants)
+	err := callToolOnce(ctx, t, "get-tenants", &read.GetTenantsArgs{Collection: cls.Class}, &tenants)
+	require.Nil(t, err)
+
 	require.NotNil(t, tenants)
 	require.Len(t, tenants.Tenants, 2)
 }

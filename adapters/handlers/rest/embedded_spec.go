@@ -6764,7 +6764,8 @@ func init() {
             "create_tenants",
             "read_tenants",
             "update_tenants",
-            "delete_tenants"
+            "delete_tenants",
+            "manage_mcp"
           ]
         },
         "backups": {
@@ -6809,6 +6810,10 @@ func init() {
               "default": "*"
             }
           }
+        },
+        "mcp": {
+          "description": "resources applicable for MCP actions",
+          "type": "object"
         },
         "nodes": {
           "description": "resources applicable for cluster actions",
@@ -15067,7 +15072,8 @@ func init() {
             "create_tenants",
             "read_tenants",
             "update_tenants",
-            "delete_tenants"
+            "delete_tenants",
+            "manage_mcp"
           ]
         },
         "backups": {
@@ -15112,6 +15118,10 @@ func init() {
               "default": "*"
             }
           }
+        },
+        "mcp": {
+          "description": "resources applicable for MCP actions",
+          "type": "object"
         },
         "nodes": {
           "description": "resources applicable for cluster actions",

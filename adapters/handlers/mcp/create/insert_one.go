@@ -17,14 +17,14 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func (c *WeaviateCreator) InsertOne(ctx context.Context, req mcp.CallToolRequest, args InsertOneArgs) (*InsertOneResp, error) {
-	principal, err := c.PrincipalFromContext(ctx)
+	principal, err := c.Authorize(req, authorization.CREATE)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get principal: %w", err)
+		return nil, err
 	}
-
 	obj := models.Object{
 		Class:      args.Collection,
 		Properties: args.Properties,

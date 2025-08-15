@@ -235,6 +235,11 @@
             }
           }
         },
+        "mcp": {
+          "type": "object",
+          "description": "resources applicable for MCP actions",
+          "properties": {}
+        },
         "action": {
           "type": "string",
           "description": "allowed actions in weaviate.",
@@ -262,7 +267,8 @@
             "create_tenants",
             "read_tenants",
             "update_tenants",
-            "delete_tenants"
+            "delete_tenants",
+            "manage_mcp"
           ]
         }
       },

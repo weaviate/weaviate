@@ -34,12 +34,14 @@ func TestInsertOneTool(t *testing.T) {
 	defer cancel()
 
 	var resp *create.InsertOneResp
-	callToolOnce(ctx, t, "insert-one", &create.InsertOneArgs{
+	err := callToolOnce(ctx, t, "insert-one", &create.InsertOneArgs{
 		Collection: cls.Class,
 		Properties: map[string]any{
 			"contents": "Test Content",
 		},
 	}, &resp)
+	require.Nil(t, err)
+
 	require.NotNil(t, resp)
 	require.NotEmpty(t, resp.ID)
 }

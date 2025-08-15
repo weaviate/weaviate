@@ -1,18 +1,31 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package auth
 
 import (
-	"context"
+	"fmt"
 	"strings"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
-	"google.golang.org/grpc/metadata"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 type Auth struct {
 	allowAnonymousAccess bool
 	authComposer         composer.TokenFunc
+	authorizer           authorization.Authorizer
 }
 
 func NewAuth(state *state.State) *Auth {
@@ -23,23 +36,23 @@ func NewAuth(state *state.State) *Auth {
 			state.APIKey,
 			state.OIDC,
 		),
+		authorizer: state.Authorizer,
 	}
 }
 
-// This should probably be run as part of a middleware. In the initial gRPC
-// implementation there is only a single endpoint, so it's fine to run this
-// straight from the endpoint. But the moment we add a second endpoint, this
-// should be called from a central place. This way we can make sure it's
-// impossible to forget to add it to a new endpoint.
-func (a *Auth) PrincipalFromContext(ctx context.Context) (*models.Principal, error) {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return a.tryAnonymous()
+func (a *Auth) Authorize(req mcp.CallToolRequest, verb string) (*models.Principal, error) {
+	principal, err := a.principalFromRequest(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get principal: %w", err)
 	}
+	if err := a.authorizer.Authorize(principal, verb, authorization.Mcp()); err != nil {
+		return nil, err
+	}
+	return principal, nil
+}
 
-	// the grpc library will lowercase all md keys, so we need to make sure to
-	// check a lowercase key
-	authValue, ok := md["authorization"]
+func (a *Auth) principalFromRequest(req mcp.CallToolRequest) (*models.Principal, error) {
+	authValue, ok := req.Header["Authorization"]
 	if !ok {
 		return a.tryAnonymous()
 	}

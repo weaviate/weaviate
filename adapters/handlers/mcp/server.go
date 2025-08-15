@@ -55,7 +55,7 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager) (*MCPServ
 
 func (s *MCPServer) Serve() {
 	sse := server.NewStreamableHTTPServer(s.server)
-	if err := sse.Start("localhost:9000"); err != nil {
+	if err := sse.Start("0.0.0.0:9000"); err != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := sse.Shutdown(ctx); err != nil {

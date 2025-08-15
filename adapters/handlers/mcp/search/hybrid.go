@@ -19,12 +19,13 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, args SearchWithHybridArgs) (any, error) {
-	principal, err := s.PrincipalFromContext(ctx)
+	principal, err := s.Authorize(req, authorization.READ)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get principal: %w", err)
+		return nil, err
 	}
 
 	selectProps := make(search.SelectProperties, len(args.TargetProperties))
