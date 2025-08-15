@@ -4,16 +4,18 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
-package replica
+package replica_test
 
 import (
 	"context"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/replica"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/mock"
@@ -33,16 +35,16 @@ type fakeRClient struct {
 func (f *fakeRClient) FetchObject(ctx context.Context, host, index, shard string,
 	id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties, numRetries int,
-) (objects.Replica, error) {
+) (replica.Replica, error) {
 	args := f.Called(ctx, host, index, shard, id, props, additional)
-	return args.Get(0).(objects.Replica), args.Error(1)
+	return args.Get(0).(replica.Replica), args.Error(1)
 }
 
 func (f *fakeRClient) FetchObjects(ctx context.Context, host, index,
 	shard string, ids []strfmt.UUID,
-) ([]objects.Replica, error) {
+) ([]replica.Replica, error) {
 	args := f.Called(ctx, host, index, shard, ids)
-	return args.Get(0).([]objects.Replica), args.Error(1)
+	return args.Get(0).([]replica.Replica), args.Error(1)
 }
 
 func (f *fakeRClient) OverwriteObjects(ctx context.Context, host, index, shard string,
@@ -86,44 +88,44 @@ type fakeClient struct {
 
 func (f *fakeClient) PutObject(ctx context.Context, host, index, shard, requestID string,
 	obj *storobj.Object, schemaVersion uint64,
-) (SimpleResponse, error) {
+) (replica.SimpleResponse, error) {
 	args := f.Called(ctx, host, index, shard, requestID, obj, schemaVersion)
-	return args.Get(0).(SimpleResponse), args.Error(1)
+	return args.Get(0).(replica.SimpleResponse), args.Error(1)
 }
 
 func (f *fakeClient) DeleteObject(ctx context.Context, host, index, shard, requestID string,
 	id strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
-) (SimpleResponse, error) {
+) (replica.SimpleResponse, error) {
 	args := f.Called(ctx, host, index, shard, requestID, id, deletionTime, schemaVersion)
-	return args.Get(0).(SimpleResponse), args.Error(1)
+	return args.Get(0).(replica.SimpleResponse), args.Error(1)
 }
 
 func (f *fakeClient) MergeObject(ctx context.Context, host, index, shard, requestID string,
 	doc *objects.MergeDocument, schemaVersion uint64,
-) (SimpleResponse, error) {
+) (replica.SimpleResponse, error) {
 	args := f.Called(ctx, host, index, shard, requestID, doc, schemaVersion)
-	return args.Get(0).(SimpleResponse), args.Error(1)
+	return args.Get(0).(replica.SimpleResponse), args.Error(1)
 }
 
 func (f *fakeClient) PutObjects(ctx context.Context, host, index, shard, requestID string,
 	objs []*storobj.Object, schemaVersion uint64,
-) (SimpleResponse, error) {
+) (replica.SimpleResponse, error) {
 	args := f.Called(ctx, host, index, shard, requestID, objs, schemaVersion)
-	return args.Get(0).(SimpleResponse), args.Error(1)
+	return args.Get(0).(replica.SimpleResponse), args.Error(1)
 }
 
 func (f *fakeClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
-) (SimpleResponse, error) {
+) (replica.SimpleResponse, error) {
 	args := f.Called(ctx, host, index, shard, requestID, uuids, deletionTime, dryRun, schemaVersion)
-	return args.Get(0).(SimpleResponse), args.Error(1)
+	return args.Get(0).(replica.SimpleResponse), args.Error(1)
 }
 
 func (f *fakeClient) AddReferences(ctx context.Context, host, index, shard, requestID string,
 	refs []objects.BatchReference, schemaVersion uint64,
-) (SimpleResponse, error) {
+) (replica.SimpleResponse, error) {
 	args := f.Called(ctx, host, index, shard, requestID, refs, schemaVersion)
-	return args.Get(0).(SimpleResponse), args.Error(1)
+	return args.Get(0).(replica.SimpleResponse), args.Error(1)
 }
 
 func (f *fakeClient) Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error {
@@ -131,7 +133,7 @@ func (f *fakeClient) Commit(ctx context.Context, host, index, shard, requestID s
 	return args.Error(0)
 }
 
-func (f *fakeClient) Abort(ctx context.Context, host, index, shard, requestID string) (SimpleResponse, error) {
+func (f *fakeClient) Abort(ctx context.Context, host, index, shard, requestID string) (replica.SimpleResponse, error) {
 	args := f.Called(ctx, host, index, shard, requestID)
-	return args.Get(0).(SimpleResponse), args.Error(1)
+	return args.Get(0).(replica.SimpleResponse), args.Error(1)
 }

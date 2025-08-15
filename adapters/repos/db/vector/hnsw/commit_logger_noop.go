@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,6 +31,10 @@ func (n *NoopCommitLogger) AddPQCompression(data compressionhelpers.PQData) erro
 }
 
 func (n *NoopCommitLogger) AddSQCompression(data compressionhelpers.SQData) error {
+	return nil
+}
+
+func (n *NoopCommitLogger) AddRQCompression(data compressionhelpers.RQData) error {
 	return nil
 }
 
@@ -90,6 +94,18 @@ func (n *NoopCommitLogger) Shutdown(context.Context) error {
 	return nil
 }
 
+func (n *NoopCommitLogger) CreateSnapshot() (bool, int64, error) {
+	return false, 0, nil
+}
+
+func (n *NoopCommitLogger) CreateAndLoadSnapshot() (*DeserializationResult, int64, error) {
+	return nil, 0, nil
+}
+
+func (n *NoopCommitLogger) LoadSnapshot() (*DeserializationResult, int64, error) {
+	return nil, 0, nil
+}
+
 func MakeNoopCommitLogger() (CommitLogger, error) {
 	return &NoopCommitLogger{}, nil
 }
@@ -113,3 +129,5 @@ func (n *NoopCommitLogger) RootPath() string {
 func (n *NoopCommitLogger) SwitchCommitLogs(force bool) error {
 	return nil
 }
+
+func (n *NoopCommitLogger) InitMaintenance() {}

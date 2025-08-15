@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,10 +31,11 @@ func TestDeleteRoleSuccess(t *testing.T) {
 
 	principal := &models.Principal{Username: "user1"}
 	params := authz.DeleteRoleParams{
-		ID: "roleToRemove",
+		ID:          "roleToRemove",
+		HTTPRequest: req,
 	}
 	controller.On("GetRoles", mock.Anything).Return(map[string][]authorization.Policy{"roleToRemove": {}}, nil)
-	authorizer.On("Authorize", principal, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles("roleToRemove")[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles("roleToRemove")[0]).Return(nil)
 	controller.On("DeleteRoles", params.ID).Return(nil)
 
 	h := &authZHandlers{
@@ -60,7 +61,8 @@ func TestDeleteRoleBadRequest(t *testing.T) {
 		{
 			name: "update builtin role",
 			params: authz.DeleteRoleParams{
-				ID: authorization.BuiltInRoles[0],
+				HTTPRequest: req,
+				ID:          authorization.BuiltInRoles[0],
 			},
 			principal:     &models.Principal{Username: "user1"},
 			expectedError: "you can not delete built-in role",
@@ -100,7 +102,8 @@ func TestDeleteRoleForbidden(t *testing.T) {
 		{
 			name: "authorization error",
 			params: authz.DeleteRoleParams{
-				ID: "roleToRemove",
+				ID:          "roleToRemove",
+				HTTPRequest: req,
 			},
 			principal:     &models.Principal{Username: "user1"},
 			authorizeErr:  errors.New("authorization error"),
@@ -115,9 +118,9 @@ func TestDeleteRoleForbidden(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			controller.On("GetRoles", mock.Anything).Return(map[string][]authorization.Policy{tt.params.ID: {}}, nil)
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
 			if tt.authorizeErr != nil {
-				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
 			}
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -148,7 +151,8 @@ func TestDeleteRoleInternalServerError(t *testing.T) {
 		{
 			name: "remove role error",
 			params: authz.DeleteRoleParams{
-				ID: "roleToRemove",
+				ID:          "roleToRemove",
+				HTTPRequest: req,
 			},
 			principal:     &models.Principal{Username: "user1"},
 			upsertErr:     errors.New("remove error"),
@@ -163,7 +167,7 @@ func TestDeleteRoleInternalServerError(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			controller.On("GetRoles", mock.Anything).Return(map[string][]authorization.Policy{tt.params.ID: {}}, nil)
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
 			controller.On("DeleteRoles", tt.params.ID).Return(tt.upsertErr)
 
 			h := &authZHandlers{

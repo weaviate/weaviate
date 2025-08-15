@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -144,21 +144,37 @@ func (c *CursorSet) firstAll() {
 }
 
 func (c *CursorSet) serveCurrentStateAndAdvance() ([]byte, [][]byte) {
-	id, err := c.cursorWithLowestKey()
-	if err != nil {
-		if errors.Is(err, lsmkv.NotFound) {
-			return nil, nil
+	for {
+		id, err := c.cursorWithLowestKey()
+		if err != nil {
+			if errors.Is(err, lsmkv.NotFound) {
+				return nil, nil
+			}
 		}
-	}
 
-	// check if this is a duplicate key before checking for the remaining errors,
-	// as cases such as 'entities.Deleted' can be better handled inside
-	// mergeDuplicatesInCurrentStateAndAdvance where we can be sure to act on
-	// segments in the correct order
-	if ids, ok := c.haveDuplicatesInState(id); ok {
-		return c.mergeDuplicatesInCurrentStateAndAdvance(ids)
-	} else {
-		return c.mergeDuplicatesInCurrentStateAndAdvance([]int{id})
+		ids, _ := c.haveDuplicatesInState(id)
+
+		// take the key from any of the results, we have the guarantee that they're
+		// all the same
+		key := c.state[ids[0]].key
+
+		var raw []value
+		for _, id := range ids {
+			raw = append(raw, c.state[id].value...)
+			c.advanceInner(id)
+		}
+
+		values := newSetDecoder().Do(raw)
+		if len(values) == 0 {
+			// all values deleted, proceed
+			continue
+		}
+
+		// TODO remove keyOnly option, not used anyway
+		if !c.keyOnly {
+			return key, values
+		}
+		return key, nil
 	}
 }
 
@@ -203,33 +219,6 @@ func (c *CursorSet) haveDuplicatesInState(idWithLowestKey int) ([]int, bool) {
 	}
 
 	return idsFound, len(idsFound) > 1
-}
-
-// if there are no duplicates present it will still work as returning the
-// latest result is the same as returning the only result
-func (c *CursorSet) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, [][]byte) {
-	// take the key from any of the results, we have the guarantee that they're
-	// all the same
-	key := c.state[ids[0]].key
-
-	var raw []value
-	for _, id := range ids {
-		raw = append(raw, c.state[id].value...)
-		c.advanceInner(id)
-	}
-
-	values := newSetDecoder().Do(raw)
-	if len(values) == 0 {
-		// all values deleted, skip key
-		return c.Next()
-	}
-
-	// TODO remove keyOnly option, not used anyway
-	if !c.keyOnly {
-		return key, values
-	} else {
-		return key, nil
-	}
 }
 
 func (c *CursorSet) advanceInner(id int) {

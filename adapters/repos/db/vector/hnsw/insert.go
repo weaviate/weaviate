@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,7 +21,9 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 )
 
@@ -35,7 +37,7 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 
 	// check if vector length is the same as existing nodes
 	if dims != len(vector) {
-		return fmt.Errorf("new node has a vector with length %v. "+
+		return errors.Wrapf(common.ErrWrongDimensions, "new node has a vector with length %v. "+
 			"Existing nodes have vectors with length %v", len(vector), dims)
 	}
 
@@ -104,13 +106,31 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		return err
 	}
 
+	if h.rqConfig.Enabled && h.rqActive {
+		h.trackRQOnce.Do(func() {
+			h.compressor, err = compressionhelpers.NewRQCompressor(
+				h.distancerProvider, 1e12, h.logger, h.store,
+				h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
+
+			if err == nil {
+				h.compressed.Store(true)
+				h.cache.Drop()
+				h.cache = nil
+				h.compressor.PersistCompression(h.commitLog)
+			}
+		})
+		if err != nil {
+			return err
+		}
+	}
+
 	levels := make([]int, len(ids))
 	maxId := uint64(0)
 	for i, id := range ids {
 		if maxId < id {
 			maxId = id
 		}
-		levels[i] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
+		levels[i] = int(h.generateLevel()) // TODO: represent level as uint8
 	}
 	h.RLock()
 	if maxId >= uint64(len(h.nodes)) {
@@ -215,12 +235,44 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	if err != nil {
 		return err
 	}
+	if h.rqConfig.Enabled && h.rqActive {
+		h.trackRQOnce.Do(func() {
+			h.compressor, err = compressionhelpers.NewRQMultiCompressor(
+				h.distancerProvider, 1e12, h.logger, h.store,
+				h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
+
+			if err == nil {
+				h.Lock()
+				data := h.cache.All()
+				h.compressor.GrowCache(h.vecIDcounter)
+				compressionhelpers.Concurrently(h.logger, uint64(len(data)),
+					func(index uint64) {
+						if len(data[index]) == 0 {
+							return
+						}
+						docID, relativeID := h.cache.GetKeys(index)
+						h.compressor.PreloadPassage(index, docID, relativeID, data[index])
+					})
+				h.compressed.Store(true)
+				h.cache.Drop()
+				h.cache = nil
+				h.compressor.PersistCompression(h.commitLog)
+				h.Unlock()
+			}
+		})
+		if err != nil {
+			return err
+		}
+	}
+	if err != nil {
+		return err
+	}
 
 	for i, docID := range docIDs {
 		numVectors := len(vectors[i])
 		levels := make([]int, numVectors)
 		for j := range numVectors {
-			levels[j] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
+			levels[j] = int(h.generateLevel()) // TODO: represent level as uint8
 		}
 
 		h.Lock()
@@ -344,18 +396,13 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.RUnlock()
 
 	targetLevel := node.level
-	node.connections = make([][]uint64, targetLevel+1)
-
-	for i := targetLevel; i >= 0; i-- {
-		capacity := h.maximumConnections
-		if i == 0 {
-			capacity = h.maximumConnectionsLayerZero
-		}
-
-		node.connections[i] = make([]uint64, 0, capacity)
+	var err error
+	node.connections, err = packedconn.NewWithMaxLayer(uint8(targetLevel))
+	if err != nil {
+		return err
 	}
 
-	if err := h.commitLog.AddNode(node); err != nil {
+	if err = h.commitLog.AddNode(node); err != nil {
 		return err
 	}
 
@@ -377,7 +424,6 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.insertMetrics.prepareAndInsertNode(before)
 	before = time.Now()
 
-	var err error
 	var distancer compressionhelpers.CompressorDistancer
 	var returnFn compressionhelpers.ReturnDistancerFn
 	if h.compressed.Load() {
@@ -444,15 +490,19 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 
 	h.entryPointID = node.id
 	h.currentMaximumLayer = 0
-	node.connections = [][]uint64{
+	conns, err := packedconn.NewWithElements([][]uint64{
 		make([]uint64, 0, h.maximumConnectionsLayerZero),
+	})
+	if err != nil {
+		return err
 	}
+	node.connections = conns
 	node.level = 0
 	if err := h.commitLog.AddNode(node); err != nil {
 		return err
 	}
 
-	err := h.growIndexToAccomodateNode(node.id, h.logger)
+	err = h.growIndexToAccomodateNode(node.id, h.logger)
 	if err != nil {
 		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
 	}
@@ -472,4 +522,8 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 
 	// go h.insertHook(node.id, 0, node.connections)
 	return nil
+}
+
+func (h *hnsw) generateLevel() uint8 {
+	return uint8(math.Floor(-math.Log(max(h.randFunc(), 1e-19)) * h.levelNormalizer))
 }

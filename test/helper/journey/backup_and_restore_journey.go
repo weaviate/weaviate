@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -156,17 +156,14 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 			resp, err := helper.Client(t).Backups.BackupsCreateStatus(params, nil)
 			require.Nil(t, err)
 			require.NotNil(t, resp)
-			t.Logf("Backup create response: %+v\n", resp)
 
 			meta := resp.GetPayload()
 			require.NotNil(t, meta)
-			t.Logf("Backup create response meta: %+v\n", meta)
 
 			if err != nil {
 				t.Logf("failed to get backup status: %+v", err)
 			}
 
-			t.Logf("backup status: %+v\n", meta)
 			switch *meta.Status {
 			case models.BackupCreateStatusResponseStatusSUCCESS:
 				return

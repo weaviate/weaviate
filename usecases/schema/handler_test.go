@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -56,6 +56,7 @@ func testAddObjectClass(t *testing.T, handler *Handler, fakeSchemaManager *fakeS
 		}},
 		Vectorizer:        "model1",
 		VectorIndexConfig: map[string]interface{}{},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
 	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -75,6 +76,7 @@ func testAddObjectClassExplicitVectorizer(t *testing.T, handler *Handler, fakeSc
 			Tokenization: models.PropertyTokenizationWhitespace,
 			Name:         "dummy",
 		}},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
 	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -92,6 +94,7 @@ func testAddObjectClassImplicitVectorizer(t *testing.T, handler *Handler, fakeSc
 			Tokenization: models.PropertyTokenizationWhitespace,
 			Name:         "dummy",
 		}},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 
 	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
@@ -111,6 +114,7 @@ func testAddObjectClassWrongVectorizer(t *testing.T, handler *Handler, fakeSchem
 			Tokenization: models.PropertyTokenizationWhitespace,
 			Name:         "dummy",
 		}},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 
 	_, _, err := handler.AddClass(context.Background(), nil, class)
@@ -128,6 +132,7 @@ func testAddObjectClassWrongIndexType(t *testing.T, handler *Handler, fakeSchema
 			Tokenization: models.PropertyTokenizationWhitespace,
 			Name:         "dummy",
 		}},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	require.NotNil(t, err)
@@ -145,6 +150,7 @@ func testRemoveObjectClass(t *testing.T, handler *Handler, fakeSchemaManager *fa
 				"vectorizeClassName": true,
 			},
 		},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
@@ -171,6 +177,7 @@ func testCantAddSameClassTwice(t *testing.T, handler *Handler, fakeSchemaManager
 				"vectorizeClassName": true,
 			},
 		},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
 	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -187,6 +194,7 @@ func testCantAddSameClassTwice(t *testing.T, handler *Handler, fakeSchemaManager
 				"vectorizeClassName": true,
 			},
 		},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.ExpectedCalls = fakeSchemaManager.ExpectedCalls[:0]
 	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -208,6 +216,7 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, handler *Handler, fak
 				"vectorizeClassName": true,
 			},
 		},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
@@ -279,8 +288,9 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 	}
 
 	class := &models.Class{
-		Class:      "Car",
-		Properties: properties,
+		Class:             "Car",
+		Properties:        properties,
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
 	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -311,6 +321,7 @@ func testAddPropertyWithTargetVectorConfig(t *testing.T, handler *Handler, fakeS
 				VectorIndexType: "flat",
 			},
 		},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
@@ -326,8 +337,9 @@ func testAddInvalidPropertyDuringCreation(t *testing.T, handler *Handler, fakeSc
 	}
 
 	_, _, err := handler.AddClass(context.Background(), nil, &models.Class{
-		Class:      "Car",
-		Properties: properties,
+		Class:             "Car",
+		Properties:        properties,
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	})
 	assert.NotNil(t, err)
 }
@@ -340,8 +352,9 @@ func testAddInvalidPropertyWithEmptyDataTypeDuringCreation(t *testing.T, handler
 	}
 
 	_, _, err := handler.AddClass(context.Background(), nil, &models.Class{
-		Class:      "Car",
-		Properties: properties,
+		Class:             "Car",
+		Properties:        properties,
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	})
 	assert.NotNil(t, err)
 }
@@ -360,8 +373,9 @@ func testDropProperty(t *testing.T, handler *Handler, fakeSchemaManager *fakeSch
 		{Name: "color", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
 	}
 	class := &models.Class{
-		Class:      "Car",
-		Properties: properties,
+		Class:             "Car",
+		Properties:        properties,
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)

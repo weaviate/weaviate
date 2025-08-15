@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,9 +21,11 @@ import (
 	"strconv"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/entities/additional"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -31,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 )
 
 // var metrics = lsmkv.BlockMetrics{}
@@ -70,6 +73,7 @@ func (b *BM25Searcher) wandBlock(
 
 	allResults := make([][][]*lsmkv.SegmentBlockMax, 0, len(params.Properties))
 	termCounts := make([][]string, 0, len(params.Properties))
+	minimumOrTokensMatchByProperty := make([]int, 0, len(params.Properties))
 
 	// These locks are the segmentCompactions locks for the searched properties
 	// The old search process locked the compactions and read the full postings list into memory.
@@ -84,7 +88,7 @@ func (b *BM25Searcher) wandBlock(
 		}
 	}()
 
-	for _, tokenization := range helpers.Tokenizations {
+	for _, tokenization := range tokenizer.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
 			lenAllResults := len(allResults)
@@ -107,6 +111,13 @@ func (b *BM25Searcher) wandBlock(
 
 				allResults = append(allResults, results)
 				termCounts = append(termCounts, queryTerms)
+
+				minimumOrTokensMatch := params.MinimumOrTokensMatch
+				if params.SearchOperator == common_filters.SearchOperatorAnd {
+					minimumOrTokensMatch = len(queryTerms)
+				}
+
+				minimumOrTokensMatchByProperty = append(minimumOrTokensMatchByProperty, minimumOrTokensMatch)
 				for _, term := range queryTerms {
 					globalIdfCounts[term] += idfCounts[term]
 					if idfCounts[term] > 0 {
@@ -194,8 +205,19 @@ func (b *BM25Searcher) wandBlock(
 			if len(allResults[i][j]) == 0 {
 				continue
 			}
+
+			// return early if there aren't enough terms to match
+			if len(allResults[i][j]) < minimumOrTokensMatchByProperty[i] {
+				continue
+			}
+
 			eg.Go(func() (err error) {
-				topKHeap := lsmkv.DoBlockMaxWand(internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]))
+				var topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore]
+				if params.SearchOperator == common_filters.SearchOperatorAnd {
+					topKHeap = lsmkv.DoBlockMaxAnd(ctx, internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
+				} else {
+					topKHeap = lsmkv.DoBlockMaxWand(ctx, internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
+				}
 				ids, scores, explanations, err := b.getTopKIds(topKHeap)
 				if err != nil {
 					return err

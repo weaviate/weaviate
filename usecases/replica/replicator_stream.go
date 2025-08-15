@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,7 +46,7 @@ func (r replicatorStream) readErrors(batchSize int,
 		}
 	}
 	if level > 0 && firstError == nil {
-		firstError = fmt.Errorf("broadcast: %w", errReplicas)
+		firstError = fmt.Errorf("broadcast: %w", ErrReplicas)
 	}
 	return r.flattenErrors(batchSize, urs, firstError)
 }
@@ -75,7 +75,7 @@ func (r replicatorStream) readDeletions(batchSize int,
 		}
 	}
 	if level > 0 && firstError == nil {
-		firstError = fmt.Errorf("broadcast: %w", errReplicas)
+		firstError = fmt.Errorf("broadcast: %w", ErrReplicas)
 	}
 	urs = append(urs, rs...)
 	return r.flattenDeletions(batchSize, urs, firstError)

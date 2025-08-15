@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -55,8 +55,12 @@ func (b *Bucket) ListFiles(ctx context.Context, basePath string) ([]string, erro
 			continue
 		}
 
-		// ignore .wal files because they are not immutable
-		if filepath.Ext(entry.Name()) == ".wal" {
+		ext := filepath.Ext(entry.Name())
+
+		// ignore .wal files because they are not immutable,
+		// ignore .tmp files because they are temporary files created during compaction or flushing
+		// and are not part of the stable state of the bucket
+		if ext == ".wal" || ext == ".tmp" {
 			continue
 		}
 

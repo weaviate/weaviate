@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -44,6 +44,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
+// TODO amourao: add operator and minimum should match to the tests
 var (
 	classname                = "TestClass"
 	refClass1                = "OtherClass"
@@ -2336,7 +2337,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 		},
 	}
 
-	parser := NewParser(false, getClass)
+	parser := NewParser(false, getClass, getAlias)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
@@ -2361,6 +2362,10 @@ func getClass(name string) (*models.Class, error) {
 		return nil, fmt.Errorf("class %s not found", name)
 	}
 	return class, nil
+}
+
+func getAlias(name string) string {
+	return ""
 }
 
 func sortNamedVecs(vecs []string) {

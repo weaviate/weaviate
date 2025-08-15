@@ -289,7 +289,8 @@ jobs:
           "--only-module-text2vec-aws",
           "--only-module-text2vec-jinaai",
           "--only-module-multi2vec-jinaai",
-          "--only-module-text2colbert-jinaai",
+          "--only-module-text2multivec-jinaai",
+          "--only-module-multi2multivec-jinaai",
         ]
     steps:
       - uses: actions/checkout@v4
@@ -362,7 +363,8 @@ jobs:
           "--acceptance-only-authz",
           "--acceptance-only-replication",
           "--acceptance-only-async-replication",
-          "--acceptance-only-replica-replication",
+          "--acceptance-only-replica-replication-fast",
+          "--acceptance-only-replica-replication-slow",
           "--acceptance-go-client-only-fast",
           "--acceptance-only-python",
         ]
@@ -429,16 +431,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download coverage artifacts integration
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: coverage-report-unit
       - name: Download coverage integration without vector package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: coverage-report-integration--integration-without-vector-package
           path: coverage-integration-without-vector-package.txt
       - name: Download coverage integration vector package only
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: coverage-report-integration--integration-vector-package-only
           path: coverage-integration-vector-package-only.txt
@@ -507,7 +509,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binaries-windows-amd64
       - name: Set up Go

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -81,7 +81,7 @@ func validateMapPairListVsBlockMaxSearch(ctx context.Context, bucket *Bucket, ex
 
 		expectedSet := make(map[uint64][]*terms.DocPointerWithScore, len(expected))
 		for _, diskTerm := range diskTerms {
-			topKHeap := DoBlockMaxWand(N, diskTerm, avgPropLen, true, 1)
+			topKHeap := DoBlockMaxWand(ctx, N, diskTerm, avgPropLen, true, 1, 1, bucket.logger)
 			if err != nil {
 				return fmt.Errorf("failed to create disk term: %w", err)
 			}
@@ -265,7 +265,7 @@ func validateMapPairListVsWandSearch(ctx context.Context, bucket *Bucket, expect
 			Count: 1,
 		}
 
-		topKHeap := DoWand(N, terms, avgPropLen, true)
+		topKHeap := DoWand(N, terms, avgPropLen, true, 1)
 
 		for topKHeap.Len() > 0 {
 			item := topKHeap.Pop()

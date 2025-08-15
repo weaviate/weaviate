@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -86,7 +86,8 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.OrConc(docIDs, concurrency.SROAR_MERGE)
+			concurrencyBudget := concurrency.BudgetFromCtx(ctx, concurrency.SROAR_MERGE)
+			out.docIDs.OrConc(docIDs, concurrencyBudget)
 			release()
 		}
 
@@ -144,7 +145,8 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.OrConc(ids, concurrency.SROAR_MERGE)
+			concurrencyBudget := concurrency.BudgetFromCtx(ctx, concurrency.SROAR_MERGE)
+			out.docIDs.OrConc(ids, concurrencyBudget)
 			release()
 		}
 
@@ -181,7 +183,8 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.OrConc(ids, concurrency.SROAR_MERGE)
+			concurrencyBudget := concurrency.BudgetFromCtx(ctx, concurrency.SROAR_MERGE)
+			out.docIDs.OrConc(ids, concurrencyBudget)
 			release()
 		}
 

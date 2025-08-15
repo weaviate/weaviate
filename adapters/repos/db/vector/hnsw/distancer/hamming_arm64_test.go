@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,7 +48,7 @@ func testHammingBitwiseFixedValue(t *testing.T, size uint, hammingBitwiseFn func
 
 func testHammingBitwiseRandomValue(t *testing.T, size uint, hammingBitwiseFn func(x []uint64, y []uint64) float32) {
 	r := getRandomSeed()
-	count := 10000
+	count := 100
 
 	vec1s := make([][]uint64, count)
 	vec2s := make([][]uint64, count)

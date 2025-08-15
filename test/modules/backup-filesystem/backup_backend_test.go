@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,9 +19,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
@@ -60,7 +62,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath, over
 	t.Run("store backup meta in fs"+overrideDescription, func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		sp := fakeStorageProvider{dataDir}
-		params := moduletools.NewInitParams(sp, nil, config.Config{}, logger)
+		params := moduletools.NewInitParams(sp, nil, &config.Config{}, logger, prometheus.NewPedanticRegistry())
 
 		fs := modstgfs.New()
 		err := fs.Init(testCtx, params)
@@ -124,7 +126,7 @@ func moduleLevelCopyObjects(t *testing.T, overrideBucket, overridePath, override
 	t.Run("copy objects"+overrideDescription, func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		sp := fakeStorageProvider{dataDir}
-		params := moduletools.NewInitParams(sp, nil, config.Config{}, logger)
+		params := moduletools.NewInitParams(sp, nil, &config.Config{}, logger, prometheus.NewPedanticRegistry())
 
 		fs := modstgfs.New()
 		err := fs.Init(testCtx, params)
@@ -163,7 +165,7 @@ func moduleLevelCopyFiles(t *testing.T, overrideBucket, overridePath, overrideDe
 
 		logger, _ := test.NewNullLogger()
 		sp := fakeStorageProvider{dataDir}
-		params := moduletools.NewInitParams(sp, nil, config.Config{}, logger)
+		params := moduletools.NewInitParams(sp, nil, &config.Config{}, logger, prometheus.NewPedanticRegistry())
 
 		fs := modstgfs.New()
 		err = fs.Init(testCtx, params)

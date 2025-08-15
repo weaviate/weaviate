@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package vectorizer
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -24,7 +25,10 @@ const (
 	apiEndpointProperty = "apiEndpoint"
 	projectIDProperty   = "projectId"
 	modelIDProperty     = "modelId"
+	modelProperty       = "model"
 	titleProperty       = "titleProperty"
+	dimensionsProperty  = "dimensions"
+	taskTypeProperty    = "taskType"
 )
 
 const (
@@ -35,6 +39,7 @@ const (
 	DefaultModelID               = "textembedding-gecko@001"
 	DefaultAIStudioEndpoint      = "generativelanguage.googleapis.com"
 	DefaulAIStudioModelID        = "embedding-001"
+	DefaultTaskType              = "RETRIEVAL_QUERY"
 )
 
 var availableGoogleModels = []string{
@@ -47,11 +52,27 @@ var availableGoogleModels = []string{
 	"textembedding-gecko@001",
 	"text-embedding-preview-0409",
 	"text-multilingual-embedding-preview-0409",
+	"gemini-embedding-001",
+	"text-embedding-005",
+	"text-multilingual-embedding-002",
 }
 
 var availableGenerativeAIModels = []string{
 	DefaulAIStudioModelID,
 	"text-embedding-004",
+	"gemini-embedding-001",
+	"text-embedding-005",
+	"text-multilingual-embedding-002",
+}
+
+var availableTaskTypes = []string{
+	DefaultTaskType,
+	"QUESTION_ANSWERING",
+	"FACT_VERIFICATION",
+	"CODE_RETRIEVAL_QUERY",
+	"CLASSIFICATION",
+	"CLUSTERING",
+	"SEMANTIC_SIMILARITY",
 }
 
 type classSettings struct {
@@ -73,7 +94,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 
 	apiEndpoint := ic.ApiEndpoint()
-	model := ic.ModelID()
+	model := ic.Model()
 	if apiEndpoint == DefaultAIStudioEndpoint {
 		if model != "" && !ic.validateGoogleSetting(model, availableGenerativeAIModels) {
 			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available AI Studio model names are: %v", modelIDProperty, availableGenerativeAIModels))
@@ -88,6 +109,10 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		}
 	}
 
+	if !slices.Contains(availableTaskTypes, ic.TaskType()) {
+		errorMessages = append(errorMessages, fmt.Sprintf("wrong taskType supported task types are: %v", availableTaskTypes))
+	}
+
 	if len(errorMessages) > 0 {
 		return fmt.Errorf("%s", strings.Join(errorMessages, ", "))
 	}
@@ -96,12 +121,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 }
 
 func (ic *classSettings) validateGoogleSetting(value string, availableValues []string) bool {
-	for i := range availableValues {
-		if value == availableValues[i] {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(availableValues, value)
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) string {
@@ -124,10 +144,21 @@ func (ic *classSettings) ProjectID() string {
 	return ic.getStringProperty(projectIDProperty, "")
 }
 
-func (ic *classSettings) ModelID() string {
+func (ic *classSettings) Model() string {
+	if model := ic.getStringProperty(modelProperty, ""); model != "" {
+		return model
+	}
 	return ic.getStringProperty(modelIDProperty, ic.getDefaultModel(ic.ApiEndpoint()))
 }
 
 func (ic *classSettings) TitleProperty() string {
 	return ic.getStringProperty(titleProperty, "")
+}
+
+func (ic *classSettings) Dimensions() *int64 {
+	return ic.GetPropertyAsInt64(dimensionsProperty, nil)
+}
+
+func (ic *classSettings) TaskType() string {
+	return ic.getStringProperty(taskTypeProperty, DefaultTaskType)
 }

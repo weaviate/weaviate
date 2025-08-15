@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,10 +45,9 @@ func testText2VecModel2Vec(host string) func(t *testing.T) {
 				// Define class
 				class.VectorConfig = map[string]models.VectorConfig{
 					"description": {
-						Vectorizer: map[string]interface{}{
-							"text2vec-model2vec": map[string]interface{}{
-								"properties":         []interface{}{"description"},
-								"vectorizeClassName": false,
+						Vectorizer: map[string]any{
+							"text2vec-model2vec": map[string]any{
+								"properties": []any{"description"},
 							},
 						},
 						VectorIndexType: "flat",

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,6 +45,16 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		payload, err = st.schemaManager.QueryTenants(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get tenants: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_RESOLVE_ALIAS:
+		payload, err = st.schemaManager.ResolveAlias(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not resolve alias: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_GET_ALIASES:
+		payload, err = st.schemaManager.GetAliases(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get aliases: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_SHARD_OWNER:
 		payload, err = st.schemaManager.QueryShardOwner(req)
@@ -135,6 +145,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		payload, err = st.distributedTasksManager.ListDistributedTasksPayload(context.Background())
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get distributed task list: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_GET_REPLICATION_OPERATION_STATE:
+		payload, err = st.replicationManager.GetReplicationOperationState(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get replication operation state: %w", err)
 		}
 	default:
 		// This could occur when a new command has been introduced in a later app version

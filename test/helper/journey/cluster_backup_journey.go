@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -67,6 +67,10 @@ func clusterBackupJourneyTest(t *testing.T, backend, className,
 
 	t.Run(fmt.Sprintf("cancelling with coordinator endpoint: %s", coordinatorEndpoint), func(t *testing.T) {
 		backupJourneyWithCancellation(t, className, backend, fmt.Sprintf("%s_with_cancellation", backupID), clusterJourney, overrideBucket, overrideLocation)
+	})
+
+	t.Run(fmt.Sprintf("listing backups with coordinator endpoint: %s", coordinatorEndpoint), func(t *testing.T) {
+		backupJourneyWithListing(t, clusterJourney, className, backend, backupID, overrideBucket, overrideLocation)
 	})
 
 	t.Run("cleanup", func(t *testing.T) {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -52,6 +52,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	// DeleteClass
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	m.indexer.On("DeleteClass", Anything).Return(nil)
+	m.replicationFSM.On("DeleteReplicationsByCollection", Anything).Return(nil)
 	_, err := srv.DeleteClass(ctx, "C")
 	assert.Nil(t, err)
 
@@ -75,6 +76,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	assert.Nil(t, srv.store.raft.Snapshot().Error())
 
 	m.indexer.On("DeleteTenants", Anything, Anything).Return(nil)
+	m.replicationFSM.On("DeleteReplicationsByTenants", Anything, Anything).Return(nil)
 	// Now let's drop the tenant T0 (this will be a log entry and not included in the snapshot)
 	_, err = srv.DeleteTenants(ctx, cls.Class, &api.DeleteTenantsRequest{Tenants: []string{"T0"}})
 	require.NoError(t, err)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
@@ -35,6 +36,12 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 		CoordinatesForID:   s.makeCoordinatesForID(prop.Name),
 		DisablePersistence: false,
 		Logger:             s.index.logger,
+
+		SnapshotDisabled:                         s.index.Config.HNSWDisableSnapshots,
+		SnapshotOnStartup:                        s.index.Config.HNSWSnapshotOnStartup,
+		SnapshotCreateInterval:                   time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds) * time.Second,
+		SnapshotMinDeltaCommitlogsNumer:          s.index.Config.HNSWSnapshotMinDeltaCommitlogsNumber,
+		SnapshotMinDeltaCommitlogsSizePercentage: s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
 	},
 		s.cycleCallbacks.geoPropsCommitLoggerCallbacks,
 		s.cycleCallbacks.geoPropsTombstoneCleanupCallbacks,

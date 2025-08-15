@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -51,7 +51,9 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(1024*1024*1024),
-		WithWalThreshold(walThreshold))
+		WithWalThreshold(walThreshold),
+		WithMinWalThreshold(0), // small enough to not affect this test
+	)
 	require.Nil(t, err)
 
 	// generate only a small amount of sequential values. this allows
@@ -152,7 +154,9 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
 		WithStrategy(StrategyReplace),
-		WithMemtableThreshold(memtableThreshold))
+		WithMemtableThreshold(memtableThreshold),
+		WithMinWalThreshold(0),
+	)
 	require.Nil(t, err)
 
 	t.Run("generate random data", func(t *testing.T) {
@@ -247,6 +251,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
 			WithWalThreshold(1e12),      // large enough to not affect this test
+			WithMinWalThreshold(0),      // small enough to not affect this test
 			WithDirtyThreshold(10*time.Millisecond),
 		)
 		require.Nil(t, err)
@@ -291,6 +296,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
 			WithWalThreshold(1e12),      // large enough to not affect this test
+			WithMinWalThreshold(0),      // small enough to not affect this test
 			WithDirtyThreshold(50*time.Millisecond),
 		)
 		require.Nil(t, err)
@@ -339,6 +345,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
 			WithWalThreshold(1e12),      // large enough to not affect this test
+			WithMinWalThreshold(0),      // small enough to not affect this test
 			WithDirtyThreshold(50*time.Millisecond),
 		)
 		require.Nil(t, err)

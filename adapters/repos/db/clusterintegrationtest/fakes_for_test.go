@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,10 +24,14 @@ import (
 	"os"
 	"path"
 	"sync"
+	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/types"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -38,7 +42,7 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -54,37 +58,81 @@ type node struct {
 	hostname      string
 }
 
-func (n *node) init(dirName string, shardStateRaw []byte,
-	allNodes *[]*node,
+func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingState *sharding.State,
 ) {
+	var err error
 	localDir := path.Join(dirName, n.name)
 	logger, _ := test.NewNullLogger()
-
-	var names []string
-	for _, node := range *allNodes {
-		names = append(names, node.name)
-	}
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return(n.name).Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).RunAndReturn(func(nodeName string) (string, bool) {
+		for _, node := range *allNodes {
+			if node.name == nodeName {
+				if node.hostname == "" {
+					return "", false
+				}
+				return node.hostname, true
+			}
+		}
+		return "", false
+	}).Maybe()
 	nodeResolver := &nodeResolver{
-		NodeSelector: mocks.NewMockNodeSelector(names...),
+		NodeSelector: mockNodeSelector,
 		nodes:        allNodes,
 		local:        n.name,
 	}
 
 	os.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1s")
+	shardStateRaw, err := json.Marshal(shardingState)
+	if err != nil {
+		panic(fmt.Sprintf("Error marshalling sharding state: %v", err))
+	}
 	shardState, err := sharding.StateFromJSON(shardStateRaw, nodeResolver)
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("Error unmarshalling sharding state: %v", err))
 	}
 
 	client := clients.NewRemoteIndex(&http.Client{})
 	nodesClient := clients.NewRemoteNode(&http.Client{})
 	replicaClient := clients.NewReplicationClient(&http.Client{})
-	n.repo, err = db.New(logger, db.Config{
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().
+		ShardReplicas(mock.Anything, mock.Anything).
+		RunAndReturn(func(class string, shard string) ([]string, error) {
+			phys, ok := shardState.Physical[shard]
+			if !ok {
+				return nil, fmt.Errorf("shard %q not found for class %q", shard, class)
+			}
+			return phys.BelongsToNodes, nil
+		}).Maybe()
+	mockSchemaReader.EXPECT().ShardOwner(mock.Anything, mock.Anything).RunAndReturn(func(class string, shard string) (string, error) {
+		x, ok := shardState.Physical[shard]
+		if !ok {
+			return "", fmt.Errorf("shard %q not found for class %q", shard, class)
+		}
+		if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
+			return "", fmt.Errorf("owner node not found for shard %q and class %q", shard, class)
+		}
+		return shardState.Physical[shard].BelongsToNodes[0], nil
+	}).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(class string, shard string, replicas []string) []string {
+			return replicas
+		}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(class string, shard string, replicas []string) ([]string, []string) {
+			return replicas, []string{}
+		}).Maybe()
+
+	n.repo, err = db.New(logger, n.name, db.Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  localDir,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, client, nodeResolver, nodesClient, replicaClient, nil, memwatch.NewDummyMonitor())
+	}, client, nodeResolver, nodesClient, replicaClient, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	if err != nil {
 		panic(err)
 	}
@@ -102,15 +150,16 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 
 	backendProvider := newFakeBackupBackendProvider(localDir)
 	n.backupManager = ubak.NewHandler(
-		logger, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider)
+		logger, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeRbacBackupWrapper{},
+	)
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
 		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, n.schemaManager, logger)
 
-	n.migrator = db.NewMigrator(n.repo, logger)
+	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 
-	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider(logger)),
+	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider(logger, config.Config{})),
 		n.repo, clusterapi.NewNoopAuthHandler(), func() bool { return false }, logger)
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
@@ -127,6 +176,24 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 		panic(err)
 	}
 	n.hostname = u.Host
+}
+
+type fakeRbacBackupWrapper struct{}
+
+func (r fakeRbacBackupWrapper) GetBackupItems(context.Context) (map[string][]byte, error) {
+	return nil, nil
+}
+
+func (r fakeRbacBackupWrapper) WriteBackupItems(context.Context, map[string][]byte) error {
+	return nil
+}
+
+func (r fakeRbacBackupWrapper) Snapshot() ([]byte, error) {
+	return nil, nil
+}
+
+func (r fakeRbacBackupWrapper) Restore([]byte) error {
+	return nil
 }
 
 type fakeSchemaManager struct {
@@ -146,6 +213,10 @@ func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {
 func (f *fakeSchemaManager) ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64,
 ) (*models.Class, error) {
 	return f.schema.GetClass(class), nil
+}
+
+func (f *fakeSchemaManager) ResolveAlias(string) string {
+	return ""
 }
 
 func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
@@ -450,14 +521,14 @@ func (f *fakeBackupBackend) reset() {
 
 type fakeAuthorizer struct{}
 
-func (f *fakeAuthorizer) Authorize(_ *models.Principal, _ string, _ ...string) error {
+func (f *fakeAuthorizer) Authorize(ctx context.Context, _ *models.Principal, _ string, _ ...string) error {
 	return nil
 }
 
-func (f *fakeAuthorizer) AuthorizeSilent(_ *models.Principal, _ string, _ ...string) error {
+func (f *fakeAuthorizer) AuthorizeSilent(ctx context.Context, _ *models.Principal, _ string, _ ...string) error {
 	return nil
 }
 
-func (f *fakeAuthorizer) FilterAuthorizedResources(_ *models.Principal, _ string, resources ...string) ([]string, error) {
+func (f *fakeAuthorizer) FilterAuthorizedResources(ctx context.Context, _ *models.Principal, _ string, resources ...string) ([]string, error) {
 	return resources, nil
 }

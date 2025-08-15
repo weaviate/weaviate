@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,12 +12,11 @@
 package rbac
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -29,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	authzErrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestAuthorize(t *testing.T) {
@@ -38,7 +38,7 @@ func TestAuthorize(t *testing.T) {
 		verb          string
 		resources     []string
 		skipAudit     bool
-		setupPolicies func(*manager) error
+		setupPolicies func(*Manager) error
 		wantErr       bool
 		errContains   string
 	}{
@@ -69,7 +69,7 @@ func TestAuthorize(t *testing.T) {
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.SchemaDomain, authorization.READ)
 				if err != nil {
 					return err
@@ -105,7 +105,7 @@ func TestAuthorize(t *testing.T) {
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("partial"), authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain)
 				if err != nil {
 					return err
@@ -131,7 +131,7 @@ func TestAuthorize(t *testing.T) {
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1"),
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("group-role"), authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain)
 				if err != nil {
 					return err
@@ -157,7 +157,7 @@ func TestAuthorize(t *testing.T) {
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1"),
 			skipAudit: true,
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("audit-role"), authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain)
 				if err != nil {
 					return err
@@ -189,7 +189,7 @@ func TestAuthorize(t *testing.T) {
 			}
 
 			// Execute
-			err = m.authorize(tt.principal, tt.verb, tt.skipAudit, tt.resources...)
+			err = m.authorize(context.Background(), tt.principal, tt.verb, tt.skipAudit, tt.resources...)
 
 			// Assert error conditions
 			if tt.wantErr {
@@ -234,7 +234,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 		principal     *models.Principal
 		verb          string
 		resources     []string
-		setupPolicies func(*manager) error
+		setupPolicies func(*Manager) error
 		wantResources []string
 		wantErr       bool
 		errType       error
@@ -255,7 +255,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"),
 					"*", authorization.READ, authorization.SchemaDomain)
 				if err != nil {
@@ -281,7 +281,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("limited"),
 					authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain)
 				if err != nil {
@@ -316,7 +316,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("collections-admin"),
 					authorization.CollectionsMetadata()[0], authorization.READ, authorization.SchemaDomain)
 				if err != nil {
@@ -353,7 +353,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2", "Test3"),
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				if _, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("role1"), authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain); err != nil {
 					return err
 				}
@@ -390,7 +390,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			}
 
 			// Execute
-			got, err := m.FilterAuthorizedResources(tt.principal, tt.verb, tt.resources...)
+			got, err := m.FilterAuthorizedResources(context.Background(), tt.principal, tt.verb, tt.resources...)
 
 			// Assert
 			if tt.wantErr {
@@ -427,7 +427,7 @@ func TestFilterAuthorizedResourcesLogging(t *testing.T) {
 	require.NoError(t, err)
 
 	// Call the function
-	allowedResources, err := m.FilterAuthorizedResources(principal, authorization.READ, testResources...)
+	allowedResources, err := m.FilterAuthorizedResources(context.Background(), principal, authorization.READ, testResources...)
 	require.NoError(t, err)
 
 	// Verify logging
@@ -447,14 +447,14 @@ func TestFilterAuthorizedResourcesLogging(t *testing.T) {
 	firstPerm := permissions[0]
 	assert.Contains(t, firstPerm, "resource", "First permission entry should contain resource field")
 	assert.Contains(t, firstPerm, "results", "First permission entry should contain results field")
-	assert.Equal(t, "Collection: Test1", firstPerm["resource"])
+	assert.Equal(t, "[Domain: collections, Collection: Test1]", firstPerm["resource"])
 	assert.Equal(t, "success", firstPerm["results"])
 
 	// Check the second permission entry
 	secondPerm := permissions[1]
 	assert.Contains(t, secondPerm, "resource", "Second permission entry should contain resource field")
 	assert.Contains(t, secondPerm, "results", "Second permission entry should contain results field")
-	assert.Equal(t, "Collection: Test2", secondPerm["resource"])
+	assert.Equal(t, "[Domain: collections, Collection: Test2]", secondPerm["resource"])
 	assert.Equal(t, "success", secondPerm["results"])
 
 	// Check other required fields
@@ -469,7 +469,151 @@ func TestFilterAuthorizedResourcesLogging(t *testing.T) {
 		"Allowed resources should match input resources")
 }
 
-func setupTestManager(t *testing.T, logger *logrus.Logger) (*manager, error) {
+func TestAuthorizeResourceAggregation(t *testing.T) {
+	// Setup proper logger with hook for testing
+	logger := logrus.New()
+	logger.SetLevel(logrus.InfoLevel)
+
+	// Create a hook to capture log entries
+	hook := &test.Hook{}
+	logger.AddHook(hook)
+
+	m, err := setupTestManager(t, logger)
+	require.NoError(t, err)
+
+	// Setup admin policy
+	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.DataDomain)
+	require.NoError(t, err)
+	ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("admin-user", models.UserTypeInputDb),
+		conv.PrefixRoleName("admin"))
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	principal := &models.Principal{
+		Username: "admin-user",
+		Groups:   []string{"admin-group"},
+		UserType: models.UserTypeInputDb,
+	}
+
+	// Test with 1000 duplicate resources (simulating the original issue)
+	resources := make([]string, 1000)
+	for i := 0; i < 1000; i++ {
+		resources[i] = "data/collections/ContactRecommendations/shards/*/objects/*"
+	}
+
+	// Execute authorization
+	err = m.authorize(context.Background(), principal, authorization.READ, false, resources...)
+	require.NoError(t, err)
+
+	// Verify logging behavior
+	require.NotEmpty(t, hook.AllEntries())
+	lastEntry := hook.LastEntry()
+	require.NotNil(t, lastEntry)
+
+	// Verify log fields
+	assert.Equal(t, "authorize", lastEntry.Data["action"])
+	assert.Equal(t, "admin-user", lastEntry.Data["user"])
+	assert.Equal(t, authorization.ComponentName, lastEntry.Data["component"])
+	assert.Equal(t, authorization.READ, lastEntry.Data["request_action"])
+
+	// Verify permissions field exists
+	permissions, ok := lastEntry.Data["permissions"].([]logrus.Fields)
+	require.True(t, ok, "permissions field should be present")
+
+	// Verify aggregation - should only have 1 entry instead of 1000
+	assert.Len(t, permissions, 1, "should aggregate 1000 duplicate resources into 1 entry")
+
+	// Verify the single entry has the correct resource and count
+	require.Len(t, permissions, 1)
+	perm := permissions[0]
+
+	resource, ok := perm["resource"].(string)
+	require.True(t, ok, "resource should be a string")
+	assert.Equal(t, "[Domain: data, Collection: ContactRecommendations, Tenant: *, Object: *]", resource)
+
+	// Verify aggregation by checking that we have fewer log entries than resources
+	// This proves that 1000 identical resources were aggregated into 1 log entry
+	assert.Len(t, permissions, 1, "should aggregate 1000 duplicate resources into 1 log entry")
+
+	results, ok := perm["results"].(string)
+	require.True(t, ok, "results should be a string")
+	assert.Equal(t, "success", results)
+}
+
+func TestFilterAuthorizedResourcesAggregation(t *testing.T) {
+	// Setup proper logger with hook for testing
+	logger := logrus.New()
+	logger.SetLevel(logrus.InfoLevel)
+
+	// Create a hook to capture log entries
+	hook := &test.Hook{}
+	logger.AddHook(hook)
+
+	m, err := setupTestManager(t, logger)
+	require.NoError(t, err)
+
+	// Setup admin policy
+	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.DataDomain)
+	require.NoError(t, err)
+	ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("admin-user", models.UserTypeInputDb),
+		conv.PrefixRoleName("admin"))
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	principal := &models.Principal{
+		Username: "admin-user",
+		Groups:   []string{"admin-group"},
+		UserType: models.UserTypeInputDb,
+	}
+
+	// Test with 1000 duplicate resources (simulating the original issue)
+	resources := make([]string, 1000)
+	for i := 0; i < 1000; i++ {
+		resources[i] = "data/collections/ContactRecommendations/shards/*/objects/*"
+	}
+
+	// Execute FilterAuthorizedResources
+	allowedResources, err := m.FilterAuthorizedResources(context.Background(), principal, authorization.READ, resources...)
+	require.NoError(t, err)
+
+	// Verify logging behavior
+	require.NotEmpty(t, hook.AllEntries())
+	lastEntry := hook.LastEntry()
+	require.NotNil(t, lastEntry)
+
+	// Verify log fields
+	assert.Equal(t, "authorize", lastEntry.Data["action"])
+	assert.Equal(t, "admin-user", lastEntry.Data["user"])
+	assert.Equal(t, authorization.ComponentName, lastEntry.Data["component"])
+	assert.Equal(t, authorization.READ, lastEntry.Data["request_action"])
+
+	// Verify permissions field exists
+	permissions, ok := lastEntry.Data["permissions"].([]logrus.Fields)
+	require.True(t, ok, "permissions field should be present")
+
+	// Verify aggregation - should only have 1 entry instead of 1000
+	assert.Len(t, permissions, 1, "should aggregate 1000 duplicate resources into 1 entry")
+
+	// Verify the single entry has the correct resource and count
+	require.Len(t, permissions, 1)
+	perm := permissions[0]
+
+	resource, ok := perm["resource"].(string)
+	require.True(t, ok, "resource should be a string")
+	assert.Equal(t, "[Domain: data, Collection: ContactRecommendations, Tenant: *, Object: *]", resource)
+
+	results, ok := perm["results"].(string)
+	require.True(t, ok, "results should be a string")
+	assert.Equal(t, "success", results)
+
+	// Verify that all 1000 resources are returned in allowedResources
+	assert.Len(t, allowedResources, 1, "should return 1 unique resource (duplicates are aggregated)")
+
+	// Verify the returned resource is correct
+	assert.Equal(t, "data/collections/ContactRecommendations/shards/*/objects/*", allowedResources[0], "returned resource should be the same as input")
+}
+
+func setupTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {
 	tmpDir, err := os.MkdirTemp("", "rbac-test-*")
 	if err != nil {
 		return nil, err

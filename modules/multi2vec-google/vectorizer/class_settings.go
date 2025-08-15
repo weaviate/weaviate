@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package vectorizer
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -35,7 +36,6 @@ const (
 	DefaultVectorizePropertyName = false
 	DefaultApiEndpoint           = "us-central1-aiplatform.googleapis.com"
 	DefaultModelID               = "multimodalembedding@001"
-	DefaultDime
 )
 
 var (
@@ -195,12 +195,12 @@ func (ic *classSettings) Validate() error {
 	}
 
 	dimensions := ic.Dimensions()
-	if !validateSetting[int64](dimensions, availableDimensions) {
+	if !validateSetting(dimensions, availableDimensions) {
 		return errors.Errorf("wrong dimensions setting for %s model, available dimensions are: %v", model, availableDimensions)
 	}
 
 	videoIntervalSeconds := ic.VideoIntervalSeconds()
-	if !validateSetting[int64](videoIntervalSeconds, availableVideoIntervalSeconds) {
+	if !validateSetting(videoIntervalSeconds, availableVideoIntervalSeconds) {
 		return errors.Errorf("wrong videoIntervalSeconds setting for %s model, available videoIntervalSeconds are: %v", model, availableVideoIntervalSeconds)
 	}
 
@@ -336,10 +336,5 @@ func (ic *classSettings) getNumber(in interface{}) (float32, error) {
 }
 
 func validateSetting[T string | int64](value T, availableValues []T) bool {
-	for i := range availableValues {
-		if value == availableValues[i] {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(availableValues, value)
 }

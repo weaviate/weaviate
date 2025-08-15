@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,7 +17,9 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/pkg/errors"
@@ -38,14 +40,25 @@ import (
 )
 
 func (db *DB) Aggregate(ctx context.Context,
-	params aggregation.Params, modules *modules.Provider,
+	params aggregation.Params,
+	modules *modules.Provider,
 ) (*aggregation.Result, error) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		db.logger.WithFields(logrus.Fields{
+			"action": "aggregate_query_completed",
+			"took":   took,
+			"params": params,
+		}).Debugf("aggregate query completed in %s", took)
+	}()
+
 	idx := db.GetIndex(params.ClassName)
 	if idx == nil {
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
 
-	return idx.aggregate(ctx, params, modules)
+	return idx.aggregate(ctx, nil, params, modules, params.Tenant)
 }
 
 func (db *DB) GetQueryMaximumResults() int {
@@ -58,6 +71,16 @@ func (db *DB) GetQueryMaximumResults() int {
 // Class ClassSearch method fit this need. Later on, other use cases presented the need
 // for the raw storage objects, such as hybrid search.
 func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		db.logger.WithFields(logrus.Fields{
+			"action": "sparse_object_search_completed",
+			"took":   took,
+			"params": params,
+		}).Debugf("sparse object search query completed in %s", took)
+	}()
+
 	idx := db.GetIndex(schema.ClassName(params.ClassName))
 	if idx == nil {
 		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
@@ -90,6 +113,16 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 }
 
 func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		db.logger.WithFields(logrus.Fields{
+			"action": "search_completed",
+			"took":   took,
+			"params": params,
+		}).Debugf("search query completed in %s", took)
+	}()
+
 	if params.Pagination == nil {
 		return nil, fmt.Errorf("invalid params, pagination object is nil")
 	}
@@ -108,6 +141,16 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 func (db *DB) VectorSearch(ctx context.Context,
 	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		db.logger.WithFields(logrus.Fields{
+			"action":        "vector_search_completed",
+			"took":          took,
+			"params":        params,
+			"targetVectors": targetVectors,
+		}).Debugf("vector search query completed in %s", took)
+	}()
 	if len(searchVectors) == 0 || len(searchVectors) == 1 && isEmptyVector(searchVectors[0]) {
 		results, err := db.Search(ctx, params)
 		return results, err
@@ -161,6 +204,15 @@ func extractDistanceFromParams(params dto.GetParams) float32 {
 func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, targetVector string, offset, limit int,
 	filters *filters.LocalFilter,
 ) ([]search.Result, error) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		db.logger.WithFields(logrus.Fields{
+			"action":       "cross_class_vector_search_completed",
+			"took":         took,
+			"targetVector": targetVector,
+		}).Debugf("cross class vector search query completed in %s", took)
+	}()
 	var found search.Results
 
 	wg := &sync.WaitGroup{}
@@ -217,6 +269,15 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 
 // Query a specific class
 func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, *objects.Error) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		db.logger.WithFields(logrus.Fields{
+			"action": "query_completed",
+			"took":   took,
+			"params": q,
+		}).Debugf("query completed in %s", took)
+	}()
 	totalLimit := q.Offset + q.Limit
 	if totalLimit == 0 {
 		return nil, nil
@@ -254,6 +315,18 @@ func (db *DB) ObjectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
 	additional additional.Properties, tenant string,
 ) (search.Results, error) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		db.logger.WithFields(logrus.Fields{
+			"action":  "object_search_completed",
+			"took":    took,
+			"offset":  offset,
+			"limit":   limit,
+			"filters": filters,
+			"sort":    sort,
+		}).Debugf("object search completed in %s", took)
+	}()
 	return db.objectSearch(ctx, offset, limit, filters, sort, additional, tenant)
 }
 
@@ -326,6 +399,16 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 	props search.SelectProperties, groupBy *searchparams.GroupBy,
 	addl additional.Properties, tenant string,
 ) (search.Results, error) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		db.logger.WithFields(logrus.Fields{
+			"action": "resolve_references_completed",
+			"took":   took,
+			"len":    len(objs),
+			"props":  props,
+		}).Debugf("resolve references completed in %s", took)
+	}()
 	if addl.NoProps {
 		// If we have no props, there also can't be refs among them, so we can skip
 		// the refcache resolver

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,7 +12,6 @@
 package test_suits
 
 import (
-	"os"
 	"testing"
 
 	"github.com/weaviate/weaviate/test/docker"
@@ -40,12 +39,8 @@ func AllTests(endpoint string, asyncIndexingEnabled bool) func(t *testing.T) {
 
 func ComposeModules() (composeModules *docker.Compose) {
 	composeModules = docker.New().
-		WithText2VecContextionary().
-		WithText2VecTransformers().
-		WithText2VecOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
-		WithText2VecCohere(os.Getenv("COHERE_APIKEY")).
-		WithGenerativeOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
-		WithGenerativeCohere(os.Getenv("COHERE_APIKEY")).
-		WithText2ColBERTJinaAI(os.Getenv("JINAAI_APIKEY"))
+		WithText2VecModel2Vec().
+		WithText2VecTransformersImage("semitechnologies/model2vec-inference:minishlab-potion-base-8M-1.0.0").
+		WithWeaviateEnv("ENABLE_API_BASED_MODULES", "true")
 	return
 }

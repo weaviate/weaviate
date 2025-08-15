@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,6 +37,53 @@ type MockSchemaReader_Expecter struct {
 
 func (_m *MockSchemaReader) EXPECT() *MockSchemaReader_Expecter {
 	return &MockSchemaReader_Expecter{mock: &_m.Mock}
+}
+
+// Aliases provides a mock function with no fields
+func (_m *MockSchemaReader) Aliases() map[string]string {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Aliases")
+	}
+
+	var r0 map[string]string
+	if rf, ok := ret.Get(0).(func() map[string]string); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]string)
+		}
+	}
+
+	return r0
+}
+
+// MockSchemaReader_Aliases_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Aliases'
+type MockSchemaReader_Aliases_Call struct {
+	*mock.Call
+}
+
+// Aliases is a helper method to define mock.On call
+func (_e *MockSchemaReader_Expecter) Aliases() *MockSchemaReader_Aliases_Call {
+	return &MockSchemaReader_Aliases_Call{Call: _e.mock.On("Aliases")}
+}
+
+func (_c *MockSchemaReader_Aliases_Call) Run(run func()) *MockSchemaReader_Aliases_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockSchemaReader_Aliases_Call) Return(_a0 map[string]string) *MockSchemaReader_Aliases_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSchemaReader_Aliases_Call) RunAndReturn(run func() map[string]string) *MockSchemaReader_Aliases_Call {
+	_c.Call.Return(run)
+	return _c
 }
 
 // ClassEqual provides a mock function with given fields: name
@@ -702,6 +749,52 @@ func (_c *MockSchemaReader_ReadOnlyVersionedClass_Call) Return(_a0 versioned.Cla
 }
 
 func (_c *MockSchemaReader_ReadOnlyVersionedClass_Call) RunAndReturn(run func(string) versioned.Class) *MockSchemaReader_ReadOnlyVersionedClass_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ResolveAlias provides a mock function with given fields: alias
+func (_m *MockSchemaReader) ResolveAlias(alias string) string {
+	ret := _m.Called(alias)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ResolveAlias")
+	}
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func(string) string); ok {
+		r0 = rf(alias)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// MockSchemaReader_ResolveAlias_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResolveAlias'
+type MockSchemaReader_ResolveAlias_Call struct {
+	*mock.Call
+}
+
+// ResolveAlias is a helper method to define mock.On call
+//   - alias string
+func (_e *MockSchemaReader_Expecter) ResolveAlias(alias interface{}) *MockSchemaReader_ResolveAlias_Call {
+	return &MockSchemaReader_ResolveAlias_Call{Call: _e.mock.On("ResolveAlias", alias)}
+}
+
+func (_c *MockSchemaReader_ResolveAlias_Call) Run(run func(alias string)) *MockSchemaReader_ResolveAlias_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockSchemaReader_ResolveAlias_Call) Return(_a0 string) *MockSchemaReader_ResolveAlias_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSchemaReader_ResolveAlias_Call) RunAndReturn(run func(string) string) *MockSchemaReader_ResolveAlias_Call {
 	_c.Call.Return(run)
 	return _c
 }

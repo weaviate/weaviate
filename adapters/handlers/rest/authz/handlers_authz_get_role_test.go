@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,7 +32,8 @@ func TestGetRoleSuccess(t *testing.T) {
 
 	principal := &models.Principal{Username: "user1"}
 	params := authz.GetRoleParams{
-		ID: "testRole",
+		ID:          "testRole",
+		HTTPRequest: req,
 	}
 
 	policies := []authorization.Policy{
@@ -49,7 +50,7 @@ func TestGetRoleSuccess(t *testing.T) {
 	returnedPolices := map[string][]authorization.Policy{
 		"testRole": policies,
 	}
-	authorizer.On("Authorize", principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.ID)[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.ID)[0]).Return(nil)
 	controller.On("GetRoles", params.ID).Return(returnedPolices, nil)
 
 	h := &authZHandlers{
@@ -78,7 +79,8 @@ func TestGetRoleForbidden(t *testing.T) {
 		{
 			name: "authorization error",
 			params: authz.GetRoleParams{
-				ID: "testRole",
+				HTTPRequest: req,
+				ID:          "testRole",
 			},
 			principal:     &models.Principal{Username: "user1"},
 			authorizeErr:  fmt.Errorf("authorization error"),
@@ -92,9 +94,9 @@ func TestGetRoleForbidden(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
 			if tt.authorizeErr != nil {
-				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH), authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{
@@ -125,7 +127,8 @@ func TestGetRoleNotFound(t *testing.T) {
 		{
 			name: "role not found",
 			params: authz.GetRoleParams{
-				ID: "nonExistentRole",
+				HTTPRequest: req,
+				ID:          "nonExistentRole",
 			},
 			principal:     &models.Principal{Username: "user1"},
 			expectedError: "role not found",
@@ -138,7 +141,7 @@ func TestGetRoleNotFound(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.ID).Return(map[string][]authorization.Policy{}, nil)
 
 			h := &authZHandlers{
@@ -166,7 +169,8 @@ func TestGetRoleInternalServerError(t *testing.T) {
 		{
 			name: "internal server error from getting role",
 			params: authz.GetRoleParams{
-				ID: "testRole",
+				HTTPRequest: req,
+				ID:          "testRole",
 			},
 			principal:     &models.Principal{Username: "user1"},
 			getRolesErr:   fmt.Errorf("internal server error"),
@@ -192,7 +196,7 @@ func TestGetRoleInternalServerError(t *testing.T) {
 				"testRole": policies,
 			}
 
-			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			controller.On("GetRoles", tt.params.ID).Return(returnedPolices, tt.getRolesErr)
 
 			h := &authZHandlers{

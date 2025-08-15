@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,18 +32,18 @@ import (
 
 var (
 	className                           = "NamedVectors"
-	c11y                                = "c11y"
-	c11y_pq                             = "c11y_pq"
-	c11y_flat                           = "c11y_flat"
-	c11y_bq                             = "c11y_bq"
-	c11y_pq_very_long_230_chars         = "c11y_pq______bq_b9mgu3N7rCUWufddpfCqaVvr4IUjB9xpMBrmiQFIqyuUxKx5s8wCTD7iWb5gPkwNhECumphBMWXD67G9gvN4CQkylG3bDrR8p9sK02RLOGvE96jcaSKjpZrIRvjJuQliGf8BMNmzXEqH39UWGGt4zPNnZNvdPP6pIzxWG5zNpymGmJJLCHk6yP1eO3QgSdXMt0arzfcrAA1L9uZNIVT7tM"
-	contextionary                       = "contextionary"
+	m2vec                               = "m2vec"
+	m2vec_pq                            = "m2vec_pq"
+	m2vec_flat                          = "m2vec_flat"
+	m2vec_bq                            = "m2vec_bq"
+	m2vec_pq_very_long_230_chars        = "m2vec_pq_____bq_b9mgu3N7rCUWufddpfCqaVvr4IUjB9xpMBrmiQFIqyuUxKx5s8wCTD7iWb5gPkwNhECumphBMWXD67G9gvN4CQkylG3bDrR8p9sK02RLOGvE96jcaSKjpZrIRvjJuQliGf8BMNmzXEqH39UWGGt4zPNnZNvdPP6pIzxWG5zNpymGmJJLCHk6yP1eO3QgSdXMt0arzfcrAA1L9uZNIVT7tM"
+	model2vec                           = "model2vec"
 	transformers                        = "transformers"
 	transformers_flat                   = "transformers_flat"
 	transformers_pq                     = "transformers_pq"
 	transformers_bq                     = "transformers_bq"
 	transformers_bq_very_long_230_chars = "transformers_bq_b9mgu3N7rCUWufddpfCqaVvr4IUjB9xpMBrmiQFIqyuUxKx5s8wCTD7iWb5gPkwNhECumphBMWXD67G9gvN4CQkylG3bDrR8p9sK02RLOGvE96jcaSKjpZrIRvjJuQliGf8BMNmzXEqH39UWGGt4zPNnZNvdPP6pIzxWG5zNpymGmJJLCHk6yP1eO3QgSdXMt0arzfcrAA1L9uZNIVT7tM"
-	text2vecContextionary               = "text2vec-contextionary"
+	text2vecModel2Vec                   = "text2vec-model2vec"
 	text2vecTransformers                = "text2vec-transformers"
 	id1                                 = "00000000-0000-0000-0000-000000000001"
 	id2                                 = "00000000-0000-0000-0000-000000000002"
@@ -51,9 +51,9 @@ var (
 )
 
 var targetVectors = []string{
-	c11y, c11y_flat, c11y_pq, c11y_bq,
+	m2vec, m2vec_flat, m2vec_pq, m2vec_bq,
 	transformers, transformers_flat, transformers_pq, transformers_bq,
-	transformers_bq_very_long_230_chars, c11y_pq_very_long_230_chars,
+	transformers_bq_very_long_230_chars, m2vec_pq_very_long_230_chars,
 }
 
 func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
@@ -66,43 +66,43 @@ func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
 			},
 		},
 		VectorConfig: map[string]models.VectorConfig{
-			c11y: {
+			m2vec: {
 				Vectorizer: map[string]interface{}{
-					text2vecContextionary: map[string]interface{}{
+					text2vecModel2Vec: map[string]interface{}{
 						"vectorizeClassName": false,
 					},
 				},
 				VectorIndexType: "hnsw",
 			},
-			c11y_flat: {
+			m2vec_flat: {
 				Vectorizer: map[string]interface{}{
-					text2vecContextionary: map[string]interface{}{
+					text2vecModel2Vec: map[string]interface{}{
 						"vectorizeClassName": false,
 					},
 				},
 				VectorIndexType: "flat",
 			},
-			c11y_pq: {
+			m2vec_pq: {
 				Vectorizer: map[string]interface{}{
-					text2vecContextionary: map[string]interface{}{
+					text2vecModel2Vec: map[string]interface{}{
 						"vectorizeClassName": false,
 					},
 				},
 				VectorIndexType:   "hnsw",
 				VectorIndexConfig: pqVectorIndexConfig(),
 			},
-			c11y_bq: {
+			m2vec_bq: {
 				Vectorizer: map[string]interface{}{
-					text2vecContextionary: map[string]interface{}{
+					text2vecModel2Vec: map[string]interface{}{
 						"vectorizeClassName": false,
 					},
 				},
 				VectorIndexType:   "flat",
 				VectorIndexConfig: bqFlatIndexConfig(),
 			},
-			c11y_pq_very_long_230_chars: {
+			m2vec_pq_very_long_230_chars: {
 				Vectorizer: map[string]interface{}{
-					text2vecContextionary: map[string]interface{}{
+					text2vecModel2Vec: map[string]interface{}{
 						"vectorizeClassName": false,
 					},
 				},
@@ -168,7 +168,7 @@ func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
 		assert.Equal(t, class.VectorConfig[name].VectorIndexType, cls.VectorConfig[name].VectorIndexType)
 		vectorizerConfig, ok := cls.VectorConfig[name].Vectorizer.(map[string]interface{})
 		require.True(t, ok)
-		vectorizerName := text2vecContextionary
+		vectorizerName := text2vecModel2Vec
 		if strings.HasPrefix(name, "transformers") {
 			vectorizerName = text2vecTransformers
 		}
@@ -334,24 +334,24 @@ func getVectors(t *testing.T, client *wvt.Client,
 }
 
 func checkTargetVectors(t *testing.T, resultVectors map[string]models.Vector) {
-	require.NotEmpty(t, resultVectors[c11y])
-	require.NotEmpty(t, resultVectors[c11y_flat])
-	require.NotEmpty(t, resultVectors[c11y_pq])
-	require.NotEmpty(t, resultVectors[c11y_bq])
+	require.NotEmpty(t, resultVectors[m2vec])
+	require.NotEmpty(t, resultVectors[m2vec_flat])
+	require.NotEmpty(t, resultVectors[m2vec_pq])
+	require.NotEmpty(t, resultVectors[m2vec_bq])
 	require.NotEmpty(t, resultVectors[transformers])
 	require.NotEmpty(t, resultVectors[transformers_flat])
 	require.NotEmpty(t, resultVectors[transformers_pq])
 	require.NotEmpty(t, resultVectors[transformers_bq])
-	assert.Equal(t, resultVectors[c11y], resultVectors[c11y_flat])
-	assert.Equal(t, resultVectors[c11y_flat], resultVectors[c11y_pq])
-	assert.Equal(t, resultVectors[c11y_pq], resultVectors[c11y_bq])
+	assert.Equal(t, resultVectors[m2vec], resultVectors[m2vec_flat])
+	assert.Equal(t, resultVectors[m2vec_flat], resultVectors[m2vec_pq])
+	assert.Equal(t, resultVectors[m2vec_pq], resultVectors[m2vec_bq])
 	assert.Equal(t, resultVectors[transformers], resultVectors[transformers_flat])
 	assert.Equal(t, resultVectors[transformers_flat], resultVectors[transformers_pq])
 	assert.Equal(t, resultVectors[transformers_pq], resultVectors[transformers_bq])
-	assert.NotEqual(t, resultVectors[c11y], resultVectors[transformers])
-	assert.NotEqual(t, resultVectors[c11y_flat], resultVectors[transformers_flat])
-	assert.NotEqual(t, resultVectors[c11y_pq], resultVectors[transformers_pq])
-	assert.NotEqual(t, resultVectors[c11y_bq], resultVectors[transformers_bq])
+	assert.NotEqual(t, resultVectors[m2vec], resultVectors[transformers])
+	assert.NotEqual(t, resultVectors[m2vec_flat], resultVectors[transformers_flat])
+	assert.NotEqual(t, resultVectors[m2vec_pq], resultVectors[transformers_pq])
+	assert.NotEqual(t, resultVectors[m2vec_bq], resultVectors[transformers_bq])
 }
 
 func testAllObjectsIndexed(t *testing.T, client *wvt.Client, className string) {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -148,7 +148,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 				continue
 			}
 
-			for level, conns := range node.connections {
+			node.connections.IterateOnLayers(func(level uint8, conns []uint64) {
 				m := index.maximumConnections
 				if level == 0 {
 					m = index.maximumConnectionsLayerZero
@@ -156,7 +156,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 				assert.LessOrEqualf(t, len(conns), m, "node %d at level %d with %d conns",
 					i, level, len(conns))
-			}
+			})
 		}
 	})
 
@@ -199,7 +199,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 				continue
 			}
 
-			for level, conns := range node.connections {
+			node.connections.IterateOnLayers(func(level uint8, conns []uint64) {
 				m := index.maximumConnections
 				if level == 0 {
 					m = index.maximumConnectionsLayerZero
@@ -207,7 +207,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 				assert.LessOrEqualf(t, len(conns), m, "node %d at level %d with %d conns",
 					i, level, len(conns))
-			}
+			})
 		}
 	})
 
@@ -249,7 +249,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 				continue
 			}
 
-			for level, conns := range node.connections {
+			node.connections.IterateOnLayers(func(level uint8, conns []uint64) {
 				m := index.maximumConnections
 				if level == 0 {
 					m = index.maximumConnectionsLayerZero
@@ -257,7 +257,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 				require.LessOrEqualf(t, len(conns), m, "node %d at level %d with %d conns",
 					i, level, len(conns))
-			}
+			})
 		}
 	})
 

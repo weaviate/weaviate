@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,11 +12,14 @@
 package apikey
 
 import (
-	"encoding/json"
+	"crypto/sha256"
 	"fmt"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/sirupsen/logrus/hooks/test"
 
@@ -110,7 +113,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	randomKey, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
 
-	_, ok := dynUsers.memoryOnlyData.WeakKeyStorageById[userId]
+	_, ok := dynUsers.memoryOnlyData.weakKeyStorageById[userId]
 	require.False(t, ok)
 
 	startSlow := time.Now()
@@ -118,7 +121,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	require.NoError(t, err)
 	tookSlow := time.Since(startSlow)
 
-	_, ok = dynUsers.memoryOnlyData.WeakKeyStorageById[userId]
+	_, ok = dynUsers.memoryOnlyData.weakKeyStorageById[userId]
 	require.True(t, ok)
 
 	startFast := time.Now()
@@ -211,24 +214,21 @@ func TestSnapShotAndRestore(t *testing.T) {
 
 	require.NoError(t, dynUsers.DeactivateUser(userId2, true))
 
-	snapShot := dynUsers.Snapshot()
-
 	// create snapshot and restore to an empty new DBUser struct
-	marshal, err := json.Marshal(snapShot)
+	snapShot, err := dynUsers.Snapshot()
 	require.NoError(t, err)
-
-	snapshotRestore := DBUserSnapshot{}
-	require.NoError(t, json.Unmarshal(marshal, &snapshotRestore))
 
 	dynUsers2, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
-	require.NoError(t, dynUsers2.Restore(snapshotRestore))
+	require.NoError(t, dynUsers2.Restore(snapShot))
 
 	// content should be identical:
 	// - all users and their status present
 	// - taking a new snapshot should be identical
 	// - only weak hash is missing => first login should be slow again
-	require.Equal(t, snapshotRestore, dynUsers2.Snapshot())
+	snapshot2, err := dynUsers2.Snapshot()
+	require.NoError(t, err)
+	require.Equal(t, snapShot, snapshot2)
 
 	startAfterRestoreSlow := time.Now()
 	_, err = dynUsers2.ValidateAndExtract(login1, identifier)
@@ -313,4 +313,145 @@ func TestLastUsedTime(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, user[userId].LastUsedAt, updateTime)
+}
+
+func TestImportingAndSuspendingStaticKeys(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+
+	createdAt := time.Now()
+	userId := "user"
+	importedApiKey := "importedApiKey"
+	require.NoError(t, dynUsers.CreateUserWithKey(userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
+
+	principal, err := dynUsers.ValidateImportedKey(importedApiKey)
+	require.NoError(t, err)
+	require.NotNil(t, principal)
+	require.Equal(t, userId, principal.Username)
+
+	require.NoError(t, dynUsers.DeactivateUser(userId, true))
+
+	principal, err = dynUsers.ValidateImportedKey(importedApiKey)
+	require.Error(t, err)
+	require.Nil(t, principal)
+
+	require.NoError(t, dynUsers.ActivateUser(userId))
+	principal, err = dynUsers.ValidateImportedKey(importedApiKey)
+	require.Error(t, err)
+	require.Nil(t, principal)
+
+	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
+	require.NoError(t, err)
+	require.NoError(t, dynUsers.RotateKey(userId, apiKey[:3], hash, "imported_"+userId, identifier))
+
+	login, _, err := keys.DecodeApiKey(apiKey)
+	require.NoError(t, err)
+	_, err = dynUsers.ValidateAndExtract(login, identifier)
+	require.NoError(t, err)
+
+	principal, err = dynUsers.ValidateImportedKey(importedApiKey)
+	require.NoError(t, err) // error is only returned if key is deactivated
+	require.Nil(t, principal)
+}
+
+func TestImportingStaticKeys(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+	createdAt := time.Now()
+	for i := 0; i < 10; i++ {
+		userId := "user" + strconv.Itoa(i)
+		importedApiKey := "importedApiKey" + strconv.Itoa(i)
+		require.NoError(t, dynUsers.CreateUserWithKey(userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
+
+		principal, err := dynUsers.ValidateImportedKey(importedApiKey)
+		require.NoError(t, err)
+		require.NotNil(t, principal)
+		require.Equal(t, userId, principal.Username)
+		require.Equal(t, principal.UserType, models.UserTypeInputDb)
+
+		require.True(t, dynUsers.IsBlockedKey(importedApiKey))
+	}
+
+	for i := 0; i < 10; i++ {
+		userId := "user" + strconv.Itoa(i)
+		importedApiKey := "importedApiKey" + strconv.Itoa(i)
+
+		users, err := dynUsers.GetUsers(userId)
+		require.NoError(t, err)
+		require.Len(t, users, 1)
+		user, ok := users[userId]
+		require.True(t, ok)
+		require.Equal(t, user.Id, userId)
+		require.Equal(t, user.InternalIdentifier, "imported_"+userId)
+		require.Equal(t, user.CreatedAt, createdAt)
+		require.True(t, user.ImportedWithKey)
+
+		apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.RotateKey(userId, apiKey[:3], hash, "imported_"+userId, identifier))
+
+		login, _, err := keys.DecodeApiKey(apiKey)
+		require.NoError(t, err)
+		_, err = dynUsers.ValidateAndExtract(login, identifier)
+		require.NoError(t, err)
+
+		users, err = dynUsers.GetUsers(userId)
+		require.NoError(t, err)
+		require.Len(t, users, 1)
+		user, ok = users[userId]
+		require.True(t, ok)
+		require.Equal(t, user.Id, userId)
+		require.Equal(t, user.InternalIdentifier, identifier)
+		require.Equal(t, user.CreatedAt, createdAt)
+		require.False(t, user.ImportedWithKey)
+
+		require.True(t, dynUsers.IsBlockedKey(importedApiKey))
+
+	}
+}
+
+func TestImportingStaticKeysWithTime(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+	createdAt := time.Now().Add(-time.Hour)
+
+	importedApiKey := "importedApiKey"
+	userId := "user"
+	require.NoError(t, dynUsers.CreateUserWithKey(userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
+
+	users, err := dynUsers.GetUsers(userId)
+	require.NoError(t, err)
+	require.Len(t, users, 1)
+	user, ok := users[userId]
+	require.True(t, ok)
+	require.Equal(t, user.CreatedAt, createdAt)
+}
+
+func TestSnapshotRestoreEmpty(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+	userId := "user"
+
+	_, hash, identifier, err := keys.CreateApiKeyAndHash()
+	require.NoError(t, err)
+
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", time.Now()))
+	user, err := dynUsers.GetUsers(userId)
+	require.NoError(t, err)
+	require.Equal(t, user[userId].Id, userId)
+
+	err = dynUsers.Restore([]byte{})
+	require.NoError(t, err)
+
+	// nothing overwritten
+	user, err = dynUsers.GetUsers(userId)
+	require.NoError(t, err)
+	require.Equal(t, user[userId].Id, userId)
+}
+
+func TestRestoreInvalidData(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+
+	require.Error(t, dynUsers.Restore([]byte("invalid json")))
 }

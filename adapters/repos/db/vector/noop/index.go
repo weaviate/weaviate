@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,10 +16,10 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswconf "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -94,10 +94,6 @@ func (i *Index) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callbac
 	}
 }
 
-func (i *Index) GetKeys(id uint64) (uint64, uint64, error) {
-	return 0, 0, errors.Errorf("cannot get keys from a class not vector-indexed")
-}
-
 func (i *Index) Drop(context.Context) error {
 	// silently ignore
 	return nil
@@ -130,22 +126,11 @@ func (i *Index) ValidateMultiBeforeInsert(vector [][]float32) error {
 func (i *Index) PostStartup() {
 }
 
-func (i *Index) Dump(labels ...string) {
-}
-
-func (i *Index) DistanceBetweenVectors(x, y []float32) (float32, error) {
-	return 0, nil
-}
-
 func (i *Index) ContainsDoc(docID uint64) bool {
 	return false
 }
 
 func (i *Index) Iterate(fn func(id uint64) bool) {}
-
-func (i *Index) DistancerProvider() distancer.Provider {
-	return nil
-}
 
 func (i *Index) ShouldCompress() (bool, int) {
 	return false, 0
@@ -179,12 +164,16 @@ func (i *Index) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryV
 	return common.QueryVectorDistancer{}
 }
 
-func (i *Index) Stats() (common.IndexStats, error) {
-	return &NoopStats{}, errors.New("Stats() is not implemented for noop index")
+func (i *Index) Type() common.IndexType {
+	return common.IndexTypeNoop
 }
 
-type NoopStats struct{}
+func (i *Index) VectorStorageSize(_ context.Context) int64 {
+	// Noop index doesn't store vectors in memory, so return 0
+	return 0
+}
 
-func (s *NoopStats) IndexType() common.IndexType {
-	return common.IndexTypeNoop
+func (i *Index) CompressionStats() compressionhelpers.CompressionStats {
+	// Noop index doesn't compress vectors
+	return compressionhelpers.UncompressedStats{}
 }

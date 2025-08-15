@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,6 +30,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantProjectID   string
 		wantModelID     string
 		wantTitle       string
+		wantTaskType    string
 		wantErr         error
 	}{
 		{
@@ -42,6 +43,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
 			wantProjectID:   "projectId",
 			wantModelID:     "textembedding-gecko@001",
+			wantTaskType:    DefaultTaskType,
 			wantErr:         nil,
 		},
 		{
@@ -51,12 +53,14 @@ func Test_classSettings_Validate(t *testing.T) {
 					"apiEndpoint":   "google.com",
 					"projectId":     "projectId",
 					"titleProperty": "title",
+					"taskType":      "CODE_RETRIEVAL_QUERY",
 				},
 			},
 			wantApiEndpoint: "google.com",
 			wantProjectID:   "projectId",
 			wantModelID:     "textembedding-gecko@001",
 			wantTitle:       "title",
+			wantTaskType:    "CODE_RETRIEVAL_QUERY",
 			wantErr:         nil,
 		},
 		{
@@ -80,7 +84,8 @@ func Test_classSettings_Validate(t *testing.T) {
 				"[textembedding-gecko@001 textembedding-gecko@latest " +
 				"textembedding-gecko-multilingual@latest textembedding-gecko@003 " +
 				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001 " +
-				"text-embedding-preview-0409 text-multilingual-embedding-preview-0409]"),
+				"text-embedding-preview-0409 text-multilingual-embedding-preview-0409 " +
+				"gemini-embedding-001 text-embedding-005 text-multilingual-embedding-002]"),
 		},
 		{
 			name: "all wrong",
@@ -95,7 +100,8 @@ func Test_classSettings_Validate(t *testing.T) {
 				"[textembedding-gecko@001 textembedding-gecko@latest " +
 				"textembedding-gecko-multilingual@latest textembedding-gecko@003 " +
 				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001 " +
-				"text-embedding-preview-0409 text-multilingual-embedding-preview-0409]"),
+				"text-embedding-preview-0409 text-multilingual-embedding-preview-0409 " +
+				"gemini-embedding-001 text-embedding-005 text-multilingual-embedding-002]"),
 		},
 		{
 			name: "Generative AI",
@@ -107,6 +113,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "embedding-001",
+			wantTaskType:    DefaultTaskType,
 			wantErr:         nil,
 		},
 		{
@@ -120,6 +127,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "embedding-gecko-001",
+			wantTaskType:    DefaultTaskType,
 			wantErr:         nil,
 		},
 		{
@@ -130,7 +138,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"modelId":     "textembedding-gecko@001",
 				},
 			},
-			wantErr: errors.Errorf("wrong modelId available AI Studio model names are: [embedding-001 text-embedding-004]"),
+			wantErr: errors.Errorf("wrong modelId available AI Studio model names are: [embedding-001 text-embedding-004 gemini-embedding-001 text-embedding-005 text-multilingual-embedding-002]"),
 		},
 		{
 			name: "wrong properties",
@@ -143,7 +151,19 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
 			wantProjectID:   "projectId",
 			wantModelID:     "textembedding-gecko@001",
+			wantTaskType:    DefaultTaskType,
 			wantErr:         errors.New("properties field needs to be of array type, got: string"),
+		},
+		{
+			name: "wrong taskType",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "projectId",
+					"taskType":  "wrong-task-type",
+				},
+			},
+			wantErr: errors.Errorf("wrong taskType supported task types are: " +
+				"[RETRIEVAL_QUERY QUESTION_ANSWERING FACT_VERIFICATION CODE_RETRIEVAL_QUERY CLASSIFICATION CLUSTERING SEMANTIC_SIMILARITY]"),
 		},
 	}
 	for _, tt := range tests {
@@ -159,8 +179,9 @@ func Test_classSettings_Validate(t *testing.T) {
 			} else {
 				assert.Equal(t, tt.wantApiEndpoint, ic.ApiEndpoint())
 				assert.Equal(t, tt.wantProjectID, ic.ProjectID())
-				assert.Equal(t, tt.wantModelID, ic.ModelID())
+				assert.Equal(t, tt.wantModelID, ic.Model())
 				assert.Equal(t, tt.wantTitle, ic.TitleProperty())
+				assert.Equal(t, tt.wantTaskType, ic.TaskType())
 			}
 		})
 	}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -56,13 +57,11 @@ func BenchmarkDeserializer2ReadUint16(b *testing.B) {
 	val := make([]byte, 2)
 	binary.LittleEndian.PutUint16(val, randUint16)
 	data := bytes.NewReader(val)
-	logger, _ := test.NewNullLogger()
-	d := NewDeserializer(logger)
 	reader := bufio.NewReader(data)
 	b.StartTimer()
 
 	for i := 0; i < b.N; i++ {
-		d.readUint16(reader)
+		readUint16(reader)
 	}
 }
 
@@ -74,13 +73,11 @@ func BenchmarkDeserializer2ReadCommitType(b *testing.B) {
 	val := make([]byte, 1)
 	val[0] = byte(commitType)
 	data := bytes.NewReader(val)
-	logger, _ := test.NewNullLogger()
-	d := NewDeserializer(logger)
 	reader := bufio.NewReader(data)
 	b.StartTimer()
 
 	for i := 0; i < b.N; i++ {
-		d.ReadCommitType(reader)
+		ReadCommitType(reader)
 	}
 }
 
@@ -122,10 +119,8 @@ func TestDeserializer2ReadCommitType(t *testing.T) {
 		b := make([]byte, 1)
 		b[0] = byte(commitType)
 		data := bytes.NewReader(b)
-		logger, _ := test.NewNullLogger()
-		d := NewDeserializer(logger)
 		reader := bufio.NewReader(data)
-		res, err := d.ReadCommitType(reader)
+		res, err := ReadCommitType(reader)
 		if err != nil {
 			t.Errorf("Error reading commit type: %v", err)
 		}
@@ -189,6 +184,7 @@ func TestDeserializerReadClearLinks(t *testing.T) {
 }
 
 func dummyInitialDeserializerState() *DeserializationResult {
+	conns, _ := packedconn.NewWithMaxLayer(15)
 	return &DeserializationResult{
 		LinksReplaced: make(map[uint64]map[uint16]struct{}),
 		Nodes: []*vertex{
@@ -203,7 +199,7 @@ func dummyInitialDeserializerState() *DeserializationResult {
 				// This is a lower level than we will read, so this node will require
 				// growing
 				level:       8,
-				connections: make([][]uint64, 16),
+				connections: conns,
 			},
 		},
 	}
@@ -272,7 +268,8 @@ func TestDeserializerReadLink(t *testing.T) {
 		err := d.ReadLink(reader, res)
 		require.Nil(t, err)
 		require.NotNil(t, res.Nodes[id])
-		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
+		conns := res.Nodes[id].connections.GetLayer(uint8(level))
+		lastAddedConnection := conns[len(conns)-1]
 		assert.Equal(t, target, lastAddedConnection)
 	}
 }
@@ -301,8 +298,47 @@ func TestDeserializerReadLinks(t *testing.T) {
 		_, err := d.ReadLinks(reader, res, true)
 		require.Nil(t, err)
 		require.NotNil(t, res.Nodes[id])
-		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
+		conns := res.Nodes[id].connections.GetLayer(uint8(level))
+		lastAddedConnection := conns[len(conns)-1]
 		assert.Equal(t, id+uint64(connLen)-1, lastAddedConnection)
+	}
+}
+
+func TestDeserializerTruncateReadLinks(t *testing.T) {
+	res := dummyInitialDeserializerState()
+	ids := []uint64{1, 2, 3, 4}
+
+	for _, id := range ids {
+		level := uint16(id * 2)
+		var connLen uint16
+		if id%2 == 0 {
+			connLen = uint16(5000)
+		} else {
+			connLen = uint16(2000)
+		}
+		val := make([]byte, 12+connLen*8)
+		binary.LittleEndian.PutUint64(val[:8], id)
+		binary.LittleEndian.PutUint16(val[8:10], level)
+		binary.LittleEndian.PutUint16(val[10:12], connLen)
+		for i := 0; i < int(connLen); i++ {
+			target := id + uint64(i)
+			binary.LittleEndian.PutUint64(val[12+(i*8):12+(i*8+8)], target)
+		}
+		data := bytes.NewReader(val)
+		logger, _ := test.NewNullLogger()
+		d := NewDeserializer(logger)
+
+		reader := bufio.NewReader(data)
+
+		_, err := d.ReadLinks(reader, res, true)
+		require.Nil(t, err)
+		require.NotNil(t, res.Nodes[id])
+		conns := res.Nodes[id].connections.GetLayer(uint8(level))
+		if id%2 == 0 {
+			require.Equal(t, 4095, len(conns), "Expected connections to be truncated to 4095")
+		} else {
+			require.Equal(t, 2000, len(conns), "Expected connections to be read as is")
+		}
 	}
 }
 
@@ -330,8 +366,47 @@ func TestDeserializerReadAddLinks(t *testing.T) {
 		_, err := d.ReadAddLinks(reader, res)
 		require.Nil(t, err)
 		require.NotNil(t, res.Nodes[id])
-		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
+		conns := res.Nodes[id].connections.GetLayer(uint8(level))
+		lastAddedConnection := conns[len(conns)-1]
 		assert.Equal(t, id+uint64(connLen)-1, lastAddedConnection)
+	}
+}
+
+func TestDeserializerTruncateReadAddLinks(t *testing.T) {
+	res := dummyInitialDeserializerState()
+	ids := []uint64{1, 2, 3, 4}
+
+	for _, id := range ids {
+		level := uint16(id * 2)
+		var connLen uint16
+		if id%2 == 0 {
+			connLen = uint16(5000)
+		} else {
+			connLen = uint16(2000)
+		}
+		val := make([]byte, 12+connLen*8)
+		binary.LittleEndian.PutUint64(val[:8], id)
+		binary.LittleEndian.PutUint16(val[8:10], level)
+		binary.LittleEndian.PutUint16(val[10:12], connLen)
+		for i := 0; i < int(connLen); i++ {
+			target := id + uint64(i)
+			binary.LittleEndian.PutUint64(val[12+(i*8):12+(i*8+8)], target)
+		}
+		data := bytes.NewReader(val)
+		logger, _ := test.NewNullLogger()
+		d := NewDeserializer(logger)
+
+		reader := bufio.NewReader(data)
+
+		_, err := d.ReadAddLinks(reader, res)
+		require.Nil(t, err)
+		require.NotNil(t, res.Nodes[id])
+		conns := res.Nodes[id].connections.GetLayer(uint8(level))
+		if id%2 == 0 {
+			require.Equal(t, 4095, len(conns), "Expected connections to be truncated to 4095")
+		} else {
+			require.Equal(t, 2000, len(conns), "Expected connections to be read as is")
+		}
 	}
 }
 
@@ -403,6 +478,7 @@ func TestDeserializerRemoveTombstone(t *testing.T) {
 }
 
 func TestDeserializerClearLinksAtLevel(t *testing.T) {
+	conns, _ := packedconn.NewWithMaxLayer(3)
 	res := &DeserializationResult{
 		LinksReplaced: make(map[uint64]map[uint16]struct{}),
 		Nodes: []*vertex{
@@ -417,7 +493,7 @@ func TestDeserializerClearLinksAtLevel(t *testing.T) {
 				// This is a lower level than we will read, so this node will require
 				// growing
 				level:       4,
-				connections: make([][]uint64, 4),
+				connections: conns,
 			},
 			nil,
 			nil,
@@ -577,6 +653,89 @@ func TestDeserializerTotalReadMUVERA(t *testing.T) {
 		gaussianSize := 4 * repetitions * ksim * dimensions
 		randomSize := 4 * repetitions * dprojections * dimensions
 		require.Equal(t, gaussianSize+randomSize+21, deserializeSize)
+		t.Logf("deserializeSize: %v\n", deserializeSize)
+	})
+}
+
+func TestDeserializerTotalReadRQ(t *testing.T) {
+	rootPath := t.TempDir()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+	commitLogger, err := NewCommitLogger(rootPath, "tmpLogger", logger,
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+
+	dimension := uint32(10)
+	bits := uint32(8)
+	rotation := compressionhelpers.FastRotation{
+		OutputDim: 4,
+		Rounds:    5,
+		Swaps: [][]compressionhelpers.Swap{
+			{
+				{I: 0, J: 2},
+				{I: 1, J: 3},
+			},
+			{
+				{I: 4, J: 6},
+				{I: 5, J: 7},
+			},
+			{
+				{I: 8, J: 10},
+				{I: 9, J: 11},
+			},
+			{
+				{I: 12, J: 14},
+				{I: 13, J: 15},
+			},
+			{
+				{I: 16, J: 18},
+				{I: 17, J: 19},
+			},
+		},
+		Signs: [][]float32{
+			{1, -1, 1, -1},
+			{1, -1, 1, -1},
+			{1, -1, 1, -1},
+			{1, -1, 1, -1},
+			{1, -1, 1, -1},
+		},
+	}
+	t.Run("add rotational quantization data to the first log", func(t *testing.T) {
+		rqData := compressionhelpers.RQData{
+			InputDim: dimension,
+			Bits:     bits,
+			Rotation: rotation,
+		}
+
+		err = commitLogger.AddRQCompression(rqData)
+		require.Nil(t, err)
+		require.Nil(t, commitLogger.Flush())
+		require.Nil(t, commitLogger.Shutdown(ctx))
+	})
+
+	t.Run("deserialize the first log", func(t *testing.T) {
+		nullLogger, _ := test.NewNullLogger()
+		commitLoggerPath := rootPath + "/tmpLogger.hnsw.commitlog.d"
+
+		fileName, found, err := getCurrentCommitLogFileName(commitLoggerPath)
+		require.Nil(t, err)
+		require.True(t, found)
+
+		t.Logf("name: %v\n", fileName)
+
+		fd, err := os.Open(commitLoggerPath + "/" + fileName)
+		require.Nil(t, err)
+
+		defer fd.Close()
+		fdBuf := bufio.NewReaderSize(fd, 256*1024)
+
+		_, deserializeSize, err := NewDeserializer(nullLogger).Do(fdBuf, nil, true)
+		require.Nil(t, err)
+
+		swapSize := 2 * rotation.Rounds * (rotation.OutputDim / 2) * 2
+		signSize := 4 * rotation.Rounds * rotation.OutputDim
+		require.Equal(t, int(swapSize+signSize+17), deserializeSize)
 		t.Logf("deserializeSize: %v\n", deserializeSize)
 	})
 }

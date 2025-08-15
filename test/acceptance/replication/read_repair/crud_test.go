@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package replication
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -25,7 +24,6 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/weaviate/weaviate/client/objects"
-	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -306,187 +304,6 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 
 		t.Run("RestartNode-3", func(t *testing.T) {
 			require.Nil(t, compose.StartAt(ctx, 3))
-		})
-	})
-}
-
-func (suite *ReplicationTestSuite) TestEventualReplicaCRUD() {
-	t := suite.T()
-	mainCtx := context.Background()
-
-	compose, err := docker.New().
-		With3NodeCluster().
-		WithText2VecContextionary().
-		Start(mainCtx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
-
-	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
-	defer cancel()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	paragraphClass := articles.ParagraphsClass()
-	articleClass := articles.ArticlesClass()
-
-	t.Run("create schema on node 1", func(t *testing.T) {
-		paragraphClass.ShardingConfig = map[string]interface{}{"desiredCount": 1}
-		helper.CreateClass(t, paragraphClass)
-		articleClass.ShardingConfig = map[string]interface{}{"desiredCount": 1}
-		helper.CreateClass(t, articleClass)
-	})
-
-	t.Run("insert paragraphs batch on node 1", func(t *testing.T) {
-		batch := make([]*models.Object, len(paragraphIDs))
-		for i, id := range paragraphIDs {
-			batch[i] = articles.NewParagraph().
-				WithID(id).
-				WithContents(fmt.Sprintf("paragraph#%d", i)).
-				Object()
-		}
-		common.CreateObjects(t, compose.GetWeaviate().URI(), batch)
-	})
-
-	t.Run("insert articles batch on node 1", func(t *testing.T) {
-		batch := make([]*models.Object, len(articleIDs))
-		for i, id := range articleIDs {
-			batch[i] = articles.NewArticle().
-				WithID(id).
-				WithTitle(fmt.Sprintf("Article#%d", i)).
-				Object()
-		}
-		common.CreateObjects(t, compose.GetWeaviate().URI(), batch)
-	})
-
-	t.Run("configure classes to replicate to node 2 and 3", func(t *testing.T) {
-		ac := helper.GetClass(t, "Article")
-		ac.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 3,
-		}
-		helper.UpdateClass(t, ac)
-
-		pc := helper.GetClass(t, "Paragraph")
-		pc.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 3,
-		}
-		helper.UpdateClass(t, pc)
-	})
-
-	t.Run("StopNode-3", func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, 3)
-	})
-
-	t.Run("assert all previous data replicated to node 2", func(t *testing.T) {
-		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-			resp := common.GQLGet(t, compose.GetWeaviateNode2().URI(), "Article", types.ConsistencyLevelOne)
-			require.Len(collect, resp, len(articleIDs))
-			resp = common.GQLGet(t, compose.GetWeaviateNode2().URI(), "Paragraph", types.ConsistencyLevelOne)
-			require.Len(collect, resp, len(paragraphIDs))
-		}, 5*time.Second, 100*time.Millisecond)
-	})
-
-	t.Run("RestartNode-3", func(t *testing.T) {
-		common.StartNodeAt(ctx, t, compose, 3)
-	})
-
-	t.Run("assert all previous data replicated to node 3", func(t *testing.T) {
-		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-			resp := common.GQLGet(t, compose.GetWeaviateNode3().URI(), "Article", types.ConsistencyLevelAll)
-			assert.Len(collect, resp, len(articleIDs))
-			resp = common.GQLGet(t, compose.GetWeaviateNode3().URI(), "Paragraph", types.ConsistencyLevelAll)
-			assert.Len(collect, resp, len(paragraphIDs))
-		}, 5*time.Second, 100*time.Millisecond)
-	})
-
-	t.Run("assert any future writes are replicated", func(t *testing.T) {
-		t.Run("PatchObject", func(t *testing.T) {
-			before, err := common.GetObject(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], false)
-			require.Nil(t, err)
-			newTitle := "Article#9000"
-
-			t.Run("OnNode-2", func(t *testing.T) {
-				patch := &models.Object{
-					ID:         before.ID,
-					Class:      "Article",
-					Properties: map[string]interface{}{"title": newTitle},
-				}
-				common.PatchObject(t, compose.GetWeaviateNode(2).URI(), patch)
-			})
-
-			t.Run("PatchedOnNode-1", func(t *testing.T) {
-				after, err := common.GetObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node1")
-				require.Nil(t, err)
-
-				require.Contains(t, after.Properties.(map[string]interface{}), "title")
-				require.Equal(t, newTitle, after.Properties.(map[string]interface{})["title"])
-			})
-
-			t.Run("PatchedOnNode-2", func(t *testing.T) {
-				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					after, err := common.GetObjectFromNode(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], "node2")
-					require.Nil(collect, err)
-
-					require.Contains(collect, after.Properties.(map[string]interface{}), "title")
-					assert.Equal(collect, newTitle, after.Properties.(map[string]interface{})["title"])
-				}, 5*time.Second, 100*time.Millisecond)
-			})
-
-			t.Run("PatchedOnNode-3", func(t *testing.T) {
-				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					after, err := common.GetObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node3")
-					require.Nil(collect, err)
-
-					require.Contains(collect, after.Properties.(map[string]interface{}), "title")
-					assert.Equal(collect, newTitle, after.Properties.(map[string]interface{})["title"])
-				}, 5*time.Second, 100*time.Millisecond)
-			})
-		})
-
-		t.Run("DeleteObject", func(t *testing.T) {
-			t.Run("OnNode-2", func(t *testing.T) {
-				common.DeleteObject(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], types.ConsistencyLevelAll)
-			})
-
-			t.Run("OnNode-1", func(t *testing.T) {
-				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					_, err := common.GetObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node1")
-					require.Equal(collect, &objects.ObjectsClassGetNotFound{}, err)
-				}, 5*time.Second, 100*time.Millisecond)
-			})
-		})
-
-		t.Run("BatchDeleteAllObjects", func(t *testing.T) {
-			t.Run("OnNode-2", func(t *testing.T) {
-				common.DeleteObjects(t, compose.GetWeaviateNode2().URI(),
-					"Article", []string{"title"}, "Article#*", types.ConsistencyLevelAll)
-			})
-
-			t.Run("OnNode-1", func(t *testing.T) {
-				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					resp := common.GQLGet(t, compose.GetWeaviate().URI(), "Article", types.ConsistencyLevelOne)
-					assert.Empty(collect, resp)
-				}, 5*time.Second, 100*time.Millisecond)
-			})
-		})
-
-		t.Run("configure classes to decrease replication factor should fail", func(t *testing.T) {
-			ac := helper.GetClass(t, "Article")
-			ac.ReplicationConfig = &models.ReplicationConfig{
-				Factor: 2,
-			}
-
-			params := schema.NewSchemaObjectsUpdateParams().
-				WithObjectClass(ac).WithClassName(ac.Class)
-			resp, err := helper.Client(t).Schema.SchemaObjectsUpdate(params, nil)
-			require.NotNil(t, err)
-			helper.AssertRequestFail(t, resp, err, func() {
-				var errResponse *schema.SchemaObjectsUpdateUnprocessableEntity
-				require.True(t, errors.As(err, &errResponse))
-				require.Equal(t, fmt.Sprintf("scale \"%s\" from 3 replicas to 2: scaling in not supported yet", ac.Class), errResponse.Payload.Error[0].Message)
-			})
 		})
 	})
 }

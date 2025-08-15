@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -118,7 +118,7 @@ func TestRBACSnapshotRecovery(t *testing.T) {
 		WithApiKey().
 		WithUserApiKey(adminUser, adminKey).
 		WithRBAC().
-		WithRbacAdmins(adminUser).
+		WithRbacRoots(adminUser).
 		WithWeaviateEnv("RAFT_SNAPSHOT_THRESHOLD", "1"). // Force snapshot after every change
 		WithWeaviateEnv("RAFT_SNAPSHOT_INTERVAL", "1").  // Force snapshot every second
 		WithWeaviateEnv("RAFT_TRAILING_LOGS", "1").      // Keep one trailing logs

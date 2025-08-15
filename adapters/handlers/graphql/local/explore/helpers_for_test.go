@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package explore
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	"github.com/tailor-inc/graphql"
 
@@ -42,15 +41,15 @@ type fakeModulesProvider struct{}
 
 type fakeAuthorizer struct{}
 
-func (a *fakeAuthorizer) Authorize(principal *models.Principal, verb string, resource ...string) error {
+func (a *fakeAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resource ...string) error {
 	return nil
 }
 
-func (a *fakeAuthorizer) AuthorizeSilent(principal *models.Principal, verb string, resource ...string) error {
+func (a *fakeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resource ...string) error {
 	return nil
 }
 
-func (a *fakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+func (a *fakeAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
 	return resources, nil
 }
 
@@ -167,10 +166,6 @@ func (m *nearCustomTextModule) Name() string {
 }
 
 func (m *nearCustomTextModule) Init(params moduletools.ModuleInitParams) error {
-	return nil
-}
-
-func (m *nearCustomTextModule) RootHandler() http.Handler {
 	return nil
 }
 

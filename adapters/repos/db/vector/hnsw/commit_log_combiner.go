@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,8 @@ package hnsw
 import (
 	"io"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -38,28 +40,66 @@ func NewCommitLogCombiner(rootPath, id string, threshold int64,
 	}
 }
 
-func (c *CommitLogCombiner) Do() (bool, error) {
+func (c *CommitLogCombiner) Do(partitions ...string) (bool, error) {
+	// ensure partitions are sorted
+	sort.Strings(partitions)
+
 	executed := false
 	for {
 		// fileNames will already be in order
-		fileNames, err := getCommitFileNames(c.rootPath, c.id)
+		fileNames, err := getCommitFileNames(c.rootPath, c.id, 0)
 		if err != nil {
 			return executed, errors.Wrap(err, "obtain files names")
 		}
 
-		ok, err := c.combineFirstMatch(fileNames)
-		if err != nil {
-			return executed, err
+		anyOk := false
+		for _, partFileNames := range c.partitonFileNames(fileNames, partitions) {
+			ok, err := c.combineFirstMatch(partFileNames)
+			if err != nil {
+				return executed, err
+			}
+			anyOk = anyOk || ok
 		}
-
-		if ok {
-			executed = true
-			continue
+		if !anyOk {
+			break
 		}
-
-		break
+		executed = true
 	}
 	return executed, nil
+}
+
+func (c *CommitLogCombiner) partitonFileNames(fileNames, partitions []string) [][]string {
+	if len(fileNames) == 0 {
+		return [][]string{}
+	}
+	if len(partitions) == 0 {
+		return [][]string{fileNames}
+	}
+
+	partitioned := make([][]string, 0, len(partitions)+1)
+
+	i := 0
+	partFileNames := []string{}
+	for _, partition := range partitions {
+		for ; i < len(fileNames); i++ {
+			logname := strings.TrimSuffix(filepath.Base(fileNames[i]), ".condensed")
+			if strings.Compare(logname, partition) > 0 {
+				break
+			}
+			partFileNames = append(partFileNames, fileNames[i])
+		}
+		if len(partFileNames) > 0 {
+			partitioned = append(partitioned, partFileNames)
+			partFileNames = []string{}
+		}
+	}
+	for ; i < len(fileNames); i++ {
+		partFileNames = append(partFileNames, fileNames[i])
+	}
+	if len(fileNames) > 0 {
+		partitioned = append(partitioned, partFileNames)
+	}
+	return partitioned
 }
 
 func (c *CommitLogCombiner) combineFirstMatch(fileNames []string) (bool, error) {
@@ -110,32 +150,32 @@ func (c *CommitLogCombiner) combineFirstMatch(fileNames []string) (bool, error) 
 	return false, nil
 }
 
-func (c *CommitLogCombiner) combine(first, second string) error {
+func (c *CommitLogCombiner) combine(left, right string) error {
 	// all names are based on the first file, so that once file1 + file2 are
 	// combined it is as if file2 had never existed and file 1 was just always
 	// big enough to hold the contents of both
 
 	// clearly indicate that the file is "in progress", in case we crash while
 	// combining and the after restart there are multiple alternatives
-	tmpName := strings.TrimSuffix(first, ".condensed") + (".combined.tmp")
+	tmpName := strings.TrimSuffix(right, ".condensed") + (".combined.tmp")
 
 	// finalName will look like an uncondensed original commit log, so the
 	// condensor will pick it up without even knowing that it's a combined file
-	finalName := strings.TrimSuffix(first, ".condensed")
+	finalName := strings.TrimSuffix(right, ".condensed")
 
-	if err := c.mergeFiles(tmpName, first, second); err != nil {
+	if err := c.mergeFiles(tmpName, left, right); err != nil {
 		return errors.Wrap(err, "merge files")
 	}
 
-	if err := c.renameAndCleanUp(tmpName, finalName, first, second); err != nil {
+	if err := c.renameAndCleanUp(tmpName, finalName, left, right); err != nil {
 		return errors.Wrap(err, "rename and clean up files")
 	}
 
 	c.logger.WithFields(logrus.Fields{
 		"action":       "hnsw_commit_logger_combine_condensed_logs",
 		"id":           c.id,
-		"input_first":  first,
-		"input_second": second,
+		"input_first":  left,
+		"input_second": right,
 		"output":       finalName,
 	}).Info("successfully combined previously condensed commit log files")
 

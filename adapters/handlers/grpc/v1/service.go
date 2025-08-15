@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -72,6 +72,10 @@ func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	var result *pb.AggregateReply
 	var errInner error
 
+	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
+		req.Collection = class
+	}
+
 	if err := enterrors.GoWrapperWithBlock(func() {
 		result, errInner = s.aggregate(ctx, req)
 	}, s.logger); err != nil {
@@ -91,7 +95,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	parser := NewAggregateParser(
-		s.classGetterWithAuthzFunc(principal, req.Tenant),
+		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
 	)
 
 	params, err := parser.Aggregate(req)
@@ -105,7 +109,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	}
 
 	replier := NewAggregateReplier(
-		s.classGetterWithAuthzFunc(principal, req.Tenant),
+		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
 		params,
 	)
 	reply, err := replier.Aggregate(res, params.GroupBy != nil)
@@ -119,6 +123,10 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 
 func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*pb.TenantsGetReply, error) {
 	before := time.Now()
+
+	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
+		req.Collection = class
+	}
 
 	principal, err := s.principalFromContext(ctx)
 	if err != nil {
@@ -166,11 +174,11 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		tenant = *req.Tenant
 	}
 
-	if err := s.authorizer.Authorize(principal, authorization.DELETE, authorization.ShardsData(req.Collection, tenant)...); err != nil {
+	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsData(req.Collection, tenant)...); err != nil {
 		return nil, err
 	}
 
-	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(principal, tenant))
+	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(ctx, principal, tenant))
 	if err != nil {
 		return nil, fmt.Errorf("batch delete params: %w", err)
 	}
@@ -219,6 +227,10 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	knownClasses := map[string]versioned.Class{}
 	knownClassesAuthCheck := map[string]*models.Class{}
 	classGetter := func(classname, shard string) (*models.Class, error) {
+		// classname might be an alias
+		if cls := s.schemaManager.ResolveAlias(classname); cls != "" {
+			classname = cls
+		}
 		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
 		classTenantName := classname + "#" + shard
 		class, ok := knownClassesAuthCheck[classTenantName]
@@ -227,11 +239,11 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 		}
 
 		// batch is upsert
-		if err := s.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(classname, shard)...); err != nil {
+		if err := s.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(classname, shard)...); err != nil {
 			return nil, err
 		}
 
-		if err := s.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
+		if err := s.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
 			return nil, err
 		}
 
@@ -284,6 +296,10 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	var result *pb.SearchReply
 	var errInner error
 
+	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
+		req.Collection = class
+	}
+
 	if err := enterrors.GoWrapperWithBlock(func() {
 		result, errInner = s.search(ctx, req)
 	}, s.logger); err != nil {
@@ -304,7 +320,8 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 
 	parser := NewParser(
 		req.Uses_127Api,
-		s.classGetterWithAuthzFunc(principal, req.Tenant),
+		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
+		s.aliasGetter(),
 	)
 	replier := NewReplier(
 		req.Uses_125Api || req.Uses_127Api,
@@ -349,7 +366,7 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 
 type classGetterWithAuthzFunc func(string) (*models.Class, error)
 
-func (s *Service) classGetterWithAuthzFunc(principal *models.Principal, tenant string) classGetterWithAuthzFunc {
+func (s *Service) classGetterWithAuthzFunc(ctx context.Context, principal *models.Principal, tenant string) classGetterWithAuthzFunc {
 	authorizedCollections := map[string]*models.Class{}
 
 	return func(name string) (*models.Class, error) {
@@ -361,7 +378,7 @@ func (s *Service) classGetterWithAuthzFunc(principal *models.Principal, tenant s
 				resources = authorization.ShardsData(name, tenant)
 			}
 			// having data access is enough for querying as we dont leak any info from the collection config that you cannot get via data access anyways
-			if err := s.authorizer.Authorize(principal, authorization.READ, resources...); err != nil {
+			if err := s.authorizer.Authorize(ctx, principal, authorization.READ, resources...); err != nil {
 				return nil, err
 			}
 			class = s.schemaManager.ReadOnlyClass(name)
@@ -371,6 +388,17 @@ func (s *Service) classGetterWithAuthzFunc(principal *models.Principal, tenant s
 			return nil, fmt.Errorf("could not find class %s in schema", name)
 		}
 		return class, nil
+	}
+}
+
+type aliasGetter func(string) string
+
+func (s *Service) aliasGetter() aliasGetter {
+	return func(name string) string {
+		if cls := s.schemaManager.ResolveAlias(name); cls != "" {
+			return name // name is an alias
+		}
+		return ""
 	}
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,10 +19,15 @@ import (
 	"log"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -118,20 +123,31 @@ func TestNestedReferences(t *testing.T) {
 		},
 	}
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("adding all classes to the schema", func(t *testing.T) {
 		for _, class := range refSchema.Objects.Classes {
@@ -509,7 +525,7 @@ func partiallyNestedSelectProperties() search.SelectProperties {
 	}
 }
 
-func GetDimensionsFromRepo(ctx context.Context, repo *DB, className string) int {
+func getDimensionsFromRepo(ctx context.Context, repo *DB, className string) int {
 	if !repo.config.TrackVectorDimensions {
 		log.Printf("Vector dimensions tracking is disabled, returning 0")
 		return 0
@@ -517,7 +533,11 @@ func GetDimensionsFromRepo(ctx context.Context, repo *DB, className string) int 
 	index := repo.GetIndex(schema.ClassName(className))
 	sum := 0
 	index.ForEachShard(func(name string, shard ShardLike) error {
-		sum += shard.Dimensions(ctx, "")
+		dim, err := shard.Dimensions(ctx, "")
+		if err != nil {
+			return err
+		}
+		sum += dim
 		return nil
 	})
 	return sum
@@ -575,21 +595,32 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		},
 	}
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("add required classes", func(t *testing.T) {
 		for _, class := range sch.Objects.Classes {
@@ -636,8 +667,8 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 
 	t.Run("add reference between them", func(t *testing.T) {
 		// Get dimensions before adding reference
-		sourceShardDimension := GetDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestSource")
-		targetShardDimension := GetDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestTarget")
+		sourceShardDimension := getDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestSource")
+		targetShardDimension := getDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestTarget")
 
 		source := crossref.NewSource("AddingReferencesTestSource", "toTarget", sourceID)
 		target := crossref.New("localhost", "", targetID)
@@ -646,8 +677,8 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		assert.Nil(t, err)
 
 		// Check dimensions after adding reference
-		sourceDimensionAfter := GetDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestSource")
-		targetDimensionAfter := GetDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestTarget")
+		sourceDimensionAfter := getDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestSource")
+		targetDimensionAfter := getDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestTarget")
 
 		require.Equalf(t, sourceShardDimension, sourceDimensionAfter, "dimensions of source should not change")
 		require.Equalf(t, targetShardDimension, targetDimensionAfter, "dimensions of target should not change")

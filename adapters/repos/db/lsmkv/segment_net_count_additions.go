@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,18 +17,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
-
-	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // ErrInvalidChecksum indicates that the read file should not be trusted. For
 // any pre-computed data this is a recoverable issue, as the data can simply be
 // re-computed at read-time.
 var ErrInvalidChecksum = errors.New("invalid checksum")
+
+const CountNetAdditionsFileSuffix = ".cna"
 
 // existOnLowerSegments is a simple function that can be passed at segment
 // initialization time to check if any of the keys are truly new or previously
@@ -37,28 +37,23 @@ var ErrInvalidChecksum = errors.New("invalid checksum")
 type existsOnLowerSegmentsFn func(key []byte) (bool, error)
 
 func (s *segment) countNetPath() string {
-	return countNetPathFromSegmentPath(s.path)
+	return s.buildPath("%s.cna")
 }
 
-func countNetPathFromSegmentPath(segPath string) string {
-	extless := strings.TrimSuffix(segPath, filepath.Ext(segPath))
-	return fmt.Sprintf("%s.cna", extless)
-}
-
-func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool) error {
+func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNAValue *int, existingFilesList map[string]int64) error {
 	if s.strategy != segmentindex.StrategyReplace {
 		// replace is the only strategy that supports counting
 		return nil
 	}
 
 	path := s.countNetPath()
+	s.metaPaths = append(s.metaPaths, path)
 
-	ok, err := fileExists(path)
+	loadFromDisk, err := fileExistsInList(existingFilesList, filepath.Base(path))
 	if err != nil {
 		return err
 	}
-
-	if ok {
+	if loadFromDisk {
 		if overwrite {
 			err := os.Remove(path)
 			if err != nil {
@@ -79,32 +74,36 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 		}
 	}
 
-	var lastErr error
-	countNet := 0
-	cb := func(key []byte, tombstone bool) {
-		existedOnPrior, err := exists(key)
-		if err != nil {
-			lastErr = err
+	if precomputedCNAValue != nil {
+		s.countNetAdditions = *precomputedCNAValue
+	} else {
+		var lastErr error
+		countNet := 0
+		cb := func(key []byte, tombstone bool) {
+			existedOnPrior, err := exists(key)
+			if err != nil {
+				lastErr = err
+			}
+
+			if tombstone && existedOnPrior {
+				countNet--
+			}
+
+			if !tombstone && !existedOnPrior {
+				countNet++
+			}
 		}
 
-		if tombstone && existedOnPrior {
-			countNet--
+		extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
+			s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
+
+		extr.do()
+
+		s.countNetAdditions = countNet
+
+		if lastErr != nil {
+			return lastErr
 		}
-
-		if !tombstone && !existedOnPrior {
-			countNet++
-		}
-	}
-
-	extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
-		s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
-
-	extr.do()
-
-	s.countNetAdditions = countNet
-
-	if lastErr != nil {
-		return lastErr
 	}
 
 	if err := s.storeCountNetOnDisk(); err != nil {
@@ -127,7 +126,7 @@ func storeCountNetOnDisk(path string, value int, observeWrite diskio.MeteredWrit
 }
 
 func (s *segment) loadCountNetFromDisk() error {
-	data, err := loadWithChecksum(s.countNetPath(), 12)
+	data, err := loadWithChecksum(s.countNetPath(), 12, s.metrics.ReadObserver("netAdditions"))
 	if err != nil {
 		return err
 	}
@@ -137,15 +136,16 @@ func (s *segment) loadCountNetFromDisk() error {
 	return nil
 }
 
-func (s *segment) precomputeCountNetAdditions(updatedCountNetAdditions int) ([]string, error) {
-	if s.strategy != segmentindex.StrategyReplace {
-		// only "replace" has count net additions, so we are done
-		return []string{}, nil
+// ReadCountNetAdditionsFile reads a .cna file and returns the count net additions value
+// Returns (count, nil) if successful, (0, error) if the file is invalid or corrupted
+func ReadCountNetAdditionsFile(path string) (int64, error) {
+	data, err := loadWithChecksum(path, 12, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read .cna file: %w", err)
 	}
 
-	cnaPath := fmt.Sprintf("%s.tmp", s.countNetPath())
-	if err := storeCountNetOnDisk(cnaPath, updatedCountNetAdditions, s.observeMetaWrite); err != nil {
-		return nil, err
-	}
-	return []string{cnaPath}, nil
+	// Extract count value (first 8 bytes, uint64 little-endian)
+	count := int64(binary.LittleEndian.Uint64(data[0:8]))
+
+	return count, nil
 }

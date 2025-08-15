@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,10 +33,11 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 		return replication.NewReplicateBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	collection := schema.UppercaseClassName(*params.Body.CollectionID)
+	collection := schema.UppercaseClassName(*params.Body.Collection)
+	ctx := params.HTTPRequest.Context()
 
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(collection, *params.Body.ShardID)...); err != nil {
-		return replication.NewReplicateForbidden()
+	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Replications(collection, *params.Body.Shard)); err != nil {
+		return replication.NewReplicateForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	id, err := uuid.NewRandom()
@@ -45,11 +46,11 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	}
 	uuid := strfmt.UUID(id.String())
 
-	transferType := models.ReplicationReplicateReplicaRequestTransferTypeCOPY
-	if params.Body.TransferType != nil {
-		transferType = *params.Body.TransferType
+	replicationType := models.ReplicationReplicateReplicaRequestTypeCOPY
+	if params.Body.Type != nil {
+		replicationType = *params.Body.Type
 	}
-	if err := h.replicationManager.ReplicationReplicateReplica(uuid, *params.Body.SourceNodeName, collection, *params.Body.ShardID, *params.Body.DestinationNodeName, transferType); err != nil {
+	if err := h.replicationManager.ReplicationReplicateReplica(params.HTTPRequest.Context(), uuid, *params.Body.SourceNode, collection, *params.Body.Shard, *params.Body.TargetNode, replicationType); err != nil {
 		if errors.Is(err, replicationTypes.ErrInvalidRequest) {
 			return replication.NewReplicateUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
@@ -57,29 +58,34 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	}
 
 	h.logger.WithFields(logrus.Fields{
-		"action":       "replication_engine",
-		"op":           "replicate",
-		"id":           id,
-		"collection":   *params.Body.CollectionID,
-		"shardId":      *params.Body.ShardID,
-		"sourceNodeId": *params.Body.SourceNodeName,
-		"destNodeId":   *params.Body.DestinationNodeName,
-		"transferType": params.Body.TransferType,
+		"action":     "replication_engine",
+		"op":         "replicate",
+		"id":         id,
+		"collection": *params.Body.Collection,
+		"shard":      *params.Body.Shard,
+		"sourceNode": *params.Body.SourceNode,
+		"targetNode": *params.Body.TargetNode,
+		"type":       params.Body.Type,
 	}).Info("replicate operation registered")
 
 	return h.handleReplicationReplicateResponse(uuid)
 }
 
 func (h *replicationHandler) getReplicationDetailsByReplicationId(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
-		return h.handleForbiddenError(err)
-	}
+	ctx := params.HTTPRequest.Context()
 
-	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(params.ID)
+	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(params.HTTPRequest.Context(), params.ID)
 	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+		if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Replications("*", "*")); err != nil {
+			return replication.NewReplicationDetailsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
 		return h.handleOperationNotFoundError(params.ID, err)
 	} else if err != nil {
 		return h.handleInternalServerError(params.ID, err)
+	}
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Replications(response.Collection, response.ShardId)); err != nil {
+		return replication.NewReplicationDetailsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	includeHistory := false
@@ -99,25 +105,46 @@ func (h *replicationHandler) generateReplicationDetailsResponse(withHistory bool
 	if withHistory {
 		history = make([]*models.ReplicationReplicateDetailsReplicaStatus, len(response.StatusHistory))
 		for i, status := range response.StatusHistory {
+			errors := make([]*models.ReplicationReplicateDetailsReplicaStatusError, 0, len(status.Errors))
+			for _, err := range status.Errors {
+				errors = append(errors, &models.ReplicationReplicateDetailsReplicaStatusError{
+					Message:           err.Message,
+					WhenErroredUnixMs: err.ErroredTimeUnixMs,
+				})
+			}
 			history[i] = &models.ReplicationReplicateDetailsReplicaStatus{
-				State:  status.State,
-				Errors: status.Errors,
+				State:             status.State,
+				Errors:            errors,
+				WhenStartedUnixMs: status.StartTimeUnixMs,
 			}
 		}
 	}
 
+	errors := make([]*models.ReplicationReplicateDetailsReplicaStatusError, 0, len(response.Status.Errors))
+	for _, err := range response.Status.Errors {
+		errors = append(errors, &models.ReplicationReplicateDetailsReplicaStatusError{
+			Message:           err.Message,
+			WhenErroredUnixMs: err.ErroredTimeUnixMs,
+		})
+	}
+
 	return &models.ReplicationReplicateDetailsReplicaResponse{
-		Collection:   &response.Collection,
-		ID:           &response.Uuid,
-		ShardID:      &response.ShardId,
-		SourceNodeID: &response.SourceNodeId,
-		TargetNodeID: &response.TargetNodeId,
+		Collection:         &response.Collection,
+		ID:                 &response.Uuid,
+		Shard:              &response.ShardId,
+		SourceNode:         &response.SourceNodeId,
+		TargetNode:         &response.TargetNodeId,
+		Uncancelable:       response.Uncancelable,
+		ScheduledForCancel: response.ScheduledForCancel,
+		ScheduledForDelete: response.ScheduledForDelete,
 		Status: &models.ReplicationReplicateDetailsReplicaStatus{
-			State:  response.Status.State,
-			Errors: response.Status.Errors,
+			State:             response.Status.State,
+			Errors:            errors,
+			WhenStartedUnixMs: response.StartTimeUnixMs,
 		},
-		StatusHistory: history,
-		TransferType:  &response.TransferType,
+		StatusHistory:     history,
+		Type:              &response.TransferType,
+		WhenStartedUnixMs: response.StartTimeUnixMs,
 	}
 }
 
@@ -131,10 +158,6 @@ func (h *replicationHandler) generateArrayReplicationDetailsResponse(withHistory
 
 func (h *replicationHandler) handleReplicationDetailsResponse(withHistory bool, response api.ReplicationDetailsResponse) *replication.ReplicationDetailsOK {
 	return replication.NewReplicationDetailsOK().WithPayload(h.generateReplicationDetailsResponse(withHistory, response))
-}
-
-func (h *replicationHandler) handleForbiddenError(err error) middleware.Responder {
-	return replication.NewReplicationDetailsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("access denied: %w", err)))
 }
 
 func (h *replicationHandler) handleOperationNotFoundError(id strfmt.UUID, err error) middleware.Responder {
@@ -161,15 +184,27 @@ func (h *replicationHandler) handleInternalServerError(id strfmt.UUID, err error
 }
 
 func (h *replicationHandler) deleteReplication(params replication.DeleteReplicationParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.CollectionsMetadata()...); err != nil {
-		return replication.NewDeleteReplicationForbidden()
+	ctx := params.HTTPRequest.Context()
+
+	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(ctx, params.ID)
+	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+		return replication.NewDeleteReplicationNoContent()
+	} else if err != nil {
+		return replication.NewDeleteReplicationInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.replicationManager.DeleteReplication(params.ID); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Replications(response.Collection, response.ShardId)); err != nil {
+		return replication.NewDeleteReplicationForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if err := h.replicationManager.DeleteReplication(ctx, params.ID); err != nil {
 		if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
-			return h.handleOperationNotFoundError(params.ID, err)
+			return replication.NewDeleteReplicationNoContent()
 		}
-		return h.handleInternalServerError(params.ID, err)
+		if errors.Is(err, replicationTypes.ErrDeletionImpossible) {
+			return replication.NewDeleteReplicationConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+		return replication.NewDeleteReplicationInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -181,12 +216,13 @@ func (h *replicationHandler) deleteReplication(params replication.DeleteReplicat
 	return replication.NewDeleteReplicationNoContent()
 }
 
-func (h *replicationHandler) deleteAllReplications(_ replication.DeleteAllReplicationsParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.CollectionsMetadata()...); err != nil {
-		return replication.NewDeleteAllReplicationsForbidden()
+func (h *replicationHandler) deleteAllReplications(params replication.DeleteAllReplicationsParams, principal *models.Principal) middleware.Responder {
+	ctx := params.HTTPRequest.Context()
+	if err := h.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Replications("*", "*")); err != nil {
+		return replication.NewDeleteAllReplicationsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.replicationManager.DeleteAllReplications(); err != nil {
+	if err := h.replicationManager.DeleteAllReplications(ctx); err != nil {
 		return replication.NewDeleteAllReplicationsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -198,16 +234,125 @@ func (h *replicationHandler) deleteAllReplications(_ replication.DeleteAllReplic
 	return replication.NewDeleteAllReplicationsNoContent()
 }
 
-func (h *replicationHandler) cancelReplication(params replication.CancelReplicationParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata()...); err != nil {
-		return replication.NewCancelReplicationForbidden()
+func (h *replicationHandler) forceDeleteReplications(params replication.ForceDeleteReplicationsParams, principal *models.Principal) middleware.Responder {
+	ctx := params.HTTPRequest.Context()
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Replications("*", "*")); err != nil {
+		return replication.NewForceDeleteReplicationsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.replicationManager.CancelReplication(params.ID); err != nil {
-		if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
-			return h.handleOperationNotFoundError(params.ID, err)
+	all := params.Body == nil || (params.Body.Collection == "" && params.Body.Shard == "" && params.Body.ID == "" && params.Body.Node == "")
+	byCollection := params.Body != nil && params.Body.Collection != ""
+	byShard := params.Body != nil && params.Body.Shard != ""
+	byId := params.Body != nil && params.Body.ID != ""
+	byNode := params.Body != nil && params.Body.Node != ""
+	dryRun := params.Body != nil && params.Body.DryRun != nil && *params.Body.DryRun
+
+	var err error
+	if dryRun {
+		var details []api.ReplicationDetailsResponse
+
+		if all {
+			details, err = h.replicationManager.GetAllReplicationDetails(params.HTTPRequest.Context())
+		} else if byCollection {
+			if byShard {
+				details, err = h.replicationManager.GetReplicationDetailsByCollectionAndShard(params.HTTPRequest.Context(), params.Body.Collection, params.Body.Shard)
+			} else {
+				details, err = h.replicationManager.GetReplicationDetailsByCollection(params.HTTPRequest.Context(), params.Body.Collection)
+			}
+		} else if byId {
+			detail, innerErr := h.replicationManager.GetReplicationDetailsByReplicationId(params.HTTPRequest.Context(), params.Body.ID)
+			if errors.Is(innerErr, replicationTypes.ErrReplicationOperationNotFound) {
+				return replication.NewForceDeleteReplicationsOK().WithPayload(&models.ReplicationReplicateForceDeleteResponse{
+					Deleted: []strfmt.UUID{params.Body.ID},
+					DryRun:  dryRun,
+				})
+			}
+			details = []api.ReplicationDetailsResponse{detail}
+			err = innerErr
+		} else if byNode {
+			details, err = h.replicationManager.GetReplicationDetailsByTargetNode(params.HTTPRequest.Context(), params.Body.Node)
+		} else {
+			// This can happen if the user provides only a shard id without a collection id
+			return replication.NewForceDeleteReplicationsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("shard id provided without collection id")))
 		}
-		return h.handleInternalServerError(params.ID, err)
+		if err != nil {
+			return replication.NewForceDeleteReplicationsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+
+		uuids := make([]strfmt.UUID, len(details))
+		for i, detail := range details {
+			uuids[i] = detail.Uuid
+		}
+
+		h.logger.WithFields(logrus.Fields{
+			"action": "replication",
+			"op":     "force_delete_operations",
+		}).Info("dry run of force delete replication operations")
+
+		return replication.NewForceDeleteReplicationsOK().WithPayload(&models.ReplicationReplicateForceDeleteResponse{
+			Deleted: uuids,
+			DryRun:  true,
+		})
+	}
+
+	if all {
+		err = h.replicationManager.ForceDeleteAllReplications(params.HTTPRequest.Context())
+	} else if byCollection {
+		if byShard {
+			err = h.replicationManager.ForceDeleteReplicationsByCollectionAndShard(params.HTTPRequest.Context(), params.Body.Collection, params.Body.Shard)
+		} else {
+			err = h.replicationManager.ForceDeleteReplicationsByCollection(params.HTTPRequest.Context(), params.Body.Collection)
+		}
+	} else if byId {
+		innerErr := h.replicationManager.ForceDeleteReplicationByUuid(params.HTTPRequest.Context(), params.Body.ID)
+		if errors.Is(innerErr, replicationTypes.ErrReplicationOperationNotFound) {
+			return replication.NewForceDeleteReplicationsOK().WithPayload(&models.ReplicationReplicateForceDeleteResponse{
+				Deleted: []strfmt.UUID{params.Body.ID},
+				DryRun:  dryRun,
+			})
+		}
+		err = innerErr
+	} else if byNode {
+		err = h.replicationManager.ForceDeleteReplicationsByTargetNode(params.HTTPRequest.Context(), params.Body.Node)
+	} else {
+		// This can happen if the user provides only a shard id without a collection id
+		return replication.NewForceDeleteReplicationsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("shard id provided without collection id")))
+	}
+	if err != nil {
+		return replication.NewForceDeleteReplicationsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"action": "replication",
+		"op":     "force_delete_operations",
+	}).Info("force delete replication operations")
+
+	return replication.NewForceDeleteReplicationsOK().WithPayload(&models.ReplicationReplicateForceDeleteResponse{})
+}
+
+func (h *replicationHandler) cancelReplication(params replication.CancelReplicationParams, principal *models.Principal) middleware.Responder {
+	ctx := params.HTTPRequest.Context()
+
+	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(ctx, params.ID)
+	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+		return replication.NewCancelReplicationNoContent()
+	} else if err != nil {
+		return replication.NewCancelReplicationInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Replications(response.Collection, response.ShardId)); err != nil {
+		return replication.NewCancelReplicationForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if err := h.replicationManager.CancelReplication(ctx, params.ID); err != nil {
+		if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+			return replication.NewCancelReplicationNoContent()
+		}
+		if errors.Is(err, replicationTypes.ErrCancellationImpossible) {
+			return replication.NewCancelReplicationConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+		return replication.NewCancelReplicationInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -220,23 +365,25 @@ func (h *replicationHandler) cancelReplication(params replication.CancelReplicat
 }
 
 func (h *replicationHandler) listReplication(params replication.ListReplicationParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
-		return replication.NewListReplicationForbidden()
+	ctx := params.HTTPRequest.Context()
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Replications("*", "*")); err != nil {
+		return replication.NewListReplicationForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	var response []api.ReplicationDetailsResponse
 	var err error
 
-	if params.Collection == nil && params.Shard == nil && params.NodeID == nil {
-		response, err = h.replicationManager.GetAllReplicationDetails()
+	if params.Collection == nil && params.Shard == nil && params.TargetNode == nil {
+		response, err = h.replicationManager.GetAllReplicationDetails(params.HTTPRequest.Context())
 	} else if params.Collection != nil {
 		if params.Shard != nil {
-			response, err = h.replicationManager.GetReplicationDetailsByCollectionAndShard(*params.Collection, *params.Shard)
+			response, err = h.replicationManager.GetReplicationDetailsByCollectionAndShard(params.HTTPRequest.Context(), *params.Collection, *params.Shard)
 		} else {
-			response, err = h.replicationManager.GetReplicationDetailsByCollection(*params.Collection)
+			response, err = h.replicationManager.GetReplicationDetailsByCollection(params.HTTPRequest.Context(), *params.Collection)
 		}
-	} else if params.NodeID != nil {
-		response, err = h.replicationManager.GetReplicationDetailsByTargetNode(*params.NodeID)
+	} else if params.TargetNode != nil {
+		response, err = h.replicationManager.GetReplicationDetailsByTargetNode(params.HTTPRequest.Context(), *params.TargetNode)
 	} else {
 		// This can happen if the user provides only a shard id without a collection id
 		return replication.NewListReplicationBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("shard id provided without collection id")))
@@ -244,7 +391,7 @@ func (h *replicationHandler) listReplication(params replication.ListReplicationP
 
 	// Handle error if any
 	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
-		return replication.NewListReplicationNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return replication.NewListReplicationOK() // No content is returned if no replication operations are found
 	} else if err != nil {
 		return replication.NewListReplicationInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -274,20 +421,27 @@ func (h *replicationHandler) generateShardingStateResponse(collection string, sh
 }
 
 func (h *replicationHandler) getCollectionShardingState(params replication.GetCollectionShardingStateParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
-		return replication.NewGetCollectionShardingStateForbidden()
-	}
-
+	ctx := params.HTTPRequest.Context()
 	if params.Collection == nil {
 		return replication.NewGetCollectionShardingStateBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("collection is required")))
+	}
+	collection := *params.Collection
+
+	shard := "*"
+	if params.Shard != nil {
+		shard = *params.Shard
+	}
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, collection, shard); err != nil {
+		return replication.NewGetCollectionShardingStateForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	var shardingState api.ShardingState
 	var err error
 	if params.Shard != nil {
-		shardingState, err = h.replicationManager.QueryShardingStateByCollectionAndShard(*params.Collection, *params.Shard)
+		shardingState, err = h.replicationManager.QueryShardingStateByCollectionAndShard(params.HTTPRequest.Context(), collection, shard)
 	} else {
-		shardingState, err = h.replicationManager.QueryShardingStateByCollection(*params.Collection)
+		shardingState, err = h.replicationManager.QueryShardingStateByCollection(params.HTTPRequest.Context(), collection)
 	}
 
 	if errors.Is(err, replicationTypes.ErrNotFound) {

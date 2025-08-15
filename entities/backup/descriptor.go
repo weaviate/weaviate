@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,23 +18,25 @@ import (
 
 // NodeDescriptor contains data related to one participant in DBRO
 type NodeDescriptor struct {
-	Classes []string `json:"classes"`
-	Status  Status   `json:"status"`
-	Error   string   `json:"error"`
+	Classes                 []string `json:"classes"`
+	Status                  Status   `json:"status"`
+	Error                   string   `json:"error"`
+	PreCompressionSizeBytes int64    `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 }
 
 // DistributedBAckupDescriptor contains everything need to completely restore a distributed backup
 type DistributedBackupDescriptor struct {
-	StartedAt     time.Time                  `json:"startedAt"`
-	CompletedAt   time.Time                  `json:"completedAt"`
-	ID            string                     `json:"id"` // User created backup id
-	Nodes         map[string]*NodeDescriptor `json:"nodes"`
-	NodeMapping   map[string]string          `json:"node_mapping"`
-	Status        Status                     `json:"status"`  //
-	Version       string                     `json:"version"` //
-	ServerVersion string                     `json:"serverVersion"`
-	Leader        string                     `json:"leader"`
-	Error         string                     `json:"error"`
+	StartedAt               time.Time                  `json:"startedAt"`
+	CompletedAt             time.Time                  `json:"completedAt"`
+	ID                      string                     `json:"id"` // User created backup id
+	Nodes                   map[string]*NodeDescriptor `json:"nodes"`
+	NodeMapping             map[string]string          `json:"node_mapping"`
+	Status                  Status                     `json:"status"`  //
+	Version                 string                     `json:"version"` //
+	ServerVersion           string                     `json:"serverVersion"`
+	Leader                  string                     `json:"leader"`
+	Error                   string                     `json:"error"`
+	PreCompressionSizeBytes int64                      `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 }
 
 // Len returns how many nodes exist in d
@@ -241,24 +243,28 @@ func (s *ShardDescriptor) ClearTemporary() {
 
 // ClassDescriptor contains everything needed to completely restore a class
 type ClassDescriptor struct {
-	Name          string             `json:"name"` // DB class name, also selected by user
-	Shards        []*ShardDescriptor `json:"shards"`
-	ShardingState []byte             `json:"shardingState"`
-	Schema        []byte             `json:"schema"`
-	Chunks        map[int32][]string `json:"chunks,omitempty"`
-	Error         error              `json:"-"`
+	Name                    string             `json:"name"` // DB class name, also selected by user
+	Shards                  []*ShardDescriptor `json:"shards"`
+	ShardingState           []byte             `json:"shardingState"`
+	Schema                  []byte             `json:"schema"`
+	Chunks                  map[int32][]string `json:"chunks,omitempty"`
+	Error                   error              `json:"-"`
+	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
 }
 
 // BackupDescriptor contains everything needed to completely restore a list of classes
 type BackupDescriptor struct {
-	StartedAt     time.Time         `json:"startedAt"`
-	CompletedAt   time.Time         `json:"completedAt"`
-	ID            string            `json:"id"` // User created backup id
-	Classes       []ClassDescriptor `json:"classes"`
-	Status        string            `json:"status"`  // "STARTED|TRANSFERRING|TRANSFERRED|SUCCESS|FAILED|CANCELED"
-	Version       string            `json:"version"` //
-	ServerVersion string            `json:"serverVersion"`
-	Error         string            `json:"error"`
+	StartedAt               time.Time         `json:"startedAt"`
+	CompletedAt             time.Time         `json:"completedAt"`
+	ID                      string            `json:"id"` // User created backup id
+	Classes                 []ClassDescriptor `json:"classes"`
+	RbacBackups             []byte            `json:"rbacBackups"`
+	UserBackups             []byte            `json:"userBackups"`
+	Status                  string            `json:"status"`  // "STARTED|TRANSFERRING|TRANSFERRED|SUCCESS|FAILED|CANCELED"
+	Version                 string            `json:"version"` //
+	ServerVersion           string            `json:"serverVersion"`
+	Error                   string            `json:"error"`
+	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 }
 
 // List all existing classes in d
@@ -389,13 +395,14 @@ func (d *BackupDescriptor) ToDistributed() *DistributedBackupDescriptor {
 		}
 	}
 	result := &DistributedBackupDescriptor{
-		StartedAt:     d.StartedAt,
-		CompletedAt:   d.CompletedAt,
-		ID:            d.ID,
-		Status:        Status(d.Status),
-		Version:       d.Version,
-		ServerVersion: d.ServerVersion,
-		Error:         d.Error,
+		StartedAt:               d.StartedAt,
+		CompletedAt:             d.CompletedAt,
+		ID:                      d.ID,
+		Status:                  Status(d.Status),
+		Version:                 d.Version,
+		ServerVersion:           d.ServerVersion,
+		Error:                   d.Error,
+		PreCompressionSizeBytes: d.PreCompressionSizeBytes, // Copy pre-compression size
 	}
 	if node != "" && len(cs) > 0 {
 		result.Nodes = map[string]*NodeDescriptor{node: {Classes: cs}}

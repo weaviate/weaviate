@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -73,8 +73,8 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 				absentModuleConfig: true,
 			},
 			{
-				name:            "gemini-1.0-pro-vision",
-				generativeModel: "gemini-1.0-pro-vision",
+				name:            "gemini-2.0-flash-001",
+				generativeModel: "gemini-2.0-flash-001",
 				withImages:      true,
 			},
 		}

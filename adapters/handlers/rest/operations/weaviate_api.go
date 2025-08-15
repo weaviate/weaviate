@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -80,6 +80,21 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzAddPermissionsHandler: authz.AddPermissionsHandlerFunc(func(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AddPermissions has not yet been implemented")
 		}),
+		SchemaAliasesCreateHandler: schema.AliasesCreateHandlerFunc(func(params schema.AliasesCreateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.AliasesCreate has not yet been implemented")
+		}),
+		SchemaAliasesDeleteHandler: schema.AliasesDeleteHandlerFunc(func(params schema.AliasesDeleteParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.AliasesDelete has not yet been implemented")
+		}),
+		SchemaAliasesGetHandler: schema.AliasesGetHandlerFunc(func(params schema.AliasesGetParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.AliasesGet has not yet been implemented")
+		}),
+		SchemaAliasesGetAliasHandler: schema.AliasesGetAliasHandlerFunc(func(params schema.AliasesGetAliasParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.AliasesGetAlias has not yet been implemented")
+		}),
+		SchemaAliasesUpdateHandler: schema.AliasesUpdateHandlerFunc(func(params schema.AliasesUpdateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.AliasesUpdate has not yet been implemented")
+		}),
 		AuthzAssignRoleToGroupHandler: authz.AssignRoleToGroupHandlerFunc(func(params authz.AssignRoleToGroupParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AssignRoleToGroup has not yet been implemented")
 		}),
@@ -148,6 +163,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		DistributedTasksDistributedTasksGetHandler: distributed_tasks.DistributedTasksGetHandlerFunc(func(params distributed_tasks.DistributedTasksGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation distributed_tasks.DistributedTasksGet has not yet been implemented")
+		}),
+		ReplicationForceDeleteReplicationsHandler: replication.ForceDeleteReplicationsHandlerFunc(func(params replication.ForceDeleteReplicationsParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.ForceDeleteReplications has not yet been implemented")
 		}),
 		ReplicationGetCollectionShardingStateHandler: replication.GetCollectionShardingStateHandlerFunc(func(params replication.GetCollectionShardingStateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.GetCollectionShardingState has not yet been implemented")
@@ -399,6 +417,16 @@ type WeaviateAPI struct {
 	UsersActivateUserHandler users.ActivateUserHandler
 	// AuthzAddPermissionsHandler sets the operation handler for the add permissions operation
 	AuthzAddPermissionsHandler authz.AddPermissionsHandler
+	// SchemaAliasesCreateHandler sets the operation handler for the aliases create operation
+	SchemaAliasesCreateHandler schema.AliasesCreateHandler
+	// SchemaAliasesDeleteHandler sets the operation handler for the aliases delete operation
+	SchemaAliasesDeleteHandler schema.AliasesDeleteHandler
+	// SchemaAliasesGetHandler sets the operation handler for the aliases get operation
+	SchemaAliasesGetHandler schema.AliasesGetHandler
+	// SchemaAliasesGetAliasHandler sets the operation handler for the aliases get alias operation
+	SchemaAliasesGetAliasHandler schema.AliasesGetAliasHandler
+	// SchemaAliasesUpdateHandler sets the operation handler for the aliases update operation
+	SchemaAliasesUpdateHandler schema.AliasesUpdateHandler
 	// AuthzAssignRoleToGroupHandler sets the operation handler for the assign role to group operation
 	AuthzAssignRoleToGroupHandler authz.AssignRoleToGroupHandler
 	// AuthzAssignRoleToUserHandler sets the operation handler for the assign role to user operation
@@ -445,6 +473,8 @@ type WeaviateAPI struct {
 	UsersDeleteUserHandler users.DeleteUserHandler
 	// DistributedTasksDistributedTasksGetHandler sets the operation handler for the distributed tasks get operation
 	DistributedTasksDistributedTasksGetHandler distributed_tasks.DistributedTasksGetHandler
+	// ReplicationForceDeleteReplicationsHandler sets the operation handler for the force delete replications operation
+	ReplicationForceDeleteReplicationsHandler replication.ForceDeleteReplicationsHandler
 	// ReplicationGetCollectionShardingStateHandler sets the operation handler for the get collection sharding state operation
 	ReplicationGetCollectionShardingStateHandler replication.GetCollectionShardingStateHandler
 	// UsersGetOwnInfoHandler sets the operation handler for the get own info operation
@@ -656,6 +686,21 @@ func (o *WeaviateAPI) Validate() error {
 	if o.AuthzAddPermissionsHandler == nil {
 		unregistered = append(unregistered, "authz.AddPermissionsHandler")
 	}
+	if o.SchemaAliasesCreateHandler == nil {
+		unregistered = append(unregistered, "schema.AliasesCreateHandler")
+	}
+	if o.SchemaAliasesDeleteHandler == nil {
+		unregistered = append(unregistered, "schema.AliasesDeleteHandler")
+	}
+	if o.SchemaAliasesGetHandler == nil {
+		unregistered = append(unregistered, "schema.AliasesGetHandler")
+	}
+	if o.SchemaAliasesGetAliasHandler == nil {
+		unregistered = append(unregistered, "schema.AliasesGetAliasHandler")
+	}
+	if o.SchemaAliasesUpdateHandler == nil {
+		unregistered = append(unregistered, "schema.AliasesUpdateHandler")
+	}
 	if o.AuthzAssignRoleToGroupHandler == nil {
 		unregistered = append(unregistered, "authz.AssignRoleToGroupHandler")
 	}
@@ -724,6 +769,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.DistributedTasksDistributedTasksGetHandler == nil {
 		unregistered = append(unregistered, "distributed_tasks.DistributedTasksGetHandler")
+	}
+	if o.ReplicationForceDeleteReplicationsHandler == nil {
+		unregistered = append(unregistered, "replication.ForceDeleteReplicationsHandler")
 	}
 	if o.ReplicationGetCollectionShardingStateHandler == nil {
 		unregistered = append(unregistered, "replication.GetCollectionShardingStateHandler")
@@ -1017,6 +1065,26 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
+	o.handlers["POST"]["/aliases"] = schema.NewAliasesCreate(o.context, o.SchemaAliasesCreateHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/aliases/{aliasName}"] = schema.NewAliasesDelete(o.context, o.SchemaAliasesDeleteHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/aliases"] = schema.NewAliasesGet(o.context, o.SchemaAliasesGetHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/aliases/{aliasName}"] = schema.NewAliasesGetAlias(o.context, o.SchemaAliasesGetAliasHandler)
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/aliases/{aliasName}"] = schema.NewAliasesUpdate(o.context, o.SchemaAliasesUpdateHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
 	o.handlers["POST"]["/authz/groups/{id}/assign"] = authz.NewAssignRoleToGroup(o.context, o.AuthzAssignRoleToGroupHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
@@ -1106,6 +1174,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/tasks"] = distributed_tasks.NewDistributedTasksGet(o.context, o.DistributedTasksDistributedTasksGetHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/replication/replicate/force-delete"] = replication.NewForceDeleteReplications(o.context, o.ReplicationForceDeleteReplicationsHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

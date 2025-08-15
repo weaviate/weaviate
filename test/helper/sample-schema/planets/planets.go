@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,10 +28,16 @@ import (
 	grpchelper "github.com/weaviate/weaviate/test/helper/grpc"
 )
 
-var Planets = []struct {
-	ID                strfmt.UUID
-	Name, Description string
-}{
+type Planet struct {
+	ID                         strfmt.UUID
+	Name, Description          string
+	Satellites                 []string
+	MeanRadius                 float64
+	IsHabitable                bool
+	SurfaceTemperaturesCelcius []float64
+}
+
+var Planets = []Planet{
 	{
 		ID:   strfmt.UUID("00000000-0000-0000-0000-000000000001"),
 		Name: "Earth",
@@ -43,6 +49,10 @@ var Planets = []struct {
 		Humans, as the dominant species, have left an indelible mark on Earth, shaping its landscapes and ecosystems in profound ways. 
 		However, with this influence comes the responsibility to steward and preserve our planet for future generations.
 		`,
+		Satellites:                 []string{"Moon"},
+		MeanRadius:                 6371.0,
+		IsHabitable:                true,
+		SurfaceTemperaturesCelcius: []float64{-89.2, 14.76, 56.7},
 	},
 	{
 		ID:   strfmt.UUID("00000000-0000-0000-0000-000000000002"),
@@ -55,6 +65,10 @@ var Planets = []struct {
 		different from Earth. Yet, beneath its desolate surface lie tantalizing clues about its past, including evidence of ancient rivers, 
 		lakes, and even the possibility of microbial life.
 		`,
+		Satellites:                 []string{"Phobos", "Deimos"},
+		MeanRadius:                 3389.5,
+		IsHabitable:                false,
+		SurfaceTemperaturesCelcius: []float64{-110, -60, 35},
 	},
 }
 
@@ -71,6 +85,18 @@ func BaseClass(className string) *models.Class {
 			{
 				Name: "image", DataType: []string{schema.DataTypeBlob.String()},
 			},
+			{
+				Name: "satellites", DataType: []string{string(schema.DataTypeTextArray.String())},
+			},
+			{
+				Name: "meanRadius", DataType: []string{string(schema.DataTypeNumber.String())},
+			},
+			{
+				Name: "isHabitable", DataType: []string{string(schema.DataTypeBoolean.String())},
+			},
+			{
+				Name: "surfaceTemperaturesCelcius", DataType: []string{string(schema.DataTypeNumberArray.String())},
+			},
 		},
 	}
 }
@@ -80,13 +106,17 @@ func InsertObjects(t *testing.T, className string) {
 }
 
 func InsertObjectsWithImages(t *testing.T, className, dataFolderPath string) {
-	getProperties := func(t *testing.T, name, description, dataFolderPath string) map[string]interface{} {
+	getProperties := func(t *testing.T, planet Planet, dataFolderPath string) map[string]interface{} {
 		properties := map[string]interface{}{
-			"name":        name,
-			"description": description,
+			"name":                       planet.Name,
+			"description":                planet.Description,
+			"satellites":                 planet.Satellites,
+			"meanRadius":                 planet.MeanRadius,
+			"isHabitable":                planet.IsHabitable,
+			"surfaceTemperaturesCelcius": planet.SurfaceTemperaturesCelcius,
 		}
 		if dataFolderPath != "" {
-			imageBase64, err := GetImageBlob(dataFolderPath, strings.ToLower(name))
+			imageBase64, err := GetImageBlob(dataFolderPath, strings.ToLower(planet.Name))
 			require.NoError(t, err)
 			properties["image"] = imageBase64
 		}
@@ -96,7 +126,7 @@ func InsertObjectsWithImages(t *testing.T, className, dataFolderPath string) {
 		obj := &models.Object{
 			Class:      className,
 			ID:         planet.ID,
-			Properties: getProperties(t, planet.Name, planet.Description, dataFolderPath),
+			Properties: getProperties(t, planet, dataFolderPath),
 		}
 		helper.CreateObject(t, obj)
 		helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
@@ -112,6 +142,14 @@ func CreateTweetTestWithParams(t *testing.T, className, params string) {
 }
 
 func CreatePromptTestWithParams(t *testing.T, className, prompt, params string) {
+	CreatePromptTestWithParamsWithDebug(t, className, prompt, params, false)
+}
+
+func CreatePromptTestWithParamsWithDebug(t *testing.T, className, prompt, params string, debug bool) {
+	debugParams := []string{"", ""}
+	if debug {
+		debugParams = []string{"debug:true", "debug{prompt}"}
+	}
 	query := fmt.Sprintf(`
 			{
 				Get {
@@ -124,16 +162,18 @@ func CreatePromptTestWithParams(t *testing.T, className, prompt, params string) 
 										%s
 									"""
 									%s
+									%s
 								}
 							) {
 								singleResult
 								error
+								%s
 							}
 						}
 					}
 				}
 			}
-		`, className, prompt, params)
+		`, className, prompt, params, debugParams[0], debugParams[1])
 	result := graphqlhelper.AssertGraphQLWithTimeout(t, helper.RootAuth, 10*time.Minute, query)
 	objs := result.Get("Get", className).AsSlice()
 	require.Len(t, objs, 2)
@@ -152,7 +192,16 @@ func CreatePromptTestWithParams(t *testing.T, className, prompt, params string) 
 		require.True(t, ok)
 		require.NotEmpty(t, singleResult)
 		// print the results of the prompt
-		t.Logf("[%v]Prompt: %s\nResult: %s\n", i, prompt, singleResult)
+		if debug {
+			debugResult, ok := generate["debug"].(map[string]interface{})
+			require.True(t, ok)
+			require.NotNil(t, debugResult["prompt"])
+			debugPrompt, ok := debugResult["prompt"].(string)
+			require.True(t, ok)
+			t.Logf("---------------\n[%v]Prompt: %s\n[%v]Debug.prompt: %v\n[%v]Result: %s\n---------------\n", i, prompt, i, debugPrompt, i, singleResult)
+		} else {
+			t.Logf("---------------\n[%v]Prompt: %s\n[%v]Result: %s\n---------------\n", i, prompt, i, singleResult)
+		}
 	}
 }
 
@@ -190,10 +239,10 @@ func CreatePromptTestWithParamsGRPC(t *testing.T, className, singlePrompt, group
 	require.Len(t, resp.Results, 2)
 	for i, res := range resp.Results {
 		assertGenerative(t, res.Generative, params)
-		t.Logf("[%v]Single Prompt: %s\nResult: %s\n", i, singlePrompt, res.Generative.GetValues()[0].Result)
+		t.Logf("---------------\n[%v]Single Prompt: %s\n[%v]Result: %s\n---------------\n", i, singlePrompt, i, res.Generative.GetValues()[0].Result)
 	}
 	assertGenerative(t, resp.GenerativeGroupedResults, params)
-	t.Logf("Grouped Prompt: %s\nResult: %s\n", groupPrompt, resp.GenerativeGroupedResults.GetValues()[0].Result)
+	t.Logf("---------------\nGrouped Prompt: %s\nResult: %s\n---------------\n", groupPrompt, resp.GenerativeGroupedResults.GetValues()[0].Result)
 }
 
 func assertGenerative(t *testing.T, generative *pb.GenerativeResult, params *pb.GenerativeProvider) {

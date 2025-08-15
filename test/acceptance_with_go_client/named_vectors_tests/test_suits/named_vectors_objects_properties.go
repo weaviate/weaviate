@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -69,7 +69,7 @@ func testCreateWithModulePropertiesObject(host string) func(t *testing.T) {
 					VectorConfig: map[string]models.VectorConfig{
 						author: {
 							Vectorizer: map[string]interface{}{
-								text2vecContextionary: map[string]interface{}{
+								text2vecModel2Vec: map[string]interface{}{
 									"vectorizeClassName": false,
 									"properties":         []interface{}{"author"},
 								},
@@ -78,7 +78,7 @@ func testCreateWithModulePropertiesObject(host string) func(t *testing.T) {
 						},
 						title: {
 							Vectorizer: map[string]interface{}{
-								text2vecContextionary: map[string]interface{}{
+								text2vecModel2Vec: map[string]interface{}{
 									"vectorizeClassName": false,
 									"properties":         []interface{}{"title"},
 								},
@@ -87,7 +87,7 @@ func testCreateWithModulePropertiesObject(host string) func(t *testing.T) {
 						},
 						description: {
 							Vectorizer: map[string]interface{}{
-								text2vecContextionary: map[string]interface{}{
+								text2vecModel2Vec: map[string]interface{}{
 									"vectorizeClassName": false,
 									"properties":         []interface{}{"description"},
 								},
@@ -97,7 +97,7 @@ func testCreateWithModulePropertiesObject(host string) func(t *testing.T) {
 						},
 						genre: {
 							Vectorizer: map[string]interface{}{
-								text2vecContextionary: map[string]interface{}{
+								text2vecModel2Vec: map[string]interface{}{
 									"vectorizeClassName": false,
 									"properties":         []interface{}{"genre"},
 								},

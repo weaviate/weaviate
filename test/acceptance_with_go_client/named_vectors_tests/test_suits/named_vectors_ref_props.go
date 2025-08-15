@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -50,7 +50,7 @@ func testReferenceProperties(host string) func(t *testing.T) {
 		genre := "genre"
 		ofBookshelf := "ofBookshelf"
 		transformers_bookshelf_name := "transformers_bookshelf_name"
-		c11y_bookshelf_name := "c11y_bookshelf_name"
+		m2vec_bookshelf_name := "m2vec_bookshelf_name"
 
 		bookshelfIDs := []string{
 			"00000000-0000-0000-0000-00000000000a",
@@ -70,9 +70,9 @@ func testReferenceProperties(host string) func(t *testing.T) {
 				},
 				InvertedIndexConfig: &models.InvertedIndexConfig{IndexTimestamps: true, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
 				VectorConfig: map[string]models.VectorConfig{
-					c11y_bookshelf_name: {
+					m2vec_bookshelf_name: {
 						Vectorizer: map[string]interface{}{
-							text2vecContextionary: map[string]interface{}{
+							text2vecModel2Vec: map[string]interface{}{
 								"vectorizeClassName": false,
 								"properties":         []interface{}{"name"},
 							},
@@ -81,7 +81,7 @@ func testReferenceProperties(host string) func(t *testing.T) {
 					},
 					transformers_bookshelf_name: {
 						Vectorizer: map[string]interface{}{
-							text2vecContextionary: map[string]interface{}{
+							text2vecModel2Vec: map[string]interface{}{
 								"vectorizeClassName": false,
 								"properties":         []interface{}{"name"},
 							},
@@ -112,7 +112,7 @@ func testReferenceProperties(host string) func(t *testing.T) {
 				VectorConfig: map[string]models.VectorConfig{
 					author: {
 						Vectorizer: map[string]interface{}{
-							text2vecContextionary: map[string]interface{}{
+							text2vecModel2Vec: map[string]interface{}{
 								"vectorizeClassName": false,
 								"properties":         []interface{}{author},
 							},
@@ -121,7 +121,7 @@ func testReferenceProperties(host string) func(t *testing.T) {
 					},
 					title: {
 						Vectorizer: map[string]interface{}{
-							text2vecContextionary: map[string]interface{}{
+							text2vecModel2Vec: map[string]interface{}{
 								"vectorizeClassName": false,
 								"properties":         []interface{}{title},
 							},
@@ -213,7 +213,7 @@ func testReferenceProperties(host string) func(t *testing.T) {
 		})
 
 		t.Run("GrahQL check", func(t *testing.T) {
-			targetVectors := []string{transformers_bookshelf_name, c11y_bookshelf_name}
+			targetVectors := []string{transformers_bookshelf_name, m2vec_bookshelf_name}
 			where := filters.Where().
 				WithPath([]string{"id"}).
 				WithOperator(filters.Equal).
@@ -281,7 +281,7 @@ func testReferenceProperties(host string) func(t *testing.T) {
 				}
 			}
 			require.Len(t, targetVectorsMap, len(targetVectors))
-			assert.NotEmpty(t, targetVectorsMap[c11y_bookshelf_name])
+			assert.NotEmpty(t, targetVectorsMap[m2vec_bookshelf_name])
 			assert.NotEmpty(t, targetVectorsMap[transformers_bookshelf_name])
 		})
 	}

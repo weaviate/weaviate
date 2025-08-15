@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"sync"
@@ -22,7 +23,7 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/mocks"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/utils"
@@ -337,6 +338,8 @@ func verifySchemaRestoration(t *testing.T, source, target MockStore) {
 				assert.Equal(t, len(sourceShardingState.Physical), len(targetShardingState.Physical),
 					"Number of tenants should match for class %s", sourceClass.Class)
 
+				assert.Equal(t, sourceShardingState.ReplicationFactor, targetShardingState.ReplicationFactor,
+					"Replication factor should match for class %s", sourceClass.Class)
 				// Compare each tenant's configuration
 				for tenantName, sourceTenant := range sourceShardingState.Physical {
 					targetTenant, exists := targetShardingState.Physical[tenantName]
@@ -347,9 +350,756 @@ func verifySchemaRestoration(t *testing.T, source, target MockStore) {
 							"Tenant status should match for %s in class %s", tenantName, sourceClass.Class)
 						assert.Equal(t, len(sourceTenant.BelongsToNodes), len(targetTenant.BelongsToNodes),
 							"Node count should match for tenant %s in class %s", tenantName, sourceClass.Class)
+						sourceTenantNumberOfReplicas, err := sourceShardingState.NumberOfReplicas(sourceTenant.Name)
+						assert.Nil(t, err, "error while getting number of replicas for source tenant %s", sourceTenant.Name)
+						targetTenantNumberOfReplicas, err := targetShardingState.NumberOfReplicas(targetTenant.Name)
+						assert.Nil(t, err, "error while getting number of replicas for target tenant %s", targetTenant.Name)
+						assert.Equal(t, sourceTenantNumberOfReplicas, targetTenantNumberOfReplicas)
 					}
 				}
 			}
 		}
 	}
+}
+
+func TestReplicationFactorMigration(t *testing.T) {
+	t.Run("copy sharding state with uninitialized replication factor and partitioning disabled", func(t *testing.T) {
+		source := NewMockStore(t, "replication-source-node", utils.MustGetFreeTCPPort())
+
+		source.parser.On("ParseClass", mock.Anything).Return(nil)
+		source.indexer.On("AddClass", mock.Anything).Return(nil)
+		source.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+		className := "TestClass"
+		class := &models.Class{
+			Class: className,
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}
+
+		shardState := &sharding.State{
+			IndexID: className,
+			Physical: map[string]sharding.Physical{
+				"tenant1": {
+					Name:           "tenant1",
+					BelongsToNodes: []string{source.cfg.NodeID},
+					Status:         models.TenantActivityStatusHOT,
+				},
+			},
+			PartitioningEnabled: false,
+			// uninitialized ReplicationFactor
+		}
+
+		createClassLog := raft.Log{
+			Data: cmdAsBytes(
+				className,
+				cmd.ApplyRequest_TYPE_ADD_CLASS,
+				cmd.AddClassRequest{
+					Class: class,
+					State: shardState,
+				}, nil),
+		}
+
+		source.store.Apply(&createClassLog)
+
+		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
+			"error while reading class schema")
+
+		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		require.Equal(t, int64(1), sourceState.ReplicationFactor,
+			"error while copying sharding state")
+
+		snapshotSink := &mocks.SnapshotSink{
+			Buffer: bytes.NewBuffer(nil),
+		}
+
+		snapshot, err := source.store.Snapshot()
+		require.NoError(t, err, "error while creating snapshot")
+
+		err = snapshot.Persist(snapshotSink)
+		require.NoError(t, err, "error while persisting snapshot")
+
+		target := NewMockStore(t, "replication-target-node", utils.MustGetFreeTCPPort())
+		target.store.init()
+
+		target.parser.On("ParseClass", mock.Anything).Return(nil)
+		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
+		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+		target.indexer.On("AddClass", mock.Anything).Return(nil)
+
+		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
+		err = target.store.Restore(snapshotReader)
+		require.NoError(t, err)
+
+		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
+		require.NotNil(t, targetClass, "Class should be restored")
+
+		targetState := target.store.SchemaReader().CopyShardingState(className)
+		require.NotNil(t, targetState, "Sharding state should be restored")
+		require.Equal(t, int64(1), targetState.ReplicationFactor,
+			"Replication factor should be migrated to match the number of nodes (1)")
+
+		for tenantName, targetTenant := range targetState.Physical {
+			require.Equal(t, 1, len(targetTenant.BelongsToNodes),
+				"Tenant %s should still have 1 replicas", tenantName)
+		}
+	})
+
+	t.Run("copy sharding state with uninitialized replication factor and partitioning enabled", func(t *testing.T) {
+		source := NewMockStore(t, "partitioning-source-node", utils.MustGetFreeTCPPort())
+
+		source.parser.On("ParseClass", mock.Anything).Return(nil)
+		source.indexer.On("AddClass", mock.Anything).Return(nil)
+		source.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+		className := "TestClass"
+		class := &models.Class{
+			Class: className,
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}
+
+		shardState := &sharding.State{
+			IndexID:             className,
+			Physical:            map[string]sharding.Physical{},
+			PartitioningEnabled: true,
+			// uninitialized ReplicationFactor
+		}
+
+		createClassLog := raft.Log{
+			Data: cmdAsBytes(
+				className,
+				cmd.ApplyRequest_TYPE_ADD_CLASS,
+				cmd.AddClassRequest{
+					Class: class,
+					State: shardState,
+				}, nil),
+		}
+
+		source.store.Apply(&createClassLog)
+
+		// Verify class was added
+		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
+			"error while reading class schema")
+
+		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		require.Equal(t, int64(1), sourceState.ReplicationFactor,
+			"source replication factor should be 1 before snapshot")
+		require.True(t, sourceState.PartitioningEnabled,
+			"partitioning should be enabled")
+
+		snapshotSink := &mocks.SnapshotSink{
+			Buffer: bytes.NewBuffer(nil),
+		}
+
+		snapshot, err := source.store.Snapshot()
+		require.NoError(t, err, "error while creating snapshot")
+
+		err = snapshot.Persist(snapshotSink)
+		require.NoError(t, err, "error while persisting snapshot")
+
+		target := NewMockStore(t, "partitioning-target-node", utils.MustGetFreeTCPPort())
+		err = target.store.init()
+		require.NoError(t, err, "error while initializing target store")
+
+		target.parser.On("ParseClass", mock.Anything).Return(nil)
+		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
+		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+		target.indexer.On("AddClass", mock.Anything).Return(nil)
+
+		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
+		err = target.store.Restore(snapshotReader)
+		require.NoError(t, err, "error while restoring snapshot")
+
+		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
+		require.NotNil(t, targetClass, "error while reading class")
+
+		targetState := target.store.SchemaReader().CopyShardingState(className)
+		require.NotNil(t, targetState, "Sharding state should be restored")
+		require.True(t, targetState.PartitioningEnabled,
+			"partitioning should still be enabled after restoring the snapshot")
+		require.Equal(t, int64(1), targetState.ReplicationFactor,
+			"replication factor should be 1 as a result of migrating a sharding state which is missing the replication factor")
+	})
+
+	t.Run("copy sharding state with default replication factor and partitioning disabled", func(t *testing.T) {
+		source := NewMockStore(t, "replication-source-node", utils.MustGetFreeTCPPort())
+
+		source.parser.On("ParseClass", mock.Anything).Return(nil)
+		source.indexer.On("AddClass", mock.Anything).Return(nil)
+		source.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+		className := "TestClass"
+		class := &models.Class{
+			Class: className,
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}
+
+		shardState := &sharding.State{
+			IndexID: className,
+			Physical: map[string]sharding.Physical{
+				"tenant1": {
+					Name:           "tenant1",
+					BelongsToNodes: []string{source.cfg.NodeID},
+					Status:         models.TenantActivityStatusHOT,
+				},
+			},
+			PartitioningEnabled: false,
+			ReplicationFactor:   0,
+		}
+
+		createClassLog := raft.Log{
+			Data: cmdAsBytes(
+				className,
+				cmd.ApplyRequest_TYPE_ADD_CLASS,
+				cmd.AddClassRequest{
+					Class: class,
+					State: shardState,
+				}, nil),
+		}
+
+		source.store.Apply(&createClassLog)
+
+		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
+			"error while reading class schema")
+
+		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		require.Equal(t, int64(1), sourceState.ReplicationFactor,
+			"error while copying sharding state")
+
+		snapshotSink := &mocks.SnapshotSink{
+			Buffer: bytes.NewBuffer(nil),
+		}
+
+		snapshot, err := source.store.Snapshot()
+		require.NoError(t, err, "error while creating snapshot")
+
+		err = snapshot.Persist(snapshotSink)
+		require.NoError(t, err, "error while persisting snapshot")
+
+		target := NewMockStore(t, "replication-target-node", utils.MustGetFreeTCPPort())
+		target.store.init()
+
+		target.parser.On("ParseClass", mock.Anything).Return(nil)
+		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
+		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+		target.indexer.On("AddClass", mock.Anything).Return(nil)
+
+		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
+		err = target.store.Restore(snapshotReader)
+		require.NoError(t, err)
+
+		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
+		require.NotNil(t, targetClass, "Class should be restored")
+
+		targetState := target.store.SchemaReader().CopyShardingState(className)
+		require.NotNil(t, targetState, "Sharding state should be restored")
+		require.Equal(t, int64(1), targetState.ReplicationFactor,
+			"Replication factor should be migrated to match the number of nodes (1)")
+
+		for tenantName, targetTenant := range targetState.Physical {
+			require.Equal(t, 1, len(targetTenant.BelongsToNodes),
+				"Tenant %s should still have 1 replicas", tenantName)
+		}
+	})
+
+	t.Run("copy sharding state with default replication factor and partitioning enabled", func(t *testing.T) {
+		source := NewMockStore(t, "partitioning-source-node", utils.MustGetFreeTCPPort())
+
+		source.parser.On("ParseClass", mock.Anything).Return(nil)
+		source.indexer.On("AddClass", mock.Anything).Return(nil)
+		source.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+		className := "TestClass"
+		class := &models.Class{
+			Class: className,
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}
+
+		shardState := &sharding.State{
+			IndexID:             className,
+			Physical:            map[string]sharding.Physical{},
+			PartitioningEnabled: true,
+			ReplicationFactor:   0,
+		}
+
+		createClassLog := raft.Log{
+			Data: cmdAsBytes(
+				className,
+				cmd.ApplyRequest_TYPE_ADD_CLASS,
+				cmd.AddClassRequest{
+					Class: class,
+					State: shardState,
+				}, nil),
+		}
+
+		source.store.Apply(&createClassLog)
+
+		// Verify class was added
+		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
+			"error while reading class schema")
+
+		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		require.Equal(t, int64(1), sourceState.ReplicationFactor,
+			"source replication factor should be 1 before snapshot")
+		require.True(t, sourceState.PartitioningEnabled,
+			"partitioning should be enabled")
+
+		snapshotSink := &mocks.SnapshotSink{
+			Buffer: bytes.NewBuffer(nil),
+		}
+
+		snapshot, err := source.store.Snapshot()
+		require.NoError(t, err, "error while creating snapshot")
+
+		err = snapshot.Persist(snapshotSink)
+		require.NoError(t, err, "error while persisting snapshot")
+
+		target := NewMockStore(t, "partitioning-target-node", utils.MustGetFreeTCPPort())
+		err = target.store.init()
+		require.NoError(t, err, "error while initializing target store")
+
+		target.parser.On("ParseClass", mock.Anything).Return(nil)
+		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
+		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+		target.indexer.On("AddClass", mock.Anything).Return(nil)
+
+		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
+		err = target.store.Restore(snapshotReader)
+		require.NoError(t, err, "error while restoring snapshot")
+
+		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
+		require.NotNil(t, targetClass, "error while reading class")
+
+		targetState := target.store.SchemaReader().CopyShardingState(className)
+		require.NotNil(t, targetState, "Sharding state should be restored")
+		require.True(t, targetState.PartitioningEnabled,
+			"partitioning should still be enabled after restoring the snapshot")
+		require.Equal(t, int64(1), targetState.ReplicationFactor,
+			"replication factor should be 1 as a result of migrating a sharding state which is missing the replication factor")
+	})
+
+	t.Run("copy sharding state with non-default replication factor and partitioning disabled", func(t *testing.T) {
+		source := NewMockStore(t, "replication-source-node", utils.MustGetFreeTCPPort())
+
+		source.parser.On("ParseClass", mock.Anything).Return(nil)
+		source.indexer.On("AddClass", mock.Anything).Return(nil)
+		source.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+		className := "TestClass"
+		class := &models.Class{
+			Class: className,
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}
+
+		shardState := &sharding.State{
+			IndexID: className,
+			Physical: map[string]sharding.Physical{
+				"tenant1": {
+					Name:           "tenant1",
+					BelongsToNodes: []string{source.cfg.NodeID},
+					Status:         models.TenantActivityStatusHOT,
+				},
+			},
+			PartitioningEnabled: false,
+			ReplicationFactor:   4,
+		}
+
+		createClassLog := raft.Log{
+			Data: cmdAsBytes(
+				className,
+				cmd.ApplyRequest_TYPE_ADD_CLASS,
+				cmd.AddClassRequest{
+					Class: class,
+					State: shardState,
+				}, nil),
+		}
+
+		source.store.Apply(&createClassLog)
+
+		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
+			"error while reading class schema")
+
+		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		require.Equal(t, int64(4), sourceState.ReplicationFactor,
+			"error while copying sharding state")
+
+		snapshotSink := &mocks.SnapshotSink{
+			Buffer: bytes.NewBuffer(nil),
+		}
+
+		snapshot, err := source.store.Snapshot()
+		require.NoError(t, err, "error while creating snapshot")
+
+		err = snapshot.Persist(snapshotSink)
+		require.NoError(t, err, "error while persisting snapshot")
+
+		target := NewMockStore(t, "replication-target-node", utils.MustGetFreeTCPPort())
+		target.store.init()
+
+		target.parser.On("ParseClass", mock.Anything).Return(nil)
+		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
+		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+		target.indexer.On("AddClass", mock.Anything).Return(nil)
+
+		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
+		err = target.store.Restore(snapshotReader)
+		require.NoError(t, err)
+
+		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
+		require.NotNil(t, targetClass, "Class should be restored")
+
+		targetState := target.store.SchemaReader().CopyShardingState(className)
+		require.NotNil(t, targetState, "Sharding state should be restored")
+		require.Equal(t, int64(4), targetState.ReplicationFactor,
+			"Replication factor should be migrated to match the number of nodes (1)")
+
+		for tenantName, targetTenant := range targetState.Physical {
+			require.Equal(t, 1, len(targetTenant.BelongsToNodes),
+				"Tenant %s should still have 1 replicas", tenantName)
+		}
+	})
+
+	t.Run("copy sharding state with non-default replication factor and partitioning enabled", func(t *testing.T) {
+		source := NewMockStore(t, "partitioning-source-node", utils.MustGetFreeTCPPort())
+
+		source.parser.On("ParseClass", mock.Anything).Return(nil)
+		source.indexer.On("AddClass", mock.Anything).Return(nil)
+		source.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+		className := "TestClass"
+		class := &models.Class{
+			Class: className,
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}
+
+		shardState := &sharding.State{
+			IndexID:             className,
+			Physical:            map[string]sharding.Physical{}, // Empty physical map for partitioning
+			PartitioningEnabled: true,
+			ReplicationFactor:   3,
+		}
+
+		createClassLog := raft.Log{
+			Data: cmdAsBytes(
+				className,
+				cmd.ApplyRequest_TYPE_ADD_CLASS,
+				cmd.AddClassRequest{
+					Class: class,
+					State: shardState,
+				}, nil),
+		}
+
+		source.store.Apply(&createClassLog)
+
+		// Verify class was added
+		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
+			"error while reading class schema")
+
+		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		require.Equal(t, int64(3), sourceState.ReplicationFactor,
+			"source replication factor should be 1 before snapshot")
+		require.True(t, sourceState.PartitioningEnabled,
+			"partitioning should be enabled")
+
+		snapshotSink := &mocks.SnapshotSink{
+			Buffer: bytes.NewBuffer(nil),
+		}
+
+		snapshot, err := source.store.Snapshot()
+		require.NoError(t, err, "error while creating snapshot")
+
+		err = snapshot.Persist(snapshotSink)
+		require.NoError(t, err, "error while persisting snapshot")
+
+		target := NewMockStore(t, "partitioning-target-node", utils.MustGetFreeTCPPort())
+		err = target.store.init()
+		require.NoError(t, err, "error while initializing target store")
+
+		target.parser.On("ParseClass", mock.Anything).Return(nil)
+		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
+		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+		target.indexer.On("AddClass", mock.Anything).Return(nil)
+
+		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
+		err = target.store.Restore(snapshotReader)
+		require.NoError(t, err, "error while restoring snapshot")
+
+		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
+		require.NotNil(t, targetClass, "error while reading class")
+
+		targetState := target.store.SchemaReader().CopyShardingState(className)
+		require.NotNil(t, targetState, "Sharding state should be restored")
+		require.True(t, targetState.PartitioningEnabled,
+			"partitioning should still be enabled after restoring the snapshot")
+		require.Equal(t, int64(3), targetState.ReplicationFactor,
+			"replication factor should be 1 as a result of migrating a sharding state which is missing the replication factor")
+	})
+
+	t.Run("sharding state after snapshot restore with undefined replication factor", func(t *testing.T) {
+		source := NewMockStore(t, "snapshot-source-node", utils.MustGetFreeTCPPort())
+
+		source.parser.On("ParseClass", mock.Anything).Return(nil)
+		source.indexer.On("AddClass", mock.Anything).Return(nil)
+		source.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+		className := "TestClass"
+		class := &models.Class{
+			Class: className,
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}
+
+		shardState := &sharding.State{
+			IndexID: className,
+			Physical: map[string]sharding.Physical{
+				"tenant1": {
+					Name:           "tenant1",
+					BelongsToNodes: []string{source.cfg.NodeID, "another-node"}, // 2 replicas
+					Status:         models.TenantActivityStatusHOT,
+				},
+			},
+		}
+
+		createClassLog := raft.Log{
+			Data: cmdAsBytes(
+				className,
+				cmd.ApplyRequest_TYPE_ADD_CLASS,
+				cmd.AddClassRequest{
+					Class: class,
+					State: shardState,
+				}, nil),
+		}
+
+		source.store.Apply(&createClassLog)
+		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
+			"Class should be added")
+
+		snapshotSink := &mocks.SnapshotSink{
+			Buffer: bytes.NewBuffer(nil),
+		}
+
+		snapshot, err := source.store.Snapshot()
+		require.NoError(t, err, "Error creating snapshot")
+
+		err = snapshot.Persist(snapshotSink)
+		require.NoError(t, err, "Error persisting snapshot")
+
+		target := NewMockStore(t, "snapshot-target-node", utils.MustGetFreeTCPPort())
+		err = target.store.init()
+		require.NoError(t, err, "error while initializing target store")
+
+		target.parser.On("ParseClass", mock.Anything).Return(nil)
+		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
+		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+		target.indexer.On("AddClass", mock.Anything).Return(nil)
+
+		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
+		err = target.store.Restore(snapshotReader)
+		require.NoError(t, err, "Error restoring snapshot")
+
+		req := cmd.QueryReadOnlyClassesRequest{Classes: []string{className}}
+		subCommand, err := json.Marshal(&req)
+		require.NoErrorf(t, err, "Error marshaling subcommand")
+		command := &cmd.QueryRequest{
+			Type:       cmd.QueryRequest_TYPE_GET_SHARDING_STATE,
+			SubCommand: subCommand,
+		}
+		queryResp, err := target.store.Query(command)
+		require.NoErrorf(t, err, "error while querying class from restored shanpshot")
+
+		resp := cmd.QueryReadOnlyClassResponse{}
+		err = json.Unmarshal(queryResp.Payload, &resp)
+		require.NoErrorf(t, err, "error while unmarshalling query response")
+
+		for _, restoredClass := range resp.Classes {
+			require.Equal(t, int64(1), restoredClass.ReplicationConfig.Factor)
+		}
+	})
+
+	t.Run("sharding state after snapshot restore with default replication factor", func(t *testing.T) {
+		source := NewMockStore(t, "snapshot-source-node", utils.MustGetFreeTCPPort())
+
+		source.parser.On("ParseClass", mock.Anything).Return(nil)
+		source.indexer.On("AddClass", mock.Anything).Return(nil)
+		source.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+		className := "TestClass"
+		class := &models.Class{
+			Class: className,
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}
+
+		shardState := &sharding.State{
+			IndexID: className,
+			Physical: map[string]sharding.Physical{
+				"tenant1": {
+					Name:           "tenant1",
+					BelongsToNodes: []string{source.cfg.NodeID, "another-node"}, // 2 replicas
+					Status:         models.TenantActivityStatusHOT,
+				},
+			},
+			ReplicationFactor: 0,
+		}
+
+		createClassLog := raft.Log{
+			Data: cmdAsBytes(
+				className,
+				cmd.ApplyRequest_TYPE_ADD_CLASS,
+				cmd.AddClassRequest{
+					Class: class,
+					State: shardState,
+				}, nil),
+		}
+
+		source.store.Apply(&createClassLog)
+		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
+			"Class should be added")
+
+		snapshotSink := &mocks.SnapshotSink{
+			Buffer: bytes.NewBuffer(nil),
+		}
+
+		snapshot, err := source.store.Snapshot()
+		require.NoError(t, err, "Error creating snapshot")
+
+		err = snapshot.Persist(snapshotSink)
+		require.NoError(t, err, "Error persisting snapshot")
+
+		target := NewMockStore(t, "snapshot-target-node", utils.MustGetFreeTCPPort())
+		err = target.store.init()
+		require.NoError(t, err, "error while initializing target store")
+
+		target.parser.On("ParseClass", mock.Anything).Return(nil)
+		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
+		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+		target.indexer.On("AddClass", mock.Anything).Return(nil)
+
+		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
+		err = target.store.Restore(snapshotReader)
+		require.NoError(t, err, "Error restoring snapshot")
+
+		req := cmd.QueryReadOnlyClassesRequest{Classes: []string{className}}
+		subCommand, err := json.Marshal(&req)
+		require.NoErrorf(t, err, "Error marshaling subcommand")
+		command := &cmd.QueryRequest{
+			Type:       cmd.QueryRequest_TYPE_GET_SHARDING_STATE,
+			SubCommand: subCommand,
+		}
+		queryResp, err := target.store.Query(command)
+		require.NoErrorf(t, err, "error while querying class from restored shanpshot")
+
+		resp := cmd.QueryReadOnlyClassResponse{}
+		err = json.Unmarshal(queryResp.Payload, &resp)
+		require.NoErrorf(t, err, "error while unmarshalling query response")
+
+		for _, restoredClass := range resp.Classes {
+			require.Equal(t, int64(1), restoredClass.ReplicationConfig.Factor)
+		}
+	})
+
+	t.Run("sharding state after snapshot restore with non-default replication factor", func(t *testing.T) {
+		source := NewMockStore(t, "snapshot-source-node", utils.MustGetFreeTCPPort())
+
+		source.parser.On("ParseClass", mock.Anything).Return(nil)
+		source.indexer.On("AddClass", mock.Anything).Return(nil)
+		source.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+		className := "TestClass"
+		class := &models.Class{
+			Class: className,
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}
+
+		shardState := &sharding.State{
+			IndexID: className,
+			Physical: map[string]sharding.Physical{
+				"tenant1": {
+					Name:           "tenant1",
+					BelongsToNodes: []string{source.cfg.NodeID, "another-node"}, // 2 replicas
+					Status:         models.TenantActivityStatusHOT,
+				},
+			},
+			ReplicationFactor: 3,
+		}
+
+		createClassLog := raft.Log{
+			Data: cmdAsBytes(
+				className,
+				cmd.ApplyRequest_TYPE_ADD_CLASS,
+				cmd.AddClassRequest{
+					Class: class,
+					State: shardState,
+				}, nil),
+		}
+
+		source.store.Apply(&createClassLog)
+		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
+			"Class should be added")
+
+		snapshotSink := &mocks.SnapshotSink{
+			Buffer: bytes.NewBuffer(nil),
+		}
+
+		snapshot, err := source.store.Snapshot()
+		require.NoError(t, err, "Error creating snapshot")
+
+		err = snapshot.Persist(snapshotSink)
+		require.NoError(t, err, "Error persisting snapshot")
+
+		target := NewMockStore(t, "snapshot-target-node", utils.MustGetFreeTCPPort())
+		err = target.store.init()
+		require.NoError(t, err, "error while initializing target store")
+
+		target.parser.On("ParseClass", mock.Anything).Return(nil)
+		target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
+		target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+		target.indexer.On("AddClass", mock.Anything).Return(nil)
+
+		snapshotReader := io.NopCloser(bytes.NewReader(snapshotSink.Buffer.Bytes()))
+		err = target.store.Restore(snapshotReader)
+		require.NoError(t, err, "Error restoring snapshot")
+
+		req := cmd.QueryReadOnlyClassesRequest{Classes: []string{className}}
+		subCommand, err := json.Marshal(&req)
+		require.NoErrorf(t, err, "Error marshaling subcommand")
+		command := &cmd.QueryRequest{
+			Type:       cmd.QueryRequest_TYPE_GET_SHARDING_STATE,
+			SubCommand: subCommand,
+		}
+		queryResp, err := target.store.Query(command)
+		require.NoErrorf(t, err, "error while querying class from restored shanpshot")
+
+		resp := cmd.QueryReadOnlyClassResponse{}
+		err = json.Unmarshal(queryResp.Payload, &resp)
+		require.NoErrorf(t, err, "error while unmarshalling query response")
+
+		for _, restoredClass := range resp.Classes {
+			require.Equal(t, int64(3), restoredClass.ReplicationConfig.Factor)
+		}
+	})
 }

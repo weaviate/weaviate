@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -51,12 +51,16 @@ func (ic *classSettings) QueryInferenceURL() string {
 	return ic.getSetting("queryInferenceUrl")
 }
 
+func (ic *classSettings) Dimensions() *int64 {
+	return ic.BaseClassSettings.GetPropertyAsInt64("dimensions", nil)
+}
+
 func (ic *classSettings) getSetting(property string) string {
 	return ic.BaseClassSettings.GetPropertyAsString(property, "")
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
-	if err := ic.BaseClassSettings.ValidateClassSettings(); err != nil {
+	if err := ic.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}
 	if ic.InferenceURL() != "" && (ic.PassageInferenceURL() != "" || ic.QueryInferenceURL() != "") {

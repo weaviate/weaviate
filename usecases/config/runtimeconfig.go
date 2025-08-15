@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,20 +16,46 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
+
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // WeaviateRuntimeConfig is the collection all the supported configs that is
 // managed dynamically and can be overridden during runtime.
 type WeaviateRuntimeConfig struct {
-	MaximumAllowedCollectionsCount       *runtime.DynamicValue[int]           `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
-	AutoschemaEnabled                    *runtime.DynamicValue[bool]          `json:"autoschema_enabled" yaml:"autoschema_enabled"`
-	AsyncReplicationDisabled             *runtime.DynamicValue[bool]          `json:"async_replication_disabled" yaml:"async_replication_disabled"`
-	ReplicaMovementMinimumFinalizingWait *runtime.DynamicValue[time.Duration] `json:"replica_movement_minimum_finalizing_wait" yaml:"replica_movement_minimum_finalizing_wait"`
+	MaximumAllowedCollectionsCount  *runtime.DynamicValue[int]           `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
+	AutoschemaEnabled               *runtime.DynamicValue[bool]          `json:"autoschema_enabled" yaml:"autoschema_enabled"`
+	AsyncReplicationDisabled        *runtime.DynamicValue[bool]          `json:"async_replication_disabled" yaml:"async_replication_disabled"`
+	RevectorizeCheckDisabled        *runtime.DynamicValue[bool]          `json:"revectorize_check_disabled" yaml:"revectorize_check_disabled"`
+	ReplicaMovementMinimumAsyncWait *runtime.DynamicValue[time.Duration] `json:"replica_movement_minimum_async_wait" yaml:"replica_movement_minimum_async_wait"`
+	TenantActivityReadLogLevel      *runtime.DynamicValue[string]        `json:"tenant_activity_read_log_level" yaml:"tenant_activity_read_log_level"`
+	TenantActivityWriteLogLevel     *runtime.DynamicValue[string]        `json:"tenant_activity_write_log_level" yaml:"tenant_activity_write_log_level"`
+	QuerySlowLogEnabled             *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
+	QuerySlowLogThreshold           *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
+	InvertedSorterDisabled          *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
+	UsageGCSBucket                  *runtime.DynamicValue[string]        `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
+	UsageGCSPrefix                  *runtime.DynamicValue[string]        `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
+	UsageS3Bucket                   *runtime.DynamicValue[string]        `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`
+	UsageS3Prefix                   *runtime.DynamicValue[string]        `json:"usage_s3_prefix" yaml:"usage_s3_prefix"`
+	UsageScrapeInterval             *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
+	UsageShardJitterInterval        *runtime.DynamicValue[time.Duration] `json:"usage_shard_jitter_interval" yaml:"usage_shard_jitter_interval"`
+	UsagePolicyVersion              *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
+	UsageVerifyPermissions          *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
+
+	// Experimental configs. Will be removed in the future.
+	OIDCIssuer            *runtime.DynamicValue[string]   `json:"exp_oidc_issuer" yaml:"exp_oidc_issuer"`
+	OIDCClientID          *runtime.DynamicValue[string]   `json:"exp_oidc_client_id" yaml:"exp_oidc_client_id"`
+	OIDCSkipClientIDCheck *runtime.DynamicValue[bool]     `yaml:"exp_oidc_skip_client_id_check" json:"exp_oidc_skip_client_id_check"`
+	OIDCUsernameClaim     *runtime.DynamicValue[string]   `yaml:"exp_oidc_username_claim" json:"exp_oidc_username_claim"`
+	OIDCGroupsClaim       *runtime.DynamicValue[string]   `yaml:"exp_oidc_groups_claim" json:"exp_oidc_groups_claim"`
+	OIDCScopes            *runtime.DynamicValue[[]string] `yaml:"exp_oidc_scopes" json:"exp_oidc_scopes"`
+	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"exp_oidc_certificate" json:"exp_oidc_certificate"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.
@@ -51,12 +77,12 @@ func ParseRuntimeConfig(buf []byte) (*WeaviateRuntimeConfig, error) {
 
 // UpdateConfig does in-place update of `source` config based on values available in
 // `parsed` config.
-func UpdateRuntimeConfig(source, parsed *WeaviateRuntimeConfig) error {
+func UpdateRuntimeConfig(log logrus.FieldLogger, source, parsed *WeaviateRuntimeConfig, hooks map[string]func() error) error {
 	if source == nil || parsed == nil {
 		return fmt.Errorf("source and parsed cannot be nil")
 	}
 
-	updateRuntimeConfig(reflect.ValueOf(*source), reflect.ValueOf(*parsed))
+	updateRuntimeConfig(log, reflect.ValueOf(*source), reflect.ValueOf(*parsed), hooks)
 	return nil
 }
 
@@ -95,7 +121,8 @@ But this approach has two serious drawbacks
 With this reflection method, we avoided that extra step from the consumer. This reflection approach is "logically" same as above implementation.
 See "runtimeconfig_test.go" for more examples.
 */
-func updateRuntimeConfig(source, parsed reflect.Value) {
+
+func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, hooks map[string]func() error) {
 	// Basically we do following
 	//
 	// 1. Loop through all the `source` fields
@@ -104,43 +131,132 @@ func updateRuntimeConfig(source, parsed reflect.Value) {
 	//    so that it's default value takes preference.
 	// 4. If parsed config does contain the field from `source`, We update the value via `SetValue`.
 
+	logRecords := make([]updateLogRecord, 0)
+
 	for i := range source.NumField() {
 		sf := source.Field(i)
 		pf := parsed.Field(i)
 
-		if pf.IsNil() {
-			si := sf.Interface()
-			src, ok := si.(interface{ Reset() })
-			if !ok {
-				panic(fmt.Sprintf("type doesn't have Reset() method: %#v", si))
-			}
-			src.Reset()
-			continue
+		r := updateLogRecord{
+			field: source.Type().Field(i).Name,
 		}
 
 		si := sf.Interface()
-		pi := pf.Interface()
+		var pi any
+		if !pf.IsNil() {
+			pi = pf.Interface()
+		}
 
 		switch sv := si.(type) {
 		case *runtime.DynamicValue[int]:
-			// this casting is fine, because both `parsed` and `source` are same struct.
-			p := pi.(*runtime.DynamicValue[int])
-			sv.SetValue(p.Get())
+			r.oldV = sv.Get()
+			if pf.IsNil() {
+				// Means the config is removed
+				sv.Reset()
+			} else {
+				p := pi.(*runtime.DynamicValue[int])
+				sv.SetValue(p.Get())
+			}
+			r.newV = sv.Get()
 		case *runtime.DynamicValue[float64]:
-			p := pi.(*runtime.DynamicValue[float64])
-			sv.SetValue(p.Get())
+			r.oldV = sv.Get()
+			if pf.IsNil() {
+				// Means the config is removed
+				sv.Reset()
+			} else {
+				p := pi.(*runtime.DynamicValue[float64])
+				sv.SetValue(p.Get())
+			}
+			r.newV = sv.Get()
 		case *runtime.DynamicValue[bool]:
-			p := pi.(*runtime.DynamicValue[bool])
-			sv.SetValue(p.Get())
+			r.oldV = sv.Get()
+			if pf.IsNil() {
+				// Means the config is removed
+				sv.Reset()
+			} else {
+				p := pi.(*runtime.DynamicValue[bool])
+				sv.SetValue(p.Get())
+			}
+			r.newV = sv.Get()
 		case *runtime.DynamicValue[time.Duration]:
-			p := pi.(*runtime.DynamicValue[time.Duration])
-			sv.SetValue(p.Get())
+			r.oldV = sv.Get()
+			if pf.IsNil() {
+				// Means the config is removed
+				sv.Reset()
+			} else {
+				p := pi.(*runtime.DynamicValue[time.Duration])
+				sv.SetValue(p.Get())
+			}
+			r.newV = sv.Get()
 		case *runtime.DynamicValue[string]:
-			p := pi.(*runtime.DynamicValue[string])
-			sv.SetValue(p.Get())
+			r.oldV = sv.Get()
+			if pf.IsNil() {
+				// Means the config is removed
+				sv.Reset()
+			} else {
+				p := pi.(*runtime.DynamicValue[string])
+				sv.SetValue(p.Get())
+			}
+			r.newV = sv.Get()
+		case *runtime.DynamicValue[[]string]:
+			r.oldV = sv.Get()
+			if pf.IsNil() {
+				// Means the config is removed
+				sv.Reset()
+			} else {
+				p := pi.(*runtime.DynamicValue[[]string])
+				sv.SetValue(p.Get())
+			}
+			r.newV = sv.Get()
 		default:
 			panic(fmt.Sprintf("not recognized type: %#v, %#v", pi, si))
 		}
 
+		if !reflect.DeepEqual(r.newV, r.oldV) {
+			logRecords = append(logRecords, r)
+		}
+
 	}
+
+	// log the changes made as INFO for auditing.
+	for _, v := range logRecords {
+		log.WithFields(logrus.Fields{
+			"action":    "runtime_overrides_changed",
+			"field":     v.field,
+			"old_value": v.oldV,
+			"new_value": v.newV,
+		}).Infof("runtime overrides: config '%v' changed from '%v' to '%v'", v.field, v.oldV, v.newV)
+	}
+
+	for match, f := range hooks {
+		if matchUpdatedFields(match, logRecords) {
+			err := f()
+			if err != nil {
+				log.WithFields(logrus.Fields{
+					"action": "runtime_overrides_hooks",
+					"match":  match,
+				}).Errorf("error calling runtime hooks for match %s, %v", match, err)
+				continue
+			}
+			log.WithFields(logrus.Fields{
+				"action": "runtime_overrides_hooks",
+				"match":  match,
+			}).Infof("runtime overrides: hook ran for matching '%v' pattern", match)
+		}
+	}
+}
+
+// updateLogRecord is used to record changes during updating runtime config.
+type updateLogRecord struct {
+	field      string
+	oldV, newV any
+}
+
+func matchUpdatedFields(match string, records []updateLogRecord) bool {
+	for _, v := range records {
+		if strings.Contains(v.field, match) {
+			return true
+		}
+	}
+	return false
 }
