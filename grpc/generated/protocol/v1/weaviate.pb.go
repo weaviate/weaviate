@@ -43,7 +43,6 @@ var file_v1_weaviate_proto_goTypes = []any{
 	(*TenantsGetReply)(nil),     // 8: weaviate.v1.TenantsGetReply
 	(*AggregateReply)(nil),      // 9: weaviate.v1.AggregateReply
 }
-
 var file_v1_weaviate_proto_depIdxs = []int32{
 	0, // 0: weaviate.v1.Weaviate.Search:input_type -> weaviate.v1.SearchRequest
 	1, // 1: weaviate.v1.Weaviate.BatchObjects:input_type -> weaviate.v1.BatchObjectsRequest
