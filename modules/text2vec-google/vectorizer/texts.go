@@ -29,6 +29,7 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 		ProjectID:   settings.ProjectID(),
 		Model:       settings.Model(),
 		Dimensions:  settings.Dimensions(),
+		TaskType:    settings.TaskType(),
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "remote client vectorize")
