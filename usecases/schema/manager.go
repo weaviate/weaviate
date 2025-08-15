@@ -59,6 +59,7 @@ type SchemaGetter interface {
 	GetSchemaSkipAuth() schema.Schema
 	ReadOnlyClass(string) *models.Class
 	ResolveAlias(string) string
+	GetAliasesForClass(class string) []*models.Alias
 	Nodes() []string
 	NodeName() string
 	ClusterHealthScore() int

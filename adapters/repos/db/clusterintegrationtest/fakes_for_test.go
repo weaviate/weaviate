@@ -171,6 +171,10 @@ func (f *fakeSchemaManager) ResolveAlias(string) string {
 	return ""
 }
 
+func (f *fakeSchemaManager) GetAliasesForClass(string) []*models.Alias {
+	return nil
+}
+
 func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
 	return f.shardState
 }

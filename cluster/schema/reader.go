@@ -99,6 +99,10 @@ func (rs SchemaReader) ReadOnlyClass(class string) (cls *models.Class) {
 	return res
 }
 
+func (rs SchemaReader) GetAliasesForClass(class string) []*models.Alias {
+	return rs.schema.GetAliasesForClass(class)
+}
+
 // ReadOnlyVersionedClass returns a shallow copy of a class along with its version.
 // The copy is read-only and should not be modified.
 func (rs SchemaReader) ReadOnlyVersionedClass(className string) versioned.Class {
