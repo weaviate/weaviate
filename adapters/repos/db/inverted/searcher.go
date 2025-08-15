@@ -736,8 +736,16 @@ func (s *Searcher) extractContains(ctx context.Context,
 	case filters.ContainsAny:
 		out.operator = filters.OperatorOr
 	case filters.ContainsNone:
-		// TODO aliszka:containsnone
 		out.operator = filters.OperatorOr
+
+		parent, err := newPropValuePair(class)
+		if err != nil {
+			return nil, fmt.Errorf("new prop value pair: %w", err)
+		}
+		parent.operator = filters.OperatorNot
+		parent.children = []*propValuePair{out}
+		parent.Class = class
+		out = parent
 	default:
 		return nil, fmt.Errorf("unknown contains operator %v", operator)
 	}
