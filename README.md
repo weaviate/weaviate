@@ -31,7 +31,7 @@ See the [installation docs](https://docs.weaviate.io/deploy) for more deployment
 You can easily start Weaviate and a local vector embedding model with [Docker](https://docs.docker.com/desktop/).
 Create a `docker-compose.yml` file:
 
-```
+```yml
 services:
   weaviate:
     image: cr.weaviate.io/semitechnologies/weaviate:1.32.2
@@ -49,13 +49,13 @@ services:
 
 Start Weaviate and the embedding service with:
 
-```
+```bash
 docker compose up -d
 ```
 
 Install the Python client (or use another [client library](#client-libraries-and-apis)):
 
-```
+```bash
 pip install -U weaviate-client
 ```
 
@@ -121,7 +121,7 @@ These features enable you to build AI-powered applications:
 
 - **🤖 Integrated RAG & Reranking**: Go beyond simple retrieval with built-in [generative search (RAG)](https://docs.weaviate.io/weaviate/search/generative) and [reranking](https://docs.weaviate.io/weaviate/search/rerank) capabilities. Power sophisticated Q&A systems, chatbots, and summarizers directly from your database without additional tooling.
 
-- **📈 Production-Ready & Scalable**: Weaviate is built for mission-critical applications. Go from rapid prototyping to production at scale with native support for [horizontal scaling](https://docs.weaviate.io/deploy/configuration/horizontal-scaling), [multi-tenancy](https://docs.weaviate.io/weaviate/manage-collections/multi-tenancy), replication, and fine-grained [role-based access control (RBAC)](https://docs.weaviate.io/weaviate/configuration/rbac).
+- **📈 Production-Ready & Scalable**: Weaviate is built for mission-critical applications. Go from rapid prototyping to production at scale with native support for [horizontal scaling](https://docs.weaviate.io/deploy/configuration/horizontal-scaling), [multi-tenancy](https://docs.weaviate.io/weaviate/manage-collections/multi-tenancy), [replication](https://docs.weaviate.io/deploy/configuration/replication), and fine-grained [role-based access control (RBAC)](https://docs.weaviate.io/weaviate/configuration/rbac).
 
 - **💰 Cost-Efficient Operations**: Radically lower resource consumption and operational costs with built-in [vector compression](https://docs.weaviate.io/weaviate/configuration/compression). Vector quantization and multi-vector encoding reduce memory usage with minimal impact on search performance.
 
