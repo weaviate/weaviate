@@ -70,6 +70,8 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 			returnFilter.Operator = filters.ContainsAny
 		case pb.Filters_OPERATOR_CONTAINS_ALL:
 			returnFilter.Operator = filters.ContainsAll
+		case pb.Filters_OPERATOR_CONTAINS_NONE:
+			returnFilter.Operator = filters.ContainsNone
 		default:
 			return filters.Clause{}, fmt.Errorf("unknown filter operator %v", filterIn.Operator)
 		}
