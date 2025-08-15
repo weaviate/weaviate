@@ -2461,52 +2461,49 @@ func file_v1_aggregate_proto_rawDescGZIP() []byte {
 	return file_v1_aggregate_proto_rawDescData
 }
 
-var (
-	file_v1_aggregate_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
-	file_v1_aggregate_proto_goTypes  = []any{
-		(*AggregateRequest)(nil),                                                          // 0: weaviate.v1.AggregateRequest
-		(*AggregateReply)(nil),                                                            // 1: weaviate.v1.AggregateReply
-		(*AggregateRequest_Aggregation)(nil),                                              // 2: weaviate.v1.AggregateRequest.Aggregation
-		(*AggregateRequest_GroupBy)(nil),                                                  // 3: weaviate.v1.AggregateRequest.GroupBy
-		(*AggregateRequest_Aggregation_Integer)(nil),                                      // 4: weaviate.v1.AggregateRequest.Aggregation.Integer
-		(*AggregateRequest_Aggregation_Number)(nil),                                       // 5: weaviate.v1.AggregateRequest.Aggregation.Number
-		(*AggregateRequest_Aggregation_Text)(nil),                                         // 6: weaviate.v1.AggregateRequest.Aggregation.Text
-		(*AggregateRequest_Aggregation_Boolean)(nil),                                      // 7: weaviate.v1.AggregateRequest.Aggregation.Boolean
-		(*AggregateRequest_Aggregation_Date)(nil),                                         // 8: weaviate.v1.AggregateRequest.Aggregation.Date
-		(*AggregateRequest_Aggregation_Reference)(nil),                                    // 9: weaviate.v1.AggregateRequest.Aggregation.Reference
-		(*AggregateReply_Aggregations)(nil),                                               // 10: weaviate.v1.AggregateReply.Aggregations
-		(*AggregateReply_Single)(nil),                                                     // 11: weaviate.v1.AggregateReply.Single
-		(*AggregateReply_Group)(nil),                                                      // 12: weaviate.v1.AggregateReply.Group
-		(*AggregateReply_Grouped)(nil),                                                    // 13: weaviate.v1.AggregateReply.Grouped
-		(*AggregateReply_Aggregations_Aggregation)(nil),                                   // 14: weaviate.v1.AggregateReply.Aggregations.Aggregation
-		(*AggregateReply_Aggregations_Aggregation_Integer)(nil),                           // 15: weaviate.v1.AggregateReply.Aggregations.Aggregation.Integer
-		(*AggregateReply_Aggregations_Aggregation_Number)(nil),                            // 16: weaviate.v1.AggregateReply.Aggregations.Aggregation.Number
-		(*AggregateReply_Aggregations_Aggregation_Text)(nil),                              // 17: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text
-		(*AggregateReply_Aggregations_Aggregation_Boolean)(nil),                           // 18: weaviate.v1.AggregateReply.Aggregations.Aggregation.Boolean
-		(*AggregateReply_Aggregations_Aggregation_Date)(nil),                              // 19: weaviate.v1.AggregateReply.Aggregations.Aggregation.Date
-		(*AggregateReply_Aggregations_Aggregation_Reference)(nil),                         // 20: weaviate.v1.AggregateReply.Aggregations.Aggregation.Reference
-		(*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences)(nil),               // 21: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences
-		(*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence)(nil), // 22: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences.TopOccurrence
-		(*AggregateReply_Group_GroupedBy)(nil),                                            // 23: weaviate.v1.AggregateReply.Group.GroupedBy
-		(*Filters)(nil),                                                                   // 24: weaviate.v1.Filters
-		(*Hybrid)(nil),                                                                    // 25: weaviate.v1.Hybrid
-		(*NearVector)(nil),                                                                // 26: weaviate.v1.NearVector
-		(*NearObject)(nil),                                                                // 27: weaviate.v1.NearObject
-		(*NearTextSearch)(nil),                                                            // 28: weaviate.v1.NearTextSearch
-		(*NearImageSearch)(nil),                                                           // 29: weaviate.v1.NearImageSearch
-		(*NearAudioSearch)(nil),                                                           // 30: weaviate.v1.NearAudioSearch
-		(*NearVideoSearch)(nil),                                                           // 31: weaviate.v1.NearVideoSearch
-		(*NearDepthSearch)(nil),                                                           // 32: weaviate.v1.NearDepthSearch
-		(*NearThermalSearch)(nil),                                                         // 33: weaviate.v1.NearThermalSearch
-		(*NearIMUSearch)(nil),                                                             // 34: weaviate.v1.NearIMUSearch
-		(*TextArray)(nil),                                                                 // 35: weaviate.v1.TextArray
-		(*IntArray)(nil),                                                                  // 36: weaviate.v1.IntArray
-		(*BooleanArray)(nil),                                                              // 37: weaviate.v1.BooleanArray
-		(*NumberArray)(nil),                                                               // 38: weaviate.v1.NumberArray
-		(*GeoCoordinatesFilter)(nil),                                                      // 39: weaviate.v1.GeoCoordinatesFilter
-	}
-)
-
+var file_v1_aggregate_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_v1_aggregate_proto_goTypes = []any{
+	(*AggregateRequest)(nil),                                                          // 0: weaviate.v1.AggregateRequest
+	(*AggregateReply)(nil),                                                            // 1: weaviate.v1.AggregateReply
+	(*AggregateRequest_Aggregation)(nil),                                              // 2: weaviate.v1.AggregateRequest.Aggregation
+	(*AggregateRequest_GroupBy)(nil),                                                  // 3: weaviate.v1.AggregateRequest.GroupBy
+	(*AggregateRequest_Aggregation_Integer)(nil),                                      // 4: weaviate.v1.AggregateRequest.Aggregation.Integer
+	(*AggregateRequest_Aggregation_Number)(nil),                                       // 5: weaviate.v1.AggregateRequest.Aggregation.Number
+	(*AggregateRequest_Aggregation_Text)(nil),                                         // 6: weaviate.v1.AggregateRequest.Aggregation.Text
+	(*AggregateRequest_Aggregation_Boolean)(nil),                                      // 7: weaviate.v1.AggregateRequest.Aggregation.Boolean
+	(*AggregateRequest_Aggregation_Date)(nil),                                         // 8: weaviate.v1.AggregateRequest.Aggregation.Date
+	(*AggregateRequest_Aggregation_Reference)(nil),                                    // 9: weaviate.v1.AggregateRequest.Aggregation.Reference
+	(*AggregateReply_Aggregations)(nil),                                               // 10: weaviate.v1.AggregateReply.Aggregations
+	(*AggregateReply_Single)(nil),                                                     // 11: weaviate.v1.AggregateReply.Single
+	(*AggregateReply_Group)(nil),                                                      // 12: weaviate.v1.AggregateReply.Group
+	(*AggregateReply_Grouped)(nil),                                                    // 13: weaviate.v1.AggregateReply.Grouped
+	(*AggregateReply_Aggregations_Aggregation)(nil),                                   // 14: weaviate.v1.AggregateReply.Aggregations.Aggregation
+	(*AggregateReply_Aggregations_Aggregation_Integer)(nil),                           // 15: weaviate.v1.AggregateReply.Aggregations.Aggregation.Integer
+	(*AggregateReply_Aggregations_Aggregation_Number)(nil),                            // 16: weaviate.v1.AggregateReply.Aggregations.Aggregation.Number
+	(*AggregateReply_Aggregations_Aggregation_Text)(nil),                              // 17: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text
+	(*AggregateReply_Aggregations_Aggregation_Boolean)(nil),                           // 18: weaviate.v1.AggregateReply.Aggregations.Aggregation.Boolean
+	(*AggregateReply_Aggregations_Aggregation_Date)(nil),                              // 19: weaviate.v1.AggregateReply.Aggregations.Aggregation.Date
+	(*AggregateReply_Aggregations_Aggregation_Reference)(nil),                         // 20: weaviate.v1.AggregateReply.Aggregations.Aggregation.Reference
+	(*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences)(nil),               // 21: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences
+	(*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence)(nil), // 22: weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences.TopOccurrence
+	(*AggregateReply_Group_GroupedBy)(nil),                                            // 23: weaviate.v1.AggregateReply.Group.GroupedBy
+	(*Filters)(nil),                                                                   // 24: weaviate.v1.Filters
+	(*Hybrid)(nil),                                                                    // 25: weaviate.v1.Hybrid
+	(*NearVector)(nil),                                                                // 26: weaviate.v1.NearVector
+	(*NearObject)(nil),                                                                // 27: weaviate.v1.NearObject
+	(*NearTextSearch)(nil),                                                            // 28: weaviate.v1.NearTextSearch
+	(*NearImageSearch)(nil),                                                           // 29: weaviate.v1.NearImageSearch
+	(*NearAudioSearch)(nil),                                                           // 30: weaviate.v1.NearAudioSearch
+	(*NearVideoSearch)(nil),                                                           // 31: weaviate.v1.NearVideoSearch
+	(*NearDepthSearch)(nil),                                                           // 32: weaviate.v1.NearDepthSearch
+	(*NearThermalSearch)(nil),                                                         // 33: weaviate.v1.NearThermalSearch
+	(*NearIMUSearch)(nil),                                                             // 34: weaviate.v1.NearIMUSearch
+	(*TextArray)(nil),                                                                 // 35: weaviate.v1.TextArray
+	(*IntArray)(nil),                                                                  // 36: weaviate.v1.IntArray
+	(*BooleanArray)(nil),                                                              // 37: weaviate.v1.BooleanArray
+	(*NumberArray)(nil),                                                               // 38: weaviate.v1.NumberArray
+	(*GeoCoordinatesFilter)(nil),                                                      // 39: weaviate.v1.GeoCoordinatesFilter
+}
 var file_v1_aggregate_proto_depIdxs = []int32{
 	2,  // 0: weaviate.v1.AggregateRequest.aggregations:type_name -> weaviate.v1.AggregateRequest.Aggregation
 	3,  // 1: weaviate.v1.AggregateRequest.group_by:type_name -> weaviate.v1.AggregateRequest.GroupBy
