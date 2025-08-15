@@ -177,13 +177,6 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		return fmt.Errorf("unmarshal aliases: %w", err)
 	}
 
-	for _, alias := range aliases {
-		_, err := h.schemaManager.CreateAlias(ctx, alias.Alias, class)
-		if err != nil {
-			return fmt.Errorf("failed to restore alias for class: %w", err)
-		}
-	}
-
 	metric, err := monitoring.GetMetrics().BackupRestoreClassDurations.GetMetricWithLabelValues(class.Class)
 	if err == nil {
 		timer := prometheus.NewTimer(metric)
@@ -225,7 +218,19 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 	shardingState.ApplyNodeMapping(m)
 	_, err = h.schemaManager.RestoreClass(ctx, class, &shardingState)
-	return err
+	if err != nil {
+		return fmt.Errorf("error when trying to restore class: %w", err)
+	}
+
+	for _, alias := range aliases {
+		_, err := h.schemaManager.CreateAlias(ctx, alias.Alias, class)
+		if err != nil {
+			return fmt.Errorf("failed to restore alias for class: %w", err)
+		}
+	}
+
+	return nil
+
 }
 
 // DeleteClass from the schema
