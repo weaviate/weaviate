@@ -12,6 +12,7 @@
 package auth
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -40,12 +41,12 @@ func NewAuth(state *state.State) *Auth {
 	}
 }
 
-func (a *Auth) Authorize(req mcp.CallToolRequest, verb string) (*models.Principal, error) {
+func (a *Auth) Authorize(ctx context.Context, req mcp.CallToolRequest, verb string) (*models.Principal, error) {
 	principal, err := a.principalFromRequest(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get principal: %w", err)
 	}
-	if err := a.authorizer.Authorize(principal, verb, authorization.Mcp()); err != nil {
+	if err := a.authorizer.Authorize(ctx, principal, verb, authorization.Mcp()); err != nil {
 		return nil, err
 	}
 	return principal, nil
