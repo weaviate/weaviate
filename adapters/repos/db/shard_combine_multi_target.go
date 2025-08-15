@@ -44,15 +44,23 @@ type ResultContainer interface {
 }
 
 type ResultContainerHybrid struct {
-	ResultsIn []*search.Result
+	ResultsIn     []*search.Result
+	distancesById map[uint64][]float32
 
-	IDsToRemove map[uint64]struct{}
-	allIDs      map[uint64]struct{}
+	IDsToRemove      map[uint64]struct{}
+	allIDs           map[uint64]struct{}
+	numTargetVectors int
 }
 
 func (r *ResultContainerHybrid) AddScores(id uint64, targets []string, distances []float32, weights []float32, originalIndices []int) {
 	// we need to add a copy of the properties etc to make sure that the correct object is returned
 	newResult := &search.Result{SecondarySortValue: distances[0], DocID: &id, ID: uuidFromUint64(id)}
+	distancesById, ok := r.distancesById[id]
+	if !ok {
+		distancesById = make([]float32, r.numTargetVectors)
+	}
+	distancesById[originalIndices[0]] = distances[0]
+	r.distancesById[id] = distancesById
 	r.ResultsIn = append(r.ResultsIn, newResult)
 }
 
@@ -82,7 +90,7 @@ type targetVectorData struct {
 	target          []string
 	searchVector    []models.Vector
 	weights         []float32
-	originalIndices []int
+	originalIndices []int // indices of the target vectors in the original searchVectors slice
 }
 
 func uuidFromUint64(id uint64) strfmt.UUID {
@@ -137,6 +145,7 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 		scoresToRemove := make(map[uint64]struct{})
 
 		fusionInput := make([][]*search.Result, len(idsPerTarget))
+		distancesPerID := make(map[uint64][]float32, len(allIDs))
 		for i := range idsPerTarget {
 			localIDs := make(map[uint64]struct{}, len(allIDs))
 			for key, result := range allIDs {
@@ -148,9 +157,15 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 				docId := &idsPerTarget[i][j]
 				// ID needs to be set because the fusion algorithm uses it to identify the objects - value doesn't matter as long as they are unique
 				fusionInput[i][j] = &search.Result{SecondarySortValue: distsPerTarget[i][j], DocID: docId, ID: uuidFromUint64(*docId)}
+				distances, ok := distancesPerID[idsPerTarget[i][j]]
+				if !ok {
+					distances = make([]float32, len(targetVectors))
+				}
+				distances[i] = distsPerTarget[i][j]
+				distancesPerID[idsPerTarget[i][j]] = distances
 			}
 			collectMissingIds(localIDs, missingIDs, targetVectors, searchVectors, i, targetCombination.Weights)
-			resultContainer := ResultContainerHybrid{ResultsIn: fusionInput[i], allIDs: allIDs, IDsToRemove: make(map[uint64]struct{})}
+			resultContainer := ResultContainerHybrid{ResultsIn: fusionInput[i], allIDs: allIDs, IDsToRemove: make(map[uint64]struct{}), distancesById: distancesPerID, numTargetVectors: len(targetVectors)}
 			if err := getScoresOfMissingResults(ctx, shard, logger, missingIDs, &resultContainer, targetCombination.Weights); err != nil {
 				return nil, nil, err
 			}
@@ -177,18 +192,19 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 		}
 
 		joined := hybrid.FusionRelativeScore(weights, fusionInput, targetVectors, false)
+		if limit > len(joined) {
+			limit = len(joined)
+		}
+		joined = joined[:limit]
+
 		joinedResults := make([]uint64, len(joined))
 		joinedDists := make(search.Distances, len(joined))
 		for i := range joined {
 			joinedResults[i] = *(joined[i].DocID)
-			joinedDists[i] = &search.Distance{Distance: joined[i].Score}
+			joinedDists[i] = &search.Distance{Distance: joined[i].Score, MultiTargetDistances: distancesPerID[*(joined[i].DocID)]}
 		}
 
-		if limit > len(joinedResults) {
-			limit = len(joinedResults)
-		}
-
-		return joinedResults[:limit], joinedDists[:limit], nil
+		return joinedResults, joinedDists, nil
 	}
 
 	combinedResults := make(map[uint64]idAndDistance, len(idsPerTarget[0]))

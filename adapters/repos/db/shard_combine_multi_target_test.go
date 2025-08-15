@@ -92,28 +92,28 @@ func TestCombiner(t *testing.T) {
 			targets:    []string{"target1", "target2"},
 			joinMethod: &dto.TargetCombination{Type: dto.RelativeScore, Weights: []float32{0.5, 0.5}},
 			in:         [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5), res(1, 0.6)}},
-			out:        []search.Result{res(0, 0), res(1, 1)},
+			out:        []search.Result{resWithDistances(0, 0, []float32{0.5, 0.5}), resWithDistances(1, 1, []float32{0.6, 0.6})},
 		},
 		{
 			name:       "score fusion with custom weights",
 			targets:    []string{"target1", "target2"},
 			joinMethod: &dto.TargetCombination{Type: dto.RelativeScore, Weights: []float32{1, 2}},
 			in:         [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5), res(1, 0.6)}},
-			out:        []search.Result{res(0, 0), res(1, 3)},
+			out:        []search.Result{resWithDistances(0, 0, []float32{0.5, 0.5}), resWithDistances(1, 3, []float32{0.6, 0.6})},
 		},
 		{
 			name:       "missing document without target vector (min)",
 			targets:    []string{"target1", "target2"},
 			joinMethod: &dto.TargetCombination{Type: dto.Minimum},
 			in:         [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5)}},
-			out:        []search.Result{res(0, 0.5), res(1, 0.6)},
+			out:        []search.Result{resWithDistances(0, 0.5, []float32{0.5, 0.5}), resWithDistances(1, 0.6, []float32{0.6, 0})},
 		},
 		{
 			name:            "missing document without target vector (weights)",
 			targets:         []string{"target1", "target2"},
 			joinMethod:      &dto.TargetCombination{Weights: []float32{1, 1}},
 			in:              [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5)}},
-			out:             []search.Result{res(0, 1)},
+			out:             []search.Result{resWithDistances(0, 1, []float32{0.5, 0.5})},
 			missingElements: map[uint64][]string{1: {"target2"}},
 		},
 		{
@@ -121,7 +121,7 @@ func TestCombiner(t *testing.T) {
 			targets:         []string{"target1", "target2"},
 			joinMethod:      &dto.TargetCombination{Weights: []float32{1, 1}},
 			in:              [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5)}},
-			out:             []search.Result{res(0, 1), res(1, 2.6)},
+			out:             []search.Result{resWithDistances(0, 1, []float32{0.5, 0.5}), resWithDistances(1, 2.6, []float32{0.6, 2})},
 			missingElements: map[uint64][]string{1: {"target3"}},
 		},
 		{
@@ -129,7 +129,7 @@ func TestCombiner(t *testing.T) {
 			targets:         []string{"target1", "target2"},
 			joinMethod:      &dto.TargetCombination{Type: dto.RelativeScore, Weights: []float32{0.5, 0.5}},
 			in:              [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5)}},
-			out:             []search.Result{res(0, 1)},
+			out:             []search.Result{resWithDistances(0, 1, []float32{0.5, 0.5})},
 			missingElements: map[uint64][]string{1: {"target2"}},
 		},
 		{
@@ -159,7 +159,10 @@ func TestCombiner(t *testing.T) {
 				{res(6, 0.1), res(0, 0.3), res(2, 0.7), res(3, 0.9)},
 			},
 			targetDistance: 1.25,
-			out:            []search.Result{res(1, 0.95), res(0, 1.23)},
+			out: []search.Result{
+				resWithDistances(1, 0.95, []float32{0.6, 0.2, 0.2, 2}),
+				resWithDistances(0, 1.23, []float32{0.5, 0.4, 2, 0.3}),
+			},
 		},
 		{
 			name:       "many documents missing entry (weights)",
@@ -171,7 +174,10 @@ func TestCombiner(t *testing.T) {
 				{res(1, 0.2), res(2, 0.4), res(3, 0.6), res(4, 0.8)},
 				{res(6, 0.1), res(0, 0.3), res(2, 0.7), res(3, 0.9)},
 			},
-			out:             []search.Result{res(1, 0.95), res(2, 1.27)},
+			out: []search.Result{
+				resWithDistances(1, 0.95, []float32{0.6, 0.2, 0.2, 2}),
+				resWithDistances(2, 1.27, []float32{0.8, 0.6, 0.4, 0.7}),
+			},
 			missingElements: map[uint64][]string{0: {"target3"}},
 		},
 		{
@@ -207,7 +213,14 @@ func TestCombiner(t *testing.T) {
 				4: {"target1": 1, "target2": 1.1, "target4": 1.2},
 				5: {"target1": 1, "target3": 1.2, "target4": 1.3},
 			},
-			out:             []search.Result{res(1, 0.28), res(0, 0.3), res(2, 0.89), res(3, 1.46), res(5, 1.65), res(4, 1.69)},
+			out: []search.Result{
+				resWithDistances(1, 0.28, []float32{0.6, 0.2, 0.2, 1.1}),
+				resWithDistances(0, 0.3, []float32{0.5, 0.4, 1, 0.3}),
+				resWithDistances(2, 0.89, []float32{0.8, 0.6, 0.4, 0.7}),
+				resWithDistances(3, 1.46, []float32{0.9, 1.2, 0.6, 0.9}),
+				resWithDistances(5, 1.65, []float32{1, 0.8, 1.2, 1.3}),
+				resWithDistances(4, 1.69, []float32{1, 1.1, 0.8, 1.2}),
+			},
 			missingElements: map[uint64][]string{6: {"target3"}},
 		},
 		{
@@ -231,7 +244,7 @@ func TestCombiner(t *testing.T) {
 				{res(1, 0.2), res(3, 0.6), res(4, 0.8)},
 				{res(6, 0.1), res(0, 0.3), res(2, 0.7), res(3, 0.9)},
 			},
-			out:             []search.Result{res(3, 1.85)}, // score is 1 for each if there is only one result, multiplied by the weight
+			out:             []search.Result{resWithDistances(3, 1.85, []float32{0.9, 2, 0.6, 0.9})}, // score is 1 for each if there is only one result, multiplied by the weight
 			missingElements: map[uint64][]string{0: {"target2"}, 1: {"target2"}, 2: {"target3"}, 4: {"target1", "target2", "target4"}, 5: {"target1", "target2", "target4"}, 6: {"target1", "target2", "target3"}},
 		},
 	}
