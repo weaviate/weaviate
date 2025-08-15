@@ -1095,23 +1095,26 @@ func file_v1_properties_proto_rawDescGZIP() []byte {
 	return file_v1_properties_proto_rawDescData
 }
 
-var file_v1_properties_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
-var file_v1_properties_proto_goTypes = []any{
-	(*Properties)(nil),      // 0: weaviate.v1.Properties
-	(*Value)(nil),           // 1: weaviate.v1.Value
-	(*ListValue)(nil),       // 2: weaviate.v1.ListValue
-	(*NumberValues)(nil),    // 3: weaviate.v1.NumberValues
-	(*TextValues)(nil),      // 4: weaviate.v1.TextValues
-	(*BoolValues)(nil),      // 5: weaviate.v1.BoolValues
-	(*ObjectValues)(nil),    // 6: weaviate.v1.ObjectValues
-	(*DateValues)(nil),      // 7: weaviate.v1.DateValues
-	(*UuidValues)(nil),      // 8: weaviate.v1.UuidValues
-	(*IntValues)(nil),       // 9: weaviate.v1.IntValues
-	(*GeoCoordinate)(nil),   // 10: weaviate.v1.GeoCoordinate
-	(*PhoneNumber)(nil),     // 11: weaviate.v1.PhoneNumber
-	nil,                     // 12: weaviate.v1.Properties.FieldsEntry
-	(structpb.NullValue)(0), // 13: google.protobuf.NullValue
-}
+var (
+	file_v1_properties_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+	file_v1_properties_proto_goTypes  = []interface{}{
+		(*Properties)(nil),      // 0: weaviate.v1.Properties
+		(*Value)(nil),           // 1: weaviate.v1.Value
+		(*ListValue)(nil),       // 2: weaviate.v1.ListValue
+		(*NumberValues)(nil),    // 3: weaviate.v1.NumberValues
+		(*TextValues)(nil),      // 4: weaviate.v1.TextValues
+		(*BoolValues)(nil),      // 5: weaviate.v1.BoolValues
+		(*ObjectValues)(nil),    // 6: weaviate.v1.ObjectValues
+		(*DateValues)(nil),      // 7: weaviate.v1.DateValues
+		(*UuidValues)(nil),      // 8: weaviate.v1.UuidValues
+		(*IntValues)(nil),       // 9: weaviate.v1.IntValues
+		(*GeoCoordinate)(nil),   // 10: weaviate.v1.GeoCoordinate
+		(*PhoneNumber)(nil),     // 11: weaviate.v1.PhoneNumber
+		nil,                     // 12: weaviate.v1.Properties.FieldsEntry
+		(structpb.NullValue)(0), // 13: google.protobuf.NullValue
+	}
+)
+
 var file_v1_properties_proto_depIdxs = []int32{
 	12, // 0: weaviate.v1.Properties.fields:type_name -> weaviate.v1.Properties.FieldsEntry
 	0,  // 1: weaviate.v1.Value.object_value:type_name -> weaviate.v1.Properties
@@ -1142,7 +1145,7 @@ func file_v1_properties_proto_init() {
 		return
 	}
 	if !protoimpl.UnsafeEnabled {
-		file_v1_properties_proto_msgTypes[0].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Properties); i {
 			case 0:
 				return &v.state
@@ -1154,7 +1157,7 @@ func file_v1_properties_proto_init() {
 				return nil
 			}
 		}
-		file_v1_properties_proto_msgTypes[1].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Value); i {
 			case 0:
 				return &v.state
@@ -1166,7 +1169,7 @@ func file_v1_properties_proto_init() {
 				return nil
 			}
 		}
-		file_v1_properties_proto_msgTypes[2].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ListValue); i {
 			case 0:
 				return &v.state
@@ -1178,7 +1181,7 @@ func file_v1_properties_proto_init() {
 				return nil
 			}
 		}
-		file_v1_properties_proto_msgTypes[3].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NumberValues); i {
 			case 0:
 				return &v.state
@@ -1190,7 +1193,7 @@ func file_v1_properties_proto_init() {
 				return nil
 			}
 		}
-		file_v1_properties_proto_msgTypes[4].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*TextValues); i {
 			case 0:
 				return &v.state
@@ -1202,7 +1205,7 @@ func file_v1_properties_proto_init() {
 				return nil
 			}
 		}
-		file_v1_properties_proto_msgTypes[5].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*BoolValues); i {
 			case 0:
 				return &v.state
@@ -1214,7 +1217,7 @@ func file_v1_properties_proto_init() {
 				return nil
 			}
 		}
-		file_v1_properties_proto_msgTypes[6].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ObjectValues); i {
 			case 0:
 				return &v.state
@@ -1226,7 +1229,7 @@ func file_v1_properties_proto_init() {
 				return nil
 			}
 		}
-		file_v1_properties_proto_msgTypes[7].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*DateValues); i {
 			case 0:
 				return &v.state
@@ -1238,7 +1241,7 @@ func file_v1_properties_proto_init() {
 				return nil
 			}
 		}
-		file_v1_properties_proto_msgTypes[8].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*UuidValues); i {
 			case 0:
 				return &v.state
@@ -1250,7 +1253,7 @@ func file_v1_properties_proto_init() {
 				return nil
 			}
 		}
-		file_v1_properties_proto_msgTypes[9].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*IntValues); i {
 			case 0:
 				return &v.state
@@ -1262,7 +1265,7 @@ func file_v1_properties_proto_init() {
 				return nil
 			}
 		}
-		file_v1_properties_proto_msgTypes[10].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GeoCoordinate); i {
 			case 0:
 				return &v.state
@@ -1274,7 +1277,7 @@ func file_v1_properties_proto_init() {
 				return nil
 			}
 		}
-		file_v1_properties_proto_msgTypes[11].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PhoneNumber); i {
 			case 0:
 				return &v.state
@@ -1287,7 +1290,7 @@ func file_v1_properties_proto_init() {
 			}
 		}
 	}
-	file_v1_properties_proto_msgTypes[1].OneofWrappers = []any{
+	file_v1_properties_proto_msgTypes[1].OneofWrappers = []interface{}{
 		(*Value_NumberValue)(nil),
 		(*Value_StringValue)(nil),
 		(*Value_BoolValue)(nil),
@@ -1302,7 +1305,7 @@ func file_v1_properties_proto_init() {
 		(*Value_NullValue)(nil),
 		(*Value_TextValue)(nil),
 	}
-	file_v1_properties_proto_msgTypes[2].OneofWrappers = []any{
+	file_v1_properties_proto_msgTypes[2].OneofWrappers = []interface{}{
 		(*ListValue_NumberValues)(nil),
 		(*ListValue_BoolValues)(nil),
 		(*ListValue_ObjectValues)(nil),

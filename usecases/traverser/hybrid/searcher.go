@@ -53,9 +53,9 @@ type sparseSearchFunc func() (results []*storobj.Object, weights []float32, err 
 
 // denseSearchFunc is the signature of a closure which performs dense search.
 // A search vector argument is required to pass along to the vector index.
-// Any package which wishes use hybrid search must provide this The weights are
+// Any package which wishes use hybrid search must provide this The distances are
 // used in calculating the final scores of the result set.
-type denseSearchFunc func(searchVector models.Vector) (results []*storobj.Object, weights []float32, err error)
+type denseSearchFunc func(searchVector models.Vector) (results []*storobj.Object, distances search.Distances, err error)
 
 // postProcFunc takes the results of the hybrid search and applies some transformation.
 // This is optionally provided, and allows the caller to somehow change the nature of
@@ -228,7 +228,7 @@ func processSparseSearch(results []*storobj.Object, scores []float32, err error)
 
 	out := make([]*search.Result, len(results))
 	for i, obj := range results {
-		sr := obj.SearchResultWithScore(additional.Properties{}, scores[i])
+		sr := obj.SearchResultWithScore(additional.Properties{}, &search.Distance{Distance: scores[i]})
 		sr.SecondarySortValue = sr.Score
 		out[i] = &sr
 	}

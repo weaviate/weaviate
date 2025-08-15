@@ -122,11 +122,14 @@ func file_v0_search_get_proto_rawDescGZIP() []byte {
 	return file_v0_search_get_proto_rawDescData
 }
 
-var file_v0_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
-var file_v0_search_get_proto_goTypes = []any{
-	(*SearchRequest)(nil), // 0: weaviategrpc.SearchRequest
-	(*SearchReply)(nil),   // 1: weaviategrpc.SearchReply
-}
+var (
+	file_v0_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+	file_v0_search_get_proto_goTypes  = []interface{}{
+		(*SearchRequest)(nil), // 0: weaviategrpc.SearchRequest
+		(*SearchReply)(nil),   // 1: weaviategrpc.SearchReply
+	}
+)
+
 var file_v0_search_get_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
 	0, // [0:0] is the sub-list for method input_type
@@ -141,7 +144,7 @@ func file_v0_search_get_proto_init() {
 		return
 	}
 	if !protoimpl.UnsafeEnabled {
-		file_v0_search_get_proto_msgTypes[0].Exporter = func(v any, i int) any {
+		file_v0_search_get_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*SearchRequest); i {
 			case 0:
 				return &v.state
@@ -153,7 +156,7 @@ func file_v0_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v0_search_get_proto_msgTypes[1].Exporter = func(v any, i int) any {
+		file_v0_search_get_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*SearchReply); i {
 			case 0:
 				return &v.state

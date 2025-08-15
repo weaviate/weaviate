@@ -14,6 +14,7 @@ package sorter
 import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -31,8 +32,8 @@ func NewObjectsSorter(fn func(string) *models.Class) *objectsSorter {
 }
 
 func (s objectsSorter) Sort(objects []*storobj.Object,
-	scores []float32, limit int, sort []filters.Sort,
-) ([]*storobj.Object, []float32, error) {
+	scores search.Distances, limit int, sort []filters.Sort,
+) ([]*storobj.Object, search.Distances, error) {
 	count := len(objects)
 	if count == 0 {
 		return objects, scores, nil
@@ -64,7 +65,7 @@ func newObjectsSorterHelper(comparator *comparator, creator *comparableCreator, 
 	return &objectsSorterHelper{comparator, creator, limit}
 }
 
-func (h *objectsSorterHelper) sort(objects []*storobj.Object, distances []float32) ([]*storobj.Object, []float32, error) {
+func (h *objectsSorterHelper) sort(objects []*storobj.Object, distances search.Distances) ([]*storobj.Object, search.Distances, error) {
 	withDistances := len(distances) > 0
 	count := len(objects)
 	sorter := newDefaultSorter(h.comparator, count)
@@ -105,5 +106,5 @@ func (h *objectsSorterHelper) sort(objects []*storobj.Object, distances []float3
 
 type objectDistancePayload struct {
 	o *storobj.Object
-	d float32
+	d *search.Distance
 }

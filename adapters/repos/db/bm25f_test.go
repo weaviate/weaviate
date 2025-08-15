@@ -477,15 +477,15 @@ func TestBM25FJourney(t *testing.T) {
 
 		require.Less(t, len(resAutoCut), len(resNoAutoCut))
 
-		EqualFloats(t, float32(0.5868752), noautocutscores[0], 5)
-		EqualFloats(t, float32(0.5450892), noautocutscores[1], 5) // <= autocut last element
-		EqualFloats(t, float32(0.34149727), noautocutscores[2], 5)
-		EqualFloats(t, float32(0.3049518), noautocutscores[3], 5)
-		EqualFloats(t, float32(0.27547202), noautocutscores[4], 5)
+		EqualFloats(t, float32(0.5868752), noautocutscores[0].Distance, 5)
+		EqualFloats(t, float32(0.5450892), noautocutscores[1].Distance, 5) // <= autocut last element
+		EqualFloats(t, float32(0.34149727), noautocutscores[2].Distance, 5)
+		EqualFloats(t, float32(0.3049518), noautocutscores[3].Distance, 5)
+		EqualFloats(t, float32(0.27547202), noautocutscores[4].Distance, 5)
 
 		require.Len(t, resAutoCut, 2)
-		EqualFloats(t, float32(0.5868752), autocutscores[0], 5)
-		EqualFloats(t, float32(0.5450892), autocutscores[1], 5)
+		EqualFloats(t, float32(0.5868752), autocutscores[0].Distance, 5)
+		EqualFloats(t, float32(0.5450892), autocutscores[1].Distance, 5)
 	})
 }
 
@@ -539,8 +539,8 @@ func TestBM25FSingleProp(t *testing.T) {
 	require.Equal(t, uint64(4), res[3].DocID)
 
 	// Check scores
-	EqualFloats(t, float32(0.1248), scores[0], 5)
-	EqualFloats(t, float32(0.0363), scores[1], 5)
+	EqualFloats(t, float32(0.1248), scores[0].Distance, 5)
+	EqualFloats(t, float32(0.0363), scores[1].Distance, 5)
 }
 
 func TestBM25FWithFilters(t *testing.T) {
@@ -749,8 +749,8 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	}
 
 	// Check scores
-	EqualFloats(t, float32(0.06023), scores[0], 6)
-	EqualFloats(t, float32(0.04238), scores[1], 6)
+	EqualFloats(t, float32(0.06023), scores[0].Distance, 6)
+	EqualFloats(t, float32(0.04238), scores[1].Distance, 6)
 }
 
 func EqualFloats(t *testing.T, expected, actual float32, significantFigures int) {
@@ -833,7 +833,7 @@ func TestBM25FCompare(t *testing.T) {
 		require.Equal(t, len(withBM25Fobjs), len(objs))
 		for i := range objs {
 			t.Logf("%v: BM25F score: %v, BM25 score: %v", i, withBM25Fscores[i], scores[i])
-			EqualFloats(t, withBM25Fscores[i], scores[i], 9)
+			EqualFloats(t, withBM25Fscores[i].Distance, scores[i].Distance, 9)
 		}
 
 		// Not all the scores are unique and the search is not stable, so pick ones that don't move
@@ -1021,9 +1021,9 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 		require.Len(t, res, 3)
 
 		// Check scores
-		EqualFloats(t, float32(0.8914), scores[0], 5)
-		EqualFloats(t, float32(0.5425), scores[1], 5)
-		EqualFloats(t, float32(0.3952), scores[2], 5)
+		EqualFloats(t, float32(0.8914), scores[0].Distance, 5)
+		EqualFloats(t, float32(0.5425), scores[1].Distance, 5)
+		EqualFloats(t, float32(0.3952), scores[2].Distance, 5)
 	})
 
 	t.Run("Results without stopwords", func(t *testing.T) {

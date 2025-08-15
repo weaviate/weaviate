@@ -336,9 +336,9 @@ func TestObjectsSorter(t *testing.T) {
 					t.Fatalf("objects got = %v, want %v",
 						extractCityNames(gotObjs), extractCityNames(tt.wantObjs))
 				}
-				if !reflect.DeepEqual(gotDists, tt.wantDists) {
+				if !reflect.DeepEqual(gotDists.ToDistances(), tt.wantDists) {
 					t.Fatalf("distances got = %v, want %v",
-						gotDists, tt.wantDists)
+						gotDists.ToDistances(), tt.wantDists)
 				}
 			})
 
@@ -354,7 +354,7 @@ func TestObjectsSorter(t *testing.T) {
 				}
 				if gotDists != nil {
 					t.Fatalf("distances got = %v, want nil",
-						gotDists)
+						gotDists.ToDistances())
 				}
 			})
 
@@ -368,9 +368,9 @@ func TestObjectsSorter(t *testing.T) {
 					t.Fatalf("objects got = %v, want %v",
 						extractCityNames(gotObjs), extractCityNames(tt.wantObjs))
 				}
-				if !reflect.DeepEqual(gotDists, tt.wantDists[:tt.limit]) {
+				if !reflect.DeepEqual(gotDists.ToDistances(), tt.wantDists[:tt.limit]) {
 					t.Fatalf("distances got = %v, want %v",
-						gotDists, tt.wantDists)
+						gotDists.ToDistances(), tt.wantDists)
 				}
 			})
 		})

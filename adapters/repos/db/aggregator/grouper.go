@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/docid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -143,13 +145,18 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList, modul
 		return sparse, dists, nil
 	}
 
-	denseSearch := func(vec models.Vector) ([]*storobj.Object, []float32, error) {
+	denseSearch := func(vec models.Vector) ([]*storobj.Object, search.Distances, error) {
 		res, dists, err := g.objectVectorSearch(ctx, vec, allowList)
 		if err != nil {
 			return nil, nil, fmt.Errorf("aggregate grouped dense search: %w", err)
 		}
 
-		return res, dists, nil
+		distances := make(search.Distances, len(res))
+		for i := range res {
+			distances[i] = &search.Distance{Distance: dists[i]}
+		}
+
+		return res, distances, nil
 	}
 
 	res, err := hybrid.Search(ctx, &hybrid.Params{

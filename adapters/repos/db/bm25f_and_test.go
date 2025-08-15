@@ -133,9 +133,9 @@ func TestBM25FJourneyBlockAnd(t *testing.T) {
 
 				// if minimumOrTokensMatch < 3, title and description will both match, and thus the score will be higher
 				if minimumOrTokensMatch < 3 {
-					EqualFloats(t, scores[0], 5.470736, 3)
+					EqualFloats(t, scores[0].Distance, 5.470736, 3)
 				} else {
-					EqualFloats(t, scores[0], 4.0164075, 3)
+					EqualFloats(t, scores[0].Distance, 4.0164075, 3)
 				}
 			})
 		}
@@ -240,7 +240,7 @@ func TestBM25FJourneyAnd(t *testing.T) {
 				require.Equal(t, expectedSize, len(res))
 				require.Equal(t, uint64(0), res[0].DocID)
 
-				EqualFloats(t, scores[0], 3.4539468, 3)
+				EqualFloats(t, scores[0].Distance, 3.4539468, 3)
 			})
 		}
 

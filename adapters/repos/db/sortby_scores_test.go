@@ -14,6 +14,8 @@ package db
 import (
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
@@ -67,7 +69,11 @@ func Test_SortBy_Scores(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.testName, func(t *testing.T) {
-			objects, _ := newScoresSorter().sort(test.givenObjects, test.givenScores)
+			distances := make(search.Distances, len(test.givenScores))
+			for i := range test.givenScores {
+				distances[i] = &search.Distance{Distance: test.givenScores[i]}
+			}
+			objects, _ := newScoresSorter().sort(test.givenObjects, distances)
 			for i := range objects {
 				assert.Equal(t, test.expectedOrder[i], objects[i].ID().String())
 			}

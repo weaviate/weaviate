@@ -376,7 +376,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	additional additional.Properties,
 	targetCombination *dto.TargetCombination,
 	properties []string,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, search.Distances, error) {
 	// new request
 	body, err := clusterapi.IndicesPayloads.SearchParams.
 		Marshal(vector, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)
@@ -399,7 +399,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 
 type searchShardResp struct {
 	Objects       []*storobj.Object
-	Distributions []float32
+	Distributions search.Distances
 }
 
 func (r *searchShardResp) decode(data []byte) (err error) {

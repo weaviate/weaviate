@@ -14,18 +14,20 @@ package db
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func searchResultDedup(out []*storobj.Object, dists []float32) ([]*storobj.Object, []float32, error) {
+func searchResultDedup(out []*storobj.Object, dists search.Distances) ([]*storobj.Object, search.Distances, error) {
 	type indexAndScore struct {
 		i     int
 		score float32
 	}
 	allKeys := make(map[strfmt.UUID]indexAndScore)
 	filteredObjects := make([]*storobj.Object, 0, len(out))
-	filteredScores := make([]float32, 0, len(dists))
+	filteredScores := make(search.Distances, 0, len(dists))
 
 	i := 0
 	// Iterate over all the objects, the corresponding score is always dists[j] for object at index j
@@ -37,23 +39,23 @@ func searchResultDedup(out []*storobj.Object, dists []float32) ([]*storobj.Objec
 		if ok {
 			// If the store distance is bigger than the current object distance we want to replace the object we
 			// have in the filtered array
-			if val.score > dists[j] {
+			if val.score > dists[j].Distance {
 				// Update in place in the filtered arrays
 				filteredObjects[val.i] = obj
 				filteredScores[val.i] = dists[j]
 				// Update the score stored in the map tracking what we have seen so far
-				allKeys[obj.ID()] = indexAndScore{val.i, dists[j]}
+				allKeys[obj.ID()] = indexAndScore{val.i, dists[j].Distance}
 			}
 		} else {
 			// We have never seen that object before, append to the filtered arrays and add the tracking map
 			filteredObjects = append(filteredObjects, obj)
 			filteredScores = append(filteredScores, dists[j])
-			allKeys[obj.ID()] = indexAndScore{i: i, score: dists[j]}
+			allKeys[obj.ID()] = indexAndScore{i: i, score: dists[j].Distance}
 			i++
 		}
 	}
 	if len(filteredObjects) != len(filteredScores) {
-		return []*storobj.Object{}, []float32{}, fmt.Errorf("length of object and scores should be equal obj=%d vs dists=%d", len(filteredObjects), len(filteredScores))
+		return []*storobj.Object{}, search.Distances{}, fmt.Errorf("length of object and scores should be equal obj=%d vs dists=%d", len(filteredObjects), len(filteredScores))
 	}
 	return filteredObjects, filteredScores, nil
 }

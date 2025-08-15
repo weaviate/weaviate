@@ -104,7 +104,7 @@ type objectsSearcher interface {
 }
 
 type hybridSearcher interface {
-	SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error)
+	SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, search.Distances, error)
 	ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties,
 		groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error)
 }
@@ -476,6 +476,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 
 			if params.AdditionalProperties.Distance {
 				additionalProperties["distance"] = res.Dist
+				additionalProperties["multiTargetDistances"] = res.Distances
 			}
 		}
 

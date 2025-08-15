@@ -27,6 +27,7 @@ type Result struct {
 	SecondarySortValue   float32
 	ExplainScore         string
 	Dist                 float32
+	Distances            []float32
 	Vector               []float32
 	Vectors              models.Vectors
 	Beacon               string
@@ -42,6 +43,21 @@ type Result struct {
 
 	// Dimensions in case search was vector-based, 0 otherwise
 	Dims int
+}
+
+type Distances []*Distance
+
+type Distance struct {
+	Distance             float32
+	MultiTargetDistances []float32
+}
+
+func (d *Distances) ToDistances() []float32 {
+	distances := make([]float32, len(*d))
+	for i, distance := range *d {
+		distances[i] = distance.Distance
+	}
+	return distances
 }
 
 type Results []Result

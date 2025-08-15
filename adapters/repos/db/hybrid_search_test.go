@@ -1003,7 +1003,7 @@ func (f *fakeObjectSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID, pr
 	return nil, nil
 }
 
-func (f *fakeObjectSearcher) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error) {
+func (f *fakeObjectSearcher) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, search.Distances, error) {
 	out := []*storobj.Object{
 		{
 			Object: models.Object{
@@ -1024,26 +1024,11 @@ func (f *fakeObjectSearcher) SparseObjectSearch(ctx context.Context, params dto.
 		lim = len(out)
 	}
 
-	return out[:lim], []float32{0.008, 0.001}[:lim], nil
-}
-
-func CopyElems[T any](list1, list2 []T, pos int) bool {
-	if len(list1) != len(list2) {
-		return false
-	}
-	if pos < 0 || pos >= len(list1) {
-		return true
-	}
-	list1[pos] = list2[pos]
-	return CopyElems(list1, list2, pos+1)
+	return out[:lim], search.Distances{{Distance: 0.008}, {Distance: 0.001}}[:lim], nil
 }
 
 func (f *fakeObjectSearcher) ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties, groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error) {
-	// Convert res1 to search.Results
-	out := make(search.Results, len(objs))
-	CopyElems(out, objs, 0)
-
-	return out, nil
+	return objs, nil
 }
 
 func TestHybridOverSearch(t *testing.T) {

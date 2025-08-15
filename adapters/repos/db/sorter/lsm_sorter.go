@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -31,7 +33,7 @@ type LSMSorter interface {
 	Sort(ctx context.Context, limit int, sort []filters.Sort) ([]uint64, error)
 	SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids helpers.AllowList) ([]uint64, error)
 	SortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
-		ids []uint64, dists []float32) ([]uint64, []float32, error)
+		ids []uint64, dists search.Distances) ([]uint64, search.Distances, error)
 }
 
 type lsmSorter struct {
@@ -113,8 +115,8 @@ func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.So
 }
 
 func (s *lsmSorter) SortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
-	ids []uint64, dists []float32,
-) ([]uint64, []float32, error) {
+	ids []uint64, dists search.Distances,
+) ([]uint64, search.Distances, error) {
 	helper, err := s.createHelper(sort, validateLimit(limit, len(ids)))
 	if err != nil {
 		return nil, nil, err
@@ -187,8 +189,8 @@ func (h *lsmSorterHelper) getSortedDocIDs(ctx context.Context, docIDs helpers.Al
 }
 
 func (h *lsmSorterHelper) getSortedDocIDsAndDistances(ctx context.Context, docIDs []uint64,
-	distances []float32,
-) ([]uint64, []float32, error) {
+	distances search.Distances,
+) ([]uint64, search.Distances, error) {
 	sorter := newInsertSorter(h.comparator, h.limit)
 	docIDBytes := make([]byte, 8)
 
@@ -207,9 +209,9 @@ func (h *lsmSorterHelper) getSortedDocIDsAndDistances(ctx context.Context, docID
 	}
 
 	sorted := sorter.getSorted()
-	sortedDistances := make([]float32, len(sorted))
+	sortedDistances := make(search.Distances, len(sorted))
 	consume := func(i int, _ uint64, payload interface{}) bool {
-		sortedDistances[i] = payload.(float32)
+		sortedDistances[i] = payload.(*search.Distance)
 		return false
 	}
 	h.creator.extractPayloads(sorted, consume)

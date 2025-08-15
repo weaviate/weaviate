@@ -589,22 +589,26 @@ func (ko *Object) GetVectors() models.Vectors {
 	return ko.asVectors(ko.Vectors, ko.MultiVectors)
 }
 
-func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32) search.Result {
+func (ko *Object) SearchResultWithDist(addl additional.Properties, dist *search.Distance) search.Result {
 	res := ko.SearchResult(addl, "")
-	res.Dist = dist
-	res.Certainty = float32(additional.DistToCertainty(float64(dist)))
+	res.Dist = dist.Distance
+	res.Certainty = float32(additional.DistToCertainty(float64(dist.Distance)))
+	res.Distances = dist.MultiTargetDistances
+
 	return *res
 }
 
-func (ko *Object) SearchResultWithScore(addl additional.Properties, score float32) search.Result {
+func (ko *Object) SearchResultWithScore(addl additional.Properties, score *search.Distance) search.Result {
 	res := ko.SearchResult(addl, "")
-	res.Score = score
+	res.Score = score.Distance
+	res.Distances = score.MultiTargetDistances
 	return *res
 }
 
-func (ko *Object) SearchResultWithScoreAndTenant(addl additional.Properties, score float32, tenant string) search.Result {
+func (ko *Object) SearchResultWithScoreAndTenant(addl additional.Properties, score *search.Distance, tenant string) search.Result {
 	res := ko.SearchResult(addl, tenant)
-	res.Score = score
+	res.Score = score.Distance
+	res.Distances = score.MultiTargetDistances
 	return *res
 }
 
@@ -650,11 +654,11 @@ func SearchResults(in []*Object, additional additional.Properties, tenant string
 	return out
 }
 
-func SearchResultsWithScore(in []*Object, scores []float32, additional additional.Properties, tenant string) search.Results {
+func SearchResultsWithScore(in []*Object, scores search.Distances, additional additional.Properties, tenant string) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		score := float32(0.0)
+		score := &search.Distance{Distance: 0.0}
 		if len(scores) > i {
 			score = scores[i]
 		}
@@ -665,7 +669,7 @@ func SearchResultsWithScore(in []*Object, scores []float32, additional additiona
 }
 
 func SearchResultsWithDists(in []*Object, addl additional.Properties,
-	dists []float32,
+	dists search.Distances,
 ) search.Results {
 	out := make(search.Results, len(in))
 

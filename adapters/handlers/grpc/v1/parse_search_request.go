@@ -90,6 +90,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		return dto.GetParams{}, errors.Wrap(err, "extract target vectors")
 	}
 	out.TargetVectorCombination = targetCombination
+	out.TargetVectors = targetVectors
 
 	if req.Metadata != nil {
 		addProps, err := extractAdditionalPropsFromMetadata(class, req.Metadata, targetVectors, vectorSearch)
@@ -123,6 +124,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		if err != nil {
 			return dto.GetParams{}, err
 		}
+		out.TargetVectors = out.NearVector.TargetVectors
 
 		// The following business logic should not sit in the API. However, it is
 		// also part of the GraphQL API, so we need to duplicate it in order to get

@@ -70,7 +70,7 @@ func (db *DB) GetQueryMaximumResults() int {
 // Earlier use cases required only []search.Result as a return value from the db, and the
 // Class ClassSearch method fit this need. Later on, other use cases presented the need
 // for the raw storage objects, such as hybrid search.
-func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error) {
+func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, search.Distances, error) {
 	start := time.Now()
 	defer func() {
 		took := time.Since(start)
@@ -483,7 +483,7 @@ func (db *DB) getStoreObjects(res []*storobj.Object, pagination *filters.Paginat
 	return res[offset:limit]
 }
 
-func (db *DB) getStoreObjectsWithScores(res []*storobj.Object, scores []float32, pagination *filters.Pagination) ([]*storobj.Object, []float32) {
+func (db *DB) getStoreObjectsWithScores(res []*storobj.Object, scores search.Distances, pagination *filters.Pagination) ([]*storobj.Object, search.Distances) {
 	offset, limit := db.getOffsetLimit(len(res), pagination.Offset, pagination.Limit)
 	if offset == 0 && limit == 0 {
 		return nil, nil
@@ -497,7 +497,7 @@ func (db *DB) getStoreObjectsWithScores(res []*storobj.Object, scores []float32,
 	return res, scores[offset:limit]
 }
 
-func (db *DB) getDists(dists []float32, pagination *filters.Pagination) []float32 {
+func (db *DB) getDists(dists search.Distances, pagination *filters.Pagination) search.Distances {
 	offset, limit := db.getOffsetLimit(len(dists), pagination.Offset, pagination.Limit)
 	if offset == 0 && limit == 0 {
 		return nil

@@ -14,12 +14,14 @@ package db
 import (
 	"sort"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 type sortByID struct {
 	objects []*storobj.Object
-	scores  []float32
+	scores  search.Distances
 }
 
 func (s *sortByID) Swap(i, j int) {
@@ -43,8 +45,8 @@ func newIDSorter() *sortObjectsByID {
 	return &sortObjectsByID{}
 }
 
-func (s *sortObjectsByID) sort(objects []*storobj.Object, scores []float32,
-) ([]*storobj.Object, []float32) {
+func (s *sortObjectsByID) sort(objects []*storobj.Object, scores search.Distances,
+) ([]*storobj.Object, search.Distances) {
 	sbd := &sortByID{objects, scores}
 	sort.Sort(sbd)
 	return sbd.objects, sbd.scores
