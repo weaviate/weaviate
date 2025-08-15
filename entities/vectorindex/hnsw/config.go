@@ -62,6 +62,7 @@ type UserConfig struct {
 	RQ                     RQConfig          `json:"rq"`
 	FilterStrategy         string            `json:"filterStrategy"`
 	Multivector            MultivectorConfig `json:"multivector"`
+	TrackingDefault        bool              `json:"trackingDefault"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -236,6 +237,12 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.Vecto
 	}
 
 	if err := parseMultivectorMap(asMap, &uc.Multivector, isMultiVector); err != nil {
+		return uc, err
+	}
+
+	if err := vectorIndexCommon.OptionalBoolFromMap(asMap, "trackingDefault", func(v bool) {
+		uc.TrackingDefault = v
+	}); err != nil {
 		return uc, err
 	}
 

@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	backupent "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/dimensioncategory"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -174,7 +175,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 
 				// Get vector usage for each named vector
 				if err = shard.ForEachVectorIndex(func(targetVector string, vectorIndex db.VectorIndex) error {
-					category := db.DimensionCategoryStandard // Default category
+					category := dimensioncategory.DimensionCategoryStandard // Default category
 					indexType := ""
 					var bits int16
 
@@ -286,7 +287,7 @@ func calculateUnloadedShardUsage(ctx context.Context, index db.IndexLike, tenant
 		// So we'll use a placeholder or estimate based on the schema
 		vectorUsage := &types.VectorUsage{
 			Name:                   targetVector,
-			Compression:            db.DimensionCategoryStandard.String(),
+			Compression:            dimensioncategory.DimensionCategoryStandard.String(),
 			VectorCompressionRatio: 1.0, // Default ratio for cold shards
 		}
 

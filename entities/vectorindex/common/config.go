@@ -29,6 +29,12 @@ const (
 	// Set these defaults if the user leaves them blank
 	DefaultVectorCacheMaxObjects = 1e12
 	DefaultDistanceMetric        = DistanceCosine
+
+	CompressionBQ = "bq"
+	CompressionPQ = "pq"
+	CompressionSQ = "sq"
+	CompressionRQ = "rq"
+	NoCompression = "uncompressed"
 )
 
 // Tries to parse the int value from the map, if it overflows math.MaxInt64, it

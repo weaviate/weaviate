@@ -23,6 +23,7 @@ import (
 
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/dimensioncategory"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
@@ -442,6 +443,12 @@ func FromEnv(config *Config) error {
 		return err
 	}
 	// ---- HNSW snapshots ----
+
+	defaultQuantization := "rq"
+	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
+		defaultQuantization = strings.ToLower(v)
+	}
+	config.DefaultQuantization = runtime.NewDynamicValue(int(dimensioncategory.NewDimensionCategoryFromString(defaultQuantization)))
 
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
