@@ -38,6 +38,7 @@ func TestOperators(t *testing.T) {
 		{op: ContainsAny, expectedName: "ContainsAny", expectedOnValue: true},
 		{op: ContainsAll, expectedName: "ContainsAll", expectedOnValue: true},
 		{op: ContainsNone, expectedName: "ContainsNone", expectedOnValue: true},
+		{op: OperatorNot, expectedName: "Not", expectedOnValue: false},
 	}
 
 	for _, test := range tests {

@@ -1072,6 +1072,66 @@ func TestGRPCSearchRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "filter and",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_AND, Filters: []*pb.Filters{
+					{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "test"}, On: []string{"name"}},
+					{Operator: pb.Filters_OPERATOR_NOT_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "other"}, On: []string{"name"}},
+				}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorAnd,
+						Operands: []filters.Clause{
+							{
+								Value:    &filters.Value{Value: "test", Type: schema.DataTypeText},
+								On:       &filters.Path{Class: schema.ClassName(classname), Property: "name"},
+								Operator: filters.OperatorEqual,
+							},
+							{
+								Value:    &filters.Value{Value: "other", Type: schema.DataTypeText},
+								On:       &filters.Path{Class: schema.ClassName(classname), Property: "name"},
+								Operator: filters.OperatorNotEqual,
+							},
+						},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "filter not",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_NOT, Filters: []*pb.Filters{
+					{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "test"}, On: []string{"name"}},
+				}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorNot,
+						Operands: []filters.Clause{
+							{
+								Value:    &filters.Value{Value: "test", Type: schema.DataTypeText},
+								On:       &filters.Path{Class: schema.ClassName(classname), Property: "name"},
+								Operator: filters.OperatorEqual,
+							},
+						},
+					},
+				},
+			},
+			error: false,
+		},
+		{
 			name: "filter reference",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},

@@ -685,22 +685,22 @@ func testChainedPrimitiveProps(repo *DB,
 				),
 				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID},
 			},
-			// test{
-			// 	name: "NOT modelName == sprinter, modelName == e63s",
-			// 	filter: filterNot(
-			// 		buildFilter("modelName", "sprinter", eq, dtText),
-			// 		buildFilter("modelName", "e63s", eq, dtText),
-			// 	),
-			// 	expectedIDs: []strfmt.UUID{carPoloID},
-			// },
-			// test{
-			// 	name: "NOT horsepower < 200 , weight > 3000",
-			// 	filter: filterNot(
-			// 		buildFilter("horsepower", 200, lt, dtNumber),
-			// 		buildFilter("weight", 3000, gt, dtNumber),
-			// 	),
-			// 	expectedIDs: []strfmt.UUID{carE63sID},
-			// },
+			{
+				name: "NOT (modelName == sprinter OR modelName == e63s)",
+				filter: filterNot(filterOr(
+					buildFilter("modelName", "sprinter", eq, dtText),
+					buildFilter("modelName", "e63s", eq, dtText),
+				)),
+				expectedIDs: []strfmt.UUID{carPoloID, carNilID, carEmpty},
+			},
+			{
+				name: "NOT (horsepower < 200 OR weight > 3000)",
+				filter: filterNot(filterOr(
+					buildFilter("horsepower", 200, lt, dtInt),
+					buildFilter("weight", float64(3000), gt, dtNumber),
+				)),
+				expectedIDs: []strfmt.UUID{carE63sID, carNilID, carEmpty},
+			},
 			{
 				name: "(heavy AND powerful) OR light",
 				filter: filterOr(
@@ -788,6 +788,10 @@ func filterAnd(operands ...*filters.LocalFilter) *filters.LocalFilter {
 
 func filterOr(operands ...*filters.LocalFilter) *filters.LocalFilter {
 	return compoundFilter(filters.OperatorOr, operands...)
+}
+
+func filterNot(operand *filters.LocalFilter) *filters.LocalFilter {
+	return compoundFilter(filters.OperatorNot, operand)
 }
 
 // test data
