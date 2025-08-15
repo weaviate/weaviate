@@ -28,10 +28,29 @@ See the [installation docs](https://docs.weaviate.io/deploy) for more deployment
 
 ## Getting started
 
-You can easily start Weaviate with Docker:
+You can easily start Weaviate and a local vector embedding model with [Docker](https://docs.docker.com/desktop/).
+Create a `docker-compose.yml` file:
 
 ```
-docker run -p 8080:8080 -p 50051:50051 -e ENABLE_API_BASED_MODULES=true cr.weaviate.io/semitechnologies/weaviate:1.32.2
+services:
+  weaviate:
+    image: cr.weaviate.io/semitechnologies/weaviate:1.32.2
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    environment:
+      ENABLE_MODULES: text2vec-model2vec
+      MODEL2VEC_INFERENCE_API: http://text2vec-model2vec:8080
+
+  # A lightweight embedding model that will generate vectors from objects during import
+  text2vec-model2vec:
+    image: cr.weaviate.io/semitechnologies/model2vec-inference:minishlab-potion-base-32M
+```
+
+Start Weaviate and the embedding service with:
+
+```
+docker compose up -d
 ```
 
 Install the Python client (or use another [client library](#client-libraries-and-apis)):
@@ -43,23 +62,21 @@ pip install -U weaviate-client
 The following Python example shows how easy it is to populate a Weaviate database with data, create vector embeddings and perform semantic search:
 
 ```python
-import os
 import weaviate
 from weaviate.classes.config import Configure, DataType, Property
 
 # Connect to Weaviate
-client = weaviate.connect_to_local(
-    headers={"X-OpenAI-Api-Key": os.environ["OPENAI_API_KEY"]}
-)
+client = weaviate.connect_to_local()
 
 # Create a collection
 client.collections.create(
     name="Article",
     properties=[Property(name="content", data_type=DataType.TEXT)],
-    vector_config=Configure.Vectors.text2vec_openai(),  # Use integrated vectorizers or bring your own vectors
+    vector_config=Configure.Vectors.text2vec_model2vec(),  # Use a vectorizer to generate embeddings during import
+    # vector_config=Configure.Vectors.self_provided()  # If you want to import your own pre-generated embeddings
 )
 
-# Insert objects
+# Insert objects and generate embeddings
 articles = client.collections.get("Article")
 articles.data.insert_many(
     [
@@ -75,6 +92,8 @@ print(results.objects[0])
 
 client.close()
 ```
+
+This example uses the `Model2Vec` vectorizer, but you can choose any other [embedding model provider](https://docs.weaviate.io/weaviate/model-providers) or [bring your own pre-generated vectors](https://docs.weaviate.io/weaviate/starter-guides/custom-vectors).
 
 ## Client libraries and APIs
 
@@ -114,6 +133,7 @@ For a complete list of all functionalities, visit the [official Weaviate documen
 
 These demos are working applications that highlight some of Weaviate's capabilities. Their source code is available on GitHub.
 
+- [Elysia](https://elysia.weaviate.io) ([GitHub](https://github.com/weaviate/elysia)): Elysia is a decision tree based agentic system which intelligently decides what tools to use, what results have been obtained, whether it should continue the process or whether its goal has been completed.
 - [Verba](https://verba.weaviate.io) ([GitHub](https://github.com/weaviate/verba)): A community-driven open-source application designed to offer an end-to-end, streamlined, and user-friendly interface for Retrieval-Augmented Generation (RAG) out of the box.
 - [Healthsearch](https://healthsearch.weaviate.io) ([GitHub](https://github.com/weaviate/healthsearch-demo)): An open-source project aimed at showcasing the potential of leveraging user-written reviews and queries to retrieve supplement products based on specific health effects.
 - [Awesome-Moviate](https://awesome-moviate.weaviate.io/) ([GitHub](https://github.com/weaviate-tutorials/awesome-moviate)): A movie search and recommendation engine that allows keyword-based (BM25), semantic, and hybrid searches.
