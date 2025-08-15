@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package mcp
+package authz
 
 import (
 	"context"
