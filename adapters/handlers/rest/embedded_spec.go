@@ -8362,7 +8362,8 @@ func init() {
             "IsNull",
             "ContainsAny",
             "ContainsAll",
-            "ContainsNone"
+            "ContainsNone",
+            "Not"
           ],
           "example": "GreaterThanEqual"
         },
@@ -17414,7 +17415,8 @@ func init() {
             "IsNull",
             "ContainsAny",
             "ContainsAll",
-            "ContainsNone"
+            "ContainsNone",
+            "Not"
           ],
           "example": "GreaterThanEqual"
         },
