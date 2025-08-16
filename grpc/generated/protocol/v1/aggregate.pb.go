@@ -5,6 +5,7 @@ package protocol
 import (
 	reflect "reflect"
 	sync "sync"
+	unsafe "unsafe"
 
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -18,10 +19,7 @@ const (
 )
 
 type AggregateRequest struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
+	state protoimpl.MessageState `protogen:"open.v1"`
 	// required
 	Collection string `protobuf:"bytes,1,opt,name=collection,proto3" json:"collection,omitempty"`
 	// parameters
@@ -35,7 +33,8 @@ type AggregateRequest struct {
 	Limit       *uint32                   `protobuf:"varint,32,opt,name=limit,proto3,oneof" json:"limit,omitempty"`
 	// matches/searches for objects
 	Filters *Filters `protobuf:"bytes,40,opt,name=filters,proto3,oneof" json:"filters,omitempty"`
-	// Types that are assignable to Search:
+	// Types that are valid to be assigned to Search:
+	//
 	//	*AggregateRequest_Hybrid
 	//	*AggregateRequest_NearVector
 	//	*AggregateRequest_NearObject
@@ -46,16 +45,16 @@ type AggregateRequest struct {
 	//	*AggregateRequest_NearDepth
 	//	*AggregateRequest_NearThermal
 	//	*AggregateRequest_NearImu
-	Search isAggregateRequest_Search `protobuf_oneof:"search"`
+	Search        isAggregateRequest_Search `protobuf_oneof:"search"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateRequest) Reset() {
 	*x = AggregateRequest{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[0]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateRequest) String() string {
@@ -66,7 +65,7 @@ func (*AggregateRequest) ProtoMessage() {}
 
 func (x *AggregateRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[0]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -137,79 +136,99 @@ func (x *AggregateRequest) GetFilters() *Filters {
 	return nil
 }
 
-func (m *AggregateRequest) GetSearch() isAggregateRequest_Search {
-	if m != nil {
-		return m.Search
+func (x *AggregateRequest) GetSearch() isAggregateRequest_Search {
+	if x != nil {
+		return x.Search
 	}
 	return nil
 }
 
 func (x *AggregateRequest) GetHybrid() *Hybrid {
-	if x, ok := x.GetSearch().(*AggregateRequest_Hybrid); ok {
-		return x.Hybrid
+	if x != nil {
+		if x, ok := x.Search.(*AggregateRequest_Hybrid); ok {
+			return x.Hybrid
+		}
 	}
 	return nil
 }
 
 func (x *AggregateRequest) GetNearVector() *NearVector {
-	if x, ok := x.GetSearch().(*AggregateRequest_NearVector); ok {
-		return x.NearVector
+	if x != nil {
+		if x, ok := x.Search.(*AggregateRequest_NearVector); ok {
+			return x.NearVector
+		}
 	}
 	return nil
 }
 
 func (x *AggregateRequest) GetNearObject() *NearObject {
-	if x, ok := x.GetSearch().(*AggregateRequest_NearObject); ok {
-		return x.NearObject
+	if x != nil {
+		if x, ok := x.Search.(*AggregateRequest_NearObject); ok {
+			return x.NearObject
+		}
 	}
 	return nil
 }
 
 func (x *AggregateRequest) GetNearText() *NearTextSearch {
-	if x, ok := x.GetSearch().(*AggregateRequest_NearText); ok {
-		return x.NearText
+	if x != nil {
+		if x, ok := x.Search.(*AggregateRequest_NearText); ok {
+			return x.NearText
+		}
 	}
 	return nil
 }
 
 func (x *AggregateRequest) GetNearImage() *NearImageSearch {
-	if x, ok := x.GetSearch().(*AggregateRequest_NearImage); ok {
-		return x.NearImage
+	if x != nil {
+		if x, ok := x.Search.(*AggregateRequest_NearImage); ok {
+			return x.NearImage
+		}
 	}
 	return nil
 }
 
 func (x *AggregateRequest) GetNearAudio() *NearAudioSearch {
-	if x, ok := x.GetSearch().(*AggregateRequest_NearAudio); ok {
-		return x.NearAudio
+	if x != nil {
+		if x, ok := x.Search.(*AggregateRequest_NearAudio); ok {
+			return x.NearAudio
+		}
 	}
 	return nil
 }
 
 func (x *AggregateRequest) GetNearVideo() *NearVideoSearch {
-	if x, ok := x.GetSearch().(*AggregateRequest_NearVideo); ok {
-		return x.NearVideo
+	if x != nil {
+		if x, ok := x.Search.(*AggregateRequest_NearVideo); ok {
+			return x.NearVideo
+		}
 	}
 	return nil
 }
 
 func (x *AggregateRequest) GetNearDepth() *NearDepthSearch {
-	if x, ok := x.GetSearch().(*AggregateRequest_NearDepth); ok {
-		return x.NearDepth
+	if x != nil {
+		if x, ok := x.Search.(*AggregateRequest_NearDepth); ok {
+			return x.NearDepth
+		}
 	}
 	return nil
 }
 
 func (x *AggregateRequest) GetNearThermal() *NearThermalSearch {
-	if x, ok := x.GetSearch().(*AggregateRequest_NearThermal); ok {
-		return x.NearThermal
+	if x != nil {
+		if x, ok := x.Search.(*AggregateRequest_NearThermal); ok {
+			return x.NearThermal
+		}
 	}
 	return nil
 }
 
 func (x *AggregateRequest) GetNearImu() *NearIMUSearch {
-	if x, ok := x.GetSearch().(*AggregateRequest_NearImu); ok {
-		return x.NearImu
+	if x != nil {
+		if x, ok := x.Search.(*AggregateRequest_NearImu); ok {
+			return x.NearImu
+		}
 	}
 	return nil
 }
@@ -279,24 +298,22 @@ func (*AggregateRequest_NearThermal) isAggregateRequest_Search() {}
 func (*AggregateRequest_NearImu) isAggregateRequest_Search() {}
 
 type AggregateReply struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Took float32 `protobuf:"fixed32,1,opt,name=took,proto3" json:"took,omitempty"`
-	// Types that are assignable to Result:
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Took  float32                `protobuf:"fixed32,1,opt,name=took,proto3" json:"took,omitempty"`
+	// Types that are valid to be assigned to Result:
+	//
 	//	*AggregateReply_SingleResult
 	//	*AggregateReply_GroupedResults
-	Result isAggregateReply_Result `protobuf_oneof:"result"`
+	Result        isAggregateReply_Result `protobuf_oneof:"result"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateReply) Reset() {
 	*x = AggregateReply{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[1]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateReply) String() string {
@@ -307,7 +324,7 @@ func (*AggregateReply) ProtoMessage() {}
 
 func (x *AggregateReply) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[1]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -329,23 +346,27 @@ func (x *AggregateReply) GetTook() float32 {
 	return 0
 }
 
-func (m *AggregateReply) GetResult() isAggregateReply_Result {
-	if m != nil {
-		return m.Result
+func (x *AggregateReply) GetResult() isAggregateReply_Result {
+	if x != nil {
+		return x.Result
 	}
 	return nil
 }
 
 func (x *AggregateReply) GetSingleResult() *AggregateReply_Single {
-	if x, ok := x.GetResult().(*AggregateReply_SingleResult); ok {
-		return x.SingleResult
+	if x != nil {
+		if x, ok := x.Result.(*AggregateReply_SingleResult); ok {
+			return x.SingleResult
+		}
 	}
 	return nil
 }
 
 func (x *AggregateReply) GetGroupedResults() *AggregateReply_Grouped {
-	if x, ok := x.GetResult().(*AggregateReply_GroupedResults); ok {
-		return x.GroupedResults
+	if x != nil {
+		if x, ok := x.Result.(*AggregateReply_GroupedResults); ok {
+			return x.GroupedResults
+		}
 	}
 	return nil
 }
@@ -367,28 +388,26 @@ func (*AggregateReply_SingleResult) isAggregateReply_Result() {}
 func (*AggregateReply_GroupedResults) isAggregateReply_Result() {}
 
 type AggregateRequest_Aggregation struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Property string `protobuf:"bytes,1,opt,name=property,proto3" json:"property,omitempty"`
-	// Types that are assignable to Aggregation:
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Property string                 `protobuf:"bytes,1,opt,name=property,proto3" json:"property,omitempty"`
+	// Types that are valid to be assigned to Aggregation:
+	//
 	//	*AggregateRequest_Aggregation_Int
 	//	*AggregateRequest_Aggregation_Number_
 	//	*AggregateRequest_Aggregation_Text_
 	//	*AggregateRequest_Aggregation_Boolean_
 	//	*AggregateRequest_Aggregation_Date_
 	//	*AggregateRequest_Aggregation_Reference_
-	Aggregation isAggregateRequest_Aggregation_Aggregation `protobuf_oneof:"aggregation"`
+	Aggregation   isAggregateRequest_Aggregation_Aggregation `protobuf_oneof:"aggregation"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateRequest_Aggregation) Reset() {
 	*x = AggregateRequest_Aggregation{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[2]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateRequest_Aggregation) String() string {
@@ -399,7 +418,7 @@ func (*AggregateRequest_Aggregation) ProtoMessage() {}
 
 func (x *AggregateRequest_Aggregation) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[2]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -421,51 +440,63 @@ func (x *AggregateRequest_Aggregation) GetProperty() string {
 	return ""
 }
 
-func (m *AggregateRequest_Aggregation) GetAggregation() isAggregateRequest_Aggregation_Aggregation {
-	if m != nil {
-		return m.Aggregation
+func (x *AggregateRequest_Aggregation) GetAggregation() isAggregateRequest_Aggregation_Aggregation {
+	if x != nil {
+		return x.Aggregation
 	}
 	return nil
 }
 
 func (x *AggregateRequest_Aggregation) GetInt() *AggregateRequest_Aggregation_Integer {
-	if x, ok := x.GetAggregation().(*AggregateRequest_Aggregation_Int); ok {
-		return x.Int
+	if x != nil {
+		if x, ok := x.Aggregation.(*AggregateRequest_Aggregation_Int); ok {
+			return x.Int
+		}
 	}
 	return nil
 }
 
 func (x *AggregateRequest_Aggregation) GetNumber() *AggregateRequest_Aggregation_Number {
-	if x, ok := x.GetAggregation().(*AggregateRequest_Aggregation_Number_); ok {
-		return x.Number
+	if x != nil {
+		if x, ok := x.Aggregation.(*AggregateRequest_Aggregation_Number_); ok {
+			return x.Number
+		}
 	}
 	return nil
 }
 
 func (x *AggregateRequest_Aggregation) GetText() *AggregateRequest_Aggregation_Text {
-	if x, ok := x.GetAggregation().(*AggregateRequest_Aggregation_Text_); ok {
-		return x.Text
+	if x != nil {
+		if x, ok := x.Aggregation.(*AggregateRequest_Aggregation_Text_); ok {
+			return x.Text
+		}
 	}
 	return nil
 }
 
 func (x *AggregateRequest_Aggregation) GetBoolean() *AggregateRequest_Aggregation_Boolean {
-	if x, ok := x.GetAggregation().(*AggregateRequest_Aggregation_Boolean_); ok {
-		return x.Boolean
+	if x != nil {
+		if x, ok := x.Aggregation.(*AggregateRequest_Aggregation_Boolean_); ok {
+			return x.Boolean
+		}
 	}
 	return nil
 }
 
 func (x *AggregateRequest_Aggregation) GetDate() *AggregateRequest_Aggregation_Date {
-	if x, ok := x.GetAggregation().(*AggregateRequest_Aggregation_Date_); ok {
-		return x.Date
+	if x != nil {
+		if x, ok := x.Aggregation.(*AggregateRequest_Aggregation_Date_); ok {
+			return x.Date
+		}
 	}
 	return nil
 }
 
 func (x *AggregateRequest_Aggregation) GetReference() *AggregateRequest_Aggregation_Reference {
-	if x, ok := x.GetAggregation().(*AggregateRequest_Aggregation_Reference_); ok {
-		return x.Reference
+	if x != nil {
+		if x, ok := x.Aggregation.(*AggregateRequest_Aggregation_Reference_); ok {
+			return x.Reference
+		}
 	}
 	return nil
 }
@@ -511,21 +542,18 @@ func (*AggregateRequest_Aggregation_Date_) isAggregateRequest_Aggregation_Aggreg
 func (*AggregateRequest_Aggregation_Reference_) isAggregateRequest_Aggregation_Aggregation() {}
 
 type AggregateRequest_GroupBy struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Collection    string                 `protobuf:"bytes,1,opt,name=collection,proto3" json:"collection,omitempty"`
+	Property      string                 `protobuf:"bytes,2,opt,name=property,proto3" json:"property,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Collection string `protobuf:"bytes,1,opt,name=collection,proto3" json:"collection,omitempty"`
-	Property   string `protobuf:"bytes,2,opt,name=property,proto3" json:"property,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateRequest_GroupBy) Reset() {
 	*x = AggregateRequest_GroupBy{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[3]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateRequest_GroupBy) String() string {
@@ -536,7 +564,7 @@ func (*AggregateRequest_GroupBy) ProtoMessage() {}
 
 func (x *AggregateRequest_GroupBy) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[3]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -566,27 +594,24 @@ func (x *AggregateRequest_GroupBy) GetProperty() string {
 }
 
 type AggregateRequest_Aggregation_Integer struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Count         bool                   `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
+	Type          bool                   `protobuf:"varint,2,opt,name=type,proto3" json:"type,omitempty"`
+	Sum           bool                   `protobuf:"varint,3,opt,name=sum,proto3" json:"sum,omitempty"`
+	Mean          bool                   `protobuf:"varint,4,opt,name=mean,proto3" json:"mean,omitempty"`
+	Mode          bool                   `protobuf:"varint,5,opt,name=mode,proto3" json:"mode,omitempty"`
+	Median        bool                   `protobuf:"varint,6,opt,name=median,proto3" json:"median,omitempty"`
+	Maximum       bool                   `protobuf:"varint,7,opt,name=maximum,proto3" json:"maximum,omitempty"`
+	Minimum       bool                   `protobuf:"varint,8,opt,name=minimum,proto3" json:"minimum,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Count   bool `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
-	Type    bool `protobuf:"varint,2,opt,name=type,proto3" json:"type,omitempty"`
-	Sum     bool `protobuf:"varint,3,opt,name=sum,proto3" json:"sum,omitempty"`
-	Mean    bool `protobuf:"varint,4,opt,name=mean,proto3" json:"mean,omitempty"`
-	Mode    bool `protobuf:"varint,5,opt,name=mode,proto3" json:"mode,omitempty"`
-	Median  bool `protobuf:"varint,6,opt,name=median,proto3" json:"median,omitempty"`
-	Maximum bool `protobuf:"varint,7,opt,name=maximum,proto3" json:"maximum,omitempty"`
-	Minimum bool `protobuf:"varint,8,opt,name=minimum,proto3" json:"minimum,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateRequest_Aggregation_Integer) Reset() {
 	*x = AggregateRequest_Aggregation_Integer{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[4]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateRequest_Aggregation_Integer) String() string {
@@ -597,7 +622,7 @@ func (*AggregateRequest_Aggregation_Integer) ProtoMessage() {}
 
 func (x *AggregateRequest_Aggregation_Integer) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[4]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -669,27 +694,24 @@ func (x *AggregateRequest_Aggregation_Integer) GetMinimum() bool {
 }
 
 type AggregateRequest_Aggregation_Number struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Count         bool                   `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
+	Type          bool                   `protobuf:"varint,2,opt,name=type,proto3" json:"type,omitempty"`
+	Sum           bool                   `protobuf:"varint,3,opt,name=sum,proto3" json:"sum,omitempty"`
+	Mean          bool                   `protobuf:"varint,4,opt,name=mean,proto3" json:"mean,omitempty"`
+	Mode          bool                   `protobuf:"varint,5,opt,name=mode,proto3" json:"mode,omitempty"`
+	Median        bool                   `protobuf:"varint,6,opt,name=median,proto3" json:"median,omitempty"`
+	Maximum       bool                   `protobuf:"varint,7,opt,name=maximum,proto3" json:"maximum,omitempty"`
+	Minimum       bool                   `protobuf:"varint,8,opt,name=minimum,proto3" json:"minimum,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Count   bool `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
-	Type    bool `protobuf:"varint,2,opt,name=type,proto3" json:"type,omitempty"`
-	Sum     bool `protobuf:"varint,3,opt,name=sum,proto3" json:"sum,omitempty"`
-	Mean    bool `protobuf:"varint,4,opt,name=mean,proto3" json:"mean,omitempty"`
-	Mode    bool `protobuf:"varint,5,opt,name=mode,proto3" json:"mode,omitempty"`
-	Median  bool `protobuf:"varint,6,opt,name=median,proto3" json:"median,omitempty"`
-	Maximum bool `protobuf:"varint,7,opt,name=maximum,proto3" json:"maximum,omitempty"`
-	Minimum bool `protobuf:"varint,8,opt,name=minimum,proto3" json:"minimum,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateRequest_Aggregation_Number) Reset() {
 	*x = AggregateRequest_Aggregation_Number{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[5]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateRequest_Aggregation_Number) String() string {
@@ -700,7 +722,7 @@ func (*AggregateRequest_Aggregation_Number) ProtoMessage() {}
 
 func (x *AggregateRequest_Aggregation_Number) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[5]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -772,23 +794,20 @@ func (x *AggregateRequest_Aggregation_Number) GetMinimum() bool {
 }
 
 type AggregateRequest_Aggregation_Text struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Count              bool    `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
-	Type               bool    `protobuf:"varint,2,opt,name=type,proto3" json:"type,omitempty"`
-	TopOccurences      bool    `protobuf:"varint,3,opt,name=top_occurences,json=topOccurences,proto3" json:"top_occurences,omitempty"`
-	TopOccurencesLimit *uint32 `protobuf:"varint,4,opt,name=top_occurences_limit,json=topOccurencesLimit,proto3,oneof" json:"top_occurences_limit,omitempty"`
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Count              bool                   `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
+	Type               bool                   `protobuf:"varint,2,opt,name=type,proto3" json:"type,omitempty"`
+	TopOccurences      bool                   `protobuf:"varint,3,opt,name=top_occurences,json=topOccurences,proto3" json:"top_occurences,omitempty"`
+	TopOccurencesLimit *uint32                `protobuf:"varint,4,opt,name=top_occurences_limit,json=topOccurencesLimit,proto3,oneof" json:"top_occurences_limit,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *AggregateRequest_Aggregation_Text) Reset() {
 	*x = AggregateRequest_Aggregation_Text{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[6]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateRequest_Aggregation_Text) String() string {
@@ -799,7 +818,7 @@ func (*AggregateRequest_Aggregation_Text) ProtoMessage() {}
 
 func (x *AggregateRequest_Aggregation_Text) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[6]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -843,25 +862,22 @@ func (x *AggregateRequest_Aggregation_Text) GetTopOccurencesLimit() uint32 {
 }
 
 type AggregateRequest_Aggregation_Boolean struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Count           bool `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
-	Type            bool `protobuf:"varint,2,opt,name=type,proto3" json:"type,omitempty"`
-	TotalTrue       bool `protobuf:"varint,3,opt,name=total_true,json=totalTrue,proto3" json:"total_true,omitempty"`
-	TotalFalse      bool `protobuf:"varint,4,opt,name=total_false,json=totalFalse,proto3" json:"total_false,omitempty"`
-	PercentageTrue  bool `protobuf:"varint,5,opt,name=percentage_true,json=percentageTrue,proto3" json:"percentage_true,omitempty"`
-	PercentageFalse bool `protobuf:"varint,6,opt,name=percentage_false,json=percentageFalse,proto3" json:"percentage_false,omitempty"`
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Count           bool                   `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
+	Type            bool                   `protobuf:"varint,2,opt,name=type,proto3" json:"type,omitempty"`
+	TotalTrue       bool                   `protobuf:"varint,3,opt,name=total_true,json=totalTrue,proto3" json:"total_true,omitempty"`
+	TotalFalse      bool                   `protobuf:"varint,4,opt,name=total_false,json=totalFalse,proto3" json:"total_false,omitempty"`
+	PercentageTrue  bool                   `protobuf:"varint,5,opt,name=percentage_true,json=percentageTrue,proto3" json:"percentage_true,omitempty"`
+	PercentageFalse bool                   `protobuf:"varint,6,opt,name=percentage_false,json=percentageFalse,proto3" json:"percentage_false,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AggregateRequest_Aggregation_Boolean) Reset() {
 	*x = AggregateRequest_Aggregation_Boolean{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[7]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateRequest_Aggregation_Boolean) String() string {
@@ -872,7 +888,7 @@ func (*AggregateRequest_Aggregation_Boolean) ProtoMessage() {}
 
 func (x *AggregateRequest_Aggregation_Boolean) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[7]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -930,25 +946,22 @@ func (x *AggregateRequest_Aggregation_Boolean) GetPercentageFalse() bool {
 }
 
 type AggregateRequest_Aggregation_Date struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Count         bool                   `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
+	Type          bool                   `protobuf:"varint,2,opt,name=type,proto3" json:"type,omitempty"`
+	Median        bool                   `protobuf:"varint,3,opt,name=median,proto3" json:"median,omitempty"`
+	Mode          bool                   `protobuf:"varint,4,opt,name=mode,proto3" json:"mode,omitempty"`
+	Maximum       bool                   `protobuf:"varint,5,opt,name=maximum,proto3" json:"maximum,omitempty"`
+	Minimum       bool                   `protobuf:"varint,6,opt,name=minimum,proto3" json:"minimum,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Count   bool `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
-	Type    bool `protobuf:"varint,2,opt,name=type,proto3" json:"type,omitempty"`
-	Median  bool `protobuf:"varint,3,opt,name=median,proto3" json:"median,omitempty"`
-	Mode    bool `protobuf:"varint,4,opt,name=mode,proto3" json:"mode,omitempty"`
-	Maximum bool `protobuf:"varint,5,opt,name=maximum,proto3" json:"maximum,omitempty"`
-	Minimum bool `protobuf:"varint,6,opt,name=minimum,proto3" json:"minimum,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateRequest_Aggregation_Date) Reset() {
 	*x = AggregateRequest_Aggregation_Date{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[8]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateRequest_Aggregation_Date) String() string {
@@ -959,7 +972,7 @@ func (*AggregateRequest_Aggregation_Date) ProtoMessage() {}
 
 func (x *AggregateRequest_Aggregation_Date) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[8]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1017,21 +1030,18 @@ func (x *AggregateRequest_Aggregation_Date) GetMinimum() bool {
 }
 
 type AggregateRequest_Aggregation_Reference struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Type          bool                   `protobuf:"varint,1,opt,name=type,proto3" json:"type,omitempty"`
+	PointingTo    bool                   `protobuf:"varint,2,opt,name=pointing_to,json=pointingTo,proto3" json:"pointing_to,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Type       bool `protobuf:"varint,1,opt,name=type,proto3" json:"type,omitempty"`
-	PointingTo bool `protobuf:"varint,2,opt,name=pointing_to,json=pointingTo,proto3" json:"pointing_to,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateRequest_Aggregation_Reference) Reset() {
 	*x = AggregateRequest_Aggregation_Reference{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[9]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateRequest_Aggregation_Reference) String() string {
@@ -1042,7 +1052,7 @@ func (*AggregateRequest_Aggregation_Reference) ProtoMessage() {}
 
 func (x *AggregateRequest_Aggregation_Reference) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[9]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1072,20 +1082,17 @@ func (x *AggregateRequest_Aggregation_Reference) GetPointingTo() bool {
 }
 
 type AggregateReply_Aggregations struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState                     `protogen:"open.v1"`
+	Aggregations  []*AggregateReply_Aggregations_Aggregation `protobuf:"bytes,1,rep,name=aggregations,proto3" json:"aggregations,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Aggregations []*AggregateReply_Aggregations_Aggregation `protobuf:"bytes,1,rep,name=aggregations,proto3" json:"aggregations,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateReply_Aggregations) Reset() {
 	*x = AggregateReply_Aggregations{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[10]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateReply_Aggregations) String() string {
@@ -1096,7 +1103,7 @@ func (*AggregateReply_Aggregations) ProtoMessage() {}
 
 func (x *AggregateReply_Aggregations) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[10]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1119,21 +1126,18 @@ func (x *AggregateReply_Aggregations) GetAggregations() []*AggregateReply_Aggreg
 }
 
 type AggregateReply_Single struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState       `protogen:"open.v1"`
+	ObjectsCount  *int64                       `protobuf:"varint,1,opt,name=objects_count,json=objectsCount,proto3,oneof" json:"objects_count,omitempty"`
+	Aggregations  *AggregateReply_Aggregations `protobuf:"bytes,2,opt,name=aggregations,proto3,oneof" json:"aggregations,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	ObjectsCount *int64                       `protobuf:"varint,1,opt,name=objects_count,json=objectsCount,proto3,oneof" json:"objects_count,omitempty"`
-	Aggregations *AggregateReply_Aggregations `protobuf:"bytes,2,opt,name=aggregations,proto3,oneof" json:"aggregations,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateReply_Single) Reset() {
 	*x = AggregateReply_Single{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[11]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateReply_Single) String() string {
@@ -1144,7 +1148,7 @@ func (*AggregateReply_Single) ProtoMessage() {}
 
 func (x *AggregateReply_Single) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[11]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1174,22 +1178,19 @@ func (x *AggregateReply_Single) GetAggregations() *AggregateReply_Aggregations {
 }
 
 type AggregateReply_Group struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState          `protogen:"open.v1"`
+	ObjectsCount  *int64                          `protobuf:"varint,1,opt,name=objects_count,json=objectsCount,proto3,oneof" json:"objects_count,omitempty"`
+	Aggregations  *AggregateReply_Aggregations    `protobuf:"bytes,2,opt,name=aggregations,proto3,oneof" json:"aggregations,omitempty"`
+	GroupedBy     *AggregateReply_Group_GroupedBy `protobuf:"bytes,3,opt,name=grouped_by,json=groupedBy,proto3,oneof" json:"grouped_by,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	ObjectsCount *int64                          `protobuf:"varint,1,opt,name=objects_count,json=objectsCount,proto3,oneof" json:"objects_count,omitempty"`
-	Aggregations *AggregateReply_Aggregations    `protobuf:"bytes,2,opt,name=aggregations,proto3,oneof" json:"aggregations,omitempty"`
-	GroupedBy    *AggregateReply_Group_GroupedBy `protobuf:"bytes,3,opt,name=grouped_by,json=groupedBy,proto3,oneof" json:"grouped_by,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateReply_Group) Reset() {
 	*x = AggregateReply_Group{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[12]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateReply_Group) String() string {
@@ -1200,7 +1201,7 @@ func (*AggregateReply_Group) ProtoMessage() {}
 
 func (x *AggregateReply_Group) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[12]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1237,20 +1238,17 @@ func (x *AggregateReply_Group) GetGroupedBy() *AggregateReply_Group_GroupedBy {
 }
 
 type AggregateReply_Grouped struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Groups        []*AggregateReply_Group `protobuf:"bytes,1,rep,name=groups,proto3" json:"groups,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Groups []*AggregateReply_Group `protobuf:"bytes,1,rep,name=groups,proto3" json:"groups,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateReply_Grouped) Reset() {
 	*x = AggregateReply_Grouped{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[13]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateReply_Grouped) String() string {
@@ -1261,7 +1259,7 @@ func (*AggregateReply_Grouped) ProtoMessage() {}
 
 func (x *AggregateReply_Grouped) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[13]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1284,28 +1282,26 @@ func (x *AggregateReply_Grouped) GetGroups() []*AggregateReply_Group {
 }
 
 type AggregateReply_Aggregations_Aggregation struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Property string `protobuf:"bytes,1,opt,name=property,proto3" json:"property,omitempty"`
-	// Types that are assignable to Aggregation:
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Property string                 `protobuf:"bytes,1,opt,name=property,proto3" json:"property,omitempty"`
+	// Types that are valid to be assigned to Aggregation:
+	//
 	//	*AggregateReply_Aggregations_Aggregation_Int
 	//	*AggregateReply_Aggregations_Aggregation_Number_
 	//	*AggregateReply_Aggregations_Aggregation_Text_
 	//	*AggregateReply_Aggregations_Aggregation_Boolean_
 	//	*AggregateReply_Aggregations_Aggregation_Date_
 	//	*AggregateReply_Aggregations_Aggregation_Reference_
-	Aggregation isAggregateReply_Aggregations_Aggregation_Aggregation `protobuf_oneof:"aggregation"`
+	Aggregation   isAggregateReply_Aggregations_Aggregation_Aggregation `protobuf_oneof:"aggregation"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateReply_Aggregations_Aggregation) Reset() {
 	*x = AggregateReply_Aggregations_Aggregation{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[14]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateReply_Aggregations_Aggregation) String() string {
@@ -1316,7 +1312,7 @@ func (*AggregateReply_Aggregations_Aggregation) ProtoMessage() {}
 
 func (x *AggregateReply_Aggregations_Aggregation) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[14]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1338,51 +1334,63 @@ func (x *AggregateReply_Aggregations_Aggregation) GetProperty() string {
 	return ""
 }
 
-func (m *AggregateReply_Aggregations_Aggregation) GetAggregation() isAggregateReply_Aggregations_Aggregation_Aggregation {
-	if m != nil {
-		return m.Aggregation
+func (x *AggregateReply_Aggregations_Aggregation) GetAggregation() isAggregateReply_Aggregations_Aggregation_Aggregation {
+	if x != nil {
+		return x.Aggregation
 	}
 	return nil
 }
 
 func (x *AggregateReply_Aggregations_Aggregation) GetInt() *AggregateReply_Aggregations_Aggregation_Integer {
-	if x, ok := x.GetAggregation().(*AggregateReply_Aggregations_Aggregation_Int); ok {
-		return x.Int
+	if x != nil {
+		if x, ok := x.Aggregation.(*AggregateReply_Aggregations_Aggregation_Int); ok {
+			return x.Int
+		}
 	}
 	return nil
 }
 
 func (x *AggregateReply_Aggregations_Aggregation) GetNumber() *AggregateReply_Aggregations_Aggregation_Number {
-	if x, ok := x.GetAggregation().(*AggregateReply_Aggregations_Aggregation_Number_); ok {
-		return x.Number
+	if x != nil {
+		if x, ok := x.Aggregation.(*AggregateReply_Aggregations_Aggregation_Number_); ok {
+			return x.Number
+		}
 	}
 	return nil
 }
 
 func (x *AggregateReply_Aggregations_Aggregation) GetText() *AggregateReply_Aggregations_Aggregation_Text {
-	if x, ok := x.GetAggregation().(*AggregateReply_Aggregations_Aggregation_Text_); ok {
-		return x.Text
+	if x != nil {
+		if x, ok := x.Aggregation.(*AggregateReply_Aggregations_Aggregation_Text_); ok {
+			return x.Text
+		}
 	}
 	return nil
 }
 
 func (x *AggregateReply_Aggregations_Aggregation) GetBoolean() *AggregateReply_Aggregations_Aggregation_Boolean {
-	if x, ok := x.GetAggregation().(*AggregateReply_Aggregations_Aggregation_Boolean_); ok {
-		return x.Boolean
+	if x != nil {
+		if x, ok := x.Aggregation.(*AggregateReply_Aggregations_Aggregation_Boolean_); ok {
+			return x.Boolean
+		}
 	}
 	return nil
 }
 
 func (x *AggregateReply_Aggregations_Aggregation) GetDate() *AggregateReply_Aggregations_Aggregation_Date {
-	if x, ok := x.GetAggregation().(*AggregateReply_Aggregations_Aggregation_Date_); ok {
-		return x.Date
+	if x != nil {
+		if x, ok := x.Aggregation.(*AggregateReply_Aggregations_Aggregation_Date_); ok {
+			return x.Date
+		}
 	}
 	return nil
 }
 
 func (x *AggregateReply_Aggregations_Aggregation) GetReference() *AggregateReply_Aggregations_Aggregation_Reference {
-	if x, ok := x.GetAggregation().(*AggregateReply_Aggregations_Aggregation_Reference_); ok {
-		return x.Reference
+	if x != nil {
+		if x, ok := x.Aggregation.(*AggregateReply_Aggregations_Aggregation_Reference_); ok {
+			return x.Reference
+		}
 	}
 	return nil
 }
@@ -1434,27 +1442,24 @@ func (*AggregateReply_Aggregations_Aggregation_Reference_) isAggregateReply_Aggr
 }
 
 type AggregateReply_Aggregations_Aggregation_Integer struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Count         *int64                 `protobuf:"varint,1,opt,name=count,proto3,oneof" json:"count,omitempty"`
+	Type          *string                `protobuf:"bytes,2,opt,name=type,proto3,oneof" json:"type,omitempty"`
+	Mean          *float64               `protobuf:"fixed64,3,opt,name=mean,proto3,oneof" json:"mean,omitempty"`
+	Median        *float64               `protobuf:"fixed64,4,opt,name=median,proto3,oneof" json:"median,omitempty"`
+	Mode          *int64                 `protobuf:"varint,5,opt,name=mode,proto3,oneof" json:"mode,omitempty"`
+	Maximum       *int64                 `protobuf:"varint,6,opt,name=maximum,proto3,oneof" json:"maximum,omitempty"`
+	Minimum       *int64                 `protobuf:"varint,7,opt,name=minimum,proto3,oneof" json:"minimum,omitempty"`
+	Sum           *int64                 `protobuf:"varint,8,opt,name=sum,proto3,oneof" json:"sum,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Count   *int64   `protobuf:"varint,1,opt,name=count,proto3,oneof" json:"count,omitempty"`
-	Type    *string  `protobuf:"bytes,2,opt,name=type,proto3,oneof" json:"type,omitempty"`
-	Mean    *float64 `protobuf:"fixed64,3,opt,name=mean,proto3,oneof" json:"mean,omitempty"`
-	Median  *float64 `protobuf:"fixed64,4,opt,name=median,proto3,oneof" json:"median,omitempty"`
-	Mode    *int64   `protobuf:"varint,5,opt,name=mode,proto3,oneof" json:"mode,omitempty"`
-	Maximum *int64   `protobuf:"varint,6,opt,name=maximum,proto3,oneof" json:"maximum,omitempty"`
-	Minimum *int64   `protobuf:"varint,7,opt,name=minimum,proto3,oneof" json:"minimum,omitempty"`
-	Sum     *int64   `protobuf:"varint,8,opt,name=sum,proto3,oneof" json:"sum,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Integer) Reset() {
 	*x = AggregateReply_Aggregations_Aggregation_Integer{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[15]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Integer) String() string {
@@ -1465,7 +1470,7 @@ func (*AggregateReply_Aggregations_Aggregation_Integer) ProtoMessage() {}
 
 func (x *AggregateReply_Aggregations_Aggregation_Integer) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[15]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1537,27 +1542,24 @@ func (x *AggregateReply_Aggregations_Aggregation_Integer) GetSum() int64 {
 }
 
 type AggregateReply_Aggregations_Aggregation_Number struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Count         *int64                 `protobuf:"varint,1,opt,name=count,proto3,oneof" json:"count,omitempty"`
+	Type          *string                `protobuf:"bytes,2,opt,name=type,proto3,oneof" json:"type,omitempty"`
+	Mean          *float64               `protobuf:"fixed64,3,opt,name=mean,proto3,oneof" json:"mean,omitempty"`
+	Median        *float64               `protobuf:"fixed64,4,opt,name=median,proto3,oneof" json:"median,omitempty"`
+	Mode          *float64               `protobuf:"fixed64,5,opt,name=mode,proto3,oneof" json:"mode,omitempty"`
+	Maximum       *float64               `protobuf:"fixed64,6,opt,name=maximum,proto3,oneof" json:"maximum,omitempty"`
+	Minimum       *float64               `protobuf:"fixed64,7,opt,name=minimum,proto3,oneof" json:"minimum,omitempty"`
+	Sum           *float64               `protobuf:"fixed64,8,opt,name=sum,proto3,oneof" json:"sum,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Count   *int64   `protobuf:"varint,1,opt,name=count,proto3,oneof" json:"count,omitempty"`
-	Type    *string  `protobuf:"bytes,2,opt,name=type,proto3,oneof" json:"type,omitempty"`
-	Mean    *float64 `protobuf:"fixed64,3,opt,name=mean,proto3,oneof" json:"mean,omitempty"`
-	Median  *float64 `protobuf:"fixed64,4,opt,name=median,proto3,oneof" json:"median,omitempty"`
-	Mode    *float64 `protobuf:"fixed64,5,opt,name=mode,proto3,oneof" json:"mode,omitempty"`
-	Maximum *float64 `protobuf:"fixed64,6,opt,name=maximum,proto3,oneof" json:"maximum,omitempty"`
-	Minimum *float64 `protobuf:"fixed64,7,opt,name=minimum,proto3,oneof" json:"minimum,omitempty"`
-	Sum     *float64 `protobuf:"fixed64,8,opt,name=sum,proto3,oneof" json:"sum,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Number) Reset() {
 	*x = AggregateReply_Aggregations_Aggregation_Number{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[16]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Number) String() string {
@@ -1568,7 +1570,7 @@ func (*AggregateReply_Aggregations_Aggregation_Number) ProtoMessage() {}
 
 func (x *AggregateReply_Aggregations_Aggregation_Number) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[16]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1640,22 +1642,19 @@ func (x *AggregateReply_Aggregations_Aggregation_Number) GetSum() float64 {
 }
 
 type AggregateReply_Aggregations_Aggregation_Text struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
+	state         protoimpl.MessageState                                       `protogen:"open.v1"`
 	Count         *int64                                                       `protobuf:"varint,1,opt,name=count,proto3,oneof" json:"count,omitempty"`
 	Type          *string                                                      `protobuf:"bytes,2,opt,name=type,proto3,oneof" json:"type,omitempty"`
 	TopOccurences *AggregateReply_Aggregations_Aggregation_Text_TopOccurrences `protobuf:"bytes,3,opt,name=top_occurences,json=topOccurences,proto3,oneof" json:"top_occurences,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Text) Reset() {
 	*x = AggregateReply_Aggregations_Aggregation_Text{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[17]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Text) String() string {
@@ -1666,7 +1665,7 @@ func (*AggregateReply_Aggregations_Aggregation_Text) ProtoMessage() {}
 
 func (x *AggregateReply_Aggregations_Aggregation_Text) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[17]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1703,25 +1702,22 @@ func (x *AggregateReply_Aggregations_Aggregation_Text) GetTopOccurences() *Aggre
 }
 
 type AggregateReply_Aggregations_Aggregation_Boolean struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Count           *int64   `protobuf:"varint,1,opt,name=count,proto3,oneof" json:"count,omitempty"`
-	Type            *string  `protobuf:"bytes,2,opt,name=type,proto3,oneof" json:"type,omitempty"`
-	TotalTrue       *int64   `protobuf:"varint,3,opt,name=total_true,json=totalTrue,proto3,oneof" json:"total_true,omitempty"`
-	TotalFalse      *int64   `protobuf:"varint,4,opt,name=total_false,json=totalFalse,proto3,oneof" json:"total_false,omitempty"`
-	PercentageTrue  *float64 `protobuf:"fixed64,5,opt,name=percentage_true,json=percentageTrue,proto3,oneof" json:"percentage_true,omitempty"`
-	PercentageFalse *float64 `protobuf:"fixed64,6,opt,name=percentage_false,json=percentageFalse,proto3,oneof" json:"percentage_false,omitempty"`
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Count           *int64                 `protobuf:"varint,1,opt,name=count,proto3,oneof" json:"count,omitempty"`
+	Type            *string                `protobuf:"bytes,2,opt,name=type,proto3,oneof" json:"type,omitempty"`
+	TotalTrue       *int64                 `protobuf:"varint,3,opt,name=total_true,json=totalTrue,proto3,oneof" json:"total_true,omitempty"`
+	TotalFalse      *int64                 `protobuf:"varint,4,opt,name=total_false,json=totalFalse,proto3,oneof" json:"total_false,omitempty"`
+	PercentageTrue  *float64               `protobuf:"fixed64,5,opt,name=percentage_true,json=percentageTrue,proto3,oneof" json:"percentage_true,omitempty"`
+	PercentageFalse *float64               `protobuf:"fixed64,6,opt,name=percentage_false,json=percentageFalse,proto3,oneof" json:"percentage_false,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Boolean) Reset() {
 	*x = AggregateReply_Aggregations_Aggregation_Boolean{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[18]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Boolean) String() string {
@@ -1732,7 +1728,7 @@ func (*AggregateReply_Aggregations_Aggregation_Boolean) ProtoMessage() {}
 
 func (x *AggregateReply_Aggregations_Aggregation_Boolean) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[18]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1790,25 +1786,22 @@ func (x *AggregateReply_Aggregations_Aggregation_Boolean) GetPercentageFalse() f
 }
 
 type AggregateReply_Aggregations_Aggregation_Date struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Count         *int64                 `protobuf:"varint,1,opt,name=count,proto3,oneof" json:"count,omitempty"`
+	Type          *string                `protobuf:"bytes,2,opt,name=type,proto3,oneof" json:"type,omitempty"`
+	Median        *string                `protobuf:"bytes,3,opt,name=median,proto3,oneof" json:"median,omitempty"`
+	Mode          *string                `protobuf:"bytes,4,opt,name=mode,proto3,oneof" json:"mode,omitempty"`
+	Maximum       *string                `protobuf:"bytes,5,opt,name=maximum,proto3,oneof" json:"maximum,omitempty"`
+	Minimum       *string                `protobuf:"bytes,6,opt,name=minimum,proto3,oneof" json:"minimum,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Count   *int64  `protobuf:"varint,1,opt,name=count,proto3,oneof" json:"count,omitempty"`
-	Type    *string `protobuf:"bytes,2,opt,name=type,proto3,oneof" json:"type,omitempty"`
-	Median  *string `protobuf:"bytes,3,opt,name=median,proto3,oneof" json:"median,omitempty"`
-	Mode    *string `protobuf:"bytes,4,opt,name=mode,proto3,oneof" json:"mode,omitempty"`
-	Maximum *string `protobuf:"bytes,5,opt,name=maximum,proto3,oneof" json:"maximum,omitempty"`
-	Minimum *string `protobuf:"bytes,6,opt,name=minimum,proto3,oneof" json:"minimum,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Date) Reset() {
 	*x = AggregateReply_Aggregations_Aggregation_Date{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[19]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Date) String() string {
@@ -1819,7 +1812,7 @@ func (*AggregateReply_Aggregations_Aggregation_Date) ProtoMessage() {}
 
 func (x *AggregateReply_Aggregations_Aggregation_Date) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[19]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1877,22 +1870,19 @@ func (x *AggregateReply_Aggregations_Aggregation_Date) GetMinimum() string {
 }
 
 type AggregateReply_Aggregations_Aggregation_Reference struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Type *string `protobuf:"bytes,1,opt,name=type,proto3,oneof" json:"type,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Type  *string                `protobuf:"bytes,1,opt,name=type,proto3,oneof" json:"type,omitempty"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-	PointingTo []string `protobuf:"bytes,2,rep,name=pointing_to,json=pointingTo,proto3" json:"pointing_to,omitempty"`
+	PointingTo    []string `protobuf:"bytes,2,rep,name=pointing_to,json=pointingTo,proto3" json:"pointing_to,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Reference) Reset() {
 	*x = AggregateReply_Aggregations_Aggregation_Reference{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[20]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Reference) String() string {
@@ -1903,7 +1893,7 @@ func (*AggregateReply_Aggregations_Aggregation_Reference) ProtoMessage() {}
 
 func (x *AggregateReply_Aggregations_Aggregation_Reference) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[20]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1933,20 +1923,17 @@ func (x *AggregateReply_Aggregations_Aggregation_Reference) GetPointingTo() []st
 }
 
 type AggregateReply_Aggregations_Aggregation_Text_TopOccurrences struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState                                                       `protogen:"open.v1"`
+	Items         []*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Items []*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Text_TopOccurrences) Reset() {
 	*x = AggregateReply_Aggregations_Aggregation_Text_TopOccurrences{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[21]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Text_TopOccurrences) String() string {
@@ -1957,7 +1944,7 @@ func (*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences) ProtoMessage
 
 func (x *AggregateReply_Aggregations_Aggregation_Text_TopOccurrences) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[21]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -1980,21 +1967,18 @@ func (x *AggregateReply_Aggregations_Aggregation_Text_TopOccurrences) GetItems()
 }
 
 type AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Value         string                 `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
+	Occurs        int64                  `protobuf:"varint,2,opt,name=occurs,proto3" json:"occurs,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Value  string `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
-	Occurs int64  `protobuf:"varint,2,opt,name=occurs,proto3" json:"occurs,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence) Reset() {
 	*x = AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[22]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence) String() string {
@@ -2005,7 +1989,7 @@ func (*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence
 
 func (x *AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[22]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2035,13 +2019,11 @@ func (x *AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurren
 }
 
 type AggregateReply_Group_GroupedBy struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
+	state protoimpl.MessageState `protogen:"open.v1"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	Path []string `protobuf:"bytes,1,rep,name=path,proto3" json:"path,omitempty"`
-	// Types that are assignable to Value:
+	// Types that are valid to be assigned to Value:
+	//
 	//	*AggregateReply_Group_GroupedBy_Text
 	//	*AggregateReply_Group_GroupedBy_Int
 	//	*AggregateReply_Group_GroupedBy_Boolean
@@ -2051,16 +2033,16 @@ type AggregateReply_Group_GroupedBy struct {
 	//	*AggregateReply_Group_GroupedBy_Booleans
 	//	*AggregateReply_Group_GroupedBy_Numbers
 	//	*AggregateReply_Group_GroupedBy_Geo
-	Value isAggregateReply_Group_GroupedBy_Value `protobuf_oneof:"value"`
+	Value         isAggregateReply_Group_GroupedBy_Value `protobuf_oneof:"value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AggregateReply_Group_GroupedBy) Reset() {
 	*x = AggregateReply_Group_GroupedBy{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_aggregate_proto_msgTypes[23]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_aggregate_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *AggregateReply_Group_GroupedBy) String() string {
@@ -2071,7 +2053,7 @@ func (*AggregateReply_Group_GroupedBy) ProtoMessage() {}
 
 func (x *AggregateReply_Group_GroupedBy) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_aggregate_proto_msgTypes[23]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -2093,72 +2075,90 @@ func (x *AggregateReply_Group_GroupedBy) GetPath() []string {
 	return nil
 }
 
-func (m *AggregateReply_Group_GroupedBy) GetValue() isAggregateReply_Group_GroupedBy_Value {
-	if m != nil {
-		return m.Value
+func (x *AggregateReply_Group_GroupedBy) GetValue() isAggregateReply_Group_GroupedBy_Value {
+	if x != nil {
+		return x.Value
 	}
 	return nil
 }
 
 func (x *AggregateReply_Group_GroupedBy) GetText() string {
-	if x, ok := x.GetValue().(*AggregateReply_Group_GroupedBy_Text); ok {
-		return x.Text
+	if x != nil {
+		if x, ok := x.Value.(*AggregateReply_Group_GroupedBy_Text); ok {
+			return x.Text
+		}
 	}
 	return ""
 }
 
 func (x *AggregateReply_Group_GroupedBy) GetInt() int64 {
-	if x, ok := x.GetValue().(*AggregateReply_Group_GroupedBy_Int); ok {
-		return x.Int
+	if x != nil {
+		if x, ok := x.Value.(*AggregateReply_Group_GroupedBy_Int); ok {
+			return x.Int
+		}
 	}
 	return 0
 }
 
 func (x *AggregateReply_Group_GroupedBy) GetBoolean() bool {
-	if x, ok := x.GetValue().(*AggregateReply_Group_GroupedBy_Boolean); ok {
-		return x.Boolean
+	if x != nil {
+		if x, ok := x.Value.(*AggregateReply_Group_GroupedBy_Boolean); ok {
+			return x.Boolean
+		}
 	}
 	return false
 }
 
 func (x *AggregateReply_Group_GroupedBy) GetNumber() float64 {
-	if x, ok := x.GetValue().(*AggregateReply_Group_GroupedBy_Number); ok {
-		return x.Number
+	if x != nil {
+		if x, ok := x.Value.(*AggregateReply_Group_GroupedBy_Number); ok {
+			return x.Number
+		}
 	}
 	return 0
 }
 
 func (x *AggregateReply_Group_GroupedBy) GetTexts() *TextArray {
-	if x, ok := x.GetValue().(*AggregateReply_Group_GroupedBy_Texts); ok {
-		return x.Texts
+	if x != nil {
+		if x, ok := x.Value.(*AggregateReply_Group_GroupedBy_Texts); ok {
+			return x.Texts
+		}
 	}
 	return nil
 }
 
 func (x *AggregateReply_Group_GroupedBy) GetInts() *IntArray {
-	if x, ok := x.GetValue().(*AggregateReply_Group_GroupedBy_Ints); ok {
-		return x.Ints
+	if x != nil {
+		if x, ok := x.Value.(*AggregateReply_Group_GroupedBy_Ints); ok {
+			return x.Ints
+		}
 	}
 	return nil
 }
 
 func (x *AggregateReply_Group_GroupedBy) GetBooleans() *BooleanArray {
-	if x, ok := x.GetValue().(*AggregateReply_Group_GroupedBy_Booleans); ok {
-		return x.Booleans
+	if x != nil {
+		if x, ok := x.Value.(*AggregateReply_Group_GroupedBy_Booleans); ok {
+			return x.Booleans
+		}
 	}
 	return nil
 }
 
 func (x *AggregateReply_Group_GroupedBy) GetNumbers() *NumberArray {
-	if x, ok := x.GetValue().(*AggregateReply_Group_GroupedBy_Numbers); ok {
-		return x.Numbers
+	if x != nil {
+		if x, ok := x.Value.(*AggregateReply_Group_GroupedBy_Numbers); ok {
+			return x.Numbers
+		}
 	}
 	return nil
 }
 
 func (x *AggregateReply_Group_GroupedBy) GetGeo() *GeoCoordinatesFilter {
-	if x, ok := x.GetValue().(*AggregateReply_Group_GroupedBy_Geo); ok {
-		return x.Geo
+	if x != nil {
+		if x, ok := x.Value.(*AggregateReply_Group_GroupedBy_Geo); ok {
+			return x.Geo
+		}
 	}
 	return nil
 }
@@ -2223,414 +2223,246 @@ func (*AggregateReply_Group_GroupedBy_Geo) isAggregateReply_Group_GroupedBy_Valu
 
 var File_v1_aggregate_proto protoreflect.FileDescriptor
 
-var file_v1_aggregate_proto_rawDesc = []byte{
-	0x0a, 0x12, 0x76, 0x31, 0x2f, 0x61, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x2e, 0x70,
-	0x72, 0x6f, 0x74, 0x6f, 0x12, 0x0b, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76,
-	0x31, 0x1a, 0x0d, 0x76, 0x31, 0x2f, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f,
-	0x1a, 0x14, 0x76, 0x31, 0x2f, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x73, 0x65, 0x61, 0x72, 0x63, 0x68,
-	0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x22, 0x9d, 0x14, 0x0a, 0x10, 0x41, 0x67, 0x67, 0x72, 0x65,
-	0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x1e, 0x0a, 0x0a, 0x63,
-	0x6f, 0x6c, 0x6c, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52,
-	0x0a, 0x63, 0x6f, 0x6c, 0x6c, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x16, 0x0a, 0x06, 0x74,
-	0x65, 0x6e, 0x61, 0x6e, 0x74, 0x18, 0x0a, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x74, 0x65, 0x6e,
-	0x61, 0x6e, 0x74, 0x12, 0x23, 0x0a, 0x0d, 0x6f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x73, 0x5f, 0x63,
-	0x6f, 0x75, 0x6e, 0x74, 0x18, 0x14, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0c, 0x6f, 0x62, 0x6a, 0x65,
-	0x63, 0x74, 0x73, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x4d, 0x0a, 0x0c, 0x61, 0x67, 0x67, 0x72,
-	0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x18, 0x15, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x29,
-	0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x67, 0x67,
-	0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x2e, 0x41, 0x67,
-	0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x0c, 0x61, 0x67, 0x67, 0x72, 0x65,
-	0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x12, 0x26, 0x0a, 0x0c, 0x6f, 0x62, 0x6a, 0x65, 0x63,
-	0x74, 0x5f, 0x6c, 0x69, 0x6d, 0x69, 0x74, 0x18, 0x1e, 0x20, 0x01, 0x28, 0x0d, 0x48, 0x01, 0x52,
-	0x0b, 0x6f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x4c, 0x69, 0x6d, 0x69, 0x74, 0x88, 0x01, 0x01, 0x12,
-	0x45, 0x0a, 0x08, 0x67, 0x72, 0x6f, 0x75, 0x70, 0x5f, 0x62, 0x79, 0x18, 0x1f, 0x20, 0x01, 0x28,
-	0x0b, 0x32, 0x25, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e,
-	0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
-	0x2e, 0x47, 0x72, 0x6f, 0x75, 0x70, 0x42, 0x79, 0x48, 0x02, 0x52, 0x07, 0x67, 0x72, 0x6f, 0x75,
-	0x70, 0x42, 0x79, 0x88, 0x01, 0x01, 0x12, 0x19, 0x0a, 0x05, 0x6c, 0x69, 0x6d, 0x69, 0x74, 0x18,
-	0x20, 0x20, 0x01, 0x28, 0x0d, 0x48, 0x03, 0x52, 0x05, 0x6c, 0x69, 0x6d, 0x69, 0x74, 0x88, 0x01,
-	0x01, 0x12, 0x33, 0x0a, 0x07, 0x66, 0x69, 0x6c, 0x74, 0x65, 0x72, 0x73, 0x18, 0x28, 0x20, 0x01,
-	0x28, 0x0b, 0x32, 0x14, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31,
-	0x2e, 0x46, 0x69, 0x6c, 0x74, 0x65, 0x72, 0x73, 0x48, 0x04, 0x52, 0x07, 0x66, 0x69, 0x6c, 0x74,
-	0x65, 0x72, 0x73, 0x88, 0x01, 0x01, 0x12, 0x2d, 0x0a, 0x06, 0x68, 0x79, 0x62, 0x72, 0x69, 0x64,
-	0x18, 0x29, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x13, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74,
-	0x65, 0x2e, 0x76, 0x31, 0x2e, 0x48, 0x79, 0x62, 0x72, 0x69, 0x64, 0x48, 0x00, 0x52, 0x06, 0x68,
-	0x79, 0x62, 0x72, 0x69, 0x64, 0x12, 0x3a, 0x0a, 0x0b, 0x6e, 0x65, 0x61, 0x72, 0x5f, 0x76, 0x65,
-	0x63, 0x74, 0x6f, 0x72, 0x18, 0x2a, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x17, 0x2e, 0x77, 0x65, 0x61,
-	0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x4e, 0x65, 0x61, 0x72, 0x56, 0x65, 0x63,
-	0x74, 0x6f, 0x72, 0x48, 0x00, 0x52, 0x0a, 0x6e, 0x65, 0x61, 0x72, 0x56, 0x65, 0x63, 0x74, 0x6f,
-	0x72, 0x12, 0x3a, 0x0a, 0x0b, 0x6e, 0x65, 0x61, 0x72, 0x5f, 0x6f, 0x62, 0x6a, 0x65, 0x63, 0x74,
-	0x18, 0x2b, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x17, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74,
-	0x65, 0x2e, 0x76, 0x31, 0x2e, 0x4e, 0x65, 0x61, 0x72, 0x4f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x48,
-	0x00, 0x52, 0x0a, 0x6e, 0x65, 0x61, 0x72, 0x4f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x12, 0x3a, 0x0a,
-	0x09, 0x6e, 0x65, 0x61, 0x72, 0x5f, 0x74, 0x65, 0x78, 0x74, 0x18, 0x2c, 0x20, 0x01, 0x28, 0x0b,
-	0x32, 0x1b, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x4e,
-	0x65, 0x61, 0x72, 0x54, 0x65, 0x78, 0x74, 0x53, 0x65, 0x61, 0x72, 0x63, 0x68, 0x48, 0x00, 0x52,
-	0x08, 0x6e, 0x65, 0x61, 0x72, 0x54, 0x65, 0x78, 0x74, 0x12, 0x3d, 0x0a, 0x0a, 0x6e, 0x65, 0x61,
-	0x72, 0x5f, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x18, 0x2d, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1c, 0x2e,
-	0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x4e, 0x65, 0x61, 0x72,
-	0x49, 0x6d, 0x61, 0x67, 0x65, 0x53, 0x65, 0x61, 0x72, 0x63, 0x68, 0x48, 0x00, 0x52, 0x09, 0x6e,
-	0x65, 0x61, 0x72, 0x49, 0x6d, 0x61, 0x67, 0x65, 0x12, 0x3d, 0x0a, 0x0a, 0x6e, 0x65, 0x61, 0x72,
-	0x5f, 0x61, 0x75, 0x64, 0x69, 0x6f, 0x18, 0x2e, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1c, 0x2e, 0x77,
-	0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x4e, 0x65, 0x61, 0x72, 0x41,
-	0x75, 0x64, 0x69, 0x6f, 0x53, 0x65, 0x61, 0x72, 0x63, 0x68, 0x48, 0x00, 0x52, 0x09, 0x6e, 0x65,
-	0x61, 0x72, 0x41, 0x75, 0x64, 0x69, 0x6f, 0x12, 0x3d, 0x0a, 0x0a, 0x6e, 0x65, 0x61, 0x72, 0x5f,
-	0x76, 0x69, 0x64, 0x65, 0x6f, 0x18, 0x2f, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1c, 0x2e, 0x77, 0x65,
-	0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x4e, 0x65, 0x61, 0x72, 0x56, 0x69,
-	0x64, 0x65, 0x6f, 0x53, 0x65, 0x61, 0x72, 0x63, 0x68, 0x48, 0x00, 0x52, 0x09, 0x6e, 0x65, 0x61,
-	0x72, 0x56, 0x69, 0x64, 0x65, 0x6f, 0x12, 0x3d, 0x0a, 0x0a, 0x6e, 0x65, 0x61, 0x72, 0x5f, 0x64,
-	0x65, 0x70, 0x74, 0x68, 0x18, 0x30, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1c, 0x2e, 0x77, 0x65, 0x61,
-	0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x4e, 0x65, 0x61, 0x72, 0x44, 0x65, 0x70,
-	0x74, 0x68, 0x53, 0x65, 0x61, 0x72, 0x63, 0x68, 0x48, 0x00, 0x52, 0x09, 0x6e, 0x65, 0x61, 0x72,
-	0x44, 0x65, 0x70, 0x74, 0x68, 0x12, 0x43, 0x0a, 0x0c, 0x6e, 0x65, 0x61, 0x72, 0x5f, 0x74, 0x68,
-	0x65, 0x72, 0x6d, 0x61, 0x6c, 0x18, 0x31, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1e, 0x2e, 0x77, 0x65,
-	0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x4e, 0x65, 0x61, 0x72, 0x54, 0x68,
-	0x65, 0x72, 0x6d, 0x61, 0x6c, 0x53, 0x65, 0x61, 0x72, 0x63, 0x68, 0x48, 0x00, 0x52, 0x0b, 0x6e,
-	0x65, 0x61, 0x72, 0x54, 0x68, 0x65, 0x72, 0x6d, 0x61, 0x6c, 0x12, 0x37, 0x0a, 0x08, 0x6e, 0x65,
-	0x61, 0x72, 0x5f, 0x69, 0x6d, 0x75, 0x18, 0x32, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x77,
-	0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x4e, 0x65, 0x61, 0x72, 0x49,
-	0x4d, 0x55, 0x53, 0x65, 0x61, 0x72, 0x63, 0x68, 0x48, 0x00, 0x52, 0x07, 0x6e, 0x65, 0x61, 0x72,
-	0x49, 0x6d, 0x75, 0x1a, 0xbb, 0x0b, 0x0a, 0x0b, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74,
-	0x69, 0x6f, 0x6e, 0x12, 0x1a, 0x0a, 0x08, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x79, 0x18,
-	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x79, 0x12,
-	0x45, 0x0a, 0x03, 0x69, 0x6e, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x31, 0x2e, 0x77,
-	0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65,
-	0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x2e, 0x41, 0x67, 0x67, 0x72,
-	0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x2e, 0x49, 0x6e, 0x74, 0x65, 0x67, 0x65, 0x72, 0x48,
-	0x00, 0x52, 0x03, 0x69, 0x6e, 0x74, 0x12, 0x4a, 0x0a, 0x06, 0x6e, 0x75, 0x6d, 0x62, 0x65, 0x72,
-	0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x30, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74,
-	0x65, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52, 0x65,
-	0x71, 0x75, 0x65, 0x73, 0x74, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f,
-	0x6e, 0x2e, 0x4e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x48, 0x00, 0x52, 0x06, 0x6e, 0x75, 0x6d, 0x62,
-	0x65, 0x72, 0x12, 0x44, 0x0a, 0x04, 0x74, 0x65, 0x78, 0x74, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b,
-	0x32, 0x2e, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x41,
-	0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x2e,
-	0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x2e, 0x54, 0x65, 0x78, 0x74,
-	0x48, 0x00, 0x52, 0x04, 0x74, 0x65, 0x78, 0x74, 0x12, 0x4d, 0x0a, 0x07, 0x62, 0x6f, 0x6f, 0x6c,
-	0x65, 0x61, 0x6e, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x31, 0x2e, 0x77, 0x65, 0x61, 0x76,
-	0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74,
-	0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61,
-	0x74, 0x69, 0x6f, 0x6e, 0x2e, 0x42, 0x6f, 0x6f, 0x6c, 0x65, 0x61, 0x6e, 0x48, 0x00, 0x52, 0x07,
-	0x62, 0x6f, 0x6f, 0x6c, 0x65, 0x61, 0x6e, 0x12, 0x44, 0x0a, 0x04, 0x64, 0x61, 0x74, 0x65, 0x18,
-	0x06, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x2e, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
-	0x2e, 0x76, 0x31, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x71,
-	0x75, 0x65, 0x73, 0x74, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e,
-	0x2e, 0x44, 0x61, 0x74, 0x65, 0x48, 0x00, 0x52, 0x04, 0x64, 0x61, 0x74, 0x65, 0x12, 0x53, 0x0a,
-	0x09, 0x72, 0x65, 0x66, 0x65, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x18, 0x07, 0x20, 0x01, 0x28, 0x0b,
-	0x32, 0x33, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x41,
-	0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x2e,
-	0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x2e, 0x52, 0x65, 0x66, 0x65,
-	0x72, 0x65, 0x6e, 0x63, 0x65, 0x48, 0x00, 0x52, 0x09, 0x72, 0x65, 0x66, 0x65, 0x72, 0x65, 0x6e,
-	0x63, 0x65, 0x1a, 0xb9, 0x01, 0x0a, 0x07, 0x49, 0x6e, 0x74, 0x65, 0x67, 0x65, 0x72, 0x12, 0x14,
-	0x0a, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x05, 0x63,
-	0x6f, 0x75, 0x6e, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x18, 0x02, 0x20, 0x01,
-	0x28, 0x08, 0x52, 0x04, 0x74, 0x79, 0x70, 0x65, 0x12, 0x10, 0x0a, 0x03, 0x73, 0x75, 0x6d, 0x18,
-	0x03, 0x20, 0x01, 0x28, 0x08, 0x52, 0x03, 0x73, 0x75, 0x6d, 0x12, 0x12, 0x0a, 0x04, 0x6d, 0x65,
-	0x61, 0x6e, 0x18, 0x04, 0x20, 0x01, 0x28, 0x08, 0x52, 0x04, 0x6d, 0x65, 0x61, 0x6e, 0x12, 0x12,
-	0x0a, 0x04, 0x6d, 0x6f, 0x64, 0x65, 0x18, 0x05, 0x20, 0x01, 0x28, 0x08, 0x52, 0x04, 0x6d, 0x6f,
-	0x64, 0x65, 0x12, 0x16, 0x0a, 0x06, 0x6d, 0x65, 0x64, 0x69, 0x61, 0x6e, 0x18, 0x06, 0x20, 0x01,
-	0x28, 0x08, 0x52, 0x06, 0x6d, 0x65, 0x64, 0x69, 0x61, 0x6e, 0x12, 0x18, 0x0a, 0x07, 0x6d, 0x61,
-	0x78, 0x69, 0x6d, 0x75, 0x6d, 0x18, 0x07, 0x20, 0x01, 0x28, 0x08, 0x52, 0x07, 0x6d, 0x61, 0x78,
-	0x69, 0x6d, 0x75, 0x6d, 0x12, 0x18, 0x0a, 0x07, 0x6d, 0x69, 0x6e, 0x69, 0x6d, 0x75, 0x6d, 0x18,
-	0x08, 0x20, 0x01, 0x28, 0x08, 0x52, 0x07, 0x6d, 0x69, 0x6e, 0x69, 0x6d, 0x75, 0x6d, 0x1a, 0xb8,
-	0x01, 0x0a, 0x06, 0x4e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x12, 0x14, 0x0a, 0x05, 0x63, 0x6f, 0x75,
-	0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x12,
-	0x12, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x08, 0x52, 0x04, 0x74,
-	0x79, 0x70, 0x65, 0x12, 0x10, 0x0a, 0x03, 0x73, 0x75, 0x6d, 0x18, 0x03, 0x20, 0x01, 0x28, 0x08,
-	0x52, 0x03, 0x73, 0x75, 0x6d, 0x12, 0x12, 0x0a, 0x04, 0x6d, 0x65, 0x61, 0x6e, 0x18, 0x04, 0x20,
-	0x01, 0x28, 0x08, 0x52, 0x04, 0x6d, 0x65, 0x61, 0x6e, 0x12, 0x12, 0x0a, 0x04, 0x6d, 0x6f, 0x64,
-	0x65, 0x18, 0x05, 0x20, 0x01, 0x28, 0x08, 0x52, 0x04, 0x6d, 0x6f, 0x64, 0x65, 0x12, 0x16, 0x0a,
-	0x06, 0x6d, 0x65, 0x64, 0x69, 0x61, 0x6e, 0x18, 0x06, 0x20, 0x01, 0x28, 0x08, 0x52, 0x06, 0x6d,
-	0x65, 0x64, 0x69, 0x61, 0x6e, 0x12, 0x18, 0x0a, 0x07, 0x6d, 0x61, 0x78, 0x69, 0x6d, 0x75, 0x6d,
-	0x18, 0x07, 0x20, 0x01, 0x28, 0x08, 0x52, 0x07, 0x6d, 0x61, 0x78, 0x69, 0x6d, 0x75, 0x6d, 0x12,
-	0x18, 0x0a, 0x07, 0x6d, 0x69, 0x6e, 0x69, 0x6d, 0x75, 0x6d, 0x18, 0x08, 0x20, 0x01, 0x28, 0x08,
-	0x52, 0x07, 0x6d, 0x69, 0x6e, 0x69, 0x6d, 0x75, 0x6d, 0x1a, 0xa7, 0x01, 0x0a, 0x04, 0x54, 0x65,
-	0x78, 0x74, 0x12, 0x14, 0x0a, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28,
-	0x08, 0x52, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65,
-	0x18, 0x02, 0x20, 0x01, 0x28, 0x08, 0x52, 0x04, 0x74, 0x79, 0x70, 0x65, 0x12, 0x25, 0x0a, 0x0e,
-	0x74, 0x6f, 0x70, 0x5f, 0x6f, 0x63, 0x63, 0x75, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x73, 0x18, 0x03,
-	0x20, 0x01, 0x28, 0x08, 0x52, 0x0d, 0x74, 0x6f, 0x70, 0x4f, 0x63, 0x63, 0x75, 0x72, 0x65, 0x6e,
-	0x63, 0x65, 0x73, 0x12, 0x35, 0x0a, 0x14, 0x74, 0x6f, 0x70, 0x5f, 0x6f, 0x63, 0x63, 0x75, 0x72,
-	0x65, 0x6e, 0x63, 0x65, 0x73, 0x5f, 0x6c, 0x69, 0x6d, 0x69, 0x74, 0x18, 0x04, 0x20, 0x01, 0x28,
-	0x0d, 0x48, 0x00, 0x52, 0x12, 0x74, 0x6f, 0x70, 0x4f, 0x63, 0x63, 0x75, 0x72, 0x65, 0x6e, 0x63,
-	0x65, 0x73, 0x4c, 0x69, 0x6d, 0x69, 0x74, 0x88, 0x01, 0x01, 0x42, 0x17, 0x0a, 0x15, 0x5f, 0x74,
-	0x6f, 0x70, 0x5f, 0x6f, 0x63, 0x63, 0x75, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x73, 0x5f, 0x6c, 0x69,
-	0x6d, 0x69, 0x74, 0x1a, 0xc7, 0x01, 0x0a, 0x07, 0x42, 0x6f, 0x6f, 0x6c, 0x65, 0x61, 0x6e, 0x12,
-	0x14, 0x0a, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x05,
-	0x63, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x18, 0x02, 0x20,
-	0x01, 0x28, 0x08, 0x52, 0x04, 0x74, 0x79, 0x70, 0x65, 0x12, 0x1d, 0x0a, 0x0a, 0x74, 0x6f, 0x74,
-	0x61, 0x6c, 0x5f, 0x74, 0x72, 0x75, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x08, 0x52, 0x09, 0x74,
-	0x6f, 0x74, 0x61, 0x6c, 0x54, 0x72, 0x75, 0x65, 0x12, 0x1f, 0x0a, 0x0b, 0x74, 0x6f, 0x74, 0x61,
-	0x6c, 0x5f, 0x66, 0x61, 0x6c, 0x73, 0x65, 0x18, 0x04, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0a, 0x74,
-	0x6f, 0x74, 0x61, 0x6c, 0x46, 0x61, 0x6c, 0x73, 0x65, 0x12, 0x27, 0x0a, 0x0f, 0x70, 0x65, 0x72,
-	0x63, 0x65, 0x6e, 0x74, 0x61, 0x67, 0x65, 0x5f, 0x74, 0x72, 0x75, 0x65, 0x18, 0x05, 0x20, 0x01,
-	0x28, 0x08, 0x52, 0x0e, 0x70, 0x65, 0x72, 0x63, 0x65, 0x6e, 0x74, 0x61, 0x67, 0x65, 0x54, 0x72,
-	0x75, 0x65, 0x12, 0x29, 0x0a, 0x10, 0x70, 0x65, 0x72, 0x63, 0x65, 0x6e, 0x74, 0x61, 0x67, 0x65,
-	0x5f, 0x66, 0x61, 0x6c, 0x73, 0x65, 0x18, 0x06, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0f, 0x70, 0x65,
-	0x72, 0x63, 0x65, 0x6e, 0x74, 0x61, 0x67, 0x65, 0x46, 0x61, 0x6c, 0x73, 0x65, 0x1a, 0x90, 0x01,
-	0x0a, 0x04, 0x44, 0x61, 0x74, 0x65, 0x12, 0x14, 0x0a, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18,
-	0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x12, 0x0a, 0x04,
-	0x74, 0x79, 0x70, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x08, 0x52, 0x04, 0x74, 0x79, 0x70, 0x65,
-	0x12, 0x16, 0x0a, 0x06, 0x6d, 0x65, 0x64, 0x69, 0x61, 0x6e, 0x18, 0x03, 0x20, 0x01, 0x28, 0x08,
-	0x52, 0x06, 0x6d, 0x65, 0x64, 0x69, 0x61, 0x6e, 0x12, 0x12, 0x0a, 0x04, 0x6d, 0x6f, 0x64, 0x65,
-	0x18, 0x04, 0x20, 0x01, 0x28, 0x08, 0x52, 0x04, 0x6d, 0x6f, 0x64, 0x65, 0x12, 0x18, 0x0a, 0x07,
-	0x6d, 0x61, 0x78, 0x69, 0x6d, 0x75, 0x6d, 0x18, 0x05, 0x20, 0x01, 0x28, 0x08, 0x52, 0x07, 0x6d,
-	0x61, 0x78, 0x69, 0x6d, 0x75, 0x6d, 0x12, 0x18, 0x0a, 0x07, 0x6d, 0x69, 0x6e, 0x69, 0x6d, 0x75,
-	0x6d, 0x18, 0x06, 0x20, 0x01, 0x28, 0x08, 0x52, 0x07, 0x6d, 0x69, 0x6e, 0x69, 0x6d, 0x75, 0x6d,
-	0x1a, 0x40, 0x0a, 0x09, 0x52, 0x65, 0x66, 0x65, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x12, 0x12, 0x0a,
-	0x04, 0x74, 0x79, 0x70, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x04, 0x74, 0x79, 0x70,
-	0x65, 0x12, 0x1f, 0x0a, 0x0b, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x69, 0x6e, 0x67, 0x5f, 0x74, 0x6f,
-	0x18, 0x02, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0a, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x69, 0x6e, 0x67,
-	0x54, 0x6f, 0x42, 0x0d, 0x0a, 0x0b, 0x61, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f,
-	0x6e, 0x1a, 0x45, 0x0a, 0x07, 0x47, 0x72, 0x6f, 0x75, 0x70, 0x42, 0x79, 0x12, 0x1e, 0x0a, 0x0a,
-	0x63, 0x6f, 0x6c, 0x6c, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09,
-	0x52, 0x0a, 0x63, 0x6f, 0x6c, 0x6c, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x1a, 0x0a, 0x08,
-	0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x79, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x08,
-	0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x79, 0x42, 0x08, 0x0a, 0x06, 0x73, 0x65, 0x61, 0x72,
-	0x63, 0x68, 0x42, 0x0f, 0x0a, 0x0d, 0x5f, 0x6f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x5f, 0x6c, 0x69,
-	0x6d, 0x69, 0x74, 0x42, 0x0b, 0x0a, 0x09, 0x5f, 0x67, 0x72, 0x6f, 0x75, 0x70, 0x5f, 0x62, 0x79,
-	0x42, 0x08, 0x0a, 0x06, 0x5f, 0x6c, 0x69, 0x6d, 0x69, 0x74, 0x42, 0x0a, 0x0a, 0x08, 0x5f, 0x66,
-	0x69, 0x6c, 0x74, 0x65, 0x72, 0x73, 0x22, 0x80, 0x1b, 0x0a, 0x0e, 0x41, 0x67, 0x67, 0x72, 0x65,
-	0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x12, 0x12, 0x0a, 0x04, 0x74, 0x6f, 0x6f,
-	0x6b, 0x18, 0x01, 0x20, 0x01, 0x28, 0x02, 0x52, 0x04, 0x74, 0x6f, 0x6f, 0x6b, 0x12, 0x49, 0x0a,
-	0x0d, 0x73, 0x69, 0x6e, 0x67, 0x6c, 0x65, 0x5f, 0x72, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x18, 0x02,
-	0x20, 0x01, 0x28, 0x0b, 0x32, 0x22, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e,
-	0x76, 0x31, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x70, 0x6c,
-	0x79, 0x2e, 0x53, 0x69, 0x6e, 0x67, 0x6c, 0x65, 0x48, 0x00, 0x52, 0x0c, 0x73, 0x69, 0x6e, 0x67,
-	0x6c, 0x65, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x12, 0x4e, 0x0a, 0x0f, 0x67, 0x72, 0x6f, 0x75,
-	0x70, 0x65, 0x64, 0x5f, 0x72, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x73, 0x18, 0x03, 0x20, 0x01, 0x28,
-	0x0b, 0x32, 0x23, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e,
-	0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x2e, 0x47,
-	0x72, 0x6f, 0x75, 0x70, 0x65, 0x64, 0x48, 0x00, 0x52, 0x0e, 0x67, 0x72, 0x6f, 0x75, 0x70, 0x65,
-	0x64, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x73, 0x1a, 0xab, 0x12, 0x0a, 0x0c, 0x41, 0x67, 0x67,
-	0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x12, 0x58, 0x0a, 0x0c, 0x61, 0x67, 0x67,
-	0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32,
-	0x34, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x67,
-	0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x2e, 0x41, 0x67, 0x67,
-	0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67,
-	0x61, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x0c, 0x61, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69,
-	0x6f, 0x6e, 0x73, 0x1a, 0xc0, 0x11, 0x0a, 0x0b, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74,
-	0x69, 0x6f, 0x6e, 0x12, 0x1a, 0x0a, 0x08, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x79, 0x18,
-	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x79, 0x12,
-	0x50, 0x0a, 0x03, 0x69, 0x6e, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x3c, 0x2e, 0x77,
-	0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65,
-	0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67,
-	0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69,
-	0x6f, 0x6e, 0x2e, 0x49, 0x6e, 0x74, 0x65, 0x67, 0x65, 0x72, 0x48, 0x00, 0x52, 0x03, 0x69, 0x6e,
-	0x74, 0x12, 0x55, 0x0a, 0x06, 0x6e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x18, 0x03, 0x20, 0x01, 0x28,
-	0x0b, 0x32, 0x3b, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e,
-	0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x2e, 0x41,
-	0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x2e, 0x41, 0x67, 0x67, 0x72,
-	0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x2e, 0x4e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x48, 0x00,
-	0x52, 0x06, 0x6e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x12, 0x4f, 0x0a, 0x04, 0x74, 0x65, 0x78, 0x74,
-	0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x39, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74,
-	0x65, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52, 0x65,
-	0x70, 0x6c, 0x79, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73,
-	0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x2e, 0x54, 0x65, 0x78,
-	0x74, 0x48, 0x00, 0x52, 0x04, 0x74, 0x65, 0x78, 0x74, 0x12, 0x58, 0x0a, 0x07, 0x62, 0x6f, 0x6f,
-	0x6c, 0x65, 0x61, 0x6e, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x3c, 0x2e, 0x77, 0x65, 0x61,
-	0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61,
-	0x74, 0x65, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74,
-	0x69, 0x6f, 0x6e, 0x73, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e,
-	0x2e, 0x42, 0x6f, 0x6f, 0x6c, 0x65, 0x61, 0x6e, 0x48, 0x00, 0x52, 0x07, 0x62, 0x6f, 0x6f, 0x6c,
-	0x65, 0x61, 0x6e, 0x12, 0x4f, 0x0a, 0x04, 0x64, 0x61, 0x74, 0x65, 0x18, 0x06, 0x20, 0x01, 0x28,
-	0x0b, 0x32, 0x39, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e,
-	0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x2e, 0x41,
-	0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x2e, 0x41, 0x67, 0x67, 0x72,
-	0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x2e, 0x44, 0x61, 0x74, 0x65, 0x48, 0x00, 0x52, 0x04,
-	0x64, 0x61, 0x74, 0x65, 0x12, 0x5e, 0x0a, 0x09, 0x72, 0x65, 0x66, 0x65, 0x72, 0x65, 0x6e, 0x63,
-	0x65, 0x18, 0x07, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x3e, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61,
-	0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52,
-	0x65, 0x70, 0x6c, 0x79, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e,
-	0x73, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x2e, 0x52, 0x65,
-	0x66, 0x65, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x48, 0x00, 0x52, 0x09, 0x72, 0x65, 0x66, 0x65, 0x72,
-	0x65, 0x6e, 0x63, 0x65, 0x1a, 0xb1, 0x02, 0x0a, 0x07, 0x49, 0x6e, 0x74, 0x65, 0x67, 0x65, 0x72,
-	0x12, 0x19, 0x0a, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x48,
-	0x00, 0x52, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x88, 0x01, 0x01, 0x12, 0x17, 0x0a, 0x04, 0x74,
-	0x79, 0x70, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x48, 0x01, 0x52, 0x04, 0x74, 0x79, 0x70,
-	0x65, 0x88, 0x01, 0x01, 0x12, 0x17, 0x0a, 0x04, 0x6d, 0x65, 0x61, 0x6e, 0x18, 0x03, 0x20, 0x01,
-	0x28, 0x01, 0x48, 0x02, 0x52, 0x04, 0x6d, 0x65, 0x61, 0x6e, 0x88, 0x01, 0x01, 0x12, 0x1b, 0x0a,
-	0x06, 0x6d, 0x65, 0x64, 0x69, 0x61, 0x6e, 0x18, 0x04, 0x20, 0x01, 0x28, 0x01, 0x48, 0x03, 0x52,
-	0x06, 0x6d, 0x65, 0x64, 0x69, 0x61, 0x6e, 0x88, 0x01, 0x01, 0x12, 0x17, 0x0a, 0x04, 0x6d, 0x6f,
-	0x64, 0x65, 0x18, 0x05, 0x20, 0x01, 0x28, 0x03, 0x48, 0x04, 0x52, 0x04, 0x6d, 0x6f, 0x64, 0x65,
-	0x88, 0x01, 0x01, 0x12, 0x1d, 0x0a, 0x07, 0x6d, 0x61, 0x78, 0x69, 0x6d, 0x75, 0x6d, 0x18, 0x06,
-	0x20, 0x01, 0x28, 0x03, 0x48, 0x05, 0x52, 0x07, 0x6d, 0x61, 0x78, 0x69, 0x6d, 0x75, 0x6d, 0x88,
-	0x01, 0x01, 0x12, 0x1d, 0x0a, 0x07, 0x6d, 0x69, 0x6e, 0x69, 0x6d, 0x75, 0x6d, 0x18, 0x07, 0x20,
-	0x01, 0x28, 0x03, 0x48, 0x06, 0x52, 0x07, 0x6d, 0x69, 0x6e, 0x69, 0x6d, 0x75, 0x6d, 0x88, 0x01,
-	0x01, 0x12, 0x15, 0x0a, 0x03, 0x73, 0x75, 0x6d, 0x18, 0x08, 0x20, 0x01, 0x28, 0x03, 0x48, 0x07,
-	0x52, 0x03, 0x73, 0x75, 0x6d, 0x88, 0x01, 0x01, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x63, 0x6f, 0x75,
-	0x6e, 0x74, 0x42, 0x07, 0x0a, 0x05, 0x5f, 0x74, 0x79, 0x70, 0x65, 0x42, 0x07, 0x0a, 0x05, 0x5f,
-	0x6d, 0x65, 0x61, 0x6e, 0x42, 0x09, 0x0a, 0x07, 0x5f, 0x6d, 0x65, 0x64, 0x69, 0x61, 0x6e, 0x42,
-	0x07, 0x0a, 0x05, 0x5f, 0x6d, 0x6f, 0x64, 0x65, 0x42, 0x0a, 0x0a, 0x08, 0x5f, 0x6d, 0x61, 0x78,
-	0x69, 0x6d, 0x75, 0x6d, 0x42, 0x0a, 0x0a, 0x08, 0x5f, 0x6d, 0x69, 0x6e, 0x69, 0x6d, 0x75, 0x6d,
-	0x42, 0x06, 0x0a, 0x04, 0x5f, 0x73, 0x75, 0x6d, 0x1a, 0xb0, 0x02, 0x0a, 0x06, 0x4e, 0x75, 0x6d,
-	0x62, 0x65, 0x72, 0x12, 0x19, 0x0a, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01,
-	0x28, 0x03, 0x48, 0x00, 0x52, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x88, 0x01, 0x01, 0x12, 0x17,
-	0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x48, 0x01, 0x52, 0x04,
-	0x74, 0x79, 0x70, 0x65, 0x88, 0x01, 0x01, 0x12, 0x17, 0x0a, 0x04, 0x6d, 0x65, 0x61, 0x6e, 0x18,
-	0x03, 0x20, 0x01, 0x28, 0x01, 0x48, 0x02, 0x52, 0x04, 0x6d, 0x65, 0x61, 0x6e, 0x88, 0x01, 0x01,
-	0x12, 0x1b, 0x0a, 0x06, 0x6d, 0x65, 0x64, 0x69, 0x61, 0x6e, 0x18, 0x04, 0x20, 0x01, 0x28, 0x01,
-	0x48, 0x03, 0x52, 0x06, 0x6d, 0x65, 0x64, 0x69, 0x61, 0x6e, 0x88, 0x01, 0x01, 0x12, 0x17, 0x0a,
-	0x04, 0x6d, 0x6f, 0x64, 0x65, 0x18, 0x05, 0x20, 0x01, 0x28, 0x01, 0x48, 0x04, 0x52, 0x04, 0x6d,
-	0x6f, 0x64, 0x65, 0x88, 0x01, 0x01, 0x12, 0x1d, 0x0a, 0x07, 0x6d, 0x61, 0x78, 0x69, 0x6d, 0x75,
-	0x6d, 0x18, 0x06, 0x20, 0x01, 0x28, 0x01, 0x48, 0x05, 0x52, 0x07, 0x6d, 0x61, 0x78, 0x69, 0x6d,
-	0x75, 0x6d, 0x88, 0x01, 0x01, 0x12, 0x1d, 0x0a, 0x07, 0x6d, 0x69, 0x6e, 0x69, 0x6d, 0x75, 0x6d,
-	0x18, 0x07, 0x20, 0x01, 0x28, 0x01, 0x48, 0x06, 0x52, 0x07, 0x6d, 0x69, 0x6e, 0x69, 0x6d, 0x75,
-	0x6d, 0x88, 0x01, 0x01, 0x12, 0x15, 0x0a, 0x03, 0x73, 0x75, 0x6d, 0x18, 0x08, 0x20, 0x01, 0x28,
-	0x01, 0x48, 0x07, 0x52, 0x03, 0x73, 0x75, 0x6d, 0x88, 0x01, 0x01, 0x42, 0x08, 0x0a, 0x06, 0x5f,
-	0x63, 0x6f, 0x75, 0x6e, 0x74, 0x42, 0x07, 0x0a, 0x05, 0x5f, 0x74, 0x79, 0x70, 0x65, 0x42, 0x07,
-	0x0a, 0x05, 0x5f, 0x6d, 0x65, 0x61, 0x6e, 0x42, 0x09, 0x0a, 0x07, 0x5f, 0x6d, 0x65, 0x64, 0x69,
-	0x61, 0x6e, 0x42, 0x07, 0x0a, 0x05, 0x5f, 0x6d, 0x6f, 0x64, 0x65, 0x42, 0x0a, 0x0a, 0x08, 0x5f,
-	0x6d, 0x61, 0x78, 0x69, 0x6d, 0x75, 0x6d, 0x42, 0x0a, 0x0a, 0x08, 0x5f, 0x6d, 0x69, 0x6e, 0x69,
-	0x6d, 0x75, 0x6d, 0x42, 0x06, 0x0a, 0x04, 0x5f, 0x73, 0x75, 0x6d, 0x1a, 0x96, 0x03, 0x0a, 0x04,
-	0x54, 0x65, 0x78, 0x74, 0x12, 0x19, 0x0a, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x01, 0x20,
-	0x01, 0x28, 0x03, 0x48, 0x00, 0x52, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x88, 0x01, 0x01, 0x12,
-	0x17, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x48, 0x01, 0x52,
-	0x04, 0x74, 0x79, 0x70, 0x65, 0x88, 0x01, 0x01, 0x12, 0x74, 0x0a, 0x0e, 0x74, 0x6f, 0x70, 0x5f,
-	0x6f, 0x63, 0x63, 0x75, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x73, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b,
-	0x32, 0x48, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x41,
-	0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x2e, 0x41, 0x67,
-	0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65,
-	0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x2e, 0x54, 0x65, 0x78, 0x74, 0x2e, 0x54, 0x6f, 0x70, 0x4f,
-	0x63, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x73, 0x48, 0x02, 0x52, 0x0d, 0x74, 0x6f,
-	0x70, 0x4f, 0x63, 0x63, 0x75, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x73, 0x88, 0x01, 0x01, 0x1a, 0xbd,
-	0x01, 0x0a, 0x0e, 0x54, 0x6f, 0x70, 0x4f, 0x63, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x63, 0x65,
-	0x73, 0x12, 0x6c, 0x0a, 0x05, 0x69, 0x74, 0x65, 0x6d, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b,
-	0x32, 0x56, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x41,
-	0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x2e, 0x41, 0x67,
-	0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65,
-	0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x2e, 0x54, 0x65, 0x78, 0x74, 0x2e, 0x54, 0x6f, 0x70, 0x4f,
-	0x63, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x73, 0x2e, 0x54, 0x6f, 0x70, 0x4f, 0x63,
-	0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x52, 0x05, 0x69, 0x74, 0x65, 0x6d, 0x73, 0x1a,
-	0x3d, 0x0a, 0x0d, 0x54, 0x6f, 0x70, 0x4f, 0x63, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x63, 0x65,
-	0x12, 0x14, 0x0a, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52,
-	0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x12, 0x16, 0x0a, 0x06, 0x6f, 0x63, 0x63, 0x75, 0x72, 0x73,
-	0x18, 0x02, 0x20, 0x01, 0x28, 0x03, 0x52, 0x06, 0x6f, 0x63, 0x63, 0x75, 0x72, 0x73, 0x42, 0x08,
-	0x0a, 0x06, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x42, 0x07, 0x0a, 0x05, 0x5f, 0x74, 0x79, 0x70,
-	0x65, 0x42, 0x11, 0x0a, 0x0f, 0x5f, 0x74, 0x6f, 0x70, 0x5f, 0x6f, 0x63, 0x63, 0x75, 0x72, 0x65,
-	0x6e, 0x63, 0x65, 0x73, 0x1a, 0xc0, 0x02, 0x0a, 0x07, 0x42, 0x6f, 0x6f, 0x6c, 0x65, 0x61, 0x6e,
-	0x12, 0x19, 0x0a, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x48,
-	0x00, 0x52, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x88, 0x01, 0x01, 0x12, 0x17, 0x0a, 0x04, 0x74,
-	0x79, 0x70, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x48, 0x01, 0x52, 0x04, 0x74, 0x79, 0x70,
-	0x65, 0x88, 0x01, 0x01, 0x12, 0x22, 0x0a, 0x0a, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f, 0x74, 0x72,
-	0x75, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x03, 0x48, 0x02, 0x52, 0x09, 0x74, 0x6f, 0x74, 0x61,
-	0x6c, 0x54, 0x72, 0x75, 0x65, 0x88, 0x01, 0x01, 0x12, 0x24, 0x0a, 0x0b, 0x74, 0x6f, 0x74, 0x61,
-	0x6c, 0x5f, 0x66, 0x61, 0x6c, 0x73, 0x65, 0x18, 0x04, 0x20, 0x01, 0x28, 0x03, 0x48, 0x03, 0x52,
-	0x0a, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x46, 0x61, 0x6c, 0x73, 0x65, 0x88, 0x01, 0x01, 0x12, 0x2c,
-	0x0a, 0x0f, 0x70, 0x65, 0x72, 0x63, 0x65, 0x6e, 0x74, 0x61, 0x67, 0x65, 0x5f, 0x74, 0x72, 0x75,
-	0x65, 0x18, 0x05, 0x20, 0x01, 0x28, 0x01, 0x48, 0x04, 0x52, 0x0e, 0x70, 0x65, 0x72, 0x63, 0x65,
-	0x6e, 0x74, 0x61, 0x67, 0x65, 0x54, 0x72, 0x75, 0x65, 0x88, 0x01, 0x01, 0x12, 0x2e, 0x0a, 0x10,
-	0x70, 0x65, 0x72, 0x63, 0x65, 0x6e, 0x74, 0x61, 0x67, 0x65, 0x5f, 0x66, 0x61, 0x6c, 0x73, 0x65,
-	0x18, 0x06, 0x20, 0x01, 0x28, 0x01, 0x48, 0x05, 0x52, 0x0f, 0x70, 0x65, 0x72, 0x63, 0x65, 0x6e,
-	0x74, 0x61, 0x67, 0x65, 0x46, 0x61, 0x6c, 0x73, 0x65, 0x88, 0x01, 0x01, 0x42, 0x08, 0x0a, 0x06,
-	0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x42, 0x07, 0x0a, 0x05, 0x5f, 0x74, 0x79, 0x70, 0x65, 0x42,
-	0x0d, 0x0a, 0x0b, 0x5f, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f, 0x74, 0x72, 0x75, 0x65, 0x42, 0x0e,
-	0x0a, 0x0c, 0x5f, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f, 0x66, 0x61, 0x6c, 0x73, 0x65, 0x42, 0x12,
-	0x0a, 0x10, 0x5f, 0x70, 0x65, 0x72, 0x63, 0x65, 0x6e, 0x74, 0x61, 0x67, 0x65, 0x5f, 0x74, 0x72,
-	0x75, 0x65, 0x42, 0x13, 0x0a, 0x11, 0x5f, 0x70, 0x65, 0x72, 0x63, 0x65, 0x6e, 0x74, 0x61, 0x67,
-	0x65, 0x5f, 0x66, 0x61, 0x6c, 0x73, 0x65, 0x1a, 0xed, 0x01, 0x0a, 0x04, 0x44, 0x61, 0x74, 0x65,
-	0x12, 0x19, 0x0a, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x48,
-	0x00, 0x52, 0x05, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x88, 0x01, 0x01, 0x12, 0x17, 0x0a, 0x04, 0x74,
-	0x79, 0x70, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x48, 0x01, 0x52, 0x04, 0x74, 0x79, 0x70,
-	0x65, 0x88, 0x01, 0x01, 0x12, 0x1b, 0x0a, 0x06, 0x6d, 0x65, 0x64, 0x69, 0x61, 0x6e, 0x18, 0x03,
-	0x20, 0x01, 0x28, 0x09, 0x48, 0x02, 0x52, 0x06, 0x6d, 0x65, 0x64, 0x69, 0x61, 0x6e, 0x88, 0x01,
-	0x01, 0x12, 0x17, 0x0a, 0x04, 0x6d, 0x6f, 0x64, 0x65, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x48,
-	0x03, 0x52, 0x04, 0x6d, 0x6f, 0x64, 0x65, 0x88, 0x01, 0x01, 0x12, 0x1d, 0x0a, 0x07, 0x6d, 0x61,
-	0x78, 0x69, 0x6d, 0x75, 0x6d, 0x18, 0x05, 0x20, 0x01, 0x28, 0x09, 0x48, 0x04, 0x52, 0x07, 0x6d,
-	0x61, 0x78, 0x69, 0x6d, 0x75, 0x6d, 0x88, 0x01, 0x01, 0x12, 0x1d, 0x0a, 0x07, 0x6d, 0x69, 0x6e,
-	0x69, 0x6d, 0x75, 0x6d, 0x18, 0x06, 0x20, 0x01, 0x28, 0x09, 0x48, 0x05, 0x52, 0x07, 0x6d, 0x69,
-	0x6e, 0x69, 0x6d, 0x75, 0x6d, 0x88, 0x01, 0x01, 0x42, 0x08, 0x0a, 0x06, 0x5f, 0x63, 0x6f, 0x75,
-	0x6e, 0x74, 0x42, 0x07, 0x0a, 0x05, 0x5f, 0x74, 0x79, 0x70, 0x65, 0x42, 0x09, 0x0a, 0x07, 0x5f,
-	0x6d, 0x65, 0x64, 0x69, 0x61, 0x6e, 0x42, 0x07, 0x0a, 0x05, 0x5f, 0x6d, 0x6f, 0x64, 0x65, 0x42,
-	0x0a, 0x0a, 0x08, 0x5f, 0x6d, 0x61, 0x78, 0x69, 0x6d, 0x75, 0x6d, 0x42, 0x0a, 0x0a, 0x08, 0x5f,
-	0x6d, 0x69, 0x6e, 0x69, 0x6d, 0x75, 0x6d, 0x1a, 0x4e, 0x0a, 0x09, 0x52, 0x65, 0x66, 0x65, 0x72,
-	0x65, 0x6e, 0x63, 0x65, 0x12, 0x17, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x18, 0x01, 0x20, 0x01,
-	0x28, 0x09, 0x48, 0x00, 0x52, 0x04, 0x74, 0x79, 0x70, 0x65, 0x88, 0x01, 0x01, 0x12, 0x1f, 0x0a,
-	0x0b, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x69, 0x6e, 0x67, 0x5f, 0x74, 0x6f, 0x18, 0x02, 0x20, 0x03,
-	0x28, 0x09, 0x52, 0x0a, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x69, 0x6e, 0x67, 0x54, 0x6f, 0x42, 0x07,
-	0x0a, 0x05, 0x5f, 0x74, 0x79, 0x70, 0x65, 0x42, 0x0d, 0x0a, 0x0b, 0x61, 0x67, 0x67, 0x72, 0x65,
-	0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x1a, 0xa8, 0x01, 0x0a, 0x06, 0x53, 0x69, 0x6e, 0x67, 0x6c,
-	0x65, 0x12, 0x28, 0x0a, 0x0d, 0x6f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x73, 0x5f, 0x63, 0x6f, 0x75,
-	0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x48, 0x00, 0x52, 0x0c, 0x6f, 0x62, 0x6a, 0x65,
-	0x63, 0x74, 0x73, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x88, 0x01, 0x01, 0x12, 0x51, 0x0a, 0x0c, 0x61,
-	0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28,
-	0x0b, 0x32, 0x28, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e,
-	0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x2e, 0x41,
-	0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x48, 0x01, 0x52, 0x0c, 0x61,
-	0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x42, 0x10,
-	0x0a, 0x0e, 0x5f, 0x6f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x73, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74,
-	0x42, 0x0f, 0x0a, 0x0d, 0x5f, 0x61, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e,
-	0x73, 0x1a, 0x95, 0x05, 0x0a, 0x05, 0x47, 0x72, 0x6f, 0x75, 0x70, 0x12, 0x28, 0x0a, 0x0d, 0x6f,
-	0x62, 0x6a, 0x65, 0x63, 0x74, 0x73, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01,
-	0x28, 0x03, 0x48, 0x00, 0x52, 0x0c, 0x6f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x73, 0x43, 0x6f, 0x75,
-	0x6e, 0x74, 0x88, 0x01, 0x01, 0x12, 0x51, 0x0a, 0x0c, 0x61, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61,
-	0x74, 0x69, 0x6f, 0x6e, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x28, 0x2e, 0x77, 0x65,
-	0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67,
-	0x61, 0x74, 0x65, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61,
-	0x74, 0x69, 0x6f, 0x6e, 0x73, 0x48, 0x01, 0x52, 0x0c, 0x61, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61,
-	0x74, 0x69, 0x6f, 0x6e, 0x73, 0x88, 0x01, 0x01, 0x12, 0x4f, 0x0a, 0x0a, 0x67, 0x72, 0x6f, 0x75,
-	0x70, 0x65, 0x64, 0x5f, 0x62, 0x79, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x2b, 0x2e, 0x77,
-	0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65,
-	0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x2e, 0x47, 0x72, 0x6f, 0x75, 0x70, 0x2e,
-	0x47, 0x72, 0x6f, 0x75, 0x70, 0x65, 0x64, 0x42, 0x79, 0x48, 0x02, 0x52, 0x09, 0x67, 0x72, 0x6f,
-	0x75, 0x70, 0x65, 0x64, 0x42, 0x79, 0x88, 0x01, 0x01, 0x1a, 0x8b, 0x03, 0x0a, 0x09, 0x47, 0x72,
-	0x6f, 0x75, 0x70, 0x65, 0x64, 0x42, 0x79, 0x12, 0x12, 0x0a, 0x04, 0x70, 0x61, 0x74, 0x68, 0x18,
-	0x01, 0x20, 0x03, 0x28, 0x09, 0x52, 0x04, 0x70, 0x61, 0x74, 0x68, 0x12, 0x14, 0x0a, 0x04, 0x74,
-	0x65, 0x78, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x48, 0x00, 0x52, 0x04, 0x74, 0x65, 0x78,
-	0x74, 0x12, 0x12, 0x0a, 0x03, 0x69, 0x6e, 0x74, 0x18, 0x03, 0x20, 0x01, 0x28, 0x03, 0x48, 0x00,
-	0x52, 0x03, 0x69, 0x6e, 0x74, 0x12, 0x1a, 0x0a, 0x07, 0x62, 0x6f, 0x6f, 0x6c, 0x65, 0x61, 0x6e,
-	0x18, 0x04, 0x20, 0x01, 0x28, 0x08, 0x48, 0x00, 0x52, 0x07, 0x62, 0x6f, 0x6f, 0x6c, 0x65, 0x61,
-	0x6e, 0x12, 0x18, 0x0a, 0x06, 0x6e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x18, 0x05, 0x20, 0x01, 0x28,
-	0x01, 0x48, 0x00, 0x52, 0x06, 0x6e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x12, 0x2e, 0x0a, 0x05, 0x74,
-	0x65, 0x78, 0x74, 0x73, 0x18, 0x06, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65, 0x61,
-	0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x65, 0x78, 0x74, 0x41, 0x72, 0x72,
-	0x61, 0x79, 0x48, 0x00, 0x52, 0x05, 0x74, 0x65, 0x78, 0x74, 0x73, 0x12, 0x2b, 0x0a, 0x04, 0x69,
-	0x6e, 0x74, 0x73, 0x18, 0x07, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x15, 0x2e, 0x77, 0x65, 0x61, 0x76,
-	0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x49, 0x6e, 0x74, 0x41, 0x72, 0x72, 0x61, 0x79,
-	0x48, 0x00, 0x52, 0x04, 0x69, 0x6e, 0x74, 0x73, 0x12, 0x37, 0x0a, 0x08, 0x62, 0x6f, 0x6f, 0x6c,
-	0x65, 0x61, 0x6e, 0x73, 0x18, 0x08, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x19, 0x2e, 0x77, 0x65, 0x61,
-	0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x6f, 0x6f, 0x6c, 0x65, 0x61, 0x6e,
-	0x41, 0x72, 0x72, 0x61, 0x79, 0x48, 0x00, 0x52, 0x08, 0x62, 0x6f, 0x6f, 0x6c, 0x65, 0x61, 0x6e,
-	0x73, 0x12, 0x34, 0x0a, 0x07, 0x6e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x73, 0x18, 0x09, 0x20, 0x01,
-	0x28, 0x0b, 0x32, 0x18, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31,
-	0x2e, 0x4e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x41, 0x72, 0x72, 0x61, 0x79, 0x48, 0x00, 0x52, 0x07,
-	0x6e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x73, 0x12, 0x35, 0x0a, 0x03, 0x67, 0x65, 0x6f, 0x18, 0x0a,
-	0x20, 0x01, 0x28, 0x0b, 0x32, 0x21, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e,
-	0x76, 0x31, 0x2e, 0x47, 0x65, 0x6f, 0x43, 0x6f, 0x6f, 0x72, 0x64, 0x69, 0x6e, 0x61, 0x74, 0x65,
-	0x73, 0x46, 0x69, 0x6c, 0x74, 0x65, 0x72, 0x48, 0x00, 0x52, 0x03, 0x67, 0x65, 0x6f, 0x42, 0x07,
-	0x0a, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x42, 0x10, 0x0a, 0x0e, 0x5f, 0x6f, 0x62, 0x6a, 0x65,
-	0x63, 0x74, 0x73, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x42, 0x0f, 0x0a, 0x0d, 0x5f, 0x61, 0x67,
-	0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x42, 0x0d, 0x0a, 0x0b, 0x5f, 0x67,
-	0x72, 0x6f, 0x75, 0x70, 0x65, 0x64, 0x5f, 0x62, 0x79, 0x1a, 0x44, 0x0a, 0x07, 0x47, 0x72, 0x6f,
-	0x75, 0x70, 0x65, 0x64, 0x12, 0x39, 0x0a, 0x06, 0x67, 0x72, 0x6f, 0x75, 0x70, 0x73, 0x18, 0x01,
-	0x20, 0x03, 0x28, 0x0b, 0x32, 0x21, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e,
-	0x76, 0x31, 0x2e, 0x41, 0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x52, 0x65, 0x70, 0x6c,
-	0x79, 0x2e, 0x47, 0x72, 0x6f, 0x75, 0x70, 0x52, 0x06, 0x67, 0x72, 0x6f, 0x75, 0x70, 0x73, 0x42,
-	0x08, 0x0a, 0x06, 0x72, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x42, 0x73, 0x0a, 0x23, 0x69, 0x6f, 0x2e,
-	0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x2e,
-	0x67, 0x72, 0x70, 0x63, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x2e, 0x76, 0x31,
-	0x42, 0x16, 0x57, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x41,
-	0x67, 0x67, 0x72, 0x65, 0x67, 0x61, 0x74, 0x65, 0x5a, 0x34, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62,
-	0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x77, 0x65,
-	0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x67, 0x72, 0x70, 0x63, 0x2f, 0x67, 0x65, 0x6e, 0x65,
-	0x72, 0x61, 0x74, 0x65, 0x64, 0x3b, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x62, 0x06,
-	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
-}
+const file_v1_aggregate_proto_rawDesc = "" +
+	"\n" +
+	"\x12v1/aggregate.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\"\x9d\x14\n" +
+	"\x10AggregateRequest\x12\x1e\n" +
+	"\n" +
+	"collection\x18\x01 \x01(\tR\n" +
+	"collection\x12\x16\n" +
+	"\x06tenant\x18\n" +
+	" \x01(\tR\x06tenant\x12#\n" +
+	"\robjects_count\x18\x14 \x01(\bR\fobjectsCount\x12M\n" +
+	"\faggregations\x18\x15 \x03(\v2).weaviate.v1.AggregateRequest.AggregationR\faggregations\x12&\n" +
+	"\fobject_limit\x18\x1e \x01(\rH\x01R\vobjectLimit\x88\x01\x01\x12E\n" +
+	"\bgroup_by\x18\x1f \x01(\v2%.weaviate.v1.AggregateRequest.GroupByH\x02R\agroupBy\x88\x01\x01\x12\x19\n" +
+	"\x05limit\x18  \x01(\rH\x03R\x05limit\x88\x01\x01\x123\n" +
+	"\afilters\x18( \x01(\v2\x14.weaviate.v1.FiltersH\x04R\afilters\x88\x01\x01\x12-\n" +
+	"\x06hybrid\x18) \x01(\v2\x13.weaviate.v1.HybridH\x00R\x06hybrid\x12:\n" +
+	"\vnear_vector\x18* \x01(\v2\x17.weaviate.v1.NearVectorH\x00R\n" +
+	"nearVector\x12:\n" +
+	"\vnear_object\x18+ \x01(\v2\x17.weaviate.v1.NearObjectH\x00R\n" +
+	"nearObject\x12:\n" +
+	"\tnear_text\x18, \x01(\v2\x1b.weaviate.v1.NearTextSearchH\x00R\bnearText\x12=\n" +
+	"\n" +
+	"near_image\x18- \x01(\v2\x1c.weaviate.v1.NearImageSearchH\x00R\tnearImage\x12=\n" +
+	"\n" +
+	"near_audio\x18. \x01(\v2\x1c.weaviate.v1.NearAudioSearchH\x00R\tnearAudio\x12=\n" +
+	"\n" +
+	"near_video\x18/ \x01(\v2\x1c.weaviate.v1.NearVideoSearchH\x00R\tnearVideo\x12=\n" +
+	"\n" +
+	"near_depth\x180 \x01(\v2\x1c.weaviate.v1.NearDepthSearchH\x00R\tnearDepth\x12C\n" +
+	"\fnear_thermal\x181 \x01(\v2\x1e.weaviate.v1.NearThermalSearchH\x00R\vnearThermal\x127\n" +
+	"\bnear_imu\x182 \x01(\v2\x1a.weaviate.v1.NearIMUSearchH\x00R\anearImu\x1a\xbb\v\n" +
+	"\vAggregation\x12\x1a\n" +
+	"\bproperty\x18\x01 \x01(\tR\bproperty\x12E\n" +
+	"\x03int\x18\x02 \x01(\v21.weaviate.v1.AggregateRequest.Aggregation.IntegerH\x00R\x03int\x12J\n" +
+	"\x06number\x18\x03 \x01(\v20.weaviate.v1.AggregateRequest.Aggregation.NumberH\x00R\x06number\x12D\n" +
+	"\x04text\x18\x04 \x01(\v2..weaviate.v1.AggregateRequest.Aggregation.TextH\x00R\x04text\x12M\n" +
+	"\aboolean\x18\x05 \x01(\v21.weaviate.v1.AggregateRequest.Aggregation.BooleanH\x00R\aboolean\x12D\n" +
+	"\x04date\x18\x06 \x01(\v2..weaviate.v1.AggregateRequest.Aggregation.DateH\x00R\x04date\x12S\n" +
+	"\treference\x18\a \x01(\v23.weaviate.v1.AggregateRequest.Aggregation.ReferenceH\x00R\treference\x1a\xb9\x01\n" +
+	"\aInteger\x12\x14\n" +
+	"\x05count\x18\x01 \x01(\bR\x05count\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\bR\x04type\x12\x10\n" +
+	"\x03sum\x18\x03 \x01(\bR\x03sum\x12\x12\n" +
+	"\x04mean\x18\x04 \x01(\bR\x04mean\x12\x12\n" +
+	"\x04mode\x18\x05 \x01(\bR\x04mode\x12\x16\n" +
+	"\x06median\x18\x06 \x01(\bR\x06median\x12\x18\n" +
+	"\amaximum\x18\a \x01(\bR\amaximum\x12\x18\n" +
+	"\aminimum\x18\b \x01(\bR\aminimum\x1a\xb8\x01\n" +
+	"\x06Number\x12\x14\n" +
+	"\x05count\x18\x01 \x01(\bR\x05count\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\bR\x04type\x12\x10\n" +
+	"\x03sum\x18\x03 \x01(\bR\x03sum\x12\x12\n" +
+	"\x04mean\x18\x04 \x01(\bR\x04mean\x12\x12\n" +
+	"\x04mode\x18\x05 \x01(\bR\x04mode\x12\x16\n" +
+	"\x06median\x18\x06 \x01(\bR\x06median\x12\x18\n" +
+	"\amaximum\x18\a \x01(\bR\amaximum\x12\x18\n" +
+	"\aminimum\x18\b \x01(\bR\aminimum\x1a\xa7\x01\n" +
+	"\x04Text\x12\x14\n" +
+	"\x05count\x18\x01 \x01(\bR\x05count\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\bR\x04type\x12%\n" +
+	"\x0etop_occurences\x18\x03 \x01(\bR\rtopOccurences\x125\n" +
+	"\x14top_occurences_limit\x18\x04 \x01(\rH\x00R\x12topOccurencesLimit\x88\x01\x01B\x17\n" +
+	"\x15_top_occurences_limit\x1a\xc7\x01\n" +
+	"\aBoolean\x12\x14\n" +
+	"\x05count\x18\x01 \x01(\bR\x05count\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\bR\x04type\x12\x1d\n" +
+	"\n" +
+	"total_true\x18\x03 \x01(\bR\ttotalTrue\x12\x1f\n" +
+	"\vtotal_false\x18\x04 \x01(\bR\n" +
+	"totalFalse\x12'\n" +
+	"\x0fpercentage_true\x18\x05 \x01(\bR\x0epercentageTrue\x12)\n" +
+	"\x10percentage_false\x18\x06 \x01(\bR\x0fpercentageFalse\x1a\x90\x01\n" +
+	"\x04Date\x12\x14\n" +
+	"\x05count\x18\x01 \x01(\bR\x05count\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\bR\x04type\x12\x16\n" +
+	"\x06median\x18\x03 \x01(\bR\x06median\x12\x12\n" +
+	"\x04mode\x18\x04 \x01(\bR\x04mode\x12\x18\n" +
+	"\amaximum\x18\x05 \x01(\bR\amaximum\x12\x18\n" +
+	"\aminimum\x18\x06 \x01(\bR\aminimum\x1a@\n" +
+	"\tReference\x12\x12\n" +
+	"\x04type\x18\x01 \x01(\bR\x04type\x12\x1f\n" +
+	"\vpointing_to\x18\x02 \x01(\bR\n" +
+	"pointingToB\r\n" +
+	"\vaggregation\x1aE\n" +
+	"\aGroupBy\x12\x1e\n" +
+	"\n" +
+	"collection\x18\x01 \x01(\tR\n" +
+	"collection\x12\x1a\n" +
+	"\bproperty\x18\x02 \x01(\tR\bpropertyB\b\n" +
+	"\x06searchB\x0f\n" +
+	"\r_object_limitB\v\n" +
+	"\t_group_byB\b\n" +
+	"\x06_limitB\n" +
+	"\n" +
+	"\b_filters\"\x80\x1b\n" +
+	"\x0eAggregateReply\x12\x12\n" +
+	"\x04took\x18\x01 \x01(\x02R\x04took\x12I\n" +
+	"\rsingle_result\x18\x02 \x01(\v2\".weaviate.v1.AggregateReply.SingleH\x00R\fsingleResult\x12N\n" +
+	"\x0fgrouped_results\x18\x03 \x01(\v2#.weaviate.v1.AggregateReply.GroupedH\x00R\x0egroupedResults\x1a\xab\x12\n" +
+	"\fAggregations\x12X\n" +
+	"\faggregations\x18\x01 \x03(\v24.weaviate.v1.AggregateReply.Aggregations.AggregationR\faggregations\x1a\xc0\x11\n" +
+	"\vAggregation\x12\x1a\n" +
+	"\bproperty\x18\x01 \x01(\tR\bproperty\x12P\n" +
+	"\x03int\x18\x02 \x01(\v2<.weaviate.v1.AggregateReply.Aggregations.Aggregation.IntegerH\x00R\x03int\x12U\n" +
+	"\x06number\x18\x03 \x01(\v2;.weaviate.v1.AggregateReply.Aggregations.Aggregation.NumberH\x00R\x06number\x12O\n" +
+	"\x04text\x18\x04 \x01(\v29.weaviate.v1.AggregateReply.Aggregations.Aggregation.TextH\x00R\x04text\x12X\n" +
+	"\aboolean\x18\x05 \x01(\v2<.weaviate.v1.AggregateReply.Aggregations.Aggregation.BooleanH\x00R\aboolean\x12O\n" +
+	"\x04date\x18\x06 \x01(\v29.weaviate.v1.AggregateReply.Aggregations.Aggregation.DateH\x00R\x04date\x12^\n" +
+	"\treference\x18\a \x01(\v2>.weaviate.v1.AggregateReply.Aggregations.Aggregation.ReferenceH\x00R\treference\x1a\xb1\x02\n" +
+	"\aInteger\x12\x19\n" +
+	"\x05count\x18\x01 \x01(\x03H\x00R\x05count\x88\x01\x01\x12\x17\n" +
+	"\x04type\x18\x02 \x01(\tH\x01R\x04type\x88\x01\x01\x12\x17\n" +
+	"\x04mean\x18\x03 \x01(\x01H\x02R\x04mean\x88\x01\x01\x12\x1b\n" +
+	"\x06median\x18\x04 \x01(\x01H\x03R\x06median\x88\x01\x01\x12\x17\n" +
+	"\x04mode\x18\x05 \x01(\x03H\x04R\x04mode\x88\x01\x01\x12\x1d\n" +
+	"\amaximum\x18\x06 \x01(\x03H\x05R\amaximum\x88\x01\x01\x12\x1d\n" +
+	"\aminimum\x18\a \x01(\x03H\x06R\aminimum\x88\x01\x01\x12\x15\n" +
+	"\x03sum\x18\b \x01(\x03H\aR\x03sum\x88\x01\x01B\b\n" +
+	"\x06_countB\a\n" +
+	"\x05_typeB\a\n" +
+	"\x05_meanB\t\n" +
+	"\a_medianB\a\n" +
+	"\x05_modeB\n" +
+	"\n" +
+	"\b_maximumB\n" +
+	"\n" +
+	"\b_minimumB\x06\n" +
+	"\x04_sum\x1a\xb0\x02\n" +
+	"\x06Number\x12\x19\n" +
+	"\x05count\x18\x01 \x01(\x03H\x00R\x05count\x88\x01\x01\x12\x17\n" +
+	"\x04type\x18\x02 \x01(\tH\x01R\x04type\x88\x01\x01\x12\x17\n" +
+	"\x04mean\x18\x03 \x01(\x01H\x02R\x04mean\x88\x01\x01\x12\x1b\n" +
+	"\x06median\x18\x04 \x01(\x01H\x03R\x06median\x88\x01\x01\x12\x17\n" +
+	"\x04mode\x18\x05 \x01(\x01H\x04R\x04mode\x88\x01\x01\x12\x1d\n" +
+	"\amaximum\x18\x06 \x01(\x01H\x05R\amaximum\x88\x01\x01\x12\x1d\n" +
+	"\aminimum\x18\a \x01(\x01H\x06R\aminimum\x88\x01\x01\x12\x15\n" +
+	"\x03sum\x18\b \x01(\x01H\aR\x03sum\x88\x01\x01B\b\n" +
+	"\x06_countB\a\n" +
+	"\x05_typeB\a\n" +
+	"\x05_meanB\t\n" +
+	"\a_medianB\a\n" +
+	"\x05_modeB\n" +
+	"\n" +
+	"\b_maximumB\n" +
+	"\n" +
+	"\b_minimumB\x06\n" +
+	"\x04_sum\x1a\x96\x03\n" +
+	"\x04Text\x12\x19\n" +
+	"\x05count\x18\x01 \x01(\x03H\x00R\x05count\x88\x01\x01\x12\x17\n" +
+	"\x04type\x18\x02 \x01(\tH\x01R\x04type\x88\x01\x01\x12t\n" +
+	"\x0etop_occurences\x18\x03 \x01(\v2H.weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrencesH\x02R\rtopOccurences\x88\x01\x01\x1a\xbd\x01\n" +
+	"\x0eTopOccurrences\x12l\n" +
+	"\x05items\x18\x01 \x03(\v2V.weaviate.v1.AggregateReply.Aggregations.Aggregation.Text.TopOccurrences.TopOccurrenceR\x05items\x1a=\n" +
+	"\rTopOccurrence\x12\x14\n" +
+	"\x05value\x18\x01 \x01(\tR\x05value\x12\x16\n" +
+	"\x06occurs\x18\x02 \x01(\x03R\x06occursB\b\n" +
+	"\x06_countB\a\n" +
+	"\x05_typeB\x11\n" +
+	"\x0f_top_occurences\x1a\xc0\x02\n" +
+	"\aBoolean\x12\x19\n" +
+	"\x05count\x18\x01 \x01(\x03H\x00R\x05count\x88\x01\x01\x12\x17\n" +
+	"\x04type\x18\x02 \x01(\tH\x01R\x04type\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"total_true\x18\x03 \x01(\x03H\x02R\ttotalTrue\x88\x01\x01\x12$\n" +
+	"\vtotal_false\x18\x04 \x01(\x03H\x03R\n" +
+	"totalFalse\x88\x01\x01\x12,\n" +
+	"\x0fpercentage_true\x18\x05 \x01(\x01H\x04R\x0epercentageTrue\x88\x01\x01\x12.\n" +
+	"\x10percentage_false\x18\x06 \x01(\x01H\x05R\x0fpercentageFalse\x88\x01\x01B\b\n" +
+	"\x06_countB\a\n" +
+	"\x05_typeB\r\n" +
+	"\v_total_trueB\x0e\n" +
+	"\f_total_falseB\x12\n" +
+	"\x10_percentage_trueB\x13\n" +
+	"\x11_percentage_false\x1a\xed\x01\n" +
+	"\x04Date\x12\x19\n" +
+	"\x05count\x18\x01 \x01(\x03H\x00R\x05count\x88\x01\x01\x12\x17\n" +
+	"\x04type\x18\x02 \x01(\tH\x01R\x04type\x88\x01\x01\x12\x1b\n" +
+	"\x06median\x18\x03 \x01(\tH\x02R\x06median\x88\x01\x01\x12\x17\n" +
+	"\x04mode\x18\x04 \x01(\tH\x03R\x04mode\x88\x01\x01\x12\x1d\n" +
+	"\amaximum\x18\x05 \x01(\tH\x04R\amaximum\x88\x01\x01\x12\x1d\n" +
+	"\aminimum\x18\x06 \x01(\tH\x05R\aminimum\x88\x01\x01B\b\n" +
+	"\x06_countB\a\n" +
+	"\x05_typeB\t\n" +
+	"\a_medianB\a\n" +
+	"\x05_modeB\n" +
+	"\n" +
+	"\b_maximumB\n" +
+	"\n" +
+	"\b_minimum\x1aN\n" +
+	"\tReference\x12\x17\n" +
+	"\x04type\x18\x01 \x01(\tH\x00R\x04type\x88\x01\x01\x12\x1f\n" +
+	"\vpointing_to\x18\x02 \x03(\tR\n" +
+	"pointingToB\a\n" +
+	"\x05_typeB\r\n" +
+	"\vaggregation\x1a\xa8\x01\n" +
+	"\x06Single\x12(\n" +
+	"\robjects_count\x18\x01 \x01(\x03H\x00R\fobjectsCount\x88\x01\x01\x12Q\n" +
+	"\faggregations\x18\x02 \x01(\v2(.weaviate.v1.AggregateReply.AggregationsH\x01R\faggregations\x88\x01\x01B\x10\n" +
+	"\x0e_objects_countB\x0f\n" +
+	"\r_aggregations\x1a\x95\x05\n" +
+	"\x05Group\x12(\n" +
+	"\robjects_count\x18\x01 \x01(\x03H\x00R\fobjectsCount\x88\x01\x01\x12Q\n" +
+	"\faggregations\x18\x02 \x01(\v2(.weaviate.v1.AggregateReply.AggregationsH\x01R\faggregations\x88\x01\x01\x12O\n" +
+	"\n" +
+	"grouped_by\x18\x03 \x01(\v2+.weaviate.v1.AggregateReply.Group.GroupedByH\x02R\tgroupedBy\x88\x01\x01\x1a\x8b\x03\n" +
+	"\tGroupedBy\x12\x12\n" +
+	"\x04path\x18\x01 \x03(\tR\x04path\x12\x14\n" +
+	"\x04text\x18\x02 \x01(\tH\x00R\x04text\x12\x12\n" +
+	"\x03int\x18\x03 \x01(\x03H\x00R\x03int\x12\x1a\n" +
+	"\aboolean\x18\x04 \x01(\bH\x00R\aboolean\x12\x18\n" +
+	"\x06number\x18\x05 \x01(\x01H\x00R\x06number\x12.\n" +
+	"\x05texts\x18\x06 \x01(\v2\x16.weaviate.v1.TextArrayH\x00R\x05texts\x12+\n" +
+	"\x04ints\x18\a \x01(\v2\x15.weaviate.v1.IntArrayH\x00R\x04ints\x127\n" +
+	"\bbooleans\x18\b \x01(\v2\x19.weaviate.v1.BooleanArrayH\x00R\bbooleans\x124\n" +
+	"\anumbers\x18\t \x01(\v2\x18.weaviate.v1.NumberArrayH\x00R\anumbers\x125\n" +
+	"\x03geo\x18\n" +
+	" \x01(\v2!.weaviate.v1.GeoCoordinatesFilterH\x00R\x03geoB\a\n" +
+	"\x05valueB\x10\n" +
+	"\x0e_objects_countB\x0f\n" +
+	"\r_aggregationsB\r\n" +
+	"\v_grouped_by\x1aD\n" +
+	"\aGrouped\x129\n" +
+	"\x06groups\x18\x01 \x03(\v2!.weaviate.v1.AggregateReply.GroupR\x06groupsB\b\n" +
+	"\x06resultBs\n" +
+	"#io.weaviate.client.grpc.protocol.v1B\x16WeaviateProtoAggregateZ4github.com/weaviate/weaviate/grpc/generated;protocolb\x06proto3"
 
 var (
 	file_v1_aggregate_proto_rawDescOnce sync.Once
-	file_v1_aggregate_proto_rawDescData = file_v1_aggregate_proto_rawDesc
+	file_v1_aggregate_proto_rawDescData []byte
 )
 
 func file_v1_aggregate_proto_rawDescGZIP() []byte {
 	file_v1_aggregate_proto_rawDescOnce.Do(func() {
-		file_v1_aggregate_proto_rawDescData = protoimpl.X.CompressGZIP(file_v1_aggregate_proto_rawDescData)
+		file_v1_aggregate_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_v1_aggregate_proto_rawDesc), len(file_v1_aggregate_proto_rawDesc)))
 	})
 	return file_v1_aggregate_proto_rawDescData
 }
 
 var file_v1_aggregate_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
-var file_v1_aggregate_proto_goTypes = []interface{}{
+var file_v1_aggregate_proto_goTypes = []any{
 	(*AggregateRequest)(nil),                                                          // 0: weaviate.v1.AggregateRequest
 	(*AggregateReply)(nil),                                                            // 1: weaviate.v1.AggregateReply
 	(*AggregateRequest_Aggregation)(nil),                                              // 2: weaviate.v1.AggregateRequest.Aggregation
@@ -2726,297 +2558,7 @@ func file_v1_aggregate_proto_init() {
 	}
 	file_v1_base_proto_init()
 	file_v1_base_search_proto_init()
-	if !protoimpl.UnsafeEnabled {
-		file_v1_aggregate_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateRequest); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateReply); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateRequest_Aggregation); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateRequest_GroupBy); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateRequest_Aggregation_Integer); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateRequest_Aggregation_Number); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateRequest_Aggregation_Text); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateRequest_Aggregation_Boolean); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateRequest_Aggregation_Date); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateRequest_Aggregation_Reference); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateReply_Aggregations); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateReply_Single); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateReply_Group); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateReply_Grouped); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateReply_Aggregations_Aggregation); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateReply_Aggregations_Aggregation_Integer); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateReply_Aggregations_Aggregation_Number); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateReply_Aggregations_Aggregation_Text); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[18].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateReply_Aggregations_Aggregation_Boolean); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[19].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateReply_Aggregations_Aggregation_Date); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[20].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateReply_Aggregations_Aggregation_Reference); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[21].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[22].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateReply_Aggregations_Aggregation_Text_TopOccurrences_TopOccurrence); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_aggregate_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AggregateReply_Group_GroupedBy); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-	}
-	file_v1_aggregate_proto_msgTypes[0].OneofWrappers = []interface{}{
+	file_v1_aggregate_proto_msgTypes[0].OneofWrappers = []any{
 		(*AggregateRequest_Hybrid)(nil),
 		(*AggregateRequest_NearVector)(nil),
 		(*AggregateRequest_NearObject)(nil),
@@ -3028,11 +2570,11 @@ func file_v1_aggregate_proto_init() {
 		(*AggregateRequest_NearThermal)(nil),
 		(*AggregateRequest_NearImu)(nil),
 	}
-	file_v1_aggregate_proto_msgTypes[1].OneofWrappers = []interface{}{
+	file_v1_aggregate_proto_msgTypes[1].OneofWrappers = []any{
 		(*AggregateReply_SingleResult)(nil),
 		(*AggregateReply_GroupedResults)(nil),
 	}
-	file_v1_aggregate_proto_msgTypes[2].OneofWrappers = []interface{}{
+	file_v1_aggregate_proto_msgTypes[2].OneofWrappers = []any{
 		(*AggregateRequest_Aggregation_Int)(nil),
 		(*AggregateRequest_Aggregation_Number_)(nil),
 		(*AggregateRequest_Aggregation_Text_)(nil),
@@ -3040,10 +2582,10 @@ func file_v1_aggregate_proto_init() {
 		(*AggregateRequest_Aggregation_Date_)(nil),
 		(*AggregateRequest_Aggregation_Reference_)(nil),
 	}
-	file_v1_aggregate_proto_msgTypes[6].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[11].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[12].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[14].OneofWrappers = []interface{}{
+	file_v1_aggregate_proto_msgTypes[6].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[11].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[12].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[14].OneofWrappers = []any{
 		(*AggregateReply_Aggregations_Aggregation_Int)(nil),
 		(*AggregateReply_Aggregations_Aggregation_Number_)(nil),
 		(*AggregateReply_Aggregations_Aggregation_Text_)(nil),
@@ -3051,13 +2593,13 @@ func file_v1_aggregate_proto_init() {
 		(*AggregateReply_Aggregations_Aggregation_Date_)(nil),
 		(*AggregateReply_Aggregations_Aggregation_Reference_)(nil),
 	}
-	file_v1_aggregate_proto_msgTypes[15].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[16].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[17].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[18].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[19].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[20].OneofWrappers = []interface{}{}
-	file_v1_aggregate_proto_msgTypes[23].OneofWrappers = []interface{}{
+	file_v1_aggregate_proto_msgTypes[15].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[16].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[17].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[18].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[19].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[20].OneofWrappers = []any{}
+	file_v1_aggregate_proto_msgTypes[23].OneofWrappers = []any{
 		(*AggregateReply_Group_GroupedBy_Text)(nil),
 		(*AggregateReply_Group_GroupedBy_Int)(nil),
 		(*AggregateReply_Group_GroupedBy_Boolean)(nil),
@@ -3072,7 +2614,7 @@ func file_v1_aggregate_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: file_v1_aggregate_proto_rawDesc,
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_aggregate_proto_rawDesc), len(file_v1_aggregate_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   24,
 			NumExtensions: 0,
@@ -3083,7 +2625,6 @@ func file_v1_aggregate_proto_init() {
 		MessageInfos:      file_v1_aggregate_proto_msgTypes,
 	}.Build()
 	File_v1_aggregate_proto = out.File
-	file_v1_aggregate_proto_rawDesc = nil
 	file_v1_aggregate_proto_goTypes = nil
 	file_v1_aggregate_proto_depIdxs = nil
 }
