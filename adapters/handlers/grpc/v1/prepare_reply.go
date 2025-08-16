@@ -128,7 +128,7 @@ func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.Ge
 		if generativeGroupResultsReturnDeprecated == "" && additionalProps.GenerativeGroupedDeprecated != "" {
 			generativeGroupResultsReturnDeprecated = additionalProps.GenerativeGroupedDeprecated
 		}
-		if generativeGroupResults == nil && additionalProps.GenerativeGrouped != nil {
+		if generativeGroupResults == nil && r.isGenerativeGroupedPresent(additionalProps.GenerativeGrouped) {
 			generativeGroupResults = additionalProps.GenerativeGrouped
 		}
 
@@ -141,6 +141,14 @@ func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.Ge
 		results[i] = result
 	}
 	return results, generativeGroupResultsReturnDeprecated, generativeGroupResults, nil
+}
+
+func (r *Replier) isGenerativeGroupedPresent(grouped *pb.GenerativeResult) bool {
+	if grouped != nil && len(grouped.Values) > 0 &&
+		(len(grouped.Values[0].Result) > 0 || grouped.Values[0].Debug != nil || grouped.Values[0].Metadata != nil) {
+		return true
+	}
+	return false
 }
 
 func idToByte(idRaw interface{}) ([]byte, string, error) {

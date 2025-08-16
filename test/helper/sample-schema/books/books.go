@@ -32,6 +32,10 @@ func ClassContextionaryVectorizer() *models.Class {
 	return class(defaultClassName, "text2vec-contextionary")
 }
 
+func ClassModel2VecVectorizer() *models.Class {
+	return class(defaultClassName, "text2vec-model2vec")
+}
+
 func ClassOpenAIWithOptions() *models.Class {
 	c := class(defaultClassName, "text2vec-openai")
 	c.ModuleConfig.(map[string]interface{})["text2vec-openai"] = map[string]interface{}{
