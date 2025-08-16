@@ -724,7 +724,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	})
 
 	t.Run("reset dimensions lsm", func(t *testing.T) {
-		err := shd.resetDimensionsLSM(ctx)
+		_, err := shd.resetDimensionsLSM(ctx)
 		require.Nil(t, err)
 	})
 
