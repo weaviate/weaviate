@@ -24,7 +24,7 @@ import (
 const Text2VecModel2Vec = "text2vec-model2vec"
 
 func startT2VModel2Vec(ctx context.Context, networkName, model2vecImage string) (*DockerContainer, error) {
-	image := "semitechnologies/model2vec-inference:minishlab-potion-retrieval-32M-1.1.0"
+	image := "semitechnologies/model2vec-inference:minishlab-potion-retrieval-32M"
 	if len(model2vecImage) > 0 {
 		image = model2vecImage
 	}

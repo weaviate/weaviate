@@ -22,6 +22,7 @@ services:
       PERSISTENCE_DATA_PATH: "./data"
       DEFAULT_VECTORIZER_MODULE: text2vec-contextionary
       ENABLE_MODULES: text2vec-contextionary
+      DISABLE_API_BASED_MODULES: "true"
       PROMETHEUS_MONITORING_ENABLED: 'true'
       PROMETHEUS_MONITORING_GROUP_CLASSES: 'true'
       CLUSTER_GOSSIP_BIND_PORT: "7100"

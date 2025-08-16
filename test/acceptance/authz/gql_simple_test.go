@@ -45,6 +45,7 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
 		WithRBAC().WithRbacRoots(adminUser).
 		WithText2VecContextionary().
+		WithWeaviateEnv("DISABLE_API_BASED_MODULES", "true").
 		Start(ctx)
 
 	require.Nil(t, err)
