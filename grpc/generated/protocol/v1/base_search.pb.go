@@ -235,7 +235,7 @@ type Targets struct {
 
 	TargetVectors []string          `protobuf:"bytes,1,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"`
 	Combination   CombinationMethod `protobuf:"varint,2,opt,name=combination,proto3,enum=weaviate.v1.CombinationMethod" json:"combination,omitempty"`
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	Weights           map[string]float32  `protobuf:"bytes,3,rep,name=weights,proto3" json:"weights,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"fixed32,2,opt,name=value,proto3"` // deprecated in 1.26.2 - use weights_for_targets
 	WeightsForTargets []*WeightsForTarget `protobuf:"bytes,4,rep,name=weights_for_targets,json=weightsForTargets,proto3" json:"weights_for_targets,omitempty"`
 }
@@ -286,7 +286,7 @@ func (x *Targets) GetCombination() CombinationMethod {
 	return CombinationMethod_COMBINATION_METHOD_UNSPECIFIED
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *Targets) GetWeights() map[string]float32 {
 	if x != nil {
 		return x.Weights
@@ -307,7 +307,7 @@ type VectorForTarget struct {
 	unknownFields protoimpl.UnknownFields
 
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	VectorBytes []byte     `protobuf:"bytes,2,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"` // deprecated in 1.29.0 - use vectors
 	Vectors     []*Vectors `protobuf:"bytes,3,rep,name=vectors,proto3" json:"vectors,omitempty"`
 }
@@ -351,7 +351,7 @@ func (x *VectorForTarget) GetName() string {
 	return ""
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *VectorForTarget) GetVectorBytes() []byte {
 	if x != nil {
 		return x.VectorBytes
@@ -430,13 +430,13 @@ type Hybrid struct {
 	Properties []string `protobuf:"bytes,2,rep,name=properties,proto3" json:"properties,omitempty"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	Vector     []float32         `protobuf:"fixed32,3,rep,packed,name=vector,proto3" json:"vector,omitempty"` // will be removed in the future, use vectors
 	Alpha      float32           `protobuf:"fixed32,4,opt,name=alpha,proto3" json:"alpha,omitempty"`
 	FusionType Hybrid_FusionType `protobuf:"varint,5,opt,name=fusion_type,json=fusionType,proto3,enum=weaviate.v1.Hybrid_FusionType" json:"fusion_type,omitempty"`
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	VectorBytes []byte `protobuf:"bytes,6,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"` // deprecated in 1.29.0 - use vectors
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	TargetVectors      []string               `protobuf:"bytes,7,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	NearText           *NearTextSearch        `protobuf:"bytes,8,opt,name=near_text,json=nearText,proto3" json:"near_text,omitempty"`                // targets in msg is ignored and should not be set for hybrid
 	NearVector         *NearVector            `protobuf:"bytes,9,opt,name=near_vector,json=nearVector,proto3" json:"near_vector,omitempty"`          // same as above. Use the target vector in the hybrid message
@@ -445,7 +445,6 @@ type Hybrid struct {
 	// only vector distance, but keep it extendable
 	//
 	// Types that are assignable to Threshold:
-	//
 	//	*Hybrid_VectorDistance
 	Threshold isHybrid_Threshold `protobuf_oneof:"threshold"`
 	Vectors   []*Vectors         `protobuf:"bytes,21,rep,name=vectors,proto3" json:"vectors,omitempty"`
@@ -497,7 +496,7 @@ func (x *Hybrid) GetProperties() []string {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *Hybrid) GetVector() []float32 {
 	if x != nil {
 		return x.Vector
@@ -519,7 +518,7 @@ func (x *Hybrid) GetFusionType() Hybrid_FusionType {
 	return Hybrid_FUSION_TYPE_UNSPECIFIED
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *Hybrid) GetVectorBytes() []byte {
 	if x != nil {
 		return x.VectorBytes
@@ -527,7 +526,7 @@ func (x *Hybrid) GetVectorBytes() []byte {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *Hybrid) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -601,16 +600,16 @@ type NearVector struct {
 
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	Vector    []float32 `protobuf:"fixed32,1,rep,packed,name=vector,proto3" json:"vector,omitempty"` // will be removed in the future, use vectors
 	Certainty *float64  `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance  *float64  `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	VectorBytes []byte `protobuf:"bytes,4,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"` // deprecated in 1.29.0 - use vectors
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,5,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,6,opt,name=targets,proto3" json:"targets,omitempty"`
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	VectorPerTarget  map[string][]byte  `protobuf:"bytes,7,rep,name=vector_per_target,json=vectorPerTarget,proto3" json:"vector_per_target,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"` // deprecated in 1.26.2 - use vector_for_targets
 	VectorForTargets []*VectorForTarget `protobuf:"bytes,8,rep,name=vector_for_targets,json=vectorForTargets,proto3" json:"vector_for_targets,omitempty"`
 	Vectors          []*Vectors         `protobuf:"bytes,9,rep,name=vectors,proto3" json:"vectors,omitempty"`
@@ -648,7 +647,7 @@ func (*NearVector) Descriptor() ([]byte, []int) {
 	return file_v1_base_search_proto_rawDescGZIP(), []int{5}
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *NearVector) GetVector() []float32 {
 	if x != nil {
 		return x.Vector
@@ -670,7 +669,7 @@ func (x *NearVector) GetDistance() float64 {
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *NearVector) GetVectorBytes() []byte {
 	if x != nil {
 		return x.VectorBytes
@@ -678,7 +677,7 @@ func (x *NearVector) GetVectorBytes() []byte {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *NearVector) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -693,7 +692,7 @@ func (x *NearVector) GetTargets() *Targets {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *NearVector) GetVectorPerTarget() map[string][]byte {
 	if x != nil {
 		return x.VectorPerTarget
@@ -723,7 +722,7 @@ type NearObject struct {
 	Id        string   `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Certainty *float64 `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance  *float64 `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,4,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,5,opt,name=targets,proto3" json:"targets,omitempty"`
 }
@@ -781,7 +780,7 @@ func (x *NearObject) GetDistance() float64 {
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *NearObject) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -807,7 +806,7 @@ type NearTextSearch struct {
 	Distance  *float64             `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
 	MoveTo    *NearTextSearch_Move `protobuf:"bytes,4,opt,name=move_to,json=moveTo,proto3,oneof" json:"move_to,omitempty"`
 	MoveAway  *NearTextSearch_Move `protobuf:"bytes,5,opt,name=move_away,json=moveAway,proto3,oneof" json:"move_away,omitempty"`
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,6,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,7,opt,name=targets,proto3" json:"targets,omitempty"`
 }
@@ -879,7 +878,7 @@ func (x *NearTextSearch) GetMoveAway() *NearTextSearch_Move {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *NearTextSearch) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -902,7 +901,7 @@ type NearImageSearch struct {
 	Image     string   `protobuf:"bytes,1,opt,name=image,proto3" json:"image,omitempty"`
 	Certainty *float64 `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance  *float64 `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,4,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,5,opt,name=targets,proto3" json:"targets,omitempty"`
 }
@@ -960,7 +959,7 @@ func (x *NearImageSearch) GetDistance() float64 {
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *NearImageSearch) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -983,7 +982,7 @@ type NearAudioSearch struct {
 	Audio     string   `protobuf:"bytes,1,opt,name=audio,proto3" json:"audio,omitempty"`
 	Certainty *float64 `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance  *float64 `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,4,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,5,opt,name=targets,proto3" json:"targets,omitempty"`
 }
@@ -1041,7 +1040,7 @@ func (x *NearAudioSearch) GetDistance() float64 {
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *NearAudioSearch) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -1064,7 +1063,7 @@ type NearVideoSearch struct {
 	Video     string   `protobuf:"bytes,1,opt,name=video,proto3" json:"video,omitempty"`
 	Certainty *float64 `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance  *float64 `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,4,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,5,opt,name=targets,proto3" json:"targets,omitempty"`
 }
@@ -1122,7 +1121,7 @@ func (x *NearVideoSearch) GetDistance() float64 {
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *NearVideoSearch) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -1145,7 +1144,7 @@ type NearDepthSearch struct {
 	Depth     string   `protobuf:"bytes,1,opt,name=depth,proto3" json:"depth,omitempty"`
 	Certainty *float64 `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance  *float64 `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,4,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,5,opt,name=targets,proto3" json:"targets,omitempty"`
 }
@@ -1203,7 +1202,7 @@ func (x *NearDepthSearch) GetDistance() float64 {
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *NearDepthSearch) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -1226,7 +1225,7 @@ type NearThermalSearch struct {
 	Thermal   string   `protobuf:"bytes,1,opt,name=thermal,proto3" json:"thermal,omitempty"`
 	Certainty *float64 `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance  *float64 `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,4,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,5,opt,name=targets,proto3" json:"targets,omitempty"`
 }
@@ -1284,7 +1283,7 @@ func (x *NearThermalSearch) GetDistance() float64 {
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *NearThermalSearch) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -1307,7 +1306,7 @@ type NearIMUSearch struct {
 	Imu       string   `protobuf:"bytes,1,opt,name=imu,proto3" json:"imu,omitempty"`
 	Certainty *float64 `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance  *float64 `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
+	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,4,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,5,opt,name=targets,proto3" json:"targets,omitempty"`
 }
@@ -1365,7 +1364,7 @@ func (x *NearIMUSearch) GetDistance() float64 {
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/base_search.proto.
+// Deprecated: Do not use.
 func (x *NearIMUSearch) GetTargetVectors() []string {
 	if x != nil {
 		return x.TargetVectors
@@ -1820,7 +1819,7 @@ func file_v1_base_search_proto_rawDescGZIP() []byte {
 
 var file_v1_base_search_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_v1_base_search_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
-var file_v1_base_search_proto_goTypes = []any{
+var file_v1_base_search_proto_goTypes = []interface{}{
 	(CombinationMethod)(0),              // 0: weaviate.v1.CombinationMethod
 	(SearchOperatorOptions_Operator)(0), // 1: weaviate.v1.SearchOperatorOptions.Operator
 	(Hybrid_FusionType)(0),              // 2: weaviate.v1.Hybrid.FusionType
@@ -1885,7 +1884,7 @@ func file_v1_base_search_proto_init() {
 	}
 	file_v1_base_proto_init()
 	if !protoimpl.UnsafeEnabled {
-		file_v1_base_search_proto_msgTypes[0].Exporter = func(v any, i int) any {
+		file_v1_base_search_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*WeightsForTarget); i {
 			case 0:
 				return &v.state
@@ -1897,7 +1896,7 @@ func file_v1_base_search_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_search_proto_msgTypes[1].Exporter = func(v any, i int) any {
+		file_v1_base_search_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Targets); i {
 			case 0:
 				return &v.state
@@ -1909,7 +1908,7 @@ func file_v1_base_search_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_search_proto_msgTypes[2].Exporter = func(v any, i int) any {
+		file_v1_base_search_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*VectorForTarget); i {
 			case 0:
 				return &v.state
@@ -1921,7 +1920,7 @@ func file_v1_base_search_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_search_proto_msgTypes[3].Exporter = func(v any, i int) any {
+		file_v1_base_search_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*SearchOperatorOptions); i {
 			case 0:
 				return &v.state
@@ -1933,7 +1932,7 @@ func file_v1_base_search_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_search_proto_msgTypes[4].Exporter = func(v any, i int) any {
+		file_v1_base_search_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Hybrid); i {
 			case 0:
 				return &v.state
@@ -1945,7 +1944,7 @@ func file_v1_base_search_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_search_proto_msgTypes[5].Exporter = func(v any, i int) any {
+		file_v1_base_search_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearVector); i {
 			case 0:
 				return &v.state
@@ -1957,7 +1956,7 @@ func file_v1_base_search_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_search_proto_msgTypes[6].Exporter = func(v any, i int) any {
+		file_v1_base_search_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearObject); i {
 			case 0:
 				return &v.state
@@ -1969,7 +1968,7 @@ func file_v1_base_search_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_search_proto_msgTypes[7].Exporter = func(v any, i int) any {
+		file_v1_base_search_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearTextSearch); i {
 			case 0:
 				return &v.state
@@ -1981,7 +1980,7 @@ func file_v1_base_search_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_search_proto_msgTypes[8].Exporter = func(v any, i int) any {
+		file_v1_base_search_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearImageSearch); i {
 			case 0:
 				return &v.state
@@ -1993,7 +1992,7 @@ func file_v1_base_search_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_search_proto_msgTypes[9].Exporter = func(v any, i int) any {
+		file_v1_base_search_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearAudioSearch); i {
 			case 0:
 				return &v.state
@@ -2005,7 +2004,7 @@ func file_v1_base_search_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_search_proto_msgTypes[10].Exporter = func(v any, i int) any {
+		file_v1_base_search_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearVideoSearch); i {
 			case 0:
 				return &v.state
@@ -2017,7 +2016,7 @@ func file_v1_base_search_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_search_proto_msgTypes[11].Exporter = func(v any, i int) any {
+		file_v1_base_search_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearDepthSearch); i {
 			case 0:
 				return &v.state
@@ -2029,7 +2028,7 @@ func file_v1_base_search_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_search_proto_msgTypes[12].Exporter = func(v any, i int) any {
+		file_v1_base_search_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearThermalSearch); i {
 			case 0:
 				return &v.state
@@ -2041,7 +2040,7 @@ func file_v1_base_search_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_search_proto_msgTypes[13].Exporter = func(v any, i int) any {
+		file_v1_base_search_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearIMUSearch); i {
 			case 0:
 				return &v.state
@@ -2053,7 +2052,7 @@ func file_v1_base_search_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_search_proto_msgTypes[14].Exporter = func(v any, i int) any {
+		file_v1_base_search_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*BM25); i {
 			case 0:
 				return &v.state
@@ -2065,7 +2064,7 @@ func file_v1_base_search_proto_init() {
 				return nil
 			}
 		}
-		file_v1_base_search_proto_msgTypes[17].Exporter = func(v any, i int) any {
+		file_v1_base_search_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearTextSearch_Move); i {
 			case 0:
 				return &v.state
@@ -2078,20 +2077,20 @@ func file_v1_base_search_proto_init() {
 			}
 		}
 	}
-	file_v1_base_search_proto_msgTypes[3].OneofWrappers = []any{}
-	file_v1_base_search_proto_msgTypes[4].OneofWrappers = []any{
+	file_v1_base_search_proto_msgTypes[3].OneofWrappers = []interface{}{}
+	file_v1_base_search_proto_msgTypes[4].OneofWrappers = []interface{}{
 		(*Hybrid_VectorDistance)(nil),
 	}
-	file_v1_base_search_proto_msgTypes[5].OneofWrappers = []any{}
-	file_v1_base_search_proto_msgTypes[6].OneofWrappers = []any{}
-	file_v1_base_search_proto_msgTypes[7].OneofWrappers = []any{}
-	file_v1_base_search_proto_msgTypes[8].OneofWrappers = []any{}
-	file_v1_base_search_proto_msgTypes[9].OneofWrappers = []any{}
-	file_v1_base_search_proto_msgTypes[10].OneofWrappers = []any{}
-	file_v1_base_search_proto_msgTypes[11].OneofWrappers = []any{}
-	file_v1_base_search_proto_msgTypes[12].OneofWrappers = []any{}
-	file_v1_base_search_proto_msgTypes[13].OneofWrappers = []any{}
-	file_v1_base_search_proto_msgTypes[14].OneofWrappers = []any{}
+	file_v1_base_search_proto_msgTypes[5].OneofWrappers = []interface{}{}
+	file_v1_base_search_proto_msgTypes[6].OneofWrappers = []interface{}{}
+	file_v1_base_search_proto_msgTypes[7].OneofWrappers = []interface{}{}
+	file_v1_base_search_proto_msgTypes[8].OneofWrappers = []interface{}{}
+	file_v1_base_search_proto_msgTypes[9].OneofWrappers = []interface{}{}
+	file_v1_base_search_proto_msgTypes[10].OneofWrappers = []interface{}{}
+	file_v1_base_search_proto_msgTypes[11].OneofWrappers = []interface{}{}
+	file_v1_base_search_proto_msgTypes[12].OneofWrappers = []interface{}{}
+	file_v1_base_search_proto_msgTypes[13].OneofWrappers = []interface{}{}
+	file_v1_base_search_proto_msgTypes[14].OneofWrappers = []interface{}{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

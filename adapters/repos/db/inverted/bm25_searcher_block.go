@@ -216,7 +216,7 @@ func (b *BM25Searcher) wandBlock(
 				if params.SearchOperator == common_filters.SearchOperatorAnd {
 					topKHeap = lsmkv.DoBlockMaxAnd(ctx, internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
 				} else {
-					topKHeap = lsmkv.DoBlockMaxWand(ctx, internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
+					topKHeap, _ = lsmkv.DoBlockMaxWand(ctx, internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
 				}
 				ids, scores, explanations, err := b.getTopKIds(topKHeap)
 				if err != nil {
