@@ -296,7 +296,7 @@ func Test_AliasesAPI(t *testing.T) {
 				{
 					name:             "clashing alias name",
 					alias:            &models.Alias{Alias: "BookAlias", Class: documents.Passage},
-					expectedErrorMsg: fmt.Sprintf("create alias: %s alias already exists", "BookAlias"),
+					expectedErrorMsg: fmt.Sprintf("create alias: %s, alias already exists", "BookAlias"),
 				},
 			}
 			for _, tt := range tests {
