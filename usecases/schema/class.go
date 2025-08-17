@@ -173,8 +173,10 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	aliases := make([]*models.Alias, 0)
-	if err := json.Unmarshal(d.Aliases, &aliases); err != nil {
-		return fmt.Errorf("unmarshal aliases: %w", err)
+	if d.AliasesIncluded {
+		if err := json.Unmarshal(d.Aliases, &aliases); err != nil {
+			return fmt.Errorf("unmarshal aliases: %w", err)
+		}
 	}
 
 	metric, err := monitoring.GetMetrics().BackupRestoreClassDurations.GetMetricWithLabelValues(class.Class)
@@ -230,7 +232,6 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	return nil
-
 }
 
 // DeleteClass from the schema

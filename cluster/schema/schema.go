@@ -33,6 +33,8 @@ var (
 	ErrClassExists   = errors.New("class already exists")
 	ErrClassNotFound = errors.New("class not found")
 	ErrShardNotFound = errors.New("shard not found")
+	ErrAliasExists   = errors.New("alias already exists")
+	ErrAliasNotFound = errors.New("alias not found")
 	ErrMTDisabled    = errors.New("multi-tenancy is not enabled")
 )
 
@@ -639,10 +641,10 @@ func (s *schema) createAlias(class, alias string) error {
 	defer s.mu.Unlock()
 
 	if s.unsafeAliasExists(alias) {
-		return fmt.Errorf("create alias: alias %s already exists", alias)
+		return fmt.Errorf("create alias: %s, %w", alias, ErrAliasExists)
 	}
 	if cls, _ := s.unsafeReadOnlyClass(class); cls == nil {
-		return fmt.Errorf("create alias: class %s does not exist", class)
+		return fmt.Errorf("create alias: %s, %w, %s", alias, ErrClassNotFound, class)
 	}
 	// trying to check if any class exists with passed 'alias' name
 	other, isAlias := s.unsafeClassEqual(alias)

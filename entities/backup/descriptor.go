@@ -243,11 +243,16 @@ func (s *ShardDescriptor) ClearTemporary() {
 
 // ClassDescriptor contains everything needed to completely restore a class
 type ClassDescriptor struct {
-	Name                    string             `json:"name"` // DB class name, also selected by user
-	Shards                  []*ShardDescriptor `json:"shards"`
-	ShardingState           []byte             `json:"shardingState"`
-	Schema                  []byte             `json:"schema"`
-	Aliases                 []byte             `json:"aliases"`
+	Name          string             `json:"name"` // DB class name, also selected by user
+	Shards        []*ShardDescriptor `json:"shards"`
+	ShardingState []byte             `json:"shardingState"`
+	Schema        []byte             `json:"schema"`
+	Aliases       []byte             `json:"aliases"`
+
+	// AliasesIncluded makes the old backup backward compatible when
+	// old backups are restored by newer ClassDescriptor that supports
+	// aliases
+	AliasesIncluded         bool               `json:"aliases_included"`
 	Chunks                  map[int32][]string `json:"chunks,omitempty"`
 	Error                   error              `json:"-"`
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
