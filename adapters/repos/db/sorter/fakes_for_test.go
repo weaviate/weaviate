@@ -14,6 +14,8 @@ package sorter
 import (
 	"time"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -216,8 +218,8 @@ func sorterCitySchema() *schema.Schema {
 	}
 }
 
-func sorterCitySchemaDistances() []float32 {
-	return []float32{0.1, 0.0, 0.2, 0.3, 0.4, 0.0}
+func sorterCitySchemaDistances() search.Distances {
+	return search.Distances{{Distance: 0.1}, {Distance: 0.0}, {Distance: 0.2}, {Distance: 0.3}, {Distance: 0.4}, {Distance: 0.0}}
 }
 
 func sorterCitySchemaObjects() []*storobj.Object {

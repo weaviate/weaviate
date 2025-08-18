@@ -21,6 +21,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/byteops"
@@ -578,7 +580,7 @@ func (p searchParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
 
 type searchResultsPayload struct{}
 
-func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32, error) {
+func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, search.Distances, error) {
 	read := uint64(0)
 
 	objsLength := binary.LittleEndian.Uint64(in[read : read+8])
@@ -593,10 +595,25 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 	distsLength := binary.LittleEndian.Uint64(in[read : read+8])
 	read += 8
 
-	dists := make([]float32, distsLength)
+	dists := make(search.Distances, distsLength)
 	for i := range dists {
-		dists[i] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
+		dists[i] = &search.Distance{Distance: math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))}
 		read += 4
+	}
+
+	// added in 1.33 - older versions do not include this in their message
+	if read+8 <= uint64(len(in)) {
+		multiTargetDistLength := int(binary.LittleEndian.Uint64(in[read : read+8]))
+		read += 8
+
+		eachEntryLength := multiTargetDistLength / len(dists)
+		for i := 0; i < len(dists); i++ {
+			dists[i].MultiTargetDistances = make([]float32, eachEntryLength)
+			for j := range dists[i].MultiTargetDistances {
+				dists[i].MultiTargetDistances[j] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
+				read += 4
+			}
+		}
 	}
 
 	if read != uint64(len(in)) {
@@ -606,9 +623,7 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 	return objs, dists, nil
 }
 
-func (p searchResultsPayload) Marshal(objs []*storobj.Object,
-	dists []float32,
-) ([]byte, error) {
+func (p searchResultsPayload) Marshal(objs []*storobj.Object, dists search.Distances) ([]byte, error) {
 	reusableLengthBuf := make([]byte, 8)
 	var out []byte
 	objsBytes, err := IndicesPayloads.ObjectList.Marshal(objs)
@@ -627,11 +642,31 @@ func (p searchResultsPayload) Marshal(objs []*storobj.Object,
 	out = append(out, reusableLengthBuf...)
 
 	distsBuf := make([]byte, distsLength*4)
+	multiTargetDistLength := 0
+
 	for i, dist := range dists {
-		distUint32 := math.Float32bits(dist)
+		distUint32 := math.Float32bits(dist.Distance)
 		binary.LittleEndian.PutUint32(distsBuf[(i*4):((i+1)*4)], distUint32)
+		multiTargetDistLength += len(dist.MultiTargetDistances)
 	}
 	out = append(out, distsBuf...)
+
+	// older weaviate versions do not include multi-target distances and error if they encounter buffers with an unexpected
+	// length
+	if multiTargetDistLength > 0 {
+		binary.LittleEndian.PutUint64(reusableLengthBuf, uint64(multiTargetDistLength))
+		out = append(out, reusableLengthBuf...)
+
+		multiTargetDistsBuf := make([]byte, len(dists[0].MultiTargetDistances)*4)
+		rw := byteops.NewReadWriter(multiTargetDistsBuf)
+		for _, dist := range dists {
+			rw.ResetBuffer(multiTargetDistsBuf)
+			for j := range dist.MultiTargetDistances {
+				rw.WriteUint32(math.Float32bits(dist.MultiTargetDistances[j]))
+			}
+			out = append(out, multiTargetDistsBuf...)
+		}
+	}
 
 	return out, nil
 }

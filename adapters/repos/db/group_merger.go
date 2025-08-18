@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -22,17 +24,17 @@ import (
 
 type groupMerger struct {
 	objects []*storobj.Object
-	dists   []float32
+	dists   search.Distances
 	groupBy *searchparams.GroupBy
 }
 
-func newGroupMerger(objects []*storobj.Object, dists []float32,
+func newGroupMerger(objects []*storobj.Object, dists search.Distances,
 	groupBy *searchparams.GroupBy,
 ) *groupMerger {
 	return &groupMerger{objects, dists, groupBy}
 }
 
-func (gm *groupMerger) Do() ([]*storobj.Object, []float32, error) {
+func (gm *groupMerger) Do() ([]*storobj.Object, search.Distances, error) {
 	groups := map[string][]*additional.Group{}
 	objects := map[string][]int{}
 
@@ -81,7 +83,7 @@ func (gm *groupMerger) Do() ([]*storobj.Object, []float32, error) {
 	}
 
 	objs := make([]*storobj.Object, desiredLength)
-	dists := make([]float32, desiredLength)
+	dists := make(search.Distances, desiredLength)
 	for i, groupDistance := range groupDistances[:desiredLength] {
 		val := groupDistance.value
 		group := groups[groupDistance.value]

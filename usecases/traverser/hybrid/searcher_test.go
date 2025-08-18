@@ -15,6 +15,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,7 +48,7 @@ func TestSearcher(t *testing.T) {
 					Class: class,
 				}
 				sparse := func() ([]*storobj.Object, []float32, error) { return nil, nil, nil }
-				dense := func(models.Vector) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
+				dense := func(models.Vector) ([]*storobj.Object, search.Distances, error) { return nil, nil, nil }
 				provider := &fakeModuleProvider{}
 				schemaGetter := newFakeSchemaManager()
 				targetVectorParamHelper := newFakeTargetVectorParamHelper()
@@ -78,7 +80,7 @@ func TestSearcher(t *testing.T) {
 						},
 					}, []float32{0.008}, nil
 				}
-				dense := func(models.Vector) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
+				dense := func(models.Vector) ([]*storobj.Object, search.Distances, error) { return nil, nil, nil }
 				res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
@@ -102,7 +104,7 @@ func TestSearcher(t *testing.T) {
 					Class: class,
 				}
 				sparse := func() ([]*storobj.Object, []float32, error) { return nil, nil, nil }
-				dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
+				dense := func(models.Vector) ([]*storobj.Object, search.Distances, error) {
 					return []*storobj.Object{
 						{
 							Object: models.Object{
@@ -113,7 +115,7 @@ func TestSearcher(t *testing.T) {
 							},
 							Vector: []float32{1, 2, 3},
 						},
-					}, []float32{0.008}, nil
+					}, search.Distances{{Distance: 0.008}}, nil
 				}
 
 				res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
@@ -151,7 +153,7 @@ func TestSearcher(t *testing.T) {
 						},
 					}, []float32{0.008}, nil
 				}
-				dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
+				dense := func(models.Vector) ([]*storobj.Object, search.Distances, error) {
 					return []*storobj.Object{
 						{
 							Object: models.Object{
@@ -162,7 +164,7 @@ func TestSearcher(t *testing.T) {
 							},
 							Vector: []float32{4, 5, 6},
 						},
-					}, []float32{0.008}, nil
+					}, search.Distances{{Distance: 0.008}}, nil
 				}
 				res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
 				require.Nil(t, err)
@@ -207,7 +209,7 @@ func TestSearcher(t *testing.T) {
 						},
 					}, []float32{0.008}, nil
 				}
-				dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
+				dense := func(models.Vector) ([]*storobj.Object, search.Distances, error) {
 					return []*storobj.Object{
 						{
 							Object: models.Object{
@@ -218,7 +220,7 @@ func TestSearcher(t *testing.T) {
 							},
 							Vector: []float32{4, 5, 6},
 						},
-					}, []float32{0.008}, nil
+					}, search.Distances{{Distance: 0.008}}, nil
 				}
 				res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
 				require.Nil(t, err)
@@ -261,7 +263,7 @@ func TestSearcher(t *testing.T) {
 						},
 					}, []float32{0.008}, nil
 				}
-				dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
+				dense := func(models.Vector) ([]*storobj.Object, search.Distances, error) {
 					return nil, nil, nil
 				}
 				res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
@@ -292,7 +294,7 @@ func TestSearcher(t *testing.T) {
 				sparse := func() ([]*storobj.Object, []float32, error) {
 					return nil, nil, nil
 				}
-				dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
+				dense := func(models.Vector) ([]*storobj.Object, search.Distances, error) {
 					return []*storobj.Object{
 						{
 							Object: models.Object{
@@ -304,7 +306,7 @@ func TestSearcher(t *testing.T) {
 							},
 							Vector: []float32{1, 2, 3},
 						},
-					}, []float32{0.008}, nil
+					}, search.Distances{{Distance: 0.008}}, nil
 				}
 				provider := &fakeModuleProvider{}
 				schemaGetter := newFakeSchemaManager()
@@ -337,7 +339,7 @@ func TestSearcher(t *testing.T) {
 				sparse := func() ([]*storobj.Object, []float32, error) {
 					return nil, nil, nil
 				}
-				dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
+				dense := func(models.Vector) ([]*storobj.Object, search.Distances, error) {
 					return []*storobj.Object{
 						{
 							Object: models.Object{
@@ -349,7 +351,7 @@ func TestSearcher(t *testing.T) {
 							},
 							Vector: []float32{1, 2, 3},
 						},
-					}, []float32{0.008}, nil
+					}, search.Distances{{Distance: 0.008}}, nil
 				}
 				provider := &fakeModuleProvider{}
 				schemaGetter := newFakeSchemaManager()

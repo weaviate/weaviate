@@ -236,6 +236,26 @@ func TestGRPCReply(t *testing.T) {
 			},
 		},
 		{
+			name: "named vector with multi vector search",
+			res: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{"multiTargetDistances": []float32{1, 2, 4}, "distance": float32(0.01)},
+				},
+			},
+			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{Distance: true}, TargetVectors: []string{"target", "target", "target2"}},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{
+						MultiTargetDistances: map[string]*pb.MetadataResult_MultiTargetDistance{
+							"target":  {MultiTargetDistances: byteVector([]float32{1, 2})},
+							"target2": {MultiTargetDistances: byteVector([]float32{4})},
+						}, Distance: float32(0.01), DistancePresent: true,
+					},
+					Properties: &pb.PropertiesResult{},
+				},
+			},
+		},
+		{
 			name: "all additional",
 			res: []interface{}{
 				map[string]interface{}{

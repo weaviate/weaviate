@@ -14,6 +14,8 @@ package db
 import (
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -217,7 +219,7 @@ func TestSearchDeduplication(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Build input
 			input := []*storobj.Object{}
-			inputDists := []float32{}
+			inputDists := search.Distances{}
 			docID := uint64(0)
 			for _, shard := range test.input {
 				for _, elem := range shard.elems {
@@ -225,7 +227,7 @@ func TestSearchDeduplication(t *testing.T) {
 					obj.Object.ID = strfmt.UUID(elem.id)
 					input = append(input, obj)
 					docID++ // the docIDs don't matter for this test, but we need them to create the storobjs
-					inputDists = append(inputDists, elem.dist)
+					inputDists = append(inputDists, &search.Distance{Distance: elem.dist})
 				}
 			}
 
@@ -236,7 +238,7 @@ func TestSearchDeduplication(t *testing.T) {
 			// turn results into idAndDistPair for easier comparison
 			output := make([]idAndDistPair, len(out))
 			for i, obj := range out {
-				output[i] = idAndDistPair{obj.ID().String(), outDists[i]}
+				output[i] = idAndDistPair{obj.ID().String(), outDists[i].Distance}
 			}
 
 			assert.ElementsMatch(t, test.expectedOutput, output)
