@@ -40,7 +40,9 @@ func TestReadRoutingWithFSM(t *testing.T) {
 		allShardNodes        []string
 		opStatus             api.ShardReplicationState
 		preRoutingPlanAction func(fsm *replication.ShardReplicationFSM)
-		expectedReplicas     types.ReplicaSet
+		directCandidate      string
+		localNodeName        string
+		expectedReplicas     types.ReadReplicaSet
 		expectedErrorStr     string
 	}{
 		{
@@ -48,42 +50,54 @@ func TestReadRoutingWithFSM(t *testing.T) {
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.REGISTERED,
-			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			expectedReplicas:    types.ReadReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			directCandidate:     "node1",
+			localNodeName:       "node1",
 		},
 		{
 			name:                "hydrating",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.HYDRATING,
-			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			expectedReplicas:    types.ReadReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			directCandidate:     "node1",
+			localNodeName:       "node1",
 		},
 		{
 			name:                "finalizing",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.FINALIZING,
-			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			expectedReplicas:    types.ReadReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			directCandidate:     "node1",
+			localNodeName:       "node1",
 		},
 		{
 			name:                "ready",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.READY,
-			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
+			expectedReplicas:    types.ReadReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
+			directCandidate:     "node1",
+			localNodeName:       "node1",
 		},
 		{
 			name:                "dehydrating",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.DEHYDRATING,
-			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
+			expectedReplicas:    types.ReadReplicaSet{Replicas: []types.Replica{{NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
+			directCandidate:     "node1",
+			localNodeName:       "node1",
 		},
 		{
 			name:                "cancelled",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.CANCELLED,
-			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			expectedReplicas:    types.ReadReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			directCandidate:     "node1",
+			localNodeName:       "node1",
 		},
 		{
 			name:                "ready deleted",
@@ -96,14 +110,18 @@ func TestReadRoutingWithFSM(t *testing.T) {
 					Uuid:    "00000000-0000-0000-0000-000000000000",
 				})
 			},
-			expectedReplicas: types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
+			expectedReplicas: types.ReadReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
+			directCandidate:  "node1",
+			localNodeName:    "node1",
 		},
 		{
 			name:                "registered extra node",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2", "node3"},
 			opStatus:            api.REGISTERED,
-			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node3", ShardName: "shard1", HostAddr: "node3"}}},
+			expectedReplicas:    types.ReadReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node3", ShardName: "shard1", HostAddr: "node3"}}},
+			directCandidate:     "node1",
+			localNodeName:       "node1",
 		},
 	}
 	for _, testCase := range testCases {
@@ -167,16 +185,21 @@ func TestReadRoutingWithFSM(t *testing.T) {
 				testCase.preRoutingPlanAction(shardReplicationFSM)
 			}
 
+			tenant := ""
+			if testCase.partitioningEnabled {
+				tenant = "shard1"
+			}
 			// Build the routing plan
-			routingPlan, err := myRouter.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
-				Shard: "shard1",
+			readPlan, err := myRouter.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
+				Shard:  "shard1",
+				Tenant: tenant,
 			})
 			if testCase.expectedErrorStr != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), testCase.expectedErrorStr)
 			} else {
 				require.NoError(t, err)
-				require.Equal(t, testCase.expectedReplicas, routingPlan.ReplicaSet, "test case: %s", testCase.name)
+				require.Equal(t, testCase.expectedReplicas, readPlan.ReplicaSet, "test case: %s", testCase.name)
 			}
 		})
 	}
@@ -189,7 +212,9 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 		allShardNodes        []string
 		opStatus             api.ShardReplicationState
 		preRoutingPlanAction func(fsm *replication.ShardReplicationFSM)
-		expectedReplicas     types.ReplicaSet
+		directCandidate      string
+		localNodeName        string
+		expectedReplicas     []types.Replica
 		expectedErrorStr     string
 	}{
 		{
@@ -197,42 +222,54 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.REGISTERED,
-			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			expectedReplicas:    []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}},
+			directCandidate:     "node1",
+			localNodeName:       "node1",
 		},
 		{
 			name:                "hydrating",
 			partitioningEnabled: true,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.HYDRATING,
-			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			expectedReplicas:    []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}},
+			directCandidate:     "node1",
+			localNodeName:       "node1",
 		},
 		{
 			name:                "finalizing",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.FINALIZING,
-			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			expectedReplicas:    []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}},
+			directCandidate:     "node1",
+			localNodeName:       "node1",
 		},
 		{
 			name:                "ready",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.READY,
-			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
+			expectedReplicas:    []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}},
+			directCandidate:     "node1",
+			localNodeName:       "node1",
 		},
 		{
 			name:                "dehydrating",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.DEHYDRATING,
-			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
+			expectedReplicas:    []types.Replica{{NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}},
+			directCandidate:     "node1",
+			localNodeName:       "node1",
 		},
 		{
 			name:                "cancelled",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.CANCELLED,
-			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			expectedReplicas:    []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}},
+			directCandidate:     "node1",
+			localNodeName:       "node1",
 		},
 		{
 			name:                "ready deleted",
@@ -245,14 +282,18 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 					Uuid:    "00000000-0000-0000-0000-000000000000",
 				})
 			},
-			expectedReplicas: types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
+			expectedReplicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}},
+			directCandidate:  "node1",
+			localNodeName:    "node1",
 		},
 		{
 			name:                "registered extra node",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2", "node3"},
 			opStatus:            api.REGISTERED,
-			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node3", ShardName: "shard1", HostAddr: "node3"}}},
+			expectedReplicas:    []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node3", ShardName: "shard1", HostAddr: "node3"}},
+			directCandidate:     "node1",
+			localNodeName:       "node1",
 		},
 	}
 	for _, testCase := range testCases {
@@ -307,16 +348,17 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 				testCase.preRoutingPlanAction(shardReplicationFSM)
 			}
 
-			// Build the routing plan
-			routingPlan, err := myRouter.BuildWriteRoutingPlan(types.RoutingPlanBuildOptions{
-				Shard: "shard1",
-			})
+			tenant := ""
+			if testCase.partitioningEnabled {
+				tenant = "shard1"
+			}
+			ws, err := myRouter.GetWriteReplicasLocation("collection1", tenant, "shard1")
 			if testCase.expectedErrorStr != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), testCase.expectedErrorStr)
 			} else {
 				require.NoError(t, err)
-				require.Equal(t, testCase.expectedReplicas, routingPlan.ReplicaSet, "test case: %s", testCase.name)
+				require.Equal(t, testCase.expectedReplicas, ws.Replicas, "test case: %s", testCase.name)
 			}
 		})
 	}

@@ -149,8 +149,7 @@ type ShardLike interface {
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
-	publishDimensionMetrics(ctx context.Context)
-	resetDimensionsLSM() error
+	resetDimensionsLSM(ctx context.Context) error
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
@@ -234,7 +233,6 @@ type Shard struct {
 	lastComparedHosts                 []string
 	lastComparedHostsMux              sync.RWMutex
 	asyncReplicationStatsByTargetNode map[string]*hashBeatHostStats
-	//
 
 	haltForTransferMux               sync.Mutex
 	haltForTransferInactivityTimeout time.Duration
@@ -245,9 +243,6 @@ type Shard struct {
 	status              ShardStatus
 	statusLock          sync.RWMutex
 	propertyIndicesLock sync.RWMutex
-
-	stopDimensionTracking        chan struct{}
-	dimensionTrackingInitialized atomic.Bool
 
 	centralJobQueue chan job // reference to queue used by all shards
 

@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -159,6 +160,10 @@ func (cfg *fakeClassConfig) Property(propName string) map[string]interface{} {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) Config() *config.Config {
+	return nil
 }
 
 // Add more methods to implement the moduletools.ClassConfig interface

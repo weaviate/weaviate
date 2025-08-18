@@ -369,11 +369,15 @@ func FromEnv(config *Config) error {
 		config.Persistence.LazySegmentsDisabled = true
 	}
 
-	if entcfg.Enabled(os.Getenv("PERSISTENCE_SEGMENT_INFO_FROM_FILE_ENABLED")) {
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_SEGMENT_INFO_FROM_FILE_DISABLED")) {
+		config.Persistence.SegmentInfoIntoFileNameEnabled = false
+	} else {
 		config.Persistence.SegmentInfoIntoFileNameEnabled = true
 	}
 
-	if entcfg.Enabled(os.Getenv("PERSISTENCE_WRITE_METADATA_FILES_ENABLED")) {
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_WRITE_METADATA_FILES_DISABLED")) {
+		config.Persistence.WriteMetadataFilesEnabled = false
+	} else {
 		config.Persistence.WriteMetadataFilesEnabled = true
 	}
 
@@ -882,6 +886,26 @@ func FromEnv(config *Config) error {
 	}
 	config.QuerySlowLogThreshold = runtime.NewDynamicValue(querySlowLogThreshold)
 
+	envName := "QUERY_BITMAP_BUFS_MAX_MEMORY"
+	config.QueryBitmapBufsMaxMemory = DefaultQueryBitmapBufsMaxMemory
+	if v := os.Getenv(envName); v != "" {
+		bytes, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("%s: %w", envName, err)
+		}
+		config.QueryBitmapBufsMaxMemory = int(bytes)
+	}
+
+	envName = "QUERY_BITMAP_BUFS_MAX_BUF_SIZE"
+	config.QueryBitmapBufsMaxBufSize = DefaultQueryBitmapBufsMaxBufSize
+	if v := os.Getenv(envName); v != "" {
+		bytes, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("%s: %w", envName, err)
+		}
+		config.QueryBitmapBufsMaxBufSize = int(bytes)
+	}
+
 	invertedSorterDisabled := false
 	if v := os.Getenv("INVERTED_SORTER_DISABLED"); v != "" {
 		invertedSorterDisabled = !(strings.ToLower(v) == "false")
@@ -1219,6 +1243,9 @@ const (
 	DefaultQueryNestedCrossReferenceLimit = int64(100000)
 	// DefaultQueryCrossReferenceDepthLimit describes the max depth of nested crossrefs in a query
 	DefaultQueryCrossReferenceDepthLimit = 5
+
+	DefaultQueryBitmapBufsMaxBufSize = 1 << 25 // 32MB
+	DefaultQueryBitmapBufsMaxMemory  = 1 << 27 // 128MB (2x 32MB, 2x 16MB, 2x 8MB, 2x 4MB, 4x 2MB)
 )
 
 const (

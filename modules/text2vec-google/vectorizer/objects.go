@@ -67,7 +67,9 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 	res, err := v.client.Vectorize(ctx, []string{corpi}, ent.VectorizationConfig{
 		ApiEndpoint: icheck.ApiEndpoint(),
 		ProjectID:   icheck.ProjectID(),
-		Model:       icheck.ModelID(),
+		Model:       icheck.Model(),
+		Dimensions:  icheck.Dimensions(),
+		TaskType:    icheck.TaskType(),
 	}, titlePropertyValue)
 	if err != nil {
 		return nil, err

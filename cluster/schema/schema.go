@@ -106,24 +106,25 @@ func (s *schema) ClassInfo(class string) ClassInfo {
 
 // ClassEqual returns the name of an existing class with a similar name, and "" otherwise
 // strings.EqualFold is used to compare classes
-func (s *schema) ClassEqual(name string) string {
+// additional bool return true if it's a alias match
+func (s *schema) ClassEqual(name string) (string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.unsafeClassEqual(name)
 }
 
-func (s *schema) unsafeClassEqual(name string) string {
+func (s *schema) unsafeClassEqual(name string) (string, bool) {
 	for alias := range s.aliases {
 		if strings.EqualFold(alias, name) {
-			return alias
+			return alias, true
 		}
 	}
 	for k := range s.classes {
 		if strings.EqualFold(k, name) {
-			return k
+			return k, false
 		}
 	}
-	return ""
+	return "", false
 }
 
 func (s *schema) MultiTenancy(class string) models.MultiTenancyConfig {
@@ -644,8 +645,14 @@ func (s *schema) createAlias(class, alias string) error {
 		return fmt.Errorf("create alias: class %s does not exist", class)
 	}
 	// trying to check if any class exists with passed 'alias' name
-	if other := s.unsafeClassEqual(alias); other == alias {
-		return fmt.Errorf("create alias: class %s already exists", alias)
+	other, isAlias := s.unsafeClassEqual(alias)
+	item := "class"
+	if isAlias {
+		item = "alias"
+	}
+
+	if other == alias {
+		return fmt.Errorf("create alias: %s %s already exists", item, alias)
 	}
 	s.aliases[alias] = class
 	return nil
@@ -735,8 +742,5 @@ func (s *schema) deleteAlias(alias string) error {
 }
 
 func (s *schema) unsafeResolveClass(class string) *metaClass {
-	if cls := s.unsafeResolveAlias(class); cls != "" {
-		return s.classes[cls]
-	}
 	return s.classes[class]
 }

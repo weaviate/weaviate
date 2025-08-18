@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -640,7 +641,13 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		stats, err := vidx.Stats()
+		h, ok := vidx.(hnswStats)
+		if !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		stats, err := h.Stats()
 		if err != nil {
 			logger.Error(err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -689,4 +696,8 @@ func setupDebugHandlers(appState *state.State) {
 
 type MaintenanceMode struct {
 	Enabled bool `json:"enabled"`
+}
+
+type hnswStats interface {
+	Stats() (*hnsw.HnswStats, error)
 }

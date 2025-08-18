@@ -55,20 +55,22 @@ type processor interface {
 }
 
 type Migrator struct {
-	db      *DB
-	cloud   modulecapabilities.OffloadCloud
-	logger  logrus.FieldLogger
-	cluster processor
-	nodeId  string
+	db            *DB
+	cloud         modulecapabilities.OffloadCloud
+	logger        logrus.FieldLogger
+	cluster       processor
+	nodeId        string
+	localNodeName string
 
 	classLocks *esync.KeyLocker
 }
 
-func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
+func NewMigrator(db *DB, logger logrus.FieldLogger, localNodeName string) *Migrator {
 	return &Migrator{
-		db:         db,
-		logger:     logger,
-		classLocks: esync.NewKeyLocker(),
+		db:            db,
+		logger:        logger,
+		classLocks:    esync.NewKeyLocker(),
+		localNodeName: localNodeName,
 	}
 }
 
@@ -106,10 +108,11 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
-	shardingState := m.db.schemaGetter.CopyShardingState(class.Class)
+	multiTenancyEnabled := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
+	collection := schema.ClassName(class.Class).String()
 	indexRouter := router.NewBuilder(
-		schema.ClassName(class.Class).String(),
-		shardingState.PartitioningEnabled,
+		collection,
+		multiTenancyEnabled,
 		m.db.nodeSelector,
 		m.db.schemaGetter,
 		m.db.schemaReader,
@@ -172,7 +175,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		convertToVectorIndexConfigs(class.VectorConfig),
 		indexRouter, m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
-		m.db.memMonitor, m.db.reindexer)
+		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -647,8 +650,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	return ec.ToError()
 }
 
-// DeleteTenants deletes tenants
-// CAUTION: will not delete inactive tenants (shard files will not be removed)
+// DeleteTenants deletes tenant from the database and data from the disk, no matter the current status of the tenant
 func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
 	indexID := indexID(schema.ClassName(class))
 
@@ -801,7 +803,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
 		err := index.ForEachShard(func(name string, shard ShardLike) error {
-			return shard.resetDimensionsLSM()
+			return shard.resetDimensionsLSM(ctx)
 		})
 		if err != nil {
 			m.logger.WithField("action", "reindex").WithError(err).Warn("could not reset vector dimensions")
