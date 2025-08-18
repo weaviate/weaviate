@@ -66,7 +66,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	tombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup("childTombstoneCleanup", logger, 1)
 	tombstoneCleanupCallbacksCtrl := parentTombstoneCleanupCallbacks.Register("tombstoneCleanup", tombstoneCleanupCallbacks.CycleCallback)
 
-	original, err := NewCommitLogger(rootPath, "too_many_links_test", logger, commitLoggerCallbacks,
+	original, err := NewCommitLogger(rootPath, "too_many_links_test", "shard", logger, commitLoggerCallbacks,
 		WithCommitlogThreshold(1e5),
 		WithCommitlogThresholdForCombining(5e5))
 	require.Nil(t, err)

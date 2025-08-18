@@ -64,7 +64,7 @@ func TestBackup_Integration(t *testing.T) {
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, logger, commitLoggerCallbacks)
+			return NewCommitLogger(dirName, indexID, "shard", logger, commitLoggerCallbacks)
 		},
 	}, enthnsw.NewDefaultUserConfig(), tombstoneCleanupCallbacks, nil)
 	require.Nil(t, err)

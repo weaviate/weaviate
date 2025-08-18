@@ -175,7 +175,7 @@ func createTestCommitLoggerWithOptions(t *testing.T, scratchDir string, name str
 	cbg := cyclemanager.NewCallbackGroup("test", logger, 10)
 	ticker := cyclemanager.NewLinearTicker(50*time.Millisecond, 60*time.Millisecond, 1)
 	cm := cyclemanager.NewManager(ticker, cbg.CycleCallback, logger)
-	cl, err := NewCommitLogger(scratchDir, name, logger, cbg, options...)
+	cl, err := NewCommitLogger(scratchDir, name, "shard", logger, cbg, options...)
 	require.Nil(t, err)
 	cl.InitMaintenance()
 	cm.Start()

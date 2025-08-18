@@ -28,11 +28,11 @@ func TestMmapCondensor(t *testing.T) {
 	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
-	perfect, err := NewCommitLogger(rootPath, "perfect", logger,
+	perfect, err := NewCommitLogger(rootPath, "perfect", "shard", logger,
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
