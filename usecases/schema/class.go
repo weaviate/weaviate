@@ -162,13 +162,20 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	// get schema and sharding state
 	class := &models.Class{}
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
-		return fmt.Errorf("marshal class schema: %w", err)
+		return fmt.Errorf("unmarshal class schema: %w", err)
 	}
 	var shardingState sharding.State
 	if d.ShardingState != nil {
 		err := json.Unmarshal(d.ShardingState, &shardingState)
 		if err != nil {
-			return fmt.Errorf("marshal sharding state: %w", err)
+			return fmt.Errorf("unmarshal sharding state: %w", err)
+		}
+	}
+
+	aliases := make([]*models.Alias, 0)
+	if d.AliasesIncluded {
+		if err := json.Unmarshal(d.Aliases, &aliases); err != nil {
+			return fmt.Errorf("unmarshal aliases: %w", err)
 		}
 	}
 
@@ -213,7 +220,18 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 	shardingState.ApplyNodeMapping(m)
 	_, err = h.schemaManager.RestoreClass(ctx, class, &shardingState)
-	return err
+	if err != nil {
+		return fmt.Errorf("error when trying to restore class: %w", err)
+	}
+
+	for _, alias := range aliases {
+		_, err := h.schemaManager.CreateAlias(ctx, alias.Alias, class)
+		if err != nil {
+			return fmt.Errorf("failed to restore alias for class: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // DeleteClass from the schema

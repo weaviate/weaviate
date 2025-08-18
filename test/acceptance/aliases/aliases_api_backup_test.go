@@ -71,13 +71,13 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 
 	// Three options for the test:
-	// 1. no-delete: backup and restore collection without deleting the alias, will pass as of 1.32
-	// 2. delete: backup and restore after deleting the alias, fails as aliases are not currently backed up or restored
-	// 3. conflict: backup and restore after creating a new class with the same name as the alias, fails as we don't support restoring collections on alias on conflict yet
-	for _, options := range []string{"no-delete", "delete", "conflict"} {
-		if options != "no-delete" {
+	// 1. full: backup and restore collection after deleting both collection and the alias, will pass as of 1.32
+	// 2. overwrite: backup and restore after deleting the collection but not the alias, should pass only if "overwrite option is set"
+	for _, options := range []string{"full", "overwrite"} {
+		if options == "overwrite" {
 			t.Skip("Skipping backup with " + options + " option as aliases are not currently backed up nor restored on conflict")
 		}
+
 		t.Run("backup with "+options, func(t *testing.T) {
 			t.Run("create schema", func(t *testing.T) {
 				t.Run("Books", func(t *testing.T) {
@@ -158,17 +158,17 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 				helper.DeleteClass(t, books.DefaultClassName)
 			})
 
-			if options != "no-delete" {
+			if options != "overwrite" {
 				t.Run("delete alias", func(t *testing.T) {
 					helper.DeleteAlias(t, "BookAlias")
 				})
-
-				t.Run("check alias count after deletion", func(t *testing.T) {
-					resp := helper.GetAliases(t, nil)
-					require.NotNil(t, resp)
-					require.Empty(t, resp.Aliases)
-				})
 			}
+
+			t.Run("check alias count after deletion", func(t *testing.T) {
+				resp := helper.GetAliases(t, nil)
+				require.NotNil(t, resp)
+				require.Empty(t, resp.Aliases)
+			})
 
 			if options == "conflict" {
 				t.Run("re-create schema", func(t *testing.T) {
