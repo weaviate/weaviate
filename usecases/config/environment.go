@@ -444,7 +444,7 @@ func FromEnv(config *Config) error {
 	}
 	// ---- HNSW snapshots ----
 
-	defaultQuantization := "rq"
+	defaultQuantization := ""
 	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
 		defaultQuantization = strings.ToLower(v)
 	}
