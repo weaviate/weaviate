@@ -97,7 +97,7 @@ func TestGRPC_Batching(t *testing.T) {
 		require.Len(t, listP.Objects, 2, "Number of paragraphs created should match the number sent")
 	})
 
-	t.Run("send objects that have errors and read them correctly", func(t *testing.T) {
+	t.Run("send objects that should error and read the errors correctly", func(t *testing.T) {
 		defer setupClasses()()
 
 		// Open up a stream to read messages from
@@ -119,13 +119,14 @@ func TestGRPC_Batching(t *testing.T) {
 		require.NoError(t, err, "BatchStream should return a response")
 		require.NotNil(t, errMsg, "Error message should not be nil")
 		require.Equal(t, errMsg.GetError().Error, "class Article has multi-tenancy disabled, but request was with tenant")
+		require.Equal(t, errMsg.GetError().Index, int32(1), "Error index should be 1")
 
 		list, err := helper.ListObjects(t, clsA.Class)
 		require.NoError(t, err, "ListObjects should not return an error")
 		require.Len(t, list.Objects, 2, "Number of articles created should match the number sent")
 	})
 
-	t.Run("send references that have errors and read them correctly", func(t *testing.T) {
+	t.Run("send references that should error and read the errors correctly", func(t *testing.T) {
 		defer setupClasses()()
 
 		// Open up a stream to read messages from
@@ -159,6 +160,7 @@ func TestGRPC_Batching(t *testing.T) {
 		require.NoError(t, err, "BatchStream should return a response")
 		require.NotNil(t, errMsg, "Error message should not be nil")
 		require.Equal(t, errMsg.GetError().Error, "property hasParagraphss does not exist for class Article")
+		require.Equal(t, errMsg.GetError().Index, int32(1), "Error index should be 1")
 
 		obj, err := helper.GetObject(t, clsA.Class, UUID0)
 		require.NoError(t, err, "ListObjects should not return an error")
