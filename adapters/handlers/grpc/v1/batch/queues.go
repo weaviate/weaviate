@@ -75,12 +75,12 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 }
 
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
-func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) int {
+func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) (int, error) {
 	streamId := request.GetStreamId()
 	queue, ok := h.writeQueues.GetQueue(streamId)
 	if !ok {
 		h.logger.WithField("streamId", streamId).Error("write queue not found")
-		return 0
+		return 0, fmt.Errorf("write queue for stream %s not found", streamId)
 	}
 	for _, obj := range request.GetObjects().GetValues() {
 		queue <- &writeObject{Object: obj}
@@ -91,7 +91,7 @@ func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) 
 	if request.GetStop() != nil {
 		queue <- &writeObject{Stop: true}
 	}
-	return h.writeQueues.BatchSize(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues()))
+	return h.writeQueues.NextBatchSize(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues())), nil
 }
 
 // Setup initializes a read queue for the given stream ID and adds it to the read queues map.
@@ -272,7 +272,7 @@ type WriteQueue struct {
 	initialBatchSize int     // The size of the first batch sent before scaling occurred
 }
 
-func (w *WriteQueue) BatchSize(batch int) int {
+func (w *WriteQueue) NextBatchSize(batch int) int {
 	if w.initialBatchSize == 0 {
 		w.initialBatchSize = batch // Store the initial batch size
 	}
@@ -282,6 +282,7 @@ func (w *WriteQueue) BatchSize(batch int) int {
 		w.emaQueueLen = float32(nowLen)
 	} else {
 		w.emaQueueLen = w.alpha*float32(nowLen) + (1-w.alpha)*w.emaQueueLen
+		fmt.Println(w.emaQueueLen, w.alpha*float32(nowLen), (1-w.alpha)*w.emaQueueLen)
 	}
 	usageRatio := w.emaQueueLen / float32(w.buffer)
 	if usageRatio < 0.5 {
@@ -301,12 +302,12 @@ type WriteQueues struct {
 	queues sync.Map // map[string]*WriteQueue
 }
 
-func (w *WriteQueues) BatchSize(streamId string, batch int) int {
+func (w *WriteQueues) NextBatchSize(streamId string, batch int) int {
 	wq, ok := w.Get(streamId)
 	if !ok {
 		return 0
 	}
-	return wq.BatchSize(batch)
+	return wq.NextBatchSize(batch)
 }
 
 func (w *WriteQueues) Get(streamId string) (*WriteQueue, bool) {

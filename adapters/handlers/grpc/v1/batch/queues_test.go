@@ -26,47 +26,84 @@ import (
 
 func TestHandler(t *testing.T) {
 	ctx := context.Background()
-
 	logger := logrus.New()
 
 	t.Run("Send", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
+		t.Run("send objects using the scheduler", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
 
-		// Arrange
-		req := &pb.BatchSendRequest{
-			StreamId: "test-stream",
-			Message: &pb.BatchSendRequest_Objects{
-				Objects: &pb.BatchObjects{
-					Values: []*pb.BatchObject{{Collection: "TestClass"}},
+			// Arrange
+			req := &pb.BatchSendRequest{
+				StreamId: "test-stream",
+				Message: &pb.BatchSendRequest_Objects{
+					Objects: &pb.BatchObjects{
+						Values: []*pb.BatchObject{{Collection: "TestClass"}},
+					},
 				},
-			},
-		}
+			}
 
-		shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-		defer shutdownCancel()
+			shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+			defer shutdownCancel()
 
-		writeQueues := batch.NewBatchWriteQueues()
-		readQueues := batch.NewBatchReadQueues()
-		internalQueue := batch.NewBatchInternalQueue()
-		handler := batch.NewQueuesHandler(shutdownCtx, writeQueues, readQueues, logger)
-		var wg sync.WaitGroup
-		batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
+			writeQueues := batch.NewBatchWriteQueues()
+			readQueues := batch.NewBatchReadQueues()
+			internalQueue := batch.NewBatchInternalQueue()
+			handler := batch.NewQueuesHandler(shutdownCtx, writeQueues, readQueues, logger)
+			var wg sync.WaitGroup
+			batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
 
-		writeQueues.Make(req.StreamId, nil)
-		// Act
-		howMany := handler.Send(ctx, req)
+			writeQueues.Make(req.StreamId, nil)
+			next, err := handler.Send(ctx, req)
+			require.NoError(t, err, "Expected no error when sending objects")
+			require.Equal(t, 1, next, "Expected to send one object")
 
-		// Assert
-		require.Equal(t, 1, howMany, "Expected to send one object")
+			// Verify that the internal queue has the object
+			obj := <-internalQueue
+			require.NotNil(t, obj, "Expected object to be sent to internal queue")
 
-		// Verify that the internal queue has the object
-		obj := <-internalQueue
-		require.NotNil(t, obj, "Expected object to be sent to internal queue")
+			// Shutdown the scheduler
+			shutdownCancel()
+			wg.Wait()
+		})
 
-		// Shutdown the scheduler
-		shutdownCancel()
-		wg.Wait()
+		t.Run("test dynamic batch size calulation", func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+
+			writeQueues := batch.NewBatchWriteQueues()
+			readQueues := batch.NewBatchReadQueues()
+			handler := batch.NewQueuesHandler(ctx, writeQueues, readQueues, logger)
+
+			writeQueues.Make(StreamId, nil)
+			// Send 8000 objects
+			req := &pb.BatchSendRequest{
+				StreamId: StreamId,
+				Message: &pb.BatchSendRequest_Objects{
+					Objects: &pb.BatchObjects{},
+				},
+			}
+			for i := 0; i < 8000; i++ {
+				req.GetObjects().Values = append(req.GetObjects().Values, &pb.BatchObject{Collection: "TestClass"})
+			}
+			next, err := handler.Send(ctx, req)
+			require.NoError(t, err, "Expected no error when sending 8000 objects")
+			require.Equal(t, next, 5120, "Expected to be told to send 5120 objects next")
+
+			// Saturate the buffer
+			req = &pb.BatchSendRequest{
+				StreamId: StreamId,
+				Message: &pb.BatchSendRequest_Objects{
+					Objects: &pb.BatchObjects{},
+				},
+			}
+			for i := 0; i < 2000; i++ {
+				req.GetObjects().Values = append(req.GetObjects().Values, &pb.BatchObject{Collection: "TestClass"})
+			}
+			next, err = handler.Send(ctx, req)
+			require.NoError(t, err, "Expected no error when sending 2000 objects")
+			require.Equal(t, next, 1411, "Expected to be told to send 1411 objects once buffer is saturated")
+		})
 	})
 
 	t.Run("Stream", func(t *testing.T) {
@@ -177,7 +214,7 @@ func TestHandler(t *testing.T) {
 			require.NoError(t, err, "Expected no error when streaming")
 		})
 
-		t.Run("start, process error, and stop due to cancellation", func(t *testing.T) {
+		t.Run("start process error and stop due to cancellation", func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 			defer cancel()
 
@@ -224,7 +261,7 @@ func TestHandler(t *testing.T) {
 			require.NoError(t, err, "Expected error when processing")
 		})
 
-		t.Run("start, process error, and stop due to sentinel", func(t *testing.T) {
+		t.Run("start process error and stop due to sentinel", func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 			defer cancel()
 

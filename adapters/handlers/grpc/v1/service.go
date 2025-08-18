@@ -274,7 +274,8 @@ func (s *Service) BatchSend(ctx context.Context, req *pb.BatchSendRequest) (*pb.
 	var errInner error
 
 	if err := enterrors.GoWrapperWithBlock(func() {
-		next := s.batchQueuesHandler.Send(ctx, req)
+		next, err := s.batchQueuesHandler.Send(ctx, req)
+		errInner = err
 		result = &pb.BatchSendReply{Next: int32(next)}
 	}, s.logger); err != nil {
 		return nil, err
