@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -26,6 +27,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
+
+const DefaultTimeout = 2 * time.Minute
 
 const (
 	OpenAI strfmt.UUID = "00000000-0000-0000-0000-000000000001"
@@ -88,8 +91,10 @@ func InsertObjects(t *testing.T, host string, className string) {
 			},
 		}
 		helper.SetupClient(host)
-		helper.CreateObject(t, obj)
-		helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
+		err := helper.CreateObjectWithTimeout(t, obj, DefaultTimeout)
+		require.NoError(t, err)
+		getObj := helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
+		require.NotNil(t, getObj)
 	}
 }
 
@@ -230,7 +235,7 @@ func PerformHybridSearchGRPCTest(t *testing.T, host string, className string) {
 
 func assertResults(t *testing.T, host string, className, query string) {
 	helper.SetupClient(host)
-	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+	result := graphqlhelper.AssertGraphQLWithTimeout(t, helper.RootAuth, DefaultTimeout, query)
 	objs := result.Get("Get", className).AsSlice()
 	require.Len(t, objs, 2)
 	for _, obj := range objs {
