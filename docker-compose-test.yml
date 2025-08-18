@@ -20,7 +20,7 @@ services:
       PERSISTENCE_DATA_PATH: "./data"
       DEFAULT_VECTORIZER_MODULE: text2vec-contextionary
       ENABLE_MODULES: text2vec-contextionary,backup-filesystem,generative-dummy,reranker-dummy
-      DISABLE_API_BASED_MODULES: "true"
+      API_BASED_MODULES_DISABLED: "true"
       BACKUP_FILESYSTEM_PATH: "/var/lib/backups"
       PROMETHEUS_MONITORING_ENABLED: "true"
       PROMETHEUS_MONITORING_GROUP_CLASSES: "true"

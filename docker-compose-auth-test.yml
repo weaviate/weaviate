@@ -17,7 +17,7 @@ services:
       QUERY_DEFAULTS_LIMIT: 20
       PERSISTENCE_DATA_PATH: "./data-auth"
       ENABLE_MODULES: backup-filesystem,generative-dummy,reranker-dummy
-      DISABLE_API_BASED_MODULES: "true"
+      API_BASED_MODULES_DISABLED: "true"
       BACKUP_FILESYSTEM_PATH: "/var/lib/backups"
       CLUSTER_GOSSIP_BIND_PORT: "7102"
       CLUSTER_DATA_BIND_PORT: "7103"

@@ -42,7 +42,7 @@ func TestGraphQL_AsyncIndexing(t *testing.T) {
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms").
 		WithWeaviateEnv("QUEUE_SCHEDULER_INTERVAL", "100ms").
-		WithWeaviateEnv("DISABLE_API_BASED_MODULES", "true").
+		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {

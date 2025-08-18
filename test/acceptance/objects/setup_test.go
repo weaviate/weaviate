@@ -74,7 +74,7 @@ func TestObjects_AsyncIndexing(t *testing.T) {
 		WithText2VecContextionary().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1s").
-		WithWeaviateEnv("DISABLE_API_BASED_MODULES", "true").
+		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -95,7 +95,7 @@ func TestObjects_AsyncIndexing_LoadShard(t *testing.T) {
 		WithWeaviate().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		WithWeaviateEnv("PERSISTENCE_MIN_MMAP_SIZE", "20MB").
-		WithWeaviateEnv("DISABLE_API_BASED_MODULES", "true").
+		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
