@@ -110,9 +110,9 @@ func TestDefaultCompression(t *testing.T) {
 	require.NotNil(t, rq)
 	enabled := rq.(map[string]interface{})["enabled"].(bool)
 	require.Equal(t, true, enabled)
-	trackingDefault := rq.(map[string]interface{})["trackingDefault"].(bool)
+	trackingDefault := viconfig.(map[string]interface{})["trackingDefault"].(bool)
 	require.Equal(t, true, trackingDefault)
-	uncompressed := rq.(map[string]interface{})["uncompressed"].(bool)
+	uncompressed := viconfig.(map[string]interface{})["uncompressed"].(bool)
 	require.Equal(t, false, uncompressed)
 }
 
@@ -195,8 +195,8 @@ func TestDefaultCompressionWithUncompressed(t *testing.T) {
 	require.NotNil(t, rq)
 	enabled := rq.(map[string]interface{})["enabled"].(bool)
 	require.Equal(t, false, enabled)
-	trackingDefault := rq.(map[string]interface{})["trackingDefault"].(bool)
+	trackingDefault := viconfig.(map[string]interface{})["trackingDefault"].(bool)
 	require.Equal(t, true, trackingDefault)
-	uncompressed := rq.(map[string]interface{})["uncompressed"].(bool)
+	uncompressed := viconfig.(map[string]interface{})["uncompressed"].(bool)
 	require.Equal(t, true, uncompressed)
 }
