@@ -282,7 +282,6 @@ func (w *WriteQueue) NextBatchSize(batch int) int {
 		w.emaQueueLen = float32(nowLen)
 	} else {
 		w.emaQueueLen = w.alpha*float32(nowLen) + (1-w.alpha)*w.emaQueueLen
-		fmt.Println(w.emaQueueLen, w.alpha*float32(nowLen), (1-w.alpha)*w.emaQueueLen)
 	}
 	usageRatio := w.emaQueueLen / float32(w.buffer)
 	if usageRatio < 0.5 {
