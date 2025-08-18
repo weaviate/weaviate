@@ -143,7 +143,7 @@ func TestGRPC_Batching(t *testing.T) {
 		})
 		require.NoError(t, err, "BatchSend should not return an error")
 
-		// Send a list of references, one pointing to a non-existant object
+		// Send a list of references, one pointing to a non-existent object
 		references := []*pb.BatchReference{
 			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: UUID0, ToUuid: UUID1},
 			{Name: "hasParagraphss", FromCollection: clsA.Class, FromUuid: UUID0, ToUuid: UUID2},
