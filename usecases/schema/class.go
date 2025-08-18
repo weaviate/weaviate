@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	cschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -158,7 +159,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	return cls, version, err
 }
 
-func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string) error {
+func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string, overwriteAlias bool) error {
 	// get schema and sharding state
 	class := &models.Class{}
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
@@ -225,7 +226,18 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	for _, alias := range aliases {
-		_, err := h.schemaManager.CreateAlias(ctx, alias.Alias, class)
+		var err error
+		_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
+		// Overwrite if user asks to during restore
+		if errors.Is(err, cschema.ErrAliasExists) {
+			_, err = h.schemaManager.DeleteAlias(ctx, alias.Alias)
+			if err != nil {
+				return fmt.Errorf("failed to restore alias for class: overwriting alias failed: %w", err)
+			}
+			// retry again
+			_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
+		}
+
 		if err != nil {
 			return fmt.Errorf("failed to restore alias for class: %w", err)
 		}

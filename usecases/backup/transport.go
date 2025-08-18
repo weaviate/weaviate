@@ -57,6 +57,8 @@ type Request struct {
 
 	RbacRestoreOption string
 	UserRestoreOption string
+
+	RestoreOverwriteAlias bool
 }
 
 type CanCommitResponse struct {

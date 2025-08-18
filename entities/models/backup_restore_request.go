@@ -40,6 +40,8 @@ type BackupRestoreRequest struct {
 
 	// Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.
 	NodeMapping map[string]string `json:"node_mapping,omitempty"`
+
+	OverwriteAlias bool `json:"overwrite_alias"`
 }
 
 // Validate validates this backup restore request
