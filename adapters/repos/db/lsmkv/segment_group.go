@@ -756,10 +756,8 @@ func (sg *SegmentGroup) count() int {
 }
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {
-	if sg.compactionCallbackCtrl != nil {
-		if err := sg.compactionCallbackCtrl.Unregister(ctx); err != nil {
-			return fmt.Errorf("long-running compaction in progress: %w", ctx.Err())
-		}
+	if err := sg.compactionCallbackCtrl.Unregister(ctx); err != nil {
+		return fmt.Errorf("long-running compaction in progress: %w", ctx.Err())
 	}
 	if err := sg.segmentCleaner.close(); err != nil {
 		return err
