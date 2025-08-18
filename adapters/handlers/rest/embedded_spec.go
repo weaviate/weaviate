@@ -5798,6 +5798,10 @@ func init() {
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "overwrite_alias": {
+          "description": "Allows ovewriting the collection alias if there is a conflict",
+          "type": "boolean"
         }
       }
     },
@@ -14517,6 +14521,10 @@ func init() {
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "overwrite_alias": {
+          "description": "Allows ovewriting the collection alias if there is a conflict",
+          "type": "boolean"
         }
       }
     },

@@ -74,10 +74,6 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 	// 1. full: backup and restore collection after deleting both collection and the alias, will pass as of 1.32
 	// 2. overwrite: backup and restore after deleting the collection but not the alias, should pass only if "overwrite option is set"
 	for _, options := range []string{"full", "overwrite"} {
-		if options == "overwrite" {
-			t.Skip("Skipping backup with " + options + " option as aliases are not currently backed up nor restored on conflict")
-		}
-
 		t.Run("backup with "+options, func(t *testing.T) {
 			t.Run("create schema", func(t *testing.T) {
 				t.Run("Books", func(t *testing.T) {
@@ -218,6 +214,9 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 
 			t.Run("restore with local filesystem backend", func(t *testing.T) {
 				restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), books.DefaultClassName, backend, backupID, map[string]string{})
+				if options == "overwrite" {
+					restoreResp, err = helper.RestoreBackupWithAliasOverwrite(t, helper.DefaultRestoreConfig(), books.DefaultClassName, backend, backupID, map[string]string{})
+				}
 				assert.Nil(t, err)
 				assert.NotNil(t, restoreResp)
 				waitForRestore(t, backupID, backend)
