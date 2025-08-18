@@ -2663,6 +2663,7 @@ type GenerativeSearch_Grouped struct {
 	Properties *TextArray             `protobuf:"bytes,2,opt,name=properties,proto3,oneof" json:"properties,omitempty"`
 	// only allow one at the beginning, but multiple in the future
 	Queries       []*GenerativeProvider `protobuf:"bytes,3,rep,name=queries,proto3" json:"queries,omitempty"`
+	Debug         bool                  `protobuf:"varint,4,opt,name=debug,proto3" json:"debug,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2716,6 +2717,13 @@ func (x *GenerativeSearch_Grouped) GetQueries() []*GenerativeProvider {
 		return x.Queries
 	}
 	return nil
+}
+
+func (x *GenerativeSearch_Grouped) GetDebug() bool {
+	if x != nil {
+		return x.Debug
+	}
+	return false
 }
 
 type GenerativeAnthropicMetadata_Usage struct {
@@ -3522,7 +3530,7 @@ var File_v1_generative_proto protoreflect.FileDescriptor
 
 const file_v1_generative_proto_rawDesc = "" +
 	"\n" +
-	"\x13v1/generative.proto\x12\vweaviate.v1\x1a\rv1/base.proto\"\xd0\x04\n" +
+	"\x13v1/generative.proto\x12\vweaviate.v1\x1a\rv1/base.proto\"\xe6\x04\n" +
 	"\x10GenerativeSearch\x128\n" +
 	"\x16single_response_prompt\x18\x01 \x01(\tB\x02\x18\x01R\x14singleResponsePrompt\x126\n" +
 	"\x15grouped_response_task\x18\x02 \x01(\tB\x02\x18\x01R\x13groupedResponseTask\x121\n" +
@@ -3532,13 +3540,14 @@ const file_v1_generative_proto_rawDesc = "" +
 	"\x06Single\x12\x16\n" +
 	"\x06prompt\x18\x01 \x01(\tR\x06prompt\x12\x14\n" +
 	"\x05debug\x18\x02 \x01(\bR\x05debug\x129\n" +
-	"\aqueries\x18\x03 \x03(\v2\x1f.weaviate.v1.GenerativeProviderR\aqueries\x1a\xa4\x01\n" +
+	"\aqueries\x18\x03 \x03(\v2\x1f.weaviate.v1.GenerativeProviderR\aqueries\x1a\xba\x01\n" +
 	"\aGrouped\x12\x12\n" +
 	"\x04task\x18\x01 \x01(\tR\x04task\x12;\n" +
 	"\n" +
 	"properties\x18\x02 \x01(\v2\x16.weaviate.v1.TextArrayH\x00R\n" +
 	"properties\x88\x01\x01\x129\n" +
-	"\aqueries\x18\x03 \x03(\v2\x1f.weaviate.v1.GenerativeProviderR\aqueriesB\r\n" +
+	"\aqueries\x18\x03 \x03(\v2\x1f.weaviate.v1.GenerativeProviderR\aqueries\x12\x14\n" +
+	"\x05debug\x18\x04 \x01(\bR\x05debugB\r\n" +
 	"\v_properties\"\xbf\x06\n" +
 	"\x12GenerativeProvider\x12'\n" +
 	"\x0freturn_metadata\x18\x01 \x01(\bR\x0ereturnMetadata\x12@\n" +
