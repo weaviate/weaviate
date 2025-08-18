@@ -29,27 +29,23 @@ func TestGRPC_Batching(t *testing.T) {
 	clsA := articles.ArticlesClass()
 	clsP := articles.ParagraphsClass()
 
-	helper.DeleteClass(t, clsP.Class)
-	helper.DeleteClass(t, clsA.Class)
-	// Create the schema
-	helper.CreateClass(t, clsP)
-	helper.CreateClass(t, clsA)
-	defer func() {
+	setupClasses := func() func() {
 		helper.DeleteClass(t, clsP.Class)
 		helper.DeleteClass(t, clsA.Class)
-	}()
+		// Create the schema
+		helper.CreateClass(t, clsP)
+		helper.CreateClass(t, clsA)
+		return func() {
+			helper.DeleteClass(t, clsP.Class)
+			helper.DeleteClass(t, clsA.Class)
+		}
+	}
 
-	t.Run("Server-side batching", func(t *testing.T) {
+	t.Run("send objects and references without errors", func(t *testing.T) {
+		defer setupClasses()()
+
 		// Open up a stream to read messages from
-		stream, err := grpcClient.BatchStream(ctx, &pb.BatchStreamRequest{})
-		require.NoError(t, err, "BatchStream should not return an error")
-
-		// Read first message, which starts the batching process
-		resp, err := stream.Recv()
-		require.NoError(t, err, "BatchStream should return a response")
-		start := resp.GetStart()
-		require.NotNil(t, start, "Start message should not be nil")
-		streamId := start.GetStreamId()
+		stream, streamId := startStream(ctx, t, grpcClient)
 
 		// Send some articles and paragraphs in send message
 		objects := []*pb.BatchObject{
@@ -57,7 +53,7 @@ func TestGRPC_Batching(t *testing.T) {
 			{Collection: clsP.Class, Uuid: UUID1},
 			{Collection: clsP.Class, Uuid: UUID2},
 		}
-		_, err = grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
+		_, err := grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
 			StreamId: streamId,
 			Message:  &pb.BatchSendRequest_Objects{Objects: &pb.BatchObjects{Values: objects}},
 		})
@@ -84,7 +80,7 @@ func TestGRPC_Batching(t *testing.T) {
 		require.NoError(t, err, "BatchSend Stop should not return an error")
 
 		// Read the stop message
-		resp, err = stream.Recv()
+		resp, err := stream.Recv()
 		require.NoError(t, err, "BatchStream should return a response")
 		end := resp.GetStop()
 		require.NotNil(t, end, "End message should not be nil")
@@ -100,4 +96,86 @@ func TestGRPC_Batching(t *testing.T) {
 		require.NoError(t, err, "ListObjects should not return an error")
 		require.Len(t, listP.Objects, 2, "Number of paragraphs created should match the number sent")
 	})
+
+	t.Run("send objects that have errors and read them correctly", func(t *testing.T) {
+		defer setupClasses()()
+
+		// Open up a stream to read messages from
+		stream, streamId := startStream(ctx, t, grpcClient)
+
+		// Send a list of articles, one with a tenant incorrectly specified
+		objects := []*pb.BatchObject{
+			{Collection: clsA.Class, Uuid: UUID0},
+			{Collection: clsA.Class, Tenant: "tenant", Uuid: UUID1},
+			{Collection: clsA.Class, Uuid: UUID2},
+		}
+		_, err := grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
+			StreamId: streamId,
+			Message:  &pb.BatchSendRequest_Objects{Objects: &pb.BatchObjects{Values: objects}},
+		})
+		require.NoError(t, err, "BatchSend should not return an error")
+
+		errMsg, err := stream.Recv()
+		require.NoError(t, err, "BatchStream should return a response")
+		require.NotNil(t, errMsg, "Error message should not be nil")
+		require.Equal(t, errMsg.GetError().Error, "class Article has multi-tenancy disabled, but request was with tenant")
+
+		list, err := helper.ListObjects(t, clsA.Class)
+		require.NoError(t, err, "ListObjects should not return an error")
+		require.Len(t, list.Objects, 2, "Number of articles created should match the number sent")
+	})
+
+	t.Run("send references that have errors and read them correctly", func(t *testing.T) {
+		defer setupClasses()()
+
+		// Open up a stream to read messages from
+		stream, streamId := startStream(ctx, t, grpcClient)
+
+		// Send some articles and paragraphs in send message
+		objects := []*pb.BatchObject{
+			{Collection: clsA.Class, Uuid: UUID0},
+			{Collection: clsP.Class, Uuid: UUID1},
+		}
+		_, err := grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
+			StreamId: streamId,
+			Message:  &pb.BatchSendRequest_Objects{Objects: &pb.BatchObjects{Values: objects}},
+		})
+		require.NoError(t, err, "BatchSend should not return an error")
+
+		// Send a list of references, one pointing to a non-existant object
+		references := []*pb.BatchReference{
+			{Name: "hasParagraphs", FromCollection: clsA.Class, FromUuid: UUID0, ToUuid: UUID1},
+			{Name: "hasParagraphss", FromCollection: clsA.Class, FromUuid: UUID0, ToUuid: UUID2},
+		}
+		_, err = grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
+			StreamId: streamId,
+			Message: &pb.BatchSendRequest_References{References: &pb.BatchReferences{
+				Values: references,
+			}},
+		})
+		require.NoError(t, err, "BatchSend References should not return an error")
+
+		errMsg, err := stream.Recv()
+		require.NoError(t, err, "BatchStream should return a response")
+		require.NotNil(t, errMsg, "Error message should not be nil")
+		require.Equal(t, errMsg.GetError().Error, "property hasParagraphss does not exist for class Article")
+
+		obj, err := helper.GetObject(t, clsA.Class, UUID0)
+		require.NoError(t, err, "ListObjects should not return an error")
+		require.Equal(t, 1, len(obj.Properties.(map[string]any)["hasParagraphs"].([]any)), "Article should have 1 paragraph")
+	})
+}
+
+func startStream(ctx context.Context, t *testing.T, grpcClient pb.WeaviateClient) (pb.Weaviate_BatchStreamClient, string) {
+	stream, err := grpcClient.BatchStream(ctx, &pb.BatchStreamRequest{})
+	require.NoError(t, err, "BatchStream should not return an error")
+
+	// Read first message, which starts the batching process
+	resp, err := stream.Recv()
+	require.NoError(t, err, "BatchStream should return a response")
+	start := resp.GetStart()
+	require.NotNil(t, start, "Start message should not be nil")
+	streamId := start.GetStreamId()
+
+	return stream, streamId
 }
