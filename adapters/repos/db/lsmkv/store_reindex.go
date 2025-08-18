@@ -27,7 +27,9 @@ func (s *Store) PauseObjectBucketCompaction(ctx context.Context) error {
 
 	b := s.Bucket(helpers.ObjectsBucketLSM)
 
-	b.disk.compactionCallbackCtrl.Deactivate(ctx)
+	if b.disk.compactionCallbackCtrl != nil {
+		b.disk.compactionCallbackCtrl.Deactivate(ctx)
+	}
 	b.doStartPauseTimer()
 	return nil
 }
@@ -42,8 +44,10 @@ func (s *Store) ResumeObjectBucketCompaction(ctx context.Context) error {
 		return fmt.Errorf("no bucket named 'objects' found in store %s", s.dir)
 	}
 
-	if err := b.disk.compactionCallbackCtrl.Activate(); err != nil {
-		return err
+	if b.disk.compactionCallbackCtrl != nil {
+		if err := b.disk.compactionCallbackCtrl.Activate(); err != nil {
+			return err
+		}
 	}
 
 	b.doStopPauseTimer()

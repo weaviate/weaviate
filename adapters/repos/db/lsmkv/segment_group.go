@@ -112,8 +112,7 @@ type sgConfig struct {
 	bm25config               *models.BM25Config
 }
 
-func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
-	compactionCallbacks cyclemanager.CycleCallbackGroup, cfg sgConfig,
+func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
 	allocChecker memwatch.AllocChecker,
 ) (*SegmentGroup, error) {
 	list, err := os.ReadDir(cfg.dir)
@@ -365,10 +364,6 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		return nil, err
 	}
 	sg.segmentCleaner = sc
-
-	// add a noop callback to avoid nil pointers, proper callback is assigned later on newBucket
-	id := "segmentgroup/compaction/" + sg.dir
-	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
 	// if a segment exists of the map collection strategy, we need to
 	// convert the inverted strategy to a map collection strategy
@@ -693,8 +688,10 @@ func (sg *SegmentGroup) count() int {
 }
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {
-	if err := sg.compactionCallbackCtrl.Unregister(ctx); err != nil {
-		return fmt.Errorf("long-running compaction in progress: %w", ctx.Err())
+	if sg.compactionCallbackCtrl != nil {
+		if err := sg.compactionCallbackCtrl.Unregister(ctx); err != nil {
+			return fmt.Errorf("long-running compaction in progress: %w", ctx.Err())
+		}
 	}
 	if err := sg.segmentCleaner.close(); err != nil {
 		return err

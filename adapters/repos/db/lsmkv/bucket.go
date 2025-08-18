@@ -216,7 +216,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	}
 
 	// send noop callback to avoid nil pointers, proper callback is assigned later on newBucket
-	sg, err := newSegmentGroup(logger, metrics, cyclemanager.NewCallbackGroupNoop(),
+	sg, err := newSegmentGroup(logger, metrics,
 		sgConfig{
 			dir:                      dir,
 			strategy:                 b.strategy,
