@@ -93,11 +93,13 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 
 		var uniqueShardCount int
 		var localShards []shardInfo
-		var localShardNames map[string]bool // For quick lookup during ForEachShard
+		var localShardNames map[string]bool
 
 		err := m.schemaReader.Read(collection.Class, func(_ *models.Class, state *sharding.State) error {
 			if state == nil {
-				return fmt.Errorf("unable to retrieve sharding state for class %q", collection.Class)
+				// this could happen in case the between getting the schema and getting the shard state the collection got deleted
+				// in the meantime, usually in automated tests or scripts
+				return nil
 			}
 
 			uniqueShardCount = len(state.Physical)
@@ -121,7 +123,6 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 			return nil, fmt.Errorf("failed to read sharding state for collection %s: %w", collection.Class, err)
 		}
 
-		// Step 2: Process using extracted info (no schema lock)
 		collectionUsage := &types.CollectionUsage{
 			Name:              collection.Class,
 			ReplicationFactor: int(collection.ReplicationConfig.Factor),

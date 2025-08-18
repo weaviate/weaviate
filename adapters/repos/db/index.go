@@ -99,7 +99,21 @@ type shardMap sync.Map
 // If f returns an error, range stops the iteration
 func (m *shardMap) Range(f func(name string, shard ShardLike) error) (err error) {
 	(*sync.Map)(m).Range(func(key, value any) bool {
-		err = f(key.(string), value.(ShardLike))
+		// Safe type assertion for key
+		name, ok := key.(string)
+		if !ok {
+			// Skip invalid keys
+			return true
+		}
+
+		// Safe type assertion for value
+		shard, ok := value.(ShardLike)
+		if !ok || shard == nil {
+			// Skip invalid or nil shards
+			return true
+		}
+
+		err = f(name, shard)
 		return err == nil
 	})
 	return err
@@ -112,7 +126,19 @@ func (m *shardMap) RangeConcurrently(logger logrus.FieldLogger, f func(name stri
 	eg := enterrors.NewErrorGroupWrapper(logger)
 	eg.SetLimit(_NUMCPU)
 	(*sync.Map)(m).Range(func(key, value any) bool {
-		name, shard := key.(string), value.(ShardLike)
+		name, ok := key.(string)
+		if !ok {
+			// Skip invalid keys
+			return true
+		}
+
+		// Safe type assertion for value
+		shard, ok := value.(ShardLike)
+		if !ok || shard == nil {
+			// Skip invalid or nil shards
+			return true
+		}
+
 		eg.Go(func() error {
 			return f(name, shard)
 		}, name, shard)
@@ -567,6 +593,12 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 // call ForEachLoadedShard instead.
 // Note: except Dropping and Shutting Down
 func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
+	// Check if the index is being dropped or shut down to avoid panics when the index is being deleted
+	if i.closingCtx.Err() != nil {
+		i.logger.WithField("action", "for_each_shard").Debug("index is being dropped or shut down")
+		return nil
+	}
+
 	return i.shards.Range(f)
 }
 
@@ -583,6 +615,11 @@ func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) e
 }
 
 func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {
+	// Check if the index is being dropped or shut down to avoid panics when the index is being deleted
+	if i.closingCtx.Err() != nil {
+		i.logger.WithField("action", "for_each_shard_concurrently").Debug("index is being dropped or shut down")
+		return nil
+	}
 	return i.shards.RangeConcurrently(i.logger, f)
 }
 
@@ -2747,7 +2784,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 		var err error
 
 		if i.shardHasMultipleReplicasRead(tenant, shardName) {
-			results[shardName], err = i.replicator.FindUUIDs(ctx, className, shardName, filters, routerTypes.ConsistencyLevel(repl.ConsistencyLevel))
+			results[shardName], err = i.replicator.FindUUIDs(ctx, className, shardName, filters, cl)
 		} else {
 			// anonymous func is here to ensure release is executed after each loop iteration
 			func() {
@@ -2948,7 +2985,11 @@ func convertToVectorIndexConfig(config interface{}) schemaConfig.VectorIndexConf
 	if empty, ok := config.(map[string]interface{}); ok && len(empty) == 0 {
 		return nil
 	}
-	return config.(schemaConfig.VectorIndexConfig)
+	// Safe type assertion
+	if vectorIndexConfig, ok := config.(schemaConfig.VectorIndexConfig); ok {
+		return vectorIndexConfig
+	}
+	return nil
 }
 
 func convertToVectorIndexConfigs(configs map[string]models.VectorConfig) map[string]schemaConfig.VectorIndexConfig {
