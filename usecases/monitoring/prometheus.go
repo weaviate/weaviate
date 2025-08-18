@@ -76,6 +76,7 @@ type PrometheusMetrics struct {
 	BackupStoreDataTransferred          *prometheus.CounterVec
 	FileIOWrites                        *prometheus.SummaryVec
 	FileIOReads                         *prometheus.SummaryVec
+	FileIOOps                           *prometheus.CounterVec
 	MmapOperations                      *prometheus.CounterVec
 	MmapProcMaps                        prometheus.Gauge
 
@@ -518,6 +519,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "mmap_proc_maps",
 			Help: "Number of entries in /proc/self/maps",
 		}),
+		FileIOOps: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "file_io_ops_total",
+			Help: "Total number of file operations",
+		}, []string{"operation", "source"}),
 
 		// Queue metrics
 		QueueSize: promauto.NewGaugeVec(prometheus.GaugeOpts{

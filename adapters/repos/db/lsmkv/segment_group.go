@@ -171,7 +171,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 		if len(jointSegmentsIDs) == 1 {
 			// cleanup leftover, to be removed
-			if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
+			if err := diskio.Remove(filepath.Join(sg.dir, entry), "segmentGroup"); err != nil {
 				return nil, fmt.Errorf("delete partially cleaned segment %q: %w", entry, err)
 			}
 			continue
@@ -193,7 +193,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 		if leftSegmentFound && rightSegmentFound {
 			delete(files, entry)
-			if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
+			if err := diskio.Remove(filepath.Join(sg.dir, entry), "segmentGroup"); err != nil {
 				return nil, fmt.Errorf("delete partially compacted segment %q: %w", entry, err)
 			}
 			continue
@@ -261,7 +261,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			}
 			delete(files, rightSegmentFilename)
 
-			err = diskio.Fsync(sg.dir)
+			err = diskio.Fsync(sg.dir, "segmentGroupRecovery")
 			if err != nil {
 				return nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 			}
@@ -275,7 +275,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		}
 		newRightSegmentPath := filepath.Join(sg.dir, newRightSegmentFileName)
 
-		if err := os.Rename(filepath.Join(sg.dir, entry), newRightSegmentPath); err != nil {
+		if err := diskio.Rename(filepath.Join(sg.dir, entry), newRightSegmentPath, "segmentRecovery"); err != nil {
 			return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry, newRightSegmentFileName, err)
 		}
 
@@ -317,7 +317,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	for entry := range files {
 		if filepath.Ext(entry) == DeleteMarkerSuffix {
 			// marked for deletion, but never actually deleted. Delete now.
-			if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
+			if err := diskio.Remove(filepath.Join(sg.dir, entry), "segmentGroup"); err != nil {
 				// don't abort if the delete fails, we can still continue (albeit
 				// without freeing disk space that should have been freed)
 				sg.logger.WithError(err).WithFields(logrus.Fields{
@@ -348,7 +348,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		_, ok := files[walFileName]
 		if ok {
 			// the segment will be recovered from the WAL
-			err := os.Remove(filepath.Join(sg.dir, entry))
+			err := diskio.Remove(filepath.Join(sg.dir, entry), "segmentGroup")
 			if err != nil {
 				return nil, fmt.Errorf("delete partially written segment %s: %w", entry, err)
 			}

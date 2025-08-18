@@ -15,7 +15,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/weaviate/weaviate/usecases/byteops"
@@ -54,7 +53,7 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 	}
 	if loadFromDisk {
 		if overwrite {
-			err := os.Remove(path)
+			err := diskio.Remove(path, "cna")
 			if err != nil {
 				return fmt.Errorf("delete existing net additions counter %s: %w", path, err)
 			}

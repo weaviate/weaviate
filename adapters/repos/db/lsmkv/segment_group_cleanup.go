@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"encoding/binary"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -493,7 +492,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		}
 	}()
 
-	file, err := os.Create(tmpSegmentPath)
+	file, err := diskio.CreateFile(tmpSegmentPath, "segmentCleaner")
 	if err != nil {
 		return false, err
 	}
@@ -633,7 +632,7 @@ func (sg *SegmentGroup) replaceSegmentBlocking(
 	if err := oldSegment.markForDeletion(); err != nil {
 		return nil, fmt.Errorf("drop disk segment %q: %w", oldSegment.path, err)
 	}
-	if err := diskio.Fsync(sg.dir); err != nil {
+	if err := diskio.Fsync(sg.dir, "cleanup"); err != nil {
 		return nil, fmt.Errorf("fsync segment directory %q: %w", sg.dir, err)
 	}
 
