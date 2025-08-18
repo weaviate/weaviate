@@ -195,6 +195,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 					Loaded:               false,
 					ReplicationFactor:    replicationFactor,
 					NumberOfReplicas:     numberOfReplicas,
+					Compressed:           isAnyVectorIndexCompressed(shard),
 				}
 				*status = append(*status, shardStatus)
 				shardCount++
@@ -233,7 +234,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			ObjectCount:            objectCount,
 			VectorIndexingStatus:   shard.GetStatus().String(),
 			VectorQueueLength:      queueLen,
-			Compressed:             compressed,
+			Compressed:             isAnyVectorIndexCompressed(shard),
 			Loaded:                 true,
 			AsyncReplicationStatus: shard.getAsyncReplicationStats(ctx),
 			ReplicationFactor:      replicationFactor,
@@ -266,6 +267,15 @@ func getShardReplicationDetails(i *Index, shardName string) (int64, int64) {
 		i.logger.Errorf("error while getting number of replicas for shard %s: %v", shardName, err)
 	}
 	return numberOfReplicas, replicationFactor
+}
+
+func isAnyVectorIndexCompressed(shard ShardLike) bool {
+	var compressed bool
+	shard.ForEachVectorIndex(func(_ string, index VectorIndex) error {
+		compressed = compressed || index.Compressed()
+		return nil
+	})
+	return compressed
 }
 
 func (db *DB) GetNodeStatistics(ctx context.Context) ([]*models.Statistics, error) {
