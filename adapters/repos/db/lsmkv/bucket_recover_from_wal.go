@@ -25,12 +25,11 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/diskio"
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 var logOnceWhenRecoveringFromWAL sync.Once
 
-func (sg *SegmentGroup) mayRecoverFromCommitLogs(ctx context.Context, secondaryIndices uint16, bm25Config *models.BM25Config) error {
+func (sg *SegmentGroup) mayRecoverFromCommitLogs(ctx context.Context, b *Bucket) error {
 	beforeAll := time.Now()
 	defer sg.metrics.TrackStartupBucketRecovery(beforeAll)
 
@@ -101,8 +100,8 @@ func (sg *SegmentGroup) mayRecoverFromCommitLogs(ctx context.Context, secondaryI
 		cl.pause()
 		defer cl.unpause()
 
-		mt, err := newMemtable(path, sg.strategy, secondaryIndices,
-			cl, sg.metrics, sg.logger, sg.enableChecksumValidation, bm25Config)
+		mt, err := newMemtable(path, sg.strategy, b.secondaryIndices,
+			cl, sg.metrics, sg.logger, sg.enableChecksumValidation, b.bm25Config)
 		if err != nil {
 			return err
 		}
@@ -129,6 +128,7 @@ func (sg *SegmentGroup) mayRecoverFromCommitLogs(ctx context.Context, secondaryI
 			if err != nil {
 				return err
 			}
+			b.active = mt
 		} else {
 			if err := mt.flush(); err != nil {
 				return errors.Wrap(err, "flush memtable after WAL recovery")

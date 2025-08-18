@@ -415,7 +415,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		sg.strategy = StrategyInverted
 	}
 
-	if err := sg.mayRecoverFromCommitLogs(ctx, b.secondaryIndices, b.bm25Config); err != nil {
+	if err := sg.mayRecoverFromCommitLogs(ctx, b); err != nil {
 		return nil, err
 	}
 
