@@ -273,6 +273,7 @@ func testRerankerTransformers(rest, grpc, ollamaEndpoint string) func(t *testing
 						req.Generative = &pb.GenerativeSearch{
 							Grouped: &pb.GenerativeSearch_Grouped{
 								Task:       "Write a short tweet about this content",
+								Debug:      true,
 								Properties: &pb.TextArray{Values: []string{"title", "description"}},
 								Queries: []*pb.GenerativeProvider{{
 									ReturnMetadata: false, // no metadata for ollama
@@ -297,7 +298,9 @@ func testRerankerTransformers(rest, grpc, ollamaEndpoint string) func(t *testing
 						require.NotNil(t, resp.GenerativeGroupedResults)
 						require.NotEmpty(t, resp.GenerativeGroupedResults.Values)
 						require.NotEmpty(t, resp.GenerativeGroupedResults.Values[0].Result)
-						t.Logf("---------------\nGroupedResult: %v\n---------------\n", resp.GenerativeGroupedResults.Values[0].Result)
+						require.NotNil(t, resp.GenerativeGroupedResults.Values[0].Debug)
+						require.NotEmpty(t, *resp.GenerativeGroupedResults.Values[0].Debug.FullPrompt)
+						t.Logf("---------------\nDebug.Prompt: %v\n\nGroupedResult: %v\n---------------\n", *resp.GenerativeGroupedResults.Values[0].Debug.FullPrompt, resp.GenerativeGroupedResults.Values[0].Result)
 					}
 				})
 			}

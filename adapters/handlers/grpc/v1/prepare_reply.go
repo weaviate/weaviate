@@ -54,7 +54,8 @@ type generativeQueryParams interface {
 	ProviderName() string
 	ReturnMetadataForSingle() bool
 	ReturnMetadataForGrouped() bool
-	Debug() bool
+	ReturnDebugForSingle() bool
+	ReturnDebugForGrouped() bool
 }
 
 func NewReplier(
