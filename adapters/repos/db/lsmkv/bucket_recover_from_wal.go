@@ -29,9 +29,9 @@ import (
 
 var logOnceWhenRecoveringFromWAL sync.Once
 
-func (sg *SegmentGroup) mayRecoverFromCommitLogs(ctx context.Context, b *Bucket) error {
+func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup) error {
 	beforeAll := time.Now()
-	defer sg.metrics.TrackStartupBucketRecovery(beforeAll)
+	defer b.metrics.TrackStartupBucketRecovery(beforeAll)
 
 	recovered := false
 
@@ -45,7 +45,7 @@ func (sg *SegmentGroup) mayRecoverFromCommitLogs(ctx context.Context, b *Bucket)
 		return errors.Wrap(err, "recover commit log")
 	}
 
-	list, err := os.ReadDir(sg.dir)
+	list, err := os.ReadDir(b.dir)
 	if err != nil {
 		return err
 	}
@@ -57,7 +57,7 @@ func (sg *SegmentGroup) mayRecoverFromCommitLogs(ctx context.Context, b *Bucket)
 			continue
 		}
 
-		path := filepath.Join(sg.dir, fileInfo.Name())
+		path := filepath.Join(b.dir, fileInfo.Name())
 
 		stat, err := os.Stat(path)
 		if err != nil {
@@ -77,8 +77,8 @@ func (sg *SegmentGroup) mayRecoverFromCommitLogs(ctx context.Context, b *Bucket)
 
 	if len(walFileNames) > 0 {
 		logOnceWhenRecoveringFromWAL.Do(func() {
-			sg.logger.WithField("action", "lsm_recover_from_active_wal").
-				WithField("path", sg.dir).
+			b.logger.WithField("action", "lsm_recover_from_active_wal").
+				WithField("path", b.dir).
 				Debug("active write-ahead-log found")
 		})
 	}
@@ -87,9 +87,9 @@ func (sg *SegmentGroup) mayRecoverFromCommitLogs(ctx context.Context, b *Bucket)
 	for i, fname := range walFileNames {
 		walForActiveMemtable := i == len(walFileNames)-1
 
-		path := filepath.Join(sg.dir, strings.TrimSuffix(fname, ".wal"))
+		path := filepath.Join(b.dir, strings.TrimSuffix(fname, ".wal"))
 
-		cl, err := newCommitLogger(path, sg.strategy)
+		cl, err := newCommitLogger(path, b.strategy)
 		if err != nil {
 			return errors.Wrap(err, "init commit logger")
 		}
@@ -100,8 +100,8 @@ func (sg *SegmentGroup) mayRecoverFromCommitLogs(ctx context.Context, b *Bucket)
 		cl.pause()
 		defer cl.unpause()
 
-		mt, err := newMemtable(path, sg.strategy, b.secondaryIndices,
-			cl, sg.metrics, sg.logger, sg.enableChecksumValidation, b.bm25Config)
+		mt, err := newMemtable(path, b.strategy, b.secondaryIndices,
+			cl, b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config)
 		if err != nil {
 			return err
 		}
@@ -111,12 +111,12 @@ func (sg *SegmentGroup) mayRecoverFromCommitLogs(ctx context.Context, b *Bucket)
 			return err
 		}
 
-		meteredReader := diskio.NewMeteredReader(cl.file, sg.metrics.TrackStartupReadWALDiskIO)
+		meteredReader := diskio.NewMeteredReader(cl.file, b.metrics.TrackStartupReadWALDiskIO)
 		bufio.NewReaderSize(meteredReader, 32*1024)
-		err = newCommitLoggerParser(sg.strategy, meteredReader, mt).Do()
+		err = newCommitLoggerParser(b.strategy, meteredReader, mt).Do()
 		if err != nil {
-			sg.logger.WithField("action", "lsm_recover_from_active_wal_corruption").
-				WithField("path", filepath.Join(sg.dir, fname)).
+			b.logger.WithField("action", "lsm_recover_from_active_wal_corruption").
+				WithField("path", filepath.Join(b.dir, fname)).
 				Error(errors.Wrap(err, "write-ahead-log ended abruptly, some elements may not have been recovered"))
 		}
 
@@ -143,14 +143,14 @@ func (sg *SegmentGroup) mayRecoverFromCommitLogs(ctx context.Context, b *Bucket)
 			}
 		}
 
-		if sg.strategy == StrategyReplace && sg.monitorCount {
+		if b.strategy == StrategyReplace && b.monitorCount {
 			// having just flushed the memtable we now have the most up2date count which
 			// is a good place to update the metric
-			sg.metrics.ObjectCount(sg.count())
+			b.metrics.ObjectCount(sg.count())
 		}
 
-		sg.logger.WithField("action", "lsm_recover_from_active_wal_success").
-			WithField("path", filepath.Join(sg.dir, fname)).
+		b.logger.WithField("action", "lsm_recover_from_active_wal_success").
+			WithField("path", filepath.Join(b.dir, fname)).
 			Debug("successfully recovered from write-ahead-log")
 
 		recovered = true
