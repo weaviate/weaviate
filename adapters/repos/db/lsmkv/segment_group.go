@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -112,8 +113,9 @@ type sgConfig struct {
 	bm25config               *models.BM25Config
 }
 
-func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
-	allocChecker memwatch.AllocChecker,
+func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
+	compactionCallbacks cyclemanager.CycleCallbackGroup, allocChecker memwatch.AllocChecker,
+	secondaryIndices uint16, bm25Config *models.BM25Config,
 ) (*SegmentGroup, error) {
 	list, err := os.ReadDir(cfg.dir)
 	if err != nil {
@@ -355,6 +357,23 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
 
 	sg.segments = sg.segments[:segmentIndex]
 
+	if err := sg.mayRecoverFromCommitLogs(ctx, secondaryIndices, bm25Config); err != nil {
+		return nil, err
+	}
+
+	// segment load order is as follows:
+	// - find .tmp files and recover them first
+	// - find .db files and load them
+	//   - if there is a .wal file exists for a .db, remove the .db file
+	// - find .wal files and load them into a memtable
+	//   - flush the memtable to a segment file
+	// Thus, files may be loaded in a different order than they were created,
+	// and we need to re-sort them to ensure the order is correct, as compations
+	// and other operations are based on the creation order of the segments
+	sort.Slice(sg.segments, func(i, j int) bool {
+		return sg.segments[i].path < sg.segments[j].path
+	})
+
 	if sg.monitorCount {
 		sg.metrics.ObjectCount(sg.count())
 	}
@@ -404,6 +423,10 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
 			}).Debug("rangeable segment-in-memory built")
 		}
 	}
+
+	// add a noop callback to avoid nil pointers, proper callback is assigned later on newBucket
+	id := "segmentgroup/compaction/" + sg.dir
+	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
 	return sg, nil
 }
