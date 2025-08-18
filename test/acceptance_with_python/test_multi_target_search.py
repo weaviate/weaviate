@@ -1,5 +1,5 @@
 import math
-from typing import List
+from typing import List, Dict
 
 import pytest
 
@@ -38,8 +38,15 @@ def test_multi_target_near_vector(
     uuid1 = collection.data.insert({}, vector={"first": [1, 0, 0], "second": [0, 1, 0]})
     uuid2 = collection.data.insert({}, vector={"first": [0, 1, 0], "second": [1, 0, 0]})
 
-    objs = collection.query.near_vector([1.0, 0.0, 0.0], target_vector=target_vector).objects
+    objs = collection.query.near_vector(
+        [1.0, 0.0, 0.0], target_vector=target_vector, return_metadata=wvc.query.MetadataQuery.full()
+    ).objects
     assert sorted([obj.uuid for obj in objs]) == sorted([uuid1, uuid2])  # order is not guaranteed
+
+    obj1 = [obj for obj in objs if obj.uuid == uuid1][0]
+    assert obj1.metadata.multi_target_distances == {"first": [0], "second": [1]}
+    obj2 = [obj for obj in objs if obj.uuid == uuid2][0]
+    assert obj2.metadata.multi_target_distances == {"first": [1], "second": [0]}
 
 
 @pytest.mark.parametrize(
@@ -67,8 +74,16 @@ def test_multi_target_near_object(
     uuid1 = collection.data.insert({}, vector={"first": [1, 0], "second": [0, 1, 0]})
     uuid2 = collection.data.insert({}, vector={"first": [0, 1], "second": [1, 0, 0]})
 
-    objs = collection.query.near_object(uuid1, target_vector=target_vector).objects
+    objs = collection.query.near_object(
+        uuid1, target_vector=target_vector, return_metadata=wvc.query.MetadataQuery.full()
+    ).objects
     assert sorted([obj.uuid for obj in objs]) == sorted([uuid1, uuid2])  # order is not guaranteed
+
+    obj1 = [obj for obj in objs if obj.uuid == uuid1][0]
+    assert math.isclose(obj1.metadata.distance, 0, rel_tol=1e-5)
+    assert obj1.metadata.multi_target_distances == {"first": [0], "second": [0]}
+    obj2 = [obj for obj in objs if obj.uuid == uuid2][0]
+    assert obj2.metadata.multi_target_distances == {"first": [1], "second": [1]}
 
 
 @pytest.mark.parametrize(
@@ -122,5 +137,7 @@ def test_multi_target_near_vector_multiple_inputs(
 
     obj1 = [obj for obj in objs if obj.uuid == uuid1][0]
     assert math.isclose(obj1.metadata.distance, distances[0], rel_tol=1e-5)
+    assert obj1.metadata.multi_target_distances == {"first": [0, 0], "second": [1, 1], "third": [1]}
     obj2 = [obj for obj in objs if obj.uuid == uuid2][0]
     assert math.isclose(obj2.metadata.distance, distances[1], rel_tol=1e-5)
+    assert obj2.metadata.multi_target_distances == {"first": [1, 1], "second": [0, 1], "third": [1]}
