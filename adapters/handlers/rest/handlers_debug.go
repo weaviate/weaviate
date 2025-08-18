@@ -188,7 +188,7 @@ func setupDebugHandlers(appState *state.State) {
 						logger.WithField("shard", shardName).Error("failed to reinit shard " + err.Error())
 						output[shardName] = map[string]string{
 							"shard":       shardName,
-							"shardStatus": shard.GetStatusNoLoad().String(),
+							"shardStatus": shard.GetStatus().String(),
 							"status":      "error",
 							"message":     "failed to reinit shard",
 							"error":       err.Error(),
@@ -197,14 +197,14 @@ func setupDebugHandlers(appState *state.State) {
 					}
 					output[shardName] = map[string]string{
 						"shard":       shardName,
-						"shardStatus": shard.GetStatusNoLoad().String(),
+						"shardStatus": shard.GetStatus().String(),
 						"status":      "reinit",
 						"message":     "reinit shard started",
 					}
 				} else {
 					output[shardName] = map[string]string{
 						"shard":       shardName,
-						"shardStatus": shard.GetStatusNoLoad().String(),
+						"shardStatus": shard.GetStatus().String(),
 						"status":      "skipped",
 						"message":     fmt.Sprintf("shard %s not selected", shardName),
 					}
@@ -265,7 +265,7 @@ func setupDebugHandlers(appState *state.State) {
 					shardPath := rootPath + "/" + classNameString + "/" + shardName + "/lsm/"
 					paths[shardName] = shardPath
 					output[shardName] = map[string]interface{}{
-						"shardStatus": shard.GetStatusNoLoad().String(),
+						"shardStatus": shard.GetStatus().String(),
 						"status":      "unknown",
 					}
 					return nil

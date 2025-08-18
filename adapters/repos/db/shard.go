@@ -21,10 +21,10 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
-	"go.etcd.io/bbolt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -65,12 +65,11 @@ var (
 )
 
 type ShardLike interface {
-	Index() *Index                  // Get the parent index
-	Name() string                   // Get the shard name
-	Store() *lsmkv.Store            // Get the underlying store
-	NotifyReady()                   // Set shard status to ready
-	GetStatus() storagestate.Status // Return the shard status
-	GetStatusNoLoad() storagestate.Status
+	Index() *Index                                                                      // Get the parent index
+	Name() string                                                                       // Get the shard name
+	Store() *lsmkv.Store                                                                // Get the underlying store
+	NotifyReady()                                                                       // Set shard status to ready
+	GetStatus() storagestate.Status                                                     // Return the shard status
 	UpdateStatus(status string) error                                                   // Set shard status
 	SetStatusReadonly(reason string) error                                              // Set shard status to readonly with reason
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) // Search and return document ids

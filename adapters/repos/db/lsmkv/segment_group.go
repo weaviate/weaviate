@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -117,10 +118,8 @@ type sgConfig struct {
 	writeMetadata                bool
 }
 
-func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
-	compactionCallbacks cyclemanager.CycleCallbackGroup, cfg sgConfig,
-	allocChecker memwatch.AllocChecker, lazySegmentLoading bool, files map[string]int64,
-	bitmapBufPool roaringset.BitmapBufPool,
+func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
+	compactionCallbacks cyclemanager.CycleCallbackGroup, b *Bucket, files map[string]int64,
 ) (*SegmentGroup, error) {
 	now := time.Now()
 	sg := &SegmentGroup{
@@ -139,13 +138,13 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		maxSegmentSize:               cfg.maxSegmentSize,
 		cleanupInterval:              cfg.cleanupInterval,
 		enableChecksumValidation:     cfg.enableChecksumValidation,
-		allocChecker:                 allocChecker,
+		allocChecker:                 b.allocChecker,
 		lastCompactionCall:           now,
 		lastCleanupCall:              now,
 		MinMMapSize:                  cfg.MinMMapSize,
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 		writeMetadata:                cfg.writeMetadata,
-		bitmapBufPool:                bitmapBufPool,
+		bitmapBufPool:                b.bitmapBufPool,
 	}
 
 	segmentIndex := 0
@@ -298,7 +297,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			fileList:                 files,
 			writeMetadata:            sg.writeMetadata,
 		}
-		if lazySegmentLoading {
+		if b.lazySegmentLoading {
 			segment, err = newLazySegment(newRightSegmentPath, logger,
 				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), sgConf,
 			)
@@ -381,7 +380,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			writeMetadata:            sg.writeMetadata,
 		}
 		var err error
-		if lazySegmentLoading {
+		if b.lazySegmentLoading {
 			segment, err = newLazySegment(filepath.Join(sg.dir, entry), logger,
 				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), segConf,
 			)
@@ -402,6 +401,69 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 	sg.segments = sg.segments[:segmentIndex]
 
+	// segment load order is as follows:
+	// - find .tmp files and recover them first
+	// - find .db files and load them
+	//   - if there is a .wal file exists for a .db, remove the .db file
+	// - find .wal files and load them into a memtable
+	//   - flush the memtable to a segment file
+	// Thus, files may be loaded in a different order than they were created,
+	// and we need to re-sort them to ensure the order is correct, as compations
+	// and other operations are based on the creation order of the segments
+	sort.Slice(sg.segments, func(i, j int) bool {
+		return sg.segments[i].getPath() < sg.segments[j].getPath()
+	})
+
+	// Actual strategy is stored in segment files. In case it is SetCollection,
+	// while new implementation uses bitmaps and supposed to be RoaringSet,
+	// bucket and segmentgroup strategy is changed back to SetCollection
+	// (memtables will be created later on, with already modified strategy)
+	// TODO what if only WAL files exists, and there is no segment to get actual strategy?
+	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
+		sg.segments[0].getStrategy() == segmentindex.StrategySetCollection {
+		b.strategy = StrategySetCollection
+		b.desiredStrategy = StrategyRoaringSet
+		sg.strategy = StrategySetCollection
+	}
+	// As of v1.19 property's IndexInterval setting is replaced with
+	// IndexFilterable (roaring set) + IndexSearchable (map) and enabled by default.
+	// Buckets for text/text[] inverted indexes created before 1.19 have strategy
+	// map and name that since 1.19 is used by filterable indeverted index.
+	// Those buckets (roaring set by configuration, but in fact map) have to be
+	// renamed on startup by migrator. Here actual strategy is set based on
+	// data found in segment files
+	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
+		sg.segments[0].getStrategy() == segmentindex.StrategyMapCollection {
+		b.strategy = StrategyMapCollection
+		b.desiredStrategy = StrategyRoaringSet
+		sg.strategy = StrategyMapCollection
+	}
+
+	// Inverted segments share a lot of their logic as the MapCollection,
+	// and the main difference is in the way they store their data.
+	// Setting the desired strategy to Inverted will make sure that we can
+	// distinguish between the two strategies for search.
+	// The changes only apply when we have segments on disk,
+	// as the memtables will always be created with the MapCollection strategy.
+	if b.strategy == StrategyInverted && len(sg.segments) > 0 &&
+		sg.segments[0].getStrategy() == segmentindex.StrategyMapCollection {
+		b.strategy = StrategyMapCollection
+		b.desiredStrategy = StrategyInverted
+		sg.strategy = StrategyMapCollection
+	} else if b.strategy == StrategyMapCollection && len(sg.segments) > 0 &&
+		sg.segments[0].getStrategy() == segmentindex.StrategyInverted {
+		// TODO amourao: blockmax "else" to be removed before final release
+		// in case bucket was created as inverted and default strategy was reverted to map
+		// by unsetting corresponding env variable
+		b.strategy = StrategyInverted
+		b.desiredStrategy = StrategyMapCollection
+		sg.strategy = StrategyInverted
+	}
+
+	if err := sg.mayRecoverFromCommitLogs(ctx, b, files); err != nil {
+		return nil, err
+	}
+
 	if sg.monitorCount {
 		sg.metrics.ObjectCount(sg.count())
 	}
@@ -411,10 +473,6 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		return nil, err
 	}
 	sg.segmentCleaner = sc
-
-	// TODO AL: use separate cycle callback for cleanup?
-	id := "segmentgroup/compaction/" + sg.dir
-	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
 	// if a segment exists of the map collection strategy, we need to
 	// convert the inverted strategy to a map collection strategy
@@ -455,6 +513,9 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			}).Debug("rangeable segment-in-memory built")
 		}
 	}
+
+	id := "segmentgroup/compaction/" + sg.dir
+	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
 	return sg, nil
 }
