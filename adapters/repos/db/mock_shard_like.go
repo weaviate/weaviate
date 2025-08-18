@@ -1132,51 +1132,6 @@ func (_c *MockShardLike_GetStatus_Call) RunAndReturn(run func() storagestate.Sta
 	return _c
 }
 
-// GetStatusNoLoad provides a mock function with no fields
-func (_m *MockShardLike) GetStatusNoLoad() storagestate.Status {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetStatusNoLoad")
-	}
-
-	var r0 storagestate.Status
-	if rf, ok := ret.Get(0).(func() storagestate.Status); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(storagestate.Status)
-	}
-
-	return r0
-}
-
-// MockShardLike_GetStatusNoLoad_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetStatusNoLoad'
-type MockShardLike_GetStatusNoLoad_Call struct {
-	*mock.Call
-}
-
-// GetStatusNoLoad is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) GetStatusNoLoad() *MockShardLike_GetStatusNoLoad_Call {
-	return &MockShardLike_GetStatusNoLoad_Call{Call: _e.mock.On("GetStatusNoLoad")}
-}
-
-func (_c *MockShardLike_GetStatusNoLoad_Call) Run(run func()) *MockShardLike_GetStatusNoLoad_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockShardLike_GetStatusNoLoad_Call) Return(_a0 storagestate.Status) *MockShardLike_GetStatusNoLoad_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_GetStatusNoLoad_Call) RunAndReturn(run func() storagestate.Status) *MockShardLike_GetStatusNoLoad_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetVectorIndex provides a mock function with given fields: targetVector
 func (_m *MockShardLike) GetVectorIndex(targetVector string) (VectorIndex, bool) {
 	ret := _m.Called(targetVector)
