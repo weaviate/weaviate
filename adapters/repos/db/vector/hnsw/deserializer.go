@@ -106,6 +106,11 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 			}
 			return nil, validLength, err
 		}
+		if uint8(ct) > 64 {
+			// Sanity check to fail fast on unexpected commit types
+			err = io.ErrUnexpectedEOF
+			return nil, validLength, err
+		}
 		commitTypeMetrics[ct]++
 		var readThisRound int
 		switch ct {
