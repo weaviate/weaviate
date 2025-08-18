@@ -186,28 +186,11 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			continue
 		}
 
-		// source segments for the compacted segment had a lower level
-		var leftSegmentFilename, rightSegmentFilename string
-		if cfg.writeSegmentInfoIntoFileName {
-			level, strategy := strategyAndLevelFromFileName(potentialCompactedSegmentFileName)
-			leftSegmentFilename = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[0], segmentExtraInfo(level-1, strategy))
-			rightSegmentFilename = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[1], segmentExtraInfo(level-1, strategy))
-		} else {
-			leftSegmentFilename = fmt.Sprintf("segment-%s.db", jointSegmentsIDs[0])
-			rightSegmentFilename = fmt.Sprintf("segment-%s.db", jointSegmentsIDs[1])
-		}
+		// jointSegmentsIDs[0] is the left segment, jointSegmentsIDs[1] is the right segment
+		leftSegmentFound, _ := segmentExistsWithID(jointSegmentsIDs[0], files)
+		rightSegmentFound, rightSegmentFilename := segmentExistsWithID(jointSegmentsIDs[1], files)
 
-		leftSegmentPath := filepath.Join(sg.dir, leftSegmentFilename)
 		rightSegmentPath := filepath.Join(sg.dir, rightSegmentFilename)
-
-		leftSegmentFound, err := fileExists(leftSegmentPath)
-		if err != nil {
-			return nil, fmt.Errorf("check for presence of segment %s: %w", leftSegmentFilename, err)
-		}
-		rightSegmentFound, err := fileExists(rightSegmentPath)
-		if err != nil {
-			return nil, fmt.Errorf("check for presence of segment %s: %w", rightSegmentFilename, err)
-		}
 
 		if leftSegmentFound && rightSegmentFound {
 			delete(files, entry)
@@ -221,6 +204,10 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			return nil, fmt.Errorf("missing right segment %q", rightSegmentFilename)
 		}
 
+		var rightSegmentMetadata *struct {
+			Level    uint16
+			Strategy segmentindex.Strategy
+		}
 		if !leftSegmentFound && rightSegmentFound {
 			// segment is initialized just to be erased
 			// there is no need of bloom filters nor net addition counter re-calculation
@@ -239,6 +226,14 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
+			}
+
+			rightSegmentMetadata = &struct {
+				Level    uint16
+				Strategy segmentindex.Strategy
+			}{
+				Level:    rightSegment.getLevel(),
+				Strategy: rightSegment.getStrategy(),
 			}
 
 			err = rightSegment.close()
@@ -274,9 +269,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		}
 
 		var newRightSegmentFileName string
-		if cfg.writeSegmentInfoIntoFileName {
-			level, strategy := strategyAndLevelFromFileName(potentialCompactedSegmentFileName)
-			newRightSegmentFileName = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[1], segmentExtraInfo(level, strategy))
+		if cfg.writeSegmentInfoIntoFileName && rightSegmentMetadata != nil {
+			newRightSegmentFileName = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[1], segmentExtraInfo(rightSegmentMetadata.Level, rightSegmentMetadata.Strategy))
 		} else {
 			newRightSegmentFileName = fmt.Sprintf("segment-%s.db", jointSegmentsIDs[1])
 		}
@@ -287,6 +281,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		}
 
 		var segment Segment
+		var err error
 		sgConf := segmentConfig{
 			mmapContents:             sg.mmapContents,
 			useBloomFilter:           sg.useBloomFilter,
@@ -822,6 +817,19 @@ func fileExists(path string) (bool, error) {
 	}
 
 	return false, err
+}
+
+func segmentExistsWithID(segmentID string, files map[string]int64) (bool, string) {
+	// segment file format is "segment-{segmentID}.EXT" where EXT is either
+	// - ".db" if extra infos in filename are not used
+	// - ".{extra_infos}.db" if extra infos in filename are used
+	match := fmt.Sprintf("segment-%s.", segmentID)
+	for fileName := range files {
+		if strings.HasPrefix(fileName, match) && strings.HasSuffix(fileName, ".db") {
+			return true, fileName
+		}
+	}
+	return false, ""
 }
 
 func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
