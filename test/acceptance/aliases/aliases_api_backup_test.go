@@ -158,14 +158,13 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 				t.Run("delete alias", func(t *testing.T) {
 					helper.DeleteAlias(t, "BookAlias")
 				})
+
+				t.Run("check alias count after deletion", func(t *testing.T) {
+					resp := helper.GetAliases(t, nil)
+					require.NotNil(t, resp)
+					require.Empty(t, resp.Aliases)
+				})
 			}
-
-			t.Run("check alias count after deletion", func(t *testing.T) {
-				resp := helper.GetAliases(t, nil)
-				require.NotNil(t, resp)
-				require.Empty(t, resp.Aliases)
-			})
-
 			if options == "conflict" {
 				t.Run("re-create schema", func(t *testing.T) {
 					t.Run("BooksConflict", func(t *testing.T) {
@@ -213,10 +212,12 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 			}
 
 			t.Run("restore with local filesystem backend", func(t *testing.T) {
-				restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), books.DefaultClassName, backend, backupID, map[string]string{})
+				overwriteAlias := false
 				if options == "overwrite" {
-					restoreResp, err = helper.RestoreBackupWithAliasOverwrite(t, helper.DefaultRestoreConfig(), books.DefaultClassName, backend, backupID, map[string]string{})
+					overwriteAlias = true
 				}
+
+				restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), books.DefaultClassName, backend, backupID, map[string]string{}, overwriteAlias)
 				assert.Nil(t, err)
 				assert.NotNil(t, restoreResp)
 				waitForRestore(t, backupID, backend)
