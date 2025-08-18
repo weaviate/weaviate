@@ -164,16 +164,11 @@ func (l *LazyLoadShard) NotifyReady() {
 	l.shard.NotifyReady()
 }
 
-func (l *LazyLoadShard) GetStatusNoLoad() storagestate.Status {
+func (l *LazyLoadShard) GetStatus() storagestate.Status {
 	if l.loaded {
 		return l.shard.GetStatus()
 	}
-	return storagestate.StatusLoading
-}
-
-func (l *LazyLoadShard) GetStatus() storagestate.Status {
-	l.mustLoad()
-	return l.shard.GetStatus()
+	return storagestate.StatusLazyLoading
 }
 
 func (l *LazyLoadShard) UpdateStatus(status string) error {
