@@ -29,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-
 func TestAssignDynamic(t *testing.T) {
 	d := runtime.NewDynamicValue(int(dimensioncategory.NewDimensionCategoryFromString("rq")))
 	require.Equal(t, int(dimensioncategory.DimensionCategoryRQ), d.Get())
@@ -47,7 +46,6 @@ func TestDefaultCompression(t *testing.T) {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
-
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 
