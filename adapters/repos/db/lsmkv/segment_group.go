@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -415,6 +416,12 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	// TODO AL: use separate cycle callback for cleanup?
 	id := "segmentgroup/compaction/" + sg.dir
 	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
+
+	// The following Inverted segment type assumes segments are sorted by their path
+	// As we are passing an unordered map instead of a sorted slice, we need to sort the segments first.
+	sort.Slice(sg.segments, func(i, j int) bool {
+		return sg.segments[i].getPath() < sg.segments[j].getPath()
+	})
 
 	// if a segment exists of the map collection strategy, we need to
 	// convert the inverted strategy to a map collection strategy
