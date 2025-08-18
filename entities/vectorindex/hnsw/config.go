@@ -63,6 +63,7 @@ type UserConfig struct {
 	FilterStrategy         string            `json:"filterStrategy"`
 	Multivector            MultivectorConfig `json:"multivector"`
 	TrackingDefault        bool              `json:"trackingDefault"`
+	Uncompressed           bool              `json:"uncompressed"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -242,6 +243,12 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.Vecto
 
 	if err := vectorIndexCommon.OptionalBoolFromMap(asMap, "trackingDefault", func(v bool) {
 		uc.TrackingDefault = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorIndexCommon.OptionalBoolFromMap(asMap, "uncompressed", func(v bool) {
+		uc.Uncompressed = v
 	}); err != nil {
 		return uc, err
 	}

@@ -87,6 +87,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						},
 					},
 					"trackingDefault": false,
+					"uncompressed":    false,
 				},
 				"shardingConfig": map[string]interface{}{
 					"actualCount":         float64(1),
