@@ -215,6 +215,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
 	}
 
+	b.desiredStrategy = b.strategy
+
 	sg, err := newSegmentGroup(ctx, logger, metrics,
 		sgConfig{
 			dir:                      dir,
@@ -233,7 +235,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			MinMMapSize:              b.minMMapSize,
 			bm25config:               b.bm25Config,
 			keepLevelCompaction:      b.keepLevelCompaction,
-		}, compactionCallbacks, b.allocChecker, b.secondaryIndices, b.bm25Config,
+		}, compactionCallbacks, b,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)

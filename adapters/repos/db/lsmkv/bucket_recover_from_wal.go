@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,8 @@ var logOnceWhenRecoveringFromWAL sync.Once
 func (sg *SegmentGroup) mayRecoverFromCommitLogs(ctx context.Context, secondaryIndices uint16, bm25Config *models.BM25Config) error {
 	beforeAll := time.Now()
 	defer sg.metrics.TrackStartupBucketRecovery(beforeAll)
+
+	recovered := false
 
 	// the context is only ever checked once at the beginning, as there is no
 	// point in aborting an ongoing recovery. It makes more sense to let it
@@ -149,6 +152,16 @@ func (sg *SegmentGroup) mayRecoverFromCommitLogs(ctx context.Context, secondaryI
 		sg.logger.WithField("action", "lsm_recover_from_active_wal_success").
 			WithField("path", filepath.Join(sg.dir, fname)).
 			Debug("successfully recovered from write-ahead-log")
+
+		recovered = true
+
+	}
+
+	// force re-sort if any segment was added
+	if recovered {
+		sort.Slice(sg.segments, func(i, j int) bool {
+			return sg.segments[i].path < sg.segments[j].path
+		})
 	}
 
 	return nil

@@ -114,8 +114,7 @@ type sgConfig struct {
 }
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
-	compactionCallbacks cyclemanager.CycleCallbackGroup, allocChecker memwatch.AllocChecker,
-	secondaryIndices uint16, bm25Config *models.BM25Config,
+	compactionCallbacks cyclemanager.CycleCallbackGroup, b *Bucket,
 ) (*SegmentGroup, error) {
 	list, err := os.ReadDir(cfg.dir)
 	if err != nil {
@@ -139,7 +138,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		maxSegmentSize:           cfg.maxSegmentSize,
 		cleanupInterval:          cfg.cleanupInterval,
 		enableChecksumValidation: cfg.enableChecksumValidation,
-		allocChecker:             allocChecker,
+		allocChecker:             b.allocChecker,
 		lastCompactionCall:       now,
 		lastCleanupCall:          now,
 		MinMMapSize:              cfg.MinMMapSize,
@@ -357,10 +356,6 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 	sg.segments = sg.segments[:segmentIndex]
 
-	if err := sg.mayRecoverFromCommitLogs(ctx, secondaryIndices, bm25Config); err != nil {
-		return nil, err
-	}
-
 	// segment load order is as follows:
 	// - find .tmp files and recover them first
 	// - find .db files and load them
@@ -373,6 +368,56 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	sort.Slice(sg.segments, func(i, j int) bool {
 		return sg.segments[i].path < sg.segments[j].path
 	})
+
+	// Actual strategy is stored in segment files. In case it is SetCollection,
+	// while new implementation uses bitmaps and supposed to be RoaringSet,
+	// bucket and segmentgroup strategy is changed back to SetCollection
+	// (memtables will be created later on, with already modified strategy)
+	// TODO what if only WAL files exists, and there is no segment to get actual strategy?
+	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategySetCollection {
+		b.strategy = StrategySetCollection
+		b.desiredStrategy = StrategyRoaringSet
+		sg.strategy = StrategySetCollection
+	}
+	// As of v1.19 property's IndexInterval setting is replaced with
+	// IndexFilterable (roaring set) + IndexSearchable (map) and enabled by default.
+	// Buckets for text/text[] inverted indexes created before 1.19 have strategy
+	// map and name that since 1.19 is used by filterable indeverted index.
+	// Those buckets (roaring set by configuration, but in fact map) have to be
+	// renamed on startup by migrator. Here actual strategy is set based on
+	// data found in segment files
+	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
+		b.strategy = StrategyMapCollection
+		b.desiredStrategy = StrategyRoaringSet
+		sg.strategy = StrategyMapCollection
+	}
+
+	// Inverted segments share a lot of their logic as the MapCollection,
+	// and the main difference is in the way they store their data.
+	// Setting the desired strategy to Inverted will make sure that we can
+	// distinguish between the two strategies for search.
+	// The changes only apply when we have segments on disk,
+	// as the memtables will always be created with the MapCollection strategy.
+	if b.strategy == StrategyInverted && len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
+		b.strategy = StrategyMapCollection
+		b.desiredStrategy = StrategyInverted
+		sg.strategy = StrategyMapCollection
+	} else if b.strategy == StrategyMapCollection && len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategyInverted {
+		// TODO amourao: blockmax "else" to be removed before final release
+		// in case bucket was created as inverted and default strategy was reverted to map
+		// by unsetting corresponding env variable
+		b.strategy = StrategyInverted
+		b.desiredStrategy = StrategyMapCollection
+		sg.strategy = StrategyInverted
+	}
+
+	if err := sg.mayRecoverFromCommitLogs(ctx, b.secondaryIndices, b.bm25Config); err != nil {
+		return nil, err
+	}
 
 	if sg.monitorCount {
 		sg.metrics.ObjectCount(sg.count())
