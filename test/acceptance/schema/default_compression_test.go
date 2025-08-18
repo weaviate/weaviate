@@ -39,6 +39,7 @@ func TestDefaultCompression(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
