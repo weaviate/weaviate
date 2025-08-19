@@ -202,7 +202,6 @@ func TestDefaultCompressionWithUncompressed(t *testing.T) {
 	require.Equal(t, true, uncompressed)
 }
 
-
 func TestDefaultCompressionOverride(t *testing.T) {
 	mainCtx := context.Background()
 
@@ -229,14 +228,9 @@ func TestDefaultCompressionOverride(t *testing.T) {
 		AutoTenantCreation:   true,
 	}
 
-
-
 	cfg := hnsw.NewDefaultUserConfig()
 	cfg.BQ.Enabled = true
 	cls.VectorIndexConfig = cfg
-
-
-
 
 	// Create the class
 	t.Log("Creating class", cls.Class)
