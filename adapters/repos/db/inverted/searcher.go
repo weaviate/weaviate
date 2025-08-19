@@ -153,6 +153,23 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		PropertyPaths: propertyPaths,
 	}
 
+	deletedIds := sroar.NewBitmap()
+	deletedCount := 0
+	handleDeletedId := func(id uint64) {
+		if deletedIds.Set(id) {
+			if deletedCount++; deletedCount >= 1024 {
+				s.bitmapFactory.Remove(deletedIds)
+				deletedIds = sroar.NewBitmap().CloneToBuf(deletedIds.ToBuffer())
+				deletedCount = 0
+			}
+		}
+	}
+	defer func() {
+		if deletedCount > 0 {
+			s.bitmapFactory.Remove(deletedIds)
+		}
+	}()
+
 	i := 0
 	loop := 0
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
@@ -168,6 +185,7 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		}
 
 		if res == nil {
+			handleDeletedId(docID)
 			continue
 		}
 
