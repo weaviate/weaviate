@@ -91,7 +91,6 @@ func FromEnv(config *Config) error {
 		config.TrackVectorDimensions = true
 	}
 
-
 	timeout := 30 * time.Second
 	opt := os.Getenv("WEAVIATE_MINIMUM_TIMEOUT")
 	if opt != "" {
