@@ -380,10 +380,12 @@ func (d *BinaryRQDistancer) DistanceToFloat(x []float32) (float32, error) {
 // DistanceBetweenCompressedVectors is used in:
 // 1. Distance in compression_distance_bag.go -> selectNeighborsHeuristic in compression_distance_bag.go
 // 2. DistanceBetweenCompressedVectorsFromIDs -> distBetweenNodes -> connectNeighborAtLevel
+// TODO: Speed this up by tabulating the computation involving Cosine and storing the norm instead of the squared norm on the vectors.
 func (brq *BinaryRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []uint64) (float32, error) {
 	cx, cy := RQOneBitCode(x), RQOneBitCode(y)
-	signDot := cx.Dimension() - 2*HammingDist(cx.Bits(), cy.Bits())
-	dotEstimate := cx.Step() * cy.Step() * float32(signDot)
+	fractionDiff := float64(HammingDist(cx.Bits(), cy.Bits())) / float64(cx.Dimension())
+	cosEstimate := math.Cos(math.Pi * fractionDiff)
+	dotEstimate := float32(math.Sqrt(float64(cx.SquaredNorm())) * math.Sqrt(float64(cy.SquaredNorm())) * cosEstimate)
 	return brq.l2*(cx.SquaredNorm()+cy.SquaredNorm()) + brq.cos - (1.0+brq.l2)*dotEstimate, nil
 }
 

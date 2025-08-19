@@ -70,6 +70,55 @@ func TestBRQDistanceEstimates(t *testing.T) {
 	}
 }
 
+func TestBRQCompressedDistanceEstimates(t *testing.T) {
+	metrics := []distancer.Provider{
+		distancer.NewCosineDistanceProvider(),
+		distancer.NewDotProductProvider(),
+		distancer.NewL2SquaredProvider(),
+	}
+	rng := newRNG(123)
+	n := 100
+
+	// What kind of error do we expect from 1-bit RQ under each of the different metrics?
+	// We know that the absolute error of the dot product of unit vectors <q,x> decreases by 1/SQRT(D)
+	// As we scale the vectors the absolute error should scale with the product of the scaling factors.
+	for _, m := range metrics {
+		for range n {
+			// Create two unit vectors with a uniform random correlation
+			// between -1 and 1 and scale them randomly.
+			dim := 2 + rng.IntN(2000)
+			q, x := correlatedVectors(dim, 1-2*rng.Float32())
+			var sq, sx float32 = 1.0, 1.0
+			if m.Type() != "cosine-dot" {
+				var scaleFactor float32 = 1.0
+				if rng.Float32() < 0.5 {
+					scaleFactor = 1e3
+				}
+				sq = scaleFactor * rng.Float32()
+				sx = scaleFactor * rng.Float32()
+			}
+			scale(q, sq)
+			scale(x, sx)
+
+			rq := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), m)
+			cq := rq.Encode(q)
+			cx := rq.Encode(x)
+			estimate, _ := rq.DistanceBetweenCompressedVectors(cq, cx)
+			target, _ := m.SingleDist(q, x)
+
+			baseEps := 3.0 / math.Sqrt(float64(dim))
+			eps := float64(sq*sx) * baseEps
+			if m.Type() == "l2-squared" {
+				eps *= 2
+			}
+			err := absDiff(estimate, target)
+			assert.Less(t, err, eps,
+				"Metric: %s, Dimension: %d, Target: %.4f, Estimate: %.4f, Estimate/Target: %.4f, Error: %.4f, Eps: %.4f",
+				m.Type(), dim, target, estimate, estimate/target, err, eps)
+		}
+	}
+}
+
 // The absolute error when estimating the dot product between unit vectors
 // should scale according to 1/SQRT(D). Therefore we should roughly be seeing
 // that quadrupling the dimensionality halves the error.
@@ -98,6 +147,32 @@ func BenchmarkBRQError(b *testing.B) {
 			b.ReportMetric(absErr/float64(b.N), "avg.err")
 			b.ReportMetric(bias/float64(b.N), "avg.bias")
 		})
+	}
+}
+
+func BenchmarkBRQCompressedError(b *testing.B) {
+	dimensions := []int{64, 128, 256, 512, 1024, 1536, 2048}
+	correlation := []float32{-0.9, -0.7, -0.5, -0.25, 0.0, 0.25, 0.5, 0.7, 0.9}
+	for _, dim := range dimensions {
+		for _, alpha := range correlation {
+			var absErr float64
+			var bias float64
+			b.Run(fmt.Sprintf("d:%d-alpha:%.2f", dim, alpha), func(b *testing.B) {
+				rng := newRNG(43)
+				for b.Loop() {
+					q, x := correlatedVectors(dim, float32(alpha))
+					quantizer := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), distancer.NewDotProductProvider())
+					cx := quantizer.Encode(x)
+					cq := quantizer.Encode(q)
+					dotEstimate, _ := quantizer.DistanceBetweenCompressedVectors(cq, cx)
+					dotEstimate = -dotEstimate // The distancer estimate is the negative dot product.
+					absErr += math.Abs(float64(dotEstimate - alpha))
+					bias += float64(dotEstimate - alpha)
+				}
+				b.ReportMetric(absErr/float64(b.N), "avg.err")
+				b.ReportMetric(bias/float64(b.N), "avg.bias")
+			})
+		}
 	}
 }
 
@@ -152,6 +227,30 @@ func BenchmarkBRQDistance(b *testing.B) {
 			b.Run(fmt.Sprintf("d%d-%s", dim, m.Type()), func(b *testing.B) {
 				for b.Loop() {
 					distancer.Distance(cx)
+				}
+				b.ReportMetric((float64(b.N)/1e6)/float64(b.Elapsed().Seconds()), "m.ops/sec")
+			})
+		}
+	}
+}
+
+func BenchmarkBRQCompressedDistance(b *testing.B) {
+	rng := newRNG(42)
+	dimensions := []int{128, 256, 512, 768, 1024, 1536, 2048}
+	metrics := []distancer.Provider{
+		distancer.NewCosineDistanceProvider(),
+		distancer.NewDotProductProvider(),
+		distancer.NewL2SquaredProvider(),
+	}
+	for _, dim := range dimensions {
+		for _, m := range metrics {
+			quantizer := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), m)
+			q, x := correlatedVectors(dim, 0.5)
+			cq := quantizer.Encode(q)
+			cx := quantizer.Encode(x)
+			b.Run(fmt.Sprintf("d%d-%s", dim, m.Type()), func(b *testing.B) {
+				for b.Loop() {
+					quantizer.DistanceBetweenCompressedVectors(cq, cx)
 				}
 				b.ReportMetric((float64(b.N)/1e6)/float64(b.Elapsed().Seconds()), "m.ops/sec")
 			})
