@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
@@ -129,7 +128,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 			reg := prometheus.NewRegistry()
 			shardReplicationFSM := replication.NewShardReplicationFSM(reg)
 			clusterState := clusterMocks.NewMockNodeSelector(testCase.allShardNodes...)
-			schemaReaderMock := schemaTypes.NewMockSchemaReader(t)
+			schemaReaderMock := schema.NewMockSchemaReader(t)
 			schemaGetterMock := schema.NewMockSchemaGetter(t)
 			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1").Return(
 				map[string]string{
@@ -306,7 +305,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			reg := prometheus.NewRegistry()
 			shardReplicationFSM := replication.NewShardReplicationFSM(reg)
 			clusterState := clusterMocks.NewMockNodeSelector(testCase.allShardNodes...)
-			schemaReaderMock := schemaTypes.NewMockSchemaReader(t)
+			schemaReaderMock := schema.NewMockSchemaReader(t)
 			schemaGetterMock := schema.NewMockSchemaGetter(t)
 			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1").Return(
 				map[string]string{

@@ -42,6 +42,7 @@ type SchemaReader interface {
 	LocalShards(class string) ([]string, error)
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 	ResolveAlias(alias string) string
+	GetAliasesForClass(class string) []*models.Alias
 
 	// These schema reads function (...WithVersion) return the metadata once the local schema has caught up to the
 	// version parameter. If version is 0 is behaves exactly the same as eventual consistent reads.

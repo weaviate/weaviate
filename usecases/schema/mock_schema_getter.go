@@ -80,6 +80,54 @@ func (_c *MockSchemaGetter_ClusterHealthScore_Call) RunAndReturn(run func() int)
 	return _c
 }
 
+// GetAliasesForClass provides a mock function with given fields: class
+func (_m *MockSchemaGetter) GetAliasesForClass(class string) []*models.Alias {
+	ret := _m.Called(class)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetAliasesForClass")
+	}
+
+	var r0 []*models.Alias
+	if rf, ok := ret.Get(0).(func(string) []*models.Alias); ok {
+		r0 = rf(class)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*models.Alias)
+		}
+	}
+
+	return r0
+}
+
+// MockSchemaGetter_GetAliasesForClass_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetAliasesForClass'
+type MockSchemaGetter_GetAliasesForClass_Call struct {
+	*mock.Call
+}
+
+// GetAliasesForClass is a helper method to define mock.On call
+//   - class string
+func (_e *MockSchemaGetter_Expecter) GetAliasesForClass(class interface{}) *MockSchemaGetter_GetAliasesForClass_Call {
+	return &MockSchemaGetter_GetAliasesForClass_Call{Call: _e.mock.On("GetAliasesForClass", class)}
+}
+
+func (_c *MockSchemaGetter_GetAliasesForClass_Call) Run(run func(class string)) *MockSchemaGetter_GetAliasesForClass_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockSchemaGetter_GetAliasesForClass_Call) Return(_a0 []*models.Alias) *MockSchemaGetter_GetAliasesForClass_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSchemaGetter_GetAliasesForClass_Call) RunAndReturn(run func(string) []*models.Alias) *MockSchemaGetter_GetAliasesForClass_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetSchemaSkipAuth provides a mock function with no fields
 func (_m *MockSchemaGetter) GetSchemaSkipAuth() entitiesschema.Schema {
 	ret := _m.Called()
@@ -719,8 +767,7 @@ func (_c *MockSchemaGetter_TenantsShards_Call) RunAndReturn(run func(context.Con
 func NewMockSchemaGetter(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockSchemaGetter {
+}) *MockSchemaGetter {
 	mock := &MockSchemaGetter{}
 	mock.Mock.Test(t)
 

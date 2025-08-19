@@ -258,6 +258,10 @@ func (f *fakeSchemaGetter) ResolveAlias(string) string {
 	return ""
 }
 
+func (f *fakeSchemaGetter) GetAliasesForClass(string) []*models.Alias {
+	return nil
+}
+
 type fakeInterpretation struct{}
 
 func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,

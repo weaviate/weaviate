@@ -62,6 +62,14 @@ func (f *fakeSchemaGetter) ResolveAlias(string) string {
 	return ""
 }
 
+func (f *fakeSchemaGetter) GetAliasesForClass(string) []*models.Alias {
+	return nil
+}
+
+func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
+	return f.shardState
+}
+
 func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error) {
 	ss := f.shardState
 	x, ok := ss.Physical[shard]

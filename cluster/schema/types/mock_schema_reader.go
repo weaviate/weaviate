@@ -236,6 +236,54 @@ func (_c *MockSchemaReader_ClassInfoWithVersion_Call) RunAndReturn(run func(cont
 	return _c
 }
 
+// GetAliasesForClass provides a mock function with given fields: class
+func (_m *MockSchemaReader) GetAliasesForClass(class string) []*models.Alias {
+	ret := _m.Called(class)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetAliasesForClass")
+	}
+
+	var r0 []*models.Alias
+	if rf, ok := ret.Get(0).(func(string) []*models.Alias); ok {
+		r0 = rf(class)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*models.Alias)
+		}
+	}
+
+	return r0
+}
+
+// MockSchemaReader_GetAliasesForClass_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetAliasesForClass'
+type MockSchemaReader_GetAliasesForClass_Call struct {
+	*mock.Call
+}
+
+// GetAliasesForClass is a helper method to define mock.On call
+//   - class string
+func (_e *MockSchemaReader_Expecter) GetAliasesForClass(class interface{}) *MockSchemaReader_GetAliasesForClass_Call {
+	return &MockSchemaReader_GetAliasesForClass_Call{Call: _e.mock.On("GetAliasesForClass", class)}
+}
+
+func (_c *MockSchemaReader_GetAliasesForClass_Call) Run(run func(class string)) *MockSchemaReader_GetAliasesForClass_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockSchemaReader_GetAliasesForClass_Call) Return(_a0 []*models.Alias) *MockSchemaReader_GetAliasesForClass_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSchemaReader_GetAliasesForClass_Call) RunAndReturn(run func(string) []*models.Alias) *MockSchemaReader_GetAliasesForClass_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetShardsStatus provides a mock function with given fields: class, tenant
 func (_m *MockSchemaReader) GetShardsStatus(class string, tenant string) (models.ShardStatusList, error) {
 	ret := _m.Called(class, tenant)

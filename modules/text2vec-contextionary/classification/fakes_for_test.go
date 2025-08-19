@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	usecasesclassfication "github.com/weaviate/weaviate/usecases/classification"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type fakeSchemaGetter struct {
@@ -44,6 +45,14 @@ func (f *fakeSchemaGetter) ReadOnlyClass(class string) *models.Class {
 
 func (f *fakeSchemaGetter) ResolveAlias(string) string {
 	return ""
+}
+
+func (f *fakeSchemaGetter) GetAliasesForClass(string) []*models.Alias {
+	return nil
+}
+
+func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
+	panic("not implemented")
 }
 
 func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error)      { return "", nil }

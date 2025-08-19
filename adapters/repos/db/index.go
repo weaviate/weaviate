@@ -847,7 +847,7 @@ func (i *Index) determineObjectShardByStatus(ctx context.Context, id strfmt.UUID
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
-	replProps *additional.ReplicationProperties, schemaVersion uint64,
+	replProps *additional.ReplicationProperties, tenantName string, schemaVersion uint64,
 ) error {
 	if err := i.validateMultiTenancy(object.Object.Tenant); err != nil {
 		return err
@@ -872,7 +872,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	if replProps == nil {
 		replProps = defaultConsistency()
 	}
-	if i.shardHasMultipleReplicasWrite(shardName, shardName) {
+	if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
 		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.PutObject(ctx, shardName, object, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate insertion: shard=%q: %w", shardName, err)
@@ -1199,12 +1199,17 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 					debug.PrintStack()
 				}
 			}()
+			// All objects in the same shard group have the same tenant since in multi-tenant
+			// systems all objects belonging to a tenant end up in the same shard.
+			// For non-multi-tenant collections, Object.Tenant is empty for all objects.
+			// Therefore, we can safely use the tenant from any object in the group.
+			tenantName := group.objects[0].Object.Tenant
 			var errs []error
-			if i.shardHasMultipleReplicasWrite(shardName, shardName) {
+			if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
 					routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {
-				shard, release, err := i.getShardForDirectLocalOperation(ctx, shardName, shardName, localShardOperationWrite)
+				shard, release, err := i.getShardForDirectLocalOperation(ctx, tenantName, shardName, localShardOperationWrite)
 				defer release()
 				if err != nil {
 					errs = []error{err}
@@ -1301,13 +1306,18 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	}
 
 	for shardName, group := range byShard {
+		// All references in the same shard group have the same tenant since in multi-tenant
+		// systems all objects belonging to a tenant end up in the same shard.
+		// For non-multi-tenant collections, ref.Tenant is empty for all references.
+		// Therefore, we can safely use the tenant from any reference in the group.
+		tenantName := group.refs[0].Tenant
 		var errs []error
-		if i.shardHasMultipleReplicasWrite(shardName, shardName) {
+		if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
 			errs = i.replicator.AddReferences(ctx, shardName, group.refs, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 		} else {
 			// anonymous function to ensure that the shard is released after each loop iteration
 			func() {
-				shard, release, err := i.getShardForDirectLocalOperation(ctx, shardName, shardName, localShardOperationWrite)
+				shard, release, err := i.getShardForDirectLocalOperation(ctx, tenantName, shardName, localShardOperationWrite)
 				defer release()
 				if err != nil {
 					errs = duplicateErr(err, len(group.refs))
@@ -2075,7 +2085,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	// However we also have cases (related to FORCE_FULL_REPLICAS_SEARCH) where we want to avoid waiting for a shard to
 	// load, therefore we only call GetStatusNoLoad if replication is enabled -> another replica will be able to answer
 	// the request and we want to exit early
-	if i.replicationEnabled() && shard.GetStatusNoLoad() == storagestate.StatusLoading {
+	if i.replicationEnabled() && shard.GetStatus() == storagestate.StatusLoading {
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	} else {
 		if shard.GetStatus() == storagestate.StatusLoading {
@@ -2748,8 +2758,8 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 	return shard.GetStatus().String(), nil
 }
 
-func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
-	shard, release, err := i.getShardForDirectLocalOperation(ctx, shardName, shardName, localShardOperationWrite)
+func (i *Index) updateShardStatus(ctx context.Context, tenantName, shardName, targetStatus string, schemaVersion uint64) error {
+	shard, release, err := i.getShardForDirectLocalOperation(ctx, tenantName, shardName, localShardOperationWrite)
 	defer release()
 	if err != nil {
 		return err

@@ -294,6 +294,10 @@ func (sg *fakeMigrationSchemaGetter) ResolveAlias(string) string {
 	return ""
 }
 
+func (sg *fakeMigrationSchemaGetter) GetAliasesForClass(string) []*models.Alias {
+	return nil
+}
+
 func (sg *fakeMigrationSchemaGetter) Nodes() []string {
 	return nil
 }

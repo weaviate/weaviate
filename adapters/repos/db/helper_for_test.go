@@ -18,12 +18,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/sharding"
-
 	"github.com/stretchr/testify/mock"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/sharding"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -43,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func parkingGaragesSchema() schema.Schema {
@@ -225,6 +224,11 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 		false, false, indexOpts...)
 }
 
+func testShardMultiTenant(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
+	return testShardWithMultiTenantSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
+		false, false, indexOpts...)
+}
+
 func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMetrics, classes ...*models.Class) *DB {
 	t.Helper()
 
@@ -233,7 +237,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 	metricsCopy.Registerer = monitoring.NoopRegisterer
 
 	shardState := singleShardState()
-	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 		for _, class := range classes {
@@ -297,18 +301,31 @@ func getSingleShardNameFromRepo(repo *DB, className string) string {
 	return shardName
 }
 
-func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints bool, indexOpts ...func(*Index),
+func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
+	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, multiTenant bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	maxResults := int64(10_000)
 
-	shardState := singleShardState()
-	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	var shardState *sharding.State
+	if multiTenant {
+		shardState = NewMultiTenantShardingStateBuilder().
+			WithIndexName("multi-tenant-index").
+			WithNodePrefix("node").
+			WithReplicationFactor(1).
+			WithTenant("foo-tenant", "HOT").
+			Build()
+	} else {
+		shardState = singleShardState()
+	}
+
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -383,6 +400,19 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 	idx.shards.Store(shardName, shard)
 
 	return idx.shards.Load(shardName), idx
+}
+
+// Simplified functions that delegate to the common helper
+func testShardWithMultiTenantSettings(t *testing.T, ctx context.Context, class *models.Class,
+	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints bool, indexOpts ...func(*Index),
+) (ShardLike, *Index) {
+	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, true, indexOpts...)
+}
+
+func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
+	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints bool, indexOpts ...func(*Index),
+) (ShardLike, *Index) {
+	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, false, indexOpts...)
 }
 
 func testObject(className string) *storobj.Object {
