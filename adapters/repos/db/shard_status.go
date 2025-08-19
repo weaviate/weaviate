@@ -93,16 +93,16 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 	}
 
 	s.index.metrics.UpdateShardStatus(oldStatus.String(), targetStatus.String())
-
-	s.index.logger.
+	logger := s.index.logger
+	logger.
 		WithField("action", "update shard status").
 		WithField("class", s.index.Config.ClassName).
 		WithField("shard", s.name).
 		WithField("status", in)
 	if in == storagestate.StatusReadOnly.String() {
-		s.index.logger.WithField("readOnlyReason", reason)
+		logger.WithField("readOnlyReason", reason)
 	}
-	s.index.logger.Warn()
+	logger.Warn()
 
 	return nil
 }
