@@ -228,7 +228,9 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
 	}
 
-	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
+	b.desiredStrategy = b.strategy
+
+	sg, err := newSegmentGroup(ctx, logger, metrics,
 		sgConfig{
 			dir:                          dir,
 			strategy:                     b.strategy,
@@ -248,77 +250,12 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
-		}, b.allocChecker, b.lazySegmentLoading, files, b.bitmapBufPool)
+		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
 
-	b.desiredStrategy = b.strategy
-	// Actual strategy is stored in segment files. In case it is SetCollection,
-	// while new implementation uses bitmaps and supposed to be RoaringSet,
-	// bucket and segmentgroup strategy is changed back to SetCollection
-	// (memtables will be created later on, with already modified strategy)
-	// TODO what if only WAL files exists, and there is no segment to get actual strategy?
-	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
-		sg.segments[0].getStrategy() == segmentindex.StrategySetCollection {
-		b.strategy = StrategySetCollection
-		b.desiredStrategy = StrategyRoaringSet
-		sg.strategy = StrategySetCollection
-	}
-	// As of v1.19 property's IndexInterval setting is replaced with
-	// IndexFilterable (roaring set) + IndexSearchable (map) and enabled by default.
-	// Buckets for text/text[] inverted indexes created before 1.19 have strategy
-	// map and name that since 1.19 is used by filterable indeverted index.
-	// Those buckets (roaring set by configuration, but in fact map) have to be
-	// renamed on startup by migrator. Here actual strategy is set based on
-	// data found in segment files
-	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
-		sg.segments[0].getStrategy() == segmentindex.StrategyMapCollection {
-		b.strategy = StrategyMapCollection
-		b.desiredStrategy = StrategyRoaringSet
-		sg.strategy = StrategyMapCollection
-	}
-
-	// Inverted segments share a lot of their logic as the MapCollection,
-	// and the main difference is in the way they store their data.
-	// Setting the desired strategy to Inverted will make sure that we can
-	// distinguish between the two strategies for search.
-	// The changes only apply when we have segments on disk,
-	// as the memtables will always be created with the MapCollection strategy.
-	if b.strategy == StrategyInverted && len(sg.segments) > 0 &&
-		sg.segments[0].getStrategy() == segmentindex.StrategyMapCollection {
-		b.strategy = StrategyMapCollection
-		b.desiredStrategy = StrategyInverted
-		sg.strategy = StrategyMapCollection
-	} else if b.strategy == StrategyMapCollection && len(sg.segments) > 0 &&
-		sg.segments[0].getStrategy() == segmentindex.StrategyInverted {
-		// TODO amourao: blockmax "else" to be removed before final release
-		// in case bucket was created as inverted and default strategy was reverted to map
-		// by unsetting corresponding env variable
-		b.strategy = StrategyInverted
-		b.desiredStrategy = StrategyMapCollection
-		sg.strategy = StrategyInverted
-	}
-
 	b.disk = sg
-
-	if err := b.mayRecoverFromCommitLogs(ctx, files); err != nil {
-		return nil, err
-	}
-
-	// segment load order is as follows:
-	// - find .tmp files and recover them first
-	// - find .db files and load them
-	//   - if there is a .wal file exists for a .db, remove the .db file
-	// - find .wal files and load them into a memtable
-	//   - flush the memtable to a segment file
-	// Thus, files may be loaded in a different order than they were created,
-	// and we need to re-sort them to ensure the order is correct, as compations
-	// and other operations are based on the creation order of the segments
-
-	sort.Slice(b.disk.segments, func(i, j int) bool {
-		return b.disk.segments[i].getPath() < b.disk.segments[j].getPath()
-	})
 
 	if b.active == nil {
 		err = b.setNewActiveMemtable()

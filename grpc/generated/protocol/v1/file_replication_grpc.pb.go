@@ -12,8 +12,16 @@ import (
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-// Requires gRPC-Go v1.32.0 or later.
-const _ = grpc.SupportPackageIsVersion7
+// Requires gRPC-Go v1.64.0 or later.
+const _ = grpc.SupportPackageIsVersion9
+
+const (
+	FileReplicationService_PauseFileActivity_FullMethodName  = "/weaviate.v1.FileReplicationService/PauseFileActivity"
+	FileReplicationService_ResumeFileActivity_FullMethodName = "/weaviate.v1.FileReplicationService/ResumeFileActivity"
+	FileReplicationService_ListFiles_FullMethodName          = "/weaviate.v1.FileReplicationService/ListFiles"
+	FileReplicationService_GetFileMetadata_FullMethodName    = "/weaviate.v1.FileReplicationService/GetFileMetadata"
+	FileReplicationService_GetFile_FullMethodName            = "/weaviate.v1.FileReplicationService/GetFile"
+)
 
 // FileReplicationServiceClient is the client API for FileReplicationService service.
 //
@@ -22,8 +30,8 @@ type FileReplicationServiceClient interface {
 	PauseFileActivity(ctx context.Context, in *PauseFileActivityRequest, opts ...grpc.CallOption) (*PauseFileActivityResponse, error)
 	ResumeFileActivity(ctx context.Context, in *ResumeFileActivityRequest, opts ...grpc.CallOption) (*ResumeFileActivityResponse, error)
 	ListFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (*ListFilesResponse, error)
-	GetFileMetadata(ctx context.Context, opts ...grpc.CallOption) (FileReplicationService_GetFileMetadataClient, error)
-	GetFile(ctx context.Context, opts ...grpc.CallOption) (FileReplicationService_GetFileClient, error)
+	GetFileMetadata(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[GetFileMetadataRequest, FileMetadata], error)
+	GetFile(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[GetFileRequest, FileChunk], error)
 }
 
 type fileReplicationServiceClient struct {
@@ -35,8 +43,9 @@ func NewFileReplicationServiceClient(cc grpc.ClientConnInterface) FileReplicatio
 }
 
 func (c *fileReplicationServiceClient) PauseFileActivity(ctx context.Context, in *PauseFileActivityRequest, opts ...grpc.CallOption) (*PauseFileActivityResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PauseFileActivityResponse)
-	err := c.cc.Invoke(ctx, "/weaviate.v1.FileReplicationService/PauseFileActivity", in, out, opts...)
+	err := c.cc.Invoke(ctx, FileReplicationService_PauseFileActivity_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -44,8 +53,9 @@ func (c *fileReplicationServiceClient) PauseFileActivity(ctx context.Context, in
 }
 
 func (c *fileReplicationServiceClient) ResumeFileActivity(ctx context.Context, in *ResumeFileActivityRequest, opts ...grpc.CallOption) (*ResumeFileActivityResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ResumeFileActivityResponse)
-	err := c.cc.Invoke(ctx, "/weaviate.v1.FileReplicationService/ResumeFileActivity", in, out, opts...)
+	err := c.cc.Invoke(ctx, FileReplicationService_ResumeFileActivity_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -53,91 +63,59 @@ func (c *fileReplicationServiceClient) ResumeFileActivity(ctx context.Context, i
 }
 
 func (c *fileReplicationServiceClient) ListFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (*ListFilesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListFilesResponse)
-	err := c.cc.Invoke(ctx, "/weaviate.v1.FileReplicationService/ListFiles", in, out, opts...)
+	err := c.cc.Invoke(ctx, FileReplicationService_ListFiles_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *fileReplicationServiceClient) GetFileMetadata(ctx context.Context, opts ...grpc.CallOption) (FileReplicationService_GetFileMetadataClient, error) {
-	stream, err := c.cc.NewStream(ctx, &FileReplicationService_ServiceDesc.Streams[0], "/weaviate.v1.FileReplicationService/GetFileMetadata", opts...)
+func (c *fileReplicationServiceClient) GetFileMetadata(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[GetFileMetadataRequest, FileMetadata], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &FileReplicationService_ServiceDesc.Streams[0], FileReplicationService_GetFileMetadata_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &fileReplicationServiceGetFileMetadataClient{stream}
+	x := &grpc.GenericClientStream[GetFileMetadataRequest, FileMetadata]{ClientStream: stream}
 	return x, nil
 }
 
-type FileReplicationService_GetFileMetadataClient interface {
-	Send(*GetFileMetadataRequest) error
-	Recv() (*FileMetadata, error)
-	grpc.ClientStream
-}
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type FileReplicationService_GetFileMetadataClient = grpc.BidiStreamingClient[GetFileMetadataRequest, FileMetadata]
 
-type fileReplicationServiceGetFileMetadataClient struct {
-	grpc.ClientStream
-}
-
-func (x *fileReplicationServiceGetFileMetadataClient) Send(m *GetFileMetadataRequest) error {
-	return x.ClientStream.SendMsg(m)
-}
-
-func (x *fileReplicationServiceGetFileMetadataClient) Recv() (*FileMetadata, error) {
-	m := new(FileMetadata)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func (c *fileReplicationServiceClient) GetFile(ctx context.Context, opts ...grpc.CallOption) (FileReplicationService_GetFileClient, error) {
-	stream, err := c.cc.NewStream(ctx, &FileReplicationService_ServiceDesc.Streams[1], "/weaviate.v1.FileReplicationService/GetFile", opts...)
+func (c *fileReplicationServiceClient) GetFile(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[GetFileRequest, FileChunk], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &FileReplicationService_ServiceDesc.Streams[1], FileReplicationService_GetFile_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &fileReplicationServiceGetFileClient{stream}
+	x := &grpc.GenericClientStream[GetFileRequest, FileChunk]{ClientStream: stream}
 	return x, nil
 }
 
-type FileReplicationService_GetFileClient interface {
-	Send(*GetFileRequest) error
-	Recv() (*FileChunk, error)
-	grpc.ClientStream
-}
-
-type fileReplicationServiceGetFileClient struct {
-	grpc.ClientStream
-}
-
-func (x *fileReplicationServiceGetFileClient) Send(m *GetFileRequest) error {
-	return x.ClientStream.SendMsg(m)
-}
-
-func (x *fileReplicationServiceGetFileClient) Recv() (*FileChunk, error) {
-	m := new(FileChunk)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type FileReplicationService_GetFileClient = grpc.BidiStreamingClient[GetFileRequest, FileChunk]
 
 // FileReplicationServiceServer is the server API for FileReplicationService service.
 // All implementations must embed UnimplementedFileReplicationServiceServer
-// for forward compatibility
+// for forward compatibility.
 type FileReplicationServiceServer interface {
 	PauseFileActivity(context.Context, *PauseFileActivityRequest) (*PauseFileActivityResponse, error)
 	ResumeFileActivity(context.Context, *ResumeFileActivityRequest) (*ResumeFileActivityResponse, error)
 	ListFiles(context.Context, *ListFilesRequest) (*ListFilesResponse, error)
-	GetFileMetadata(FileReplicationService_GetFileMetadataServer) error
-	GetFile(FileReplicationService_GetFileServer) error
+	GetFileMetadata(grpc.BidiStreamingServer[GetFileMetadataRequest, FileMetadata]) error
+	GetFile(grpc.BidiStreamingServer[GetFileRequest, FileChunk]) error
 	mustEmbedUnimplementedFileReplicationServiceServer()
 }
 
-// UnimplementedFileReplicationServiceServer must be embedded to have forward compatible implementations.
-type UnimplementedFileReplicationServiceServer struct {
-}
+// UnimplementedFileReplicationServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedFileReplicationServiceServer struct{}
 
 func (UnimplementedFileReplicationServiceServer) PauseFileActivity(context.Context, *PauseFileActivityRequest) (*PauseFileActivityResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PauseFileActivity not implemented")
@@ -148,14 +126,15 @@ func (UnimplementedFileReplicationServiceServer) ResumeFileActivity(context.Cont
 func (UnimplementedFileReplicationServiceServer) ListFiles(context.Context, *ListFilesRequest) (*ListFilesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListFiles not implemented")
 }
-func (UnimplementedFileReplicationServiceServer) GetFileMetadata(FileReplicationService_GetFileMetadataServer) error {
+func (UnimplementedFileReplicationServiceServer) GetFileMetadata(grpc.BidiStreamingServer[GetFileMetadataRequest, FileMetadata]) error {
 	return status.Errorf(codes.Unimplemented, "method GetFileMetadata not implemented")
 }
-func (UnimplementedFileReplicationServiceServer) GetFile(FileReplicationService_GetFileServer) error {
+func (UnimplementedFileReplicationServiceServer) GetFile(grpc.BidiStreamingServer[GetFileRequest, FileChunk]) error {
 	return status.Errorf(codes.Unimplemented, "method GetFile not implemented")
 }
 func (UnimplementedFileReplicationServiceServer) mustEmbedUnimplementedFileReplicationServiceServer() {
 }
+func (UnimplementedFileReplicationServiceServer) testEmbeddedByValue() {}
 
 // UnsafeFileReplicationServiceServer may be embedded to opt out of forward compatibility for this service.
 // Use of this interface is not recommended, as added methods to FileReplicationServiceServer will
@@ -165,6 +144,13 @@ type UnsafeFileReplicationServiceServer interface {
 }
 
 func RegisterFileReplicationServiceServer(s grpc.ServiceRegistrar, srv FileReplicationServiceServer) {
+	// If the following call pancis, it indicates UnimplementedFileReplicationServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
 	s.RegisterService(&FileReplicationService_ServiceDesc, srv)
 }
 
@@ -178,7 +164,7 @@ func _FileReplicationService_PauseFileActivity_Handler(srv interface{}, ctx cont
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/weaviate.v1.FileReplicationService/PauseFileActivity",
+		FullMethod: FileReplicationService_PauseFileActivity_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FileReplicationServiceServer).PauseFileActivity(ctx, req.(*PauseFileActivityRequest))
@@ -196,7 +182,7 @@ func _FileReplicationService_ResumeFileActivity_Handler(srv interface{}, ctx con
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/weaviate.v1.FileReplicationService/ResumeFileActivity",
+		FullMethod: FileReplicationService_ResumeFileActivity_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FileReplicationServiceServer).ResumeFileActivity(ctx, req.(*ResumeFileActivityRequest))
@@ -214,7 +200,7 @@ func _FileReplicationService_ListFiles_Handler(srv interface{}, ctx context.Cont
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/weaviate.v1.FileReplicationService/ListFiles",
+		FullMethod: FileReplicationService_ListFiles_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FileReplicationServiceServer).ListFiles(ctx, req.(*ListFilesRequest))
@@ -223,56 +209,18 @@ func _FileReplicationService_ListFiles_Handler(srv interface{}, ctx context.Cont
 }
 
 func _FileReplicationService_GetFileMetadata_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(FileReplicationServiceServer).GetFileMetadata(&fileReplicationServiceGetFileMetadataServer{stream})
+	return srv.(FileReplicationServiceServer).GetFileMetadata(&grpc.GenericServerStream[GetFileMetadataRequest, FileMetadata]{ServerStream: stream})
 }
 
-type FileReplicationService_GetFileMetadataServer interface {
-	Send(*FileMetadata) error
-	Recv() (*GetFileMetadataRequest, error)
-	grpc.ServerStream
-}
-
-type fileReplicationServiceGetFileMetadataServer struct {
-	grpc.ServerStream
-}
-
-func (x *fileReplicationServiceGetFileMetadataServer) Send(m *FileMetadata) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func (x *fileReplicationServiceGetFileMetadataServer) Recv() (*GetFileMetadataRequest, error) {
-	m := new(GetFileMetadataRequest)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type FileReplicationService_GetFileMetadataServer = grpc.BidiStreamingServer[GetFileMetadataRequest, FileMetadata]
 
 func _FileReplicationService_GetFile_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(FileReplicationServiceServer).GetFile(&fileReplicationServiceGetFileServer{stream})
+	return srv.(FileReplicationServiceServer).GetFile(&grpc.GenericServerStream[GetFileRequest, FileChunk]{ServerStream: stream})
 }
 
-type FileReplicationService_GetFileServer interface {
-	Send(*FileChunk) error
-	Recv() (*GetFileRequest, error)
-	grpc.ServerStream
-}
-
-type fileReplicationServiceGetFileServer struct {
-	grpc.ServerStream
-}
-
-func (x *fileReplicationServiceGetFileServer) Send(m *FileChunk) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func (x *fileReplicationServiceGetFileServer) Recv() (*GetFileRequest, error) {
-	m := new(GetFileRequest)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type FileReplicationService_GetFileServer = grpc.BidiStreamingServer[GetFileRequest, FileChunk]
 
 // FileReplicationService_ServiceDesc is the grpc.ServiceDesc for FileReplicationService service.
 // It's only intended for direct use with grpc.RegisterService,

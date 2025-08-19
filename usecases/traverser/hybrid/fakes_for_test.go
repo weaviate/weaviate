@@ -106,3 +106,7 @@ func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class stri
 func (f *fakeSchemaManager) ResolveAlias(string) string {
 	return ""
 }
+
+func (f *fakeSchemaManager) GetAliasesForClass(string) []*models.Alias {
+	return nil
+}
