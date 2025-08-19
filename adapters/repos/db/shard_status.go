@@ -98,8 +98,11 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 		WithField("action", "update shard status").
 		WithField("class", s.index.Config.ClassName).
 		WithField("shard", s.name).
-		WithField("status", in).
-		WithField("readOnlyReason", reason)
+		WithField("status", in)
+	if in == storagestate.StatusReadOnly.String() {
+		s.index.logger.WithField("readOnlyReason", reason)
+	}
+	s.index.logger.Warn()
 
 	return nil
 }
