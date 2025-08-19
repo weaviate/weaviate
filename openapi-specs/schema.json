@@ -286,6 +286,11 @@
             }
           }
         },
+        "mcp": {
+          "type": "object",
+          "description": "resources applicable for MCP actions",
+          "properties": {}
+        },
         "action": {
           "type": "string",
           "description": "allowed actions in weaviate.",
@@ -321,7 +326,8 @@
             "create_aliases",
             "read_aliases",
             "update_aliases",
-            "delete_aliases"
+            "delete_aliases",
+            "manage_mcp"
           ]
         }
       },

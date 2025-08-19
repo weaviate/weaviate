@@ -7236,7 +7236,8 @@ func init() {
             "create_aliases",
             "read_aliases",
             "update_aliases",
-            "delete_aliases"
+            "delete_aliases",
+            "manage_mcp"
           ]
         },
         "aliases": {
@@ -7297,6 +7298,10 @@ func init() {
               "default": "*"
             }
           }
+        },
+        "mcp": {
+          "description": "resources applicable for MCP actions",
+          "type": "object"
         },
         "nodes": {
           "description": "resources applicable for cluster actions",
@@ -16145,7 +16150,8 @@ func init() {
             "create_aliases",
             "read_aliases",
             "update_aliases",
-            "delete_aliases"
+            "delete_aliases",
+            "manage_mcp"
           ]
         },
         "aliases": {
@@ -16206,6 +16212,10 @@ func init() {
               "default": "*"
             }
           }
+        },
+        "mcp": {
+          "description": "resources applicable for MCP actions",
+          "type": "object"
         },
         "nodes": {
           "description": "resources applicable for cluster actions",
