@@ -102,7 +102,6 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset)
 	if err != nil {
 		return err
 	}
-
 	defer r.Release()
 
 	allBytes := make([]byte, offset.end-offset.start)
@@ -119,11 +118,10 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset)
 	offset.start = offset.end
 	offset.end += uint64(keyLen)
 	r, err = s.segment.newNodeReader(offset, "segmentCursorInvertedReusable")
-
-	defer r.Release()
 	if err != nil {
 		return err
 	}
+	defer r.Release()
 
 	key := make([]byte, keyLen)
 	_, err = r.Read(key)

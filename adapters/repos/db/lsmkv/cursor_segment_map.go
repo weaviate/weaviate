@@ -152,6 +152,7 @@ func (s *segmentCursorMap) parseCollectionNode(offset nodeOffset) (segmentCollec
 		return segmentCollectionNode{}, err
 	}
 	defer r.Release()
+
 	return ParseCollectionNode(r)
 }
 
@@ -161,5 +162,6 @@ func (s *segmentCursorMap) parseInvertedNode(offset nodeOffset) (segmentCollecti
 		return segmentCollectionNode{}, err
 	}
 	defer r.Release()
+
 	return ParseInvertedNode(r)
 }
