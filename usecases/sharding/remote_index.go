@@ -267,11 +267,12 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	groupBy *searchparams.GroupBy,
 	adds additional.Properties,
 	replEnabled bool,
+	level int,
 	localNode string,
 	targetCombination *dto.TargetCombination,
 	properties []string,
 ) ([]ReplicasSearchResult, error) {
-	remoteShardQuery := func(node, host string) (ReplicasSearchResult, error) {
+	remoteShardQuery := func(ctx context.Context, node, host string) (ReplicasSearchResult, error) {
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
 			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
 		if err != nil {
@@ -279,7 +280,7 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 		}
 		return ReplicasSearchResult{Objects: objs, Scores: scores, Node: node}, nil
 	}
-	return ri.queryAllReplicas(ctx, log, shard, remoteShardQuery, localNode)
+	return ri.queryAllReplicas(ctx, log, shard, remoteShardQuery, level, localNode)
 }
 
 func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
@@ -416,7 +417,8 @@ func (ri *RemoteIndex) queryAllReplicas(
 	ctx context.Context,
 	log logrus.FieldLogger,
 	shard string,
-	do func(nodeName, host string) (ReplicasSearchResult, error),
+	do func(ctx context.Context, nodeName, host string) (ReplicasSearchResult, error),
+	level int,
 	localNode string,
 ) (resp []ReplicasSearchResult, err error) {
 	replicas, err := ri.stateGetter.ShardReplicas(ri.class, shard)
@@ -424,20 +426,23 @@ func (ri *RemoteIndex) queryAllReplicas(
 		return nil, fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, err)
 	}
 
-	queryOne := func(replica string) (ReplicasSearchResult, error) {
+	queryOne := func(ctx context.Context, replica string) (ReplicasSearchResult, error) {
 		host, ok := ri.nodeResolver.NodeHostname(replica)
 		if !ok || host == "" {
 			return ReplicasSearchResult{}, fmt.Errorf("unable to resolve node name %q to host", replica)
 		}
-		return do(replica, host)
+		return do(ctx, replica, host)
 	}
 
 	var queriesSent atomic.Int64
 
-	queryAll := func(replicas []string) (resp []ReplicasSearchResult, err error) {
+	queryAll := func(ctx context.Context, replicas []string) (resp []ReplicasSearchResult, err error) {
 		var mu sync.Mutex // protect resp + errlist
 		var searchResult ReplicasSearchResult
 		var errList error
+
+		queryCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
 
 		wg := sync.WaitGroup{}
 		for _, node := range replicas {
@@ -451,23 +456,25 @@ func (ri *RemoteIndex) queryAllReplicas(
 			enterrors.GoWrapper(func() {
 				defer wg.Done()
 
-				if errC := ctx.Err(); errC != nil {
-					mu.Lock()
-					errList = errors.Join(errList, fmt.Errorf("error while searching shard=%s replica node=%s: %w", shard, node, errC))
-					mu.Unlock()
-					return
-				}
-
 				queriesSent.Add(1)
-				if searchResult, err = queryOne(node); err != nil {
+
+				if searchResult, err = queryOne(queryCtx, node); err != nil {
 					mu.Lock()
-					errList = errors.Join(errList, fmt.Errorf("error while searching shard=%s replica node=%s: %w", shard, node, err))
+					if len(resp) < level {
+						errList = errors.Join(errList, fmt.Errorf("error while searching shard=%s replica node=%s: %w", shard, node, err))
+					}
 					mu.Unlock()
 					return
 				}
 
 				mu.Lock()
 				resp = append(resp, searchResult)
+
+				if len(resp) >= level {
+					// If we have enough results, cancel the context to stop further queries
+					cancel()
+				}
+
 				mu.Unlock()
 			}, log)
 		}
@@ -481,12 +488,12 @@ func (ri *RemoteIndex) queryAllReplicas(
 		if len(resp) == 0 {
 			return nil, errList
 		}
-		if len(resp) != int(queriesSent.Load()) {
+		if len(resp) < level && len(resp) != int(queriesSent.Load()) {
 			log.Warnf("full replicas search response does not match replica count: response=%d replicas=%d", len(resp), len(replicas))
 		}
 		return resp, nil
 	}
-	return queryAll(replicas)
+	return queryAll(ctx, replicas)
 }
 
 func (ri *RemoteIndex) queryReplicas(

@@ -95,6 +95,10 @@ func (r *Replicator) AllHostnames() []string {
 	return r.resolver.AllHostnames()
 }
 
+func (r *Replicator) State(shardName string, cl ConsistencyLevel, directCandidate string) (res rState, err error) {
+	return r.resolver.State(shardName, cl, directCandidate)
+}
+
 func (r *Replicator) PutObject(ctx context.Context,
 	shard string,
 	obj *storobj.Object,
