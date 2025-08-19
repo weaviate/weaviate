@@ -32,7 +32,6 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	clusterRouter "github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
@@ -839,7 +838,7 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 				tenant: models.TenantActivityStatusHOT,
 			}, nil
 		}).Maybe()
-	schemaReaderMock := schemaTypes.NewMockSchemaReader(f.t)
+	schemaReaderMock := schema.NewMockSchemaReader(f.t)
 	schemaReaderMock.EXPECT().CopyShardingState(mock.Anything).RunAndReturn(func(class string) *sharding.State {
 		state := &sharding.State{
 			IndexID:             "idx-123",
