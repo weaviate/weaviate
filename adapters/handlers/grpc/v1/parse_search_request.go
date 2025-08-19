@@ -1251,15 +1251,6 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 	}, targetCombination, nil
 }
 
-func indexOf(slice []string, value string) int {
-	for i, v := range slice {
-		if v == value {
-			return i
-		}
-	}
-	return -1
-}
-
 // extractPropertiesForModules extracts properties that are needed by modules but are not requested by the user
 func (p *Parser) extractPropertiesForModules(params *dto.GetParams) error {
 	var additionalProps []string
