@@ -824,7 +824,11 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 
 		h.shardedNodeLocks.RLockAll()
 		for found < seeds {
-			candidate := queue.Dequeue().(uint64)
+			untyped := queue.Dequeue()
+			if untyped == nil {
+				break
+			}
+			candidate := untyped.(uint64)
 			h.nodes[candidate].connections.CopyLayer(connsSlice.Slice, 0)
 			for _, nn := range connsSlice.Slice {
 				if visited.Visited(nn) {
