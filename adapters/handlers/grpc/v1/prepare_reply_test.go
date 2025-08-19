@@ -1184,7 +1184,7 @@ func TestGRPCReply(t *testing.T) {
 				Objects: []*pb.SearchResult{
 					{
 						Properties: &pb.PropertiesResult{
-							NonRefProperties: newStruct(t, map[string]interface{}{"word": "word"}),
+							NonRefProps: &pb.Properties{Fields: map[string]*pb.Value{"word": {Kind: &pb.Value_TextValue{TextValue: "word"}}}},
 							RefProps: []*pb.RefPropertiesResult{
 								{
 									PropName: "other",
@@ -1311,8 +1311,8 @@ func TestGRPCReply(t *testing.T) {
 									PropName: "other",
 									Properties: []*pb.PropertiesResult{
 										{
-											NonRefProperties: newStruct(t, map[string]interface{}{"something": "other"}),
-											Metadata:         &pb.MetadataResult{Vector: []float32{2}, Id: UUID1.String()},
+											NonRefProps: &pb.Properties{Fields: map[string]*pb.Value{"something": {Kind: &pb.Value_TextValue{TextValue: "other"}}}},
+											Metadata:    &pb.MetadataResult{Vector: []float32{2}, Id: UUID1.String()},
 										},
 									},
 								},

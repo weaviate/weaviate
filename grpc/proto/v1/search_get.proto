@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package weaviate.v1;
 
-import "google/protobuf/struct.proto";
 import "v1/base.proto";
 import "v1/base_search.proto";
 import "v1/generative.proto";
@@ -169,16 +168,16 @@ message MetadataResult {
 }
 
 message PropertiesResult {
-  google.protobuf.Struct non_ref_properties = 1 [deprecated = true];
+  reserved 1;
   repeated RefPropertiesResult ref_props = 2;
   string target_collection = 3;
   MetadataResult metadata = 4;
-  repeated NumberArrayProperties number_array_properties = 5 [deprecated = true];
-  repeated IntArrayProperties int_array_properties = 6 [deprecated = true];
-  repeated TextArrayProperties text_array_properties = 7 [deprecated = true];
-  repeated BooleanArrayProperties boolean_array_properties = 8 [deprecated = true];
-  repeated ObjectProperties object_properties = 9 [deprecated = true];
-  repeated ObjectArrayProperties object_array_properties = 10 [deprecated = true];
+  reserved 5;
+  reserved 6;
+  reserved 7;
+  reserved 8;
+  reserved 9;
+  reserved 10;
   Properties non_ref_props = 11;
   bool ref_props_requested = 12;
 }
