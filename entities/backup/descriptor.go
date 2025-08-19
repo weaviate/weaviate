@@ -252,7 +252,7 @@ type ClassDescriptor struct {
 	// AliasesIncluded makes the old backup backward compatible when
 	// old backups are restored by newer ClassDescriptor that supports
 	// aliases
-	AliasesIncluded         bool               `json:"aliases_included"`
+	AliasesIncluded         bool               `json:"aliasesIncluded"`
 	Chunks                  map[int32][]string `json:"chunks,omitempty"`
 	Error                   error              `json:"-"`
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression

@@ -53,7 +53,8 @@ type queryParams interface {
 	ProviderName() string
 	ReturnMetadataForSingle() bool
 	ReturnMetadataForGrouped() bool
-	Debug() bool
+	ReturnDebugForSingle() bool
+	ReturnDebugForGrouped() bool
 }
 
 func NewReplier(logger logrus.FieldLogger, queryParams queryParams, uses127Api bool) *Replier {
@@ -356,10 +357,15 @@ func (r *Replier) extractGenerativeReply(_additional map[string]any, params any)
 				return nil, nil, err
 			}
 		}
-		if generateResults["debug"] != nil && r.queryParams.Debug() {
+		if generateResults["debug"] != nil && (r.queryParams.ReturnDebugForSingle() || r.queryParams.ReturnDebugForGrouped()) {
 			if debug, ok := generateResults["debug"].(*modulecapabilities.GenerateDebugInformation); ok && debug != nil {
 				prompt := debug.Prompt
-				reply.Debug = &pb.GenerativeDebug{FullPrompt: &prompt}
+				if r.queryParams.ReturnDebugForSingle() {
+					reply.Debug = &pb.GenerativeDebug{FullPrompt: &prompt}
+				}
+				if r.queryParams.ReturnDebugForGrouped() {
+					grouped.Debug = &pb.GenerativeDebug{FullPrompt: &prompt}
+				}
 			}
 		}
 		if r.queryParams.ReturnMetadataForSingle() || r.queryParams.ReturnMetadataForGrouped() {

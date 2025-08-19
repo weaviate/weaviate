@@ -141,6 +141,7 @@ func TestUpdateIndexShards(t *testing.T) {
 		newShards      []string
 		expectedShards []string
 		mustLoad       bool
+		lazyLoading    bool
 	}{
 		{
 			name:           "add new shard with lazy loading",
@@ -148,6 +149,7 @@ func TestUpdateIndexShards(t *testing.T) {
 			newShards:      []string{"shard1", "shard2", "shard3"},
 			expectedShards: []string{"shard1", "shard2", "shard3"},
 			mustLoad:       false,
+			lazyLoading:    false,
 		},
 		{
 			name:           "remove shard with lazy loading",
@@ -155,6 +157,7 @@ func TestUpdateIndexShards(t *testing.T) {
 			newShards:      []string{"shard1", "shard3"},
 			expectedShards: []string{"shard1", "shard3"},
 			mustLoad:       false,
+			lazyLoading:    false,
 		},
 		{
 			name:           "keep existing shards with lazy loading",
@@ -162,6 +165,7 @@ func TestUpdateIndexShards(t *testing.T) {
 			newShards:      []string{"shard1", "shard3"},
 			expectedShards: []string{"shard1", "shard3"},
 			mustLoad:       false,
+			lazyLoading:    false,
 		},
 		{
 			name:           "add new shard with immediate loading",
@@ -169,6 +173,7 @@ func TestUpdateIndexShards(t *testing.T) {
 			newShards:      []string{"shard1", "shard2", "shard3"},
 			expectedShards: []string{"shard1", "shard2", "shard3"},
 			mustLoad:       true,
+			lazyLoading:    false,
 		},
 		{
 			name:           "remove shard with immediate loading",
@@ -176,6 +181,7 @@ func TestUpdateIndexShards(t *testing.T) {
 			newShards:      []string{"shard1", "shard3"},
 			expectedShards: []string{"shard1", "shard3"},
 			mustLoad:       true,
+			lazyLoading:    false,
 		},
 		{
 			name:           "keep existing shards with immediate loading",
@@ -183,6 +189,31 @@ func TestUpdateIndexShards(t *testing.T) {
 			newShards:      []string{"shard1", "shard3"},
 			expectedShards: []string{"shard1", "shard3"},
 			mustLoad:       true,
+			lazyLoading:    false,
+		},
+		{
+			name:           "add new shard with lazy loading enabled",
+			initialShards:  []string{"shard1", "shard2"},
+			newShards:      []string{"shard1", "shard2", "shard3"},
+			expectedShards: []string{"shard1", "shard2", "shard3"},
+			mustLoad:       false,
+			lazyLoading:    true,
+		},
+		{
+			name:           "remove shard with lazy loading enabled",
+			initialShards:  []string{"shard1", "shard2", "shard3"},
+			newShards:      []string{"shard1", "shard3"},
+			expectedShards: []string{"shard1", "shard3"},
+			mustLoad:       false,
+			lazyLoading:    true,
+		},
+		{
+			name:           "keep existing shards with lazy loading enabled",
+			initialShards:  []string{"shard1", "shard3"},
+			newShards:      []string{"shard1", "shard3"},
+			expectedShards: []string{"shard1", "shard3"},
+			mustLoad:       false,
+			lazyLoading:    true,
 		},
 	}
 
@@ -220,10 +251,11 @@ func TestUpdateIndexShards(t *testing.T) {
 
 			// Create index with proper configuration
 			index, err := NewIndex(ctx, IndexConfig{
-				ClassName:         schema.ClassName("TestClass"),
-				RootPath:          t.TempDir(),
-				ReplicationFactor: 1,
-				ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+				ClassName:             schema.ClassName("TestClass"),
+				RootPath:              t.TempDir(),
+				ReplicationFactor:     1,
+				ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+				DisableLazyLoadShards: !tt.lazyLoading, // Enable lazy loading when lazyLoading is true
 			}, initialState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
@@ -258,11 +290,21 @@ func TestUpdateIndexShards(t *testing.T) {
 			err = migrator.updateIndexShards(ctx, index, newState)
 			require.NoError(t, err)
 
-			// Verify expected shards exist and are ready
+			// Verify expected shards exist and are of the correct type and status
 			for _, expectedShard := range tt.expectedShards {
 				shard := index.shards.Load(expectedShard)
 				require.NotNil(t, shard, "shard %s should exist", expectedShard)
-				require.Equal(t, storagestate.StatusReady, shard.GetStatus(), "shard %s should be ready", expectedShard)
+
+				_, isLazy := shard.(*LazyLoadShard)
+				if tt.lazyLoading {
+					// If lazyLoading is true, shard should be a LazyLoadShard
+					require.True(t, isLazy, "shard %s should be a LazyLoadShard when lazyLoading=true", expectedShard)
+					status := shard.GetStatus()
+					require.True(t, status == storagestate.StatusLazyLoading, "shard %s should be in lazy loading state", expectedShard)
+				} else {
+					require.False(t, isLazy, "shard %s should be a regular Shard when lazyLoading=false", expectedShard)
+					require.Equal(t, storagestate.StatusReady, shard.GetStatus(), "shard %s should be ready", expectedShard)
+				}
 			}
 
 			// Verify removed shards are dropped
