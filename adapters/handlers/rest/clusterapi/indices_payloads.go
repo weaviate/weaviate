@@ -402,10 +402,6 @@ func (p vectorDistanceResultsPayload) Unmarshal(in []byte) ([]float32, error) {
 		read += 4
 	}
 
-	if read != uint64(len(in)) {
-		return nil, errors.Errorf("corrupt read: %d != %d", read, len(in))
-	}
-
 	return dists, nil
 }
 
@@ -569,10 +565,6 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 	for i := range dists {
 		dists[i] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
 		read += 4
-	}
-
-	if read != uint64(len(in)) {
-		return nil, nil, errors.Errorf("corrupt read: %d != %d", read, len(in))
 	}
 
 	return objs, dists, nil
