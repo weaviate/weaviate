@@ -80,27 +80,48 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/suspend", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("paused.mig", false, logger, appState, r, w)
+		changeFile("paused.mig", false, nil, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/resume", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("paused.mig", true, logger, appState, r, w)
+		changeFile("paused.mig", true, nil, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/rollback", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("rollback.mig", false, logger, appState, r, w)
+		changeFile("rollback.mig", false, nil, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/unrollback", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("rollback.mig", true, logger, appState, r, w)
+		changeFile("rollback.mig", true, nil, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/start", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("start.mig", false, logger, appState, r, w)
+		changeFile("start.mig", false, nil, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/unstart", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("start.mig", true, logger, appState, r, w)
+		changeFile("start.mig", true, nil, logger, appState, r, w)
+	}))
+
+	http.HandleFunc("/debug/index/rebuild/inverted/reset", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		changeFile("reset.mig", false, nil, logger, appState, r, w)
+	}))
+
+	http.HandleFunc("/debug/index/rebuild/inverted/unreset", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		changeFile("reset.mig", true, nil, logger, appState, r, w)
+	}))
+
+	http.HandleFunc("/debug/index/rebuild/inverted/setProperties", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		propertiesToMigrateString := strings.TrimSpace(r.URL.Query().Get("properties"))
+
+		if propertiesToMigrateString == "" {
+			http.Error(w, "properties is required", http.StatusBadRequest)
+			return
+		}
+		propertiesToMigrate := strings.Split(propertiesToMigrateString, ",")
+		props := []byte(strings.Join(propertiesToMigrate, ","))
+
+		changeFile("properties.mig", false, props, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/reload", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -140,7 +161,7 @@ func setupDebugHandlers(appState *state.State) {
 						logger.WithField("shard", shardName).Error("failed to reinit shard " + err.Error())
 						output[shardName] = map[string]string{
 							"shard":       shardName,
-							"shardStatus": shard.GetStatusNoLoad().String(),
+							"shardStatus": shard.GetStatus().String(),
 							"status":      "error",
 							"message":     "failed to reinit shard",
 							"error":       err.Error(),
@@ -149,14 +170,14 @@ func setupDebugHandlers(appState *state.State) {
 					}
 					output[shardName] = map[string]string{
 						"shard":       shardName,
-						"shardStatus": shard.GetStatusNoLoad().String(),
+						"shardStatus": shard.GetStatus().String(),
 						"status":      "reinit",
 						"message":     "reinit shard started",
 					}
 				} else {
 					output[shardName] = map[string]string{
 						"shard":       shardName,
-						"shardStatus": shard.GetStatusNoLoad().String(),
+						"shardStatus": shard.GetStatus().String(),
 						"status":      "skipped",
 						"message":     fmt.Sprintf("shard %s not selected", shardName),
 					}
@@ -217,7 +238,7 @@ func setupDebugHandlers(appState *state.State) {
 					shardPath := rootPath + "/" + classNameString + "/" + shardName + "/lsm/"
 					paths[shardName] = shardPath
 					output[shardName] = map[string]interface{}{
-						"shardStatus": shard.GetStatusNoLoad().String(),
+						"shardStatus": shard.GetStatus().String(),
 						"status":      "unknown",
 					}
 					return nil

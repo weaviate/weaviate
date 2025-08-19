@@ -695,7 +695,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 
 	amount := 10
 	shd.Index().Config.TrackVectorDimensions = true
-	shd.resetDimensionsLSM()
+	shd.resetDimensionsLSM(ctx)
 
 	t.Run("count dimensions before insert", func(t *testing.T) {
 		dims, err := shd.Dimensions(ctx, "")
@@ -724,7 +724,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	})
 
 	t.Run("reset dimensions lsm", func(t *testing.T) {
-		err := shd.resetDimensionsLSM()
+		err := shd.resetDimensionsLSM(ctx)
 		require.Nil(t, err)
 	})
 

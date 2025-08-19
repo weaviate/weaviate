@@ -26,7 +26,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -140,7 +140,7 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
