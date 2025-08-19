@@ -11,9 +11,7 @@
 
 package config
 
-import (
-	"strings"
-)
+import "strings"
 
 func Enabled(value string) bool {
 	switch strings.ToLower(value) {
