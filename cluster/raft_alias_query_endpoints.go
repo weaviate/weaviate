@@ -64,6 +64,7 @@ func (s *Raft) GetAlias(ctx context.Context, aliasName string) (*models.Alias, e
 
 	return alias, nil
 }
+
 func (s *Raft) GetAliases(ctx context.Context, alias string, class *models.Class) ([]*models.Alias, error) {
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
