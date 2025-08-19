@@ -46,12 +46,16 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 	return filteredAliases, nil
 }
 
-func (h *Handler) GetAlias(ctx context.Context, principal *models.Principal, alias string) ([]*models.Alias, error) {
+func (h *Handler) GetAlias(ctx context.Context, principal *models.Principal, alias string) (*models.Alias, error) {
 	alias = schema.UppercaseClassName(alias)
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.Aliases("", alias)...); err != nil {
+	a, err := h.schemaManager.GetAlias(ctx, alias)
+	if err != nil {
 		return nil, err
 	}
-	return h.GetAliases(ctx, principal, alias, "")
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.Aliases(a.Class, alias)...); err != nil {
+		return nil, err
+	}
+	return a, nil
 }
 
 func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
