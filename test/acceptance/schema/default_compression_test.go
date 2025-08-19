@@ -279,7 +279,8 @@ func TestDefaultCompressionOverride(t *testing.T) {
 	viconfig := payload.Classes[0].VectorIndexConfig
 	require.NotNil(t, viconfig)
 	rq := viconfig.(map[string]interface{})["rq"]
-	require.Nil(t, rq)
+	require.NotNil(t, rq)
+	require.False(t, rq.(map[string]interface{})["enabled"].(bool))
 	bq := viconfig.(map[string]interface{})["bq"]
 	require.NotNil(t, bq)
 	enabled := bq.(map[string]interface{})["enabled"].(bool)
