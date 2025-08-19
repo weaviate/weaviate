@@ -97,6 +97,8 @@ func FromEnv(config *Config) error {
 	if opt != "" {
 		if parsed, err := time.ParseDuration(opt); err == nil {
 			timeout = parsed
+		} else {
+			return fmt.Errorf("parse WEAVIATE_MINIMUM_TIMEOUT as duration: %w", err)
 		}
 	}
 
