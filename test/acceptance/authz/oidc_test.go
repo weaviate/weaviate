@@ -271,12 +271,16 @@ func TestRbacWithOIDCGroups(t *testing.T) {
 			var forbidden *clschema.SchemaObjectsCreateForbidden
 			require.True(t, errors.As(err, &forbidden))
 
+			ownInfo := helper.GetInfoForOwnUser(t, tokenCustom)
+			require.Contains(t, ownInfo.Groups, "custom-group")
+			require.Len(t, ownInfo.Roles, 0)
+
 			// assigning role to group and now user has permission
 			helper.AssignRoleToGroup(t, tokenAdmin, createSchemaRoleName, "custom-group")
 			err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
 			require.NoError(t, err)
 
-			ownInfo := helper.GetInfoForOwnUser(t, tokenCustom)
+			ownInfo = helper.GetInfoForOwnUser(t, tokenCustom)
 			require.Contains(t, ownInfo.Groups, "custom-group")
 			require.Len(t, ownInfo.Roles, 1)
 			require.Equal(t, *ownInfo.Roles[0].Name, createSchemaRoleName)
