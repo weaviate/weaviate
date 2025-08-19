@@ -119,7 +119,7 @@ type Config struct {
 	DefaultVectorizerModule             string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
 	DefaultVectorDistanceMetric         string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
 	EnableModules                       string                   `json:"enable_modules" yaml:"enable_modules"`
-	EnableApiBasedModules               bool                     `json:"enable_api_based_modules" yaml:"enable_api_based_modules"`
+	EnableApiBasedModules               bool                     `json:"api_based_modules_disabled" yaml:"api_based_modules_disabled"`
 	ModulesPath                         string                   `json:"modules_path" yaml:"modules_path"`
 	ModuleHttpClientTimeout             time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
 	AutoSchema                          AutoSchema               `json:"auto_schema" yaml:"auto_schema"`

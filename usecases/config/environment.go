@@ -666,7 +666,9 @@ func FromEnv(config *Config) error {
 		config.EnableModules = v
 	}
 
-	if entcfg.Enabled(os.Getenv("ENABLE_API_BASED_MODULES")) {
+	if entcfg.Enabled(os.Getenv("API_BASED_MODULES_DISABLED")) {
+		config.EnableApiBasedModules = false
+	} else {
 		config.EnableApiBasedModules = true
 	}
 
