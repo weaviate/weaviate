@@ -23,9 +23,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -86,7 +86,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			Classes: []*models.Class{class},
 		},
 	}}
-	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
@@ -217,7 +217,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 				Objects: &models.Schema{},
 			},
 		}
-		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
 		mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 		mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
@@ -496,7 +496,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 				Objects: &models.Schema{},
 			},
 		}
-		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
 		mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 		mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
@@ -862,7 +862,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 				Objects: &models.Schema{},
 			},
 		}
-		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
 		mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 		mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
