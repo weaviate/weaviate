@@ -29,7 +29,6 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/cluster/schema/types"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -45,6 +44,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -95,7 +95,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 	client := clients.NewRemoteIndex(&http.Client{})
 	nodesClient := clients.NewRemoteNode(&http.Client{})
 	replicaClient := clients.NewReplicationClient(&http.Client{})
-	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
 	mockSchemaReader.EXPECT().
 		ShardReplicas(mock.Anything, mock.Anything).
@@ -217,6 +217,10 @@ func (f *fakeSchemaManager) ReadOnlyClassWithVersion(ctx context.Context, class 
 
 func (f *fakeSchemaManager) ResolveAlias(string) string {
 	return ""
+}
+
+func (f *fakeSchemaManager) GetAliasesForClass(string) []*models.Alias {
+	return nil
 }
 
 func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {

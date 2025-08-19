@@ -34,7 +34,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -47,6 +46,7 @@ import (
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -280,10 +280,10 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 	})
 }
 
-func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger, *schemaTypes.MockSchemaReader) {
+func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger, *schemaUC.MockSchemaReader) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
-	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -304,7 +304,7 @@ func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger, *schemaTypes.MockSc
 	return repo, logger, mockSchemaReader
 }
 
-func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, mockSchemaReader *schemaTypes.MockSchemaReader, fixedShardState bool, classes ...*models.Class) func(t *testing.T) {
+func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, mockSchemaReader *schemaUC.MockSchemaReader, fixedShardState bool, classes ...*models.Class) func(t *testing.T) {
 	return func(t *testing.T) {
 		var shardState *sharding.State
 		if fixedShardState {

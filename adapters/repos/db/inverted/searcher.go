@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -578,9 +579,9 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		// if the operator is like, we cannot apply the regular text-splitting
 		// logic as it would remove all wildcard symbols
 		if operator == filters.OperatorLike {
-			terms = helpers.TokenizeWithWildcards(prop.Tokenization, valueString)
+			terms = tokenizer.TokenizeWithWildcards(prop.Tokenization, valueString)
 		} else {
-			terms = helpers.Tokenize(prop.Tokenization, valueString)
+			terms = tokenizer.Tokenize(prop.Tokenization, valueString)
 		}
 	default:
 		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
