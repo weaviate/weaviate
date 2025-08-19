@@ -63,7 +63,7 @@ func TestBigramModule_VectorizeInput(t *testing.T) {
 	mod.activeVectoriser = "alphabet"
 	input := "hello world"
 	expectedVector, _ := alphabet2Vector(input)
-	cfg := modules.NewClassBasedModuleConfig(&models.Class{}, mod.Name(), "", "")
+	cfg := modules.NewClassBasedModuleConfig(&models.Class{}, mod.Name(), "", "", nil)
 	vector, err := mod.VectorizeInput(context.Background(), input, cfg)
 	assert.NoError(t, err)
 	assert.Equal(t, expectedVector, vector)

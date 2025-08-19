@@ -13,11 +13,13 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/multimodal"
 )
 
 func TestMulti2VecJinaAI_SingleNode(t *testing.T) {
@@ -29,6 +31,7 @@ func TestMulti2VecJinaAI_SingleNode(t *testing.T) {
 	compose, err := docker.New().
 		WithWeaviate().
 		WithMulti2VecJinaAI(apiKey).
+		WithWeaviateEnv("MODULES_CLIENT_TIMEOUT", fmt.Sprintf("%.0fs", multimodal.DefaultTimeout.Seconds())).
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {

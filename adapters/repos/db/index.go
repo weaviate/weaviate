@@ -97,7 +97,21 @@ type shardMap sync.Map
 // If f returns an error, range stops the iteration
 func (m *shardMap) Range(f func(name string, shard ShardLike) error) (err error) {
 	(*sync.Map)(m).Range(func(key, value any) bool {
-		err = f(key.(string), value.(ShardLike))
+		// Safe type assertion for key
+		name, ok := key.(string)
+		if !ok {
+			// Skip invalid keys
+			return true
+		}
+
+		// Safe type assertion for value
+		shard, ok := value.(ShardLike)
+		if !ok || shard == nil {
+			// Skip invalid or nil shards
+			return true
+		}
+
+		err = f(name, shard)
 		return err == nil
 	})
 	return err
@@ -110,7 +124,19 @@ func (m *shardMap) RangeConcurrently(logger logrus.FieldLogger, f func(name stri
 	eg := enterrors.NewErrorGroupWrapper(logger)
 	eg.SetLimit(_NUMCPU)
 	(*sync.Map)(m).Range(func(key, value any) bool {
-		name, shard := key.(string), value.(ShardLike)
+		name, ok := key.(string)
+		if !ok {
+			// Skip invalid keys
+			return true
+		}
+
+		// Safe type assertion for value
+		shard, ok := value.(ShardLike)
+		if !ok || shard == nil {
+			// Skip invalid or nil shards
+			return true
+		}
+
 		eg.Go(func() error {
 			return f(name, shard)
 		}, name, shard)
@@ -540,6 +566,12 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 // call ForEachLoadedShard instead.
 // Note: except Dropping and Shutting Down
 func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
+	// Check if the index is being dropped or shut down to avoid panics when the index is being deleted
+	if i.closingCtx.Err() != nil {
+		i.logger.WithField("action", "for_each_shard").Debug("index is being dropped or shut down")
+		return nil
+	}
+
 	return i.shards.Range(f)
 }
 
@@ -556,6 +588,11 @@ func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) e
 }
 
 func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {
+	// Check if the index is being dropped or shut down to avoid panics when the index is being deleted
+	if i.closingCtx.Err() != nil {
+		i.logger.WithField("action", "for_each_shard_concurrently").Debug("index is being dropped or shut down")
+		return nil
+	}
 	return i.shards.RangeConcurrently(i.logger, f)
 }
 
@@ -2044,7 +2081,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	// However we also have cases (related to FORCE_FULL_REPLICAS_SEARCH) where we want to avoid waiting for a shard to
 	// load, therefore we only call GetStatusNoLoad if replication is enabled -> another replica will be able to answer
 	// the request and we want to exit early
-	if i.replicationEnabled() && shard.GetStatusNoLoad() == storagestate.StatusLoading {
+	if i.replicationEnabled() && shard.GetStatus() == storagestate.StatusLoading {
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	} else {
 		if shard.GetStatus() == storagestate.StatusLoading {
@@ -2490,13 +2527,18 @@ func (i *Index) dropShards(names []string) error {
 
 			shard, ok := i.shards.LoadAndDelete(name)
 			if !ok {
-				return nil // shard already does not exist (or inactive)
-			}
-
-			if err := shard.drop(); err != nil {
-				ec.Add(err)
-				i.logger.WithField("action", "drop_shard").
-					WithField("shard", shard.ID()).Error(err)
+				// Ensure that if the shard is not loaded we delete any reference on disk for any data.
+				// This ensures that we also delete inactive shards/tenants
+				if err := os.RemoveAll(shardPath(i.path(), name)); err != nil {
+					ec.Add(err)
+					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
+				}
+			} else {
+				// If shard is loaded use the native primitive to drop it
+				if err := shard.drop(); err != nil {
+					ec.Add(err)
+					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
+				}
 			}
 
 			return nil
@@ -2962,7 +3004,11 @@ func convertToVectorIndexConfig(config interface{}) schemaConfig.VectorIndexConf
 	if empty, ok := config.(map[string]interface{}); ok && len(empty) == 0 {
 		return nil
 	}
-	return config.(schemaConfig.VectorIndexConfig)
+	// Safe type assertion
+	if vectorIndexConfig, ok := config.(schemaConfig.VectorIndexConfig); ok {
+		return vectorIndexConfig
+	}
+	return nil
 }
 
 func convertToVectorIndexConfigs(configs map[string]models.VectorConfig) map[string]schemaConfig.VectorIndexConfig {

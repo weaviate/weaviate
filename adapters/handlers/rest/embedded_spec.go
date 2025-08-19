@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.32.1"
+    "version": "1.32.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -5963,10 +5963,6 @@ func init() {
             "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
             "type": "string"
           },
-          "path": {
-            "description": "destination path of backup files proper to selected backend",
-            "type": "string"
-          },
           "status": {
             "description": "status of backup process",
             "type": "string",
@@ -8890,7 +8886,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.32.1"
+    "version": "1.32.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -14905,10 +14901,6 @@ func init() {
         },
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-          "type": "string"
-        },
-        "path": {
-          "description": "destination path of backup files proper to selected backend",
           "type": "string"
         },
         "status": {
