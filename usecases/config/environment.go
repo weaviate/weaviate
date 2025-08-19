@@ -91,6 +91,18 @@ func FromEnv(config *Config) error {
 		config.TrackVectorDimensions = true
 	}
 
+	timeout := 30 * time.Second
+	opt := os.Getenv("MINIMUM_INTERNAL_TIMEOUT")
+	if opt != "" {
+		if parsed, err := time.ParseDuration(opt); err == nil {
+			timeout = parsed
+		} else {
+			return fmt.Errorf("parse MINIMUM_INTERNAL_TIMEOUT as duration: %w", err)
+		}
+	}
+
+	config.MinimumInternalTimeout = timeout
+
 	if v := os.Getenv("TRACK_VECTOR_DIMENSIONS_INTERVAL"); v != "" {
 		interval, err := time.ParseDuration(v)
 		if err != nil {
