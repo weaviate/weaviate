@@ -302,6 +302,8 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		var filterDocIds helpers.AllowList
 
 		if filters != nil {
+			s.index.logger.WithField("filters", filters.Root).WithField("query", keywordRanking.Query).Warn("Filtering")
+
 			objs, err = inverted.NewSearcher(s.index.logger, s.store,
 				s.index.getSchema.ReadOnlyClass, s.propertyIndices,
 				s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
