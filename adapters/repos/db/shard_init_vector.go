@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ivf"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
@@ -75,30 +76,43 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			// here we label the main vector index as such.
 			vecIdxID := s.vectorIndexID(targetVector)
 
-			vi, err := hnsw.New(hnsw.Config{
-				Logger:               s.index.logger,
-				RootPath:             s.path(),
-				ID:                   vecIdxID,
-				ShardName:            s.name,
-				ClassName:            s.index.Config.ClassName.String(),
-				PrometheusMetrics:    s.promMetrics,
-				VectorForIDThunk:     hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
-				TempVectorForIDThunk: hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
-				DistanceProvider:     distProv,
-				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-					return hnsw.NewCommitLogger(s.path(), vecIdxID,
-						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
-						hnsw.WithAllocChecker(s.index.allocChecker),
-						hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
-						// consistent with previous logic where the individual limit is 1/5 of the combined limit
-						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
-					)
-				},
-				AllocChecker:           s.index.allocChecker,
-				WaitForCachePrefill:    s.index.Config.HNSWWaitForCachePrefill,
-				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
-			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-				s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, s.store)
+			vi, err := ivf.New( /*hnsw.Config{
+					Logger:               s.index.logger,
+					RootPath:             s.path(),
+					ID:                   vecIdxID,
+					ShardName:            s.name,
+					ClassName:            s.index.Config.ClassName.String(),
+					PrometheusMetrics:    s.promMetrics,
+					VectorForIDThunk:     hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+					TempVectorForIDThunk: hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
+					DistanceProvider:     distProv,
+					MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+						return hnsw.NewCommitLogger(s.path(), vecIdxID,
+							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+							hnsw.WithAllocChecker(s.index.allocChecker),
+							hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
+							// consistent with previous logic where the individual limit is 1/5 of the combined limit
+							hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
+						)
+					},
+					AllocChecker:           s.index.allocChecker,
+					WaitForCachePrefill:    s.index.Config.HNSWWaitForCachePrefill,
+					VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
+				}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+					s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, s.store*/
+				ivf.Config{
+					Logger:           s.index.logger,
+					RootPath:         s.path(),
+					ID:               vecIdxID,
+					DistanceProvider: distProv,
+					VectorForIDThunk: hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+					NumCentroids:     256,
+					NumRotations:     100,
+					AllocChecker:     s.index.allocChecker,
+				}, ivf.UserConfig{
+					NumCentroids: 2,
+					NumRotations: 2,
+				})
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 			}
