@@ -92,12 +92,12 @@ func FromEnv(config *Config) error {
 	}
 
 	timeout := 30 * time.Second
-	opt := os.Getenv("WEAVIATE_MINIMUM_TIMEOUT")
+	opt := os.Getenv("MINIMUM_INTERNAL_TIMEOUT")
 	if opt != "" {
 		if parsed, err := time.ParseDuration(opt); err == nil {
 			timeout = parsed
 		} else {
-			return fmt.Errorf("parse WEAVIATE_MINIMUM_TIMEOUT as duration: %w", err)
+			return fmt.Errorf("parse MINIMUM_INTERNAL_TIMEOUT as duration: %w", err)
 		}
 	}
 
