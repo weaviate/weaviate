@@ -106,12 +106,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					ID:               vecIdxID,
 					DistanceProvider: distProv,
 					VectorForIDThunk: hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
-					NumCentroids:     256,
-					NumRotations:     100,
 					AllocChecker:     s.index.allocChecker,
-				}, ivf.UserConfig{
-					NumCentroids: 2,
-					NumRotations: 2,
 				})
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())

@@ -4,16 +4,14 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"math/rand"
+	"math/bits"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -22,202 +20,18 @@ import (
 )
 
 const (
-	DefaultCentroids = 256 // 2^8 para usar 1 byte
-	DefaultRotations = 10  // número de rotaciones
-	TrucAt           = 384
+	TrucAt    = 64
+	MaxLevels = 12
+	rate      = 0.66
+	size      = 100_000
 )
-
-type Vector []float32
-
-type VectorIndexEncoder struct {
-	vectors         [][]Vector         // [nivel][índice_vector]Vector
-	vectorLength    int                // longitud fija de cada vector
-	vectorsPerLevel int                // número de vectores por nivel (máx 256)
-	numLevels       int                // número de niveles
-	provider        distancer.Provider // provider para cálculo de distancias
-	rng             *rand.Rand         // generador de números aleatorios
-}
-
-func NewVectorIndex(vectorLength, vectorsPerLevel, numLevels int, provider distancer.Provider) (*VectorIndexEncoder, error) {
-	if vectorsPerLevel > 256 {
-		return nil, fmt.Errorf("vectorsPerLevel no puede ser mayor a 256, recibido: %d", vectorsPerLevel)
-	}
-	if vectorLength <= 0 {
-		return nil, fmt.Errorf("vectorLength debe ser positivo, recibido: %d", vectorLength)
-	}
-	if numLevels <= 0 {
-		return nil, fmt.Errorf("numLevels debe ser positivo, recibido: %d", numLevels)
-	}
-
-	vi := &VectorIndexEncoder{
-		vectorLength:    vectorLength,
-		vectorsPerLevel: vectorsPerLevel,
-		numLevels:       numLevels,
-		provider:        provider,
-		rng:             rand.New(rand.NewSource(time.Now().UnixNano())),
-	}
-
-	return vi, nil
-}
-
-// GenerateVectors genera todos los vectores aleatorios normalizados
-func (vi *VectorIndexEncoder) GenerateVectors() {
-	vi.vectors = make([][]Vector, vi.numLevels)
-
-	for level := 0; level < vi.numLevels; level++ {
-		vi.vectors[level] = make([]Vector, vi.vectorsPerLevel)
-
-		for i := 0; i < vi.vectorsPerLevel; i++ {
-			vi.vectors[level][i] = vi.generateRandomNormalizedVector()
-		}
-	}
-}
-
-// generateRandomNormalizedVector genera un vector aleatorio normalizado de longitud 1
-func (vi *VectorIndexEncoder) generateRandomNormalizedVector() Vector {
-	vector := make(Vector, vi.vectorLength)
-
-	// Generar valores aleatorios usando distribución normal
-	// Esto da una distribución uniforme en la esfera unitaria
-	var sumSquares float32 = 0
-
-	for i := 0; i < vi.vectorLength; i++ {
-		// Generar número aleatorio con distribución normal
-		val := float32(vi.rng.NormFloat64())
-		vector[i] = val
-		sumSquares += val * val
-	}
-
-	// Normalizar el vector (hacer que su longitud sea 1)
-	magnitude := float32(math.Sqrt(float64(sumSquares)))
-	if magnitude > 0 {
-		for i := 0; i < vi.vectorLength; i++ {
-			vector[i] /= magnitude
-		}
-	}
-
-	return vector
-}
-
-// FindClosestVectors encuentra el vector más cercano en cada nivel para un vector dado
-func (vi *VectorIndexEncoder) FindClosestVectors(queryVector []float32) ([]byte, error) {
-	if len(queryVector) != vi.vectorLength {
-		return nil, fmt.Errorf("el vector de consulta debe tener longitud %d, recibido: %d",
-			vi.vectorLength, len(queryVector))
-	}
-
-	if vi.vectors == nil {
-		return nil, fmt.Errorf("los vectores no han sido generados. Llama GenerateVectors() primero")
-	}
-
-	result := make([]byte, vi.numLevels)
-
-	for level := 0; level < vi.numLevels; level++ {
-		closestIndex := 0
-		minDistance := float32(math.Inf(1))
-
-		for i := 0; i < vi.vectorsPerLevel; i++ {
-			distance, err := vi.provider.SingleDist(queryVector, []float32(vi.vectors[level][i]))
-			if err != nil {
-				return nil, fmt.Errorf("error calculando distancia en nivel %d, índice %d: %v",
-					level, i, err)
-			}
-
-			if distance < minDistance {
-				minDistance = distance
-				closestIndex = i
-			}
-		}
-
-		result[level] = byte(closestIndex)
-	}
-
-	return result, nil
-}
-
-type vectorDistance struct {
-	index    int
-	distance float32
-}
-
-func (vi *VectorIndexEncoder) FindOrderedVectorsByDistance(queryVector []float32) ([][]byte, error) {
-	if len(queryVector) != vi.vectorLength {
-		return nil, fmt.Errorf("el vector de consulta debe tener longitud %d, recibido: %d",
-			vi.vectorLength, len(queryVector))
-	}
-
-	if vi.vectors == nil {
-		return nil, fmt.Errorf("los vectores no han sido generados. Llama GenerateVectors() primero")
-	}
-
-	result := make([][]byte, vi.numLevels)
-
-	for level := 0; level < vi.numLevels; level++ {
-		// Calcular distancias para todos los vectores en este nivel
-		distances := make([]vectorDistance, vi.vectorsPerLevel)
-
-		for i := 0; i < vi.vectorsPerLevel; i++ {
-			distance, err := vi.provider.SingleDist(queryVector, []float32(vi.vectors[level][i]))
-			if err != nil {
-				return nil, fmt.Errorf("error calculando distancia en nivel %d, índice %d: %v",
-					level, i, err)
-			}
-
-			distances[i] = vectorDistance{
-				index:    i,
-				distance: distance,
-			}
-		}
-
-		// Ordenar por distancia (menor a mayor)
-		vi.quickSortDistances(distances, 0, len(distances)-1)
-
-		// Crear el arreglo de bytes con los índices ordenados
-		result[level] = make([]byte, vi.vectorsPerLevel)
-		for i, vd := range distances {
-			result[level][i] = byte(vd.index)
-		}
-	}
-
-	return result, nil
-}
-
-// quickSortDistances implementa quicksort para ordenar vectorDistance por distancia
-func (vi *VectorIndexEncoder) quickSortDistances(arr []vectorDistance, low, high int) {
-	if low < high {
-		pi := vi.partitionDistances(arr, low, high)
-		vi.quickSortDistances(arr, low, pi-1)
-		vi.quickSortDistances(arr, pi+1, high)
-	}
-}
-
-// partitionDistances función auxiliar para quicksort
-func (vi *VectorIndexEncoder) partitionDistances(arr []vectorDistance, low, high int) int {
-	pivot := arr[high].distance
-	i := low - 1
-
-	for j := low; j < high; j++ {
-		if arr[j].distance <= pivot {
-			i++
-			arr[i], arr[j] = arr[j], arr[i]
-		}
-	}
-
-	arr[i+1], arr[high] = arr[high], arr[i+1]
-	return i + 1
-}
 
 // RegionalIVF implementa el algoritmo IVF basado en regiones
 type RegionalIVF struct {
 	sync.RWMutex
 
 	// Configuración del algoritmo
-	numCentroids int   // número de centroides (256 por defecto)
-	numRotations int   // número de rotaciones
-	dims         int32 // dimensiones de los vectores
-
-	// Centroides para cada rotación
-	encoder *VectorIndexEncoder
+	dims int32 // dimensiones de los vectores
 
 	// Proveedor de distancias
 	distancerProvider distancer.Provider
@@ -225,7 +39,7 @@ type RegionalIVF struct {
 	// Configuración y estado
 	id       string
 	rootPath string
-	logger   interface{} // logrus.FieldLogger en el contexto real
+	logger   logrus.FieldLogger // logrus.FieldLogger en el contexto real
 
 	// Control de acceso concurrente
 	trackDimensionsOnce sync.Once
@@ -233,9 +47,8 @@ type RegionalIVF struct {
 	// Métricas y estadísticas
 	totalVectors uint64
 
-	cache  cache.Cache[float32]
-	codes  cache.Cache[byte]
-	bcodes cache.Cache[uint64]
+	vectors [][]float32 // [nivel][índice_vector]Vector
+	codes   [][]uint64
 
 	bencoder compressionhelpers.BinaryQuantizer
 }
@@ -246,64 +59,34 @@ type Config struct {
 	RootPath         string
 	DistanceProvider distancer.Provider
 	VectorForIDThunk common.VectorForID[float32]
-	Logger           interface{}
-	NumCentroids     int
-	NumRotations     int
+	Logger           logrus.FieldLogger
 	AllocChecker     memwatch.AllocChecker
-}
-
-// UserConfig contiene la configuración del usuario
-type UserConfig struct {
-	NumCentroids int `json:"numCentroids"`
-	NumRotations int `json:"numRotations"`
 }
 
 // Validate valida la configuración
 func (c Config) Validate() error {
-	if c.NumCentroids <= 0 {
-		return errors.New("numCentroids must be positive")
-	}
-	if c.NumRotations <= 0 {
-		return errors.New("numRotations must be positive")
-	}
-	if c.NumCentroids > 256 {
-		return errors.New("numCentroids cannot exceed 256 for single-byte encoding")
-	}
 	return nil
 }
 
 // New crea una nueva instancia de RegionalIVF
-func New(cfg Config, uc UserConfig) (*RegionalIVF, error) {
+func New(cfg Config) (*RegionalIVF, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	numCentroids := uc.NumCentroids
-	if numCentroids == 0 {
-		numCentroids = DefaultCentroids
-	}
-
-	numRotations := uc.NumRotations
-	if numRotations == 0 {
-		numRotations = DefaultRotations
-	}
-	logger := logrus.New()
-
 	index := &RegionalIVF{
-		numCentroids:      numCentroids,
-		numRotations:      numRotations,
 		distancerProvider: cfg.DistanceProvider,
 		id:                cfg.ID,
 		rootPath:          cfg.RootPath,
 		logger:            cfg.Logger,
-		cache:             cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, 1000000, logger, false, 0, cfg.AllocChecker),
-		codes:             cache.NewShardedByteLockCache(func(ctx context.Context, id uint64) ([]byte, error) { return nil, nil }, 1000000, logger, 0, cfg.AllocChecker),
-		bcodes:            cache.NewShardedUInt64LockCache(func(ctx context.Context, id uint64) ([]uint64, error) { return nil, nil }, 1000000, logger, 0, cfg.AllocChecker),
 		bencoder:          compressionhelpers.NewBinaryQuantizer(cfg.DistanceProvider),
+		codes:             make([][]uint64, MaxLevels),
+		vectors:           make([][]float32, size),
 	}
-	index.cache.Grow(1000000)
-	index.codes.Grow(1000000)
-	index.bcodes.Grow(1000000)
+
+	for l := range index.codes {
+		index.codes[l] = make([]uint64, size)
+	}
 
 	return index, nil
 }
@@ -341,19 +124,13 @@ func (r *RegionalIVF) AddBatch(ctx context.Context, ids []uint64, vectors [][]fl
 	// Establecer dimensiones en la primera inserción
 	r.trackDimensionsOnce.Do(func() {
 		atomic.StoreInt32(&r.dims, int32(len(vectors[0])))
-		r.encoder, _ = NewVectorIndex(len(vectors[0]), r.numCentroids, r.numRotations, r.distancerProvider)
-		r.encoder.GenerateVectors()
 	})
 
 	for i, vector := range vectors {
-		code, err := r.encoder.FindClosestVectors(vector)
-		if err != nil {
-			return errors.Wrapf(err, "encode vector %d", ids[i])
+		r.vectors[ids[i]] = vector
+		for l := 0; l < MaxLevels; l++ {
+			r.codes[l][ids[i]] = r.bencoder.Encode(vector[l*TrucAt : (l+1)*TrucAt])[0]
 		}
-
-		r.cache.Preload(ids[i], vector)
-		r.codes.Preload(ids[i], code)
-		r.bcodes.Preload(ids[i], r.bencoder.Encode(vector[:TrucAt]))
 	}
 
 	// Actualizar contador total
@@ -378,56 +155,200 @@ func (r *RegionalIVF) AddBatch(ctx context.Context, ids []uint64, vectors [][]fl
 func (r *RegionalIVF) SearchByVector(ctx context.Context, searchVector []float32,
 	k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 
-	//qCode, _ := r.encoder.FindOrderedVectorsByDistance(searchVector)
-	distancer := r.bencoder.NewDistancer(searchVector[:TrucAt])
-	codes := r.bcodes.All()
-
-	kExt := k * 100
-	heap := priorityqueue.NewMax[any](kExt)
-
-	for id, code := range codes {
-		if len(code) == 0 {
-			continue
-		}
-
-		/*pos := 0
-		rank := 0
-		for rot := 0; rot < len(qCode); rot++ {
-			for pos = 0; pos < len(qCode[rot]); pos++ {
-				if qCode[rot][pos] == code[rot] {
-					break
+	searchCode := r.bencoder.Encode(searchVector)
+	total := float64(size)
+	oldHeap := make([][]uint64, 1)
+	oldHeap[0] = make([]uint64, size)
+	maxDist := 0
+	for i := 0; i < size; i++ {
+		oldHeap[0][i] = uint64(i)
+	}
+	for i := 0; i < MaxLevels; i++ {
+		part := int(total * math.Pow(rate, float64(i)))
+		heap := make([][]uint64, maxDist+64)
+		soFar := 0
+		for j := 0; soFar < part; j++ {
+			soFar += len(oldHeap[j])
+			for _, curr := range oldHeap[j] {
+				distance := float32(bits.OnesCount64(r.codes[i][curr] ^ searchCode[i]))
+				correctedDistance := j + int(distance)
+				heap[j+int(distance)] = append(heap[correctedDistance], curr)
+				if correctedDistance > maxDist {
+					maxDist = correctedDistance
 				}
 			}
-			rank += pos
-		}*/
-		rank, _ := distancer.Distance(code)
-		heap.Insert(uint64(id), float32(rank))
-		if heap.Len() > kExt {
-			heap.Pop()
 		}
+		oldHeap = heap
 	}
 
-	heap2 := priorityqueue.NewMax[any](k)
-	for heap.Len() > 0 {
-		elem := heap.Pop()
-		vec, _ := r.cache.Get(context.Background(), elem.ID)
-		d, _ := r.distancerProvider.SingleDist(vec, searchVector)
-		heap2.Insert(elem.ID, d)
-		if heap2.Len() > k {
-			heap2.Pop()
+	heap := priorityqueue.NewMax[any](k)
+	for j := 0; j < len(oldHeap); j++ {
+		for _, curr := range oldHeap[j] {
+			distance, _ := r.distancerProvider.SingleDist(r.vectors[curr], searchVector)
+			heap.Insert(curr, distance)
+			if heap.Len() > k {
+				heap.Pop()
+			}
 		}
 	}
 
 	dists := make([]float32, k)
 	ids := make([]uint64, k)
 
-	for i := heap2.Len() - 1; i >= 0; i-- {
-		elem := heap2.Pop()
+	for i := k - 1; i >= 0; i-- {
+		elem := heap.Pop()
 		dists[i] = elem.Dist
 		ids[i] = elem.ID
 	}
 	return ids, dists, nil
 }
+
+/*func (r *RegionalIVF) SearchByVector(ctx context.Context, searchVector []float32,
+	k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+
+	searchCode := r.bencoder.Encode(searchVector)
+	size := len(r.vectors)
+
+	// Use a single slice that we progressively shrink
+	candidates := make([]uint64, size)
+	distances := make([]float32, size)
+
+	// Initialize with all candidate IDs
+	for i := 0; i < size; i++ {
+		candidates[i] = uint64(i)
+	}
+
+	candidateCount := size
+
+	// Progressive filtering
+	for level := 0; level < MaxLevels; level++ {
+		keepCount := int(float64(size) * math.Pow(rate, float64(level+1)))
+		if keepCount < k {
+			keepCount = k
+		}
+		if keepCount >= candidateCount {
+			continue
+		}
+
+		// Compute distances for current candidates
+		for i := 0; i < candidateCount; i++ {
+			distances[i] = float32(bits.OnesCount64(r.codes[level][candidates[i]] ^ searchCode[level]))
+		}
+
+		// Partial sort to find keepCount best candidates
+		r.partialSortInPlace(candidates, distances, candidateCount, keepCount)
+		candidateCount = keepCount
+
+		if candidateCount <= k*2 {
+			break
+		}
+	}
+
+	// Final distance computation and sorting
+	for i := 0; i < candidateCount; i++ {
+		distance, _ := r.distancerProvider.SingleDist(r.vectors[candidates[i]], searchVector)
+		distances[i] = distance
+	}
+
+	// Final sort
+	finalCount := candidateCount
+	if finalCount > k {
+		r.partialSortInPlace(candidates, distances, candidateCount, k)
+		finalCount = k
+	} else {
+		r.fullSortInPlace(candidates, distances, finalCount)
+	}
+
+	// Return results (slices of the working arrays)
+	return candidates[:finalCount], distances[:finalCount], nil
+}
+
+// partialSortInPlace sorts in-place and keeps only the first keepCount elements
+func (r *RegionalIVF) partialSortInPlace(candidates []uint64, distances []float32, length, keepCount int) {
+	// Simple quickselect implementation
+	r.quickSelectInPlace(candidates, distances, 0, length-1, keepCount-1)
+}
+
+// fullSortInPlace performs a complete sort on the first 'length' elements
+func (r *RegionalIVF) fullSortInPlace(candidates []uint64, distances []float32, length int) {
+	// Insertion sort for small arrays (very efficient for small k)
+	if length <= 32 {
+		for i := 1; i < length; i++ {
+			candKey := candidates[i]
+			distKey := distances[i]
+			j := i - 1
+
+			for j >= 0 && distances[j] > distKey {
+				candidates[j+1] = candidates[j]
+				distances[j+1] = distances[j]
+				j--
+			}
+
+			candidates[j+1] = candKey
+			distances[j+1] = distKey
+		}
+	} else {
+		// Use Go's built-in sort for larger arrays
+		type pair struct {
+			id   uint64
+			dist float32
+		}
+
+		pairs := make([]pair, length)
+		for i := 0; i < length; i++ {
+			pairs[i] = pair{candidates[i], distances[i]}
+		}
+
+		sort.Slice(pairs, func(i, j int) bool {
+			return pairs[i].dist < pairs[j].dist
+		})
+
+		for i := 0; i < length; i++ {
+			candidates[i] = pairs[i].id
+			distances[i] = pairs[i].dist
+		}
+	}
+}
+
+// quickSelectInPlace performs quickselect with in-place swapping
+func (r *RegionalIVF) quickSelectInPlace(candidates []uint64, distances []float32, left, right, k int) {
+	for left < right {
+		pivotIdx := r.partitionInPlace(candidates, distances, left, right)
+
+		if pivotIdx == k {
+			return
+		} else if pivotIdx < k {
+			left = pivotIdx + 1
+		} else {
+			right = pivotIdx - 1
+		}
+	}
+}
+
+func (r *RegionalIVF) partitionInPlace(candidates []uint64, distances []float32, left, right int) int {
+	// Simple pivot selection (middle element)
+	mid := left + (right-left)/2
+	pivot := distances[mid]
+
+	// Move pivot to end
+	candidates[mid], candidates[right] = candidates[right], candidates[mid]
+	distances[mid], distances[right] = distances[right], distances[mid]
+
+	storeIdx := left
+	for i := left; i < right; i++ {
+		if distances[i] < pivot {
+			candidates[i], candidates[storeIdx] = candidates[storeIdx], candidates[i]
+			distances[i], distances[storeIdx] = distances[storeIdx], distances[i]
+			storeIdx++
+		}
+	}
+
+	// Move pivot to its final position
+	candidates[storeIdx], candidates[right] = candidates[right], candidates[storeIdx]
+	distances[storeIdx], distances[right] = distances[right], distances[storeIdx]
+
+	return storeIdx
+}*/
 
 // Resto de implementaciones stub para satisfacer la interfaz VectorIndex
 
@@ -495,11 +416,7 @@ func (r *RegionalIVF) QueryVectorDistancer(queryVector []float32) common.QueryVe
 	distancer := r.distancerProvider.New(queryVector)
 
 	f := func(nodeID uint64) (float32, error) {
-		vector, err := r.cache.Get(context.Background(), nodeID)
-		if err != nil {
-			return 0, err
-		}
-		return distancer.Distance(vector)
+		return distancer.Distance(r.vectors[nodeID])
 	}
 
 	return common.QueryVectorDistancer{DistanceFunc: f}
