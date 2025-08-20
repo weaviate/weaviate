@@ -22,28 +22,17 @@ type TenantActivityStatus int32
 
 const (
 	TenantActivityStatus_TENANT_ACTIVITY_STATUS_UNSPECIFIED TenantActivityStatus = 0
-	TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT         TenantActivityStatus = 1
-	TenantActivityStatus_TENANT_ACTIVITY_STATUS_COLD        TenantActivityStatus = 2
-	TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN      TenantActivityStatus = 4
-	TenantActivityStatus_TENANT_ACTIVITY_STATUS_UNFREEZING  TenantActivityStatus = 5
-	TenantActivityStatus_TENANT_ACTIVITY_STATUS_FREEZING    TenantActivityStatus = 6
-	// not used yet - added to let the clients already add code to handle this in the future
-	TenantActivityStatus_TENANT_ACTIVITY_STATUS_ACTIVE     TenantActivityStatus = 7
-	TenantActivityStatus_TENANT_ACTIVITY_STATUS_INACTIVE   TenantActivityStatus = 8
-	TenantActivityStatus_TENANT_ACTIVITY_STATUS_OFFLOADED  TenantActivityStatus = 9
-	TenantActivityStatus_TENANT_ACTIVITY_STATUS_OFFLOADING TenantActivityStatus = 10
-	TenantActivityStatus_TENANT_ACTIVITY_STATUS_ONLOADING  TenantActivityStatus = 11
+	TenantActivityStatus_TENANT_ACTIVITY_STATUS_ACTIVE      TenantActivityStatus = 7
+	TenantActivityStatus_TENANT_ACTIVITY_STATUS_INACTIVE    TenantActivityStatus = 8
+	TenantActivityStatus_TENANT_ACTIVITY_STATUS_OFFLOADED   TenantActivityStatus = 9
+	TenantActivityStatus_TENANT_ACTIVITY_STATUS_OFFLOADING  TenantActivityStatus = 10
+	TenantActivityStatus_TENANT_ACTIVITY_STATUS_ONLOADING   TenantActivityStatus = 11
 )
 
 // Enum value maps for TenantActivityStatus.
 var (
 	TenantActivityStatus_name = map[int32]string{
 		0:  "TENANT_ACTIVITY_STATUS_UNSPECIFIED",
-		1:  "TENANT_ACTIVITY_STATUS_HOT",
-		2:  "TENANT_ACTIVITY_STATUS_COLD",
-		4:  "TENANT_ACTIVITY_STATUS_FROZEN",
-		5:  "TENANT_ACTIVITY_STATUS_UNFREEZING",
-		6:  "TENANT_ACTIVITY_STATUS_FREEZING",
 		7:  "TENANT_ACTIVITY_STATUS_ACTIVE",
 		8:  "TENANT_ACTIVITY_STATUS_INACTIVE",
 		9:  "TENANT_ACTIVITY_STATUS_OFFLOADED",
@@ -52,11 +41,6 @@ var (
 	}
 	TenantActivityStatus_value = map[string]int32{
 		"TENANT_ACTIVITY_STATUS_UNSPECIFIED": 0,
-		"TENANT_ACTIVITY_STATUS_HOT":         1,
-		"TENANT_ACTIVITY_STATUS_COLD":        2,
-		"TENANT_ACTIVITY_STATUS_FROZEN":      4,
-		"TENANT_ACTIVITY_STATUS_UNFREEZING":  5,
-		"TENANT_ACTIVITY_STATUS_FREEZING":    6,
 		"TENANT_ACTIVITY_STATUS_ACTIVE":      7,
 		"TENANT_ACTIVITY_STATUS_INACTIVE":    8,
 		"TENANT_ACTIVITY_STATUS_OFFLOADED":   9,
@@ -334,20 +318,15 @@ const file_v1_tenants_proto_rawDesc = "" +
 	"\atenants\x18\x02 \x03(\v2\x13.weaviate.v1.TenantR\atenants\"h\n" +
 	"\x06Tenant\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12J\n" +
-	"\x0factivity_status\x18\x02 \x01(\x0e2!.weaviate.v1.TenantActivityStatusR\x0eactivityStatus*\xaf\x03\n" +
+	"\x0factivity_status\x18\x02 \x01(\x0e2!.weaviate.v1.TenantActivityStatusR\x0eactivityStatus*\x9d\x02\n" +
 	"\x14TenantActivityStatus\x12&\n" +
-	"\"TENANT_ACTIVITY_STATUS_UNSPECIFIED\x10\x00\x12\x1e\n" +
-	"\x1aTENANT_ACTIVITY_STATUS_HOT\x10\x01\x12\x1f\n" +
-	"\x1bTENANT_ACTIVITY_STATUS_COLD\x10\x02\x12!\n" +
-	"\x1dTENANT_ACTIVITY_STATUS_FROZEN\x10\x04\x12%\n" +
-	"!TENANT_ACTIVITY_STATUS_UNFREEZING\x10\x05\x12#\n" +
-	"\x1fTENANT_ACTIVITY_STATUS_FREEZING\x10\x06\x12!\n" +
+	"\"TENANT_ACTIVITY_STATUS_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dTENANT_ACTIVITY_STATUS_ACTIVE\x10\a\x12#\n" +
 	"\x1fTENANT_ACTIVITY_STATUS_INACTIVE\x10\b\x12$\n" +
 	" TENANT_ACTIVITY_STATUS_OFFLOADED\x10\t\x12%\n" +
 	"!TENANT_ACTIVITY_STATUS_OFFLOADING\x10\n" +
 	"\x12$\n" +
-	" TENANT_ACTIVITY_STATUS_ONLOADING\x10\v\"\x04\b\x03\x10\x03Bq\n" +
+	" TENANT_ACTIVITY_STATUS_ONLOADING\x10\v\"\x04\b\x01\x10\x01\"\x04\b\x02\x10\x02\"\x04\b\x03\x10\x03\"\x04\b\x04\x10\x04\"\x04\b\x05\x10\x05\"\x04\b\x06\x10\x06Bq\n" +
 	"#io.weaviate.client.grpc.protocol.v1B\x14WeaviateProtoTenantsZ4github.com/weaviate/weaviate/grpc/generated;protocolb\x06proto3"
 
 var (
@@ -362,15 +341,18 @@ func file_v1_tenants_proto_rawDescGZIP() []byte {
 	return file_v1_tenants_proto_rawDescData
 }
 
-var file_v1_tenants_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_v1_tenants_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
-var file_v1_tenants_proto_goTypes = []any{
-	(TenantActivityStatus)(0), // 0: weaviate.v1.TenantActivityStatus
-	(*TenantsGetRequest)(nil), // 1: weaviate.v1.TenantsGetRequest
-	(*TenantNames)(nil),       // 2: weaviate.v1.TenantNames
-	(*TenantsGetReply)(nil),   // 3: weaviate.v1.TenantsGetReply
-	(*Tenant)(nil),            // 4: weaviate.v1.Tenant
-}
+var (
+	file_v1_tenants_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+	file_v1_tenants_proto_msgTypes  = make([]protoimpl.MessageInfo, 4)
+	file_v1_tenants_proto_goTypes   = []any{
+		(TenantActivityStatus)(0), // 0: weaviate.v1.TenantActivityStatus
+		(*TenantsGetRequest)(nil), // 1: weaviate.v1.TenantsGetRequest
+		(*TenantNames)(nil),       // 2: weaviate.v1.TenantNames
+		(*TenantsGetReply)(nil),   // 3: weaviate.v1.TenantsGetReply
+		(*Tenant)(nil),            // 4: weaviate.v1.Tenant
+	}
+)
+
 var file_v1_tenants_proto_depIdxs = []int32{
 	2, // 0: weaviate.v1.TenantsGetRequest.names:type_name -> weaviate.v1.TenantNames
 	4, // 1: weaviate.v1.TenantsGetReply.tenants:type_name -> weaviate.v1.Tenant
