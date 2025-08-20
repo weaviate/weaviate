@@ -263,7 +263,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				RootPath:              t.TempDir(),
 				ReplicationFactor:     1,
 				ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
-				DisableLazyLoadShards: !tt.lazyLoading,
+				DisableLazyLoadShards: !tt.lazyLoading, // Enable lazy loading when lazyLoading is true
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
