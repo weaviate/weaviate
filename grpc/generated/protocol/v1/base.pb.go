@@ -204,8 +204,11 @@ func (Vectors_VectorType) EnumDescriptor() ([]byte, []int) {
 
 type NumberArrayProperties struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// will be removed in the future, use vector_bytes
+	// go client 5.4.1 depends on this field. Only remove after go client is deprecated
+	//
 	// Deprecated: Marked as deprecated in v1/base.proto.
-	Values        []float64 `protobuf:"fixed64,1,rep,packed,name=values,proto3" json:"values,omitempty"` // will be removed in the future, use vector_bytes
+	Values        []float64 `protobuf:"fixed64,1,rep,packed,name=values,proto3" json:"values,omitempty"`
 	PropName      string    `protobuf:"bytes,2,opt,name=prop_name,json=propName,proto3" json:"prop_name,omitempty"`
 	ValuesBytes   []byte    `protobuf:"bytes,3,opt,name=values_bytes,json=valuesBytes,proto3" json:"values_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1554,32 +1557,35 @@ func file_v1_base_proto_rawDescGZIP() []byte {
 	return file_v1_base_proto_rawDescData
 }
 
-var file_v1_base_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_v1_base_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
-var file_v1_base_proto_goTypes = []any{
-	(ConsistencyLevel)(0),               // 0: weaviate.v1.ConsistencyLevel
-	(Filters_Operator)(0),               // 1: weaviate.v1.Filters.Operator
-	(Vectors_VectorType)(0),             // 2: weaviate.v1.Vectors.VectorType
-	(*NumberArrayProperties)(nil),       // 3: weaviate.v1.NumberArrayProperties
-	(*IntArrayProperties)(nil),          // 4: weaviate.v1.IntArrayProperties
-	(*TextArrayProperties)(nil),         // 5: weaviate.v1.TextArrayProperties
-	(*BooleanArrayProperties)(nil),      // 6: weaviate.v1.BooleanArrayProperties
-	(*ObjectPropertiesValue)(nil),       // 7: weaviate.v1.ObjectPropertiesValue
-	(*ObjectArrayProperties)(nil),       // 8: weaviate.v1.ObjectArrayProperties
-	(*ObjectProperties)(nil),            // 9: weaviate.v1.ObjectProperties
-	(*TextArray)(nil),                   // 10: weaviate.v1.TextArray
-	(*IntArray)(nil),                    // 11: weaviate.v1.IntArray
-	(*NumberArray)(nil),                 // 12: weaviate.v1.NumberArray
-	(*BooleanArray)(nil),                // 13: weaviate.v1.BooleanArray
-	(*Filters)(nil),                     // 14: weaviate.v1.Filters
-	(*FilterReferenceSingleTarget)(nil), // 15: weaviate.v1.FilterReferenceSingleTarget
-	(*FilterReferenceMultiTarget)(nil),  // 16: weaviate.v1.FilterReferenceMultiTarget
-	(*FilterReferenceCount)(nil),        // 17: weaviate.v1.FilterReferenceCount
-	(*FilterTarget)(nil),                // 18: weaviate.v1.FilterTarget
-	(*GeoCoordinatesFilter)(nil),        // 19: weaviate.v1.GeoCoordinatesFilter
-	(*Vectors)(nil),                     // 20: weaviate.v1.Vectors
-	(*structpb.Struct)(nil),             // 21: google.protobuf.Struct
-}
+var (
+	file_v1_base_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+	file_v1_base_proto_msgTypes  = make([]protoimpl.MessageInfo, 18)
+	file_v1_base_proto_goTypes   = []any{
+		(ConsistencyLevel)(0),               // 0: weaviate.v1.ConsistencyLevel
+		(Filters_Operator)(0),               // 1: weaviate.v1.Filters.Operator
+		(Vectors_VectorType)(0),             // 2: weaviate.v1.Vectors.VectorType
+		(*NumberArrayProperties)(nil),       // 3: weaviate.v1.NumberArrayProperties
+		(*IntArrayProperties)(nil),          // 4: weaviate.v1.IntArrayProperties
+		(*TextArrayProperties)(nil),         // 5: weaviate.v1.TextArrayProperties
+		(*BooleanArrayProperties)(nil),      // 6: weaviate.v1.BooleanArrayProperties
+		(*ObjectPropertiesValue)(nil),       // 7: weaviate.v1.ObjectPropertiesValue
+		(*ObjectArrayProperties)(nil),       // 8: weaviate.v1.ObjectArrayProperties
+		(*ObjectProperties)(nil),            // 9: weaviate.v1.ObjectProperties
+		(*TextArray)(nil),                   // 10: weaviate.v1.TextArray
+		(*IntArray)(nil),                    // 11: weaviate.v1.IntArray
+		(*NumberArray)(nil),                 // 12: weaviate.v1.NumberArray
+		(*BooleanArray)(nil),                // 13: weaviate.v1.BooleanArray
+		(*Filters)(nil),                     // 14: weaviate.v1.Filters
+		(*FilterReferenceSingleTarget)(nil), // 15: weaviate.v1.FilterReferenceSingleTarget
+		(*FilterReferenceMultiTarget)(nil),  // 16: weaviate.v1.FilterReferenceMultiTarget
+		(*FilterReferenceCount)(nil),        // 17: weaviate.v1.FilterReferenceCount
+		(*FilterTarget)(nil),                // 18: weaviate.v1.FilterTarget
+		(*GeoCoordinatesFilter)(nil),        // 19: weaviate.v1.GeoCoordinatesFilter
+		(*Vectors)(nil),                     // 20: weaviate.v1.Vectors
+		(*structpb.Struct)(nil),             // 21: google.protobuf.Struct
+	}
+)
+
 var file_v1_base_proto_depIdxs = []int32{
 	21, // 0: weaviate.v1.ObjectPropertiesValue.non_ref_properties:type_name -> google.protobuf.Struct
 	3,  // 1: weaviate.v1.ObjectPropertiesValue.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties

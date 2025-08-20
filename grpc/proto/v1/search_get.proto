@@ -168,16 +168,16 @@ message MetadataResult {
 }
 
 message PropertiesResult {
-  reserved 1;
+  reserved 1;  // was non_ref_properties
   repeated RefPropertiesResult ref_props = 2;
   string target_collection = 3;
   MetadataResult metadata = 4;
-  reserved 5;
-  reserved 6;
-  reserved 7;
-  reserved 8;
-  reserved 9;
-  reserved 10;
+  reserved 5;  // was number_array_properties
+  reserved 6;  // was int_array_properties
+  reserved 7;  // was text_array_properties
+  reserved 8;  // was boolean_array_properties
+  reserved 9;  // was object_properties
+  reserved 10;  // was object_array_properties
   Properties non_ref_props = 11;
   bool ref_props_requested = 12;
 }

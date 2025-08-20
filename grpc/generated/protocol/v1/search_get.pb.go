@@ -9,7 +9,6 @@ import (
 
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	_ "google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
@@ -1416,7 +1415,7 @@ var File_v1_search_get_proto protoreflect.FileDescriptor
 
 const file_v1_search_get_proto_rawDesc = "" +
 	"\n" +
-	"\x13v1/search_get.proto\x12\vweaviate.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\x1a\x13v1/generative.proto\x1a\x13v1/properties.proto\"\xc7\r\n" +
+	"\x13v1/search_get.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\x1a\x13v1/generative.proto\x1a\x13v1/properties.proto\"\xc7\r\n" +
 	"\rSearchRequest\x12\x1e\n" +
 	"\n" +
 	"collection\x18\x01 \x01(\tR\n" +
