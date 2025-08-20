@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -448,7 +447,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
 		defaultQuantization = strings.ToLower(v)
 	}
-	config.DefaultQuantization = runtime.NewDynamicValue(common.CompressionType(defaultQuantization))
+	config.DefaultQuantization = runtime.NewDynamicValue(defaultQuantization)
 
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
