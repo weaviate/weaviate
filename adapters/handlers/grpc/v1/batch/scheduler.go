@@ -81,10 +81,10 @@ func (s *Scheduler) pull(queue writeQueue, max int) ([]*pb.BatchObject, []*pb.Ba
 				refs = append(refs, obj.Reference)
 			}
 			if obj.Stop {
-				return objs, refs, true
+				return objs, refs, false
 			}
 		default:
-			break // exit if no more items in queue
+			return objs, refs, false
 		}
 	}
 	return objs, refs, false

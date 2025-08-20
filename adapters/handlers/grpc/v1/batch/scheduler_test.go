@@ -58,8 +58,9 @@ func TestScheduler(t *testing.T) {
 		wg.Wait()
 
 		require.Empty(t, internalQueue, "Expected internal queue to be empty after shutdown")
-		ch, ok := writeQueues.Get("test-stream")
+		ch, ok := writeQueues.GetQueue("test-stream")
 		require.True(t, ok, "Expected write queue to still exist after shutdown")
 		require.Empty(t, ch, "Expected write queue to be empty after shutdown")
+		require.Equal(t, context.Canceled, shutdownCtx.Err(), "Expected context to be canceled")
 	})
 }

@@ -87,6 +87,7 @@ func TestWorkerLoop(t *testing.T) {
 		wg.Wait()
 		require.Empty(t, internalQueue, "Expected internal queue to be empty after processing")
 		require.Empty(t, ch, "Expected read queue to be empty after processing")
+		require.Equal(t, ctx.Err(), context.Canceled, "Expected context to be canceled")
 	})
 
 	t.Run("should process from the queue during shutdown", func(t *testing.T) {
@@ -143,6 +144,7 @@ func TestWorkerLoop(t *testing.T) {
 		wg.Wait() // Wait for the worker to finish processing
 		require.Empty(t, internalQueue, "Expected internal queue to be empty after processing")
 		require.Empty(t, ch, "Expected read queue to be empty after processing")
+		require.Equal(t, ctx.Err(), context.Canceled, "Expected context to be canceled")
 	})
 
 	t.Run("should process from the queue and send data returning error", func(t *testing.T) {
@@ -229,5 +231,6 @@ func TestWorkerLoop(t *testing.T) {
 		wg.Wait()
 		require.Empty(t, internalQueue, "Expected internal queue to be empty after processing")
 		require.Empty(t, ch, "Expected read queue to be empty after processing")
+		require.Equal(t, ctx.Err(), context.Canceled, "Expected context to be canceled")
 	})
 }
