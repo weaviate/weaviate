@@ -31,7 +31,7 @@ message Value {
 }
 
 message ListValue {
-  reserved 1;  // values
+  reserved 1;  // was values
   oneof kind {
     NumberValues number_values = 2;
     BoolValues bool_values = 3;

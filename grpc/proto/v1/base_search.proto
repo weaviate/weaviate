@@ -25,7 +25,7 @@ message WeightsForTarget {
 message Targets {
   repeated string target_vectors = 1;
   CombinationMethod combination = 2;
-  reserved 3; // weights
+  reserved 3; // was weights
   repeated WeightsForTarget weights_for_targets = 4;
 }
 
