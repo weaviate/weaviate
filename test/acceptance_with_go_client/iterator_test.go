@@ -24,6 +24,7 @@ import (
 )
 
 func TestAfterUnsetVsEmpty(t *testing.T) {
+	ctx := context.Background()
 	c, className := createClientWithClassName(t)
 
 	class := models.Class{

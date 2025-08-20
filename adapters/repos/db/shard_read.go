@@ -663,7 +663,7 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor, allowli
 			return nil, ctx.Err()
 		}
 		if allowlist != nil {
-			docId, err := storobj.DocIDFromBinary(val)
+			docId, err := storobj.FromBinaryDocIDOnly(val)
 			if err != nil {
 				return nil, errors.Wrapf(err, "unmarshal doc id from item")
 			}
