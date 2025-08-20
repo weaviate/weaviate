@@ -83,7 +83,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	}
 
 	batch.StartBatchWorkers(grpcShutdownWorkersCtx, grpcShutdownWorkersWg, numWorkers, internalQueue, batchReadQueues, batchWriteQueues, batchHandler, logger)
-	batch.StartScheduler(grpcShutdownHandlersCtx, grpcShutdownWorkersWg, batchWriteQueues, internalQueue, logger)
+	batch.StartScheduler(grpcShutdownWorkersCtx, grpcShutdownWorkersWg, batchWriteQueues, internalQueue, logger)
 
 	return &Service{
 		traverser:            traverser,
