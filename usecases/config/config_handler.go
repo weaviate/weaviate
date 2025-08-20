@@ -202,7 +202,7 @@ type Config struct {
 	QuerySlowLogThreshold *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
 
 	// New classes will be created with the default quantization
-	DefaultQuantization *runtime.DynamicValue[int] `json:"default_quantization" yaml:"default_quantization"`
+	DefaultQuantization *runtime.DynamicValue[common.CompressionType] `json:"default_quantization" yaml:"default_quantization"`
 
 	QueryBitmapBufsMaxMemory  int `json:"query_bitmap_bufs_max_memory" yaml:"query_bitmap_bufs_max_memory"`
 	QueryBitmapBufsMaxBufSize int `json:"query_bitmap_bufs_max_buf_size" yaml:"query_bitmap_bufs_max_buf_size"`

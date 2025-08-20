@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -49,14 +50,14 @@ type WeaviateRuntimeConfig struct {
 	UsageVerifyPermissions          *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
 
 	// Experimental configs. Will be removed in the future.
-	OIDCIssuer            *runtime.DynamicValue[string]   `json:"exp_oidc_issuer" yaml:"exp_oidc_issuer"`
-	OIDCClientID          *runtime.DynamicValue[string]   `json:"exp_oidc_client_id" yaml:"exp_oidc_client_id"`
-	OIDCSkipClientIDCheck *runtime.DynamicValue[bool]     `yaml:"exp_oidc_skip_client_id_check" json:"exp_oidc_skip_client_id_check"`
-	OIDCUsernameClaim     *runtime.DynamicValue[string]   `yaml:"exp_oidc_username_claim" json:"exp_oidc_username_claim"`
-	OIDCGroupsClaim       *runtime.DynamicValue[string]   `yaml:"exp_oidc_groups_claim" json:"exp_oidc_groups_claim"`
-	OIDCScopes            *runtime.DynamicValue[[]string] `yaml:"exp_oidc_scopes" json:"exp_oidc_scopes"`
-	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"exp_oidc_certificate" json:"exp_oidc_certificate"`
-	DefaultQuantization   *runtime.DynamicValue[int]      `yaml:"default_quantization" json:"default_quantization"`
+	OIDCIssuer            *runtime.DynamicValue[string]                 `json:"exp_oidc_issuer" yaml:"exp_oidc_issuer"`
+	OIDCClientID          *runtime.DynamicValue[string]                 `json:"exp_oidc_client_id" yaml:"exp_oidc_client_id"`
+	OIDCSkipClientIDCheck *runtime.DynamicValue[bool]                   `yaml:"exp_oidc_skip_client_id_check" json:"exp_oidc_skip_client_id_check"`
+	OIDCUsernameClaim     *runtime.DynamicValue[string]                 `yaml:"exp_oidc_username_claim" json:"exp_oidc_username_claim"`
+	OIDCGroupsClaim       *runtime.DynamicValue[string]                 `yaml:"exp_oidc_groups_claim" json:"exp_oidc_groups_claim"`
+	OIDCScopes            *runtime.DynamicValue[[]string]               `yaml:"exp_oidc_scopes" json:"exp_oidc_scopes"`
+	OIDCCertificate       *runtime.DynamicValue[string]                 `yaml:"exp_oidc_certificate" json:"exp_oidc_certificate"`
+	DefaultQuantization   *runtime.DynamicValue[common.CompressionType] `yaml:"default_quantization" json:"default_quantization"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.

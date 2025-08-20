@@ -21,9 +21,9 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/weaviate/weaviate/entities/dimensioncategory"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -166,14 +166,14 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	return cls, version, err
 }
 
-func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[int]) {
-	compression := dimensioncategory.DimensionCategory(defaultQuantization.Get()).String()
+func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[common.CompressionType]) {
+	compression := defaultQuantization.Get()
 	if !hasTargetVectors(class) || class.VectorIndexType != "" {
-		class.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+		class.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), string(compression))
 	}
 
 	for k, vectorConfig := range class.VectorConfig {
-		vectorConfig.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+		vectorConfig.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), string(compression))
 		class.VectorConfig[k] = vectorConfig
 	}
 }

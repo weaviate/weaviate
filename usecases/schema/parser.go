@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
@@ -45,10 +46,10 @@ type Parser struct {
 	configParser        VectorConfigParser
 	validator           validator
 	modules             modulesProvider
-	defaultQuantization *configRuntime.DynamicValue[int]
+	defaultQuantization *configRuntime.DynamicValue[common.CompressionType]
 }
 
-func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider, defaultQuantization *configRuntime.DynamicValue[int]) *Parser {
+func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider, defaultQuantization *configRuntime.DynamicValue[common.CompressionType]) *Parser {
 	return &Parser{
 		clusterState:        cs,
 		configParser:        vCfg,
@@ -210,7 +211,7 @@ func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 }
 
 func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
-	vectorIndexConfig interface{}, isMultiVector bool, defaultQuantization *configRuntime.DynamicValue[int],
+	vectorIndexConfig interface{}, isMultiVector bool, defaultQuantization *configRuntime.DynamicValue[common.CompressionType],
 ) (schemaConfig.VectorIndexConfig, error) {
 	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC {
 		return nil, errors.Errorf(

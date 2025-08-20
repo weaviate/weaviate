@@ -65,6 +65,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -772,7 +773,7 @@ type IndexConfig struct {
 	QuerySlowLogEnabled    *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold  *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled *configRuntime.DynamicValue[bool]
-	DefaultQuantization    *configRuntime.DynamicValue[int]
+	DefaultQuantization    *configRuntime.DynamicValue[common.CompressionType]
 	MaintenanceModeEnabled func() bool
 }
 

@@ -21,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/dimensioncategory"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
@@ -31,8 +30,8 @@ import (
 )
 
 func TestAssignDynamic(t *testing.T) {
-	d := runtime.NewDynamicValue(int(dimensioncategory.NewDimensionCategoryFromString("rq")))
-	require.Equal(t, int(dimensioncategory.DimensionCategoryRQ), d.Get())
+	d := runtime.NewDynamicValue("rq")
+	require.Equal(t, "rq", d.Get())
 }
 
 func TestDefaultCompression(t *testing.T) {

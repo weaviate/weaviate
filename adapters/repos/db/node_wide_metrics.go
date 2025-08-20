@@ -21,7 +21,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/entities/dimensioncategory"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/tenantactivity"
@@ -428,9 +427,9 @@ func calculateShardDimensionMetrics(ctx context.Context, sl ShardLike) Dimension
 // Calculate vector dimensions for a vector index in a shard.
 func calcVectorDimensionMetrics(ctx context.Context, sl ShardLike, vecName string, vecCfg schemaConfig.VectorIndexConfig) DimensionMetrics {
 	switch category, segments := GetDimensionCategory(vecCfg); category {
-	case dimensioncategory.DimensionCategoryPQ:
+	case DimensionCategoryPQ:
 		return DimensionMetrics{Uncompressed: 0, Compressed: sl.QuantizedDimensions(ctx, vecName, segments)}
-	case dimensioncategory.DimensionCategoryBQ:
+	case DimensionCategoryBQ:
 		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
 		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
 		// Roundup is required because BQ packs bits into uint64 blocks - you can't have
@@ -438,7 +437,7 @@ func calcVectorDimensionMetrics(ctx context.Context, sl ShardLike, vecName strin
 		count, _ := sl.Dimensions(ctx, vecName)
 		bytes := (count + 63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
 		return DimensionMetrics{Uncompressed: 0, Compressed: bytes}
-	case dimensioncategory.DimensionCategoryRQ:
+	case DimensionCategoryRQ:
 		// RQ: bits per dimension, where bits can be 1 or 8
 		// For bits=1: equivalent to BQ (1 bit per dimension, packed in uint64 blocks)
 		// For bits=8: 8 bits per dimension (1 byte per dimension)
