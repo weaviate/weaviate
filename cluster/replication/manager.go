@@ -258,10 +258,7 @@ func (m *Manager) QueryShardingStateByCollection(c *cmd.QueryRequest) ([]byte, e
 		return nil
 	})
 	if err != nil {
-		if errors.Is(err, schema.ErrClassNotFound) {
-			return nil, fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
-		}
-		return nil, err
+		return nil, wrapClassNotFoundErr(err, subCommand.Collection)
 	}
 
 	response := cmd.ShardingState{
@@ -302,10 +299,7 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 		return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Shard)
 	})
 	if err != nil {
-		if errors.Is(err, schema.ErrClassNotFound) {
-			return nil, fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
-		}
-		return nil, err
+		return nil, wrapClassNotFoundErr(err, subCommand.Collection)
 	}
 
 	response := cmd.ShardingState{
@@ -317,6 +311,22 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 		return nil, fmt.Errorf("could not marshal query response: %w", err)
 	}
 	return payload, nil
+}
+
+// wrapClassNotFoundErr normalizes errors from SchemaReader.Read so the HTTP layer
+// maps them to the correct HTTP status.
+//   - If the collection is missing, Read returns schema.ErrClassNotFound and does
+//     not invoke the callback. This wraps it as types.ErrNotFound with the collection
+//     name so it maps to HTTP 404.
+//   - Errors returned by the callback (e.g., shard not found) are passed through unchanged.
+func wrapClassNotFoundErr(err error, collection string) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, schema.ErrClassNotFound) {
+		return fmt.Errorf("%w: %s", types.ErrNotFound, collection)
+	}
+	return err
 }
 
 func makeReplicationDetailsResponse(op *ShardReplicationOp, status *ShardReplicationOpStatus) cmd.ReplicationDetailsResponse {
