@@ -68,7 +68,6 @@ type Value struct {
 	// Types that are valid to be assigned to Kind:
 	//
 	//	*Value_NumberValue
-	//	*Value_StringValue
 	//	*Value_BoolValue
 	//	*Value_ObjectValue
 	//	*Value_ListValue
@@ -129,16 +128,6 @@ func (x *Value) GetNumberValue() float64 {
 		}
 	}
 	return 0
-}
-
-// Deprecated: Marked as deprecated in v1/properties.proto.
-func (x *Value) GetStringValue() string {
-	if x != nil {
-		if x, ok := x.Kind.(*Value_StringValue); ok {
-			return x.StringValue
-		}
-	}
-	return ""
 }
 
 func (x *Value) GetBoolValue() bool {
@@ -248,12 +237,8 @@ type Value_NumberValue struct {
 	NumberValue float64 `protobuf:"fixed64,1,opt,name=number_value,json=numberValue,proto3,oneof"`
 }
 
-type Value_StringValue struct {
-	// Deprecated: Marked as deprecated in v1/properties.proto.
-	StringValue string `protobuf:"bytes,2,opt,name=string_value,json=stringValue,proto3,oneof"`
-}
-
 type Value_BoolValue struct {
+	// dont reuse 2, old field that has been removed; Was "string string_value = 2;"
 	BoolValue bool `protobuf:"varint,3,opt,name=bool_value,json=boolValue,proto3,oneof"`
 }
 
@@ -299,8 +284,6 @@ type Value_TextValue struct {
 
 func (*Value_NumberValue) isValue_Kind() {}
 
-func (*Value_StringValue) isValue_Kind() {}
-
 func (*Value_BoolValue) isValue_Kind() {}
 
 func (*Value_ObjectValue) isValue_Kind() {}
@@ -325,8 +308,6 @@ func (*Value_TextValue) isValue_Kind() {}
 
 type ListValue struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Deprecated: Marked as deprecated in v1/properties.proto.
-	Values []*Value `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
 	// Types that are valid to be assigned to Kind:
 	//
 	//	*ListValue_NumberValues
@@ -369,14 +350,6 @@ func (x *ListValue) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ListValue.ProtoReflect.Descriptor instead.
 func (*ListValue) Descriptor() ([]byte, []int) {
 	return file_v1_properties_proto_rawDescGZIP(), []int{2}
-}
-
-// Deprecated: Marked as deprecated in v1/properties.proto.
-func (x *ListValue) GetValues() []*Value {
-	if x != nil {
-		return x.Values
-	}
-	return nil
 }
 
 func (x *ListValue) GetKind() isListValue_Kind {
@@ -963,10 +936,9 @@ const file_v1_properties_proto_rawDesc = "" +
 	"\x06fields\x18\x01 \x03(\v2#.weaviate.v1.Properties.FieldsEntryR\x06fields\x1aM\n" +
 	"\vFieldsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12(\n" +
-	"\x05value\x18\x02 \x01(\v2\x12.weaviate.v1.ValueR\x05value:\x028\x01\"\xcd\x04\n" +
+	"\x05value\x18\x02 \x01(\v2\x12.weaviate.v1.ValueR\x05value:\x028\x01\"\xa4\x04\n" +
 	"\x05Value\x12#\n" +
-	"\fnumber_value\x18\x01 \x01(\x01H\x00R\vnumberValue\x12'\n" +
-	"\fstring_value\x18\x02 \x01(\tB\x02\x18\x01H\x00R\vstringValue\x12\x1f\n" +
+	"\fnumber_value\x18\x01 \x01(\x01H\x00R\vnumberValue\x12\x1f\n" +
 	"\n" +
 	"bool_value\x18\x03 \x01(\bH\x00R\tboolValue\x12<\n" +
 	"\fobject_value\x18\x04 \x01(\v2\x17.weaviate.v1.PropertiesH\x00R\vobjectValue\x127\n" +
@@ -987,9 +959,8 @@ const file_v1_properties_proto_rawDesc = "" +
 	"null_value\x18\f \x01(\x0e2\x1a.google.protobuf.NullValueH\x00R\tnullValue\x12\x1f\n" +
 	"\n" +
 	"text_value\x18\r \x01(\tH\x00R\ttextValueB\x06\n" +
-	"\x04kind\"\xf0\x03\n" +
-	"\tListValue\x12.\n" +
-	"\x06values\x18\x01 \x03(\v2\x12.weaviate.v1.ValueB\x02\x18\x01R\x06values\x12@\n" +
+	"\x04kind\"\xc6\x03\n" +
+	"\tListValue\x12@\n" +
 	"\rnumber_values\x18\x02 \x01(\v2\x19.weaviate.v1.NumberValuesH\x00R\fnumberValues\x12:\n" +
 	"\vbool_values\x18\x03 \x01(\v2\x17.weaviate.v1.BoolValuesH\x00R\n" +
 	"boolValues\x12@\n" +
@@ -1002,7 +973,7 @@ const file_v1_properties_proto_rawDesc = "" +
 	"int_values\x18\a \x01(\v2\x16.weaviate.v1.IntValuesH\x00R\tintValues\x12:\n" +
 	"\vtext_values\x18\b \x01(\v2\x17.weaviate.v1.TextValuesH\x00R\n" +
 	"textValuesB\x06\n" +
-	"\x04kind\"&\n" +
+	"\x04kindJ\x04\b\x01\x10\x02\"&\n" +
 	"\fNumberValues\x12\x16\n" +
 	"\x06values\x18\x01 \x01(\fR\x06values\"$\n" +
 	"\n" +
@@ -1046,23 +1017,26 @@ func file_v1_properties_proto_rawDescGZIP() []byte {
 	return file_v1_properties_proto_rawDescData
 }
 
-var file_v1_properties_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
-var file_v1_properties_proto_goTypes = []any{
-	(*Properties)(nil),      // 0: weaviate.v1.Properties
-	(*Value)(nil),           // 1: weaviate.v1.Value
-	(*ListValue)(nil),       // 2: weaviate.v1.ListValue
-	(*NumberValues)(nil),    // 3: weaviate.v1.NumberValues
-	(*TextValues)(nil),      // 4: weaviate.v1.TextValues
-	(*BoolValues)(nil),      // 5: weaviate.v1.BoolValues
-	(*ObjectValues)(nil),    // 6: weaviate.v1.ObjectValues
-	(*DateValues)(nil),      // 7: weaviate.v1.DateValues
-	(*UuidValues)(nil),      // 8: weaviate.v1.UuidValues
-	(*IntValues)(nil),       // 9: weaviate.v1.IntValues
-	(*GeoCoordinate)(nil),   // 10: weaviate.v1.GeoCoordinate
-	(*PhoneNumber)(nil),     // 11: weaviate.v1.PhoneNumber
-	nil,                     // 12: weaviate.v1.Properties.FieldsEntry
-	(structpb.NullValue)(0), // 13: google.protobuf.NullValue
-}
+var (
+	file_v1_properties_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+	file_v1_properties_proto_goTypes  = []any{
+		(*Properties)(nil),      // 0: weaviate.v1.Properties
+		(*Value)(nil),           // 1: weaviate.v1.Value
+		(*ListValue)(nil),       // 2: weaviate.v1.ListValue
+		(*NumberValues)(nil),    // 3: weaviate.v1.NumberValues
+		(*TextValues)(nil),      // 4: weaviate.v1.TextValues
+		(*BoolValues)(nil),      // 5: weaviate.v1.BoolValues
+		(*ObjectValues)(nil),    // 6: weaviate.v1.ObjectValues
+		(*DateValues)(nil),      // 7: weaviate.v1.DateValues
+		(*UuidValues)(nil),      // 8: weaviate.v1.UuidValues
+		(*IntValues)(nil),       // 9: weaviate.v1.IntValues
+		(*GeoCoordinate)(nil),   // 10: weaviate.v1.GeoCoordinate
+		(*PhoneNumber)(nil),     // 11: weaviate.v1.PhoneNumber
+		nil,                     // 12: weaviate.v1.Properties.FieldsEntry
+		(structpb.NullValue)(0), // 13: google.protobuf.NullValue
+	}
+)
+
 var file_v1_properties_proto_depIdxs = []int32{
 	12, // 0: weaviate.v1.Properties.fields:type_name -> weaviate.v1.Properties.FieldsEntry
 	0,  // 1: weaviate.v1.Value.object_value:type_name -> weaviate.v1.Properties
@@ -1070,21 +1044,20 @@ var file_v1_properties_proto_depIdxs = []int32{
 	10, // 3: weaviate.v1.Value.geo_value:type_name -> weaviate.v1.GeoCoordinate
 	11, // 4: weaviate.v1.Value.phone_value:type_name -> weaviate.v1.PhoneNumber
 	13, // 5: weaviate.v1.Value.null_value:type_name -> google.protobuf.NullValue
-	1,  // 6: weaviate.v1.ListValue.values:type_name -> weaviate.v1.Value
-	3,  // 7: weaviate.v1.ListValue.number_values:type_name -> weaviate.v1.NumberValues
-	5,  // 8: weaviate.v1.ListValue.bool_values:type_name -> weaviate.v1.BoolValues
-	6,  // 9: weaviate.v1.ListValue.object_values:type_name -> weaviate.v1.ObjectValues
-	7,  // 10: weaviate.v1.ListValue.date_values:type_name -> weaviate.v1.DateValues
-	8,  // 11: weaviate.v1.ListValue.uuid_values:type_name -> weaviate.v1.UuidValues
-	9,  // 12: weaviate.v1.ListValue.int_values:type_name -> weaviate.v1.IntValues
-	4,  // 13: weaviate.v1.ListValue.text_values:type_name -> weaviate.v1.TextValues
-	0,  // 14: weaviate.v1.ObjectValues.values:type_name -> weaviate.v1.Properties
-	1,  // 15: weaviate.v1.Properties.FieldsEntry.value:type_name -> weaviate.v1.Value
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	3,  // 6: weaviate.v1.ListValue.number_values:type_name -> weaviate.v1.NumberValues
+	5,  // 7: weaviate.v1.ListValue.bool_values:type_name -> weaviate.v1.BoolValues
+	6,  // 8: weaviate.v1.ListValue.object_values:type_name -> weaviate.v1.ObjectValues
+	7,  // 9: weaviate.v1.ListValue.date_values:type_name -> weaviate.v1.DateValues
+	8,  // 10: weaviate.v1.ListValue.uuid_values:type_name -> weaviate.v1.UuidValues
+	9,  // 11: weaviate.v1.ListValue.int_values:type_name -> weaviate.v1.IntValues
+	4,  // 12: weaviate.v1.ListValue.text_values:type_name -> weaviate.v1.TextValues
+	0,  // 13: weaviate.v1.ObjectValues.values:type_name -> weaviate.v1.Properties
+	1,  // 14: weaviate.v1.Properties.FieldsEntry.value:type_name -> weaviate.v1.Value
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_v1_properties_proto_init() }
@@ -1094,7 +1067,6 @@ func file_v1_properties_proto_init() {
 	}
 	file_v1_properties_proto_msgTypes[1].OneofWrappers = []any{
 		(*Value_NumberValue)(nil),
-		(*Value_StringValue)(nil),
 		(*Value_BoolValue)(nil),
 		(*Value_ObjectValue)(nil),
 		(*Value_ListValue)(nil),
