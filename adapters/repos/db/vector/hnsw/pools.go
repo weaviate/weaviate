@@ -50,9 +50,7 @@ func newPools(maxConnectionsLayerZero int, initialVisitedListPoolSize int) *pool
 		tempVectorsUint64: common.NewTempUint64VectorsPool(),
 		queuePool: &sync.Pool{
 			New: func() interface{} {
-				return &Queue{
-					items: make([]interface{}, 0, 16),
-				}
+				return common.NewQueue[uint64](16)
 			},
 		},
 	}
@@ -116,32 +114,11 @@ func (pqh *pqMinWithIndexPool) Put(pq *priorityqueue.Queue[uint64]) {
 	pqh.pool.Put(pq)
 }
 
-type Queue struct {
-	items []interface{}
+func (p *pools) GetQueue() *common.Queue[uint64] {
+	return p.queuePool.Get().(*common.Queue[uint64])
 }
 
-func (q *Queue) Enqueue(item interface{}) {
-	q.items = append(q.items, item)
-}
-
-func (q *Queue) Dequeue() interface{} {
-	if len(q.items) == 0 {
-		return nil
-	}
-	item := q.items[0]
-	q.items = q.items[1:]
-	return item
-}
-
-func (q *Queue) Reset() {
-	q.items = q.items[:0]
-}
-
-func (p *pools) GetQueue() *Queue {
-	return p.queuePool.Get().(*Queue)
-}
-
-func (p *pools) PutQueue(q *Queue) {
+func (p *pools) PutQueue(q *common.Queue[uint64]) {
 	q.Reset()
 	p.queuePool.Put(q)
 }
