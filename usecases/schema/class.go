@@ -192,7 +192,6 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 			return hnswConfig
 		}
 		if uncompressed {
-			hnswConfig.TrackingDefault = true
 			return hnswConfig
 		}
 		switch compression {
@@ -207,7 +206,6 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 		default:
 			return hnswConfig
 		}
-		hnswConfig.TrackingDefault = true
 		return hnswConfig
 	}
 	return vectorIndexConfig

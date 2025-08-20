@@ -62,7 +62,6 @@ type UserConfig struct {
 	RQ                     RQConfig          `json:"rq"`
 	FilterStrategy         string            `json:"filterStrategy"`
 	Multivector            MultivectorConfig `json:"multivector"`
-	TrackingDefault        bool              `json:"trackingDefault"`
 	Uncompressed           bool              `json:"uncompressed"`
 }
 
@@ -238,12 +237,6 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.Vecto
 	}
 
 	if err := parseMultivectorMap(asMap, &uc.Multivector, isMultiVector); err != nil {
-		return uc, err
-	}
-
-	if err := vectorIndexCommon.OptionalBoolFromMap(asMap, "trackingDefault", func(v bool) {
-		uc.TrackingDefault = v
-	}); err != nil {
 		return uc, err
 	}
 
