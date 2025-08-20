@@ -25,6 +25,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
@@ -914,8 +915,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
 
-	grpcShutdownCtx, grpcShutdownCtxCancel := context.WithCancel(context.Background())
-	grpcServer := createGrpcServer(appState, grpcShutdownCtx, grpcInstrument...)
+	var grpcShutdownWorkersWg sync.WaitGroup
+	grpcShutdownWorkersCtx, grpcShutdownWorkersCtxCancel := context.WithCancel(context.Background())
+	grpcShutdownHandlersCtx, grpcShutdownHandlersCtxCancel := context.WithCancel(context.Background())
+	grpcServer := createGrpcServer(appState, grpcShutdownHandlersCtx, grpcShutdownWorkersCtx, &grpcShutdownWorkersWg, grpcInstrument...)
+
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
 
@@ -938,6 +942,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				backupScheduler.CleanupUnfinishedBackups(ctx)
 			}, appState.Logger)
 	}
+
+	api.PreServerShutdown = func() {
+		// stop grpc server dependencies on shutdown
+		grpcShutdownWorkersCtxCancel()
+		appState.Logger.Info("shutting down grpc batch workers")
+		grpcShutdownWorkersWg.Wait()
+	}
+
 	api.ServerShutdown = func() {
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -958,9 +970,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			appState.DistributedTaskScheduler.Close()
 		}
 
-		// stop grpc server dependencies on shutdown
-		grpcShutdownCtxCancel()
-
+		grpcShutdownHandlersCtxCancel()
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
 

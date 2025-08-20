@@ -493,6 +493,50 @@ func (x *BatchShutdown) GetStreamId() string {
 	return ""
 }
 
+type BatchShuttingDown struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StreamId      string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchShuttingDown) Reset() {
+	*x = BatchShuttingDown{}
+	mi := &file_v1_batch_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchShuttingDown) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchShuttingDown) ProtoMessage() {}
+
+func (x *BatchShuttingDown) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_batch_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchShuttingDown.ProtoReflect.Descriptor instead.
+func (*BatchShuttingDown) Descriptor() ([]byte, []int) {
+	return file_v1_batch_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *BatchShuttingDown) GetStreamId() string {
+	if x != nil {
+		return x.StreamId
+	}
+	return ""
+}
+
 type BatchStreamMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Message:
@@ -501,6 +545,7 @@ type BatchStreamMessage struct {
 	//	*BatchStreamMessage_Error
 	//	*BatchStreamMessage_Stop
 	//	*BatchStreamMessage_Shutdown
+	//	*BatchStreamMessage_ShuttingDown
 	Message       isBatchStreamMessage_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -508,7 +553,7 @@ type BatchStreamMessage struct {
 
 func (x *BatchStreamMessage) Reset() {
 	*x = BatchStreamMessage{}
-	mi := &file_v1_batch_proto_msgTypes[9]
+	mi := &file_v1_batch_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -520,7 +565,7 @@ func (x *BatchStreamMessage) String() string {
 func (*BatchStreamMessage) ProtoMessage() {}
 
 func (x *BatchStreamMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_batch_proto_msgTypes[9]
+	mi := &file_v1_batch_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -533,7 +578,7 @@ func (x *BatchStreamMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchStreamMessage.ProtoReflect.Descriptor instead.
 func (*BatchStreamMessage) Descriptor() ([]byte, []int) {
-	return file_v1_batch_proto_rawDescGZIP(), []int{9}
+	return file_v1_batch_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *BatchStreamMessage) GetMessage() isBatchStreamMessage_Message {
@@ -579,6 +624,15 @@ func (x *BatchStreamMessage) GetShutdown() *BatchShutdown {
 	return nil
 }
 
+func (x *BatchStreamMessage) GetShuttingDown() *BatchShuttingDown {
+	if x != nil {
+		if x, ok := x.Message.(*BatchStreamMessage_ShuttingDown); ok {
+			return x.ShuttingDown
+		}
+	}
+	return nil
+}
+
 type isBatchStreamMessage_Message interface {
 	isBatchStreamMessage_Message()
 }
@@ -599,6 +653,10 @@ type BatchStreamMessage_Shutdown struct {
 	Shutdown *BatchShutdown `protobuf:"bytes,4,opt,name=shutdown,proto3,oneof"`
 }
 
+type BatchStreamMessage_ShuttingDown struct {
+	ShuttingDown *BatchShuttingDown `protobuf:"bytes,5,opt,name=shutting_down,json=shuttingDown,proto3,oneof"`
+}
+
 func (*BatchStreamMessage_Start) isBatchStreamMessage_Message() {}
 
 func (*BatchStreamMessage_Error) isBatchStreamMessage_Message() {}
@@ -606,6 +664,8 @@ func (*BatchStreamMessage_Error) isBatchStreamMessage_Message() {}
 func (*BatchStreamMessage_Stop) isBatchStreamMessage_Message() {}
 
 func (*BatchStreamMessage_Shutdown) isBatchStreamMessage_Message() {}
+
+func (*BatchStreamMessage_ShuttingDown) isBatchStreamMessage_Message() {}
 
 type BatchObject struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -626,7 +686,7 @@ type BatchObject struct {
 
 func (x *BatchObject) Reset() {
 	*x = BatchObject{}
-	mi := &file_v1_batch_proto_msgTypes[10]
+	mi := &file_v1_batch_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -638,7 +698,7 @@ func (x *BatchObject) String() string {
 func (*BatchObject) ProtoMessage() {}
 
 func (x *BatchObject) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_batch_proto_msgTypes[10]
+	mi := &file_v1_batch_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -651,7 +711,7 @@ func (x *BatchObject) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchObject.ProtoReflect.Descriptor instead.
 func (*BatchObject) Descriptor() ([]byte, []int) {
-	return file_v1_batch_proto_rawDescGZIP(), []int{10}
+	return file_v1_batch_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *BatchObject) GetUuid() string {
@@ -718,7 +778,7 @@ type BatchReference struct {
 
 func (x *BatchReference) Reset() {
 	*x = BatchReference{}
-	mi := &file_v1_batch_proto_msgTypes[11]
+	mi := &file_v1_batch_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -730,7 +790,7 @@ func (x *BatchReference) String() string {
 func (*BatchReference) ProtoMessage() {}
 
 func (x *BatchReference) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_batch_proto_msgTypes[11]
+	mi := &file_v1_batch_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -743,7 +803,7 @@ func (x *BatchReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchReference.ProtoReflect.Descriptor instead.
 func (*BatchReference) Descriptor() ([]byte, []int) {
-	return file_v1_batch_proto_rawDescGZIP(), []int{11}
+	return file_v1_batch_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *BatchReference) GetName() string {
@@ -800,7 +860,7 @@ type BatchError struct {
 
 func (x *BatchError) Reset() {
 	*x = BatchError{}
-	mi := &file_v1_batch_proto_msgTypes[12]
+	mi := &file_v1_batch_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -812,7 +872,7 @@ func (x *BatchError) String() string {
 func (*BatchError) ProtoMessage() {}
 
 func (x *BatchError) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_batch_proto_msgTypes[12]
+	mi := &file_v1_batch_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -825,7 +885,7 @@ func (x *BatchError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchError.ProtoReflect.Descriptor instead.
 func (*BatchError) Descriptor() ([]byte, []int) {
-	return file_v1_batch_proto_rawDescGZIP(), []int{12}
+	return file_v1_batch_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *BatchError) GetError() string {
@@ -866,7 +926,7 @@ type BatchObjectsReply struct {
 
 func (x *BatchObjectsReply) Reset() {
 	*x = BatchObjectsReply{}
-	mi := &file_v1_batch_proto_msgTypes[13]
+	mi := &file_v1_batch_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -878,7 +938,7 @@ func (x *BatchObjectsReply) String() string {
 func (*BatchObjectsReply) ProtoMessage() {}
 
 func (x *BatchObjectsReply) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_batch_proto_msgTypes[13]
+	mi := &file_v1_batch_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -891,7 +951,7 @@ func (x *BatchObjectsReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchObjectsReply.ProtoReflect.Descriptor instead.
 func (*BatchObjectsReply) Descriptor() ([]byte, []int) {
-	return file_v1_batch_proto_rawDescGZIP(), []int{13}
+	return file_v1_batch_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *BatchObjectsReply) GetTook() float32 {
@@ -918,7 +978,7 @@ type BatchReferencesReply struct {
 
 func (x *BatchReferencesReply) Reset() {
 	*x = BatchReferencesReply{}
-	mi := &file_v1_batch_proto_msgTypes[14]
+	mi := &file_v1_batch_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -930,7 +990,7 @@ func (x *BatchReferencesReply) String() string {
 func (*BatchReferencesReply) ProtoMessage() {}
 
 func (x *BatchReferencesReply) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_batch_proto_msgTypes[14]
+	mi := &file_v1_batch_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -943,7 +1003,7 @@ func (x *BatchReferencesReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchReferencesReply.ProtoReflect.Descriptor instead.
 func (*BatchReferencesReply) Descriptor() ([]byte, []int) {
-	return file_v1_batch_proto_rawDescGZIP(), []int{14}
+	return file_v1_batch_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *BatchReferencesReply) GetTook() float32 {
@@ -968,7 +1028,7 @@ type BatchSendRequest_BatchStop struct {
 
 func (x *BatchSendRequest_BatchStop) Reset() {
 	*x = BatchSendRequest_BatchStop{}
-	mi := &file_v1_batch_proto_msgTypes[15]
+	mi := &file_v1_batch_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -980,7 +1040,7 @@ func (x *BatchSendRequest_BatchStop) String() string {
 func (*BatchSendRequest_BatchStop) ProtoMessage() {}
 
 func (x *BatchSendRequest_BatchStop) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_batch_proto_msgTypes[15]
+	mi := &file_v1_batch_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1005,7 +1065,7 @@ type BatchStreamMessage_BatchStop struct {
 
 func (x *BatchStreamMessage_BatchStop) Reset() {
 	*x = BatchStreamMessage_BatchStop{}
-	mi := &file_v1_batch_proto_msgTypes[16]
+	mi := &file_v1_batch_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1017,7 +1077,7 @@ func (x *BatchStreamMessage_BatchStop) String() string {
 func (*BatchStreamMessage_BatchStop) ProtoMessage() {}
 
 func (x *BatchStreamMessage_BatchStop) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_batch_proto_msgTypes[16]
+	mi := &file_v1_batch_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1030,7 +1090,7 @@ func (x *BatchStreamMessage_BatchStop) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchStreamMessage_BatchStop.ProtoReflect.Descriptor instead.
 func (*BatchStreamMessage_BatchStop) Descriptor() ([]byte, []int) {
-	return file_v1_batch_proto_rawDescGZIP(), []int{9, 0}
+	return file_v1_batch_proto_rawDescGZIP(), []int{10, 0}
 }
 
 func (x *BatchStreamMessage_BatchStop) GetStreamId() string {
@@ -1060,7 +1120,7 @@ type BatchObject_Properties struct {
 
 func (x *BatchObject_Properties) Reset() {
 	*x = BatchObject_Properties{}
-	mi := &file_v1_batch_proto_msgTypes[17]
+	mi := &file_v1_batch_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1072,7 +1132,7 @@ func (x *BatchObject_Properties) String() string {
 func (*BatchObject_Properties) ProtoMessage() {}
 
 func (x *BatchObject_Properties) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_batch_proto_msgTypes[17]
+	mi := &file_v1_batch_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1085,7 +1145,7 @@ func (x *BatchObject_Properties) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchObject_Properties.ProtoReflect.Descriptor instead.
 func (*BatchObject_Properties) Descriptor() ([]byte, []int) {
-	return file_v1_batch_proto_rawDescGZIP(), []int{10, 0}
+	return file_v1_batch_proto_rawDescGZIP(), []int{11, 0}
 }
 
 func (x *BatchObject_Properties) GetNonRefProperties() *structpb.Struct {
@@ -1168,7 +1228,7 @@ type BatchObject_SingleTargetRefProps struct {
 
 func (x *BatchObject_SingleTargetRefProps) Reset() {
 	*x = BatchObject_SingleTargetRefProps{}
-	mi := &file_v1_batch_proto_msgTypes[18]
+	mi := &file_v1_batch_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1180,7 +1240,7 @@ func (x *BatchObject_SingleTargetRefProps) String() string {
 func (*BatchObject_SingleTargetRefProps) ProtoMessage() {}
 
 func (x *BatchObject_SingleTargetRefProps) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_batch_proto_msgTypes[18]
+	mi := &file_v1_batch_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1193,7 +1253,7 @@ func (x *BatchObject_SingleTargetRefProps) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchObject_SingleTargetRefProps.ProtoReflect.Descriptor instead.
 func (*BatchObject_SingleTargetRefProps) Descriptor() ([]byte, []int) {
-	return file_v1_batch_proto_rawDescGZIP(), []int{10, 1}
+	return file_v1_batch_proto_rawDescGZIP(), []int{11, 1}
 }
 
 func (x *BatchObject_SingleTargetRefProps) GetUuids() []string {
@@ -1221,7 +1281,7 @@ type BatchObject_MultiTargetRefProps struct {
 
 func (x *BatchObject_MultiTargetRefProps) Reset() {
 	*x = BatchObject_MultiTargetRefProps{}
-	mi := &file_v1_batch_proto_msgTypes[19]
+	mi := &file_v1_batch_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1233,7 +1293,7 @@ func (x *BatchObject_MultiTargetRefProps) String() string {
 func (*BatchObject_MultiTargetRefProps) ProtoMessage() {}
 
 func (x *BatchObject_MultiTargetRefProps) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_batch_proto_msgTypes[19]
+	mi := &file_v1_batch_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1246,7 +1306,7 @@ func (x *BatchObject_MultiTargetRefProps) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchObject_MultiTargetRefProps.ProtoReflect.Descriptor instead.
 func (*BatchObject_MultiTargetRefProps) Descriptor() ([]byte, []int) {
-	return file_v1_batch_proto_rawDescGZIP(), []int{10, 2}
+	return file_v1_batch_proto_rawDescGZIP(), []int{11, 2}
 }
 
 func (x *BatchObject_MultiTargetRefProps) GetUuids() []string {
@@ -1280,7 +1340,7 @@ type BatchObjectsReply_BatchError struct {
 
 func (x *BatchObjectsReply_BatchError) Reset() {
 	*x = BatchObjectsReply_BatchError{}
-	mi := &file_v1_batch_proto_msgTypes[20]
+	mi := &file_v1_batch_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1292,7 +1352,7 @@ func (x *BatchObjectsReply_BatchError) String() string {
 func (*BatchObjectsReply_BatchError) ProtoMessage() {}
 
 func (x *BatchObjectsReply_BatchError) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_batch_proto_msgTypes[20]
+	mi := &file_v1_batch_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1305,7 +1365,7 @@ func (x *BatchObjectsReply_BatchError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchObjectsReply_BatchError.ProtoReflect.Descriptor instead.
 func (*BatchObjectsReply_BatchError) Descriptor() ([]byte, []int) {
-	return file_v1_batch_proto_rawDescGZIP(), []int{13, 0}
+	return file_v1_batch_proto_rawDescGZIP(), []int{14, 0}
 }
 
 func (x *BatchObjectsReply_BatchError) GetIndex() int32 {
@@ -1332,7 +1392,7 @@ type BatchReferencesReply_BatchError struct {
 
 func (x *BatchReferencesReply_BatchError) Reset() {
 	*x = BatchReferencesReply_BatchError{}
-	mi := &file_v1_batch_proto_msgTypes[21]
+	mi := &file_v1_batch_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1344,7 +1404,7 @@ func (x *BatchReferencesReply_BatchError) String() string {
 func (*BatchReferencesReply_BatchError) ProtoMessage() {}
 
 func (x *BatchReferencesReply_BatchError) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_batch_proto_msgTypes[21]
+	mi := &file_v1_batch_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1357,7 +1417,7 @@ func (x *BatchReferencesReply_BatchError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchReferencesReply_BatchError.ProtoReflect.Descriptor instead.
 func (*BatchReferencesReply_BatchError) Descriptor() ([]byte, []int) {
-	return file_v1_batch_proto_rawDescGZIP(), []int{14, 0}
+	return file_v1_batch_proto_rawDescGZIP(), []int{15, 0}
 }
 
 func (x *BatchReferencesReply_BatchError) GetIndex() int32 {
@@ -1411,12 +1471,15 @@ const file_v1_batch_proto_rawDesc = "" +
 	"BatchStart\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\",\n" +
 	"\rBatchShutdown\x12\x1b\n" +
-	"\tstream_id\x18\x01 \x01(\tR\bstreamId\"\xa6\x02\n" +
+	"\tstream_id\x18\x01 \x01(\tR\bstreamId\"0\n" +
+	"\x11BatchShuttingDown\x12\x1b\n" +
+	"\tstream_id\x18\x01 \x01(\tR\bstreamId\"\xed\x02\n" +
 	"\x12BatchStreamMessage\x12/\n" +
 	"\x05start\x18\x01 \x01(\v2\x17.weaviate.v1.BatchStartH\x00R\x05start\x12/\n" +
 	"\x05error\x18\x02 \x01(\v2\x17.weaviate.v1.BatchErrorH\x00R\x05error\x12?\n" +
 	"\x04stop\x18\x03 \x01(\v2).weaviate.v1.BatchStreamMessage.BatchStopH\x00R\x04stop\x128\n" +
-	"\bshutdown\x18\x04 \x01(\v2\x1a.weaviate.v1.BatchShutdownH\x00R\bshutdown\x1a(\n" +
+	"\bshutdown\x18\x04 \x01(\v2\x1a.weaviate.v1.BatchShutdownH\x00R\bshutdown\x12E\n" +
+	"\rshutting_down\x18\x05 \x01(\v2\x1e.weaviate.v1.BatchShuttingDownH\x00R\fshuttingDown\x1a(\n" +
 	"\tBatchStop\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamIdB\t\n" +
 	"\amessage\"\xa4\n" +
@@ -1495,7 +1558,7 @@ func file_v1_batch_proto_rawDescGZIP() []byte {
 	return file_v1_batch_proto_rawDescData
 }
 
-var file_v1_batch_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_v1_batch_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_v1_batch_proto_goTypes = []any{
 	(*BatchObjectsRequest)(nil),              // 0: weaviate.v1.BatchObjectsRequest
 	(*BatchReferencesRequest)(nil),           // 1: weaviate.v1.BatchReferencesRequest
@@ -1506,64 +1569,66 @@ var file_v1_batch_proto_goTypes = []any{
 	(*BatchStreamRequest)(nil),               // 6: weaviate.v1.BatchStreamRequest
 	(*BatchStart)(nil),                       // 7: weaviate.v1.BatchStart
 	(*BatchShutdown)(nil),                    // 8: weaviate.v1.BatchShutdown
-	(*BatchStreamMessage)(nil),               // 9: weaviate.v1.BatchStreamMessage
-	(*BatchObject)(nil),                      // 10: weaviate.v1.BatchObject
-	(*BatchReference)(nil),                   // 11: weaviate.v1.BatchReference
-	(*BatchError)(nil),                       // 12: weaviate.v1.BatchError
-	(*BatchObjectsReply)(nil),                // 13: weaviate.v1.BatchObjectsReply
-	(*BatchReferencesReply)(nil),             // 14: weaviate.v1.BatchReferencesReply
-	(*BatchSendRequest_BatchStop)(nil),       // 15: weaviate.v1.BatchSendRequest.BatchStop
-	(*BatchStreamMessage_BatchStop)(nil),     // 16: weaviate.v1.BatchStreamMessage.BatchStop
-	(*BatchObject_Properties)(nil),           // 17: weaviate.v1.BatchObject.Properties
-	(*BatchObject_SingleTargetRefProps)(nil), // 18: weaviate.v1.BatchObject.SingleTargetRefProps
-	(*BatchObject_MultiTargetRefProps)(nil),  // 19: weaviate.v1.BatchObject.MultiTargetRefProps
-	(*BatchObjectsReply_BatchError)(nil),     // 20: weaviate.v1.BatchObjectsReply.BatchError
-	(*BatchReferencesReply_BatchError)(nil),  // 21: weaviate.v1.BatchReferencesReply.BatchError
-	(ConsistencyLevel)(0),                    // 22: weaviate.v1.ConsistencyLevel
-	(*Vectors)(nil),                          // 23: weaviate.v1.Vectors
-	(*structpb.Struct)(nil),                  // 24: google.protobuf.Struct
-	(*NumberArrayProperties)(nil),            // 25: weaviate.v1.NumberArrayProperties
-	(*IntArrayProperties)(nil),               // 26: weaviate.v1.IntArrayProperties
-	(*TextArrayProperties)(nil),              // 27: weaviate.v1.TextArrayProperties
-	(*BooleanArrayProperties)(nil),           // 28: weaviate.v1.BooleanArrayProperties
-	(*ObjectProperties)(nil),                 // 29: weaviate.v1.ObjectProperties
-	(*ObjectArrayProperties)(nil),            // 30: weaviate.v1.ObjectArrayProperties
+	(*BatchShuttingDown)(nil),                // 9: weaviate.v1.BatchShuttingDown
+	(*BatchStreamMessage)(nil),               // 10: weaviate.v1.BatchStreamMessage
+	(*BatchObject)(nil),                      // 11: weaviate.v1.BatchObject
+	(*BatchReference)(nil),                   // 12: weaviate.v1.BatchReference
+	(*BatchError)(nil),                       // 13: weaviate.v1.BatchError
+	(*BatchObjectsReply)(nil),                // 14: weaviate.v1.BatchObjectsReply
+	(*BatchReferencesReply)(nil),             // 15: weaviate.v1.BatchReferencesReply
+	(*BatchSendRequest_BatchStop)(nil),       // 16: weaviate.v1.BatchSendRequest.BatchStop
+	(*BatchStreamMessage_BatchStop)(nil),     // 17: weaviate.v1.BatchStreamMessage.BatchStop
+	(*BatchObject_Properties)(nil),           // 18: weaviate.v1.BatchObject.Properties
+	(*BatchObject_SingleTargetRefProps)(nil), // 19: weaviate.v1.BatchObject.SingleTargetRefProps
+	(*BatchObject_MultiTargetRefProps)(nil),  // 20: weaviate.v1.BatchObject.MultiTargetRefProps
+	(*BatchObjectsReply_BatchError)(nil),     // 21: weaviate.v1.BatchObjectsReply.BatchError
+	(*BatchReferencesReply_BatchError)(nil),  // 22: weaviate.v1.BatchReferencesReply.BatchError
+	(ConsistencyLevel)(0),                    // 23: weaviate.v1.ConsistencyLevel
+	(*Vectors)(nil),                          // 24: weaviate.v1.Vectors
+	(*structpb.Struct)(nil),                  // 25: google.protobuf.Struct
+	(*NumberArrayProperties)(nil),            // 26: weaviate.v1.NumberArrayProperties
+	(*IntArrayProperties)(nil),               // 27: weaviate.v1.IntArrayProperties
+	(*TextArrayProperties)(nil),              // 28: weaviate.v1.TextArrayProperties
+	(*BooleanArrayProperties)(nil),           // 29: weaviate.v1.BooleanArrayProperties
+	(*ObjectProperties)(nil),                 // 30: weaviate.v1.ObjectProperties
+	(*ObjectArrayProperties)(nil),            // 31: weaviate.v1.ObjectArrayProperties
 }
 var file_v1_batch_proto_depIdxs = []int32{
-	10, // 0: weaviate.v1.BatchObjectsRequest.objects:type_name -> weaviate.v1.BatchObject
-	22, // 1: weaviate.v1.BatchObjectsRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
-	11, // 2: weaviate.v1.BatchReferencesRequest.references:type_name -> weaviate.v1.BatchReference
-	22, // 3: weaviate.v1.BatchReferencesRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
-	10, // 4: weaviate.v1.BatchObjects.values:type_name -> weaviate.v1.BatchObject
-	11, // 5: weaviate.v1.BatchReferences.values:type_name -> weaviate.v1.BatchReference
+	11, // 0: weaviate.v1.BatchObjectsRequest.objects:type_name -> weaviate.v1.BatchObject
+	23, // 1: weaviate.v1.BatchObjectsRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
+	12, // 2: weaviate.v1.BatchReferencesRequest.references:type_name -> weaviate.v1.BatchReference
+	23, // 3: weaviate.v1.BatchReferencesRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
+	11, // 4: weaviate.v1.BatchObjects.values:type_name -> weaviate.v1.BatchObject
+	12, // 5: weaviate.v1.BatchReferences.values:type_name -> weaviate.v1.BatchReference
 	2,  // 6: weaviate.v1.BatchSendRequest.objects:type_name -> weaviate.v1.BatchObjects
 	3,  // 7: weaviate.v1.BatchSendRequest.references:type_name -> weaviate.v1.BatchReferences
-	15, // 8: weaviate.v1.BatchSendRequest.stop:type_name -> weaviate.v1.BatchSendRequest.BatchStop
-	22, // 9: weaviate.v1.BatchStreamRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
+	16, // 8: weaviate.v1.BatchSendRequest.stop:type_name -> weaviate.v1.BatchSendRequest.BatchStop
+	23, // 9: weaviate.v1.BatchStreamRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
 	7,  // 10: weaviate.v1.BatchStreamMessage.start:type_name -> weaviate.v1.BatchStart
-	12, // 11: weaviate.v1.BatchStreamMessage.error:type_name -> weaviate.v1.BatchError
-	16, // 12: weaviate.v1.BatchStreamMessage.stop:type_name -> weaviate.v1.BatchStreamMessage.BatchStop
+	13, // 11: weaviate.v1.BatchStreamMessage.error:type_name -> weaviate.v1.BatchError
+	17, // 12: weaviate.v1.BatchStreamMessage.stop:type_name -> weaviate.v1.BatchStreamMessage.BatchStop
 	8,  // 13: weaviate.v1.BatchStreamMessage.shutdown:type_name -> weaviate.v1.BatchShutdown
-	17, // 14: weaviate.v1.BatchObject.properties:type_name -> weaviate.v1.BatchObject.Properties
-	23, // 15: weaviate.v1.BatchObject.vectors:type_name -> weaviate.v1.Vectors
-	10, // 16: weaviate.v1.BatchError.object:type_name -> weaviate.v1.BatchObject
-	11, // 17: weaviate.v1.BatchError.reference:type_name -> weaviate.v1.BatchReference
-	20, // 18: weaviate.v1.BatchObjectsReply.errors:type_name -> weaviate.v1.BatchObjectsReply.BatchError
-	21, // 19: weaviate.v1.BatchReferencesReply.errors:type_name -> weaviate.v1.BatchReferencesReply.BatchError
-	24, // 20: weaviate.v1.BatchObject.Properties.non_ref_properties:type_name -> google.protobuf.Struct
-	18, // 21: weaviate.v1.BatchObject.Properties.single_target_ref_props:type_name -> weaviate.v1.BatchObject.SingleTargetRefProps
-	19, // 22: weaviate.v1.BatchObject.Properties.multi_target_ref_props:type_name -> weaviate.v1.BatchObject.MultiTargetRefProps
-	25, // 23: weaviate.v1.BatchObject.Properties.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties
-	26, // 24: weaviate.v1.BatchObject.Properties.int_array_properties:type_name -> weaviate.v1.IntArrayProperties
-	27, // 25: weaviate.v1.BatchObject.Properties.text_array_properties:type_name -> weaviate.v1.TextArrayProperties
-	28, // 26: weaviate.v1.BatchObject.Properties.boolean_array_properties:type_name -> weaviate.v1.BooleanArrayProperties
-	29, // 27: weaviate.v1.BatchObject.Properties.object_properties:type_name -> weaviate.v1.ObjectProperties
-	30, // 28: weaviate.v1.BatchObject.Properties.object_array_properties:type_name -> weaviate.v1.ObjectArrayProperties
-	29, // [29:29] is the sub-list for method output_type
-	29, // [29:29] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	9,  // 14: weaviate.v1.BatchStreamMessage.shutting_down:type_name -> weaviate.v1.BatchShuttingDown
+	18, // 15: weaviate.v1.BatchObject.properties:type_name -> weaviate.v1.BatchObject.Properties
+	24, // 16: weaviate.v1.BatchObject.vectors:type_name -> weaviate.v1.Vectors
+	11, // 17: weaviate.v1.BatchError.object:type_name -> weaviate.v1.BatchObject
+	12, // 18: weaviate.v1.BatchError.reference:type_name -> weaviate.v1.BatchReference
+	21, // 19: weaviate.v1.BatchObjectsReply.errors:type_name -> weaviate.v1.BatchObjectsReply.BatchError
+	22, // 20: weaviate.v1.BatchReferencesReply.errors:type_name -> weaviate.v1.BatchReferencesReply.BatchError
+	25, // 21: weaviate.v1.BatchObject.Properties.non_ref_properties:type_name -> google.protobuf.Struct
+	19, // 22: weaviate.v1.BatchObject.Properties.single_target_ref_props:type_name -> weaviate.v1.BatchObject.SingleTargetRefProps
+	20, // 23: weaviate.v1.BatchObject.Properties.multi_target_ref_props:type_name -> weaviate.v1.BatchObject.MultiTargetRefProps
+	26, // 24: weaviate.v1.BatchObject.Properties.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties
+	27, // 25: weaviate.v1.BatchObject.Properties.int_array_properties:type_name -> weaviate.v1.IntArrayProperties
+	28, // 26: weaviate.v1.BatchObject.Properties.text_array_properties:type_name -> weaviate.v1.TextArrayProperties
+	29, // 27: weaviate.v1.BatchObject.Properties.boolean_array_properties:type_name -> weaviate.v1.BooleanArrayProperties
+	30, // 28: weaviate.v1.BatchObject.Properties.object_properties:type_name -> weaviate.v1.ObjectProperties
+	31, // 29: weaviate.v1.BatchObject.Properties.object_array_properties:type_name -> weaviate.v1.ObjectArrayProperties
+	30, // [30:30] is the sub-list for method output_type
+	30, // [30:30] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_v1_batch_proto_init() }
@@ -1580,20 +1645,21 @@ func file_v1_batch_proto_init() {
 		(*BatchSendRequest_Stop)(nil),
 	}
 	file_v1_batch_proto_msgTypes[6].OneofWrappers = []any{}
-	file_v1_batch_proto_msgTypes[9].OneofWrappers = []any{
+	file_v1_batch_proto_msgTypes[10].OneofWrappers = []any{
 		(*BatchStreamMessage_Start)(nil),
 		(*BatchStreamMessage_Error)(nil),
 		(*BatchStreamMessage_Stop)(nil),
 		(*BatchStreamMessage_Shutdown)(nil),
+		(*BatchStreamMessage_ShuttingDown)(nil),
 	}
-	file_v1_batch_proto_msgTypes[11].OneofWrappers = []any{}
+	file_v1_batch_proto_msgTypes[12].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_batch_proto_rawDesc), len(file_v1_batch_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   22,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

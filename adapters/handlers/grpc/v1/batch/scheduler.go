@@ -40,37 +40,39 @@ func (s *Scheduler) Loop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			s.logger.Info("shutting down scheduler loop")
+			s.loop()
 			return
 		default:
-			s.writeQueues.queues.Range(func(key, value any) bool {
-				streamId, ok := key.(string)
-				if !ok {
-					s.logger.WithField("key", key).Error("expected string key in write queues")
-					return true // continue iteration
-				}
-				wq, ok := value.(*WriteQueue)
-				if !ok {
-					s.logger.WithField("value", value).Error("expected WriteQueue value in write queues")
-					return true // continue iteration
-				}
-				if len(wq.queue) == 0 {
-					return true // continue iteration if queue is empty
-				}
-				return s.add(ctx, streamId, wq)
-			})
+			s.loop()
 			time.Sleep(time.Millisecond * 100)
 		}
 	}
 }
 
-func (s *Scheduler) pull(ctx context.Context, queue writeQueue, max int) ([]*pb.BatchObject, []*pb.BatchReference, bool) {
+func (s *Scheduler) loop() {
+	s.writeQueues.queues.Range(func(key, value any) bool {
+		streamId, ok := key.(string)
+		if !ok {
+			s.logger.WithField("key", key).Error("expected string key in write queues")
+			return true // continue iteration
+		}
+		wq, ok := value.(*WriteQueue)
+		if !ok {
+			s.logger.WithField("value", value).Error("expected WriteQueue value in write queues")
+			return true // continue iteration
+		}
+		if len(wq.queue) == 0 {
+			return true // continue iteration if queue is empty
+		}
+		return s.add(streamId, wq)
+	})
+}
+
+func (s *Scheduler) pull(queue writeQueue, max int) ([]*pb.BatchObject, []*pb.BatchReference, bool) {
 	objs := make([]*pb.BatchObject, 0, max)
 	refs := make([]*pb.BatchReference, 0, max)
 	for i := 0; i < max && len(queue) > 0; i++ {
 		select {
-		case <-ctx.Done():
-			s.logger.Info("shutting down scheduler loop due to grpc shutdown")
-			return objs, refs, false // stop iteration
 		case obj := <-queue:
 			if obj.Object != nil {
 				objs = append(objs, obj.Object)
@@ -82,13 +84,14 @@ func (s *Scheduler) pull(ctx context.Context, queue writeQueue, max int) ([]*pb.
 				return objs, refs, true
 			}
 		default:
+			break // exit if no more items in queue
 		}
 	}
 	return objs, refs, false
 }
 
-func (s *Scheduler) add(ctx context.Context, streamId string, wq *WriteQueue) bool {
-	objs, refs, stop := s.pull(ctx, wq.queue, 1000)
+func (s *Scheduler) add(streamId string, wq *WriteQueue) bool {
+	objs, refs, stop := s.pull(wq.queue, 1000)
 	req := &ProcessRequest{
 		StreamId: streamId,
 	}

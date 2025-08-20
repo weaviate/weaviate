@@ -61,7 +61,7 @@ type Service struct {
 func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	allowAnonymousAccess bool, schemaManager *schemaManager.Manager,
 	batchManager *objects.BatchManager, config *config.Config, authorization authorization.Authorizer,
-	logger logrus.FieldLogger, grpcShutdownCtx context.Context,
+	logger logrus.FieldLogger, grpcShutdownHandlersCtx, grpcShutdownWorkersCtx context.Context, grpcShutdownWorkersWg *sync.WaitGroup,
 ) *Service {
 	authenticator := NewAuthHandler(allowAnonymousAccess, authComposer)
 	internalQueue := batch.NewBatchInternalQueue()
@@ -69,7 +69,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	batchReadQueues := batch.NewBatchReadQueues()
 
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchQueuesHandler := batch.NewQueuesHandler(grpcShutdownCtx, batchWriteQueues, batchReadQueues, logger)
+	batchQueuesHandler := batch.NewQueuesHandler(grpcShutdownHandlersCtx, grpcShutdownWorkersCtx, batchWriteQueues, batchReadQueues, logger)
 
 	var numWorkers int
 	numWorkersStr := os.Getenv("GRPC_BATCH_WORKERS_COUNT")
@@ -82,22 +82,8 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		numWorkers = 4
 	}
 
-	var wg sync.WaitGroup
-	batch.StartBatchWorkers(grpcShutdownCtx, &wg, numWorkers, internalQueue, batchReadQueues, batchWriteQueues, batchHandler, logger)
-	batch.StartScheduler(grpcShutdownCtx, &wg, batchWriteQueues, internalQueue, logger)
-	enterrors.GoWrapper(func() {
-		for {
-			select {
-			case <-grpcShutdownCtx.Done():
-				logger.Info("shutting down grpc batch workers")
-				wg.Wait()
-				return
-			default:
-				// keep the goroutine alive to listen for shutdown signal
-				time.Sleep(100 * time.Millisecond) // sleep to avoid busy waiting
-			}
-		}
-	}, logger)
+	batch.StartBatchWorkers(grpcShutdownWorkersCtx, grpcShutdownWorkersWg, numWorkers, internalQueue, batchReadQueues, batchWriteQueues, batchHandler, logger)
+	batch.StartScheduler(grpcShutdownHandlersCtx, grpcShutdownWorkersWg, batchWriteQueues, internalQueue, logger)
 
 	return &Service{
 		traverser:            traverser,

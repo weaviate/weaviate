@@ -54,6 +54,10 @@ message BatchShutdown {
   string stream_id = 1;
 }
 
+message BatchShuttingDown {
+  string stream_id = 1;
+}
+
 message BatchStreamMessage {
   message BatchStop {
     string stream_id = 1;
@@ -63,6 +67,7 @@ message BatchStreamMessage {
     BatchError error = 2;
     BatchStop stop = 3;
     BatchShutdown shutdown = 4;
+    BatchShuttingDown shutting_down = 5;
   }
 }
 

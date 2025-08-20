@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc/peer"
@@ -45,7 +46,7 @@ import (
 )
 
 // CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
-func CreateGRPCServer(state *state.State, grpcShutdownCtx context.Context, options ...grpc.ServerOption) *grpc.Server {
+func CreateGRPCServer(state *state.State, grpcShutdownHandlersCtx, grpcShutdownWorkersCtx context.Context, grpcShutdownWorkersWg *sync.WaitGroup, options ...grpc.ServerOption) *grpc.Server {
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
 		grpc.MaxSendMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
@@ -108,7 +109,9 @@ func CreateGRPCServer(state *state.State, grpcShutdownCtx context.Context, optio
 		&state.ServerConfig.Config,
 		state.Authorizer,
 		state.Logger,
-		grpcShutdownCtx,
+		grpcShutdownHandlersCtx,
+		grpcShutdownWorkersCtx,
+		grpcShutdownWorkersWg,
 	)
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)

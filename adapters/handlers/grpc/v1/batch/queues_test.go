@@ -49,7 +49,7 @@ func TestHandler(t *testing.T) {
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
 			internalQueue := batch.NewBatchInternalQueue()
-			handler := batch.NewQueuesHandler(shutdownCtx, writeQueues, readQueues, logger)
+			handler := batch.NewQueuesHandler(shutdownCtx, shutdownCtx, writeQueues, readQueues, logger)
 			var wg sync.WaitGroup
 			batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
 
@@ -64,7 +64,6 @@ func TestHandler(t *testing.T) {
 
 			// Shutdown the scheduler
 			shutdownCancel()
-			wg.Wait()
 		})
 
 		t.Run("test dynamic batch size calulation", func(t *testing.T) {
@@ -73,7 +72,7 @@ func TestHandler(t *testing.T) {
 
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
-			handler := batch.NewQueuesHandler(ctx, writeQueues, readQueues, logger)
+			handler := batch.NewQueuesHandler(ctx, ctx, writeQueues, readQueues, logger)
 
 			writeQueues.Make(StreamId, nil)
 			// Send 8000 objects
@@ -130,14 +129,14 @@ func TestHandler(t *testing.T) {
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
 			internalQueue := batch.NewBatchInternalQueue()
-			handler := batch.NewQueuesHandler(context.Background(), writeQueues, readQueues, logger)
+			handler := batch.NewQueuesHandler(context.Background(), context.Background(), writeQueues, readQueues, logger)
 			var wg sync.WaitGroup
 			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
 			err := handler.Stream(ctx, StreamId, stream)
-			require.NoError(t, err, "Expected no error when streaming")
+			require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 		})
 
 		t.Run("start and stop due to sentinel", func(t *testing.T) {
@@ -163,7 +162,7 @@ func TestHandler(t *testing.T) {
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
 			internalQueue := batch.NewBatchInternalQueue()
-			handler := batch.NewQueuesHandler(ctx, writeQueues, readQueues, logger)
+			handler := batch.NewQueuesHandler(ctx, ctx, writeQueues, readQueues, logger)
 			var wg sync.WaitGroup
 			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
@@ -203,7 +202,7 @@ func TestHandler(t *testing.T) {
 			readQueues := batch.NewBatchReadQueues()
 			internalQueue := batch.NewBatchInternalQueue()
 			shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-			handler := batch.NewQueuesHandler(shutdownCtx, writeQueues, readQueues, logger)
+			handler := batch.NewQueuesHandler(shutdownCtx, shutdownCtx, writeQueues, readQueues, logger)
 			var wg sync.WaitGroup
 			batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
 
@@ -244,7 +243,7 @@ func TestHandler(t *testing.T) {
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
 			internalQueue := batch.NewBatchInternalQueue()
-			handler := batch.NewQueuesHandler(context.Background(), writeQueues, readQueues, logger)
+			handler := batch.NewQueuesHandler(context.Background(), context.Background(), writeQueues, readQueues, logger)
 			var wg sync.WaitGroup
 			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
@@ -258,7 +257,7 @@ func TestHandler(t *testing.T) {
 
 			readQueues.Make(StreamId)
 			err := handler.Stream(ctx, StreamId, stream)
-			require.NoError(t, err, "Expected error when processing")
+			require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 		})
 
 		t.Run("start process error and stop due to sentinel", func(t *testing.T) {
@@ -291,7 +290,7 @@ func TestHandler(t *testing.T) {
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
 			internalQueue := batch.NewBatchInternalQueue()
-			handler := batch.NewQueuesHandler(ctx, writeQueues, readQueues, logger)
+			handler := batch.NewQueuesHandler(ctx, ctx, writeQueues, readQueues, logger)
 			var wg sync.WaitGroup
 			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
