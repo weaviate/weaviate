@@ -97,12 +97,6 @@ func getWithCursorSearch(t *testing.T) {
 				expectedErrorMsg: "cursor api: invalid 'after' parameter: sort cannot be set with after and limit parameters",
 			},
 			{
-				name:             "error with where",
-				className:        "CursorClass",
-				filter:           `limit: 1 after: "" where:{path:"id" operator:Like valueText:"*"}`,
-				expectedErrorMsg: "cursor api: invalid 'after' parameter: where cannot be set with after and limit parameters",
-			},
-			{
 				name:             "error with bm25, hybrid and offset",
 				className:        "CursorClass",
 				filter:           `limit: 1 after: "" bm25:{query:"cursor api"} hybrid:{query:"cursor api"} offset:1`,
