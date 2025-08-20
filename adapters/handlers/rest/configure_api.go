@@ -25,7 +25,6 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
@@ -916,20 +915,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
 
-	var grpcShutdownSchedulerWg sync.WaitGroup
-	var grpcShutdownWorkersWg sync.WaitGroup
-
-	grpcShutdownHandlersCtx, grpcShutdownHandlersCtxCancel := context.WithCancel(context.Background())
-	grpcShutdownSchedulerCtx, grpcShutdownSchedulerCtxCancel := context.WithCancel(context.Background())
-	grpcShutdownWorkersCtx, grpcShutdownWorkersCtxCancel := context.WithCancel(context.Background())
-
-	grpcServer := createGrpcServer(appState, &v1.ShutdownContexts{
-		HandlersCtx:  grpcShutdownHandlersCtx,
-		SchedulerCtx: grpcShutdownSchedulerCtx,
-		SchedulerWg:  &grpcShutdownSchedulerWg,
-		WorkersCtx:   grpcShutdownWorkersCtx,
-		WorkersWg:    &grpcShutdownWorkersWg,
-	}, grpcInstrument...)
+	grpcShutdown := v1.NewGrpcShutdown(context.Background())
+	grpcServer := createGrpcServer(appState, grpcShutdown, grpcInstrument...)
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
@@ -955,17 +942,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.PreServerShutdown = func() {
-		// stop scheduler first
-		grpcShutdownSchedulerCtxCancel()
-		appState.Logger.Info("shutting down grpc batch scheduler")
-		// wait for all objs in write queues to be added to internal queue
-		grpcShutdownSchedulerWg.Wait()
-		// stop the workers now
-		grpcShutdownWorkersCtxCancel()
-		appState.Logger.Info("shutting down grpc batch workers")
-		// wait for all the objects to be processed from the internal queue
-		grpcShutdownWorkersWg.Wait()
-		appState.Logger.Info("completed pre-server-shutdown hook")
+		grpcShutdown.Drain(appState.Logger)
 	}
 
 	api.ServerShutdown = func() {
@@ -988,7 +965,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			appState.DistributedTaskScheduler.Close()
 		}
 
-		grpcShutdownHandlersCtxCancel()
+		grpcShutdown.HandlersCancel()
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
 

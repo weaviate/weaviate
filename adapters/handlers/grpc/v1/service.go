@@ -41,12 +41,49 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
-type ShutdownContexts struct {
-	HandlersCtx  context.Context
-	SchedulerCtx context.Context
-	SchedulerWg  *sync.WaitGroup
-	WorkersCtx   context.Context
-	WorkersWg    *sync.WaitGroup
+type GrpcShutdown struct {
+	HandlersCtx     context.Context
+	HandlersCancel  context.CancelFunc
+	SchedulerCtx    context.Context
+	SchedulerCancel context.CancelFunc
+	SchedulerWg     *sync.WaitGroup
+	WorkersCtx      context.Context
+	WorkersCancel   context.CancelFunc
+	WorkersWg       *sync.WaitGroup
+}
+
+func NewGrpcShutdown(ctx context.Context) *GrpcShutdown {
+	var schedulerWg sync.WaitGroup
+	var workersWg sync.WaitGroup
+
+	hCtx, hCancel := context.WithCancel(ctx)
+	sCtx, sCancel := context.WithCancel(ctx)
+	wCtx, wCancel := context.WithCancel(ctx)
+
+	return &GrpcShutdown{
+		HandlersCtx:     hCtx,
+		HandlersCancel:  hCancel,
+		SchedulerCtx:    sCtx,
+		SchedulerCancel: sCancel,
+		SchedulerWg:     &schedulerWg,
+		WorkersCtx:      wCtx,
+		WorkersCancel:   wCancel,
+		WorkersWg:       &workersWg,
+	}
+}
+
+func (s *GrpcShutdown) Drain(logger logrus.FieldLogger) {
+	// stop scheduler first
+	s.SchedulerCancel()
+	logger.Info("shutting down grpc batch scheduler")
+	// wait for all objs in write queues to be added to internal queue
+	s.SchedulerWg.Wait()
+	// stop the workers now
+	s.WorkersCancel()
+	logger.Info("shutting down grpc batch workers")
+	// wait for all the objects to be processed from the internal queue
+	s.WorkersWg.Wait()
+	logger.Info("finished draining the internal queues")
 }
 
 type Service struct {
@@ -69,7 +106,7 @@ type Service struct {
 func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	allowAnonymousAccess bool, schemaManager *schemaManager.Manager,
 	batchManager *objects.BatchManager, config *config.Config, authorization authorization.Authorizer,
-	logger logrus.FieldLogger, shutdownContexts *ShutdownContexts,
+	logger logrus.FieldLogger, grpcShutdown *GrpcShutdown,
 ) *Service {
 	authenticator := NewAuthHandler(allowAnonymousAccess, authComposer)
 	internalQueue := batch.NewBatchInternalQueue()
@@ -77,7 +114,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	batchReadQueues := batch.NewBatchReadQueues()
 
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchQueuesHandler := batch.NewQueuesHandler(shutdownContexts.HandlersCtx, shutdownContexts.WorkersCtx, batchWriteQueues, batchReadQueues, logger)
+	batchQueuesHandler := batch.NewQueuesHandler(grpcShutdown.HandlersCtx, grpcShutdown.WorkersCtx, batchWriteQueues, batchReadQueues, logger)
 
 	var numWorkers int
 	numWorkersStr := os.Getenv("GRPC_BATCH_WORKERS_COUNT")
@@ -90,8 +127,8 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		numWorkers = 4
 	}
 
-	batch.StartBatchWorkers(shutdownContexts.WorkersCtx, shutdownContexts.WorkersWg, numWorkers, internalQueue, batchReadQueues, batchWriteQueues, batchHandler, logger)
-	batch.StartScheduler(shutdownContexts.SchedulerCtx, shutdownContexts.SchedulerWg, batchWriteQueues, internalQueue, logger)
+	batch.StartBatchWorkers(grpcShutdown.WorkersCtx, grpcShutdown.WorkersWg, numWorkers, internalQueue, batchReadQueues, batchWriteQueues, batchHandler, logger)
+	batch.StartScheduler(grpcShutdown.SchedulerCtx, grpcShutdown.SchedulerWg, batchWriteQueues, internalQueue, logger)
 
 	return &Service{
 		traverser:            traverser,
