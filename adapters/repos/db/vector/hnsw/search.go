@@ -828,13 +828,26 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			if err != nil {
 				return nil, nil, errors.Wrap(err, "knn search: smart seeeding")
 			}
+
 			h.nodes[candidate].connections.CopyLayer(connsSlice.Slice, 0)
 			for _, nn := range connsSlice.Slice {
 				if visited.Visited(nn) {
 					continue
 				}
 				visited.Visit(nn)
-				if allowList.Contains(nn) {
+				var allowed bool
+				if !isMultivec {
+					allowed = allowList.Contains(nn)
+				} else {
+					var docID uint64
+					if h.compressed.Load() {
+						docID, _ = h.compressor.GetKeys(nn)
+					} else {
+						docID, _ = h.cache.GetKeys(nn)
+					}
+					allowed = allowList.Contains(docID)
+				}
+				if allowed {
 					found++
 					nnDistance, _ := h.distToNode(compressorDistancer, nn, searchVec)
 					eps.Insert(nn, nnDistance)
