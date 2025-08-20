@@ -95,6 +95,35 @@ func (s *Shard) addToDimensionBucket(
 	return s.addToDimensionBucket_v1(dimLength, docID, vecName, tombstone)
 }
 
+
+func (s *Shard) addToDimensionBucket_v1(
+	dimLength int, docID uint64, vecName string, tombstone bool,
+) error {
+	err := s.addDimensionsProperty(context.Background())
+	if err != nil {
+		return errors.Wrap(err, "add dimensions property")
+	}
+	b := s.store.Bucket(helpers.DimensionsBucketLSM_v1)
+	if b == nil {
+		return errors.Errorf("add dimension bucket: no bucket dimensions")
+	}
+
+	tv := []byte(vecName)
+	// 8 bytes for doc id (map key)
+	// 4 bytes for dim count (row key)
+	// len(vecName) bytes for vector name (prefix of row key)
+	buf := make([]byte, 12+len(tv))
+	binary.LittleEndian.PutUint64(buf[:8], docID)
+	binary.LittleEndian.PutUint32(buf[8+len(tv):], uint32(dimLength))
+	copy(buf[8:], tv)
+
+	return b.MapSet(buf[8:], lsmkv.MapPair{
+		Key:       buf[:8],
+		Value:     []byte{},
+		Tombstone: tombstone,
+	})
+}
+
 func (s *Shard) addToDimensionBucket_v2(
 	dimLength int, docID uint64, vecName string, tombstone bool,
 ) error {
@@ -104,7 +133,7 @@ func (s *Shard) addToDimensionBucket_v2(
 	if err != nil {
 		return errors.Wrap(err, "add dimensions property")
 	}
-	b := s.store.Bucket(DimensionsBucketLSM())
+	b := s.store.Bucket(helpers.DimensionsBucketLSM_v2)
 	if b == nil {
 		return errors.Errorf("add dimension bucket: no bucket dimensions")
 	}
@@ -172,7 +201,41 @@ func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store
 	if b == nil {
 		return usagetypes.Dimensionality{}
 	}
-	return calcTargetVectorDimensionsFromBucket(ctx, b, targetVector, calcEntry)
+	if dimensionTrackingVersion == "v2" {
+	return calcTargetVectorDimensionsFromBucket_v2(ctx, b, targetVector, calcEntry)
+	} else {
+		return calcTargetVectorDimensionsFromBucket_v1(ctx, b, targetVector, calcEntry)
+	}
+}
+
+// calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
+func calcTargetVectorDimensionsFromBucket_v2(ctx context.Context, b *lsmkv.Bucket, targetVector string, calcEntry func(dimLen int, v int) (int, int)) usagetypes.Dimensionality {
+	c := b.Cursor()
+	defer c.Close()
+
+	dimensionality := usagetypes.Dimensionality{}
+
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		if len(k) < 4 || len(v) < 4 {
+			continue // skip keys or values that are too short to contain valid data
+		}
+		vecName := string(k[4:]) // skip the first 4 bytes which are the dimension length
+		// for named vectors we have to additionally check if the key is prefixed with the vector name
+		keyMatches := vecName == targetVector
+		if !keyMatches {
+			continue
+		}
+
+		dimLength := int(binary.LittleEndian.Uint32(k[:4]))
+		count := int(binary.LittleEndian.Uint32(v))
+		size, dim := calcEntry(dimLength, count)
+		if dimensionality.Dimensions == 0 && dim > 0 {
+			dimensionality.Dimensions = dim
+		}
+		dimensionality.Count += size
+	}
+
+	return dimensionality
 }
 
 

@@ -3101,35 +3101,7 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 	return nil
 }
 
-// calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
-func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string, calcEntry func(dimLen int, v int) (int, int)) usagetypes.Dimensionality {
-	c := b.Cursor()
-	defer c.Close()
 
-	dimensionality := usagetypes.Dimensionality{}
-
-	for k, v := c.First(); k != nil; k, v = c.Next() {
-		if len(k) < 4 || len(v) < 4 {
-			continue // skip keys or values that are too short to contain valid data
-		}
-		vecName := string(k[4:]) // skip the first 4 bytes which are the dimension length
-		// for named vectors we have to additionally check if the key is prefixed with the vector name
-		keyMatches := vecName == targetVector
-		if !keyMatches {
-			continue
-		}
-
-		dimLength := int(binary.LittleEndian.Uint32(k[:4]))
-		count := int(binary.LittleEndian.Uint32(v))
-		size, dim := calcEntry(dimLength, count)
-		if dimensionality.Dimensions == 0 && dim > 0 {
-			dimensionality.Dimensions = dim
-		}
-		dimensionality.Count += size
-	}
-
-	return dimensionality
-}
 
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
 func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (usagetypes.ObjectUsage, error) {
