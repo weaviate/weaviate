@@ -1400,6 +1400,10 @@ func (f fakeGenerativeParams) ReturnMetadataForGrouped() bool {
 	return false
 }
 
-func (f fakeGenerativeParams) Debug() bool {
+func (f fakeGenerativeParams) ReturnDebugForSingle() bool {
+	return false
+}
+
+func (f fakeGenerativeParams) ReturnDebugForGrouped() bool {
 	return false
 }

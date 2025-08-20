@@ -65,12 +65,11 @@ var (
 )
 
 type ShardLike interface {
-	Index() *Index                  // Get the parent index
-	Name() string                   // Get the shard name
-	Store() *lsmkv.Store            // Get the underlying store
-	NotifyReady()                   // Set shard status to ready
-	GetStatus() storagestate.Status // Return the shard status
-	GetStatusNoLoad() storagestate.Status
+	Index() *Index                                                                      // Get the parent index
+	Name() string                                                                       // Get the shard name
+	Store() *lsmkv.Store                                                                // Get the underlying store
+	NotifyReady()                                                                       // Set shard status to ready
+	GetStatus() storagestate.Status                                                     // Return the shard status
 	UpdateStatus(status string) error                                                   // Set shard status
 	SetStatusReadonly(reason string) error                                              // Set shard status to readonly with reason
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) // Search and return document ids
@@ -149,7 +148,7 @@ type ShardLike interface {
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
-	resetDimensionsLSM() error
+	resetDimensionsLSM(ctx context.Context) error
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error

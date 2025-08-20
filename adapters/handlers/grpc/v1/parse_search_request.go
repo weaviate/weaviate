@@ -52,7 +52,8 @@ type generativeParser interface {
 	ProviderName() string
 	ReturnMetadataForSingle() bool
 	ReturnMetadataForGrouped() bool
-	Debug() bool
+	ReturnDebugForSingle() bool
+	ReturnDebugForGrouped() bool
 }
 
 type Parser struct {
