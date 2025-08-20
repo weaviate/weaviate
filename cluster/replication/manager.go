@@ -252,8 +252,8 @@ func (m *Manager) QueryShardingStateByCollection(c *cmd.QueryRequest) ([]byte, e
 		if state == nil {
 			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
 		}
-		for _, s := range state.Physical {
-			shards[s.Name] = append([]string(nil), s.BelongsToNodes...)
+		for _, physical := range state.Physical {
+			shards[physical.Name] = append([]string(nil), physical.BelongsToNodes...)
 		}
 		return nil
 	})
