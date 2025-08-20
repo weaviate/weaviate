@@ -31,14 +31,12 @@ const (
 	DefaultDistanceMetric        = DistanceCosine
 )
 
-type CompressionType string
-
 const (
-	CompressionBQ CompressionType = "bq"
-	CompressionPQ CompressionType = "pq"
-	CompressionSQ CompressionType = "sq"
-	CompressionRQ CompressionType = "rq"
-	NoCompression CompressionType = "uncompressed"
+	CompressionBQ = "bq"
+	CompressionPQ = "pq"
+	CompressionSQ = "sq"
+	CompressionRQ = "rq"
+	NoCompression = "none"
 )
 
 // Tries to parse the int value from the map, if it overflows math.MaxInt64, it

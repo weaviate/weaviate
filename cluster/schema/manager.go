@@ -184,7 +184,6 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 	// references to. As we will make modification to it to reflect change in the sharding state (adding/removing
 	// tenant) we don't want another goroutine holding a pointer to it and finding issues with concurrent read/writes.
 	shardingStateCopy := req.State.DeepCopy()
-
 	return s.apply(
 		applyOp{
 			op:                   cmd.GetType().String(),
