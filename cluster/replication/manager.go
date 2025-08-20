@@ -245,20 +245,22 @@ func (m *Manager) QueryShardingStateByCollection(c *cmd.QueryRequest) ([]byte, e
 		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	var shards map[string][]string
-	err := m.schemaReader.Read(subCommand.Collection, func(_ *models.Class, state *sharding.State) error {
+	shards := make(map[string][]string)
+	var err error
+
+	err = m.schemaReader.Read(subCommand.Collection, func(_ *models.Class, state *sharding.State) error {
 		if state == nil {
 			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
 		}
-
-		shards = make(map[string][]string, len(state.Physical))
-		for _, shard := range state.Physical {
-			shards[shard.Name] = shard.BelongsToNodes
+		for _, s := range state.Physical {
+			shards[s.Name] = append([]string(nil), s.BelongsToNodes...)
 		}
-
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, schema.ErrClassNotFound) {
+			return nil, fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
+		}
 		return nil, err
 	}
 
@@ -266,7 +268,6 @@ func (m *Manager) QueryShardingStateByCollection(c *cmd.QueryRequest) ([]byte, e
 		Collection: subCommand.Collection,
 		Shards:     shards,
 	}
-
 	payload, err := json.Marshal(response)
 	if err != nil {
 		return nil, fmt.Errorf("could not marshal query response: %w", err)
@@ -280,28 +281,30 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	var shards map[string][]string
-	err := m.schemaReader.Read(subCommand.Collection, func(_ *models.Class, state *sharding.State) error {
+	var (
+		shards map[string][]string
+		err    error
+	)
+
+	err = m.schemaReader.Read(subCommand.Collection, func(_ *models.Class, state *sharding.State) error {
 		if state == nil {
 			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
 		}
 
-		shards = make(map[string][]string)
-
-		for _, shard := range state.Physical {
-			if shard.Name == subCommand.Shard {
-				shards[shard.Name] = shard.BelongsToNodes
-				break
+		for _, physical := range state.Physical {
+			if physical.Name == subCommand.Shard {
+				shards = map[string][]string{
+					physical.Name: append([]string(nil), physical.BelongsToNodes...),
+				}
+				return nil
 			}
 		}
-
-		if len(shards) == 0 {
-			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Shard)
-		}
-
-		return nil
+		return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Shard)
 	})
 	if err != nil {
+		if errors.Is(err, schema.ErrClassNotFound) {
+			return nil, fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
+		}
 		return nil, err
 	}
 
@@ -309,7 +312,6 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 		Collection: subCommand.Collection,
 		Shards:     shards,
 	}
-
 	payload, err := json.Marshal(response)
 	if err != nil {
 		return nil, fmt.Errorf("could not marshal query response: %w", err)
