@@ -259,10 +259,11 @@ func TestUpdateIndexShards(t *testing.T) {
 			}).Maybe()
 			// Create index with proper configuration
 			index, err := NewIndex(ctx, IndexConfig{
-				ClassName:         schema.ClassName("TestClass"),
-				RootPath:          t.TempDir(),
-				ReplicationFactor: 1,
-				ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+				ClassName:             schema.ClassName("TestClass"),
+				RootPath:              t.TempDir(),
+				ReplicationFactor:     1,
+				ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+				DisableLazyLoadShards: !tt.lazyLoading,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
