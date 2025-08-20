@@ -12,17 +12,15 @@
 package rest
 
 import (
-	"context"
-	"sync"
-
 	grpcHandler "github.com/weaviate/weaviate/adapters/handlers/grpc"
+	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"google.golang.org/grpc"
 )
 
-func createGrpcServer(state *state.State, grpcShutdownHandlersCtx, grpcShutdownWorkersCtx context.Context, grpcShutdownWorkersWg *sync.WaitGroup, options ...grpc.ServerOption) *grpc.Server {
-	return grpcHandler.CreateGRPCServer(state, grpcShutdownHandlersCtx, grpcShutdownWorkersCtx, grpcShutdownWorkersWg, options...)
+func createGrpcServer(state *state.State, shutdownContexts *v1.ShutdownContexts, options ...grpc.ServerOption) *grpc.Server {
+	return grpcHandler.CreateGRPCServer(state, shutdownContexts, options...)
 }
 
 func startGrpcServer(server *grpc.Server, state *state.State) {

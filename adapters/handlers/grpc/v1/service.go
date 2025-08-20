@@ -41,6 +41,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
+type ShutdownContexts struct {
+	HandlersCtx  context.Context
+	SchedulerCtx context.Context
+	SchedulerWg  *sync.WaitGroup
+	WorkersCtx   context.Context
+	WorkersWg    *sync.WaitGroup
+}
+
 type Service struct {
 	pb.UnimplementedWeaviateServer
 	traverser            *traverser.Traverser
@@ -61,7 +69,7 @@ type Service struct {
 func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	allowAnonymousAccess bool, schemaManager *schemaManager.Manager,
 	batchManager *objects.BatchManager, config *config.Config, authorization authorization.Authorizer,
-	logger logrus.FieldLogger, grpcShutdownHandlersCtx, grpcShutdownWorkersCtx context.Context, grpcShutdownWorkersWg *sync.WaitGroup,
+	logger logrus.FieldLogger, shutdownContexts *ShutdownContexts,
 ) *Service {
 	authenticator := NewAuthHandler(allowAnonymousAccess, authComposer)
 	internalQueue := batch.NewBatchInternalQueue()
@@ -69,7 +77,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	batchReadQueues := batch.NewBatchReadQueues()
 
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchQueuesHandler := batch.NewQueuesHandler(grpcShutdownHandlersCtx, grpcShutdownWorkersCtx, batchWriteQueues, batchReadQueues, logger)
+	batchQueuesHandler := batch.NewQueuesHandler(shutdownContexts.HandlersCtx, shutdownContexts.WorkersCtx, batchWriteQueues, batchReadQueues, logger)
 
 	var numWorkers int
 	numWorkersStr := os.Getenv("GRPC_BATCH_WORKERS_COUNT")
@@ -82,8 +90,8 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		numWorkers = 4
 	}
 
-	batch.StartBatchWorkers(grpcShutdownWorkersCtx, grpcShutdownWorkersWg, numWorkers, internalQueue, batchReadQueues, batchWriteQueues, batchHandler, logger)
-	batch.StartScheduler(grpcShutdownWorkersCtx, grpcShutdownWorkersWg, batchWriteQueues, internalQueue, logger)
+	batch.StartBatchWorkers(shutdownContexts.WorkersCtx, shutdownContexts.WorkersWg, numWorkers, internalQueue, batchReadQueues, batchWriteQueues, batchHandler, logger)
+	batch.StartScheduler(shutdownContexts.SchedulerCtx, shutdownContexts.SchedulerWg, batchWriteQueues, internalQueue, logger)
 
 	return &Service{
 		traverser:            traverser,

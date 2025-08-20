@@ -21,20 +21,20 @@ import (
 )
 
 type QueuesHandler struct {
-	grpcShutdownHandlersCtx context.Context
-	grpcShutdownWorkersCtx  context.Context
-	logger                  logrus.FieldLogger
-	writeQueues             *WriteQueues
-	readQueues              *ReadQueues
+	grpcShutdownHandlersCtx  context.Context
+	grpcShutdownSchedulerCtx context.Context
+	logger                   logrus.FieldLogger
+	writeQueues              *WriteQueues
+	readQueues               *ReadQueues
 }
 
-func NewQueuesHandler(grpcShutdownHandlersCtx, grpcShutdownWorkersCtx context.Context, writeQueues *WriteQueues, readQueues *ReadQueues, logger logrus.FieldLogger) *QueuesHandler {
+func NewQueuesHandler(grpcShutdownHandlersCtx, grpcShutdownSchedulerCtx context.Context, writeQueues *WriteQueues, readQueues *ReadQueues, logger logrus.FieldLogger) *QueuesHandler {
 	return &QueuesHandler{
-		grpcShutdownHandlersCtx: grpcShutdownHandlersCtx,
-		grpcShutdownWorkersCtx:  grpcShutdownWorkersCtx,
-		logger:                  logger,
-		writeQueues:             writeQueues,
-		readQueues:              readQueues,
+		grpcShutdownHandlersCtx:  grpcShutdownHandlersCtx,
+		grpcShutdownSchedulerCtx: grpcShutdownSchedulerCtx,
+		logger:                   logger,
+		writeQueues:              writeQueues,
+		readQueues:               readQueues,
 	}
 }
 
@@ -42,9 +42,9 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 	if err := stream.Send(newBatchStartMessage(streamId)); err != nil {
 		return err
 	}
-	// workersDone acts as a soft cancel here so we can send the shutting down message to the client
+	// schedulerDone acts as a soft cancel here so we can send the shutting down message to the client
 	// once the workers are drained then the handler will be cancelled and we will exit for real
-	workersDone := h.grpcShutdownWorkersCtx.Done()
+	schedulerDone := h.grpcShutdownSchedulerCtx.Done()
 	for {
 		if readQueue, ok := h.readQueues.Get(streamId); ok {
 			select {
@@ -53,11 +53,11 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 					return innerErr
 				}
 				return ctx.Err()
-			case <-workersDone:
+			case <-schedulerDone:
 				if innerErr := stream.Send(newBatchShuttingDownMessage(streamId)); innerErr != nil {
 					return innerErr
 				}
-				workersDone = nil
+				schedulerDone = nil
 			case <-h.grpcShutdownHandlersCtx.Done():
 				if innerErr := stream.Send(newBatchShutdownMessage(streamId)); innerErr != nil {
 					return innerErr
@@ -86,7 +86,7 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
 func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) (int, error) {
-	if h.grpcShutdownWorkersCtx.Err() != nil {
+	if h.grpcShutdownSchedulerCtx.Err() != nil {
 		return 0, fmt.Errorf("grpc shutdown in progress, no more requests are permitted on this node")
 	}
 	streamId := request.GetStreamId()

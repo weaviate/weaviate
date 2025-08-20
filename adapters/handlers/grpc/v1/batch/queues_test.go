@@ -128,10 +128,8 @@ func TestHandler(t *testing.T) {
 
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
-			internalQueue := batch.NewBatchInternalQueue()
+
 			handler := batch.NewQueuesHandler(context.Background(), context.Background(), writeQueues, readQueues, logger)
-			var wg sync.WaitGroup
-			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
@@ -161,10 +159,8 @@ func TestHandler(t *testing.T) {
 
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
-			internalQueue := batch.NewBatchInternalQueue()
+
 			handler := batch.NewQueuesHandler(ctx, ctx, writeQueues, readQueues, logger)
-			var wg sync.WaitGroup
-			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
@@ -182,6 +178,9 @@ func TestHandler(t *testing.T) {
 			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 			defer cancel()
 
+			shutdownHandlersCtx, shutdownHandlersCancel := context.WithCancel(context.Background())
+			shutdownSchedulerCtx, shutdownSchedulerCancel := context.WithCancel(context.Background())
+
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
 				Message: &pb.BatchStreamMessage_Start{
@@ -190,6 +189,17 @@ func TestHandler(t *testing.T) {
 					},
 				},
 			}).Return(nil).Once()
+			stream.EXPECT().Send(&pb.BatchStreamMessage{
+				Message: &pb.BatchStreamMessage_ShuttingDown{
+					ShuttingDown: &pb.BatchShuttingDown{
+						StreamId: StreamId,
+					},
+				},
+			}).RunAndReturn(func(*pb.BatchStreamMessage) error {
+				// Ensure handler cancel call comes after this message has been emitted to avoid races
+				shutdownHandlersCancel() // Trigger shutdown of handlers, which emits the shutdown message
+				return nil
+			}).Once()
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
 				Message: &pb.BatchStreamMessage_Shutdown{
 					Shutdown: &pb.BatchShutdown{
@@ -200,15 +210,14 @@ func TestHandler(t *testing.T) {
 
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
-			internalQueue := batch.NewBatchInternalQueue()
-			shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-			handler := batch.NewQueuesHandler(shutdownCtx, shutdownCtx, writeQueues, readQueues, logger)
-			var wg sync.WaitGroup
-			batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
+
+			handler := batch.NewQueuesHandler(shutdownHandlersCtx, shutdownSchedulerCtx, writeQueues, readQueues, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
-			shutdownCancel() // Trigger shutdown
+
+			shutdownSchedulerCancel() // Trigger shutdown of scheduler, which emits the shutting down message
+
 			err := handler.Stream(ctx, StreamId, stream)
 			require.NoError(t, err, "Expected no error when streaming")
 		})
@@ -242,10 +251,8 @@ func TestHandler(t *testing.T) {
 
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
-			internalQueue := batch.NewBatchInternalQueue()
+
 			handler := batch.NewQueuesHandler(context.Background(), context.Background(), writeQueues, readQueues, logger)
-			var wg sync.WaitGroup
-			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
@@ -289,10 +296,8 @@ func TestHandler(t *testing.T) {
 
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
-			internalQueue := batch.NewBatchInternalQueue()
+
 			handler := batch.NewQueuesHandler(ctx, ctx, writeQueues, readQueues, logger)
-			var wg sync.WaitGroup
-			batch.StartScheduler(ctx, &wg, writeQueues, internalQueue, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
