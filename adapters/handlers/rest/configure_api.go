@@ -65,7 +65,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/concurrency"
-	entcfg "github.com/weaviate/weaviate/entities/config"
+	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -373,7 +373,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	limitResources(appState)
 
-	appState.ClusterHttpClient = reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig)
+	appState.ClusterHttpClient = reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig, appState.ServerConfig.Config.MinimumInternalTimeout)
 	appState.MemWatch = memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.97)
 
 	var vectorRepo vectorRepo
@@ -928,7 +928,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}, appState.Logger)
 	}
-	if entcfg.Enabled(os.Getenv("ENABLE_CLEANUP_UNFINISHED_BACKUPS")) {
+	if entconfig.Enabled(os.Getenv("ENABLE_CLEANUP_UNFINISHED_BACKUPS")) {
 		enterrors.GoWrapper(
 			func() {
 				// cleanup unfinished backups on startup
@@ -1757,11 +1757,11 @@ func (c clientWithAuth) RoundTrip(r *http.Request) (*http.Response, error) {
 	return c.r.RoundTrip(r)
 }
 
-func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
+func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout time.Duration) *http.Client {
 	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
+			Timeout:   minimumInternalTimeout,
 			KeepAlive: 120 * time.Second,
 		}).DialContext,
 		MaxIdleConnsPerHost:   100,
