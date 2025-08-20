@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
@@ -712,6 +713,86 @@ func setupDebugHandlers(appState *state.State) {
 		if bytesToWrite != nil {
 			w.Write(bytesToWrite)
 		}
+	}))
+
+	http.HandleFunc("/debug/index/deadlock_lsm", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		colName := r.URL.Query().Get("collection")
+
+		if colName == "" {
+			http.Error(w, "collection name is required", http.StatusBadRequest)
+			return
+		}
+
+		shardsToLockStr := strings.TrimSpace(r.URL.Query().Get("shards"))
+
+		shardsToLock := []string{}
+		if shardsToLockStr != "" {
+			shardsToLock = strings.Split(shardsToLockStr, ",")
+		}
+
+		className := schema.ClassName(colName)
+		idx := appState.DB.GetIndex(className)
+
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found or not ready")
+			http.Error(w, "collection not found or not ready", http.StatusNotFound)
+			return
+		}
+
+		output := make(map[string]map[string]string)
+		// shards will not be force loaded, as we are only getting the name
+		err := idx.ForEachShard(
+			func(shardName string, shard db.ShardLike) error {
+				if len(shardsToLock) == 0 || slices.Contains(shardsToLock, shardName) {
+
+					b := shard.Store().Bucket(helpers.ObjectsBucketLSM)
+
+					status := "unknown"
+					switch r.Method {
+					case http.MethodPost:
+						b.Lock()
+						status = "was locked"
+					case http.MethodDelete:
+						b.Unlock()
+						status = "was unlocked"
+					case http.MethodGet:
+						status = b.GetLockStatus()
+
+					}
+					output[shardName] = map[string]string{
+						"shard":   shardName,
+						"status":  status,
+						"message": fmt.Sprintf("shard %s %s", shardName, status),
+					}
+				} else {
+					output[shardName] = map[string]string{
+						"shard":   shardName,
+						"status":  "skipped",
+						"message": fmt.Sprintf("shard %s not selected", shardName),
+					}
+				}
+				return nil
+			},
+		)
+
+		response := map[string]interface{}{
+			"shards": output,
+		}
+
+		if err != nil {
+			logger.WithField("collection", colName).Error("failed to get shard names")
+			http.Error(w, "failed to get shard names", http.StatusInternalServerError)
+			response["error"] = "failed to get shard names: " + err.Error()
+		}
+
+		jsonBytes, err := json.Marshal(response)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(jsonBytes)
 	}))
 }
 
