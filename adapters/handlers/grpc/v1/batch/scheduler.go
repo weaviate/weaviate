@@ -41,6 +41,7 @@ func (s *Scheduler) Loop(ctx context.Context) {
 		case <-ctx.Done():
 			s.logger.Info("shutting down scheduler loop")
 			s.loop()
+			close(s.internalQueue)
 			return
 		default:
 			s.loop()
