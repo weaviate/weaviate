@@ -40,33 +40,88 @@ func (s *Scheduler) Loop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			s.logger.Info("shutting down scheduler loop")
-			s.loop()
+			s.drainAll()
 			close(s.internalQueue)
 			return
 		default:
-			s.loop()
+			s.scheduleAll()
 			time.Sleep(time.Millisecond * 100)
 		}
 	}
 }
 
-func (s *Scheduler) loop() {
+func (s *Scheduler) kv(key any, value any) (string, *WriteQueue, bool) {
+	streamId, ok := key.(string)
+	if !ok {
+		s.logger.WithField("key", key).Error("expected string key in write queues")
+		return "", nil, false
+	}
+	wq, ok := value.(*WriteQueue)
+	if !ok {
+		s.logger.WithField("value", value).Error("expected WriteQueue value in write queues")
+		return "", nil, false
+	}
+	if len(wq.queue) == 0 {
+		return "", nil, false
+	}
+	return streamId, wq, true
+}
+
+func (s *Scheduler) drainAll() {
 	s.writeQueues.queues.Range(func(key, value any) bool {
-		streamId, ok := key.(string)
+		streamId, wq, ok := s.kv(key, value)
 		if !ok {
-			s.logger.WithField("key", key).Error("expected string key in write queues")
 			return true // continue iteration
 		}
-		wq, ok := value.(*WriteQueue)
-		if !ok {
-			s.logger.WithField("value", value).Error("expected WriteQueue value in write queues")
-			return true // continue iteration
-		}
-		if len(wq.queue) == 0 {
-			return true // continue iteration if queue is empty
-		}
-		return s.add(streamId, wq)
+		return s.drain(streamId, wq)
 	})
+}
+
+func (s *Scheduler) scheduleAll() {
+	s.writeQueues.queues.Range(func(key, value any) bool {
+		streamId, wq, ok := s.kv(key, value)
+		if !ok {
+			return true // continue iteration
+		}
+		return s.schedule(streamId, wq)
+	})
+}
+
+func (s *Scheduler) drain(streamId string, wq *WriteQueue) bool {
+	objs := make([]*pb.BatchObject, 0, 1000)
+	refs := make([]*pb.BatchReference, 0, 1000)
+	for obj := range wq.queue {
+		if obj == nil {
+			req := newProcessRequest(objs, refs, streamId, false, wq.consistencyLevel, wq)
+			s.internalQueue <- req
+			// channel is closed
+			return true
+		}
+		if obj.Object != nil {
+			objs = append(objs, obj.Object)
+		}
+		if obj.Reference != nil {
+			refs = append(refs, obj.Reference)
+		}
+		if len(objs) >= 1000 || len(refs) >= 1000 || obj.Stop {
+			req := newProcessRequest(objs, refs, streamId, obj.Stop, wq.consistencyLevel, wq)
+			s.internalQueue <- req
+			// Reset the queues
+			objs = objs[:0]
+			refs = refs[:0]
+		}
+	}
+	return true
+}
+
+func (s *Scheduler) schedule(streamId string, wq *WriteQueue) bool {
+	objs, refs, stop := s.pull(wq.queue, 1000)
+	req := newProcessRequest(objs, refs, streamId, stop, wq.consistencyLevel, wq)
+	if len(req.Objects.Values) > 0 || len(req.References.Values) > 0 || req.Stop {
+		s.internalQueue <- req
+	}
+	time.Sleep(time.Millisecond * 5)
+	return true
 }
 
 func (s *Scheduler) pull(queue writeQueue, max int) ([]*pb.BatchObject, []*pb.BatchReference, bool) {
@@ -75,6 +130,10 @@ func (s *Scheduler) pull(queue writeQueue, max int) ([]*pb.BatchObject, []*pb.Ba
 	for i := 0; i < max && len(queue) > 0; i++ {
 		select {
 		case obj := <-queue:
+			if obj == nil {
+				// channel is closed
+				return objs, refs, false
+			}
 			if obj.Object != nil {
 				objs = append(objs, obj.Object)
 			}
@@ -82,7 +141,7 @@ func (s *Scheduler) pull(queue writeQueue, max int) ([]*pb.BatchObject, []*pb.Ba
 				refs = append(refs, obj.Reference)
 			}
 			if obj.Stop {
-				return objs, refs, false
+				return objs, refs, true
 			}
 		default:
 			return objs, refs, false
@@ -91,10 +150,10 @@ func (s *Scheduler) pull(queue writeQueue, max int) ([]*pb.BatchObject, []*pb.Ba
 	return objs, refs, false
 }
 
-func (s *Scheduler) add(streamId string, wq *WriteQueue) bool {
-	objs, refs, stop := s.pull(wq.queue, 1000)
+func newProcessRequest(objs []*pb.BatchObject, refs []*pb.BatchReference, streamId string, stop bool, consistencyLevel *pb.ConsistencyLevel, wq *WriteQueue) *ProcessRequest {
 	req := &ProcessRequest{
 		StreamId: streamId,
+		Stop:     stop,
 	}
 	if len(objs) > 0 {
 		req.Objects = &SendObjects{
@@ -103,10 +162,6 @@ func (s *Scheduler) add(streamId string, wq *WriteQueue) bool {
 			Index:            wq.objIndex,
 		}
 		wq.objIndex += int32(len(objs))
-		s.logger.WithFields(logrus.Fields{
-			"streamId": streamId,
-			"count":    len(objs),
-		}).Debug("scheduled batch write request")
 	}
 	if len(refs) > 0 {
 		req.References = &SendReferences{
@@ -115,17 +170,8 @@ func (s *Scheduler) add(streamId string, wq *WriteQueue) bool {
 			Index:            wq.refIndex,
 		}
 		wq.refIndex += int32(len(refs))
-		s.logger.WithFields(logrus.Fields{
-			"streamId": streamId,
-			"count":    len(refs),
-		}).Debug("scheduled batch reference request")
 	}
-	if stop {
-		req.Stop = true
-	}
-	s.internalQueue <- req
-	time.Sleep(time.Millisecond * 5)
-	return true
+	return req
 }
 
 func StartScheduler(ctx context.Context, wg *sync.WaitGroup, writeQueues *WriteQueues, internalQueue internalQueue, logger logrus.FieldLogger) {

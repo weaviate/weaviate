@@ -118,11 +118,6 @@ func (w *Worker) Loop(ctx context.Context, consistencyLevel pb.ConsistencyLevel)
 	for {
 		select {
 		case <-ctx.Done():
-			// Return early if the internal queue is empty
-			// TODO: will there be a race between an object being added to the queue and the workers shutting down?
-			if len(w.internalQueue) == 0 {
-				return nil
-			}
 			// Drain the write queue and process any remaining requests
 			for req := range w.internalQueue {
 				if err := w.process(ctx, req); err != nil {
@@ -130,9 +125,14 @@ func (w *Worker) Loop(ctx context.Context, consistencyLevel pb.ConsistencyLevel)
 				}
 			}
 			return nil
-		case req := <-w.internalQueue:
-			if err := w.process(ctx, req); err != nil {
-				return fmt.Errorf("failed to process batch request: %w", err)
+		case req, ok := <-w.internalQueue:
+			if req != nil {
+				if err := w.process(ctx, req); err != nil {
+					return fmt.Errorf("failed to process batch request: %w", err)
+				}
+			}
+			if !ok {
+				return nil // channel closed, exit loop
 			}
 		}
 	}

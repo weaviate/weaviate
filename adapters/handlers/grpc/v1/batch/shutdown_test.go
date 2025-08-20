@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
@@ -27,7 +28,7 @@ import (
 
 func TestShutdownLogic(t *testing.T) {
 	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	logger := logrus.New()
@@ -38,25 +39,27 @@ func TestShutdownLogic(t *testing.T) {
 	readQueues.Make(StreamId)
 	writeQueues := batch.NewBatchWriteQueues()
 	writeQueues.Make(StreamId, nil)
-	wq, _ := writeQueues.GetQueue(StreamId)
+	wq, ok := writeQueues.GetQueue(StreamId)
+	require.Equal(t, true, ok, "write queue should exist")
 	internalQueue := batch.NewBatchInternalQueue()
 
-	howManyObjs := 2000
-	// 2000 objs will be sent twice in batches of 1000
-	mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
-		Took:   float32(1),
-		Errors: nil,
-	}, nil).Times(2)
+	howManyObjs := 5000
+	// 5000 objs will be sent five times in batches of 1000
+	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(context.Context, *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+		time.Sleep(1 * time.Second)
+		return &pb.BatchObjectsReply{
+			Took:   float32(1),
+			Errors: nil,
+		}, nil
+	}).Times(5)
+
+	for i := 0; i < howManyObjs; i++ {
+		wq <- batch.NewWriteObject(&pb.BatchObject{})
+	}
 
 	shutdown := v1.NewGrpcShutdown(ctx)
-	batch.StartScheduler(ctx, shutdown.SchedulerWg, writeQueues, internalQueue, logger)
-	batch.StartBatchWorkers(ctx, shutdown.WorkersWg, 1, internalQueue, readQueues, writeQueues, mockBatcher, logger)
-
-	go func() {
-		for i := 0; i < howManyObjs; i++ {
-			wq <- batch.NewWriteObject(&pb.BatchObject{})
-		}
-	}()
-
+	batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.SchedulerCtx, writeQueues, readQueues, logger)
+	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, writeQueues, internalQueue, logger)
+	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, 1, internalQueue, readQueues, writeQueues, mockBatcher, logger)
 	shutdown.Drain(logger)
 }

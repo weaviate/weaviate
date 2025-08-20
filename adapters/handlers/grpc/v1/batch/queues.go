@@ -15,8 +15,10 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
@@ -26,15 +28,30 @@ type QueuesHandler struct {
 	logger                   logrus.FieldLogger
 	writeQueues              *WriteQueues
 	readQueues               *ReadQueues
+	sendWg                   *sync.WaitGroup
 }
 
 func NewQueuesHandler(grpcShutdownHandlersCtx, grpcShutdownSchedulerCtx context.Context, writeQueues *WriteQueues, readQueues *ReadQueues, logger logrus.FieldLogger) *QueuesHandler {
+	var sendWg sync.WaitGroup
+	enterrors.GoWrapper(func() {
+		for {
+			select {
+			case <-grpcShutdownSchedulerCtx.Done():
+				sendWg.Wait()
+				writeQueues.Close()
+				return
+			default:
+				time.Sleep(100 * time.Millisecond) // Polling interval
+			}
+		}
+	}, logger)
 	return &QueuesHandler{
 		grpcShutdownHandlersCtx:  grpcShutdownHandlersCtx,
 		grpcShutdownSchedulerCtx: grpcShutdownSchedulerCtx,
 		logger:                   logger,
 		writeQueues:              writeQueues,
 		readQueues:               readQueues,
+		sendWg:                   &sendWg,
 	}
 }
 
@@ -86,6 +103,8 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
 func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) (int, error) {
+	h.sendWg.Add(1)
+	defer h.sendWg.Done()
 	if h.grpcShutdownSchedulerCtx.Err() != nil {
 		return 0, fmt.Errorf("grpc shutdown in progress, no more requests are permitted on this node")
 	}
@@ -364,7 +383,6 @@ func (w *WriteQueues) Close() {
 		close(value.(*WriteQueue).queue)
 		return true
 	})
-	w.queues = sync.Map{} // Clear the map after closing all queues
 }
 
 func (w *WriteQueues) Make(streamId string, consistencyLevel *pb.ConsistencyLevel) {
