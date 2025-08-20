@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"math"
 	"sync/atomic"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -283,44 +282,6 @@ func GenerateUniqueString(length int) (string, error) {
 	return fmt.Sprintf("%v", uniqueCounter.Load()), nil
 }
 
-// Empty the dimensions bucket, quickly and efficiently
-func (s *Shard) resetDimensionsLSM(ctx context.Context) (time.Time, error) {
-	s.dimensionTrackingLock.Lock()
-	defer s.dimensionTrackingLock.Unlock()
-	// Load the current one, or an empty one if it doesn't exist
-	err := s.store.CreateOrLoadBucket(ctx,
-		helpers.DimensionsBucketLSM,
-		s.memtableDirtyConfig(),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		lsmkv.WithPread(s.index.Config.AvoidMMap),
-		lsmkv.WithAllocChecker(s.index.allocChecker),
-		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
-		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
-		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
-		lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
-		s.segmentCleanupConfig(),
-	)
-	if err != nil {
-		s.index.logger.WithError(err).WithField("shard", s.Name()).Error("resetDimensionsLSM: failed to create or load dimensions bucket")
-	}
-
-	// Fetch the actual bucket
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		s.index.logger.WithField("shard", s.Name()).Error("resetDimensionsLSM: no bucket dimensions")
-		return time.Now(), errors.Errorf("resetDimensionsLSM: no bucket dimensions")
-	}
-
-	// Clear the bucket
-	cursor := b.Cursor()
-	defer cursor.Close()
-	for k, _ := cursor.First(); k != nil; k, _ = cursor.Next() {
-		b.Delete(k)
-	}
-
-	return time.Now(), nil
-}
 
 // Key (target vector name and dimensionality) | Value Doc IDs
 // targetVector,128 | 1,2,4,5,17
@@ -331,76 +292,6 @@ func (s *Shard) removeDimensionsLSM(
 	return s.addToDimensionBucket(dimLength, docID, targetVector, true)
 }
 
-func (s *Shard) addToDimensionBucket(
-	dimLength int, docID uint64, vecName string, tombstone bool,
-) error {
-	s.dimensionTrackingLock.Lock()
-	defer s.dimensionTrackingLock.Unlock()
-	err := s.addDimensionsProperty(context.Background())
-	if err != nil {
-		return errors.Wrap(err, "add dimensions property")
-	}
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return errors.Errorf("add dimension bucket: no bucket dimensions")
-	}
-
-	// Find the key, which is the target vector name and dimensionality, and the number of times it appears
-	keybuff := make([]byte, 4+len(vecName))
-	copy(keybuff[4:], vecName)
-	binary.LittleEndian.PutUint32(keybuff[:4], uint32(dimLength))
-	countbuff_r, err := b.Get(keybuff)
-	if err != nil {
-		return err
-	}
-	countbuff := make([]byte, len(countbuff_r))
-	if countbuff_r == nil {
-		// if the bucket is empty, initialize the count to 0
-		countbuff = make([]byte, 8)
-		binary.LittleEndian.PutUint64(countbuff, 0)
-	} else {
-		copy(countbuff, countbuff_r)
-	}
-	count := binary.LittleEndian.Uint64(countbuff)
-
-	// Update the count based on whether it's being created or deleted
-	if tombstone {
-		if count > 0 {
-			count = count - 1
-		}
-	} else {
-		count = count + 1
-	}
-
-	binary.LittleEndian.PutUint64(countbuff, count)
-	if err := b.Put(keybuff, countbuff); err != nil {
-		return errors.Wrapf(err, "add dimension bucket: set key %s", string(countbuff))
-	}
-
-	var objCount_byte []byte
-	// Update the object count in the dimensions bucket
-	objCount_byte, _ = b.Get([]byte("cnt")) // If it doesn't exist, it will be created
-
-	if len(objCount_byte) != 8 {
-		objCount_byte = make([]byte, 8)
-		binary.LittleEndian.PutUint64(objCount_byte, 0) // Initialize to 0 if not found
-	}
-
-	objCount := binary.LittleEndian.Uint64(objCount_byte)
-
-	if tombstone {
-		objCount = objCount - 1
-	} else {
-		objCount = objCount + 1
-	}
-	countBytesOut := make([]byte, 8)
-	binary.LittleEndian.PutUint64(countBytesOut, objCount)
-
-	if err := b.Put([]byte("cnt"), countBytesOut); err != nil {
-		return fmt.Errorf("failed to put object count in dimensions bucket: %w", err)
-	}
-	return nil
-}
 
 func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
 	ec := errorcompounder.New()

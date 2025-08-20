@@ -3101,15 +3101,6 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 	return nil
 }
 
-// calcTargetVectorDimensionsFromStore calculates dimensions and object count for a target vector from an LSMKV store
-func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store, targetVector string, calcEntry func(dimLen int, v int) (int, int)) usagetypes.Dimensionality {
-	b := store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return usagetypes.Dimensionality{}
-	}
-	return calcTargetVectorDimensionsFromBucket(ctx, b, targetVector, calcEntry)
-}
-
 // calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
 func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string, calcEntry func(dimLen int, v int) (int, int)) usagetypes.Dimensionality {
 	c := b.Cursor()

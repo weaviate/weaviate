@@ -496,9 +496,6 @@ func shardPathObjectsLSM(indexPath, shardName string) string {
 	return path.Join(shardPathLSM(indexPath, shardName), helpers.ObjectsBucketLSM)
 }
 
-func shardPathDimensionsLSM(indexPath, shardName string) string {
-	return path.Join(shardPathLSM(indexPath, shardName), helpers.DimensionsBucketLSM)
-}
 
 func bucketKeyPropertyLength(length int) ([]byte, error) {
 	return entinverted.LexicographicallySortableInt64(int64(length))

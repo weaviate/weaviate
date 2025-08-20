@@ -25,7 +25,8 @@ var (
 	ObjectsBucketLSM           = "objects"
 	VectorsCompressedBucketLSM = "vectors_compressed"
 	VectorsBucketLSM           = "vectors"
-	DimensionsBucketLSM        = "dimensions_v2"
+	DimensionsBucketLSM_v1 	= "dimensions_v1"
+	DimensionsBucketLSM_v2        = "dimensions_v2"
 )
 
 const ObjectsBucketLSMDocIDSecondaryIndex int = 0
