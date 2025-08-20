@@ -1132,51 +1132,6 @@ func (_c *MockShardLike_GetStatus_Call) RunAndReturn(run func() storagestate.Sta
 	return _c
 }
 
-// GetStatusNoLoad provides a mock function with no fields
-func (_m *MockShardLike) GetStatusNoLoad() storagestate.Status {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetStatusNoLoad")
-	}
-
-	var r0 storagestate.Status
-	if rf, ok := ret.Get(0).(func() storagestate.Status); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(storagestate.Status)
-	}
-
-	return r0
-}
-
-// MockShardLike_GetStatusNoLoad_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetStatusNoLoad'
-type MockShardLike_GetStatusNoLoad_Call struct {
-	*mock.Call
-}
-
-// GetStatusNoLoad is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) GetStatusNoLoad() *MockShardLike_GetStatusNoLoad_Call {
-	return &MockShardLike_GetStatusNoLoad_Call{Call: _e.mock.On("GetStatusNoLoad")}
-}
-
-func (_c *MockShardLike_GetStatusNoLoad_Call) Run(run func()) *MockShardLike_GetStatusNoLoad_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockShardLike_GetStatusNoLoad_Call) Return(_a0 storagestate.Status) *MockShardLike_GetStatusNoLoad_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_GetStatusNoLoad_Call) RunAndReturn(run func() storagestate.Status) *MockShardLike_GetStatusNoLoad_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetVectorIndex provides a mock function with given fields: targetVector
 func (_m *MockShardLike) GetVectorIndex(targetVector string) (VectorIndex, bool) {
 	ret := _m.Called(targetVector)
@@ -4663,17 +4618,17 @@ func (_c *MockShardLike_removeTargetNodeOverride_Call) RunAndReturn(run func(con
 	return _c
 }
 
-// resetDimensionsLSM provides a mock function with no fields
+// resetDimensionsLSM provides a mock function with given fields: ctx
 func (_m *MockShardLike) resetDimensionsLSM(ctx context.Context) error {
-	ret := _m.Called()
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for resetDimensionsLSM")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func() error); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -4687,13 +4642,14 @@ type MockShardLike_resetDimensionsLSM_Call struct {
 }
 
 // resetDimensionsLSM is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) resetDimensionsLSM(ctx context.Context) *MockShardLike_resetDimensionsLSM_Call {
-	return &MockShardLike_resetDimensionsLSM_Call{Call: _e.mock.On("resetDimensionsLSM")}
+//   - ctx context.Context
+func (_e *MockShardLike_Expecter) resetDimensionsLSM(ctx interface{}) *MockShardLike_resetDimensionsLSM_Call {
+	return &MockShardLike_resetDimensionsLSM_Call{Call: _e.mock.On("resetDimensionsLSM", ctx)}
 }
 
-func (_c *MockShardLike_resetDimensionsLSM_Call) Run(run func()) *MockShardLike_resetDimensionsLSM_Call {
+func (_c *MockShardLike_resetDimensionsLSM_Call) Run(run func(ctx context.Context)) *MockShardLike_resetDimensionsLSM_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -4703,7 +4659,7 @@ func (_c *MockShardLike_resetDimensionsLSM_Call) Return(_a0 error) *MockShardLik
 	return _c
 }
 
-func (_c *MockShardLike_resetDimensionsLSM_Call) RunAndReturn(run func() error) *MockShardLike_resetDimensionsLSM_Call {
+func (_c *MockShardLike_resetDimensionsLSM_Call) RunAndReturn(run func(context.Context) error) *MockShardLike_resetDimensionsLSM_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -5040,8 +4996,7 @@ func (_c *MockShardLike_uuidFromDocID_Call) RunAndReturn(run func(uint64) (strfm
 func NewMockShardLike(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockShardLike {
+}) *MockShardLike {
 	mock := &MockShardLike{}
 	mock.Mock.Test(t)
 

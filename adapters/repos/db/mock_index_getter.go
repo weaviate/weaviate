@@ -84,8 +84,7 @@ func (_c *MockIndexGetter_GetIndexLike_Call) RunAndReturn(run func(schema.ClassN
 func NewMockIndexGetter(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockIndexGetter {
+}) *MockIndexGetter {
 	mock := &MockIndexGetter{}
 	mock.Mock.Test(t)
 

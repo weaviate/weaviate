@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -238,6 +239,14 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	if desc.Schema, err = i.marshalSchema(); err != nil {
 		return fmt.Errorf("marshal schema %w", err)
 	}
+	if desc.Aliases, err = i.marshalAliases(); err != nil {
+		return fmt.Errorf("marshal aliases %w", err)
+	}
+	// this has to be set true, even if aliases list is empty.
+	// because eventhen JSON key `aliases` will be present in
+	// newer backups. To avoid failing to backup old backups that doesn't
+	// understand `aliases` key in the ClassDescriptor.
+	desc.AliasesIncluded = true
 	return ctx.Err()
 }
 
@@ -303,6 +312,15 @@ func (i *Index) marshalSchema() ([]byte, error) {
 		return nil, errors.Wrap(err, "marshal schema")
 	}
 
+	return b, err
+}
+
+func (i *Index) marshalAliases() ([]byte, error) {
+	aliases := i.getSchema.GetAliasesForClass(i.Config.ClassName.String())
+	b, err := json.Marshal(aliases)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal aliases failed to get aliases for collection")
+	}
 	return b, err
 }
 
