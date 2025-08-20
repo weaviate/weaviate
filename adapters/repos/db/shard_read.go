@@ -366,9 +366,26 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		return bm25objs, bm25count, nil
 	}
 
-	if filters == nil {
+	if filters != nil && cursor != nil {
+		filterDocIds, err := inverted.NewSearcher(s.index.logger, s.store,
+			s.index.getSchema.ReadOnlyClass, s.propertyIndices,
+			s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
+			s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit,
+			s.bitmapFactory).
+			DocIDs(ctx, filters, additional, s.index.Config.ClassName)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		defer filterDocIds.Close()
+
 		objs, err := s.ObjectList(ctx, limit, sort,
-			cursor, additional, s.index.Config.ClassName)
+			cursor, additional, s.index.Config.ClassName, filterDocIds)
+		return objs, nil, err
+	}
+
+	if filters == nil {
+		objs, err := s.ObjectList(ctx, limit, sort, cursor, additional, s.index.Config.ClassName, nil)
 		return objs, nil, err
 	}
 	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
@@ -594,7 +611,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	return objs, distCombined, nil
 }
 
-func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
+func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName, allowlist helpers.AllowList) ([]*storobj.Object, error) {
 	s.activityTrackerRead.Add(1)
 	if len(sort) > 0 {
 		beforeSort := time.Now()
@@ -616,13 +633,10 @@ func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, 
 	if cursor == nil {
 		cursor = &filters.Cursor{After: "", Limit: limit}
 	}
-	return s.cursorObjectList(ctx, cursor, additional, className)
+	return s.cursorObjectList(ctx, cursor, allowlist)
 }
 
-func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
-	additional additional.Properties,
-	className schema.ClassName,
-) ([]*storobj.Object, error) {
+func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor, allowlist helpers.AllowList) ([]*storobj.Object, error) {
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
 	defer cursor.Close()
 
@@ -645,6 +659,16 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	out := make([]*storobj.Object, c.Limit)
 
 	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
+		if allowlist != nil {
+			docId, err := storobj.FromBinaryDocIDOnly(val)
+			if err != nil {
+				return nil, errors.Wrapf(err, "unmarshal doc id from item")
+			}
+			if !allowlist.Contains(docId) {
+				// skip this object, it does not match the filter
+				continue
+			}
+		}
 		obj, err := storobj.FromBinary(val)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarhsal item %d", i)

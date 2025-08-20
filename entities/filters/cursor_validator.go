@@ -24,13 +24,10 @@ func ValidateCursor(className schema.ClassName, cursor *Cursor, offset int, filt
 	if className == "" {
 		return fmt.Errorf("class parameter cannot be empty")
 	}
-	if offset > 0 || filters != nil || sort != nil {
+	if offset > 0 || sort != nil {
 		var params []string
 		if offset > 0 {
 			params = append(params, "offset")
-		}
-		if filters != nil {
-			params = append(params, "where")
 		}
 		if sort != nil {
 			params = append(params, "sort")
