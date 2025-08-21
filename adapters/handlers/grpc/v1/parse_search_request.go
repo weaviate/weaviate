@@ -367,7 +367,8 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.AdditionalProperties.ModuleParams["rerank"] = extractRerank(req)
 	}
 
-	if len(req.After) > 0 {
+	if len(req.After) > 0 || req.AfterPresent {
+		// important for iterator to set the cursor even if after is empty
 		out.Cursor = &filters.Cursor{After: req.After, Limit: out.Pagination.Limit}
 	}
 

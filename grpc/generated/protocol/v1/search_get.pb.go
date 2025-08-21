@@ -35,7 +35,8 @@ type SearchRequest struct {
 	Autocut uint32 `protobuf:"varint,32,opt,name=autocut,proto3" json:"autocut,omitempty"`
 	After   string `protobuf:"bytes,33,opt,name=after,proto3" json:"after,omitempty"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-	SortBy []*SortBy `protobuf:"bytes,34,rep,name=sort_by,json=sortBy,proto3" json:"sort_by,omitempty"`
+	SortBy       []*SortBy `protobuf:"bytes,34,rep,name=sort_by,json=sortBy,proto3" json:"sort_by,omitempty"`
+	AfterPresent bool      `protobuf:"varint,35,opt,name=after_present,json=afterPresent,proto3" json:"after_present,omitempty"`
 	// matches/searches for objects
 	Filters      *Filters           `protobuf:"bytes,40,opt,name=filters,proto3,oneof" json:"filters,omitempty"`
 	HybridSearch *Hybrid            `protobuf:"bytes,41,opt,name=hybrid_search,json=hybridSearch,proto3,oneof" json:"hybrid_search,omitempty"`
@@ -165,6 +166,13 @@ func (x *SearchRequest) GetSortBy() []*SortBy {
 		return x.SortBy
 	}
 	return nil
+}
+
+func (x *SearchRequest) GetAfterPresent() bool {
+	if x != nil {
+		return x.AfterPresent
+	}
+	return false
 }
 
 func (x *SearchRequest) GetFilters() *Filters {
@@ -1415,7 +1423,7 @@ var File_v1_search_get_proto protoreflect.FileDescriptor
 
 const file_v1_search_get_proto_rawDesc = "" +
 	"\n" +
-	"\x13v1/search_get.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\x1a\x13v1/generative.proto\x1a\x13v1/properties.proto\"\xc7\r\n" +
+	"\x13v1/search_get.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\x1a\x13v1/generative.proto\x1a\x13v1/properties.proto\"\xec\r\n" +
 	"\rSearchRequest\x12\x1e\n" +
 	"\n" +
 	"collection\x18\x01 \x01(\tR\n" +
@@ -1432,7 +1440,8 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\x06offset\x18\x1f \x01(\rR\x06offset\x12\x18\n" +
 	"\aautocut\x18  \x01(\rR\aautocut\x12\x14\n" +
 	"\x05after\x18! \x01(\tR\x05after\x12,\n" +
-	"\asort_by\x18\" \x03(\v2\x13.weaviate.v1.SortByR\x06sortBy\x123\n" +
+	"\asort_by\x18\" \x03(\v2\x13.weaviate.v1.SortByR\x06sortBy\x12#\n" +
+	"\rafter_present\x18# \x01(\bR\fafterPresent\x123\n" +
 	"\afilters\x18( \x01(\v2\x14.weaviate.v1.FiltersH\x04R\afilters\x88\x01\x01\x12=\n" +
 	"\rhybrid_search\x18) \x01(\v2\x13.weaviate.v1.HybridH\x05R\fhybridSearch\x88\x01\x01\x127\n" +
 	"\vbm25_search\x18* \x01(\v2\x11.weaviate.v1.BM25H\x06R\n" +
