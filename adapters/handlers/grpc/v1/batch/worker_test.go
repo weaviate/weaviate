@@ -83,7 +83,8 @@ func TestWorkerLoop(t *testing.T) {
 		stop := <-ch
 		require.True(t, stop.Stop, "Expected stop signal to be true")
 
-		cancel() // Cancel the context to stop the worker loop
+		cancel()             // Cancel the context to stop the worker loop
+		close(internalQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
 		require.Empty(t, internalQueue, "Expected internal queue to be empty after processing")
 		require.Empty(t, ch, "Expected read queue to be empty after processing")
@@ -227,7 +228,8 @@ func TestWorkerLoop(t *testing.T) {
 		stop := <-ch
 		require.True(t, stop.Stop, "Expected stop signal to be true")
 
-		cancel() // Cancel the context to stop the worker loop
+		cancel()             // Cancel the context to stop the worker loop
+		close(internalQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
 		require.Empty(t, internalQueue, "Expected internal queue to be empty after processing")
 		require.Empty(t, ch, "Expected read queue to be empty after processing")

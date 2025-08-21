@@ -114,7 +114,7 @@ func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendR
 }
 
 // Loop processes objects from the write queue, sending them to the batcher and handling shutdown signals.
-func (w *Worker) Loop(ctx context.Context, consistencyLevel pb.ConsistencyLevel) error {
+func (w *Worker) Loop(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -165,7 +165,7 @@ func StartBatchWorkers(ctx context.Context, wg *sync.WaitGroup, concurrency int,
 		eg.Go(func() error {
 			defer wg.Done()
 			w := &Worker{batcher: batcher, logger: logger, readQueues: readQueues, writeQueues: writeQueues, internalQueue: internalQueue}
-			return w.Loop(ctx, pb.ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM)
+			return w.Loop(ctx)
 		})
 	}
 }
