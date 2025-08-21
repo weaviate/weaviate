@@ -42,10 +42,11 @@ import (
 
 	v0 "github.com/weaviate/weaviate/adapters/handlers/grpc/v0"
 	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 )
 
 // CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
-func CreateGRPCServer(state *state.State, shutdown *v1.GrpcShutdown, options ...grpc.ServerOption) *grpc.Server {
+func CreateGRPCServer(state *state.State, shutdown *batch.Shutdown, options ...grpc.ServerOption) *grpc.Server {
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
 		grpc.MaxSendMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),

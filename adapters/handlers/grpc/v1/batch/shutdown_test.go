@@ -19,7 +19,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -56,8 +55,8 @@ func TestShutdownLogic(t *testing.T) {
 		wq <- batch.NewWriteObject(&pb.BatchObject{})
 	}
 
-	shutdown := v1.NewGrpcShutdown(ctx)
-	batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.SchedulerCtx, writeQueues, readQueues, logger)
+	shutdown := batch.NewShutdown(ctx)
+	batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.HandlersWg, shutdown.ShutdownFinished, writeQueues, readQueues, logger)
 	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, writeQueues, internalQueue, logger)
 	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, 1, internalQueue, readQueues, writeQueues, mockBatcher, logger)
 	shutdown.Drain(logger)

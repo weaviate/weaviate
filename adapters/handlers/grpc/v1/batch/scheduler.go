@@ -41,6 +41,7 @@ func (s *Scheduler) Loop(ctx context.Context) {
 		case <-ctx.Done():
 			s.logger.Info("shutting down scheduler loop")
 			s.drainAll()
+			// Close the internal queue so that the workers can exit once they've drained the queue
 			close(s.internalQueue)
 			return
 		default:
