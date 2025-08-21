@@ -12,11 +12,11 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/usage/types"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/cluster/usage/types"
 )
 
 var dimensionTrackingVersion = "v2"
@@ -76,11 +76,22 @@ func (s *Shard) resetDimensionsLSM(ctx context.Context) (time.Time, error) {
 		return time.Now(), errors.Errorf("resetDimensionsLSM: no bucket dimensions")
 	}
 
-	// Clear the bucket
-	cursor := b.Cursor()
-	defer cursor.Close()
-	for k, _ := cursor.First(); k != nil; k, _ = cursor.Next() {
-		b.Delete(k)
+	if dimensionTrackingVersion == "v2" {
+		// Clear the bucket
+		cursor := b.Cursor()
+		defer cursor.Close()
+		for k, _ := cursor.First(); k != nil; k, _ = cursor.Next() {
+			b.Delete(k)
+		}
+	} else {
+		// Clear the bucket
+		cursor := b.MapCursor()
+		defer cursor.Close()
+		for k, vs := cursor.First(ctx); k != nil; k, _ = cursor.Next(ctx) {
+			for _, v := range vs {
+				b.MapDeleteKey(k, v.Key)
+			}
+		}
 	}
 
 	return time.Now(), nil
