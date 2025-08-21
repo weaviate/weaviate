@@ -68,7 +68,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	batchReadQueues := batch.NewBatchReadQueues()
 
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchQueuesHandler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.HandlersWg, shutdown.ShutdownFinished, batchWriteQueues, batchReadQueues, logger)
+	batchQueuesHandler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.SendWg, shutdown.StreamWg, shutdown.ShutdownFinished, batchWriteQueues, batchReadQueues, logger)
 
 	var numWorkers int
 	numWorkersStr := os.Getenv("GRPC_BATCH_WORKERS_COUNT")

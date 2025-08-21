@@ -79,12 +79,13 @@ func TestShutdownLogic(t *testing.T) {
 	}).Return(nil).Once()
 
 	shutdown := batch.NewShutdown(ctx)
-	handler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.HandlersWg, shutdown.ShutdownFinished, writeQueues, readQueues, logger)
+	handler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.SendWg, shutdown.StreamWg, shutdown.ShutdownFinished, writeQueues, readQueues, logger)
 	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, writeQueues, internalQueue, logger)
 	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, 1, internalQueue, readQueues, writeQueues, mockBatcher, logger)
 
-	go shutdown.Drain(logger)
-
-	err := handler.Stream(ctx, StreamId, stream)
-	require.NoError(t, err, "Expected no error when streaming")
+	go func() {
+		err := handler.Stream(ctx, StreamId, stream)
+		require.NoError(t, err, "Expected no error when streaming")
+	}()
+	shutdown.Drain(logger)
 }

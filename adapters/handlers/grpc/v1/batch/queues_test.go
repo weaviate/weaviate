@@ -49,8 +49,9 @@ func TestHandler(t *testing.T) {
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
 			internalQueue := batch.NewBatchInternalQueue()
-			var hWg sync.WaitGroup
-			handler := batch.NewQueuesHandler(shutdownCtx, &hWg, nil, writeQueues, readQueues, logger)
+			var sendWg sync.WaitGroup
+			var streamWg sync.WaitGroup
+			handler := batch.NewQueuesHandler(shutdownCtx, &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
 			var sWg sync.WaitGroup
 			batch.StartScheduler(shutdownCtx, &sWg, writeQueues, internalQueue, logger)
 
@@ -76,8 +77,9 @@ func TestHandler(t *testing.T) {
 
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
-			var hWg sync.WaitGroup
-			handler := batch.NewQueuesHandler(ctx, &hWg, nil, writeQueues, readQueues, logger)
+			var sendWg sync.WaitGroup
+			var streamWg sync.WaitGroup
+			handler := batch.NewQueuesHandler(ctx, &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
 
 			writeQueues.Make(StreamId, nil)
 			// Send 8000 objects
@@ -133,8 +135,9 @@ func TestHandler(t *testing.T) {
 
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
-			var hWg sync.WaitGroup
-			handler := batch.NewQueuesHandler(context.Background(), &hWg, nil, writeQueues, readQueues, logger)
+			var sendWg sync.WaitGroup
+			var streamWg sync.WaitGroup
+			handler := batch.NewQueuesHandler(context.Background(), &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
@@ -164,8 +167,9 @@ func TestHandler(t *testing.T) {
 
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
-			var hWg sync.WaitGroup
-			handler := batch.NewQueuesHandler(ctx, &hWg, nil, writeQueues, readQueues, logger)
+			var sendWg sync.WaitGroup
+			var streamWg sync.WaitGroup
+			handler := batch.NewQueuesHandler(ctx, &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
@@ -214,8 +218,9 @@ func TestHandler(t *testing.T) {
 
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
-			var hWg sync.WaitGroup
-			handler := batch.NewQueuesHandler(shutdownHandlersCtx, &hWg, shutdownFinished, writeQueues, readQueues, logger)
+			var sendWg sync.WaitGroup
+			var streamWg sync.WaitGroup
+			handler := batch.NewQueuesHandler(shutdownHandlersCtx, &sendWg, &streamWg, shutdownFinished, writeQueues, readQueues, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
@@ -255,8 +260,9 @@ func TestHandler(t *testing.T) {
 
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
-			var hWg sync.WaitGroup
-			handler := batch.NewQueuesHandler(context.Background(), &hWg, nil, writeQueues, readQueues, logger)
+			var sendWg sync.WaitGroup
+			var streamWg sync.WaitGroup
+			handler := batch.NewQueuesHandler(context.Background(), &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
@@ -300,8 +306,9 @@ func TestHandler(t *testing.T) {
 
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
-			var hWg sync.WaitGroup
-			handler := batch.NewQueuesHandler(ctx, &hWg, nil, writeQueues, readQueues, logger)
+			var sendWg sync.WaitGroup
+			var streamWg sync.WaitGroup
+			handler := batch.NewQueuesHandler(ctx, &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)

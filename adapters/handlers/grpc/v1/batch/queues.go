@@ -28,10 +28,11 @@ type QueuesHandler struct {
 	writeQueues      *WriteQueues
 	readQueues       *ReadQueues
 	sendWg           *sync.WaitGroup
+	streamWg         *sync.WaitGroup
 	shutdownFinished chan struct{}
 }
 
-func NewQueuesHandler(shuttingDownCtx context.Context, sendWg *sync.WaitGroup, shutdownFinished chan struct{}, writeQueues *WriteQueues, readQueues *ReadQueues, logger logrus.FieldLogger) *QueuesHandler {
+func NewQueuesHandler(shuttingDownCtx context.Context, sendWg, streamWg *sync.WaitGroup, shutdownFinished chan struct{}, writeQueues *WriteQueues, readQueues *ReadQueues, logger logrus.FieldLogger) *QueuesHandler {
 	// Poll until the batch logic starts shutting down
 	// Then wait for all BatchSend requests to finish and close all the write queues
 	// Scheduler will then drain the write queues expecting the channels to be closed
@@ -53,11 +54,14 @@ func NewQueuesHandler(shuttingDownCtx context.Context, sendWg *sync.WaitGroup, s
 		writeQueues:      writeQueues,
 		readQueues:       readQueues,
 		sendWg:           sendWg,
+		streamWg:         streamWg,
 		shutdownFinished: shutdownFinished,
 	}
 }
 
 func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
+	h.streamWg.Add(1)
+	defer h.streamWg.Done()
 	if err := stream.Send(newBatchStartMessage(streamId)); err != nil {
 		return err
 	}
