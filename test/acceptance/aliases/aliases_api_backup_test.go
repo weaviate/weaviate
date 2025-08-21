@@ -212,7 +212,7 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 			}
 
 			t.Run("restore with local filesystem backend", func(t *testing.T) {
-				overwriteAlias := false
+				var overwriteAlias bool
 				if options == "overwrite" {
 					overwriteAlias = true
 				}

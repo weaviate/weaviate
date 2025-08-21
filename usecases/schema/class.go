@@ -228,14 +228,22 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	for _, alias := range aliases {
 		var err error
 		_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
-		// Overwrite if user asks to during restore
 		if errors.Is(err, cschema.ErrAliasExists) {
-			_, err = h.schemaManager.DeleteAlias(ctx, alias.Alias)
-			if err != nil {
-				return fmt.Errorf("failed to restore alias for class: overwriting alias failed: %w", err)
+			// Overwrite if user asks to during restore
+			if overwriteAlias {
+				_, err = h.schemaManager.DeleteAlias(ctx, alias.Alias)
+				if err != nil {
+					return fmt.Errorf("failed to restore alias for class: overwriting alias failed: %w", err)
+				}
+				// retry again
+				_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
+				if err != nil {
+					return fmt.Errorf("failed to restore alias for class: create alias failed: %w", err)
+				}
 			}
-			// retry again
-			_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
+			// Schema returned alias already exists error. So let user know
+			// that there is a "flag overwrite" if she want's to overwrite alias.
+			return fmt.Errorf("failed to restore alias for class: alias already exists. You can overwrite using `overwrite_alias` param when restoring")
 		}
 
 		if err != nil {
