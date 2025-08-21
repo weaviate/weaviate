@@ -4,7 +4,8 @@ from .conftest import CollectionFactory
 
 def test_tenant_activation(collection_factory: CollectionFactory) -> None:
     collection = collection_factory(
-        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=True)
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=True),
+        vectorizer_config=[wvc.config.Configure.NamedVectors.none(name="test")],
     )
 
     tenant_names = ["tenant1", "tenant2"]
