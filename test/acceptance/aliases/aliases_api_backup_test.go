@@ -74,10 +74,6 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 	// 1. full: backup and restore collection after deleting both collection and the alias, will pass as of 1.32
 	// 2. overwrite: backup and restore after deleting the collection but not the alias, should pass only if "overwrite option is set"
 	for _, options := range []string{"full", "overwrite"} {
-		if options == "overwrite" {
-			t.Skip("Skipping backup with " + options + " option as aliases are not currently backed up nor restored on conflict")
-		}
-
 		t.Run("backup with "+options, func(t *testing.T) {
 			t.Run("create schema", func(t *testing.T) {
 				t.Run("Books", func(t *testing.T) {
@@ -162,62 +158,21 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 				t.Run("delete alias", func(t *testing.T) {
 					helper.DeleteAlias(t, "BookAlias")
 				})
-			}
 
-			t.Run("check alias count after deletion", func(t *testing.T) {
-				resp := helper.GetAliases(t, nil)
-				require.NotNil(t, resp)
-				require.Empty(t, resp.Aliases)
-			})
-
-			if options == "conflict" {
-				t.Run("re-create schema", func(t *testing.T) {
-					t.Run("BooksConflict", func(t *testing.T) {
-						booksClass := books.ClassModel2VecVectorizer()
-						booksClass.Class = "BooksConflict"
-						helper.CreateClass(t, booksClass)
-						for _, book := range books.Objects() {
-							helper.CreateObject(t, book)
-							helper.AssertGetObjectEventually(t, book.Class, book.ID)
-						}
-					})
-				})
-
-				defer func() {
-					helper.DeleteClass(t, "BooksConflict")
-				}()
-
-				t.Run("create alias with old collection name", func(t *testing.T) {
-					tests := []struct {
-						name  string
-						alias *models.Alias
-					}{
-						{
-							name:  "BooksConflict",
-							alias: &models.Alias{Alias: "Books", Class: "BooksConflict"},
-						},
-					}
-					for _, tt := range tests {
-						t.Run(tt.name, func(t *testing.T) {
-							helper.CreateAlias(t, tt.alias)
-							resp := helper.GetAliases(t, &tt.alias.Class)
-							require.NotNil(t, resp)
-							require.NotEmpty(t, resp.Aliases)
-							aliasCreated := false
-							for _, alias := range resp.Aliases {
-								if tt.alias.Alias == alias.Alias && tt.alias.Class == alias.Class {
-									aliasCreated = true
-								}
-							}
-							assert.True(t, aliasCreated)
-							aliases = append(aliases, tt.alias.Alias)
-						})
-					}
+				t.Run("check alias count after deletion", func(t *testing.T) {
+					resp := helper.GetAliases(t, nil)
+					require.NotNil(t, resp)
+					require.Empty(t, resp.Aliases)
 				})
 			}
 
 			t.Run("restore with local filesystem backend", func(t *testing.T) {
-				restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), books.DefaultClassName, backend, backupID, map[string]string{})
+				var overwriteAlias bool
+				if options == "overwrite" {
+					overwriteAlias = true
+				}
+
+				restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), books.DefaultClassName, backend, backupID, map[string]string{}, overwriteAlias)
 				assert.Nil(t, err)
 				assert.NotNil(t, restoreResp)
 				waitForRestore(t, backupID, backend)

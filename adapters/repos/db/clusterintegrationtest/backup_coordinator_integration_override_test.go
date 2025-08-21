@@ -113,7 +113,7 @@ func TestDistributedBackupsOverride(t *testing.T) {
 			Include: []string{distributedClass},
 		}
 
-		resp, err := nodes[0].scheduler.Restore(context.Background(), &models.Principal{}, req)
+		resp, err := nodes[0].scheduler.Restore(context.Background(), &models.Principal{}, req, false)
 		assert.Nil(t, resp)
 		assert.Contains(t, err.Error(), "local filesystem backend is not viable for backing up a node cluster")
 	})
@@ -166,7 +166,7 @@ func TestDistributedBackupsOverride(t *testing.T) {
 					Include: []string{distributedClass},
 				}
 
-				resp, err := node.scheduler.Restore(ctx, &models.Principal{}, req)
+				resp, err := node.scheduler.Restore(ctx, &models.Principal{}, req, false)
 				assert.Nil(t, err, "expected nil err, got: %s", err)
 				assert.Empty(t, resp.Error, "expected empty, got: %s", resp.Error)
 				assert.NotEmpty(t, resp.Path)
