@@ -117,6 +117,13 @@ func Benchmark_Migration(b *testing.B) {
 
 // Rebuild dimensions at startup
 func Test_Migration(t *testing.T) {
+	dimensionTrackingVersion = "v1"
+	do_Migration(t)
+	dimensionTrackingVersion = "v2"
+	do_Migration(t)
+}
+
+func do_Migration(t *testing.T) {
 	r := getRandomSeed()
 	dirName := t.TempDir()
 
@@ -195,6 +202,13 @@ func Test_Migration(t *testing.T) {
 }
 
 func Test_DimensionTracking(t *testing.T) {
+	dimensionTrackingVersion = "v1"
+	do_DimensionTracking(t)
+	dimensionTrackingVersion = "v2"
+	do_DimensionTracking(t)
+}
+
+func do_DimensionTracking(t *testing.T) {
 	r := getRandomSeed()
 	dirName := t.TempDir()
 
@@ -423,6 +437,13 @@ func Test_DimensionTracking(t *testing.T) {
 }
 
 func TestTotalDimensionTrackingMetrics(t *testing.T) {
+	dimensionTrackingVersion = "v1"
+	do_TotalDimensionTrackingMetrics(t)
+	dimensionTrackingVersion = "v2"
+	do_TotalDimensionTrackingMetrics(t)
+}
+
+func do_TotalDimensionTrackingMetrics(t *testing.T) {
 	const (
 		objectCount         = 100
 		multiVecCard        = 3
@@ -601,6 +622,12 @@ func intToUUID(i int) strfmt.UUID {
 }
 
 func TestDimensionTrackingWithGrouping(t *testing.T) {
+	dimensionTrackingVersion = "v1"
+	do_DimensionTrackingWithGrouping(t)
+	dimensionTrackingVersion = "v2"
+	do_DimensionTrackingWithGrouping(t)
+}
+func do_DimensionTrackingWithGrouping(t *testing.T) {
 	const (
 		nClasses          = 2
 		shardsPerClass    = 1 // createTestDatabaseWithClass does not support multi-tenancy
