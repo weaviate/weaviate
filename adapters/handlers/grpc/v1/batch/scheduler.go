@@ -118,7 +118,7 @@ func (s *Scheduler) drain(streamId string, wq *WriteQueue) bool {
 func (s *Scheduler) schedule(streamId string, wq *WriteQueue) bool {
 	objs, refs, stop := s.pull(wq.queue, 1000)
 	req := newProcessRequest(objs, refs, streamId, stop, wq.consistencyLevel, wq)
-	if len(req.Objects.Values) > 0 || len(req.References.Values) > 0 || req.Stop {
+	if (req.Objects != nil && len(req.Objects.Values) > 0) || (req.References != nil && (len(req.References.Values) > 0 || req.Stop)) {
 		s.internalQueue <- req
 	}
 	time.Sleep(time.Millisecond * 5)
