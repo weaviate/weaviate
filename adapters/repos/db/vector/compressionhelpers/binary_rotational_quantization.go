@@ -124,6 +124,12 @@ func (c RQOneBitCode) SquaredNorm() float32 {
 	return getFloat32Upper(c[0])
 }
 
+// Convenience function. It may be more performant to store the norm instead of
+// the squared norm since we use it in DistanceBetweenCompressedVectors.
+func (c RQOneBitCode) Norm() float32 {
+	return float32(math.Sqrt(float64(c.SquaredNorm())))
+}
+
 func (c RQOneBitCode) setSquaredNorm(x float32) {
 	c[0] = putFloat32Upper(c[0], x)
 }
@@ -180,18 +186,21 @@ func (rq *BinaryRotationalQuantizer) Encode(x []float32) []uint64 {
 // Restore -> NewCompressedQuantizerDistancer -> NewDistancerFromID -> reassignNeighbor in when deleting
 // distancer for PQ,SQ etc. use the compressed vector, in this case we can't use it because we have different encoding for the query and the data.
 func (rq *BinaryRotationalQuantizer) Restore(b []uint64) []float32 {
+	// When restoring a float32 from the binary encoding we use the mapping:
+	// 0: -||x||/sqrt(D)
+	// 1:  ||x||/sqrt(D)
 	code := RQOneBitCode(b)
-	step := code.Step()
 	dim := code.Dimension()
+	avgNorm := code.Norm() / float32(math.Sqrt(float64(dim)))
 	x := make([]float32, dim)
 	bits := code.Bits()
 	for i := range dim {
 		block := i / 64
 		bit := uint(i) % 64
 		if (bits[block] & (1 << bit)) != 0 {
-			x[i] = step
+			x[i] = avgNorm
 		} else {
-			x[i] = -step
+			x[i] = -avgNorm
 		}
 	}
 	return x
@@ -430,9 +439,26 @@ func (brq *BinaryRotationalQuantizer) FromCompressedBytesWithSubsliceBuffer(comp
 	return slice
 }
 
+// Used when we delete nodes to reconnect the HNSW graph.
+// Performs distance computations using DistanceBetweenCompressedVectors.
+type BinaryRQCompressedDistancer struct {
+	brq *BinaryRotationalQuantizer
+	cq  RQOneBitCode
+}
+
+func (d *BinaryRQCompressedDistancer) Distance(cx []uint64) (float32, error) {
+	return d.brq.DistanceBetweenCompressedVectors(d.cq, cx)
+}
+
+func (d *BinaryRQCompressedDistancer) DistanceToFloat(x []float32) (float32, error) {
+	return d.brq.DistanceBetweenCompressedVectors(d.cq, d.brq.Encode(x))
+}
+
 func (brq *BinaryRotationalQuantizer) NewCompressedQuantizerDistancer(c []uint64) quantizerDistancer[uint64] {
-	restored := brq.Restore(c)
-	return brq.NewDistancer(restored)
+	return &BinaryRQCompressedDistancer{
+		brq: brq,
+		cq:  c,
+	}
 }
 
 func (brq *BinaryRotationalQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistancer[uint64] {
