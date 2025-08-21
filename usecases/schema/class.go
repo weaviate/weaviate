@@ -233,7 +233,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 			if overwriteAlias {
 				_, err = h.schemaManager.DeleteAlias(ctx, alias.Alias)
 				if err != nil {
-					return fmt.Errorf("failed to restore alias for class: overwriting alias failed: %w", err)
+					return fmt.Errorf("failed to restore alias for class: delete alias failed: %w", err)
 				}
 				// retry again
 				_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
