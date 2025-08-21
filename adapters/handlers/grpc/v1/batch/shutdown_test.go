@@ -55,9 +55,36 @@ func TestShutdownLogic(t *testing.T) {
 		wq <- batch.NewWriteObject(&pb.BatchObject{})
 	}
 
+	stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
+	stream.EXPECT().Send(&pb.BatchStreamMessage{
+		Message: &pb.BatchStreamMessage_Start{
+			Start: &pb.BatchStart{
+				StreamId: StreamId,
+			},
+		},
+	}).Return(nil).Once()
+	stream.EXPECT().Send(&pb.BatchStreamMessage{
+		Message: &pb.BatchStreamMessage_ShuttingDown{
+			ShuttingDown: &pb.BatchShuttingDown{
+				StreamId: StreamId,
+			},
+		},
+	}).Return(nil).Once()
+	stream.EXPECT().Send(&pb.BatchStreamMessage{
+		Message: &pb.BatchStreamMessage_Shutdown{
+			Shutdown: &pb.BatchShutdown{
+				StreamId: StreamId,
+			},
+		},
+	}).Return(nil).Once()
+
 	shutdown := batch.NewShutdown(ctx)
-	batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.HandlersWg, shutdown.ShutdownFinished, writeQueues, readQueues, logger)
+	handler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.HandlersWg, shutdown.ShutdownFinished, writeQueues, readQueues, logger)
 	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, writeQueues, internalQueue, logger)
 	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, 1, internalQueue, readQueues, writeQueues, mockBatcher, logger)
-	shutdown.Drain(logger)
+
+	go shutdown.Drain(logger)
+
+	err := handler.Stream(ctx, StreamId, stream)
+	require.NoError(t, err, "Expected no error when streaming")
 }
