@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"slices"
 	"time"

@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path"
@@ -3101,8 +3100,6 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 	return nil
 }
 
-
-
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
 func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (usagetypes.ObjectUsage, error) {
 	// Obtain a lock that prevents tenant activation
@@ -3188,9 +3185,16 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName
 	}
 	defer bucket.Shutdown(ctx)
 
-	dimensionality := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v int) (int, int) {
-		return v, dimLen
-	})
+	var dimensionality usagetypes.Dimensionality
+	if dimensionTrackingVersion == "v2" {
+		dimensionality = calcTargetVectorDimensionsFromBucket_v2(ctx, bucket, targetVector, func(dimLen int, v int) (int, int) {
+			return v, dimLen
+		})
+	} else {
+		dimensionality = calcTargetVectorDimensionsFromBucket_v1(ctx, bucket, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
+			return len(v), dimLen
+		})
+	}
 
 	return dimensionality, nil
 }
@@ -3222,10 +3226,16 @@ func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName 
 		if err != nil {
 			return 0, err
 		}
-
-		dimensionality := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v int) (int, int) {
-			return v, dimLen
-		})
+		var dimensionality usagetypes.Dimensionality
+		if dimensionTrackingVersion == "v2" {
+			dimensionality = calcTargetVectorDimensionsFromBucket_v2(ctx, bucket, targetVector, func(dimLen int, v int) (int, int) {
+				return v, dimLen
+			})
+		} else {
+			dimensionality = calcTargetVectorDimensionsFromBucket_v1(ctx, bucket, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
+				return len(v), dimLen
+			})
+		}
 		bucket.Shutdown(ctx)
 
 		if dimensionality.Count == 0 || dimensionality.Dimensions == 0 {

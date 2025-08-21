@@ -94,7 +94,7 @@ func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, se
 		})
 	} else {
 		dimensionality, err = s.calcTargetVectorDimensions_v1(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
-			return dimLength * len(v), dimLength
+			return len(v), dimLength
 		})
 	}
 
