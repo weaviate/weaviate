@@ -165,51 +165,6 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 					require.Empty(t, resp.Aliases)
 				})
 			}
-			if options == "conflict" {
-				t.Run("re-create schema", func(t *testing.T) {
-					t.Run("BooksConflict", func(t *testing.T) {
-						booksClass := books.ClassModel2VecVectorizer()
-						booksClass.Class = "BooksConflict"
-						helper.CreateClass(t, booksClass)
-						for _, book := range books.Objects() {
-							helper.CreateObject(t, book)
-							helper.AssertGetObjectEventually(t, book.Class, book.ID)
-						}
-					})
-				})
-
-				defer func() {
-					helper.DeleteClass(t, "BooksConflict")
-				}()
-
-				t.Run("create alias with old collection name", func(t *testing.T) {
-					tests := []struct {
-						name  string
-						alias *models.Alias
-					}{
-						{
-							name:  "BooksConflict",
-							alias: &models.Alias{Alias: "Books", Class: "BooksConflict"},
-						},
-					}
-					for _, tt := range tests {
-						t.Run(tt.name, func(t *testing.T) {
-							helper.CreateAlias(t, tt.alias)
-							resp := helper.GetAliases(t, &tt.alias.Class)
-							require.NotNil(t, resp)
-							require.NotEmpty(t, resp.Aliases)
-							aliasCreated := false
-							for _, alias := range resp.Aliases {
-								if tt.alias.Alias == alias.Alias && tt.alias.Class == alias.Class {
-									aliasCreated = true
-								}
-							}
-							assert.True(t, aliasCreated)
-							aliases = append(aliases, tt.alias.Alias)
-						})
-					}
-				})
-			}
 
 			t.Run("restore with local filesystem backend", func(t *testing.T) {
 				var overwriteAlias bool

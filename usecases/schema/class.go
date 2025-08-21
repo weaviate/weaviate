@@ -240,6 +240,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 				if err != nil {
 					return fmt.Errorf("failed to restore alias for class: create alias failed: %w", err)
 				}
+				return nil
 			}
 			// Schema returned alias already exists error. So let user know
 			// that there is a "flag overwrite" if she want's to overwrite alias.
