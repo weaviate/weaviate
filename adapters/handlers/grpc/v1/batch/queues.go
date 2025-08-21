@@ -59,6 +59,16 @@ func NewQueuesHandler(shuttingDownCtx context.Context, sendWg, streamWg *sync.Wa
 	}
 }
 
+func (h *QueuesHandler) wait(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		time.Sleep(10 * time.Millisecond)
+	}
+	return nil
+}
+
 func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
 	h.streamWg.Add(1)
 	defer h.streamWg.Done()
@@ -85,13 +95,13 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 				if innerErr := stream.Send(newBatchShutdownMessage(streamId)); innerErr != nil {
 					return innerErr
 				}
-				return nil
+				return h.wait(ctx)
 			case errs := <-readQueue:
 				if errs.Stop {
 					if innerErr := stream.Send(newBatchStopMessage(streamId)); innerErr != nil {
 						return innerErr
 					}
-					return nil
+					return h.wait(ctx)
 				}
 				for _, err := range errs.Errors {
 					if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {

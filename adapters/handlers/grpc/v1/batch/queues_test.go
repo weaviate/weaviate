@@ -169,7 +169,7 @@ func TestHandler(t *testing.T) {
 			readQueues := batch.NewBatchReadQueues()
 			var sendWg sync.WaitGroup
 			var streamWg sync.WaitGroup
-			handler := batch.NewQueuesHandler(ctx, &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
+			handler := batch.NewQueuesHandler(context.Background(), &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
 
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
