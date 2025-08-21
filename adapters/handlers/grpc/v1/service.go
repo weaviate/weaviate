@@ -358,7 +358,6 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		s.aliasGetter(),
 	)
 	replier := NewReplier(
-		req.Uses_125Api || req.Uses_127Api,
 		req.Uses_127Api,
 		parser.generative,
 		s.logger,
