@@ -368,7 +368,9 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if len(req.After) > 0 || req.AfterPresent {
-		// important for iterator to set the cursor even if after is empty
+		// important for iterator to set the cursor even if after is empty. Otherwise the first request of
+		// filter+cursor with empty (but set) after parameter would do a pure filtered search which returns the object in
+		// a different order than a filtered+cursor search, leading to missing and/or duplicate results.
 		out.Cursor = &filters.Cursor{After: req.After, Limit: out.Pagination.Limit}
 	}
 
