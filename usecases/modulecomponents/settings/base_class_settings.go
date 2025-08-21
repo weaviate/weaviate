@@ -290,6 +290,14 @@ func (s BaseClassSettings) isPropertyDataTypeSupported(dt string) bool {
 	switch schema.DataType(dt) {
 	case schema.DataTypeText, schema.DataTypeString, schema.DataTypeTextArray, schema.DataTypeStringArray:
 		return true
+	case schema.DataTypeObject, schema.DataTypeObjectArray:
+		return true
+	case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeIntArray, schema.DataTypeNumberArray:
+		return true
+	case schema.DataTypeDate, schema.DataTypeDateArray:
+		return true
+	case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
+		return true
 	default:
 		return false
 	}

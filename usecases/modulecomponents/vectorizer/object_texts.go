@@ -13,9 +13,11 @@ package vectorizer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 
@@ -87,37 +89,63 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 				continue
 			}
 			isTitleProperty := propName == titlePropertyName
-			isNameVectorizable := icheck.VectorizePropertyName(propName)
+			isPropertyNameVectorizable := icheck.VectorizePropertyName(propName)
 
 			switch val := propMap[propName].(type) {
 			case []string:
-				if len(val) > 0 {
-					propName = v.separateCamelCase(propName, toLowerCase)
-
-					for i := range val {
-						str := strings.ToLower(val[i])
-						if isTitleProperty {
-							titlePropertyValue = append(titlePropertyValue, str)
-						}
-						if isNameVectorizable {
-							str = fmt.Sprintf("%s %s", propName, str)
-						}
-						corpi = append(corpi, str)
-					}
+				for i := range val {
+					corpi, titlePropertyValue = v.insertValue(val[i], propName,
+						toLowerCase, isPropertyNameVectorizable, isTitleProperty, corpi, titlePropertyValue)
 				}
 			case string:
-				if toLowerCase {
-					val = strings.ToLower(val)
+				corpi, titlePropertyValue = v.insertValue(val, propName,
+					toLowerCase, isPropertyNameVectorizable, isTitleProperty, corpi, titlePropertyValue)
+			case bool, int, int16, int32, int64, float32, float64:
+				corpi, titlePropertyValue = v.insertValue(fmt.Sprintf("%v", val), propName,
+					toLowerCase, isPropertyNameVectorizable, isTitleProperty, corpi, titlePropertyValue)
+			case json.Number:
+				corpi, titlePropertyValue = v.insertValue(val.String(), propName,
+					toLowerCase, isPropertyNameVectorizable, isTitleProperty, corpi, titlePropertyValue)
+			case time.Time:
+				corpi, titlePropertyValue = v.insertValue(val.Format(time.RFC3339), propName,
+					toLowerCase, isPropertyNameVectorizable, isTitleProperty, corpi, titlePropertyValue)
+			case []any:
+				if len(val) > 0 {
+					if _, ok := val[0].(map[string]any); ok {
+						in := v.marshalValue(val)
+						corpi, titlePropertyValue = v.insertValue(in, propName,
+							toLowerCase, isPropertyNameVectorizable, isTitleProperty, corpi, titlePropertyValue)
+					} else {
+						for i := range val {
+							corpi, titlePropertyValue = v.insertValue(fmt.Sprintf("%v", val[i]), propName,
+								toLowerCase, isPropertyNameVectorizable, isTitleProperty, corpi, titlePropertyValue)
+						}
+					}
 				}
-				propName = v.separateCamelCase(propName, toLowerCase)
-
-				if isTitleProperty {
-					titlePropertyValue = append(titlePropertyValue, val)
+			case []float64:
+				for i := range val {
+					corpi, titlePropertyValue = v.insertValue(fmt.Sprintf("%v", val[i]), propName,
+						toLowerCase, isPropertyNameVectorizable, isTitleProperty, corpi, titlePropertyValue)
 				}
-				if icheck.VectorizePropertyName(propName) {
-					val = fmt.Sprintf("%s %s", propName, val)
+			case []int:
+				for i := range val {
+					corpi, titlePropertyValue = v.insertValue(fmt.Sprintf("%v", val[i]), propName,
+						toLowerCase, isPropertyNameVectorizable, isTitleProperty, corpi, titlePropertyValue)
 				}
-				corpi = append(corpi, val)
+			case []int64:
+				for i := range val {
+					corpi, titlePropertyValue = v.insertValue(fmt.Sprintf("%v", val[i]), propName,
+						toLowerCase, isPropertyNameVectorizable, isTitleProperty, corpi, titlePropertyValue)
+				}
+			case []bool:
+				for i := range val {
+					corpi, titlePropertyValue = v.insertValue(fmt.Sprintf("%v", val[i]), propName,
+						toLowerCase, isPropertyNameVectorizable, isTitleProperty, corpi, titlePropertyValue)
+				}
+			case map[string]any, []map[string]any:
+				in := v.marshalValue(val)
+				corpi, titlePropertyValue = v.insertValue(in, propName,
+					toLowerCase, isPropertyNameVectorizable, isTitleProperty, corpi, titlePropertyValue)
 			default:
 				// properties that are not part of the object
 			}
@@ -129,4 +157,35 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 	}
 
 	return strings.Join(corpi, " "), strings.Join(titlePropertyValue, " ")
+}
+
+func (v *ObjectVectorizer) insertValue(
+	val, propName string,
+	toLowerCase, isPropertyNameVectorizable, isTitleProperty bool,
+	corpi, titlePropertyValue []string,
+) ([]string, []string) {
+	val = v.getValue(val, propName, toLowerCase, isPropertyNameVectorizable)
+	if isTitleProperty {
+		titlePropertyValue = append(titlePropertyValue, val)
+	} else {
+		corpi = append(corpi, val)
+	}
+	return corpi, titlePropertyValue
+}
+
+func (v *ObjectVectorizer) getValue(val, propName string, toLowerCase, isPropertyNameVectorizable bool) string {
+	if toLowerCase {
+		val = strings.ToLower(val)
+	}
+	if isPropertyNameVectorizable {
+		val = fmt.Sprintf("%s %s", v.separateCamelCase(propName, toLowerCase), val)
+	}
+	return val
+}
+
+func (v *ObjectVectorizer) marshalValue(in any) string {
+	if val, err := json.Marshal(in); err == nil {
+		return string(val)
+	}
+	return fmt.Sprintf("%v", in)
 }

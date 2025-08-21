@@ -252,6 +252,86 @@ func Test_BaseClassSettings_Validate(t *testing.T) {
 			},
 		}
 	}
+	classAllVectorizablePropertiesAndSourceProperties := func() *models.Class {
+		return &models.Class{
+			Class: "MyClass",
+			VectorConfig: map[string]models.VectorConfig{
+				"targetVector": {
+					Vectorizer: map[string]interface{}{
+						"my-module": map[string]interface{}{
+							"vectorizeClassName": false,
+							"properties": []string{
+								"text_prop", "text_array_prop", "string_prop", "string_array_prop",
+								"object_prop", "object_array_prop",
+								"int_prop", "int_array_prop",
+								"number_prop", "number_array_prop",
+								"date_prop", "date_array_prop",
+								"boolean_prop", "boolean_array_prop",
+							},
+						},
+					},
+				},
+			},
+			Properties: []*models.Property{
+				{
+					Name:     "text_prop",
+					DataType: []string{schema.DataTypeText.String()},
+				},
+				{
+					Name:     "text_array_prop",
+					DataType: []string{schema.DataTypeTextArray.String()},
+				},
+				{
+					Name:     "string_prop",
+					DataType: []string{schema.DataTypeString.String()},
+				},
+				{
+					Name:     "string_array_prop",
+					DataType: []string{schema.DataTypeStringArray.String()},
+				},
+				{
+					Name:     "object_prop",
+					DataType: []string{schema.DataTypeObject.String()},
+				},
+				{
+					Name:     "object_array_prop",
+					DataType: []string{schema.DataTypeObjectArray.String()},
+				},
+				{
+					Name:     "int_prop",
+					DataType: []string{schema.DataTypeInt.String()},
+				},
+				{
+					Name:     "int_array_prop",
+					DataType: []string{schema.DataTypeIntArray.String()},
+				},
+				{
+					Name:     "number_prop",
+					DataType: []string{schema.DataTypeNumber.String()},
+				},
+				{
+					Name:     "number_array_prop",
+					DataType: []string{schema.DataTypeNumberArray.String()},
+				},
+				{
+					Name:     "date_prop",
+					DataType: []string{schema.DataTypeDate.String()},
+				},
+				{
+					Name:     "date_array_prop",
+					DataType: []string{schema.DataTypeDateArray.String()},
+				},
+				{
+					Name:     "boolean_prop",
+					DataType: []string{schema.DataTypeBoolean.String()},
+				},
+				{
+					Name:     "boolean_array_prop",
+					DataType: []string{schema.DataTypeBooleanArray.String()},
+				},
+			},
+		}
+	}
 	tests := []struct {
 		name              string
 		class             *models.Class
@@ -300,6 +380,11 @@ func Test_BaseClassSettings_Validate(t *testing.T) {
 			class:             classPropertiesAndNonExistentSourceProperties(),
 			autoSchemaEnabled: false,
 			wantErr:           errInvalidProperties,
+		},
+		{
+			name:              "class with all vectorizable property types",
+			class:             classAllVectorizablePropertiesAndSourceProperties(),
+			autoSchemaEnabled: false,
 		},
 	}
 	for _, tt := range tests {
