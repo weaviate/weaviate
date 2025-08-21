@@ -179,6 +179,12 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 		t.config.rollback = true
 	}
 
+	if rt.IsReset() && rt.IsTidied() {
+		rt.reset()
+		err = fmt.Errorf("reset was manually triggered")
+		return
+	}
+
 	if t.config.conditionalStart && !rt.HasStartCondition() {
 		err = fmt.Errorf("conditional start is set, but file trigger is not found")
 		return
@@ -1319,6 +1325,7 @@ type mapToBlockmaxReindexTracker interface {
 
 	IsPaused() bool
 	IsRollback() bool
+	IsReset() bool
 
 	reset() error
 
@@ -1339,6 +1346,7 @@ func NewFileMapToBlockmaxReindexTracker(lsmPath string, keyParser indexKeyParser
 			filenameTidied:     "tidied.mig",
 			filenameProperties: "properties.mig",
 			filenameRollback:   "rollback.mig",
+			filenameReset:      "reset.mig",
 			filenamePaused:     "paused.mig",
 			filenameOverrides:  "overrides.mig",
 			migrationPath:      filepath.Join(lsmPath, ".migrations", "searchable_map_to_blockmax"),
@@ -1362,6 +1370,7 @@ type fileReindexTrackerConfig struct {
 	filenameTidied     string
 	filenameProperties string
 	filenameRollback   string
+	filenameReset      string
 	filenamePaused     string
 	filenameOverrides  string
 	migrationPath      string
@@ -1686,6 +1695,10 @@ func (t *fileMapToBlockmaxReindexTracker) GetProps() ([]string, error) {
 		return []string{}, nil
 	}
 	return strings.Split(string(content), ","), nil
+}
+
+func (t *fileMapToBlockmaxReindexTracker) IsReset() bool {
+	return t.fileExists(t.config.filenameReset)
 }
 
 func (t *fileMapToBlockmaxReindexTracker) reset() error {

@@ -5,6 +5,7 @@ package protocol
 import (
 	reflect "reflect"
 	sync "sync"
+	unsafe "unsafe"
 
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -18,18 +19,16 @@ const (
 )
 
 type BatchObjectsRequest struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BatchObjectsRequest) Reset() {
 	*x = BatchObjectsRequest{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v0_batch_proto_msgTypes[0]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v0_batch_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *BatchObjectsRequest) String() string {
@@ -40,7 +39,7 @@ func (*BatchObjectsRequest) ProtoMessage() {}
 
 func (x *BatchObjectsRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_v0_batch_proto_msgTypes[0]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -56,18 +55,16 @@ func (*BatchObjectsRequest) Descriptor() ([]byte, []int) {
 }
 
 type BatchObjectsReply struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BatchObjectsReply) Reset() {
 	*x = BatchObjectsReply{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v0_batch_proto_msgTypes[1]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v0_batch_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *BatchObjectsReply) String() string {
@@ -78,7 +75,7 @@ func (*BatchObjectsReply) ProtoMessage() {}
 
 func (x *BatchObjectsReply) ProtoReflect() protoreflect.Message {
 	mi := &file_v0_batch_proto_msgTypes[1]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -95,36 +92,27 @@ func (*BatchObjectsReply) Descriptor() ([]byte, []int) {
 
 var File_v0_batch_proto protoreflect.FileDescriptor
 
-var file_v0_batch_proto_rawDesc = []byte{
-	0x0a, 0x0e, 0x76, 0x30, 0x2f, 0x62, 0x61, 0x74, 0x63, 0x68, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f,
-	0x12, 0x0c, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x67, 0x72, 0x70, 0x63, 0x22, 0x15,
-	0x0a, 0x13, 0x42, 0x61, 0x74, 0x63, 0x68, 0x4f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x73, 0x52, 0x65,
-	0x71, 0x75, 0x65, 0x73, 0x74, 0x22, 0x13, 0x0a, 0x11, 0x42, 0x61, 0x74, 0x63, 0x68, 0x4f, 0x62,
-	0x6a, 0x65, 0x63, 0x74, 0x73, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x42, 0x6f, 0x0a, 0x23, 0x69, 0x6f,
-	0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74,
-	0x2e, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x2e, 0x76,
-	0x30, 0x42, 0x12, 0x57, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x50, 0x72, 0x6f, 0x74, 0x6f,
-	0x42, 0x61, 0x74, 0x63, 0x68, 0x5a, 0x34, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f,
-	0x6d, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69,
-	0x61, 0x74, 0x65, 0x2f, 0x67, 0x72, 0x70, 0x63, 0x2f, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74,
-	0x65, 0x64, 0x3b, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x62, 0x06, 0x70, 0x72, 0x6f,
-	0x74, 0x6f, 0x33,
-}
+const file_v0_batch_proto_rawDesc = "" +
+	"\n" +
+	"\x0ev0/batch.proto\x12\fweaviategrpc\"\x15\n" +
+	"\x13BatchObjectsRequest\"\x13\n" +
+	"\x11BatchObjectsReplyBo\n" +
+	"#io.weaviate.client.grpc.protocol.v0B\x12WeaviateProtoBatchZ4github.com/weaviate/weaviate/grpc/generated;protocolb\x06proto3"
 
 var (
 	file_v0_batch_proto_rawDescOnce sync.Once
-	file_v0_batch_proto_rawDescData = file_v0_batch_proto_rawDesc
+	file_v0_batch_proto_rawDescData []byte
 )
 
 func file_v0_batch_proto_rawDescGZIP() []byte {
 	file_v0_batch_proto_rawDescOnce.Do(func() {
-		file_v0_batch_proto_rawDescData = protoimpl.X.CompressGZIP(file_v0_batch_proto_rawDescData)
+		file_v0_batch_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_v0_batch_proto_rawDesc), len(file_v0_batch_proto_rawDesc)))
 	})
 	return file_v0_batch_proto_rawDescData
 }
 
 var file_v0_batch_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
-var file_v0_batch_proto_goTypes = []interface{}{
+var file_v0_batch_proto_goTypes = []any{
 	(*BatchObjectsRequest)(nil), // 0: weaviategrpc.BatchObjectsRequest
 	(*BatchObjectsReply)(nil),   // 1: weaviategrpc.BatchObjectsReply
 }
@@ -141,37 +129,11 @@ func file_v0_batch_proto_init() {
 	if File_v0_batch_proto != nil {
 		return
 	}
-	if !protoimpl.UnsafeEnabled {
-		file_v0_batch_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BatchObjectsRequest); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v0_batch_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BatchObjectsReply); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: file_v0_batch_proto_rawDesc,
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v0_batch_proto_rawDesc), len(file_v0_batch_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   2,
 			NumExtensions: 0,
@@ -182,7 +144,6 @@ func file_v0_batch_proto_init() {
 		MessageInfos:      file_v0_batch_proto_msgTypes,
 	}.Build()
 	File_v0_batch_proto = out.File
-	file_v0_batch_proto_rawDesc = nil
 	file_v0_batch_proto_goTypes = nil
 	file_v0_batch_proto_depIdxs = nil
 }

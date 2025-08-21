@@ -64,7 +64,6 @@ func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCom
 
 func createSingleNodeEnvironmentWithEnabledApiBasedModules(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
-		WithWeaviateEnv("ENABLE_API_BASED_MODULES", "true").
 		WithWeaviate().
 		Start(ctx)
 	return

@@ -204,14 +204,6 @@ func segmentID(path string) string {
 	return strings.TrimPrefix(filename, "segment-")
 }
 
-func strategyAndLevelFromFileName(path string) (uint16, segmentindex.Strategy) {
-	// is not used, only the filename parsing
-	ls := lazySegment{path: path}
-	level := ls.getLevel()
-	strategy := ls.getStrategy()
-	return level, strategy
-}
-
 func segmentExtraInfo(level uint16, strategy segmentindex.Strategy) string {
 	return fmt.Sprintf(".l%d.s%d", level, strategy)
 }
