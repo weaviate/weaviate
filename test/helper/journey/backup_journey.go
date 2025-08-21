@@ -68,7 +68,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 			assert.Nil(t, backupResp)
 			assert.Error(t, err)
 
-			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{})
+			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{}, false)
 			assert.Nil(t, restoreResp)
 			assert.Error(t, err)
 		})
@@ -151,7 +151,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 		}
 
 		t.Logf("cfg: %+v, className: %s, backend: %s, backupID: %s, nodeMapping: %+v\n", cfg, className, backend, backupID, nodeMapping)
-		resp, err := helper.RestoreBackup(t, cfg, className, backend, backupID, nodeMapping)
+		resp, err := helper.RestoreBackup(t, cfg, className, backend, backupID, nodeMapping, false)
 		require.Nil(t, err, "expected nil, got: %v", err)
 		assert.Equal(t, backupID, resp.Payload.ID)
 		assert.Equal(t, backend, resp.Payload.Backend)
@@ -232,7 +232,7 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 			assert.Nil(t, backupResp)
 			assert.Error(t, err)
 
-			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{})
+			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{}, false)
 			assert.Nil(t, restoreResp)
 			assert.Error(t, err)
 		})

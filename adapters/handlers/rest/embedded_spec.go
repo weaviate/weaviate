@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.32.3"
+    "version": "1.32.4"
   },
   "basePath": "/v1",
   "paths": {
@@ -5794,6 +5794,10 @@ func init() {
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "overwriteAlias": {
+          "description": "Allows ovewriting the collection alias if there is a conflict",
+          "type": "boolean"
         }
       }
     },
@@ -8650,7 +8654,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.32.3"
+    "version": "1.32.4"
   },
   "basePath": "/v1",
   "paths": {
@@ -14509,6 +14513,10 @@ func init() {
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "overwriteAlias": {
+          "description": "Allows ovewriting the collection alias if there is a conflict",
+          "type": "boolean"
         }
       }
     },
