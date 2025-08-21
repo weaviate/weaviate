@@ -107,8 +107,8 @@ func (s *Scheduler) drain(streamId string, wq *WriteQueue) bool {
 			req := newProcessRequest(objs, refs, streamId, obj.Stop, wq.consistencyLevel, wq)
 			s.internalQueue <- req
 			// Reset the queues
-			objs = objs[:0]
-			refs = refs[:0]
+			objs = make([]*pb.BatchObject, 0, 1000)
+			refs = make([]*pb.BatchReference, 0, 1000)
 		}
 	}
 	return true
