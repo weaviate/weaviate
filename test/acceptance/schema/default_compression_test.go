@@ -110,11 +110,11 @@ func TestDefaultCompression(t *testing.T) {
 	require.NotNil(t, rq)
 	enabled := rq.(map[string]interface{})["enabled"].(bool)
 	require.Equal(t, true, enabled)
-	uncompressed := viconfig.(map[string]interface{})["uncompressed"].(bool)
-	require.Equal(t, false, uncompressed)
+	skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+	require.Equal(t, false, skipDefaultQuantization)
 }
 
-func TestDefaultCompressionWithUncompressed(t *testing.T) {
+func TestDefaultCompressionWithSkipDefaultQuantization(t *testing.T) {
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
@@ -140,7 +140,7 @@ func TestDefaultCompressionWithUncompressed(t *testing.T) {
 		AutoTenantCreation:   true,
 	}
 	cls.VectorIndexConfig = map[string]interface{}{
-		"uncompressed": true,
+		"skipDefaultQuantization": true,
 	}
 
 	// Create the class
@@ -193,8 +193,8 @@ func TestDefaultCompressionWithUncompressed(t *testing.T) {
 	require.NotNil(t, rq)
 	enabled := rq.(map[string]interface{})["enabled"].(bool)
 	require.Equal(t, false, enabled)
-	uncompressed := viconfig.(map[string]interface{})["uncompressed"].(bool)
-	require.Equal(t, true, uncompressed)
+	skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+	require.Equal(t, true, skipDefaultQuantization)
 }
 
 func TestDefaultCompressionOverride(t *testing.T) {
@@ -280,6 +280,6 @@ func TestDefaultCompressionOverride(t *testing.T) {
 	require.NotNil(t, bq)
 	enabled := bq.(map[string]interface{})["enabled"].(bool)
 	require.Equal(t, true, enabled)
-	uncompressed := viconfig.(map[string]interface{})["uncompressed"].(bool)
-	require.Equal(t, false, uncompressed)
+	skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+	require.Equal(t, false, skipDefaultQuantization)
 }

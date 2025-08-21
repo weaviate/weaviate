@@ -187,11 +187,11 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 		sqEnabled := hnswConfig.SQ.Enabled
 		rqEnabled := hnswConfig.RQ.Enabled
 		bqEnabled := hnswConfig.BQ.Enabled
-		uncompressed := hnswConfig.Uncompressed
+		skipDefaultQuantization := hnswConfig.SkipDefaultQuantization
 		if pqEnabled || sqEnabled || rqEnabled || bqEnabled {
 			return hnswConfig
 		}
-		if uncompressed {
+		if skipDefaultQuantization {
 			return hnswConfig
 		}
 		switch compression {
