@@ -195,14 +195,17 @@ func (p *GenerateProvider) setCombinedResult(in []search.Result, i int,
 
 	var result *string
 	var params map[string]interface{}
+	var debug *modulecapabilities.GenerateDebugInformation
 	if generateResult != nil {
 		result = generateResult.Result
 		params = generateResult.Params
+		debug = generateResult.Debug
 	}
 
 	generate := map[string]interface{}{
 		"groupedResult": result,
 		"error":         err,
+		"debug":         debug,
 	}
 
 	for k, v := range params {

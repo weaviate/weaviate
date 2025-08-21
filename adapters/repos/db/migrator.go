@@ -485,7 +485,13 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 		return errors.Errorf("cannot update shard status to a non-existing index for %s", className)
 	}
 
-	return idx.updateShardStatus(ctx, shardName, targetStatus, schemaVersion)
+	tenantName := ""
+	if idx.partitioningEnabled {
+		// If partitioning is enable it means the collection is multi tenant and the shard name must match the tenant name
+		// otherwise the tenant name is expected to be empty.
+		tenantName = shardName
+	}
+	return idx.updateShardStatus(ctx, tenantName, shardName, targetStatus, schemaVersion)
 }
 
 // NewTenants creates new partitions
@@ -650,8 +656,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	return ec.ToError()
 }
 
-// DeleteTenants deletes tenants
-// CAUTION: will not delete inactive tenants (shard files will not be removed)
+// DeleteTenants deletes tenant from the database and data from the disk, no matter the current status of the tenant
 func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
 	indexID := indexID(schema.ClassName(class))
 

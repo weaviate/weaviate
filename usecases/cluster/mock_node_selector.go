@@ -425,8 +425,7 @@ func (_c *MockNodeSelector_StorageCandidates_Call) RunAndReturn(run func() []str
 func NewMockNodeSelector(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockNodeSelector {
+}) *MockNodeSelector {
 	mock := &MockNodeSelector{}
 	mock.Mock.Test(t)
 

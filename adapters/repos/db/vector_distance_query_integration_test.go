@@ -20,9 +20,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -40,7 +40,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	dirName := t.TempDir()
 	shardState := singleShardState()
-	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)

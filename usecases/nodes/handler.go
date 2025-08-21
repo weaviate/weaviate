@@ -26,25 +26,24 @@ import (
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
-const GetNodeStatusTimeout = 30 * time.Second
-
 type db interface {
 	GetNodeStatus(ctx context.Context, className, shardName, verbosity string) ([]*models.NodeStatus, error)
 	GetNodeStatistics(ctx context.Context) ([]*models.Statistics, error)
 }
 
 type Manager struct {
-	logger        logrus.FieldLogger
-	authorizer    authorization.Authorizer
-	db            db
-	schemaManager *schemaUC.Manager
-	rbacconfig    rbacconf.Config
+	logger                 logrus.FieldLogger
+	authorizer             authorization.Authorizer
+	db                     db
+	schemaManager          *schemaUC.Manager
+	rbacconfig             rbacconf.Config
+	minimumInternalTimeout time.Duration
 }
 
 func NewManager(logger logrus.FieldLogger, authorizer authorization.Authorizer,
-	db db, schemaManager *schemaUC.Manager, rbacconfig rbacconf.Config,
+	db db, schemaManager *schemaUC.Manager, rbacconfig rbacconf.Config, minimumInternalTimeout time.Duration,
 ) *Manager {
-	return &Manager{logger, authorizer, db, schemaManager, rbacconfig}
+	return &Manager{logger, authorizer, db, schemaManager, rbacconfig, minimumInternalTimeout}
 }
 
 // GetNodeStatus aggregates the status across all nodes. It will try for a
@@ -52,7 +51,7 @@ func NewManager(logger logrus.FieldLogger, authorizer authorization.Authorizer,
 func (m *Manager) GetNodeStatus(ctx context.Context,
 	principal *models.Principal, className, shardName, verbosityString string,
 ) ([]*models.NodeStatus, error) {
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, m.minimumInternalTimeout)
 	defer cancel()
 
 	// filter output after getting results if info about all shards is requested
@@ -92,7 +91,7 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 func (m *Manager) GetNodeStatistics(ctx context.Context,
 	principal *models.Principal,
 ) ([]*models.Statistics, error) {
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, m.minimumInternalTimeout)
 	defer cancel()
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Cluster()); err != nil {
