@@ -13,6 +13,8 @@ package hnsw
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"hash"
@@ -36,10 +38,10 @@ import (
 )
 
 const (
-	checkpointChunkSize   = 100_000
-	snapshotConcurrency   = 8 // number of goroutines handling snapshot's checkpoints reading
+	snapshotConcurrency   = 8 // number of goroutines handling snapshot's chunk reading
 	snapshotDirSuffix     = ".hnsw.snapshot.d"
 	snapshotCheckInterval = 10 * time.Minute
+	blockSize             = 4 * 1024 * 1024 // 4MB
 )
 
 const (
@@ -51,8 +53,16 @@ const (
 
 // version of the snapshot file format
 const (
-	snapshotVersionV1 = 1 // initial version
-	snapshotVersionV2 = 2 // added packed connections support
+	// Initial version
+	snapshotVersionV1 = 1
+	// Added packed connections support
+	snapshotVersionV2 = 2
+	// New snapshot format: organize data in fixed-sized chunks.
+	// Metadata header now starts with version|checksum|metadatasize|metadatadata.
+	// Body is organized in fixed-sized chunks (4MB).
+	// Each chunk has the following format: checksum|startnodeid|data|padding|length.
+	// The checkpoints file is removed in this version.
+	snapshotVersionV3 = 3
 )
 
 func snapshotName(path string) string {
@@ -532,7 +542,6 @@ func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state 
 
 func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename string) error {
 	tmpSnapshotFileName := fmt.Sprintf("%s.tmp", filename)
-	checkPointsFileName := fmt.Sprintf("%s.checkpoints", filename)
 
 	snap, err := os.OpenFile(tmpSnapshotFileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
@@ -540,16 +549,15 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 	}
 	defer snap.Close()
 
-	// compute the checksum of the snapshot file
 	w := bufio.NewWriter(snap)
 
 	// write the snapshot to the file
-	checkpoints, err := l.writeStateTo(state, w)
+	err = l.writeStateTo(state, w)
 	if err != nil {
 		return errors.Wrapf(err, "writing snapshot file %q", tmpSnapshotFileName)
 	}
 
-	// flush the buffered writer
+	// flush the buffer
 	err = w.Flush()
 	if err != nil {
 		return errors.Wrapf(err, "flushing snapshot file %q", tmpSnapshotFileName)
@@ -567,12 +575,6 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 		return errors.Wrapf(err, "close snapshot file %q", tmpSnapshotFileName)
 	}
 
-	// write the checkpoints to a separate file
-	err = writeCheckpoints(checkPointsFileName, checkpoints)
-	if err != nil {
-		return errors.Wrap(err, "write checkpoints file")
-	}
-
 	// rename the temporary snapshot file to the final name
 	err = os.Rename(tmpSnapshotFileName, filename)
 	if err != nil {
@@ -588,23 +590,7 @@ func (l *hnswCommitLogger) readSnapshot(path string) (*DeserializationResult, er
 		l.logger.WithField("snapshot", path).WithField("took", time.Since(start).String()).Info("snapshot loaded")
 	}()
 
-	checkpoints, err := readCheckpoints(path)
-	if err != nil {
-		// if for any reason the checkpoints file is not found or corrupted
-		// we need to remove the snapshot file and create a new one from the commit log.
-		_ = os.Remove(path)
-		cpPath := path + ".checkpoints"
-		_ = os.Remove(cpPath)
-
-		l.logger.WithField("action", "hnsw_remove_corrupt_snapshot").
-			WithField("path", path).
-			WithError(err).
-			Error("checkpoints file not found or corrupted, removing snapshot files")
-
-		return nil, errors.Wrapf(err, "read checkpoints of snapshot '%s'", path)
-	}
-
-	state, err := l.readStateFrom(path, checkpoints)
+	state, err := l.readStateFrom(path)
 	if err != nil {
 		// if for any reason the snapshot file is not found or corrupted
 		// we need to remove the snapshot file and create a new one from the commit log.
@@ -615,291 +601,212 @@ func (l *hnswCommitLogger) readSnapshot(path string) (*DeserializationResult, er
 		l.logger.WithField("action", "hnsw_remove_corrupt_snapshot").
 			WithField("path", path).
 			WithError(err).
-			Error("snapshot file not found or corrupted, removing snapshot files")
+			Error("error while reading snapshot, removing snapshot files")
 		return nil, errors.Wrapf(err, "read state of snapshot '%s'", path)
 	}
 
 	return state, nil
 }
 
-// returns checkpoints which can be used as parallelizatio hints
-func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writer) ([]Checkpoint, error) {
-	offset, err := l.writeMetadataTo(state, wr)
+func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writer) error {
+	err := l.writeMetadataTo(state, wr)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	var checkpoints []Checkpoint
-	// start at the very first node
-	checkpoints = append(checkpoints, Checkpoint{NodeID: 0, Offset: uint64(offset)})
-
-	nonNilNodes := 0
+	var block bytes.Buffer // fixed-sized block buffer
+	var buf bytes.Buffer   // reusable per-node buffer
 
 	hasher := crc32.NewIEEE()
-	w := io.MultiWriter(wr, hasher)
+	hw := io.MultiWriter(&block, hasher)
 
-	for i, n := range state.Nodes {
-		if n == nil {
-			// nil node
-			if err := writeByte(w, 0); err != nil {
-				return nil, err
-			}
-			offset += writeByteSize
-			continue
-		}
+	maxBlockSize := blockSize - 8 // reserve 8 bytes for checksum and actual block length
 
-		_, hasATombstone := state.Tombstones[n.id]
-		_, tombstoneIsCleaned := state.TombstonesDeleted[n.id]
-
-		if hasATombstone && tombstoneIsCleaned {
-			// if the node has been deleted but its tombstone has been cleaned up
-			// we can write a nil node
-			if err := writeByte(w, 0); err != nil {
-				return nil, err
-			}
-			offset += writeByteSize
-			continue
-		}
-
-		if nonNilNodes%checkpointChunkSize == 0 && nonNilNodes > 0 {
-			checkpoints[len(checkpoints)-1].Hash = hasher.Sum32()
-			hasher.Reset()
-			checkpoints = append(checkpoints, Checkpoint{NodeID: uint64(i), Offset: uint64(offset)})
-		}
-
-		if hasATombstone {
-			if err := writeByte(w, 1); err != nil {
-				return nil, err
-			}
-		} else {
-			if err := writeByte(w, 2); err != nil {
-				return nil, err
-			}
-		}
-		offset += writeByteSize
-
-		if err := writeUint32(w, uint32(n.level)); err != nil {
-			return nil, err
-		}
-		offset += writeUint32Size
-
-		connData := n.connections.Data()
-		if err := writeUint32(w, uint32(len(connData))); err != nil {
-			return nil, err
-		}
-		offset += writeUint32Size
-
-		_, err = w.Write(connData)
-		if err != nil {
-			return nil, errors.Wrapf(err, "write connections data for node %d", n.id)
-		}
-		offset += len(connData)
-
-		nonNilNodes++
+	// write id of the first node at the start of each block,
+	// here 0 for the 1st block
+	if err := writeUint64(hw, 0); err != nil {
+		return err
 	}
 
-	// compute last checkpoint hash
-	checkpoints[len(checkpoints)-1].Hash = hasher.Sum32()
+	for i, n := range state.Nodes {
+		buf.Reset()
 
-	// add a dummy checkpoint to mark the end of the file
-	checkpoints = append(checkpoints, Checkpoint{NodeID: math.MaxInt64, Offset: uint64(offset)})
+		if n != nil {
+			_, hasATombstone := state.Tombstones[n.id]
+			_, tombstoneIsCleaned := state.TombstonesDeleted[n.id]
 
-	return checkpoints, nil
+			if hasATombstone && tombstoneIsCleaned {
+				// if the node has been deleted but its tombstone has been cleaned up
+				// we can write a nil node
+				if err := writeByte(&buf, 0); err != nil {
+					return err
+				}
+				continue
+			}
+
+			if hasATombstone {
+				_ = writeByte(&buf, 1)
+			} else {
+				_ = writeByte(&buf, 2)
+			}
+
+			_ = writeUint32(&buf, uint32(n.level))
+
+			connData := n.connections.Data()
+			_ = writeUint32(&buf, uint32(len(connData)))
+
+			_, err = buf.Write(connData)
+			if err != nil {
+				return errors.Wrapf(err, "write connections data for node %d", n.id)
+			}
+		} else {
+			// nil node
+			if err := writeByte(&buf, 0); err != nil {
+				return err
+			}
+		}
+
+		// add node data to block if there's enough space, otherwise create a new block
+		if buf.Len()+block.Len() < maxBlockSize {
+			_, err := hw.Write(buf.Bytes())
+			if err != nil {
+				return err
+			}
+			continue
+		}
+
+		blockLen := block.Len()
+
+		// new node doesn't fit in block, pad the block and create a new one
+		_, err := hw.Write(make([]byte, maxBlockSize-blockLen)) // pad with zeros
+		if err != nil {
+			return err
+		}
+
+		// write block length at the end of the block
+		if err := writeUint32(hw, uint32(blockLen)); err != nil {
+			return err
+		}
+
+		// write block checksum to file
+		checksum := hasher.Sum32()
+		if err := writeUint32(wr, checksum); err != nil {
+			return err
+		}
+
+		// write block to file
+		_, err = wr.Write(block.Bytes())
+		if err != nil {
+			return err
+		}
+
+		// reset block
+		block.Reset()
+		hasher.Reset()
+		hw = io.MultiWriter(&block, hasher)
+
+		// write next node index at the start of the new block
+		if i+1 < len(state.Nodes) {
+			if err := writeUint64(hw, uint64(i+1)); err != nil {
+				return err
+			}
+		}
+	}
+
+	// handle last block
+	if block.Len() > 0 {
+		blockLen := block.Len()
+		// pad block
+		_, err := hw.Write(make([]byte, maxBlockSize-blockLen)) // pad with zeros
+		if err != nil {
+			return err
+		}
+
+		// write block length at the end of the block
+		if err := writeUint32(hw, uint32(blockLen)); err != nil {
+			return err
+		}
+
+		// write block checksum to file
+		checksum := hasher.Sum32()
+		if err := writeUint32(wr, checksum); err != nil {
+			return err
+		}
+
+		// write block to file
+		_, err = wr.Write(block.Bytes())
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // returns checkpoints which can be used as parallelizatio hints
-func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Writer) (offset int, err error) {
-	hasher := crc32.NewIEEE()
-	w = io.MultiWriter(w, hasher)
+func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Writer) error {
+	var buf bytes.Buffer
 
-	// version
-	offset = 0
-	if err := writeByte(w, snapshotVersionV2); err != nil {
-		return 0, err
-	}
-	offset += writeByteSize
-
-	if err := writeUint64(w, state.Entrypoint); err != nil {
-		return 0, err
-	}
-	offset += writeUint64Size
-
-	if err := writeUint16(w, state.Level); err != nil {
-		return 0, err
-	}
-	offset += writeUint16Size
+	_ = writeUint64(&buf, state.Entrypoint) // entrypoint
+	_ = writeUint16(&buf, state.Level)      // level
 
 	isCompressed := state.Compressed
-
-	if err := writeBool(w, isCompressed); err != nil {
-		return 0, err
-	}
-	offset += writeByteSize
+	_ = writeBool(&buf, isCompressed) // isCompressed
 
 	if state.Compressed && state.CompressionPQData != nil { // PQ
 		// first byte is the compression type
-		if err := writeByte(w, byte(SnapshotCompressionTypePQ)); err != nil {
-			return 0, err
-		}
-		offset += writeByteSize
-
-		if err := writeUint16(w, state.CompressionPQData.Dimensions); err != nil {
-			return 0, err
-		}
-		offset += writeUint16Size
-
-		if err := writeUint16(w, state.CompressionPQData.Ks); err != nil {
-			return 0, err
-		}
-		offset += writeUint16Size
-
-		if err := writeUint16(w, state.CompressionPQData.M); err != nil {
-			return 0, err
-		}
-		offset += writeUint16Size
-
-		if err := writeByte(w, byte(state.CompressionPQData.EncoderType)); err != nil {
-			return 0, err
-		}
-		offset += writeByteSize
-
-		if err := writeByte(w, state.CompressionPQData.EncoderDistribution); err != nil {
-			return 0, err
-		}
-		offset += writeByteSize
-
-		if err := writeBool(w, state.CompressionPQData.UseBitsEncoding); err != nil {
-			return 0, err
-		}
-		offset += writeByteSize
-
+		_ = writeByte(&buf, byte(SnapshotCompressionTypePQ))
+		_ = writeUint16(&buf, state.CompressionPQData.Dimensions)
+		_ = writeUint16(&buf, state.CompressionPQData.Ks)
+		_ = writeUint16(&buf, state.CompressionPQData.M)
+		_ = writeByte(&buf, byte(state.CompressionPQData.EncoderType))
+		_ = writeByte(&buf, state.CompressionPQData.EncoderDistribution)
+		_ = writeBool(&buf, state.CompressionPQData.UseBitsEncoding)
 		for _, encoder := range state.CompressionPQData.Encoders {
-			if n, err := w.Write(encoder.ExposeDataForRestore()); err != nil {
-				return 0, err
-			} else {
-				offset += n
-			}
+			_, _ = buf.Write(encoder.ExposeDataForRestore())
 		}
 	} else if state.Compressed && state.CompressionSQData != nil { // SQ
 		// first byte is the compression type
-		if err := writeByte(w, byte(SnapshotCompressionTypeSQ)); err != nil {
-			return 0, err
-		}
-		offset += writeByteSize
-
-		if err := writeUint16(w, state.CompressionSQData.Dimensions); err != nil {
-			return 0, err
-		}
-		offset += writeUint16Size
-
-		if err := writeUint32(w, math.Float32bits(state.CompressionSQData.A)); err != nil {
-			return 0, err
-		}
-		offset += writeUint32Size
-
-		if err := writeUint32(w, math.Float32bits(state.CompressionSQData.B)); err != nil {
-			return 0, err
-		}
-		offset += writeUint32Size
-
+		_ = writeByte(&buf, byte(SnapshotCompressionTypeSQ))
+		_ = writeUint16(&buf, state.CompressionSQData.Dimensions)
+		_ = writeUint32(&buf, math.Float32bits(state.CompressionSQData.A))
+		_ = writeUint32(&buf, math.Float32bits(state.CompressionSQData.B))
 	} else if state.Compressed && state.CompressionRQData != nil { // RQ
 		// first byte is the compression type
-		if err := writeByte(w, byte(SnapshotCompressionTypeRQ)); err != nil {
-			return 0, err
-		}
-		offset += writeByteSize
-
-		if err := writeUint32(w, state.CompressionRQData.InputDim); err != nil {
-			return 0, err
-		}
-		offset += writeUint32Size
-
-		if err := writeUint32(w, state.CompressionRQData.Bits); err != nil {
-			return 0, err
-		}
-		offset += writeUint32Size
-
-		if err := writeUint32(w, state.CompressionRQData.Rotation.OutputDim); err != nil {
-			return 0, err
-		}
-		offset += writeUint32Size
-
-		if err := writeUint32(w, state.CompressionRQData.Rotation.Rounds); err != nil {
-			return 0, err
-		}
-		offset += writeUint32Size
-
+		_ = writeByte(&buf, byte(SnapshotCompressionTypeRQ))
+		_ = writeUint32(&buf, state.CompressionRQData.InputDim)
+		_ = writeUint32(&buf, state.CompressionRQData.Bits)
+		_ = writeUint32(&buf, state.CompressionRQData.Rotation.OutputDim)
+		_ = writeUint32(&buf, state.CompressionRQData.Rotation.Rounds)
 		for _, swap := range state.CompressionRQData.Rotation.Swaps {
 			for _, dim := range swap {
-				if err := writeUint16(w, dim.I); err != nil {
-					return 0, err
-				}
-				offset += writeUint16Size
-
-				if err := writeUint16(w, dim.J); err != nil {
-					return 0, err
-				}
-				offset += writeUint16Size
+				_ = writeUint16(&buf, dim.I)
+				_ = writeUint16(&buf, dim.J)
 			}
 		}
 
 		for _, sign := range state.CompressionRQData.Rotation.Signs {
 			for _, dim := range sign {
-				if err := writeFloat32(w, dim); err != nil {
-					return 0, err
-				}
-				offset += writeFloat32Size
+				_ = writeFloat32(&buf, dim)
 			}
 		}
-
 	}
 
 	isEncoded := state.MuveraEnabled
-
-	if err := writeBool(w, isEncoded); err != nil {
-		return 0, err
-	}
-	offset += writeByteSize
+	_ = writeBool(&buf, isEncoded) // isEncoded
 
 	if state.MuveraEnabled && state.EncoderMuvera != nil { // Muvera
 		// first byte is the encoder type
-		if err := writeByte(w, byte(SnapshotEncoderTypeMuvera)); err != nil {
-			return 0, err
-		}
-		offset += writeByteSize
-
-		if err := writeUint32(w, state.EncoderMuvera.Dimensions); err != nil {
-			return 0, err
-		}
-		offset += writeUint32Size
-
-		if err := writeUint32(w, state.EncoderMuvera.KSim); err != nil {
-			return 0, err
-		}
-		offset += writeUint32Size
-
-		if err := writeUint32(w, state.EncoderMuvera.NumClusters); err != nil {
-			return 0, err
-		}
-		offset += writeUint32Size
-
-		if err := writeUint32(w, state.EncoderMuvera.DProjections); err != nil {
-			return 0, err
-		}
-		offset += writeUint32Size
-
-		if err := writeUint32(w, state.EncoderMuvera.Repetitions); err != nil {
-			return 0, err
-		}
-		offset += writeUint32Size
-
+		_ = writeByte(&buf, byte(SnapshotEncoderTypeMuvera))
+		_ = writeUint32(&buf, state.EncoderMuvera.Dimensions)
+		_ = writeUint32(&buf, state.EncoderMuvera.KSim)
+		_ = writeUint32(&buf, state.EncoderMuvera.NumClusters)
+		_ = writeUint32(&buf, state.EncoderMuvera.DProjections)
+		_ = writeUint32(&buf, state.EncoderMuvera.Repetitions)
 		for _, gaussian := range state.EncoderMuvera.Gaussians {
 			for _, cluster := range gaussian {
 				for _, el := range cluster {
-					if err := writeUint32(w, math.Float32bits(el)); err != nil {
-						return 0, err
-					}
-					offset += writeUint32Size
+					_ = writeUint32(&buf, math.Float32bits(el))
 				}
 			}
 		}
@@ -907,30 +814,42 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 		for _, matrix := range state.EncoderMuvera.S {
 			for _, vector := range matrix {
 				for _, el := range vector {
-					if err := writeUint32(w, math.Float32bits(el)); err != nil {
-						return 0, err
-					}
-					offset += writeUint32Size
+					_ = writeUint32(&buf, math.Float32bits(el))
 				}
 			}
 		}
 	}
 
-	if err := writeUint32(w, uint32(len(state.Nodes))); err != nil {
-		return 0, err
-	}
-	offset += writeUint32Size
+	_ = writeUint32(&buf, uint32(len(state.Nodes)))
 
-	// write checksum of the metadata
+	// compute checksum of the metadata
+	metadataSize := uint32(buf.Len())
+
+	hasher := crc32.NewIEEE()
+	_ = binary.Write(hasher, binary.LittleEndian, uint8(snapshotVersionV3))
+	_ = binary.Write(hasher, binary.LittleEndian, metadataSize)
+	_, _ = hasher.Write(buf.Bytes())
+
+	// write everything to the file
+	// version
+	if err := writeByte(w, snapshotVersionV3); err != nil {
+		return err
+	}
 	if err := binary.Write(w, binary.LittleEndian, hasher.Sum32()); err != nil {
-		return 0, err
+		return err
 	}
-	offset += writeUint32Size
+	if err := binary.Write(w, binary.LittleEndian, metadataSize); err != nil {
+		return err
+	}
 
-	return offset, nil
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoint) (*DeserializationResult, error) {
+func (l *hnswCommitLogger) readStateFrom(filename string) (*DeserializationResult, error) {
 	res := &DeserializationResult{
 		NodesDeleted:      make(map[uint64]struct{}),
 		Tombstones:        make(map[uint64]struct{}),
@@ -944,325 +863,49 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 	}
 	defer f.Close()
 
-	hasher := crc32.NewIEEE()
-	// start with a single-threaded reader until we make it the nodes section
 	r := bufio.NewReader(f)
 
-	var b [8]byte
-
-	_, err = ReadAndHash(r, hasher, b[:1]) // version
+	version, err := l.readMetadata(r, res)
 	if err != nil {
-		return nil, errors.Wrapf(err, "read version")
-	}
-	version := int(b[0])
-	if version < 0 || version > snapshotVersionV2 {
-		return nil, fmt.Errorf("unsupported snapshot version %d", version)
+		return nil, err
 	}
 
-	_, err = ReadAndHash(r, hasher, b[:8]) // entrypoint
-	if err != nil {
-		return nil, errors.Wrapf(err, "read entrypoint")
-	}
-	res.Entrypoint = binary.LittleEndian.Uint64(b[:8])
-
-	_, err = ReadAndHash(r, hasher, b[:2]) // level
-	if err != nil {
-		return nil, errors.Wrapf(err, "read level")
-	}
-	res.Level = binary.LittleEndian.Uint16(b[:2])
-
-	_, err = ReadAndHash(r, hasher, b[:1]) // isEncoded
-	if err != nil {
-		return nil, errors.Wrapf(err, "read compressed")
-	}
-	isCompressed := b[0] == 1
-
-	// Compressed data
-	if isCompressed {
-		_, err = ReadAndHash(r, hasher, b[:1]) // encoding type
+	if r.Buffered() != 0 {
+		// move the file cursor to the start of the body
+		_, err = f.Seek(-int64(r.Buffered()), io.SeekCurrent)
 		if err != nil {
-			return nil, errors.Wrapf(err, "read compressed")
-		}
-
-		switch b[0] {
-		case SnapshotEncoderTypeMuvera: // legacy Muvera snapshot
-			return nil, errors.New("discarding v1 Muvera snapshot")
-		case SnapshotCompressionTypePQ:
-			res.Compressed = true
-			_, err = ReadAndHash(r, hasher, b[:2]) // PQData.Dimensions
-			if err != nil {
-				return nil, errors.Wrapf(err, "read PQData.Dimensions")
-			}
-			dims := binary.LittleEndian.Uint16(b[:2])
-
-			_, err = ReadAndHash(r, hasher, b[:2]) // PQData.Ks
-			if err != nil {
-				return nil, errors.Wrapf(err, "read PQData.Ks")
-			}
-			ks := binary.LittleEndian.Uint16(b[:2])
-
-			_, err = ReadAndHash(r, hasher, b[:2]) // PQData.M
-			if err != nil {
-				return nil, errors.Wrapf(err, "read PQData.M")
-			}
-			m := binary.LittleEndian.Uint16(b[:2])
-
-			_, err = ReadAndHash(r, hasher, b[:1]) // PQData.EncoderType
-			if err != nil {
-				return nil, errors.Wrapf(err, "read PQData.EncoderType")
-			}
-			encoderType := compressionhelpers.Encoder(b[0])
-
-			_, err = ReadAndHash(r, hasher, b[:1]) // PQData.EncoderDistribution
-			if err != nil {
-				return nil, errors.Wrapf(err, "read PQData.EncoderDistribution")
-			}
-			dist := b[0]
-
-			_, err = ReadAndHash(r, hasher, b[:1]) // PQData.UseBitsEncoding
-			if err != nil {
-				return nil, errors.Wrapf(err, "read PQData.UseBitsEncoding")
-			}
-			useBitsEncoding := b[0] == 1
-
-			encoder := compressionhelpers.Encoder(encoderType)
-
-			res.CompressionPQData = &compressionhelpers.PQData{
-				Dimensions:          dims,
-				EncoderType:         encoder,
-				Ks:                  ks,
-				M:                   m,
-				EncoderDistribution: dist,
-				UseBitsEncoding:     useBitsEncoding,
-			}
-
-			var encoderReader func(r io.Reader, res *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error)
-
-			switch encoder {
-			case compressionhelpers.UseTileEncoder:
-				encoderReader = ReadTileEncoder
-			case compressionhelpers.UseKMeansEncoder:
-				encoderReader = ReadKMeansEncoder
-			default:
-				return nil, errors.New("unsuported encoder type")
-			}
-
-			for i := uint16(0); i < m; i++ {
-				encoder, err := encoderReader(io.TeeReader(r, hasher), res.CompressionPQData, i)
-				if err != nil {
-					return nil, err
-				}
-				res.CompressionPQData.Encoders = append(res.CompressionPQData.Encoders, encoder)
-			}
-		case SnapshotCompressionTypeSQ:
-			res.Compressed = true
-			_, err = ReadAndHash(r, hasher, b[:2]) // SQData.Dimensions
-			if err != nil {
-				return nil, errors.Wrapf(err, "read SQData.Dimensions")
-			}
-			dims := binary.LittleEndian.Uint16(b[:2])
-
-			_, err = ReadAndHash(r, hasher, b[:4]) // SQData.A
-			if err != nil {
-				return nil, errors.Wrapf(err, "read SQData.A")
-			}
-			a := math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
-
-			_, err = ReadAndHash(r, hasher, b[:4]) // SQData.B
-			if err != nil {
-				return nil, errors.Wrapf(err, "read SQData.B")
-			}
-			b := math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
-
-			res.CompressionSQData = &compressionhelpers.SQData{
-				Dimensions: dims,
-				A:          a,
-				B:          b,
-			}
-		case SnapshotCompressionTypeRQ:
-			res.Compressed = true
-			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.InputDim
-			if err != nil {
-				return nil, errors.Wrapf(err, "read RQData.Dimension")
-			}
-			inputDim := binary.LittleEndian.Uint32(b[:4])
-
-			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Bits
-			if err != nil {
-				return nil, errors.Wrapf(err, "read RQData.Bits")
-			}
-			bits := binary.LittleEndian.Uint32(b[:4])
-
-			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Rotation.OutputDim
-			if err != nil {
-				return nil, errors.Wrapf(err, "read RQData.Rotation.OutputDim")
-			}
-			outputDim := binary.LittleEndian.Uint32(b[:4])
-
-			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Rotation.Rounds
-			if err != nil {
-				return nil, errors.Wrapf(err, "read RQData.Rotation.Rounds")
-			}
-			rounds := binary.LittleEndian.Uint32(b[:4])
-
-			swaps := make([][]compressionhelpers.Swap, rounds)
-			for i := uint32(0); i < rounds; i++ {
-				swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
-				for j := uint32(0); j < outputDim/2; j++ {
-					_, err = ReadAndHash(r, hasher, b[:2]) // RQData.Rotation.Swaps[i][j].I
-					if err != nil {
-						return nil, errors.Wrapf(err, "read RQData.Rotation.Swaps[i][j].I")
-					}
-					swaps[i][j].I = binary.LittleEndian.Uint16(b[:2])
-
-					_, err = ReadAndHash(r, hasher, b[:2]) // RQData.Rotation.Swaps[i][j].J
-					if err != nil {
-						return nil, errors.Wrapf(err, "read RQData.Rotation.Swaps[i][j].J")
-					}
-					swaps[i][j].J = binary.LittleEndian.Uint16(b[:2])
-				}
-			}
-
-			signs := make([][]float32, rounds)
-
-			for i := uint32(0); i < rounds; i++ {
-				signs[i] = make([]float32, outputDim)
-				for j := uint32(0); j < outputDim; j++ {
-					_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Rotation.Signs[i][j]
-					if err != nil {
-						return nil, errors.Wrapf(err, "read RQData.Rotation.Signs[i][j]")
-					}
-					signs[i][j] = math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
-				}
-			}
-
-			res.CompressionRQData = &compressionhelpers.RQData{
-				InputDim: inputDim,
-				Bits:     bits,
-				Rotation: compressionhelpers.FastRotation{
-					OutputDim: outputDim,
-					Rounds:    rounds,
-					Swaps:     swaps,
-					Signs:     signs,
-				},
-			}
-		default:
-			return nil, fmt.Errorf("unsupported compression type %d", b[0])
+			return nil, err
 		}
 	}
 
-	isEncoded := false
-	if version >= 2 {
-		_, err = ReadAndHash(r, hasher, b[:1]) // isEncoded
-		if err != nil {
-			return nil, errors.Wrapf(err, "read isEncoded")
-		}
-		isEncoded = b[0] == 1
+	if version < snapshotVersionV3 {
+		err = l.legacyReadSnapshotBody(filename, f, version, res)
+	} else {
+		err = l.readSnapshotBody(f, version, res)
 	}
-
-	if isEncoded {
-		_, err = ReadAndHash(r, hasher, b[:1]) // encoding type
-		if err != nil {
-			return nil, errors.Wrapf(err, "read encoding type")
-		}
-		switch b[0] {
-		case SnapshotEncoderTypeMuvera:
-			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.Dimensions
-			if err != nil {
-				return nil, errors.Wrapf(err, "read Muvera.Dimensions")
-			}
-			dims := binary.LittleEndian.Uint32(b[:4])
-
-			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.KSim
-			if err != nil {
-				return nil, errors.Wrapf(err, "read Muvera.KSim")
-			}
-			kSim := binary.LittleEndian.Uint32(b[:4])
-
-			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.NumClusters
-			if err != nil {
-				return nil, errors.Wrapf(err, "read Muvera.NumClusters")
-			}
-			numClusters := binary.LittleEndian.Uint32(b[:4])
-
-			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.DProjections
-			if err != nil {
-				return nil, errors.Wrapf(err, "read Muvera.DProjections")
-			}
-			dProjections := binary.LittleEndian.Uint32(b[:4])
-
-			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.Repetitions
-			if err != nil {
-				return nil, errors.Wrapf(err, "read Muvera.Repetitions")
-			}
-			repetitions := binary.LittleEndian.Uint32(b[:4])
-
-			gaussians := make([][][]float32, repetitions)
-			for i := uint32(0); i < repetitions; i++ {
-				gaussians[i] = make([][]float32, kSim)
-				for j := uint32(0); j < kSim; j++ {
-					gaussians[i][j] = make([]float32, dims)
-					for k := uint32(0); k < dims; k++ {
-						_, err = ReadAndHash(r, hasher, b[:4])
-						if err != nil {
-							return nil, errors.Wrapf(err, "read Muvera.Gaussians")
-						}
-						bits := binary.LittleEndian.Uint32(b[:4])
-						gaussians[i][j][k] = math.Float32frombits(bits)
-					}
-				}
-			}
-
-			s := make([][][]float32, repetitions)
-			for i := uint32(0); i < repetitions; i++ {
-				s[i] = make([][]float32, dProjections)
-				for j := uint32(0); j < dProjections; j++ {
-					s[i][j] = make([]float32, dims)
-					for k := uint32(0); k < dims; k++ {
-						_, err = ReadAndHash(r, hasher, b[:4])
-						if err != nil {
-							return nil, errors.Wrapf(err, "read Muvera.Gaussians")
-						}
-						bits := binary.LittleEndian.Uint32(b[:4])
-						s[i][j][k] = math.Float32frombits(bits)
-					}
-				}
-			}
-
-			res.MuveraEnabled = true
-			res.EncoderMuvera = &multivector.MuveraData{
-				Dimensions:   dims,
-				NumClusters:  numClusters,
-				KSim:         kSim,
-				DProjections: dProjections,
-				Repetitions:  repetitions,
-				Gaussians:    gaussians,
-				S:            s,
-			}
-		default:
-			return nil, fmt.Errorf("unsupported encoder type %d", b[0])
-		}
-	}
-
-	_, err = ReadAndHash(r, hasher, b[:4]) // nodes
 	if err != nil {
-		return nil, errors.Wrapf(err, "read nodes count")
+		return nil, err
 	}
-	nodesCount := int(binary.LittleEndian.Uint32(b[:4]))
 
-	res.Nodes = make([]*vertex, nodesCount)
+	return res, nil
+}
 
-	// read metadata checksum
-	_, err = io.ReadFull(r, b[:4]) // checksum
+// legacyReadSnapshotBody reads the snapshot body from the file for snapshot versions < 3.
+func (l *hnswCommitLogger) legacyReadSnapshotBody(filename string, f *os.File, version int, res *DeserializationResult) error {
+	checkpoints, err := readCheckpoints(filename)
 	if err != nil {
-		return nil, errors.Wrapf(err, "read checksum")
-	}
+		// if for any reason the checkpoints file is not found or corrupted
+		// we need to remove the snapshot file and create a new one from the commit log.
+		_ = os.Remove(filename)
+		cpPath := filename + ".checkpoints"
+		_ = os.Remove(cpPath)
 
-	// check checksum
-	checksum := binary.LittleEndian.Uint32(b[:4])
-	actualChecksum := hasher.Sum32()
-	if checksum != actualChecksum {
-		return nil, fmt.Errorf("invalid checksum: expected %d, got %d", checksum, actualChecksum)
+		l.logger.WithField("action", "hnsw_remove_corrupt_snapshot").
+			WithField("path", filename).
+			WithError(err).
+			Error("checkpoints file not found or corrupted, removing snapshot files")
+
+		return errors.Wrapf(err, "read checkpoints of snapshot '%s'", filename)
 	}
 
 	var mu sync.Mutex
@@ -1382,10 +1025,799 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 
 	err = eg.Wait()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return res, nil
+	return nil
+}
+
+// readSnapshotBody reads the snapshot body from the file for snapshot versions >= 3.
+func (l *hnswCommitLogger) readSnapshotBody(f *os.File, version int, res *DeserializationResult) error {
+	var mu sync.Mutex
+
+	finfo, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	fsize := finfo.Size()
+	seek, err := f.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return err
+	}
+	bodySize := int(fsize - seek)
+
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(l.logger, context.Background())
+	eg.SetLimit(snapshotConcurrency)
+
+	ch := make(chan int, snapshotConcurrency)
+
+	for i := 0; i < snapshotConcurrency; i++ {
+		eg.Go(func() error {
+			buf := make([]byte, blockSize)
+			var b [8]byte
+
+			for {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case offset, ok := <-ch:
+					if !ok {
+						return nil // channel closed, nothing to do
+					}
+
+					sr := io.NewSectionReader(f, seek+int64(offset), int64(blockSize))
+					n, err := io.ReadFull(sr, buf)
+					if err != nil {
+						return err
+					}
+					if n != blockSize {
+						return fmt.Errorf("read %d bytes, expected %d bytes at offset %d", n, blockSize, seek+int64(offset))
+					}
+
+					hasher := crc32.NewIEEE()
+					_, _ = hasher.Write(buf[4:]) // skip the checksum itself
+					actualChecksum := hasher.Sum32()
+
+					blockChecksum := binary.LittleEndian.Uint32(buf[:4])
+					if actualChecksum != blockChecksum {
+						return fmt.Errorf("checksum mismatch for block at offset %d: expected %d, got %d", seek+int64(offset), blockChecksum, actualChecksum)
+					}
+
+					block := buf[4:]
+					blockLen := binary.LittleEndian.Uint32(block[len(block)-4:])
+					block = block[:blockLen]
+					r := bytes.NewReader(block)
+
+					_, err = io.ReadFull(r, b[:8]) // start node index
+					if err != nil {
+						return errors.Wrap(err, "read start node index")
+					}
+					currNodeID := binary.LittleEndian.Uint64(b[:8])
+
+					for {
+						_, err := io.ReadFull(r, b[:1]) // node existence
+						if err != nil {
+							if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+								break
+							}
+							return errors.Wrapf(err, "read node existence")
+						}
+						if b[0] == 0 {
+							// nil node
+							currNodeID++
+							continue
+						}
+
+						node := &vertex{id: currNodeID}
+
+						if b[0] == 1 {
+							mu.Lock()
+							res.Tombstones[node.id] = struct{}{}
+							mu.Unlock()
+						} else if b[0] != 2 {
+							return fmt.Errorf("unsupported node existence state")
+						}
+
+						_, err = io.ReadFull(r, b[:4]) // level
+						if err != nil {
+							return errors.Wrapf(err, "read node level")
+						}
+						node.level = int(binary.LittleEndian.Uint32(b[:4]))
+
+						_, err = io.ReadFull(r, b[:4]) // connections count
+						if err != nil {
+							return errors.Wrapf(err, "read node connections count")
+						}
+						connCount := int(binary.LittleEndian.Uint32(b[:4]))
+
+						if connCount > 0 {
+							// read the connections data
+							connData := make([]byte, connCount)
+							_, err = io.ReadFull(r, connData)
+							if err != nil {
+								return errors.Wrapf(err, "read node connections data")
+							}
+
+							node.connections = packedconn.NewWithData(connData)
+						}
+
+						mu.Lock()
+						res.Nodes[currNodeID] = node
+						mu.Unlock()
+						currNodeID++
+					}
+				}
+			}
+		})
+	}
+
+	for i := 0; i < bodySize; i += blockSize {
+		ch <- i
+	}
+	close(ch)
+
+	return eg.Wait()
+}
+
+func (l *hnswCommitLogger) readMetadata(r *bufio.Reader, res *DeserializationResult) (int, error) {
+	hasher := crc32.NewIEEE()
+	// start with a single-threaded reader until we make it the nodes section
+
+	var b [8]byte
+
+	_, err := ReadAndHash(r, hasher, b[:1]) // version
+	if err != nil {
+		return 0, errors.Wrapf(err, "read version")
+	}
+	version := int(b[0])
+	if version < 0 || version > snapshotVersionV3 {
+		return 0, fmt.Errorf("unsupported snapshot version %d", version)
+	}
+
+	if version < snapshotVersionV3 {
+		return version, l.readMetadataLegacy(r, hasher, version, res)
+	}
+
+	// version >= 3
+	return version, l.readAndCheckMetadata(r, hasher, version, res)
+}
+
+// this reads the legacy snapshot format for versions v < 3
+func (l *hnswCommitLogger) readMetadataLegacy(r *bufio.Reader, hasher hash.Hash32, version int, res *DeserializationResult) error {
+	var b [8]byte
+
+	_, err := ReadAndHash(r, hasher, b[:8]) // entrypoint
+	if err != nil {
+		return errors.Wrapf(err, "read entrypoint")
+	}
+	res.Entrypoint = binary.LittleEndian.Uint64(b[:8])
+
+	_, err = ReadAndHash(r, hasher, b[:2]) // level
+	if err != nil {
+		return errors.Wrapf(err, "read level")
+	}
+	res.Level = binary.LittleEndian.Uint16(b[:2])
+
+	_, err = ReadAndHash(r, hasher, b[:1]) // isEncoded
+	if err != nil {
+		return errors.Wrapf(err, "read compressed")
+	}
+	isCompressed := b[0] == 1
+
+	// Compressed data
+	if isCompressed {
+		_, err = ReadAndHash(r, hasher, b[:1]) // encoding type
+		if err != nil {
+			return errors.Wrapf(err, "read compressed")
+		}
+
+		switch b[0] {
+		case SnapshotEncoderTypeMuvera: // legacy Muvera snapshot
+			return errors.New("discarding v1 Muvera snapshot")
+		case SnapshotCompressionTypePQ:
+			res.Compressed = true
+			_, err = ReadAndHash(r, hasher, b[:2]) // PQData.Dimensions
+			if err != nil {
+				return errors.Wrapf(err, "read PQData.Dimensions")
+			}
+			dims := binary.LittleEndian.Uint16(b[:2])
+
+			_, err = ReadAndHash(r, hasher, b[:2]) // PQData.Ks
+			if err != nil {
+				return errors.Wrapf(err, "read PQData.Ks")
+			}
+			ks := binary.LittleEndian.Uint16(b[:2])
+
+			_, err = ReadAndHash(r, hasher, b[:2]) // PQData.M
+			if err != nil {
+				return errors.Wrapf(err, "read PQData.M")
+			}
+			m := binary.LittleEndian.Uint16(b[:2])
+
+			_, err = ReadAndHash(r, hasher, b[:1]) // PQData.EncoderType
+			if err != nil {
+				return errors.Wrapf(err, "read PQData.EncoderType")
+			}
+			encoderType := compressionhelpers.Encoder(b[0])
+
+			_, err = ReadAndHash(r, hasher, b[:1]) // PQData.EncoderDistribution
+			if err != nil {
+				return errors.Wrapf(err, "read PQData.EncoderDistribution")
+			}
+			dist := b[0]
+
+			_, err = ReadAndHash(r, hasher, b[:1]) // PQData.UseBitsEncoding
+			if err != nil {
+				return errors.Wrapf(err, "read PQData.UseBitsEncoding")
+			}
+			useBitsEncoding := b[0] == 1
+
+			encoder := compressionhelpers.Encoder(encoderType)
+
+			res.CompressionPQData = &compressionhelpers.PQData{
+				Dimensions:          dims,
+				EncoderType:         encoder,
+				Ks:                  ks,
+				M:                   m,
+				EncoderDistribution: dist,
+				UseBitsEncoding:     useBitsEncoding,
+			}
+
+			var encoderReader func(r io.Reader, res *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error)
+
+			switch encoder {
+			case compressionhelpers.UseTileEncoder:
+				encoderReader = ReadTileEncoder
+			case compressionhelpers.UseKMeansEncoder:
+				encoderReader = ReadKMeansEncoder
+			default:
+				return errors.New("unsuported encoder type")
+			}
+
+			for i := uint16(0); i < m; i++ {
+				encoder, err := encoderReader(io.TeeReader(r, hasher), res.CompressionPQData, i)
+				if err != nil {
+					return err
+				}
+				res.CompressionPQData.Encoders = append(res.CompressionPQData.Encoders, encoder)
+			}
+		case SnapshotCompressionTypeSQ:
+			res.Compressed = true
+			_, err = ReadAndHash(r, hasher, b[:2]) // SQData.Dimensions
+			if err != nil {
+				return errors.Wrapf(err, "read SQData.Dimensions")
+			}
+			dims := binary.LittleEndian.Uint16(b[:2])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // SQData.A
+			if err != nil {
+				return errors.Wrapf(err, "read SQData.A")
+			}
+			a := math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // SQData.B
+			if err != nil {
+				return errors.Wrapf(err, "read SQData.B")
+			}
+			b := math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
+
+			res.CompressionSQData = &compressionhelpers.SQData{
+				Dimensions: dims,
+				A:          a,
+				B:          b,
+			}
+		case SnapshotCompressionTypeRQ:
+			res.Compressed = true
+			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.InputDim
+			if err != nil {
+				return errors.Wrapf(err, "read RQData.Dimension")
+			}
+			inputDim := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Bits
+			if err != nil {
+				return errors.Wrapf(err, "read RQData.Bits")
+			}
+			bits := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Rotation.OutputDim
+			if err != nil {
+				return errors.Wrapf(err, "read RQData.Rotation.OutputDim")
+			}
+			outputDim := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Rotation.Rounds
+			if err != nil {
+				return errors.Wrapf(err, "read RQData.Rotation.Rounds")
+			}
+			rounds := binary.LittleEndian.Uint32(b[:4])
+
+			swaps := make([][]compressionhelpers.Swap, rounds)
+			for i := uint32(0); i < rounds; i++ {
+				swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+				for j := uint32(0); j < outputDim/2; j++ {
+					_, err = ReadAndHash(r, hasher, b[:2]) // RQData.Rotation.Swaps[i][j].I
+					if err != nil {
+						return errors.Wrapf(err, "read RQData.Rotation.Swaps[i][j].I")
+					}
+					swaps[i][j].I = binary.LittleEndian.Uint16(b[:2])
+
+					_, err = ReadAndHash(r, hasher, b[:2]) // RQData.Rotation.Swaps[i][j].J
+					if err != nil {
+						return errors.Wrapf(err, "read RQData.Rotation.Swaps[i][j].J")
+					}
+					swaps[i][j].J = binary.LittleEndian.Uint16(b[:2])
+				}
+			}
+
+			signs := make([][]float32, rounds)
+
+			for i := uint32(0); i < rounds; i++ {
+				signs[i] = make([]float32, outputDim)
+				for j := uint32(0); j < outputDim; j++ {
+					_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Rotation.Signs[i][j]
+					if err != nil {
+						return errors.Wrapf(err, "read RQData.Rotation.Signs[i][j]")
+					}
+					signs[i][j] = math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
+				}
+			}
+
+			res.CompressionRQData = &compressionhelpers.RQData{
+				InputDim: inputDim,
+				Bits:     bits,
+				Rotation: compressionhelpers.FastRotation{
+					OutputDim: outputDim,
+					Rounds:    rounds,
+					Swaps:     swaps,
+					Signs:     signs,
+				},
+			}
+		default:
+			return fmt.Errorf("unsupported compression type %d", b[0])
+		}
+	}
+
+	isEncoded := false
+	if version >= snapshotVersionV2 {
+		_, err = ReadAndHash(r, hasher, b[:1]) // isEncoded
+		if err != nil {
+			return errors.Wrapf(err, "read isEncoded")
+		}
+		isEncoded = b[0] == 1
+	}
+
+	if isEncoded {
+		_, err = ReadAndHash(r, hasher, b[:1]) // encoding type
+		if err != nil {
+			return errors.Wrapf(err, "read encoding type")
+		}
+		switch b[0] {
+		case SnapshotEncoderTypeMuvera:
+			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.Dimensions
+			if err != nil {
+				return errors.Wrapf(err, "read Muvera.Dimensions")
+			}
+			dims := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.KSim
+			if err != nil {
+				return errors.Wrapf(err, "read Muvera.KSim")
+			}
+			kSim := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.NumClusters
+			if err != nil {
+				return errors.Wrapf(err, "read Muvera.NumClusters")
+			}
+			numClusters := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.DProjections
+			if err != nil {
+				return errors.Wrapf(err, "read Muvera.DProjections")
+			}
+			dProjections := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.Repetitions
+			if err != nil {
+				return errors.Wrapf(err, "read Muvera.Repetitions")
+			}
+			repetitions := binary.LittleEndian.Uint32(b[:4])
+
+			gaussians := make([][][]float32, repetitions)
+			for i := uint32(0); i < repetitions; i++ {
+				gaussians[i] = make([][]float32, kSim)
+				for j := uint32(0); j < kSim; j++ {
+					gaussians[i][j] = make([]float32, dims)
+					for k := uint32(0); k < dims; k++ {
+						_, err = ReadAndHash(r, hasher, b[:4])
+						if err != nil {
+							return errors.Wrapf(err, "read Muvera.Gaussians")
+						}
+						bits := binary.LittleEndian.Uint32(b[:4])
+						gaussians[i][j][k] = math.Float32frombits(bits)
+					}
+				}
+			}
+
+			s := make([][][]float32, repetitions)
+			for i := uint32(0); i < repetitions; i++ {
+				s[i] = make([][]float32, dProjections)
+				for j := uint32(0); j < dProjections; j++ {
+					s[i][j] = make([]float32, dims)
+					for k := uint32(0); k < dims; k++ {
+						_, err = ReadAndHash(r, hasher, b[:4])
+						if err != nil {
+							return errors.Wrapf(err, "read Muvera.Gaussians")
+						}
+						bits := binary.LittleEndian.Uint32(b[:4])
+						s[i][j][k] = math.Float32frombits(bits)
+					}
+				}
+			}
+
+			res.MuveraEnabled = true
+			res.EncoderMuvera = &multivector.MuveraData{
+				Dimensions:   dims,
+				NumClusters:  numClusters,
+				KSim:         kSim,
+				DProjections: dProjections,
+				Repetitions:  repetitions,
+				Gaussians:    gaussians,
+				S:            s,
+			}
+		default:
+			return fmt.Errorf("unsupported encoder type %d", b[0])
+		}
+	}
+
+	_, err = ReadAndHash(r, hasher, b[:4]) // nodes
+	if err != nil {
+		return errors.Wrapf(err, "read nodes count")
+	}
+	nodesCount := int(binary.LittleEndian.Uint32(b[:4]))
+
+	res.Nodes = make([]*vertex, nodesCount)
+
+	// read metadata checksum
+	_, err = io.ReadFull(r, b[:4]) // checksum
+	if err != nil {
+		return errors.Wrapf(err, "read checksum")
+	}
+
+	// check checksum
+	checksum := binary.LittleEndian.Uint32(b[:4])
+	actualChecksum := hasher.Sum32()
+	if checksum != actualChecksum {
+		return fmt.Errorf("invalid checksum: expected %d, got %d", checksum, actualChecksum)
+	}
+
+	return nil
+}
+
+// this reads the newer snapshot format for versions v >= 3
+func (l *hnswCommitLogger) readAndCheckMetadata(r *bufio.Reader, hasher hash.Hash32, version int, res *DeserializationResult) error {
+	var b [8]byte
+
+	// read checksum
+	_, err := io.ReadFull(r, b[:4])
+	if err != nil {
+		return errors.Wrapf(err, "read metadata checksum")
+	}
+	expected := binary.LittleEndian.Uint32(b[:4])
+
+	// read metadata size
+	_, err = ReadAndHash(r, hasher, b[:4]) // size
+	if err != nil {
+		return errors.Wrapf(err, "read metadata size")
+	}
+	metadataSize := int(binary.LittleEndian.Uint32(b[:4]))
+
+	// read full metadata
+	metadata := make([]byte, metadataSize)
+	_, err = ReadAndHash(r, hasher, metadata) // metadata
+	if err != nil {
+		return errors.Wrapf(err, "read metadata")
+	}
+
+	actual := hasher.Sum32()
+	if actual != expected {
+		return fmt.Errorf("invalid metadata checksum: expected %d, got %d", expected, actual)
+	}
+
+	mr := bytes.NewReader(metadata)
+
+	_, err = io.ReadFull(mr, b[:8]) // entrypoint
+	if err != nil {
+		return errors.Wrapf(err, "read entrypoint")
+	}
+	res.Entrypoint = binary.LittleEndian.Uint64(b[:8])
+
+	_, err = io.ReadFull(mr, b[:2]) // level
+	if err != nil {
+		return errors.Wrapf(err, "read level")
+	}
+	res.Level = binary.LittleEndian.Uint16(b[:2])
+
+	_, err = io.ReadFull(mr, b[:1]) // isEncoded
+	if err != nil {
+		return errors.Wrapf(err, "read compressed")
+	}
+	isCompressed := b[0] == 1
+
+	// Compressed data
+	if isCompressed {
+		_, err = io.ReadFull(mr, b[:1]) // encoding type
+		if err != nil {
+			return errors.Wrapf(err, "read compressed")
+		}
+
+		switch b[0] {
+		case SnapshotEncoderTypeMuvera: // legacy Muvera snapshot
+			return errors.New("discarding v1 Muvera snapshot")
+		case SnapshotCompressionTypePQ:
+			res.Compressed = true
+			_, err = io.ReadFull(mr, b[:2]) // PQData.Dimensions
+			if err != nil {
+				return errors.Wrapf(err, "read PQData.Dimensions")
+			}
+			dims := binary.LittleEndian.Uint16(b[:2])
+
+			_, err = io.ReadFull(mr, b[:2]) // PQData.Ks
+			if err != nil {
+				return errors.Wrapf(err, "read PQData.Ks")
+			}
+			ks := binary.LittleEndian.Uint16(b[:2])
+
+			_, err = io.ReadFull(mr, b[:2]) // PQData.M
+			if err != nil {
+				return errors.Wrapf(err, "read PQData.M")
+			}
+			m := binary.LittleEndian.Uint16(b[:2])
+
+			_, err = io.ReadFull(mr, b[:1]) // PQData.EncoderType
+			if err != nil {
+				return errors.Wrapf(err, "read PQData.EncoderType")
+			}
+			encoderType := compressionhelpers.Encoder(b[0])
+
+			_, err = io.ReadFull(mr, b[:1]) // PQData.EncoderDistribution
+			if err != nil {
+				return errors.Wrapf(err, "read PQData.EncoderDistribution")
+			}
+			dist := b[0]
+
+			_, err = io.ReadFull(mr, b[:1]) // PQData.UseBitsEncoding
+			if err != nil {
+				return errors.Wrapf(err, "read PQData.UseBitsEncoding")
+			}
+			useBitsEncoding := b[0] == 1
+
+			encoder := compressionhelpers.Encoder(encoderType)
+
+			res.CompressionPQData = &compressionhelpers.PQData{
+				Dimensions:          dims,
+				EncoderType:         encoder,
+				Ks:                  ks,
+				M:                   m,
+				EncoderDistribution: dist,
+				UseBitsEncoding:     useBitsEncoding,
+			}
+
+			var encoderReader func(r io.Reader, res *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error)
+
+			switch encoder {
+			case compressionhelpers.UseTileEncoder:
+				encoderReader = ReadTileEncoder
+			case compressionhelpers.UseKMeansEncoder:
+				encoderReader = ReadKMeansEncoder
+			default:
+				return errors.New("unsupported encoder type")
+			}
+
+			for i := uint16(0); i < m; i++ {
+				encoder, err := encoderReader(io.TeeReader(r, hasher), res.CompressionPQData, i)
+				if err != nil {
+					return err
+				}
+				res.CompressionPQData.Encoders = append(res.CompressionPQData.Encoders, encoder)
+			}
+		case SnapshotCompressionTypeSQ:
+			res.Compressed = true
+			_, err = io.ReadFull(mr, b[:2]) // SQData.Dimensions
+			if err != nil {
+				return errors.Wrapf(err, "read SQData.Dimensions")
+			}
+			dims := binary.LittleEndian.Uint16(b[:2])
+
+			_, err = io.ReadFull(mr, b[:4]) // SQData.A
+			if err != nil {
+				return errors.Wrapf(err, "read SQData.A")
+			}
+			a := math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
+
+			_, err = io.ReadFull(mr, b[:4]) // SQData.B
+			if err != nil {
+				return errors.Wrapf(err, "read SQData.B")
+			}
+			b := math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
+
+			res.CompressionSQData = &compressionhelpers.SQData{
+				Dimensions: dims,
+				A:          a,
+				B:          b,
+			}
+		case SnapshotCompressionTypeRQ:
+			res.Compressed = true
+			_, err = io.ReadFull(mr, b[:4]) // RQData.InputDim
+			if err != nil {
+				return errors.Wrapf(err, "read RQData.Dimension")
+			}
+			inputDim := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = io.ReadFull(mr, b[:4]) // RQData.Bits
+			if err != nil {
+				return errors.Wrapf(err, "read RQData.Bits")
+			}
+			bits := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = io.ReadFull(mr, b[:4]) // RQData.Rotation.OutputDim
+			if err != nil {
+				return errors.Wrapf(err, "read RQData.Rotation.OutputDim")
+			}
+			outputDim := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = io.ReadFull(mr, b[:4]) // RQData.Rotation.Rounds
+			if err != nil {
+				return errors.Wrapf(err, "read RQData.Rotation.Rounds")
+			}
+			rounds := binary.LittleEndian.Uint32(b[:4])
+
+			swaps := make([][]compressionhelpers.Swap, rounds)
+			for i := uint32(0); i < rounds; i++ {
+				swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+				for j := uint32(0); j < outputDim/2; j++ {
+					_, err = io.ReadFull(mr, b[:2]) // RQData.Rotation.Swaps[i][j].I
+					if err != nil {
+						return errors.Wrapf(err, "read RQData.Rotation.Swaps[i][j].I")
+					}
+					swaps[i][j].I = binary.LittleEndian.Uint16(b[:2])
+
+					_, err = io.ReadFull(mr, b[:2]) // RQData.Rotation.Swaps[i][j].J
+					if err != nil {
+						return errors.Wrapf(err, "read RQData.Rotation.Swaps[i][j].J")
+					}
+					swaps[i][j].J = binary.LittleEndian.Uint16(b[:2])
+				}
+			}
+
+			signs := make([][]float32, rounds)
+
+			for i := uint32(0); i < rounds; i++ {
+				signs[i] = make([]float32, outputDim)
+				for j := uint32(0); j < outputDim; j++ {
+					_, err = io.ReadFull(mr, b[:4]) // RQData.Rotation.Signs[i][j]
+					if err != nil {
+						return errors.Wrapf(err, "read RQData.Rotation.Signs[i][j]")
+					}
+					signs[i][j] = math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
+				}
+			}
+
+			res.CompressionRQData = &compressionhelpers.RQData{
+				InputDim: inputDim,
+				Bits:     bits,
+				Rotation: compressionhelpers.FastRotation{
+					OutputDim: outputDim,
+					Rounds:    rounds,
+					Swaps:     swaps,
+					Signs:     signs,
+				},
+			}
+		default:
+			return fmt.Errorf("unsupported compression type %d", b[0])
+		}
+	}
+
+	_, err = io.ReadFull(mr, b[:1]) // isEncoded
+	if err != nil {
+		return errors.Wrapf(err, "read isEncoded")
+	}
+	isEncoded := b[0] == 1
+
+	if isEncoded {
+		_, err = io.ReadFull(mr, b[:1]) // encoding type
+		if err != nil {
+			return errors.Wrapf(err, "read encoding type")
+		}
+		switch b[0] {
+		case SnapshotEncoderTypeMuvera:
+			_, err = io.ReadFull(mr, b[:4]) // Muvera.Dimensions
+			if err != nil {
+				return errors.Wrapf(err, "read Muvera.Dimensions")
+			}
+			dims := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = io.ReadFull(mr, b[:4]) // Muvera.KSim
+			if err != nil {
+				return errors.Wrapf(err, "read Muvera.KSim")
+			}
+			kSim := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = io.ReadFull(mr, b[:4]) // Muvera.NumClusters
+			if err != nil {
+				return errors.Wrapf(err, "read Muvera.NumClusters")
+			}
+			numClusters := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = io.ReadFull(mr, b[:4]) // Muvera.DProjections
+			if err != nil {
+				return errors.Wrapf(err, "read Muvera.DProjections")
+			}
+			dProjections := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = io.ReadFull(mr, b[:4]) // Muvera.Repetitions
+			if err != nil {
+				return errors.Wrapf(err, "read Muvera.Repetitions")
+			}
+			repetitions := binary.LittleEndian.Uint32(b[:4])
+
+			gaussians := make([][][]float32, repetitions)
+			for i := uint32(0); i < repetitions; i++ {
+				gaussians[i] = make([][]float32, kSim)
+				for j := uint32(0); j < kSim; j++ {
+					gaussians[i][j] = make([]float32, dims)
+					for k := uint32(0); k < dims; k++ {
+						_, err = io.ReadFull(mr, b[:4])
+						if err != nil {
+							return errors.Wrapf(err, "read Muvera.Gaussians")
+						}
+						bits := binary.LittleEndian.Uint32(b[:4])
+						gaussians[i][j][k] = math.Float32frombits(bits)
+					}
+				}
+			}
+
+			s := make([][][]float32, repetitions)
+			for i := uint32(0); i < repetitions; i++ {
+				s[i] = make([][]float32, dProjections)
+				for j := uint32(0); j < dProjections; j++ {
+					s[i][j] = make([]float32, dims)
+					for k := uint32(0); k < dims; k++ {
+						_, err = io.ReadFull(mr, b[:4])
+						if err != nil {
+							return errors.Wrapf(err, "read Muvera.Gaussians")
+						}
+						bits := binary.LittleEndian.Uint32(b[:4])
+						s[i][j][k] = math.Float32frombits(bits)
+					}
+				}
+			}
+
+			res.MuveraEnabled = true
+			res.EncoderMuvera = &multivector.MuveraData{
+				Dimensions:   dims,
+				NumClusters:  numClusters,
+				KSim:         kSim,
+				DProjections: dProjections,
+				Repetitions:  repetitions,
+				Gaussians:    gaussians,
+				S:            s,
+			}
+		default:
+			return fmt.Errorf("unsupported encoder type %d", b[0])
+		}
+	}
+
+	_, err = io.ReadFull(mr, b[:4]) // nodes
+	if err != nil {
+		return errors.Wrapf(err, "read nodes count")
+	}
+	nodesCount := int(binary.LittleEndian.Uint32(b[:4]))
+
+	res.Nodes = make([]*vertex, nodesCount)
+
+	return nil
 }
 
 func ReadAndHash(r io.Reader, hasher hash.Hash, buf []byte) (int, error) {
@@ -1404,38 +1836,6 @@ type Checkpoint struct {
 	NodeID uint64
 	Offset uint64
 	Hash   uint32
-}
-
-func writeCheckpoints(fileName string, checkpoints []Checkpoint) error {
-	checkpointFile, err := os.OpenFile(fileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
-	if err != nil {
-		return fmt.Errorf("open new checkpoint file for writing: %w", err)
-	}
-	defer checkpointFile.Close()
-
-	// 0-4: checksum
-	// 4+: checkpoints (20 bytes each)
-	buffer := make([]byte, 4+len(checkpoints)*20)
-	offset := 4
-
-	for _, cp := range checkpoints {
-		binary.LittleEndian.PutUint64(buffer[offset:offset+8], cp.NodeID)
-		offset += 8
-		binary.LittleEndian.PutUint64(buffer[offset:offset+8], cp.Offset)
-		offset += 8
-		binary.LittleEndian.PutUint32(buffer[offset:offset+4], cp.Hash)
-		offset += 4
-	}
-
-	checksum := crc32.ChecksumIEEE(buffer[4:])
-	binary.LittleEndian.PutUint32(buffer[:4], checksum)
-
-	_, err = checkpointFile.Write(buffer)
-	if err != nil {
-		return fmt.Errorf("write checkpoint file: %w", err)
-	}
-
-	return checkpointFile.Sync()
 }
 
 func readCheckpoints(snapshotFileName string) (checkpoints []Checkpoint, err error) {
