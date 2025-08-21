@@ -5795,7 +5795,7 @@ func init() {
             "type": "string"
           }
         },
-        "overwrite_alias": {
+        "overwriteAlias": {
           "description": "Allows ovewriting the collection alias if there is a conflict",
           "type": "boolean"
         }
@@ -14514,7 +14514,7 @@ func init() {
             "type": "string"
           }
         },
-        "overwrite_alias": {
+        "overwriteAlias": {
           "description": "Allows ovewriting the collection alias if there is a conflict",
           "type": "boolean"
         }

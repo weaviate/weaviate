@@ -42,7 +42,7 @@ type BackupRestoreRequest struct {
 	NodeMapping map[string]string `json:"node_mapping,omitempty"`
 
 	// Allows ovewriting the collection alias if there is a conflict
-	OverwriteAlias bool `json:"overwrite_alias,omitempty"`
+	OverwriteAlias bool `json:"overwriteAlias,omitempty"`
 }
 
 // Validate validates this backup restore request
