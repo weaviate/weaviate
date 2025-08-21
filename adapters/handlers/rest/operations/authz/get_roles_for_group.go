@@ -45,7 +45,7 @@ func NewGetRolesForGroup(ctx *middleware.Context, handler GetRolesForGroupHandle
 /*
 	GetRolesForGroup swagger:route GET /authz/groups/{id}/roles/{groupType} authz getRolesForGroup
 
-get roles assigned to user
+get roles assigned to the group of a given type
 */
 type GetRolesForGroup struct {
 	Context *middleware.Context

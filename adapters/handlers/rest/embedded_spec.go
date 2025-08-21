@@ -617,7 +617,7 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to user",
+        "summary": "get roles assigned to the group of a given type",
         "operationId": "getRolesForGroup",
         "parameters": [
           {
@@ -9459,7 +9459,7 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to user",
+        "summary": "get roles assigned to the group of a given type",
         "operationId": "getRolesForGroup",
         "parameters": [
           {

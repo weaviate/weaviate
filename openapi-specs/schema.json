@@ -5232,7 +5232,7 @@
     },
     "/authz/groups/{id}/roles/{groupType}": {
       "get": {
-        "summary": "get roles assigned to user",
+        "summary": "get roles assigned to the group of a given type",
         "operationId": "getRolesForGroup",
         "x-serviceIds": [
           "weaviate.authz.get.groups.roles"

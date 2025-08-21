@@ -432,7 +432,7 @@ func (a *Client) GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInf
 }
 
 /*
-GetRolesForGroup gets roles assigned to user
+GetRolesForGroup gets roles assigned to the group of a given type
 */
 func (a *Client) GetRolesForGroup(params *GetRolesForGroupParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForGroupOK, error) {
 	// TODO: Validate the params before sending
