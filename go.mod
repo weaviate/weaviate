@@ -85,7 +85,6 @@ require (
 	golang.org/x/text v0.27.0
 	golang.org/x/time v0.12.0
 	gonum.org/v1/gonum v0.15.1
-	gonum.org/v1/hdf5 v0.0.0-20210714002203-8c5d23bc6946
 	google.golang.org/api v0.245.0
 	google.golang.org/grpc v1.74.2
 	google.golang.org/protobuf v1.36.6
