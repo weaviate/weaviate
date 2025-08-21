@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -48,9 +49,17 @@ func (c DimensionCategory) String() string {
 
 // DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
 func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (types.Dimensionality, error) {
-	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v int) (int, int) {
+	var dimensionality types.Dimensionality
+	var err error
+	if dimensionTrackingVersion == "v2" {
+	dimensionality, err = s.calcTargetVectorDimensions_v2(ctx, targetVector, func(dimLength int, v int) (int, int) {
 		return v, dimLength
 	})
+} else {
+	dimensionality, err = s.calcTargetVectorDimensions_v1(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
+		return v[0].Value, dimLength
+	})
+}
 	if err != nil {
 		return types.Dimensionality{}, err
 	}
@@ -79,9 +88,7 @@ func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, se
 	return dimensionality.Count * correctEmptySegments(segments, dimensionality.Dimensions)
 }
 
-func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v int) (int, int)) (types.Dimensionality, error) {
-	return calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, calcEntry), nil
-}
+
 
 // DimensionMetrics represents the dimension tracking metrics for a vector.
 // The metrics are used to track memory usage and performance characteristics

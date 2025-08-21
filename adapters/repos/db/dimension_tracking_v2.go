@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -12,9 +13,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/cluster/usage/types"
 )
 
 var dimensionTrackingVersion = "v2"
@@ -44,8 +46,6 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 
 	return nil
 }
-
-
 
 // Empty the dimensions bucket, quickly and efficiently
 func (s *Shard) resetDimensionsLSM(ctx context.Context) (time.Time, error) {
@@ -94,7 +94,6 @@ func (s *Shard) addToDimensionBucket(
 	}
 	return s.addToDimensionBucket_v1(dimLength, docID, vecName, tombstone)
 }
-
 
 func (s *Shard) addToDimensionBucket_v1(
 	dimLength int, docID uint64, vecName string, tombstone bool,
@@ -196,16 +195,61 @@ func (s *Shard) addToDimensionBucket_v2(
 }
 
 // calcTargetVectorDimensionsFromStore calculates dimensions and object count for a target vector from an LSMKV store
-func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store, targetVector string, calcEntry func(dimLen int, v int) (int, int)) usagetypes.Dimensionality {
+func calcTargetVectorDimensionsFromStore_v1(ctx context.Context, store *lsmkv.Store, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) usagetypes.Dimensionality {
 	b := store.Bucket(DimensionsBucketLSM())
 	if b == nil {
 		return usagetypes.Dimensionality{}
 	}
-	if dimensionTrackingVersion == "v2" {
-	return calcTargetVectorDimensionsFromBucket_v2(ctx, b, targetVector, calcEntry)
-	} else {
-		return calcTargetVectorDimensionsFromBucket_v1(ctx, b, targetVector, calcEntry)
+
+	return calcTargetVectorDimensionsFromBucket_v1(ctx, b, targetVector, calcEntry)
+}
+
+func (s *Shard) calcTargetVectorDimensions_v2(ctx context.Context, targetVector string, calcEntry func(dimLen int, v int) (int, int)) (types.Dimensionality, error) {
+	return calcTargetVectorDimensionsFromStore_v2(ctx, s.store, targetVector, calcEntry), nil
+}
+
+func (s *Shard) calcTargetVectorDimensions_v1(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) (types.Dimensionality, error) {
+	return calcTargetVectorDimensionsFromStore_v1(ctx, s.store, targetVector, calcEntry), nil
+}
+
+// calcTargetVectorDimensionsFromStore calculates dimensions and object count for a target vector from an LSMKV store
+func calcTargetVectorDimensionsFromStore_v2(ctx context.Context, store *lsmkv.Store, targetVector string, calcEntry func(dimLen int, v int) (int, int)) usagetypes.Dimensionality {
+	b := store.Bucket(DimensionsBucketLSM())
+	if b == nil {
+		return usagetypes.Dimensionality{}
 	}
+
+	return calcTargetVectorDimensionsFromBucket_v2(ctx, b, targetVector, calcEntry)
+
+}
+
+// calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
+func calcTargetVectorDimensionsFromBucket_v1(ctx context.Context, b *lsmkv.Bucket, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) usagetypes.Dimensionality {
+	c := b.MapCursor()
+	defer c.Close()
+
+	var (
+		nameLen        = len(targetVector)
+		expectedKeyLen = 4 + nameLen
+		dimensionality = usagetypes.Dimensionality{}
+	)
+
+	for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
+		// for named vectors we have to additionally check if the key is prefixed with the vector name
+		keyMatches := len(k) == expectedKeyLen && (nameLen == 4 || strings.HasPrefix(string(k), targetVector))
+		if !keyMatches {
+			continue
+		}
+
+		dimLength := int(binary.LittleEndian.Uint32(k[nameLen:]))
+		size, dim := calcEntry(dimLength, v)
+		if dimensionality.Dimensions == 0 && dim > 0 {
+			dimensionality.Dimensions = dim
+		}
+		dimensionality.Count += size
+	}
+
+	return dimensionality
 }
 
 // calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
@@ -238,7 +282,6 @@ func calcTargetVectorDimensionsFromBucket_v2(ctx context.Context, b *lsmkv.Bucke
 	return dimensionality
 }
 
-
 func (t *ShardInvertedReindexTask_SpecifiedIndex) GetPropertiesToReindex(ctx context.Context,
 	shard ShardLike,
 ) ([]ReindexableProperty, error) {
@@ -260,7 +303,7 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) GetPropertiesToReindex(ctx con
 		case helpers.ObjectsBucketLSM:
 		case helpers.VectorsBucketLSM:
 		case helpers.VectorsCompressedBucketLSM:
-			case helpers.DimensionsBucketLSM_v1:
+		case helpers.DimensionsBucketLSM_v1:
 		case helpers.DimensionsBucketLSM_v2:
 			continue
 		}
@@ -324,7 +367,6 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) GetPropertiesToReindex(ctx con
 
 	return reindexableProperties, nil
 }
-
 
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context, reindexVectorDimensionsAtStartup bool, trackVectorDimensions bool) error {
 	if !trackVectorDimensions {
