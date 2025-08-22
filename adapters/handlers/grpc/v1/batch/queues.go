@@ -123,10 +123,10 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
 func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) (int, error) {
 	h.sendWg.Add(1)
+	defer h.sendWg.Done()
 	if h.shuttingDownCtx.Err() != nil {
 		return 0, fmt.Errorf("grpc shutdown in progress, no more requests are permitted on this node")
 	}
-	defer h.sendWg.Done()
 	streamId := request.GetStreamId()
 	queue, ok := h.writeQueues.GetQueue(streamId)
 	if !ok {
