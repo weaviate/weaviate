@@ -158,7 +158,7 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 		}
 
 		// correct type for containsXXX in case users send int/float for a float/int array
-		if (returnFilter.Operator == filters.ContainsAll || returnFilter.Operator == filters.ContainsAny) && dataType == schema.DataTypeNumber {
+		if returnFilter.Operator.IsContains() && dataType == schema.DataTypeNumber {
 			valSlice, ok := val.([]int)
 			if ok {
 				val64 := make([]float64, len(valSlice))
@@ -169,7 +169,7 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 			}
 		}
 
-		if (returnFilter.Operator == filters.ContainsAll || returnFilter.Operator == filters.ContainsAny) && dataType == schema.DataTypeInt {
+		if returnFilter.Operator.IsContains() && dataType == schema.DataTypeInt {
 			valSlice, ok := val.([]float64)
 			if ok {
 				valInt := make([]int, len(valSlice))
