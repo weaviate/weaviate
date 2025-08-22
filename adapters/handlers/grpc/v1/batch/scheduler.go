@@ -106,7 +106,7 @@ func (s *Scheduler) drain(streamId string, wq *WriteQueue) bool {
 			refs = make([]*pb.BatchReference, 0, 1000)
 		}
 	}
-	if len(objs) >= 1000 || len(refs) >= 1000 {
+	if len(objs) > 0 || len(refs) > 0 {
 		req := newProcessRequest(objs, refs, streamId, false, wq.consistencyLevel, wq)
 		s.internalQueue <- req
 	}
