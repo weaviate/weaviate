@@ -67,48 +67,48 @@ func changeFile(filename string, delete bool, content []byte, logger *logrus.Ent
 				alreadyDid := false
 				if len(shardsToMigrate) == 0 || slices.Contains(shardsToMigrate, shardName) {
 					shardPath := filepath.Join(rootPath, classNameString, shardName, "lsm", ".migrations", "searchable_map_to_blockmax")
-					filename = filepath.Join(shardPath, filename)
+					filenameShard := filepath.Join(shardPath, filename)
 					_, err := os.Stat(shardPath)
 					if err != nil {
 						return fmt.Errorf("shard not found or not ready")
 					}
 					if delete {
-						err = os.Remove(filename)
+						err = os.Remove(filenameShard)
 						if os.IsNotExist(err) {
 							alreadyDid = true
 						} else if err != nil {
-							return fmt.Errorf("failed to delete %s: %w", filename, err)
+							return fmt.Errorf("failed to delete %s: %w", filenameShard, err)
 						}
 					} else {
 						// check if the file already exists
-						_, err = os.Stat(filename)
+						_, err = os.Stat(filenameShard)
 						if err == nil {
 							alreadyDid = true
 						} else {
-							file, err := os.Create(filename)
+							file, err := os.Create(filenameShard)
 							if os.IsExist(err) {
 								alreadyDid = true
 							} else if err != nil {
-								return fmt.Errorf("failed to create %s: %w", filename, err)
+								return fmt.Errorf("failed to create %s: %w", filenameShard, err)
 							}
 							file.Close()
 						}
 
 						if content != nil {
-							file, err := os.Create(filename)
+							file, err := os.Create(filenameShard)
 							if err != nil {
-								return fmt.Errorf("failed to create %s: %w", filename, err)
+								return fmt.Errorf("failed to create %s: %w", filenameShard, err)
 							}
 							_, err = file.Write(content)
 							if err != nil {
-								return fmt.Errorf("failed to write to %s: %w", filename, err)
+								return fmt.Errorf("failed to write to %s: %w", filenameShard, err)
 							}
 							file.Close()
 						}
 					}
 					response[shardName] = map[string]string{
 						"status": "success",
-						"message": fmt.Sprintf("file %s %s in shard %s", filename,
+						"message": fmt.Sprintf("file %s %s in shard %s", filenameShard,
 							func() string {
 								if delete {
 									if alreadyDid {
