@@ -38,6 +38,7 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 	var endpointStats endpointStatsSlice
 
 	className := "ABC"
+	aliasName := "AliasABC"
 	tenantNames := []string{
 		"Tenant1", "Tenant2", "Tenant3",
 	}
@@ -50,6 +51,10 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 	}
 	helper.CreateTenantsAuth(t, className, tenants, adminKey)
 
+	helper.CreateAliasAuth(t, &models.Alias{
+		Class: className,
+		Alias: aliasName,
+	}, adminKey)
 	col, err := newCollector()
 	require.Nil(t, err)
 

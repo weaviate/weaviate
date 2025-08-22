@@ -100,9 +100,12 @@ func (c *collector) collectEndpoints() ([]endpoint, error) {
 		}
 	}
 
+	// NOTE: Sorting is done to keep the endpoints order deterministic,
+	// because the default order returned by swagger apis are random
+	// which can cause trouble say if GET is called after DELETE endpoints.
 	sort.Slice(c.endpoints, func(i, j int) bool {
 		if c.endpoints[i].path == c.endpoints[j].path {
-			return c.endpoints[i].method < c.endpoints[j].method
+			return c.endpoints[i].method > c.endpoints[j].method
 		}
 		return c.endpoints[i].path < c.endpoints[j].path
 	})
