@@ -22,6 +22,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
+const (
+	minCodeBits    = 256
+	rotationRounds = 3
+)
+
 type BinaryRotationalQuantizer struct {
 	inputDim  uint32
 	rotation  *FastRotation
@@ -33,14 +38,12 @@ type BinaryRotationalQuantizer struct {
 
 func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer.Provider) *BinaryRotationalQuantizer {
 	// Pad the input if it is low-dimensional.
-	const minCodeBits = 256
 	if inputDim < minCodeBits {
 		inputDim = minCodeBits
 	}
 	// For the rotated point to look fully random we need 4 or 5 rotational
 	// rounds, but since we only care about the sign of the entries and not the
 	// complete distribution, it seems like 3 rounds suffice.
-	rotationRounds := 3
 	rotation := NewFastRotation(inputDim, rotationRounds, seed)
 
 	cos, l2, err := distancerIndicatorsAndError(distancer)
