@@ -440,26 +440,26 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 	}{
 		{
 			name:         "legacy",
-			vectorConfig: enthnsw.NewDefaultUserConfig,
+			vectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 
 			expectDimensions: dimensionsPerVector * objectCount,
 		},
 		{
 			name:              "named",
-			namedVectorConfig: enthnsw.NewDefaultUserConfig,
+			namedVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 
 			expectDimensions: dimensionsPerVector * objectCount,
 		},
 		{
 			name:              "multi",
-			multiVectorConfig: enthnsw.NewDefaultUserConfig,
+			multiVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 
 			expectDimensions: multiVecCard * dimensionsPerVector * objectCount,
 		},
 		{
 			name:              "mixed",
-			vectorConfig:      enthnsw.NewDefaultUserConfig,
-			namedVectorConfig: enthnsw.NewDefaultUserConfig,
+			vectorConfig:      func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
+			namedVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 
 			expectDimensions: 2 * dimensionsPerVector * objectCount,
 		},
@@ -500,7 +500,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 				cfg.BQ.Enabled = true
 				return cfg
 			},
-			multiVectorConfig: enthnsw.NewDefaultUserConfig,
+			multiVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 			expectDimensions:  multiVecCard * dimensionsPerVector * objectCount,
 			expectSegments:    (dimensionsPerVector / 8) * objectCount,
 		},
