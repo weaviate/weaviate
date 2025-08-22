@@ -40,8 +40,11 @@ func NewQueuesHandler(shuttingDownCtx context.Context, sendWg, streamWg *sync.Wa
 		for {
 			select {
 			case <-shuttingDownCtx.Done():
+				logger.Info("shutting down batch queues handler, waiting for in-flight requests to finish")
 				sendWg.Wait()
+				logger.Info("all in-flight requests finished, closing write queues")
 				writeQueues.Close()
+				logger.Info("write queues closed, exiting handlers shutdown listener")
 				return
 			default:
 				time.Sleep(100 * time.Millisecond) // Polling interval
