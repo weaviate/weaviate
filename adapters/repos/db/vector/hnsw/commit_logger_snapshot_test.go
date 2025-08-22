@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -132,19 +133,19 @@ func TestCreateSnapshot(t *testing.T) {
 		{
 			name:     "many non-condensed files",
 			setup:    []any{"1000", 1000, "1001", 1000, "1002", 1000, "1003", 1000},
-			expected: []string{"1002.snapshot", "1002.snapshot.checkpoints"},
+			expected: []string{"1002.snapshot"},
 			created:  true,
 		},
 		{
 			name:     "small condensed files",
 			setup:    []any{"1000.condensed", 100, "1001.condensed", 100, "1002.condensed", 100, "1003.condensed", 100},
-			expected: []string{"1002.snapshot", "1002.snapshot.checkpoints"},
+			expected: []string{"1002.snapshot"},
 			created:  true,
 		},
 		{
 			name:     "bigger condensed files",
 			setup:    []any{"1000.condensed", 200, "1001.condensed", 200, "1002.condensed", 200, "1003.condensed", 200},
-			expected: []string{"1002.snapshot", "1002.snapshot.checkpoints"},
+			expected: []string{"1002.snapshot"},
 			created:  true,
 		},
 		{
@@ -154,7 +155,7 @@ func TestCreateSnapshot(t *testing.T) {
 		{
 			name:     "enough condensed files",
 			setup:    []any{"1000.condensed", 1000, "1001.condensed", 1000},
-			expected: []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expected: []string{"1000.snapshot"},
 			created:  true,
 		},
 	}
@@ -189,7 +190,7 @@ func TestCreateSnapshotWithExistingState(t *testing.T) {
 	require.True(t, created)
 
 	files := readDir(t, sDir)
-	require.Equal(t, []string{"1002.snapshot", "1002.snapshot.checkpoints"}, files)
+	require.Equal(t, []string{"1002.snapshot"}, files)
 
 	// add new files
 	createCommitlogTestData(t, clDir, "1004", 1000, "1005", 5)
@@ -199,7 +200,7 @@ func TestCreateSnapshotWithExistingState(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, created)
 	files = readDir(t, sDir)
-	require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
+	require.Equal(t, []string{"1004.snapshot"}, files)
 
 	// simulate file condensation
 	err = os.Rename(filepath.Join(clDir, "1004"), filepath.Join(clDir, "1004.condensed"))
@@ -210,7 +211,7 @@ func TestCreateSnapshotWithExistingState(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, created)
 	files = readDir(t, sDir)
-	require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
+	require.Equal(t, []string{"1004.snapshot"}, files)
 
 	// simulate file condensation
 	err = os.Rename(filepath.Join(clDir, "1005"), filepath.Join(clDir, "1005.condensed"))
@@ -221,7 +222,7 @@ func TestCreateSnapshotWithExistingState(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, created)
 	files = readDir(t, sDir)
-	require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
+	require.Equal(t, []string{"1004.snapshot"}, files)
 
 	// add new files
 	createCommitlogTestData(t, clDir, "1006", 5)
@@ -231,7 +232,7 @@ func TestCreateSnapshotWithExistingState(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, created)
 	files = readDir(t, sDir)
-	require.Equal(t, []string{"1005.snapshot", "1005.snapshot.checkpoints"}, files)
+	require.Equal(t, []string{"1005.snapshot"}, files)
 
 	// simulate file condensation
 	err = os.Rename(filepath.Join(clDir, "1006"), filepath.Join(clDir, "1006.condensed"))
@@ -242,7 +243,7 @@ func TestCreateSnapshotWithExistingState(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, created)
 	files = readDir(t, sDir)
-	require.Equal(t, []string{"1005.snapshot", "1005.snapshot.checkpoints"}, files)
+	require.Equal(t, []string{"1005.snapshot"}, files)
 
 	// add new files
 	createCommitlogTestData(t, clDir, "1007", 5)
@@ -252,7 +253,7 @@ func TestCreateSnapshotWithExistingState(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, created)
 	files = readDir(t, sDir)
-	require.Equal(t, []string{"1006.snapshot", "1006.snapshot.checkpoints"}, files)
+	require.Equal(t, []string{"1006.snapshot"}, files)
 }
 
 func TestCreateSnapshotCrashRecovery(t *testing.T) {
@@ -274,7 +275,7 @@ func TestCreateSnapshotCrashRecovery(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, created)
 		files := readDir(t, sDir)
-		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+		require.Equal(t, []string{"1001.snapshot"}, files)
 	})
 
 	t.Run("missing checkpoints", func(t *testing.T) {
@@ -295,7 +296,7 @@ func TestCreateSnapshotCrashRecovery(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, created)
 		files := readDir(t, sDir)
-		require.Equal(t, []string{"1002.snapshot", "1002.snapshot.checkpoints"}, files)
+		require.Equal(t, []string{"1002.snapshot"}, files)
 	})
 
 	t.Run("corrupt snapshot", func(t *testing.T) {
@@ -312,7 +313,7 @@ func TestCreateSnapshotCrashRecovery(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, created)
 		files := readDir(t, sDir)
-		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+		require.Equal(t, []string{"1001.snapshot"}, files)
 
 		// corrupt the snapshot
 		err = os.WriteFile(filepath.Join(sDir, "1001.snapshot"), []byte("corrupt"), 0o644)
@@ -326,7 +327,7 @@ func TestCreateSnapshotCrashRecovery(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, created)
 		files = readDir(t, sDir)
-		require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
+		require.Equal(t, []string{"1004.snapshot"}, files)
 	})
 }
 
@@ -358,7 +359,7 @@ func TestCreateAndLoadSnapshot(t *testing.T) {
 		require.NotNil(t, state)
 		require.NotZero(t, createdAt)
 		files = readDir(t, sDir)
-		require.ElementsMatch(t, []string{"1000.snapshot", "1000.snapshot.checkpoints"}, files)
+		require.ElementsMatch(t, []string{"1000.snapshot"}, files)
 
 		// add new files
 		createCommitlogTestData(t, clDir, "1002.condensed", 1000)
@@ -369,7 +370,7 @@ func TestCreateAndLoadSnapshot(t *testing.T) {
 		require.NotNil(t, state)
 		require.NotZero(t, createdAt)
 		files = readDir(t, sDir)
-		require.ElementsMatch(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+		require.ElementsMatch(t, []string{"1001.snapshot"}, files)
 
 		// try again, should not create a new snapshot
 		// but should return the existing one
@@ -378,7 +379,7 @@ func TestCreateAndLoadSnapshot(t *testing.T) {
 		require.NotNil(t, state)
 		require.NotZero(t, createdAt)
 		files = readDir(t, sDir)
-		require.ElementsMatch(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+		require.ElementsMatch(t, []string{"1001.snapshot"}, files)
 	})
 
 	t.Run("empty snapshot", func(t *testing.T) {
@@ -396,7 +397,7 @@ func TestCreateAndLoadSnapshot(t *testing.T) {
 		require.True(t, created)
 		require.NotZero(t, createdAt)
 		files := readDir(t, sDir)
-		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+		require.Equal(t, []string{"1001.snapshot"}, files)
 
 		// empty the snapshot
 		err = os.WriteFile(filepath.Join(sDir, "1001.snapshot"), []byte(""), 0o644)
@@ -408,7 +409,7 @@ func TestCreateAndLoadSnapshot(t *testing.T) {
 		require.NotNil(t, state)
 		require.NotZero(t, createdAt)
 		files = readDir(t, sDir)
-		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+		require.Equal(t, []string{"1001.snapshot"}, files)
 		// snapshot has content now
 		info, err := os.Stat(filepath.Join(sDir, "1001.snapshot"))
 		require.NoError(t, err)
@@ -435,7 +436,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			setup:           []any{"1000.condensed", 1000, "1001", 1000},
 			delta:           []any{},
 			deltaNumber:     1,
-			expectedFiles:   []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:   []string{"1000.snapshot"},
 			expectedCreated: false,
 		},
 		{
@@ -443,7 +444,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			setup:           []any{"1000.condensed", 1000, "1001", 1000},
 			delta:           []any{"1002", 1000},
 			deltaNumber:     1,
-			expectedFiles:   []string{"1001.snapshot", "1001.snapshot.checkpoints"},
+			expectedFiles:   []string{"1001.snapshot"},
 			expectedCreated: true,
 		},
 		{
@@ -451,7 +452,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			setup:           []any{"1000.condensed", 1000, "1001", 1000},
 			delta:           []any{"1002", 1000, "1003", 1000},
 			deltaNumber:     1,
-			expectedFiles:   []string{"1002.snapshot", "1002.snapshot.checkpoints"},
+			expectedFiles:   []string{"1002.snapshot"},
 			expectedCreated: true,
 		},
 		{
@@ -459,7 +460,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			setup:           []any{"1000.condensed", 1000, "1001", 1000},
 			delta:           []any{"1002.condensed", 1000, "1003", 1000},
 			deltaNumber:     3,
-			expectedFiles:   []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:   []string{"1000.snapshot"},
 			expectedCreated: false,
 		},
 		{
@@ -467,7 +468,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			setup:           []any{"1000.condensed", 1000, "1001", 1000},
 			delta:           []any{"1002.condensed", 1000, "1003.condensed", 1000, "1004", 1000},
 			deltaNumber:     3,
-			expectedFiles:   []string{"1003.snapshot", "1003.snapshot.checkpoints"},
+			expectedFiles:   []string{"1003.snapshot"},
 			expectedCreated: true,
 		},
 		{
@@ -475,7 +476,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			setup:           []any{"1000.condensed", 1000, "1001", 1000},
 			delta:           []any{"1002.condensed", 1000, "1003.condensed", 1000, "1004.condensed", 1000, "1005", 1000},
 			deltaNumber:     3,
-			expectedFiles:   []string{"1004.snapshot", "1004.snapshot.checkpoints"},
+			expectedFiles:   []string{"1004.snapshot"},
 			expectedCreated: true,
 		},
 
@@ -485,7 +486,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			setup:               []any{"1000.condensed", s1982, "1001", 90},
 			delta:               []any{"1002", 1200},
 			deltaSizePercentage: 5,
-			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:       []string{"1000.snapshot"},
 			expectedCreated:     false,
 		},
 		{
@@ -493,7 +494,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			setup:               []any{"1000.condensed", s1982, "1001", 30},
 			delta:               []any{"1002.condensed", 30, "1003.condensed", 30, "1004", 1200},
 			deltaSizePercentage: 5,
-			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:       []string{"1000.snapshot"},
 			expectedCreated:     false,
 		},
 		{
@@ -501,7 +502,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			setup:               []any{"1000.condensed", s1982, "1001", 110},
 			delta:               []any{"1002", 1200},
 			deltaSizePercentage: 5,
-			expectedFiles:       []string{"1001.snapshot", "1001.snapshot.checkpoints"},
+			expectedFiles:       []string{"1001.snapshot"},
 			expectedCreated:     true,
 		},
 		{
@@ -509,7 +510,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			setup:               []any{"1000.condensed", s1982, "1001", 35},
 			delta:               []any{"1002.condensed", 35, "1003.condensed", 35, "1004", 1200},
 			deltaSizePercentage: 5,
-			expectedFiles:       []string{"1003.snapshot", "1003.snapshot.checkpoints"},
+			expectedFiles:       []string{"1003.snapshot"},
 			expectedCreated:     true,
 		},
 		{
@@ -517,7 +518,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			setup:               []any{"1000.condensed", s1982, "1001", 1500},
 			delta:               []any{"1002", 1100},
 			deltaSizePercentage: 125,
-			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:       []string{"1000.snapshot"},
 			expectedCreated:     false,
 		},
 		{
@@ -525,7 +526,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			setup:               []any{"1000.condensed", s1982, "1001", 820},
 			delta:               []any{"1002.condensed", 820, "1003.condensed", 750, "1004", 1200},
 			deltaSizePercentage: 125,
-			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:       []string{"1000.snapshot"},
 			expectedCreated:     false,
 		},
 		{
@@ -533,7 +534,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			setup:               []any{"1000.condensed", s1982, "1001", 2510},
 			delta:               []any{"1002", 1200},
 			deltaSizePercentage: 110,
-			expectedFiles:       []string{"1001.snapshot", "1001.snapshot.checkpoints"},
+			expectedFiles:       []string{"1001.snapshot"},
 			expectedCreated:     true,
 		},
 		{
@@ -541,7 +542,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			setup:               []any{"1000.condensed", s1982, "1001", 830},
 			delta:               []any{"1002.condensed", 830, "1003.condensed", 830, "1004", 1200},
 			deltaSizePercentage: 110,
-			expectedFiles:       []string{"1003.snapshot", "1003.snapshot.checkpoints"},
+			expectedFiles:       []string{"1003.snapshot"},
 			expectedCreated:     true,
 		},
 
@@ -554,7 +555,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			delta:               []any{"1002", 1000},
 			deltaNumber:         2,
 			deltaSizePercentage: 75,
-			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:       []string{"1000.snapshot"},
 			expectedCreated:     false,
 		},
 		{
@@ -563,7 +564,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			delta:               []any{"1002", 1000},
 			deltaNumber:         1,
 			deltaSizePercentage: 75,
-			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:       []string{"1000.snapshot"},
 			expectedCreated:     false,
 		},
 		{
@@ -572,7 +573,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			delta:               []any{"1002", 1000},
 			deltaNumber:         2,
 			deltaSizePercentage: 50,
-			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:       []string{"1000.snapshot"},
 			expectedCreated:     false,
 		},
 		{
@@ -581,7 +582,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			delta:               []any{"1002", 1000},
 			deltaNumber:         1,
 			deltaSizePercentage: 40,
-			expectedFiles:       []string{"1001.snapshot", "1001.snapshot.checkpoints"},
+			expectedFiles:       []string{"1001.snapshot"},
 			expectedCreated:     true,
 		},
 		{
@@ -591,7 +592,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			deltaNumber:         1,
 			deltaSizePercentage: 40,
 			allocCheckerOOM:     true,
-			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:       []string{"1000.snapshot"},
 			expectedCreated:     false,
 		},
 	}
@@ -623,7 +624,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 }
 
 func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
-	s1982 := 1200 // commitlog of size 1200 makes snapshot of size 1982
+	s4MB := 4 * 1024 * 1024 // commitlog of size 1200 makes snapshot of size 4MB
 
 	tests := []struct {
 		name                string
@@ -641,7 +642,7 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 			setup:           []any{"1000.condensed", 1000, "1001", 1000},
 			delta:           []any{},
 			deltaNumber:     1,
-			expectedFiles:   []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:   []string{"1000.snapshot"},
 			expectedCreated: false,
 		},
 		{
@@ -649,7 +650,7 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 			setup:           []any{"1000.condensed", 1000, "1001", 1000},
 			delta:           []any{"1002", 1000},
 			deltaNumber:     1,
-			expectedFiles:   []string{"1001.snapshot", "1001.snapshot.checkpoints"},
+			expectedFiles:   []string{"1001.snapshot"},
 			expectedCreated: true,
 		},
 		{
@@ -657,7 +658,7 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 			setup:           []any{"1000.condensed", 1000, "1001", 1000},
 			delta:           []any{"1002", 1000, "1003", 1000},
 			deltaNumber:     1,
-			expectedFiles:   []string{"1002.snapshot", "1002.snapshot.checkpoints"},
+			expectedFiles:   []string{"1002.snapshot"},
 			expectedCreated: true,
 		},
 		{
@@ -665,7 +666,7 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 			setup:           []any{"1000.condensed", 1000, "1001", 1000},
 			delta:           []any{"1002.condensed", 1000, "1003", 1000},
 			deltaNumber:     3,
-			expectedFiles:   []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:   []string{"1000.snapshot"},
 			expectedCreated: false,
 		},
 		{
@@ -673,7 +674,7 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 			setup:           []any{"1000.condensed", 1000, "1001", 1000},
 			delta:           []any{"1002.condensed", 1000, "1003.condensed", 1000, "1004", 1000},
 			deltaNumber:     3,
-			expectedFiles:   []string{"1003.snapshot", "1003.snapshot.checkpoints"},
+			expectedFiles:   []string{"1003.snapshot"},
 			expectedCreated: true,
 		},
 		{
@@ -681,73 +682,73 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 			setup:           []any{"1000.condensed", 1000, "1001", 1000},
 			delta:           []any{"1002.condensed", 1000, "1003.condensed", 1000, "1004.condensed", 1000, "1005", 1000},
 			deltaNumber:     3,
-			expectedFiles:   []string{"1004.snapshot", "1004.snapshot.checkpoints"},
+			expectedFiles:   []string{"1004.snapshot"},
 			expectedCreated: true,
 		},
 
 		// size % of delta files
 		{
 			name:                "too small delta size (required 5%)",
-			setup:               []any{"1000.condensed", s1982, "1001", 90},
+			setup:               []any{"1000.condensed", s4MB, "1001", 90},
 			delta:               []any{"1002", 1200},
 			deltaSizePercentage: 5,
-			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:       []string{"1000.snapshot"},
 			expectedCreated:     false,
 		},
 		{
 			name:                "too small delta size, multiple files (required 5%)",
-			setup:               []any{"1000.condensed", s1982, "1001", 30},
+			setup:               []any{"1000.condensed", s4MB, "1001", 30},
 			delta:               []any{"1002.condensed", 30, "1003.condensed", 30, "1004", 1200},
 			deltaSizePercentage: 5,
-			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:       []string{"1000.snapshot"},
 			expectedCreated:     false,
 		},
 		{
 			name:                "big enough delta size (required 5%)",
-			setup:               []any{"1000.condensed", s1982, "1001", 110},
+			setup:               []any{"1000.condensed", s4MB, "1001", 110},
 			delta:               []any{"1002", 1200},
 			deltaSizePercentage: 5,
-			expectedFiles:       []string{"1001.snapshot", "1001.snapshot.checkpoints"},
+			expectedFiles:       []string{"1001.snapshot"},
 			expectedCreated:     true,
 		},
 		{
 			name:                "big enough delta size, multiple files (required 5%)",
-			setup:               []any{"1000.condensed", s1982, "1001", 35},
+			setup:               []any{"1000.condensed", s4MB, "1001", 35},
 			delta:               []any{"1002.condensed", 35, "1003.condensed", 35, "1004", 1200},
 			deltaSizePercentage: 5,
-			expectedFiles:       []string{"1003.snapshot", "1003.snapshot.checkpoints"},
+			expectedFiles:       []string{"1003.snapshot"},
 			expectedCreated:     true,
 		},
 		{
 			name:                "too small delta size (required 125%)",
-			setup:               []any{"1000.condensed", s1982, "1001", 2450},
+			setup:               []any{"1000.condensed", s4MB, "1001", 2450},
 			delta:               []any{"1002", 1100},
 			deltaSizePercentage: 125,
-			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:       []string{"1000.snapshot"},
 			expectedCreated:     false,
 		},
 		{
 			name:                "too small delta size, multiple files (required 125%)",
-			setup:               []any{"1000.condensed", s1982, "1001", 750},
+			setup:               []any{"1000.condensed", s4MB, "1001", 750},
 			delta:               []any{"1002.condensed", 750, "1003.condensed", 750, "1004", 1200},
 			deltaSizePercentage: 125,
-			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:       []string{"1000.snapshot"},
 			expectedCreated:     false,
 		},
 		{
 			name:                "big enough delta size (required 110%)",
-			setup:               []any{"1000.condensed", s1982, "1001", 2510},
+			setup:               []any{"1000.condensed", s4MB, "1001", 2510},
 			delta:               []any{"1002", 1200},
 			deltaSizePercentage: 110,
-			expectedFiles:       []string{"1001.snapshot", "1001.snapshot.checkpoints"},
+			expectedFiles:       []string{"1001.snapshot"},
 			expectedCreated:     true,
 		},
 		{
 			name:                "big enough delta size, multiple files (required 110%)",
-			setup:               []any{"1000.condensed", s1982, "1001", 830},
+			setup:               []any{"1000.condensed", s4MB, "1001", 830},
 			delta:               []any{"1002.condensed", 830, "1003.condensed", 830, "1004", 1200},
 			deltaSizePercentage: 110,
-			expectedFiles:       []string{"1003.snapshot", "1003.snapshot.checkpoints"},
+			expectedFiles:       []string{"1003.snapshot"},
 			expectedCreated:     true,
 		},
 
@@ -756,48 +757,48 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 		// will effectively be the same as size of snaptshot created just from biggest commitlog
 		{
 			name:                "too few delta commitlogs, too small delta size",
-			setup:               []any{"1000.condensed", s1982, "1001", 1010},
+			setup:               []any{"1000.condensed", s4MB, "1001", 1010},
 			delta:               []any{"1002", 1000},
 			deltaNumber:         2,
 			deltaSizePercentage: 75,
-			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:       []string{"1000.snapshot"},
 			expectedCreated:     false,
 		},
 		{
 			name:                "too small delta size",
-			setup:               []any{"1000.condensed", s1982, "1001", 1010},
+			setup:               []any{"1000.condensed", s4MB, "1001", 1010},
 			delta:               []any{"1002", 1000},
 			deltaNumber:         1,
 			deltaSizePercentage: 75,
-			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:       []string{"1000.snapshot"},
 			expectedCreated:     false,
 		},
 		{
 			name:                "too few delta commitlogs",
-			setup:               []any{"1000.condensed", s1982, "1001", 1010},
+			setup:               []any{"1000.condensed", s4MB, "1001", 1010},
 			delta:               []any{"1002", 1000},
 			deltaNumber:         2,
 			deltaSizePercentage: 50,
-			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			expectedFiles:       []string{"1000.snapshot"},
 			expectedCreated:     false,
 		},
 		{
 			name:                "enough delta commit logs, enough delta size",
-			setup:               []any{"1000.condensed", s1982, "1001", 1010},
+			setup:               []any{"1000.condensed", s4MB, "1001", 1010},
 			delta:               []any{"1002", 1000},
 			deltaNumber:         1,
 			deltaSizePercentage: 40,
-			expectedFiles:       []string{"1001.snapshot", "1001.snapshot.checkpoints"},
+			expectedFiles:       []string{"1001.snapshot"},
 			expectedCreated:     true,
 		},
 		{
 			name:                "enough delta commit logs, enough delta size, oom is ignored",
-			setup:               []any{"1000.condensed", s1982, "1001", 1010},
+			setup:               []any{"1000.condensed", s4MB, "1001", 1010},
 			delta:               []any{"1002", 1000},
 			deltaNumber:         1,
 			deltaSizePercentage: 40,
 			allocCheckerOOM:     true,
-			expectedFiles:       []string{"1001.snapshot", "1001.snapshot.checkpoints"},
+			expectedFiles:       []string{"1001.snapshot"},
 			expectedCreated:     true,
 		},
 	}
@@ -1276,4 +1277,59 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid checksum")
 	})
+
+	t.Run("v3 - multi block", func(t *testing.T) {
+		size := 30_000
+		state := &DeserializationResult{
+			Entrypoint: 28,
+			Level:      6,
+			Compressed: false,
+			Nodes:      make([]*vertex, size),
+			Tombstones: make(map[uint64]struct{}),
+		}
+
+		c, err := packedconn.NewWithMaxLayer(2)
+		require.Nil(t, err)
+		c.ReplaceLayer(0, connsSlice1)
+
+		for i := 0; i < size; i++ {
+			if i%30 == 0 {
+				continue // nil node
+			}
+
+			if i%5 == 0 {
+				state.Tombstones[uint64(i)] = struct{}{}
+			}
+
+			state.Nodes[i] = &vertex{
+				id:          uint64(i),
+				level:       i % 6,
+				connections: c,
+			}
+		}
+
+		dir := t.TempDir()
+		id := "test"
+		cl := createTestCommitLoggerForSnapshots(t, dir, id)
+
+		// Write snapshot to a temporary file
+		snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+		err = cl.writeSnapshot(state, snapshotPath)
+		require.NoError(t, err)
+
+		// Read snapshot back
+		restoredState, err := cl.readSnapshot(snapshotPath)
+		require.NoError(t, err)
+
+		require.NotEqual(t, state.Nodes, restoredState.Nodes)
+	})
+}
+
+var connsSlice1 = []uint64{
+	4477, 83, 6777, 13118, 12903, 12873, 14397, 15034, 15127, 15162, 15219, 15599, 17627,
+	18624, 18844, 19359, 22981, 23099, 36188, 37400, 39724, 39810, 47254, 58047, 59647, 61746,
+	64635, 66528, 70470, 73936, 86283, 86697, 120033, 129098, 131345, 137609, 140937, 186468,
+	191226, 199803, 206818, 223456, 271063, 278598, 288539, 395876, 396785, 452103, 487237,
+	506431, 507230, 554813, 572566, 595572, 660562, 694477, 728865, 730031, 746368, 809331,
+	949338,
 }
