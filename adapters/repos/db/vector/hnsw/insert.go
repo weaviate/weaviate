@@ -115,7 +115,6 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 			if err == nil {
 				h.compressed.Store(true)
 				h.cache.Drop()
-				h.cache = nil
 				h.compressor.PersistCompression(h.commitLog)
 			}
 		})
@@ -255,7 +254,6 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 					})
 				h.compressed.Store(true)
 				h.cache.Drop()
-				h.cache = nil
 				h.compressor.PersistCompression(h.commitLog)
 				h.Unlock()
 			}

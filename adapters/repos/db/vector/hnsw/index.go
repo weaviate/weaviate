@@ -224,6 +224,7 @@ type CommitLogger interface {
 	AddSQCompression(compressionhelpers.SQData) error
 	AddMuvera(multivector.MuveraData) error
 	AddRQCompression(compressionhelpers.RQData) error
+	AddBRQCompression(compressionhelpers.BRQData) error
 	InitMaintenance()
 
 	CreateSnapshot() (bool, int64, error)
