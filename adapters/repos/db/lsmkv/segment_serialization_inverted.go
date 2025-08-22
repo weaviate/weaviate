@@ -433,9 +433,12 @@ func ParseInvertedNode(r io.Reader) (segmentCollectionNode, error) {
 	keyLen := binary.LittleEndian.Uint32(allBytes[len(allBytes)-4:])
 
 	key := make([]byte, keyLen)
-	_, err := r.Read(key)
-	if err != nil {
-		return out, err
+
+	if keyLen > 0 {
+		_, err := r.Read(key)
+		if err != nil {
+			return out, err
+		}
 	}
 
 	out.offset += int(keyLen)
