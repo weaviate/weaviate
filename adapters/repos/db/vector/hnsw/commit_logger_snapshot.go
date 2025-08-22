@@ -54,7 +54,7 @@ const (
 // version of the snapshot file format
 const (
 	// Initial version
-	snapshotVersionV1 = 1
+	snapshotVersionV1 = 1 //nolint:unused
 	// Added packed connections support
 	snapshotVersionV2 = 2
 	// New snapshot format: organize data in fixed-sized chunks.
@@ -743,7 +743,6 @@ func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writ
 	return nil
 }
 
-// returns checkpoints which can be used as parallelizatio hints
 func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Writer) error {
 	var buf bytes.Buffer
 
@@ -863,25 +862,15 @@ func (l *hnswCommitLogger) readStateFrom(filename string) (*DeserializationResul
 	}
 	defer f.Close()
 
-	r := bufio.NewReader(f)
-
-	version, err := l.readMetadata(r, res)
+	version, err := l.readMetadata(f, res)
 	if err != nil {
 		return nil, err
-	}
-
-	if r.Buffered() != 0 {
-		// move the file cursor to the start of the body
-		_, err = f.Seek(-int64(r.Buffered()), io.SeekCurrent)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	if version < snapshotVersionV3 {
 		err = l.legacyReadSnapshotBody(filename, f, version, res)
 	} else {
-		err = l.readSnapshotBody(f, version, res)
+		err = l.readSnapshotBody(f, res)
 	}
 	if err != nil {
 		return nil, err
@@ -1032,7 +1021,7 @@ func (l *hnswCommitLogger) legacyReadSnapshotBody(filename string, f *os.File, v
 }
 
 // readSnapshotBody reads the snapshot body from the file for snapshot versions >= 3.
-func (l *hnswCommitLogger) readSnapshotBody(f *os.File, version int, res *DeserializationResult) error {
+func (l *hnswCommitLogger) readSnapshotBody(f *os.File, res *DeserializationResult) error {
 	var mu sync.Mutex
 
 	finfo, err := f.Stat()
@@ -1159,34 +1148,44 @@ func (l *hnswCommitLogger) readSnapshotBody(f *os.File, version int, res *Deseri
 	return eg.Wait()
 }
 
-func (l *hnswCommitLogger) readMetadata(r *bufio.Reader, res *DeserializationResult) (int, error) {
-	hasher := crc32.NewIEEE()
-	// start with a single-threaded reader until we make it the nodes section
-
-	var b [8]byte
-
-	_, err := ReadAndHash(r, hasher, b[:1]) // version
+func (l *hnswCommitLogger) readMetadata(f *os.File, res *DeserializationResult) (int, error) {
+	var b [1]byte
+	_, err := f.Read(b[:1])
 	if err != nil {
 		return 0, errors.Wrapf(err, "read version")
 	}
+	_, err = f.Seek(0, io.SeekStart)
+	if err != nil {
+		return 0, errors.Wrapf(err, "seek to start")
+	}
+
 	version := int(b[0])
 	if version < 0 || version > snapshotVersionV3 {
 		return 0, fmt.Errorf("unsupported snapshot version %d", version)
 	}
 
 	if version < snapshotVersionV3 {
-		return version, l.readMetadataLegacy(r, hasher, version, res)
+		return version, l.readMetadataLegacy(f, res)
 	}
 
 	// version >= 3
-	return version, l.readAndCheckMetadata(r, hasher, version, res)
+	return version, l.readAndCheckMetadata(f, res)
 }
 
 // this reads the legacy snapshot format for versions v < 3
-func (l *hnswCommitLogger) readMetadataLegacy(r *bufio.Reader, hasher hash.Hash32, version int, res *DeserializationResult) error {
+func (l *hnswCommitLogger) readMetadataLegacy(f *os.File, res *DeserializationResult) error {
 	var b [8]byte
 
-	_, err := ReadAndHash(r, hasher, b[:8]) // entrypoint
+	hasher := crc32.NewIEEE()
+	r := bufio.NewReader(f)
+
+	_, err := ReadAndHash(r, hasher, b[:1]) // version
+	if err != nil {
+		return errors.Wrapf(err, "read version")
+	}
+	version := int(b[0])
+
+	_, err = ReadAndHash(r, hasher, b[:8]) // entrypoint
 	if err != nil {
 		return errors.Wrapf(err, "read entrypoint")
 	}
@@ -1496,29 +1495,42 @@ func (l *hnswCommitLogger) readMetadataLegacy(r *bufio.Reader, hasher hash.Hash3
 }
 
 // this reads the newer snapshot format for versions v >= 3
-func (l *hnswCommitLogger) readAndCheckMetadata(r *bufio.Reader, hasher hash.Hash32, version int, res *DeserializationResult) error {
+func (l *hnswCommitLogger) readAndCheckMetadata(f *os.File, res *DeserializationResult) error {
 	var b [8]byte
+	var read int
+
+	hasher := crc32.NewIEEE()
+	r := bufio.NewReader(f)
+
+	n, err := ReadAndHash(r, hasher, b[:1]) // version
+	if err != nil {
+		return errors.Wrapf(err, "read version")
+	}
+	read += n
 
 	// read checksum
-	_, err := io.ReadFull(r, b[:4])
+	n, err = io.ReadFull(r, b[:4])
 	if err != nil {
 		return errors.Wrapf(err, "read metadata checksum")
 	}
+	read += n
 	expected := binary.LittleEndian.Uint32(b[:4])
 
 	// read metadata size
-	_, err = ReadAndHash(r, hasher, b[:4]) // size
+	n, err = ReadAndHash(r, hasher, b[:4]) // size
 	if err != nil {
 		return errors.Wrapf(err, "read metadata size")
 	}
+	read += n
 	metadataSize := int(binary.LittleEndian.Uint32(b[:4]))
 
 	// read full metadata
 	metadata := make([]byte, metadataSize)
-	_, err = ReadAndHash(r, hasher, metadata) // metadata
+	n, err = ReadAndHash(r, hasher, metadata) // metadata
 	if err != nil {
 		return errors.Wrapf(err, "read metadata")
 	}
+	read += n
 
 	actual := hasher.Sum32()
 	if actual != expected {
@@ -1616,7 +1628,7 @@ func (l *hnswCommitLogger) readAndCheckMetadata(r *bufio.Reader, hasher hash.Has
 			}
 
 			for i := uint16(0); i < m; i++ {
-				encoder, err := encoderReader(io.TeeReader(r, hasher), res.CompressionPQData, i)
+				encoder, err := encoderReader(mr, res.CompressionPQData, i)
 				if err != nil {
 					return err
 				}
@@ -1816,6 +1828,12 @@ func (l *hnswCommitLogger) readAndCheckMetadata(r *bufio.Reader, hasher hash.Has
 	nodesCount := int(binary.LittleEndian.Uint32(b[:4]))
 
 	res.Nodes = make([]*vertex, nodesCount)
+
+	// bufio.Reader may have read ahead, so we need to reset the cursor to the start of the body
+	_, err = f.Seek(int64(read), io.SeekStart)
+	if err != nil {
+		return errors.Wrapf(err, "seek to %d", read)
+	}
 
 	return nil
 }
