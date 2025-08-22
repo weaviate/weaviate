@@ -1991,9 +1991,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	out := make([]*storobj.Object, 0, shardCap)
 	dists := make([]float32, 0, shardCap)
-	var localSearches int64
+	var localSearches atomic.Int64
 	var localResponses atomic.Int64
-	var remoteSearches int64
+	var remoteSearches atomic.Int64
 	var remoteResponses atomic.Int64
 
 	remoteSearch := func(shardName string) error {
@@ -2040,7 +2040,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		func(replica routerTypes.Replica) error {
 			shardName := replica.ShardName
 			eg.Go(func() error {
-				localSearches++
+				localSearches.Add(1)
 				return localSearch(shardName)
 			}, shardName)
 			return nil
@@ -2048,7 +2048,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		func(replica routerTypes.Replica) error {
 			shardName := replica.ShardName
 			eg.Go(func() error {
-				remoteSearches++
+				remoteSearches.Add(1)
 				return remoteSearch(shardName)
 			}, shardName)
 			return nil
@@ -2063,11 +2063,11 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	// If we are force querying all replicas, we need to run deduplication on the result.
 	if i.Config.ForceFullReplicasSearch {
-		if localSearches != localResponses.Load() {
-			i.logger.Warnf("(in full replica search) local search count does not match local response count: searches=%d responses=%d", localSearches, localResponses.Load())
+		if localSearches.Load() != localResponses.Load() {
+			i.logger.Warnf("(in full replica search) local search count does not match local response count: searches=%d responses=%d", localSearches.Load(), localResponses.Load())
 		}
-		if remoteSearches != remoteResponses.Load() {
-			i.logger.Warnf("(in full replica search) remote search count does not match remote response count: searches=%d responses=%d", remoteSearches, remoteResponses.Load())
+		if remoteSearches.Load() != remoteResponses.Load() {
+			i.logger.Warnf("(in full replica search) remote search count does not match remote response count: searches=%d responses=%d", remoteSearches.Load(), remoteResponses.Load())
 		}
 		out, dists, err = searchResultDedup(out, dists)
 		if err != nil {
