@@ -40,52 +40,25 @@ func (s *Scheduler) Loop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			s.logger.Info("shutting down scheduler loop")
-			s.drainAll()
+			s.loop(s.drain)
 			// Close the internal queue so that the workers can exit once they've drained the queue
 			close(s.internalQueue)
 			return
 		default:
-			s.scheduleAll()
+			s.loop(s.schedule)
 			time.Sleep(time.Millisecond * 100)
 		}
 	}
 }
 
-func (s *Scheduler) kv(key any, value any) (string, *WriteQueue, bool) {
-	streamId, ok := key.(string)
-	if !ok {
-		s.logger.WithField("key", key).Error("expected string key in write queues")
-		return "", nil, false
-	}
-	wq, ok := value.(*WriteQueue)
-	if !ok {
-		s.logger.WithField("value", value).Error("expected WriteQueue value in write queues")
-		return "", nil, false
-	}
-	if len(wq.queue) == 0 {
-		return "", nil, false
-	}
-	return streamId, wq, true
-}
-
-func (s *Scheduler) drainAll() {
-	s.writeQueues.queues.Range(func(key, value any) bool {
-		streamId, wq, ok := s.kv(key, value)
+func (s *Scheduler) loop(op func(streamId string, wq *WriteQueue) bool) {
+	for _, uuid := range s.writeQueues.Uuids() {
+		wq, ok := s.writeQueues.Get(uuid)
 		if !ok {
-			return true // continue iteration
+			continue
 		}
-		return s.drain(streamId, wq)
-	})
-}
-
-func (s *Scheduler) scheduleAll() {
-	s.writeQueues.queues.Range(func(key, value any) bool {
-		streamId, wq, ok := s.kv(key, value)
-		if !ok {
-			return true // continue iteration
-		}
-		return s.schedule(streamId, wq)
-	})
+		op(uuid, wq)
+	}
 }
 
 func (s *Scheduler) drain(streamId string, wq *WriteQueue) bool {
@@ -99,7 +72,7 @@ func (s *Scheduler) drain(streamId string, wq *WriteQueue) bool {
 			refs = append(refs, obj.Reference)
 		}
 		if len(objs) >= 1000 || len(refs) >= 1000 || obj.Stop {
-			req := newProcessRequest(objs, refs, streamId, obj.Stop, wq.consistencyLevel, wq)
+			req := newProcessRequest(objs, refs, streamId, obj.Stop, wq)
 			s.internalQueue <- req
 			// Reset the queues
 			objs = make([]*pb.BatchObject, 0, 1000)
@@ -107,7 +80,7 @@ func (s *Scheduler) drain(streamId string, wq *WriteQueue) bool {
 		}
 	}
 	if len(objs) > 0 || len(refs) > 0 {
-		req := newProcessRequest(objs, refs, streamId, false, wq.consistencyLevel, wq)
+		req := newProcessRequest(objs, refs, streamId, false, wq)
 		s.internalQueue <- req
 	}
 	// channel is closed
@@ -116,8 +89,8 @@ func (s *Scheduler) drain(streamId string, wq *WriteQueue) bool {
 
 func (s *Scheduler) schedule(streamId string, wq *WriteQueue) bool {
 	objs, refs, stop := s.pull(wq.queue, 1000)
-	req := newProcessRequest(objs, refs, streamId, stop, wq.consistencyLevel, wq)
-	if (req.Objects != nil && len(req.Objects.Values) > 0) || (req.References != nil && (len(req.References.Values) > 0 || req.Stop)) {
+	req := newProcessRequest(objs, refs, streamId, stop, wq)
+	if (req.Objects != nil && len(req.Objects.Values) > 0) || (req.References != nil && len(req.References.Values) > 0) || req.Stop {
 		s.internalQueue <- req
 	}
 	time.Sleep(time.Millisecond * 5)
@@ -150,7 +123,7 @@ func (s *Scheduler) pull(queue writeQueue, max int) ([]*pb.BatchObject, []*pb.Ba
 	return objs, refs, false
 }
 
-func newProcessRequest(objs []*pb.BatchObject, refs []*pb.BatchReference, streamId string, stop bool, consistencyLevel *pb.ConsistencyLevel, wq *WriteQueue) *ProcessRequest {
+func newProcessRequest(objs []*pb.BatchObject, refs []*pb.BatchReference, streamId string, stop bool, wq *WriteQueue) *ProcessRequest {
 	req := &ProcessRequest{
 		StreamId: streamId,
 		Stop:     stop,

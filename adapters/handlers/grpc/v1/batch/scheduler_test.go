@@ -55,6 +55,7 @@ func TestScheduler(t *testing.T) {
 		}, 1*time.Second, 10*time.Millisecond, "Expected object to be sent to internal queue")
 
 		shutdownCancel() // Trigger shutdown
+		close(queue)     // Close the write queue as part of shutdown
 		wg.Wait()
 
 		require.Empty(t, internalQueue, "Expected internal queue to be empty after shutdown")

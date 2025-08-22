@@ -238,13 +238,13 @@ func NewBatchWriteQueue(buffer int) writeQueue {
 
 func NewBatchWriteQueues() *WriteQueues {
 	return &WriteQueues{
-		queues: sync.Map{},
+		queues: make(map[string]*WriteQueue),
 	}
 }
 
 func NewBatchReadQueues() *ReadQueues {
 	return &ReadQueues{
-		queues: sync.Map{},
+		queues: make(map[string]readQueue),
 	}
 }
 
@@ -274,35 +274,38 @@ func NewWriteObject(obj *pb.BatchObject) *writeObject {
 
 type ReadQueues struct {
 	lock   sync.RWMutex
-	queues sync.Map // map[string]readQueue
+	queues map[string]readQueue
 }
 
 // Get retrieves the read queue for the given stream ID.
 func (r *ReadQueues) Get(streamId string) (readQueue, bool) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
-	queue, ok := r.queues.Load(streamId)
-	if !ok {
-		return nil, false
-	}
-	return queue.(readQueue), true
+	queue, ok := r.queues[streamId]
+	return queue, ok
 }
 
 // Delete removes the read queue for the given stream ID.
 func (r *ReadQueues) Delete(streamId string) {
-	r.queues.Delete(streamId)
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	delete(r.queues, streamId)
 }
 
 func (r *ReadQueues) Close(streamId string) {
-	if queue, ok := r.queues.Load(streamId); ok {
-		close(queue.(readQueue))
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	if queue, ok := r.queues[streamId]; ok {
+		close(queue)
 	}
 }
 
 // Make initializes a read queue for the given stream ID if it does not already exist.
 func (r *ReadQueues) Make(streamId string) {
-	if _, ok := r.queues.Load(streamId); !ok {
-		r.queues.Store(streamId, make(readQueue))
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	if _, ok := r.queues[streamId]; !ok {
+		r.queues[streamId] = make(readQueue)
 	}
 }
 
@@ -350,7 +353,15 @@ func (w *WriteQueue) NextBatchSize(batch int) int {
 }
 
 type WriteQueues struct {
-	queues sync.Map // map[string]*WriteQueue
+	lock   sync.RWMutex
+	queues map[string]*WriteQueue
+	uuids  []string
+}
+
+func (w *WriteQueues) Uuids() []string {
+	w.lock.RLock()
+	defer w.lock.RUnlock()
+	return w.uuids
 }
 
 func (w *WriteQueues) NextBatchSize(streamId string, batch int) int {
@@ -362,44 +373,57 @@ func (w *WriteQueues) NextBatchSize(streamId string, batch int) int {
 }
 
 func (w *WriteQueues) Get(streamId string) (*WriteQueue, bool) {
-	value, ok := w.queues.Load(streamId)
+	w.lock.RLock()
+	defer w.lock.RUnlock()
+	queue, ok := w.queues[streamId]
 	if !ok {
 		return nil, false
 	}
-	wq, ok := value.(*WriteQueue)
-	if !ok {
-		return nil, false
-	}
-	return wq, true
+	return queue, true
 }
 
 func (w *WriteQueues) GetQueue(streamId string) (writeQueue, bool) {
-	queue, ok := w.queues.Load(streamId)
+	w.lock.RLock()
+	defer w.lock.RUnlock()
+	queue, ok := w.queues[streamId]
 	if !ok {
 		return nil, false
 	}
-	return queue.(*WriteQueue).queue, true
+	return queue.queue, true
 }
 
 func (w *WriteQueues) Delete(streamId string) {
-	w.queues.Delete(streamId)
+	w.lock.Lock()
+	defer w.lock.Unlock()
+	delete(w.queues, streamId)
+	// Remove from uuids slice
+	for i, uuid := range w.uuids {
+		if uuid == streamId {
+			w.uuids = append(w.uuids[:i], w.uuids[i+1:]...)
+			break
+		}
+	}
 }
 
 func (w *WriteQueues) Close() {
-	w.queues.Range(func(key, value any) bool {
-		close(value.(*WriteQueue).queue)
-		return true
-	})
+	w.lock.Lock()
+	defer w.lock.Unlock()
+	for _, queue := range w.queues {
+		close(queue.queue)
+	}
 }
 
 func (w *WriteQueues) Make(streamId string, consistencyLevel *pb.ConsistencyLevel) {
+	w.lock.Lock()
+	defer w.lock.Unlock()
 	buffer := 10000 // Default buffer size
-	if _, ok := w.queues.Load(streamId); !ok {
-		w.queues.Store(streamId, &WriteQueue{
+	if _, ok := w.queues[streamId]; !ok {
+		w.queues[streamId] = &WriteQueue{
 			queue:            NewBatchWriteQueue(buffer),
 			consistencyLevel: consistencyLevel,
 			buffer:           buffer,
 			alpha:            0.2, // Smoothing factor for EMA of queue length
-		})
+		}
+		w.uuids = append(w.uuids, streamId)
 	}
 }
