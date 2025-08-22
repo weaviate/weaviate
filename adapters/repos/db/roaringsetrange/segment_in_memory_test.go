@@ -240,6 +240,10 @@ func TestSegmentInMemoryReader(t *testing.T) {
 				name:     "contains all",
 				operator: filters.ContainsAll,
 			},
+			{
+				name:     "contains none",
+				operator: filters.ContainsNone,
+			},
 		}
 
 		for _, tc := range testCases {

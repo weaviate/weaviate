@@ -145,6 +145,8 @@ func parseOperator(in string) (filters.Operator, error) {
 		return filters.ContainsAny, nil
 	case models.WhereFilterOperatorContainsAll:
 		return filters.ContainsAll, nil
+	case models.WhereFilterOperatorContainsNone:
+		return filters.ContainsNone, nil
 	default:
 		return -1, fmt.Errorf("unrecognized operator: %s", in)
 	}
