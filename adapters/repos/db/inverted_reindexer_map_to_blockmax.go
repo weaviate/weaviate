@@ -1692,7 +1692,7 @@ func (t *fileMapToBlockmaxReindexTracker) GetProps() ([]string, error) {
 	if len(content) == 0 {
 		return []string{}, nil
 	}
-	return strings.Split(string(content), ","), nil
+	return strings.Split(strings.TrimSpace(string(content)), ","), nil
 }
 
 func (t *fileMapToBlockmaxReindexTracker) IsReset() bool {
