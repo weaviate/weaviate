@@ -28,6 +28,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
@@ -304,7 +305,7 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 }
 
 func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
-	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
+	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger, cfg.NodeSelector)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 
@@ -512,40 +513,12 @@ func (st *Store) StoreSchemaV1() error {
 }
 
 func (st *Store) Close(ctx context.Context) error {
-	if !st.open.Load() {
-		return nil
-	}
-
-	// transfer leadership: it stops accepting client requests, ensures
-	// the target server is up to date and initiates the transfer
-	if st.IsLeader() {
-		st.log.Info("transferring leadership to another server")
-		if err := st.raft.LeadershipTransfer().Error(); err != nil {
-			st.log.WithError(err).Error("transferring leadership")
-		} else {
-			st.log.Info("successfully transferred leadership to another server")
-		}
-	}
-
-	if err := st.raft.Shutdown().Error(); err != nil {
-		return err
-	}
-
-	st.open.Store(false)
-
-	st.log.Info("closing raft-net ...")
-	if err := st.raftTransport.Close(); err != nil {
-		// it's not that fatal if we weren't able to close
-		// the transport, that's why just warn
-		st.log.WithError(err).Warn("close raft-net")
-	}
-
-	st.log.Info("closing log store ...")
+	st.log.Info("closing raft log store ...")
 	if err := st.logStore.Close(); err != nil {
 		return fmt.Errorf("close log store: %w", err)
 	}
 
-	st.log.Info("closing data store ...")
+	st.log.Info("closing database store ...")
 	if err := st.schemaManager.Close(ctx); err != nil {
 		return fmt.Errorf(" close database: %w", err)
 	}
