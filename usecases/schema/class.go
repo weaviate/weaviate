@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	cschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -213,7 +214,7 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 	return vectorIndexConfig
 }
 
-func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string) error {
+func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string, overwriteAlias bool) error {
 	// get schema and sharding state
 	class := &models.Class{}
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
@@ -280,7 +281,27 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	for _, alias := range aliases {
-		_, err := h.schemaManager.CreateAlias(ctx, alias.Alias, class)
+		var err error
+		_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
+		if errors.Is(err, cschema.ErrAliasExists) {
+			// Overwrite if user asks to during restore
+			if overwriteAlias {
+				_, err = h.schemaManager.DeleteAlias(ctx, alias.Alias)
+				if err != nil {
+					return fmt.Errorf("failed to restore alias for class: delete alias failed: %w", err)
+				}
+				// retry again
+				_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
+				if err != nil {
+					return fmt.Errorf("failed to restore alias for class: create alias failed: %w", err)
+				}
+				return nil
+			}
+			// Schema returned alias already exists error. So let user know
+			// that there is a "flag overwrite" if she want's to overwrite alias.
+			return fmt.Errorf("failed to restore alias for class: alias already exists. You can overwrite using `overwrite_alias` param when restoring")
+		}
+
 		if err != nil {
 			return fmt.Errorf("failed to restore alias for class: %w", err)
 		}
