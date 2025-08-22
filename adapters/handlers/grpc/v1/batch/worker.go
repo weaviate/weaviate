@@ -31,7 +31,7 @@ type Worker struct {
 	logger        logrus.FieldLogger
 	readQueues    *ReadQueues
 	internalQueue internalQueue
-	wgs           *sync.Map
+	wgs           *sync.Map // map[string]*sync.WaitGroup; streamID -> wg
 }
 
 type SendObjects struct {
@@ -71,6 +71,9 @@ func (w *Worker) sendObjects(ctx context.Context, wg *sync.WaitGroup, streamId s
 	if err != nil {
 		return err
 	}
+	// TODO: add logic to re-add any known transient errors to the queue here
+	// e.g., broadcast: cannot reach enough replicas or internal clusterAPI failed comms
+	// like dial tcp 10.244.0.15:7001: connect: connection refused
 	if len(reply.GetErrors()) > 0 {
 		errs := make([]*pb.BatchError, 0, len(reply.GetErrors()))
 		for _, err := range reply.GetErrors() {

@@ -98,7 +98,9 @@ func (s *Shutdown) Drain(logger logrus.FieldLogger) {
 	// wait for all the objects to be processed from the internal queue
 	s.WorkersWg.Wait()
 	logger.Info("finished draining the internal queues")
+	// signal that shutdown is complete
 	close(s.ShutdownFinished)
-	logger.Info("waiting for all stream to exit")
+	logger.Info("waiting for all streams to exit")
+	// wait for all streams to exit, i.e. be hungup by their clients
 	s.StreamWg.Wait()
 }

@@ -51,7 +51,7 @@ func (s *Scheduler) Loop(ctx context.Context) {
 	}
 }
 
-func (s *Scheduler) loop(op func(streamId string, wq *WriteQueue) bool) {
+func (s *Scheduler) loop(op func(streamId string, wq *WriteQueue)) {
 	for _, uuid := range s.writeQueues.Uuids() {
 		wq, ok := s.writeQueues.Get(uuid)
 		if !ok {
@@ -61,7 +61,7 @@ func (s *Scheduler) loop(op func(streamId string, wq *WriteQueue) bool) {
 	}
 }
 
-func (s *Scheduler) drain(streamId string, wq *WriteQueue) bool {
+func (s *Scheduler) drain(streamId string, wq *WriteQueue) {
 	objs := make([]*pb.BatchObject, 0, 1000)
 	refs := make([]*pb.BatchReference, 0, 1000)
 	for obj := range wq.queue {
@@ -83,18 +83,15 @@ func (s *Scheduler) drain(streamId string, wq *WriteQueue) bool {
 		req := newProcessRequest(objs, refs, streamId, false, wq)
 		s.internalQueue <- req
 	}
-	// channel is closed
-	return true
 }
 
-func (s *Scheduler) schedule(streamId string, wq *WriteQueue) bool {
+func (s *Scheduler) schedule(streamId string, wq *WriteQueue) {
 	objs, refs, stop := s.pull(wq.queue, 1000)
 	req := newProcessRequest(objs, refs, streamId, stop, wq)
 	if (req.Objects != nil && len(req.Objects.Values) > 0) || (req.References != nil && len(req.References.Values) > 0) || req.Stop {
 		s.internalQueue <- req
 	}
 	time.Sleep(time.Millisecond * 5)
-	return true
 }
 
 func (s *Scheduler) pull(queue writeQueue, max int) ([]*pb.BatchObject, []*pb.BatchReference, bool) {
@@ -151,7 +148,7 @@ func StartScheduler(ctx context.Context, wg *sync.WaitGroup, writeQueues *WriteQ
 	scheduler := NewScheduler(writeQueues, internalQueue, logger)
 	wg.Add(1)
 	enterrors.GoWrapper(func() {
+		defer wg.Done()
 		scheduler.Loop(ctx)
-		wg.Done()
 	}, logger)
 }
