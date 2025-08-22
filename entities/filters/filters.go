@@ -31,6 +31,7 @@ const (
 	OperatorOr
 	OperatorWithinGeoRange
 	OperatorLike
+	OperatorNotLike
 	OperatorIsNull
 	ContainsAny
 	ContainsAll
@@ -46,6 +47,7 @@ func (o Operator) OnValue() bool {
 		OperatorLessThanEqual,
 		OperatorWithinGeoRange,
 		OperatorLike,
+		OperatorNotLike,
 		OperatorIsNull,
 		ContainsAny,
 		ContainsAll:
@@ -77,6 +79,8 @@ func (o Operator) Name() string {
 		return "WithinGeoRange"
 	case OperatorLike:
 		return "Like"
+	case OperatorNotLike:
+		return "NotLike"
 	case OperatorIsNull:
 		return "IsNull"
 	case ContainsAny:
