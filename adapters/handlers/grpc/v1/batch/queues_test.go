@@ -176,7 +176,7 @@ func TestHandler(t *testing.T) {
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
 			go func() {
-				ch <- batch.NewStopReadObject()
+				close(ch)
 			}()
 
 			err := handler.Stream(ctx, StreamId, stream)
@@ -316,7 +316,7 @@ func TestHandler(t *testing.T) {
 			require.True(t, ok, "Expected read queue to exist")
 			go func() {
 				ch <- batch.NewErrorsObject([]*pb.BatchError{{Error: "processing error"}})
-				ch <- batch.NewStopReadObject()
+				close(ch)
 			}()
 
 			readQueues.Make(StreamId)

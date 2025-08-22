@@ -92,12 +92,6 @@ func (s *Scheduler) drain(streamId string, wq *WriteQueue) bool {
 	objs := make([]*pb.BatchObject, 0, 1000)
 	refs := make([]*pb.BatchReference, 0, 1000)
 	for obj := range wq.queue {
-		if obj == nil {
-			req := newProcessRequest(objs, refs, streamId, false, wq.consistencyLevel, wq)
-			s.internalQueue <- req
-			// channel is closed
-			return true
-		}
 		if obj.Object != nil {
 			objs = append(objs, obj.Object)
 		}
@@ -112,6 +106,11 @@ func (s *Scheduler) drain(streamId string, wq *WriteQueue) bool {
 			refs = make([]*pb.BatchReference, 0, 1000)
 		}
 	}
+	if len(objs) >= 1000 || len(refs) >= 1000 {
+		req := newProcessRequest(objs, refs, streamId, false, wq.consistencyLevel, wq)
+		s.internalQueue <- req
+	}
+	// channel is closed
 	return true
 }
 
@@ -130,8 +129,8 @@ func (s *Scheduler) pull(queue writeQueue, max int) ([]*pb.BatchObject, []*pb.Ba
 	refs := make([]*pb.BatchReference, 0, max)
 	for i := 0; i < max && len(queue) > 0; i++ {
 		select {
-		case obj := <-queue:
-			if obj == nil {
+		case obj, ok := <-queue:
+			if !ok {
 				// channel is closed
 				return objs, refs, false
 			}

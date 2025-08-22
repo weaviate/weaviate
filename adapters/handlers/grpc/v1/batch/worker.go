@@ -31,7 +31,7 @@ type Worker struct {
 	logger        logrus.FieldLogger
 	readQueues    *ReadQueues
 	internalQueue internalQueue
-	writeQueues   *WriteQueues
+	wgs           *sync.Map
 }
 
 type SendObjects struct {
@@ -53,10 +53,17 @@ type ProcessRequest struct {
 	Stop       bool
 }
 
-func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObjects) error {
+func (w *Worker) wgForStream(streamId string) *sync.WaitGroup {
+	actual, _ := w.wgs.LoadOrStore(streamId, &sync.WaitGroup{})
+	return actual.(*sync.WaitGroup)
+}
+
+func (w *Worker) sendObjects(ctx context.Context, wg *sync.WaitGroup, streamId string, req *SendObjects) error {
 	if req == nil {
 		return fmt.Errorf("received nil sendObjects request")
 	}
+	wg.Add(1)
+	defer wg.Done()
 	reply, err := w.batcher.BatchObjects(ctx, &pb.BatchObjectsRequest{
 		Objects:          req.Values,
 		ConsistencyLevel: req.ConsistencyLevel,
@@ -83,10 +90,12 @@ func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObje
 	return nil
 }
 
-func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendReferences) error {
+func (w *Worker) sendReferences(ctx context.Context, wg *sync.WaitGroup, streamId string, req *SendReferences) error {
 	if req == nil {
 		return fmt.Errorf("received nil sendReferences request")
 	}
+	wg.Add(1)
+	defer wg.Done()
 	reply, err := w.batcher.BatchReferences(ctx, &pb.BatchReferencesRequest{
 		References:       req.Values,
 		ConsistencyLevel: req.ConsistencyLevel,
@@ -139,32 +148,36 @@ func (w *Worker) Loop(ctx context.Context) error {
 }
 
 func (w *Worker) process(ctx context.Context, req *ProcessRequest) error {
+	wg := w.wgForStream(req.StreamId)
 	if req.Objects != nil {
-		if err := w.sendObjects(ctx, req.StreamId, req.Objects); err != nil {
+		if err := w.sendObjects(ctx, wg, req.StreamId, req.Objects); err != nil {
 			return err
 		}
 	}
 	if req.References != nil {
-		if err := w.sendReferences(ctx, req.StreamId, req.References); err != nil {
+		if err := w.sendReferences(ctx, wg, req.StreamId, req.References); err != nil {
 			return err
 		}
 	}
+	// This should only ever be received once so it’s okay to wait on the shared wait group here
+	// If the scheduler does send more than one stop per stream then deadlocks may occur
 	if req.Stop {
+		wg.Wait() // Wait for all processing requests to complete
 		// Signal to the reply handler that we are done
-		if ch, ok := w.readQueues.Get(req.StreamId); ok {
-			ch <- &readObject{Stop: true}
-		}
+		w.readQueues.Close(req.StreamId)
+		w.wgs.Delete(req.StreamId) // Clean up the wait group map
 	}
 	return nil
 }
 
-func StartBatchWorkers(ctx context.Context, wg *sync.WaitGroup, concurrency int, internalQueue internalQueue, readQueues *ReadQueues, writeQueues *WriteQueues, batcher Batcher, logger logrus.FieldLogger) {
+func StartBatchWorkers(ctx context.Context, wg *sync.WaitGroup, concurrency int, internalQueue internalQueue, readQueues *ReadQueues, batcher Batcher, logger logrus.FieldLogger) {
 	eg := enterrors.NewErrorGroupWrapper(logger)
+	wgs := sync.Map{}
 	for range concurrency {
 		wg.Add(1)
 		eg.Go(func() error {
 			defer wg.Done()
-			w := &Worker{batcher: batcher, logger: logger, readQueues: readQueues, writeQueues: writeQueues, internalQueue: internalQueue}
+			w := &Worker{batcher: batcher, logger: logger, readQueues: readQueues, internalQueue: internalQueue, wgs: &wgs}
 			return w.Loop(ctx)
 		})
 	}

@@ -965,7 +965,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			appState.DistributedTaskScheduler.Close()
 		}
 
-		grpcShutdown.HandlersCancel()
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
 

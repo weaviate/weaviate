@@ -58,6 +58,28 @@ func NewShutdown(ctx context.Context) *Shutdown {
 	}
 }
 
+// Drain handles the graceful shutdown of all batch processing components.
+//
+// The order of operations needs to be as follows to ensure that there are no missed objects/references in any of the
+// write queues nor any missed errors in the read queues:
+//
+// 1. Stop accepting new requests in the handlers
+//   - This prevents new requests from being added to the system while we are shutting down
+//
+// 2. Wait for all in-flight Send requests to finish
+//   - This ensures that the write queues are no longer being written to
+//
+// 3. Stop the scheduler loop and drain the write queues
+//   - This ensures that all currently waiting write objects/references are added to the internal queues
+//
+// 4. Stop the worker loops and drain the internal queue
+//   - This ensures that all currently waiting batch requests in the internal queue are processed
+//
+// 5. Signal shutdown complete and wait for all streams to communicate this to clients
+//   - This ensures that all clients have acknowledged shutdown so that they can successfully reconnect to another node
+//
+// The gRPC shutdown is then considered complete as every queue has been drained successfully so the server
+// can move onto switching off the HTTP handlers and shutting itself down completely.
 func (s *Shutdown) Drain(logger logrus.FieldLogger) {
 	// stop handlers first
 	s.HandlersCancel()

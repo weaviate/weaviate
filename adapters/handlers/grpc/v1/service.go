@@ -54,7 +54,6 @@ type Service struct {
 	authenticator      *authHandler
 	batchHandler       *batch.Handler
 	batchQueuesHandler *batch.QueuesHandler
-	// batchWorkers        []*batch.Worker
 }
 
 func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
@@ -81,7 +80,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		numWorkers = 4
 	}
 
-	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, numWorkers, internalQueue, batchReadQueues, batchWriteQueues, batchHandler, logger)
+	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, numWorkers, internalQueue, batchReadQueues, batchHandler, logger)
 	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, batchWriteQueues, internalQueue, logger)
 
 	return &Service{
@@ -228,6 +227,10 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 	return result, nil
 }
 
+// BatchObjects handles end-to-end batch object creation. It accepts N objects in the request and forwards them to the internal
+// batch objects logic. It blocks until a response is retrieved from the internal APIs whereupon it returns the response to the client.
+//
+// It is intended to be used in isolation and therefore is not dependent on BatchSend/BatchStream.
 func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 	var result *pb.BatchObjectsReply
 	var errInner error
@@ -241,6 +244,10 @@ func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	return result, errInner
 }
 
+// BatchObjects handles end-to-end batch reference creation. It accepts N references in the request and forwards them to the internal
+// batch references logic. It blocks until a response is retrieved from the internal APIs whereupon it returns the response to the client.
+//
+// It is intended to be used in isolation and therefore is not dependent on BatchSend/BatchStream.
 func (s *Service) BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (*pb.BatchReferencesReply, error) {
 	var result *pb.BatchReferencesReply
 	var errInner error
@@ -254,6 +261,16 @@ func (s *Service) BatchReferences(ctx context.Context, req *pb.BatchReferencesRe
 	return result, errInner
 }
 
+// BatchSend is similar in concept to the BatchObjects and BatchReferences methods in that it accepts N objects or references
+// in a single gRPC invocation call. However, it differs in that it does not wait for the objects/references to be fully
+// inserted into the database before returning a response. Instead, it simply adds the objects/references to the internal
+// queueing system and then returns immediately.
+//
+// In addition, in order to assign the objects/references to the correct internal queue, it requires the stream ID to be
+// specified in the request. This stream ID is only available to clients once they have opened a stream using the BatchStream method.
+//
+// This method therefore does not work in isolation, it has to be used in conjunction with other methods.
+// It should be used as part of the automatic batching process provided in clients.
 func (s *Service) BatchSend(ctx context.Context, req *pb.BatchSendRequest) (*pb.BatchSendReply, error) {
 	var result *pb.BatchSendReply
 	var errInner error
@@ -269,6 +286,22 @@ func (s *Service) BatchSend(ctx context.Context, req *pb.BatchSendRequest) (*pb.
 	return result, errInner
 }
 
+// BatchStream defines a UnaryStream gRPC method whereby the server streams messages back to the client in order to
+// asynchronously report on any errors that have occurred during the automatic batching process.
+//
+// The initial request contains the consistency level that is desired when batch inserting in this processing context.
+//
+// The first message send to the client contains the stream ID for the overall stream. All subsequent messages, besides the final one,
+// correspond to errors emitted by the internal batching APIs, e.g. validation errors of the objects/references. The final
+// message sent to the client is a confirmation that the batch processing has completed successfully and that the client can hangup.
+//
+// In addition, there is also the shutdown logic that is sent via the stream from the server to the client. In the event that
+// the node handling the batch processing must be shutdown, e.g. there's a rolling restart occurring on the cluster, then the
+// stream will notify the client that it is shutting down allowing for all the internal queues to be drained and waited on. Once the final
+// shutdown message is sent and received by the client, the client can then safely hangup and reconnect to the cluster in an effort to
+// reconnect to a different available node. At that point, the batching process resumes on the other node as if nothing happened.
+//
+// It should be used as part of the automatic batching process provided in clients.
 func (s *Service) BatchStream(req *pb.BatchStreamRequest, stream pb.Weaviate_BatchStreamServer) error {
 	id, err := uuid.NewRandom()
 	if err != nil {

@@ -96,14 +96,14 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 					return innerErr
 				}
 				return h.wait(ctx)
-			case errs := <-readQueue:
-				if errs.Stop {
+			case readObj, ok := <-readQueue:
+				if !ok {
 					if innerErr := stream.Send(newBatchStopMessage(streamId)); innerErr != nil {
 						return innerErr
 					}
 					return h.wait(ctx)
 				}
-				for _, err := range errs.Errors {
+				for _, err := range readObj.Errors {
 					if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
 						return innerErr
 					}
@@ -119,10 +119,10 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
 func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) (int, error) {
+	h.sendWg.Add(1)
 	if h.shuttingDownCtx.Err() != nil {
 		return 0, fmt.Errorf("grpc shutdown in progress, no more requests are permitted on this node")
 	}
-	h.sendWg.Add(1)
 	defer h.sendWg.Done()
 	streamId := request.GetStreamId()
 	queue, ok := h.writeQueues.GetQueue(streamId)
@@ -130,14 +130,18 @@ func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) 
 		h.logger.WithField("streamId", streamId).Error("write queue not found")
 		return 0, fmt.Errorf("write queue for stream %s not found", streamId)
 	}
-	for _, obj := range request.GetObjects().GetValues() {
-		queue <- &writeObject{Object: obj}
-	}
-	for _, ref := range request.GetReferences().GetValues() {
-		queue <- &writeObject{Reference: ref}
-	}
-	if request.GetStop() != nil {
+	if request.GetObjects() != nil {
+		for _, obj := range request.GetObjects().GetValues() {
+			queue <- &writeObject{Object: obj}
+		}
+	} else if request.GetReferences() != nil {
+		for _, ref := range request.GetReferences().GetValues() {
+			queue <- &writeObject{Reference: ref}
+		}
+	} else if request.GetStop() != nil {
 		queue <- &writeObject{Stop: true}
+	} else {
+		return 0, fmt.Errorf("invalid batch send request: neither objects, references nor stop signal provided")
 	}
 	return h.writeQueues.NextBatchSize(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues())), nil
 }
@@ -205,7 +209,6 @@ func newBatchShuttingDownMessage(streamId string) *pb.BatchStreamMessage {
 
 type readObject struct {
 	Errors []*pb.BatchError
-	Stop   bool
 }
 
 type writeObject struct {
@@ -249,13 +252,6 @@ func NewBatchReadQueue() readQueue {
 	return make(readQueue)
 }
 
-func NewStopReadObject() *readObject {
-	return &readObject{
-		Errors: nil,
-		Stop:   true,
-	}
-}
-
 func NewStopWriteObject() *writeObject {
 	return &writeObject{
 		Object: nil,
@@ -294,17 +290,13 @@ func (r *ReadQueues) Get(streamId string) (readQueue, bool) {
 
 // Delete removes the read queue for the given stream ID.
 func (r *ReadQueues) Delete(streamId string) {
-	if queue, ok := r.queues.Load(streamId); ok {
-		close(queue.(readQueue))
-		r.queues.Delete(streamId)
-	}
+	r.queues.Delete(streamId)
 }
 
-func (r *ReadQueues) Close() {
-	r.queues.Range(func(key, value any) bool {
-		close(value.(readQueue))
-		return true
-	})
+func (r *ReadQueues) Close(streamId string) {
+	if queue, ok := r.queues.Load(streamId); ok {
+		close(queue.(readQueue))
+	}
 }
 
 // Make initializes a read queue for the given stream ID if it does not already exist.
@@ -322,13 +314,17 @@ type WriteQueue struct {
 	objIndex int32
 	refIndex int32
 
-	emaQueueLen      float32 // Exponential moving average of the queue length
-	buffer           int     // Buffer size for the write queue
-	alpha            float32 // Smoothing factor for EMA, typically between 0 and 1
-	initialBatchSize int     // The size of the first batch sent before scaling occurred
+	lock             sync.RWMutex // Used when concurrently re-calculating NextBatchSize in Send method
+	emaQueueLen      float32      // Exponential moving average of the queue length
+	buffer           int          // Buffer size for the write queue
+	alpha            float32      // Smoothing factor for EMA, typically between 0 and 1
+	initialBatchSize int          // The size of the first batch sent before scaling occurred
 }
 
 func (w *WriteQueue) NextBatchSize(batch int) int {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
 	if w.initialBatchSize == 0 {
 		w.initialBatchSize = batch // Store the initial batch size
 	}
@@ -386,11 +382,6 @@ func (w *WriteQueues) GetQueue(streamId string) (writeQueue, bool) {
 }
 
 func (w *WriteQueues) Delete(streamId string) {
-	wq, ok := w.GetQueue(streamId)
-	if !ok {
-		return
-	}
-	close(wq)
 	w.queues.Delete(streamId)
 }
 

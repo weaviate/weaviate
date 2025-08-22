@@ -42,8 +42,6 @@ func TestWorkerLoop(t *testing.T) {
 
 		readQueues := batch.NewBatchReadQueues()
 		readQueues.Make(StreamId)
-		writeQueues := batch.NewBatchWriteQueues()
-		writeQueues.Make(StreamId, nil)
 		internalQueue := batch.NewBatchInternalQueue()
 
 		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
@@ -55,7 +53,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: nil,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, writeQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, mockBatcher, logger)
 
 		// Send data
 		internalQueue <- &batch.ProcessRequest{
@@ -80,8 +78,8 @@ func TestWorkerLoop(t *testing.T) {
 		// Accept the stop message
 		ch, ok := readQueues.Get(StreamId)
 		require.True(t, ok, "Expected read queue to exist and to contain message")
-		stop := <-ch
-		require.True(t, stop.Stop, "Expected stop signal to be true")
+		_, ok = <-ch
+		require.False(t, ok, "Expected read queue to be closed")
 
 		cancel()             // Cancel the context to stop the worker loop
 		close(internalQueue) // Allow the draining logic to exit naturally
@@ -99,8 +97,6 @@ func TestWorkerLoop(t *testing.T) {
 
 		readQueues := batch.NewBatchReadQueues()
 		readQueues.Make(StreamId)
-		writeQueues := batch.NewBatchWriteQueues()
-		writeQueues.Make(StreamId, nil)
 		internalQueue := batch.NewBatchInternalQueue()
 
 		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
@@ -112,7 +108,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: nil,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, writeQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, mockBatcher, logger)
 
 		cancel() // Cancel the context to simulate shutdown
 		// Send data after context cancellation to ensure that the worker processes it
@@ -139,8 +135,8 @@ func TestWorkerLoop(t *testing.T) {
 		// Accept the stop message
 		ch, ok := readQueues.Get(StreamId)
 		require.True(t, ok, "Expected read queue to exist and to contain message")
-		stop := <-ch
-		require.True(t, stop.Stop, "Expected stop signal to be true")
+		_, ok = <-ch
+		require.False(t, ok, "Expected read queue to be closed")
 
 		wg.Wait() // Wait for the worker to finish processing
 		require.Empty(t, internalQueue, "Expected internal queue to be empty after processing")
@@ -156,8 +152,6 @@ func TestWorkerLoop(t *testing.T) {
 
 		readQueues := batch.NewBatchReadQueues()
 		readQueues.Make(StreamId)
-		writeQueues := batch.NewBatchWriteQueues()
-		writeQueues.Make(StreamId, nil)
 		internalQueue := batch.NewBatchInternalQueue()
 
 		errorsObj := []*pb.BatchObjectsReply_BatchError{
@@ -181,7 +175,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: errorsRefs,
 		}, nil)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, writeQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, mockBatcher, logger)
 
 		// Send data
 		obj := &pb.BatchObject{}
@@ -225,8 +219,8 @@ func TestWorkerLoop(t *testing.T) {
 		require.Nil(t, errs.Errors[0].Object, "Expected object to be nil for reference errors")
 
 		// Read sentinel
-		stop := <-ch
-		require.True(t, stop.Stop, "Expected stop signal to be true")
+		_, ok = <-ch
+		require.False(t, ok, "Expected read queue to be closed")
 
 		cancel()             // Cancel the context to stop the worker loop
 		close(internalQueue) // Allow the draining logic to exit naturally
