@@ -30,13 +30,12 @@ type SearchRequest struct {
 	Metadata   *MetadataRequest   `protobuf:"bytes,21,opt,name=metadata,proto3,oneof" json:"metadata,omitempty"`
 	GroupBy    *GroupBy           `protobuf:"bytes,22,opt,name=group_by,json=groupBy,proto3,oneof" json:"group_by,omitempty"`
 	// affects order and length of results. 0/empty (default value) means disabled
-	Limit   uint32 `protobuf:"varint,30,opt,name=limit,proto3" json:"limit,omitempty"`
-	Offset  uint32 `protobuf:"varint,31,opt,name=offset,proto3" json:"offset,omitempty"`
-	Autocut uint32 `protobuf:"varint,32,opt,name=autocut,proto3" json:"autocut,omitempty"`
-	After   string `protobuf:"bytes,33,opt,name=after,proto3" json:"after,omitempty"`
+	Limit   uint32  `protobuf:"varint,30,opt,name=limit,proto3" json:"limit,omitempty"`
+	Offset  uint32  `protobuf:"varint,31,opt,name=offset,proto3" json:"offset,omitempty"`
+	Autocut uint32  `protobuf:"varint,32,opt,name=autocut,proto3" json:"autocut,omitempty"`
+	After   *string `protobuf:"bytes,33,opt,name=after,proto3,oneof" json:"after,omitempty"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-	SortBy       []*SortBy `protobuf:"bytes,34,rep,name=sort_by,json=sortBy,proto3" json:"sort_by,omitempty"`
-	AfterPresent bool      `protobuf:"varint,35,opt,name=after_present,json=afterPresent,proto3" json:"after_present,omitempty"`
+	SortBy []*SortBy `protobuf:"bytes,34,rep,name=sort_by,json=sortBy,proto3" json:"sort_by,omitempty"`
 	// matches/searches for objects
 	Filters      *Filters           `protobuf:"bytes,40,opt,name=filters,proto3,oneof" json:"filters,omitempty"`
 	HybridSearch *Hybrid            `protobuf:"bytes,41,opt,name=hybrid_search,json=hybridSearch,proto3,oneof" json:"hybrid_search,omitempty"`
@@ -155,8 +154,8 @@ func (x *SearchRequest) GetAutocut() uint32 {
 }
 
 func (x *SearchRequest) GetAfter() string {
-	if x != nil {
-		return x.After
+	if x != nil && x.After != nil {
+		return *x.After
 	}
 	return ""
 }
@@ -166,13 +165,6 @@ func (x *SearchRequest) GetSortBy() []*SortBy {
 		return x.SortBy
 	}
 	return nil
-}
-
-func (x *SearchRequest) GetAfterPresent() bool {
-	if x != nil {
-		return x.AfterPresent
-	}
-	return false
 }
 
 func (x *SearchRequest) GetFilters() *Filters {
@@ -1423,7 +1415,7 @@ var File_v1_search_get_proto protoreflect.FileDescriptor
 
 const file_v1_search_get_proto_rawDesc = "" +
 	"\n" +
-	"\x13v1/search_get.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\x1a\x13v1/generative.proto\x1a\x13v1/properties.proto\"\xec\r\n" +
+	"\x13v1/search_get.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\x1a\x13v1/generative.proto\x1a\x13v1/properties.proto\"\xd6\r\n" +
 	"\rSearchRequest\x12\x1e\n" +
 	"\n" +
 	"collection\x18\x01 \x01(\tR\n" +
@@ -1438,34 +1430,33 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\bgroup_by\x18\x16 \x01(\v2\x14.weaviate.v1.GroupByH\x03R\agroupBy\x88\x01\x01\x12\x14\n" +
 	"\x05limit\x18\x1e \x01(\rR\x05limit\x12\x16\n" +
 	"\x06offset\x18\x1f \x01(\rR\x06offset\x12\x18\n" +
-	"\aautocut\x18  \x01(\rR\aautocut\x12\x14\n" +
-	"\x05after\x18! \x01(\tR\x05after\x12,\n" +
-	"\asort_by\x18\" \x03(\v2\x13.weaviate.v1.SortByR\x06sortBy\x12#\n" +
-	"\rafter_present\x18# \x01(\bR\fafterPresent\x123\n" +
-	"\afilters\x18( \x01(\v2\x14.weaviate.v1.FiltersH\x04R\afilters\x88\x01\x01\x12=\n" +
-	"\rhybrid_search\x18) \x01(\v2\x13.weaviate.v1.HybridH\x05R\fhybridSearch\x88\x01\x01\x127\n" +
-	"\vbm25_search\x18* \x01(\v2\x11.weaviate.v1.BM25H\x06R\n" +
+	"\aautocut\x18  \x01(\rR\aautocut\x12\x19\n" +
+	"\x05after\x18! \x01(\tH\x04R\x05after\x88\x01\x01\x12,\n" +
+	"\asort_by\x18\" \x03(\v2\x13.weaviate.v1.SortByR\x06sortBy\x123\n" +
+	"\afilters\x18( \x01(\v2\x14.weaviate.v1.FiltersH\x05R\afilters\x88\x01\x01\x12=\n" +
+	"\rhybrid_search\x18) \x01(\v2\x13.weaviate.v1.HybridH\x06R\fhybridSearch\x88\x01\x01\x127\n" +
+	"\vbm25_search\x18* \x01(\v2\x11.weaviate.v1.BM25H\aR\n" +
 	"bm25Search\x88\x01\x01\x12=\n" +
-	"\vnear_vector\x18+ \x01(\v2\x17.weaviate.v1.NearVectorH\aR\n" +
+	"\vnear_vector\x18+ \x01(\v2\x17.weaviate.v1.NearVectorH\bR\n" +
 	"nearVector\x88\x01\x01\x12=\n" +
-	"\vnear_object\x18, \x01(\v2\x17.weaviate.v1.NearObjectH\bR\n" +
+	"\vnear_object\x18, \x01(\v2\x17.weaviate.v1.NearObjectH\tR\n" +
 	"nearObject\x88\x01\x01\x12=\n" +
-	"\tnear_text\x18- \x01(\v2\x1b.weaviate.v1.NearTextSearchH\tR\bnearText\x88\x01\x01\x12@\n" +
+	"\tnear_text\x18- \x01(\v2\x1b.weaviate.v1.NearTextSearchH\n" +
+	"R\bnearText\x88\x01\x01\x12@\n" +
 	"\n" +
-	"near_image\x18. \x01(\v2\x1c.weaviate.v1.NearImageSearchH\n" +
-	"R\tnearImage\x88\x01\x01\x12@\n" +
+	"near_image\x18. \x01(\v2\x1c.weaviate.v1.NearImageSearchH\vR\tnearImage\x88\x01\x01\x12@\n" +
 	"\n" +
-	"near_audio\x18/ \x01(\v2\x1c.weaviate.v1.NearAudioSearchH\vR\tnearAudio\x88\x01\x01\x12@\n" +
+	"near_audio\x18/ \x01(\v2\x1c.weaviate.v1.NearAudioSearchH\fR\tnearAudio\x88\x01\x01\x12@\n" +
 	"\n" +
-	"near_video\x180 \x01(\v2\x1c.weaviate.v1.NearVideoSearchH\fR\tnearVideo\x88\x01\x01\x12@\n" +
+	"near_video\x180 \x01(\v2\x1c.weaviate.v1.NearVideoSearchH\rR\tnearVideo\x88\x01\x01\x12@\n" +
 	"\n" +
-	"near_depth\x181 \x01(\v2\x1c.weaviate.v1.NearDepthSearchH\rR\tnearDepth\x88\x01\x01\x12F\n" +
-	"\fnear_thermal\x182 \x01(\v2\x1e.weaviate.v1.NearThermalSearchH\x0eR\vnearThermal\x88\x01\x01\x12:\n" +
-	"\bnear_imu\x183 \x01(\v2\x1a.weaviate.v1.NearIMUSearchH\x0fR\anearImu\x88\x01\x01\x12B\n" +
+	"near_depth\x181 \x01(\v2\x1c.weaviate.v1.NearDepthSearchH\x0eR\tnearDepth\x88\x01\x01\x12F\n" +
+	"\fnear_thermal\x182 \x01(\v2\x1e.weaviate.v1.NearThermalSearchH\x0fR\vnearThermal\x88\x01\x01\x12:\n" +
+	"\bnear_imu\x183 \x01(\v2\x1a.weaviate.v1.NearIMUSearchH\x10R\anearImu\x88\x01\x01\x12B\n" +
 	"\n" +
-	"generative\x18< \x01(\v2\x1d.weaviate.v1.GenerativeSearchH\x10R\n" +
+	"generative\x18< \x01(\v2\x1d.weaviate.v1.GenerativeSearchH\x11R\n" +
 	"generative\x88\x01\x01\x120\n" +
-	"\x06rerank\x18= \x01(\v2\x13.weaviate.v1.RerankH\x11R\x06rerank\x88\x01\x01\x12$\n" +
+	"\x06rerank\x18= \x01(\v2\x13.weaviate.v1.RerankH\x12R\x06rerank\x88\x01\x01\x12$\n" +
 	"\fuses_123_api\x18d \x01(\bB\x02\x18\x01R\n" +
 	"uses123Api\x12$\n" +
 	"\fuses_125_api\x18e \x01(\bB\x02\x18\x01R\n" +
@@ -1475,7 +1466,8 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\x12_consistency_levelB\r\n" +
 	"\v_propertiesB\v\n" +
 	"\t_metadataB\v\n" +
-	"\t_group_byB\n" +
+	"\t_group_byB\b\n" +
+	"\x06_afterB\n" +
 	"\n" +
 	"\b_filtersB\x10\n" +
 	"\x0e_hybrid_searchB\x0e\n" +
@@ -1619,42 +1611,45 @@ func file_v1_search_get_proto_rawDescGZIP() []byte {
 	return file_v1_search_get_proto_rawDescData
 }
 
-var file_v1_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
-var file_v1_search_get_proto_goTypes = []any{
-	(*SearchRequest)(nil),           // 0: weaviate.v1.SearchRequest
-	(*GroupBy)(nil),                 // 1: weaviate.v1.GroupBy
-	(*SortBy)(nil),                  // 2: weaviate.v1.SortBy
-	(*MetadataRequest)(nil),         // 3: weaviate.v1.MetadataRequest
-	(*PropertiesRequest)(nil),       // 4: weaviate.v1.PropertiesRequest
-	(*ObjectPropertiesRequest)(nil), // 5: weaviate.v1.ObjectPropertiesRequest
-	(*RefPropertiesRequest)(nil),    // 6: weaviate.v1.RefPropertiesRequest
-	(*Rerank)(nil),                  // 7: weaviate.v1.Rerank
-	(*SearchReply)(nil),             // 8: weaviate.v1.SearchReply
-	(*RerankReply)(nil),             // 9: weaviate.v1.RerankReply
-	(*GroupByResult)(nil),           // 10: weaviate.v1.GroupByResult
-	(*SearchResult)(nil),            // 11: weaviate.v1.SearchResult
-	(*MetadataResult)(nil),          // 12: weaviate.v1.MetadataResult
-	(*PropertiesResult)(nil),        // 13: weaviate.v1.PropertiesResult
-	(*RefPropertiesResult)(nil),     // 14: weaviate.v1.RefPropertiesResult
-	(ConsistencyLevel)(0),           // 15: weaviate.v1.ConsistencyLevel
-	(*Filters)(nil),                 // 16: weaviate.v1.Filters
-	(*Hybrid)(nil),                  // 17: weaviate.v1.Hybrid
-	(*BM25)(nil),                    // 18: weaviate.v1.BM25
-	(*NearVector)(nil),              // 19: weaviate.v1.NearVector
-	(*NearObject)(nil),              // 20: weaviate.v1.NearObject
-	(*NearTextSearch)(nil),          // 21: weaviate.v1.NearTextSearch
-	(*NearImageSearch)(nil),         // 22: weaviate.v1.NearImageSearch
-	(*NearAudioSearch)(nil),         // 23: weaviate.v1.NearAudioSearch
-	(*NearVideoSearch)(nil),         // 24: weaviate.v1.NearVideoSearch
-	(*NearDepthSearch)(nil),         // 25: weaviate.v1.NearDepthSearch
-	(*NearThermalSearch)(nil),       // 26: weaviate.v1.NearThermalSearch
-	(*NearIMUSearch)(nil),           // 27: weaviate.v1.NearIMUSearch
-	(*GenerativeSearch)(nil),        // 28: weaviate.v1.GenerativeSearch
-	(*GenerativeResult)(nil),        // 29: weaviate.v1.GenerativeResult
-	(*GenerativeReply)(nil),         // 30: weaviate.v1.GenerativeReply
-	(*Vectors)(nil),                 // 31: weaviate.v1.Vectors
-	(*Properties)(nil),              // 32: weaviate.v1.Properties
-}
+var (
+	file_v1_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+	file_v1_search_get_proto_goTypes  = []any{
+		(*SearchRequest)(nil),           // 0: weaviate.v1.SearchRequest
+		(*GroupBy)(nil),                 // 1: weaviate.v1.GroupBy
+		(*SortBy)(nil),                  // 2: weaviate.v1.SortBy
+		(*MetadataRequest)(nil),         // 3: weaviate.v1.MetadataRequest
+		(*PropertiesRequest)(nil),       // 4: weaviate.v1.PropertiesRequest
+		(*ObjectPropertiesRequest)(nil), // 5: weaviate.v1.ObjectPropertiesRequest
+		(*RefPropertiesRequest)(nil),    // 6: weaviate.v1.RefPropertiesRequest
+		(*Rerank)(nil),                  // 7: weaviate.v1.Rerank
+		(*SearchReply)(nil),             // 8: weaviate.v1.SearchReply
+		(*RerankReply)(nil),             // 9: weaviate.v1.RerankReply
+		(*GroupByResult)(nil),           // 10: weaviate.v1.GroupByResult
+		(*SearchResult)(nil),            // 11: weaviate.v1.SearchResult
+		(*MetadataResult)(nil),          // 12: weaviate.v1.MetadataResult
+		(*PropertiesResult)(nil),        // 13: weaviate.v1.PropertiesResult
+		(*RefPropertiesResult)(nil),     // 14: weaviate.v1.RefPropertiesResult
+		(ConsistencyLevel)(0),           // 15: weaviate.v1.ConsistencyLevel
+		(*Filters)(nil),                 // 16: weaviate.v1.Filters
+		(*Hybrid)(nil),                  // 17: weaviate.v1.Hybrid
+		(*BM25)(nil),                    // 18: weaviate.v1.BM25
+		(*NearVector)(nil),              // 19: weaviate.v1.NearVector
+		(*NearObject)(nil),              // 20: weaviate.v1.NearObject
+		(*NearTextSearch)(nil),          // 21: weaviate.v1.NearTextSearch
+		(*NearImageSearch)(nil),         // 22: weaviate.v1.NearImageSearch
+		(*NearAudioSearch)(nil),         // 23: weaviate.v1.NearAudioSearch
+		(*NearVideoSearch)(nil),         // 24: weaviate.v1.NearVideoSearch
+		(*NearDepthSearch)(nil),         // 25: weaviate.v1.NearDepthSearch
+		(*NearThermalSearch)(nil),       // 26: weaviate.v1.NearThermalSearch
+		(*NearIMUSearch)(nil),           // 27: weaviate.v1.NearIMUSearch
+		(*GenerativeSearch)(nil),        // 28: weaviate.v1.GenerativeSearch
+		(*GenerativeResult)(nil),        // 29: weaviate.v1.GenerativeResult
+		(*GenerativeReply)(nil),         // 30: weaviate.v1.GenerativeReply
+		(*Vectors)(nil),                 // 31: weaviate.v1.Vectors
+		(*Properties)(nil),              // 32: weaviate.v1.Properties
+	}
+)
+
 var file_v1_search_get_proto_depIdxs = []int32{
 	15, // 0: weaviate.v1.SearchRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
 	4,  // 1: weaviate.v1.SearchRequest.properties:type_name -> weaviate.v1.PropertiesRequest

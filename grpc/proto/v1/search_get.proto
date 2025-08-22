@@ -28,10 +28,9 @@ message SearchRequest {
   uint32 limit = 30;
   uint32 offset = 31;
   uint32 autocut = 32;
-  string after = 33;
+  optional string after = 33;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated SortBy sort_by = 34;
-  bool after_present = 35;  // can be used to distinguish between unset and set to ""
 
   // matches/searches for objects
   optional Filters filters = 40;
