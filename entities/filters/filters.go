@@ -34,6 +34,8 @@ const (
 	OperatorIsNull
 	ContainsAny
 	ContainsAll
+	ContainsNone
+	OperatorNot
 )
 
 func (o Operator) OnValue() bool {
@@ -48,8 +50,13 @@ func (o Operator) OnValue() bool {
 		OperatorLike,
 		OperatorIsNull,
 		ContainsAny,
-		ContainsAll:
+		ContainsAll,
+		ContainsNone:
 		return true
+
+	case OperatorOr, OperatorAnd, OperatorNot:
+		return false
+
 	default:
 		return false
 	}
@@ -83,6 +90,10 @@ func (o Operator) Name() string {
 		return "ContainsAny"
 	case ContainsAll:
 		return "ContainsAll"
+	case ContainsNone:
+		return "ContainsNone"
+	case OperatorNot:
+		return "Not"
 	default:
 		panic("Unknown operator")
 	}

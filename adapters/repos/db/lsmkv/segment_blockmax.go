@@ -37,7 +37,6 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 		if err != nil {
 			return nil, 0, nil, err
 		}
-
 		defer r.Release()
 
 		_, err = r.Read(buf)
@@ -73,7 +72,6 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 		if err != nil {
 			return nil, 0, nil, err
 		}
-
 		defer r.Release()
 
 		buf = make([]byte, blockCount*20)

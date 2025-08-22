@@ -162,7 +162,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 // Restore loads the backup and restores classes in temporary directories on the filesystem.
 // The final backup restoration is orchestrated by the raft store.
 func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
-	req *BackupRequest,
+	req *BackupRequest, overwriteAlais bool,
 ) (_ *models.BackupRestoreResponse, err error) {
 	defer func(begin time.Time) {
 		logOperation(s.logger, "try_restore", req.ID, req.Backend, begin, err)
@@ -198,15 +198,16 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	}
 
 	rReq := Request{
-		Method:            OpRestore,
-		ID:                req.ID,
-		Backend:           req.Backend,
-		Compression:       req.Compression,
-		Classes:           meta.Classes(),
-		Bucket:            req.Bucket,
-		Path:              req.Path,
-		UserRestoreOption: req.UserRestoreOption,
-		RbacRestoreOption: req.RbacRestoreOption,
+		Method:                OpRestore,
+		ID:                    req.ID,
+		Backend:               req.Backend,
+		Compression:           req.Compression,
+		Classes:               meta.Classes(),
+		Bucket:                req.Bucket,
+		Path:                  req.Path,
+		UserRestoreOption:     req.UserRestoreOption,
+		RbacRestoreOption:     req.RbacRestoreOption,
+		RestoreOverwriteAlias: overwriteAlais,
 	}
 	err = s.restorer.Restore(ctx, store, &rReq, meta, schema)
 	if err != nil {

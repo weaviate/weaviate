@@ -5794,6 +5794,10 @@ func init() {
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "overwriteAlias": {
+          "description": "Allows ovewriting the collection alias if there is a conflict",
+          "type": "boolean"
         }
       }
     },
@@ -8357,7 +8361,9 @@ func init() {
             "WithinGeoRange",
             "IsNull",
             "ContainsAny",
-            "ContainsAll"
+            "ContainsAll",
+            "ContainsNone",
+            "Not"
           ],
           "example": "GreaterThanEqual"
         },
@@ -14509,6 +14515,10 @@ func init() {
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "overwriteAlias": {
+          "description": "Allows ovewriting the collection alias if there is a conflict",
+          "type": "boolean"
         }
       }
     },
@@ -17404,7 +17414,9 @@ func init() {
             "WithinGeoRange",
             "IsNull",
             "ContainsAny",
-            "ContainsAll"
+            "ContainsAll",
+            "ContainsNone",
+            "Not"
           ],
           "example": "GreaterThanEqual"
         },
