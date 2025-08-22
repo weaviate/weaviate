@@ -107,14 +107,15 @@ func CreateBackupStatusWithAuthz(t *testing.T, backend, backupID, overrideBucket
 	return Client(t).Backups.BackupsCreateStatus(params, authInfo)
 }
 
-func RestoreBackup(t *testing.T, cfg *models.RestoreConfig, className, backend, backupID string, nodeMapping map[string]string) (*backups.BackupsRestoreOK, error) {
+func RestoreBackup(t *testing.T, cfg *models.RestoreConfig, className, backend, backupID string, nodeMapping map[string]string, overwriteAlias bool) (*backups.BackupsRestoreOK, error) {
 	params := backups.NewBackupsRestoreParams().
 		WithBackend(backend).
 		WithID(backupID).
 		WithBody(&models.BackupRestoreRequest{
-			Include:     []string{className},
-			NodeMapping: nodeMapping,
-			Config:      cfg,
+			Include:        []string{className},
+			NodeMapping:    nodeMapping,
+			Config:         cfg,
+			OverwriteAlias: overwriteAlias,
 		})
 	return Client(t).Backups.BackupsRestore(params, nil)
 }
