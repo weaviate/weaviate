@@ -15,7 +15,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -23,17 +25,17 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func createTestCommitLoggerForSnapshots(t *testing.T, rootDir, id string) *hnswCommitLogger {
-	opts := []CommitlogOption{
+func createTestCommitLoggerForSnapshotsWithOpts(t *testing.T, rootDir, id string, opts ...CommitlogOption) *hnswCommitLogger {
+	options := []CommitlogOption{
 		WithCommitlogThreshold(1000),
 		WithCommitlogThresholdForCombining(200),
 		WithCondensor(&fakeCondensor{}),
 		WithSnapshotDisabled(false),
-		WithAllocChecker(fakeAllocChecker{}),
 	}
+	options = append(options, opts...)
 
 	commitLogDir := commitLogDirectory(rootDir, id)
-	cl, err := NewCommitLogger(rootDir, id, logrus.New(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	cl, err := NewCommitLogger(rootDir, id, logrus.New(), cyclemanager.NewCallbackGroupNoop(), options...)
 	require.NoError(t, err)
 
 	// commit logger always creates an empty file if there is no data, remove it first
@@ -45,6 +47,10 @@ func createTestCommitLoggerForSnapshots(t *testing.T, rootDir, id string) *hnswC
 	}
 
 	return cl
+}
+
+func createTestCommitLoggerForSnapshots(t *testing.T, rootDir, id string) *hnswCommitLogger {
+	return createTestCommitLoggerForSnapshotsWithOpts(t, rootDir, id)
 }
 
 func createCommitlogTestData(t *testing.T, dir string, filenameSizes ...any) {
@@ -61,7 +67,7 @@ func createCommitlogTestData(t *testing.T, dir string, filenameSizes ...any) {
 	}
 }
 
-func generateFakeCommitLogData(t *testing.T, cl *commitlog.Logger, size int64) {
+var generateFakeCommitLogData = func(t *testing.T, cl *commitlog.Logger, size int64) {
 	var err error
 
 	i := 0
@@ -88,6 +94,8 @@ func generateFakeCommitLogData(t *testing.T, cl *commitlog.Logger, size int64) {
 }
 
 func createCommitlogAndSnapshotTestData(t *testing.T, cl *hnswCommitLogger, commitlogNameSizes ...any) {
+	t.Helper()
+
 	require.GreaterOrEqual(t, len(commitlogNameSizes), 4, "at least 2 commitlog files are required to create snapshot")
 
 	clDir := commitLogDirectory(cl.rootPath, cl.id)
@@ -831,4 +839,132 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCreateCondensedSnapshot(t *testing.T) {
+	prevFn := generateFakeCommitLogData
+	t.Cleanup(func() {
+		generateFakeCommitLogData = prevFn
+	})
+
+	dir := t.TempDir()
+	id := "main"
+
+	var nodes int
+	var once sync.Once
+	// this creates a commit log file with half of the nodes being tombstones
+	generateFakeCommitLogData = func(t *testing.T, cl *commitlog.Logger, size int64) {
+		var err error
+
+		i := 0
+		for {
+			if i > 0 && i%2 == 0 {
+				err = cl.AddTombstone(uint64(i - 1)) // tombstone
+			} else {
+				err = cl.AddNode(uint64(i), levelForDummyVertex(i))
+			}
+			require.NoError(t, err)
+
+			err = cl.Flush()
+			require.NoError(t, err)
+
+			fsize, err := cl.FileSize()
+			require.NoError(t, err)
+
+			if fsize >= size {
+				break
+			}
+
+			i++
+		}
+
+		once.Do(func() {
+			nodes = i
+		})
+	}
+
+	cl := createTestCommitLoggerForSnapshotsWithOpts(t, dir, id,
+		WithCommitlogThresholdForCombining(1200),
+		WithSnapshotDisabled(false),
+		WithSnapshotCreateInterval(time.Microsecond),
+	)
+
+	// create two condensed commit log files with half of the nodes being tombstones and generate a snapshot
+	createCommitlogAndSnapshotTestData(t, cl, "1000.condensed", 800, "1001.condensed", 200)
+
+	require.Equal(t, []string{"1000.snapshot", "1000.snapshot.checkpoints"}, readDir(t, snapshotDirectory(dir, id)))
+	files, err := os.ReadDir(commitLogDirectory(dir, id))
+	require.NoError(t, err)
+	for _, item := range files {
+		if item.IsDir() {
+			continue
+		}
+		info, err := item.Info()
+		require.NoError(t, err)
+		fmt.Println(info.Name(), info.Size(), info.ModTime())
+	}
+
+	// this creates a commit log file with only deletions
+	generateFakeCommitLogData = func(t *testing.T, cl *commitlog.Logger, size int64) {
+		var err error
+
+		for i := nodes / 2; i < nodes; i++ {
+			err = cl.DeleteNode(uint64(i)) // hard delete
+			require.NoError(t, err)
+
+			err = cl.RemoveTombstone(uint64(i)) // remove tombstone
+			require.NoError(t, err)
+
+			err = cl.Flush()
+			require.NoError(t, err)
+		}
+	}
+
+	// create one commit log file with the second half of the nodes deleted
+	createCommitlogTestData(t, commitLogDirectory(dir, id), "1002.condensed", 1000)
+
+	shouldAbort := func() bool {
+		return false
+	}
+
+	// manually trigger maintenance
+	executed := cl.startCommitLogsMaintenance(shouldAbort)
+	require.True(t, executed)
+
+	require.Equal(t, []string{"1000.condensed", "1002"}, readDir(t, commitLogDirectory(dir, id)))
+	require.Equal(t, []string{"1000.snapshot", "1000.snapshot.checkpoints"}, readDir(t, snapshotDirectory(dir, id)))
+
+	files, err = os.ReadDir(commitLogDirectory(dir, id))
+	require.NoError(t, err)
+	for _, item := range files {
+		if item.IsDir() {
+			continue
+		}
+		info, err := item.Info()
+		require.NoError(t, err)
+		fmt.Println(info.Name(), info.Size(), info.ModTime())
+	}
+
+	// create some delta commit log
+	generateFakeCommitLogData = prevFn
+	createCommitlogTestData(t, commitLogDirectory(dir, id), "1003", 700)
+
+	// manually trigger maintenance
+	executed = cl.startCommitLogsMaintenance(shouldAbort)
+	require.True(t, executed)
+
+	require.Equal(t, []string{"1000.condensed", "1002.condensed", "1003"}, readDir(t, commitLogDirectory(dir, id)))
+	require.Equal(t, []string{"1002.snapshot", "1002.snapshot.checkpoints"}, readDir(t, snapshotDirectory(dir, id)))
+
+	files, err = os.ReadDir(snapshotDirectory(dir, id))
+	require.NoError(t, err)
+	for _, item := range files {
+		if item.IsDir() {
+			continue
+		}
+		info, err := item.Info()
+		require.NoError(t, err)
+		fmt.Println(info.Name(), info.Size(), info.ModTime())
+	}
+	require.True(t, false)
 }
