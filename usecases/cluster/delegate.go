@@ -39,6 +39,13 @@ const (
 	_ProtoTTL = time.Second * 8
 )
 
+type NodeStatus string
+
+const (
+	NodeStatusActive   NodeStatus = "active"
+	NodeStatusShutdown NodeStatus = "shutdown"
+)
+
 // spaceMsg is used to notify other nodes about current disk usage
 type spaceMsg struct {
 	header
@@ -66,8 +73,8 @@ type DiskUsage struct {
 // NodeInfo disk space
 type NodeInfo struct {
 	DiskUsage
-	LastTimeMilli int64 // last update time in milliseconds
-	GracefulLeave bool  // indicates if this node is gracefully leaving
+	LastTimeMilli int64      // last update time in milliseconds
+	Status        NodeStatus // indicates node status e.g. shutdown (gracefully leaving)
 }
 
 func (d *spaceMsg) marshal() (data []byte, err error) {
@@ -126,14 +133,14 @@ type delegate struct {
 }
 
 type NodeMetadata struct {
-	RestPort      int  `json:"rest_port"`
-	GrpcPort      int  `json:"grpc_port"`
-	GracefulLeave bool `json:"graceful_leave"`
+	RestPort int        `json:"rest_port"`
+	GrpcPort int        `json:"grpc_port"`
+	Status   NodeStatus `json:"status"`
 }
 
 func (d *delegate) setOwnSpace(x DiskUsage) {
 	d.mutex.Lock()
-	d.hostInfo = NodeInfo{DiskUsage: x, LastTimeMilli: time.Now().UnixMilli()}
+	d.hostInfo = NodeInfo{DiskUsage: x, LastTimeMilli: time.Now().UnixMilli(), Status: NodeStatusActive}
 	d.mutex.Unlock()
 }
 
@@ -158,7 +165,7 @@ func (d *delegate) init(diskSpace func(path string) (DiskUsage, error)) error {
 	}
 
 	d.setOwnSpace(space)
-	d.set(d.Name, NodeInfo{DiskUsage: space, LastTimeMilli: lastTime.UnixMilli(), GracefulLeave: false})
+	d.set(d.Name, NodeInfo{DiskUsage: space, LastTimeMilli: lastTime.UnixMilli(), Status: NodeStatusActive})
 
 	// delegate remains alive throughout the entire program.
 	enterrors.GoWrapper(func() { d.updater(_ProtoTTL, minUpdatePeriod, diskSpace) }, d.log)
@@ -226,7 +233,7 @@ func (d *delegate) MergeRemoteState(data []byte, join bool) {
 		}).WithError(err).Error("failed to unmarshal remote state")
 		return
 	}
-	info := NodeInfo{DiskUsage: x.DiskUsage, LastTimeMilli: time.Now().UnixMilli(), GracefulLeave: false}
+	info := NodeInfo{DiskUsage: x.DiskUsage, LastTimeMilli: time.Now().UnixMilli(), Status: NodeStatusActive}
 	d.set(x.Node, info)
 }
 
@@ -300,7 +307,7 @@ func (d *delegate) updater(period, minPeriod time.Duration, du func(path string)
 // SetGracefulLeave sets the graceful leave state in metadata
 // This state gets broadcasted to all nodes via memberlist
 func (d *delegate) SetGracefulLeave() {
-	d.metadata.GracefulLeave = true
+	d.metadata.Status = NodeStatusShutdown
 }
 
 // markNodeGracefulLeaving marks a cached node as gracefully leaving
@@ -309,7 +316,7 @@ func (d *delegate) markNodeGracefulLeaving(nodeName string) {
 	defer d.Unlock()
 
 	if nodeInfo, exists := d.Cache[nodeName]; exists {
-		nodeInfo.GracefulLeave = true
+		nodeInfo.Status = NodeStatusShutdown
 		d.Cache[nodeName] = nodeInfo
 		d.log.WithField("node", nodeName).Debug("marked cached node as gracefully leaving")
 	}
@@ -320,7 +327,7 @@ func (d *delegate) getAllCachedGraceful() []string {
 	defer d.Unlock()
 	graceful := make([]string, 0, len(d.Cache))
 	for nodeName, nodeInfo := range d.Cache {
-		if nodeInfo.GracefulLeave {
+		if nodeInfo.Status == NodeStatusShutdown {
 			graceful = append(graceful, nodeName)
 		}
 	}
@@ -347,7 +354,7 @@ func (e events) NotifyLeave(node *memberlist.Node) {
 	if len(node.Meta) > 0 {
 		var meta NodeMetadata
 		if err := json.Unmarshal(node.Meta, &meta); err == nil {
-			if meta.GracefulLeave {
+			if meta.Status == NodeStatusShutdown {
 				e.d.log.WithField("node", node.Name).Debug("node gracefully left, marking as gracefully leaving and keeping in cache")
 				// Mark this node as gracefully leaving in the cache
 				e.d.markNodeGracefulLeaving(node.Name)

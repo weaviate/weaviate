@@ -74,6 +74,11 @@ func (s *Raft) Open(ctx context.Context, db schema.Indexer) error {
 func (s *Raft) Close(ctx context.Context) (err error) {
 	s.log.Info("shutting down raft sub-system ...")
 
+	if s.store == nil {
+		s.log.Warn("store is nil, skipping shutdown sequence")
+		return nil
+	}
+
 	// Step 1: Mark store as closed (Kubernetes readiness probe)
 	s.store.open.Store(false)
 	s.log.Info("marked store as closed - node no longer ready")
@@ -105,7 +110,7 @@ func (s *Raft) Close(ctx context.Context) (err error) {
 	// Step 5: Remove from Raft configuration
 	s.log.Info("requesting removal from leader via RemovePeer RPC...")
 	leader := s.store.Leader()
-	if leader != "" {
+	if leader != "" && s.cl != nil {
 		req := &cmd.RemovePeerRequest{Id: s.store.ID()}
 		_, err := s.cl.Remove(ctx, leader, req)
 		if err != nil {
@@ -130,14 +135,18 @@ func (s *Raft) Close(ctx context.Context) (err error) {
 
 	// Step 7: Shutdown Raft operations
 	s.log.Info("stopping raft operations ...")
-	if err := s.store.raft.Shutdown().Error(); err != nil {
-		s.log.WithError(err).Warn("shutdown raft")
+	if s.store.raft != nil {
+		if err := s.store.raft.Shutdown().Error(); err != nil {
+			s.log.WithError(err).Warn("shutdown raft")
+		}
 	}
 
 	// Step 8: Close Raft transport
 	s.log.Info("closing raft transport...")
-	if err := s.store.raftTransport.Close(); err != nil {
-		s.log.WithError(err).Warn("close raft transport")
+	if s.store.raftTransport != nil {
+		if err := s.store.raftTransport.Close(); err != nil {
+			s.log.WithError(err).Warn("close raft transport")
+		}
 	}
 
 	// Step 9: Close underlying store

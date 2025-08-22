@@ -18,23 +18,24 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
-	"github.com/weaviate/weaviate/usecases/fakes"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
+	"github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestConsumerWithCallbacks(t *testing.T) {
@@ -45,7 +46,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockReplicaCopier := types.NewMockReplicaCopier(t)
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
-		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New(), mocks.NewMockNodeSelector("node1"))
 		schemaReader := schemaManager.NewSchemaReader()
 		schemaManager.AddClass(
 			buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
@@ -220,7 +221,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockReplicaCopier := types.NewMockReplicaCopier(t)
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
-		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New(), mocks.NewMockNodeSelector("node1"))
 		schemaReader := schemaManager.NewSchemaReader()
 		schemaManager.AddClass(
 			buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
@@ -353,7 +354,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockReplicaCopier := types.NewMockReplicaCopier(t)
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
-		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New(), mocks.NewMockNodeSelector("node1"))
 		schemaReader := schemaManager.NewSchemaReader()
 
 		randomNumberOfOps, err := randInt(t, 10, 20)
@@ -520,7 +521,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockReplicaCopier := types.NewMockReplicaCopier(t)
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
-		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New(), mocks.NewMockNodeSelector("node1"))
 		schemaReader := schemaManager.NewSchemaReader()
 		schemaManager.AddClass(
 			buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
@@ -644,7 +645,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockReplicaCopier := types.NewMockReplicaCopier(t)
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
-		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New(), mocks.NewMockNodeSelector("node1"))
 		schemaReader := schemaManager.NewSchemaReader()
 
 		totalOps, err := randInt(t, 10, 20)
@@ -845,7 +846,7 @@ func TestConsumerOpCancellation(t *testing.T) {
 	mockReplicaCopier := types.NewMockReplicaCopier(t)
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
-	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New(), mocks.NewMockNodeSelector("node1"))
 	schemaReader := schemaManager.NewSchemaReader()
 	schemaManager.AddClass(
 		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
@@ -981,7 +982,7 @@ func TestConsumerOpDeletion(t *testing.T) {
 	mockReplicaCopier := types.NewMockReplicaCopier(t)
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
-	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New(), mocks.NewMockNodeSelector("node1"))
 	schemaReader := schemaManager.NewSchemaReader()
 	schemaManager.AddClass(
 		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
@@ -1117,7 +1118,7 @@ func TestConsumerOpDuplication(t *testing.T) {
 	mockReplicaCopier := types.NewMockReplicaCopier(t)
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
-	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New(), mocks.NewMockNodeSelector("node1"))
 	schemaManager.AddClass(
 		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
 			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
@@ -1263,7 +1264,7 @@ func TestConsumerOpSkip(t *testing.T) {
 	mockReplicaCopier := types.NewMockReplicaCopier(t)
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
-	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New(), mocks.NewMockNodeSelector("node1"))
 	schemaManager.AddClass(
 		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
 			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
@@ -1407,7 +1408,7 @@ func TestConsumerShutdown(t *testing.T) {
 	mockReplicaCopier := types.NewMockReplicaCopier(t)
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
-	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New(), mocks.NewMockNodeSelector("node1"))
 	schemaReader := schemaManager.NewSchemaReader()
 
 	var completionWg sync.WaitGroup
