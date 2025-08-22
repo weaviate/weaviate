@@ -90,8 +90,11 @@ monitoring: ## Run the prometheus and grafana for monitoring
 local: ## Run the local development setup with single node
 	./tools/dev/run_dev_server.sh local-single-node
 
-local-oidc:
+local-oidc: ## Run the local development setup on single node with oidc enabled
 	./tools/dev/run_dev_server.sh local-wcs-oidc-and-apikey
+
+local-rbac: ## Run the local development setup on single node with rbac enabled
+	./tools/dev/run_dev_server.sh local-single-node-rbac
 
 debug: ## Connect local weaviate server via delv for debugging
 	./tools/dev/run_dev_server.sh debug
