@@ -112,6 +112,8 @@ func TestDefaultCompression(t *testing.T) {
 	require.Equal(t, true, enabled)
 	skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
 	require.Equal(t, false, skipDefaultQuantization)
+	trackDefaultQuantization := viconfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+	require.Equal(t, true, trackDefaultQuantization)
 }
 
 func TestDefaultCompressionWithSkipDefaultQuantization(t *testing.T) {
@@ -195,6 +197,8 @@ func TestDefaultCompressionWithSkipDefaultQuantization(t *testing.T) {
 	require.Equal(t, false, enabled)
 	skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
 	require.Equal(t, true, skipDefaultQuantization)
+	trackDefaultQuantization := viconfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+	require.Equal(t, false, trackDefaultQuantization)
 }
 
 func TestDefaultCompressionOverride(t *testing.T) {
@@ -282,4 +286,6 @@ func TestDefaultCompressionOverride(t *testing.T) {
 	require.Equal(t, true, enabled)
 	skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
 	require.Equal(t, false, skipDefaultQuantization)
+	trackDefaultQuantization := viconfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+	require.Equal(t, false, trackDefaultQuantization)
 }

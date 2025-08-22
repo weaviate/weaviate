@@ -188,6 +188,7 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 		rqEnabled := hnswConfig.RQ.Enabled
 		bqEnabled := hnswConfig.BQ.Enabled
 		skipDefaultQuantization := hnswConfig.SkipDefaultQuantization
+		hnswConfig.TrackDefaultQuantization = false
 		if pqEnabled || sqEnabled || rqEnabled || bqEnabled {
 			return hnswConfig
 		}
@@ -206,6 +207,7 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 		default:
 			return hnswConfig
 		}
+		hnswConfig.TrackDefaultQuantization = true
 		return hnswConfig
 	}
 	return vectorIndexConfig

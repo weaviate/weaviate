@@ -72,6 +72,14 @@ func TestUserConfigUpdates(t *testing.T) {
 						"attempted change from \"true\" to \"false\""),
 			},
 			{
+				name:    "attempting to change trackDefaultQuantization",
+				initial: ent.UserConfig{TrackDefaultQuantization: true},
+				update:  ent.UserConfig{TrackDefaultQuantization: false},
+				expectedError: errors.Errorf(
+					"trackDefaultQuantization is immutable: " +
+						"attempted change from \"true\" to \"false\""),
+			},
+			{
 				name: "attempting to change multivector",
 				initial: ent.UserConfig{Multivector: ent.MultivectorConfig{
 					Enabled: false,
