@@ -443,6 +443,12 @@ func FromEnv(config *Config) error {
 	}
 	// ---- HNSW snapshots ----
 
+	defaultQuantization := ""
+	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
+		defaultQuantization = strings.ToLower(v)
+	}
+	config.DefaultQuantization = runtime.NewDynamicValue(defaultQuantization)
+
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
 	}
