@@ -22,9 +22,24 @@ import (
 const (
 	TrucAt    = 64
 	MaxLevels = 12
-	rate      = 0.66
-	size      = 100_000
+	rate      = 0.5
+	size      = 1_000_000
 )
+
+type heapPool struct {
+	pool *sync.Pool
+}
+
+func (p *heapPool) Get() *[]uint64 {
+	slice := p.pool.Get().(*[]uint64)
+	indirect := *slice
+	indirect = indirect[:0]
+	return slice
+}
+
+func (p *heapPool) Put(slice *[]uint64) {
+	p.pool.Put(slice)
+}
 
 // RegionalIVF implementa el algoritmo IVF basado en regiones
 type RegionalIVF struct {
@@ -51,6 +66,9 @@ type RegionalIVF struct {
 	codes   [][]uint64
 
 	bencoder compressionhelpers.BinaryQuantizer
+	pool     *heapPool
+
+	initList []uint64
 }
 
 // Config contiene la configuración para RegionalIVF
@@ -82,10 +100,23 @@ func New(cfg Config) (*RegionalIVF, error) {
 		bencoder:          compressionhelpers.NewBinaryQuantizer(cfg.DistanceProvider),
 		codes:             make([][]uint64, MaxLevels),
 		vectors:           make([][]float32, size),
+		pool: &heapPool{
+			pool: &sync.Pool{
+				New: func() interface{} {
+					slice := make([]uint64, 0, 1_000_000)
+					return &slice
+				},
+			},
+		},
+		initList: make([]uint64, 0, size),
 	}
 
 	for l := range index.codes {
 		index.codes[l] = make([]uint64, size)
+	}
+
+	for i := 0; i < size; i++ {
+		index.initList = append(index.initList, uint64(i))
 	}
 
 	return index, nil
@@ -155,14 +186,11 @@ func (r *RegionalIVF) AddBatch(ctx context.Context, ids []uint64, vectors [][]fl
 func (r *RegionalIVF) SearchByVector(ctx context.Context, searchVector []float32,
 	k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 
-	searchCode := r.bencoder.Encode(searchVector)
+	searchCode := r.bencoder.Encode(searchVector[:MaxLevels*64])
 	total := float64(size)
 	oldHeap := make([][]uint64, 1)
-	oldHeap[0] = make([]uint64, size)
+	oldHeap[0] = r.initList
 	maxDist := 0
-	for i := 0; i < size; i++ {
-		oldHeap[0][i] = uint64(i)
-	}
 	for i := 0; i < MaxLevels; i++ {
 		part := int(total * math.Pow(rate, float64(i)))
 		heap := make([][]uint64, maxDist+64)
@@ -172,7 +200,12 @@ func (r *RegionalIVF) SearchByVector(ctx context.Context, searchVector []float32
 			for _, curr := range oldHeap[j] {
 				distance := float32(bits.OnesCount64(r.codes[i][curr] ^ searchCode[i]))
 				correctedDistance := j + int(distance)
-				heap[j+int(distance)] = append(heap[correctedDistance], curr)
+				if heap[correctedDistance] == nil {
+					slice := r.pool.Get()
+					defer r.pool.Put(slice)
+					heap[correctedDistance] = *slice
+				}
+				heap[correctedDistance] = append(heap[correctedDistance], curr)
 				if correctedDistance > maxDist {
 					maxDist = correctedDistance
 				}
