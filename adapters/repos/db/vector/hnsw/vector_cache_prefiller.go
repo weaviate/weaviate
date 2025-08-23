@@ -89,6 +89,10 @@ func (pf *vectorCachePrefiller[T]) prefillLevel(ctx context.Context,
 		pf.index.Lock()
 		pf.cache.Get(ctx, uint64(i))
 		layerCount++
+
+		if layerCount%1_000_000 == 0 {
+			pf.logLevelProgress(level, layerCount, before)
+		}
 		pf.index.Unlock()
 	}
 
@@ -103,7 +107,17 @@ func (pf *vectorCachePrefiller[T]) logLevel(level, count int, before time.Time) 
 		"count":      count,
 		"took":       time.Since(before),
 		"index_id":   pf.index.id,
-	}).Debug("prefilled level in vector cache")
+	}).Info("prefilled level in vector cache")
+}
+
+func (pf *vectorCachePrefiller[T]) logLevelProgress(level, count int, before time.Time) {
+	pf.logger.WithFields(logrus.Fields{
+		"action":     "hnsw_vector_cache_prefill_level_progress",
+		"hnsw_level": level,
+		"count":      count,
+		"took":       time.Since(before),
+		"index_id":   pf.index.id,
+	}).Info("still prefilling level in vector cache")
 }
 
 func (pf *vectorCachePrefiller[T]) logTotal(count, limit int, before time.Time) {
