@@ -350,12 +350,12 @@ func (h *hnsw) prefillCache() {
 	}
 
 	f := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 240*time.Minute)
 		defer cancel()
 
 		h.logger.WithFields(logrus.Fields{
 			"action":   "prefill_cache",
-			"duration": 60 * time.Minute,
+			"duration": 240 * time.Minute,
 		}).Debug("context.WithTimeout")
 
 		var err error
