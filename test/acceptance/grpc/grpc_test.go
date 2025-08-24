@@ -48,6 +48,16 @@ func TestGRPC(t *testing.T) {
 		assert.Equal(t, grpc_health_v1.HealthCheckResponse_SERVING.Enum().Number(), check.Status.Number())
 	})
 
+	t.Run("Health List", func(t *testing.T) {
+		client := grpc_health_v1.NewHealthClient(conn)
+		list, err := client.List(context.TODO(), &grpc_health_v1.HealthListRequest{})
+		require.NoError(t, err)
+		require.NotNil(t, list)
+		require.NotEmpty(t, list.Statuses)
+		require.NotEmpty(t, list.Statuses["weaviate"])
+		assert.Equal(t, grpc_health_v1.HealthCheckResponse_SERVING.Enum().Number(), list.Statuses["weaviate"].Status.Number())
+	})
+
 	t.Run("Batch import", func(t *testing.T) {
 		resp, err := grpcClient.BatchObjects(context.TODO(), &pb.BatchObjectsRequest{
 			Objects: books.BatchObjects(),

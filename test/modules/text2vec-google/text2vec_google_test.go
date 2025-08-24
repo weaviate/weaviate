@@ -25,17 +25,16 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 	return func(t *testing.T) {
 		helper.SetupClient(rest)
 		// Data
+		dimensions1024 := 1024
 		data := companies.Companies
 		className := "VectorizerTest"
 		class := companies.BaseClass(className)
 		tests := []struct {
-			name  string
-			model string
+			name       string
+			model      string
+			dimensions *int
+			taskType   string
 		}{
-			{
-				name:  "textembedding-gecko@001",
-				model: "textembedding-gecko@001",
-			},
 			{
 				name:  "textembedding-gecko@latest",
 				model: "textembedding-gecko@latest",
@@ -45,38 +44,47 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 				model: "textembedding-gecko-multilingual@latest",
 			},
 			{
-				name:  "textembedding-gecko@003",
-				model: "textembedding-gecko@003",
+				name:  "text-embedding-005",
+				model: "text-embedding-005",
 			},
 			{
-				name:  "textembedding-gecko@002",
-				model: "textembedding-gecko@002",
+				name:  "text-multilingual-embedding-002",
+				model: "text-multilingual-embedding-002",
 			},
 			{
-				name:  "textembedding-gecko-multilingual@001",
-				model: "textembedding-gecko-multilingual@001",
+				name:  "gemini-embedding-001",
+				model: "gemini-embedding-001",
 			},
 			{
-				name:  "text-embedding-preview-0409",
-				model: "text-embedding-preview-0409",
+				name:       "gemini-embedding-001 with 1024 dimensions",
+				model:      "gemini-embedding-001",
+				dimensions: &dimensions1024,
 			},
 			{
-				name:  "text-multilingual-embedding-preview-0409",
-				model: "text-multilingual-embedding-preview-0409",
+				name:     "text-embedding-005 with FACT_VERIFICATION taskType",
+				model:    "text-embedding-005",
+				taskType: "FACT_VERIFICATION",
 			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				// Define class
+				vectorizerSettings := map[string]any{
+					"properties":         []any{"description"},
+					"vectorizeClassName": false,
+					"projectId":          gcpProject,
+					"modelId":            tt.model,
+				}
+				if tt.dimensions != nil {
+					vectorizerSettings["dimensions"] = *tt.dimensions
+				}
+				if tt.taskType != "" {
+					vectorizerSettings["taskType"] = tt.taskType
+				}
 				class.VectorConfig = map[string]models.VectorConfig{
 					"description": {
-						Vectorizer: map[string]interface{}{
-							vectorizerName: map[string]interface{}{
-								"properties":         []interface{}{"description"},
-								"vectorizeClassName": false,
-								"projectId":          gcpProject,
-								"modelId":            tt.model,
-							},
+						Vectorizer: map[string]any{
+							vectorizerName: vectorizerSettings,
 						},
 						VectorIndexType: "flat",
 					},
@@ -97,6 +105,9 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 							require.Len(t, obj.Vectors, 1)
 							require.IsType(t, []float32{}, obj.Vectors["description"])
 							assert.True(t, len(obj.Vectors["description"].([]float32)) > 0)
+							if tt.dimensions != nil {
+								assert.Equal(t, *tt.dimensions, len(obj.Vectors["description"].([]float32)))
+							}
 						})
 					}
 				})

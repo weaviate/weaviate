@@ -38,25 +38,26 @@ func New(logger *logrus.Logger, clusterStateReader cluster.NodeSelector, metadat
 	}
 }
 
-func (r *Router) GetReadWriteReplicasLocation(collection string, shard string) ([]string, []string, error) {
+func (r *Router) GetReadWriteReplicasLocation(collection string, shard string) ([]string, []string, []string, error) {
 	replicas, err := r.metadataReader.ShardReplicas(collection, shard)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	readReplicas := r.replicationFSMReader.FilterOneShardReplicasRead(collection, shard, replicas)
+	writeReplicas, additionalWriteReplicas := r.replicationFSMReader.FilterOneShardReplicasWrite(collection, shard, replicas)
+	return readReplicas, writeReplicas, additionalWriteReplicas, nil
+}
+
+func (r *Router) GetWriteReplicasLocation(collection string, shard string) ([]string, []string, error) {
+	_, writeReplicasLocation, additionalWriteReplicas, err := r.GetReadWriteReplicasLocation(collection, shard)
 	if err != nil {
 		return nil, nil, err
 	}
-	readReplicas, writeReplicas := r.replicationFSMReader.FilterOneShardReplicasReadWrite(collection, shard, replicas)
-	return readReplicas, writeReplicas, nil
-}
-
-func (r *Router) GetWriteReplicasLocation(collection string, shard string) ([]string, error) {
-	_, writeReplicasLocation, err := r.GetReadWriteReplicasLocation(collection, shard)
-	if err != nil {
-		return nil, err
-	}
-	return writeReplicasLocation, nil
+	return writeReplicasLocation, additionalWriteReplicas, nil
 }
 
 func (r *Router) GetReadReplicasLocation(collection string, shard string) ([]string, error) {
-	readReplicasLocation, _, err := r.GetReadWriteReplicasLocation(collection, shard)
+	readReplicasLocation, _, _, err := r.GetReadWriteReplicasLocation(collection, shard)
 	if err != nil {
 		return nil, err
 	}
@@ -73,6 +74,37 @@ func (r *Router) BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (typ
 		return types.RoutingPlan{}, fmt.Errorf("could not get read replicas location from sharding state: %w", err)
 	}
 
+	return r.routingPlanFromReplicas(params, replicas)
+}
+
+func (r *Router) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
+	if err := params.Validate(); err != nil {
+		return types.RoutingPlan{}, err
+	}
+
+	writeReplicas, additionalWriteReplicas, err := r.GetWriteReplicasLocation(params.Collection, params.Shard)
+	if err != nil {
+		return types.RoutingPlan{}, fmt.Errorf("could not get read replicas location from sharding state: %w", err)
+	}
+
+	routingPlan, err := r.routingPlanFromReplicas(params, writeReplicas)
+	if err != nil {
+		return types.RoutingPlan{}, err
+	}
+
+	for _, replica := range additionalWriteReplicas {
+		if replicaAddr, ok := r.clusterStateReader.NodeHostname(replica); ok {
+			routingPlan.AdditionalHostAddrs = append(routingPlan.AdditionalHostAddrs, replicaAddr)
+		}
+	}
+
+	return routingPlan, nil
+}
+
+func (r *Router) routingPlanFromReplicas(
+	params types.RoutingPlanBuildOptions,
+	replicas []string,
+) (types.RoutingPlan, error) {
 	routingPlan := types.RoutingPlan{
 		Collection:        params.Collection,
 		Shard:             params.Shard,
@@ -104,15 +136,12 @@ func (r *Router) BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (typ
 	if len(routingPlan.Replicas) == 0 {
 		return routingPlan, fmt.Errorf("no replicas found for class %s shard %s", routingPlan.Collection, routingPlan.Shard)
 	}
-
-	routingPlan.IntConsistencyLevel, err = routingPlan.ValidateConsistencyLevel()
+	cl, err := routingPlan.ValidateConsistencyLevel()
+	if err != nil {
+		return types.RoutingPlan{}, err
+	}
+	routingPlan.IntConsistencyLevel = cl
 	return routingPlan, err
-}
-
-func (r *Router) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
-	// TODO: See if there is any sense in having writes be propagated to the "new" shard currently.
-	// For now discarding that idea because we need doc id synced to avoid colisions
-	return r.BuildReadRoutingPlan(params)
 }
 
 func (r *Router) NodeHostname(nodeName string) (string, bool) {

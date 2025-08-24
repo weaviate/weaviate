@@ -42,13 +42,13 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	ctx = classcache.ContextWithClassCache(ctx)
 	input.Class = schema.UppercaseClassName(input.Class)
 
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
 	deprecatedEndpoint := input.Class == ""
 	if deprecatedEndpoint { // for backward compatibility only
-		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Collections()...); err != nil {
+		if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Collections()...); err != nil {
 			return &Error{err.Error(), StatusForbidden, err}
 		}
 		objectRes, err := m.getObjectFromRepo(ctx, "", input.ID,
@@ -100,7 +100,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		}
 	}
 
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsData(targetRef.Class, tenant)...); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(targetRef.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 	if err := input.validateExistence(ctx, validator, tenant, targetRef); err != nil {

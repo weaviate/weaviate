@@ -78,7 +78,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 							"dprojections": float64(16),
 							"enabled":      false,
 							"ksim":         float64(4),
-							"repetitions":  float64(20),
+							"repetitions":  float64(10),
 						},
 					},
 				},

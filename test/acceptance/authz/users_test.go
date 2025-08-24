@@ -320,7 +320,7 @@ func TestUserEndpoint(t *testing.T) {
 	customUser := "custom-user"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, "customKey").WithDbUsers().
-		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+		WithRBAC().WithRbacRoots(adminUser).Start(ctx)
 	require.Nil(t, err)
 
 	defer func() {
@@ -509,7 +509,7 @@ func TestUserEndpoint(t *testing.T) {
 	})
 }
 
-func TestListAllUsers(t *testing.T) {
+func TestDynamicUsers(t *testing.T) {
 	adminKey := "admin-key"
 	adminUser := "admin-user"
 
@@ -525,7 +525,7 @@ func TestListAllUsers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	compose, err := docker.New().WithWeaviate().
 		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).WithUserApiKey(viewerUser, viewerKey).WithUserApiKey("editor-user", "editor-key").
-		WithRBAC().WithRbacAdmins(adminUser).
+		WithRBAC().WithRbacRoots(adminUser).
 		WithDbUsers().Start(ctx)
 	require.Nil(t, err)
 
@@ -671,6 +671,31 @@ func TestListAllUsers(t *testing.T) {
 		filteredUsers := helper.ListAllUsers(t, apiKey)
 		require.Len(t, filteredUsers, length/2)
 	})
+
+	t.Run("import static user and check roles", func(t *testing.T) {
+		// add a role to ensure it is present after import
+		roleName := "testRole"
+		testRole := &models.Role{Name: &roleName, Permissions: []*models.Permission{{Action: &authorization.ReadUsers, Users: &models.PermissionUsers{Users: &roleName}}}}
+		helper.DeleteRole(t, adminKey, roleName)
+		helper.CreateRole(t, adminKey, testRole)
+		defer helper.DeleteRole(t, adminKey, roleName)
+		helper.AssignRoleToUser(t, adminKey, roleName, customUser)
+		roles := helper.GetRolesForUser(t, customUser, adminKey, false)
+		require.Len(t, roles, 1)
+		require.Equal(t, *testRole.Name, *roles[0].Name)
+
+		oldKey := helper.CreateUserWithApiKey(t, customUser, adminKey, nil)
+		require.Equal(t, oldKey, customKey)
+
+		info := helper.GetInfoForOwnUser(t, oldKey)
+		require.Equal(t, customUser, *info.Username)
+
+		rolesAfterImport := helper.GetRolesForUser(t, customUser, adminKey, false)
+		require.Len(t, rolesAfterImport, 1)
+		require.Equal(t, *testRole.Name, *rolesAfterImport[0].Name)
+
+		helper.DeleteUser(t, customUser, adminKey)
+	})
 }
 
 func TestUserPermissionReturns(t *testing.T) {
@@ -784,6 +809,16 @@ func TestGetLastUsageMultinode(t *testing.T) {
 		timeout := time.Minute
 		err := firstNode.Container().Stop(ctx, &timeout)
 		require.NoError(t, err)
+
+		// wait to make sure that node is gone
+		start := time.Now()
+		for time.Since(start) < timeout {
+			_, err = helper.Client(t).Meta.MetaGet(meta.NewMetaGetParams(), nil)
+			if err != nil {
+				break
+			}
+			time.Sleep(time.Second)
+		}
 		time.Sleep(time.Second * 5) // wait to make sure that node is gone
 		_, err = helper.Client(t).Meta.MetaGet(meta.NewMetaGetParams(), nil)
 		require.Error(t, err)
@@ -806,4 +841,57 @@ func TestGetLastUsageMultinode(t *testing.T) {
 			require.Equal(t, user.LastUsedAt, userNode2.LastUsedAt)
 		}
 	})
+}
+
+func TestStaticUserImport(t *testing.T) {
+	rootKey := "root-key"
+	rootUser := "root-user"
+
+	readOnlyUser := "readOnly-user"
+	readOnlyKey := "readOnly-key"
+
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	compose, err := docker.New().WithWeaviate().
+		WithApiKey().WithUserApiKey(rootUser, rootKey).WithUserApiKey(readOnlyUser, readOnlyKey).WithUserApiKey(adminUser, adminKey).
+		WithRBAC().WithRbacRoots(rootUser).
+		WithWeaviateEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_USERS", "readOnly-user").
+		WithWeaviateEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_ADMIN_USERS", "admin-user").
+		WithDbUsers().Start(ctx)
+	require.Nil(t, err)
+
+	defer func() {
+		helper.ResetClient()
+		require.NoError(t, compose.Terminate(ctx))
+		cancel()
+	}()
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	keys := map[string]string{readOnlyUser: readOnlyKey, adminUser: adminKey}
+
+	for userName, role := range map[string]string{readOnlyUser: "viewer", adminUser: "admin"} {
+		t.Run("import static user and check roles for "+userName, func(t *testing.T) {
+			roles := helper.GetRolesForUser(t, userName, rootKey, false)
+			require.Len(t, roles, 1)
+			require.Equal(t, role, *roles[0].Name)
+
+			oldKey := helper.CreateUserWithApiKey(t, userName, rootKey, nil)
+			require.Equal(t, oldKey, keys[userName])
+
+			newKey := helper.RotateKey(t, userName, rootKey)
+			_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(oldKey))
+			require.Error(t, err)
+
+			user := helper.GetUser(t, userName, rootKey)
+			require.Equal(t, user.APIKeyFirstLetters, newKey[:3])
+			require.NotEqual(t, newKey, oldKey)
+
+			info := helper.GetInfoForOwnUser(t, newKey)
+			require.Equal(t, userName, *info.Username)
+			require.Len(t, info.Roles, 1)
+			require.Equal(t, *info.Roles[0].Name, role)
+		})
+	}
 }

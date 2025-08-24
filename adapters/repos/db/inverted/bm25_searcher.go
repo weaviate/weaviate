@@ -27,6 +27,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
@@ -232,6 +233,7 @@ func (b *BM25Searcher) wand(
 
 	allRequests := make([]termListRequest, 0, 1000)
 	allQueryTerms := make([]string, 0, 1000)
+	minimumOrTokensMatch := math.MaxInt64
 
 	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
@@ -246,6 +248,13 @@ func (b *BM25Searcher) wand(
 					propertyBoosts:     propertyBoosts,
 				})
 				allQueryTerms = append(allQueryTerms, queryTerm)
+			}
+			minimumOrTokensMatchByTokenization := params.MinimumOrTokensMatch
+			if params.SearchOperator == common_filters.SearchOperatorAnd {
+				minimumOrTokensMatchByTokenization = len(queryTerms)
+			}
+			if minimumOrTokensMatchByTokenization < minimumOrTokensMatch {
+				minimumOrTokensMatch = minimumOrTokensMatchByTokenization
 			}
 		}
 	}
@@ -309,7 +318,7 @@ func (b *BM25Searcher) wand(
 		Count: len(allRequests),
 	}
 
-	topKHeap := lsmkv.DoWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
+	topKHeap := lsmkv.DoWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations, minimumOrTokensMatch)
 
 	return b.getTopKObjects(topKHeap, params.AdditionalExplanations, allQueryTerms, additional)
 }

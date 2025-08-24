@@ -19,7 +19,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const DefaultGoroutineFactor = 1.5
@@ -722,7 +724,15 @@ func TestEnvironmentAuthentication(t *testing.T) {
 			auth_env_var: []string{"AUTHENTICATION_OIDC_ENABLED"},
 			expected: Authentication{
 				OIDC: OIDC{
-					Enabled: true,
+					Enabled:           true,
+					Issuer:            runtime.NewDynamicValue(""),
+					ClientID:          runtime.NewDynamicValue(""),
+					SkipClientIDCheck: runtime.NewDynamicValue(false),
+					UsernameClaim:     runtime.NewDynamicValue(""),
+					GroupsClaim:       runtime.NewDynamicValue(""),
+					Scopes:            runtime.NewDynamicValue([]string(nil)),
+					Certificate:       runtime.NewDynamicValue(""),
+					JWKSUrl:           runtime.NewDynamicValue(""),
 				},
 			},
 		},
@@ -1145,6 +1155,143 @@ func TestEnvironmentPersistenceMinMMapSize(t *testing.T) {
 				require.NotNil(t, err)
 			} else {
 				require.Equal(t, tt.expected, conf.Persistence.MinMMapSize)
+			}
+		})
+	}
+}
+
+func TestEnvironmentPersistenceMaxReuseWalSize(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    int64
+		expectedErr bool
+	}{
+		{"Valid no unit", []string{"3"}, 3, false},
+		{"Valid IEC unit", []string{"3KB"}, 3000, false},
+		{"Valid SI unit", []string{"3KiB"}, 3 * 1024, false},
+		{"not given", []string{}, DefaultPersistenceMaxReuseWalSize, false},
+		{"invalid factor", []string{"-1"}, -1, true},
+		{"not parsable", []string{"I'm not a number"}, -1, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("PERSISTENCE_MAX_REUSE_WAL_SIZE", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.Persistence.MaxReuseWalSize)
+			}
+		})
+	}
+}
+
+func TestParsePositiveFloat(t *testing.T) {
+	tests := []struct {
+		name         string
+		envName      string
+		envValue     string
+		defaultValue float64
+		expected     float64
+		expectError  bool
+	}{
+		{
+			name:         "valid positive float",
+			envName:      "TEST_POSITIVE_FLOAT",
+			envValue:     "1.5",
+			defaultValue: 2.0,
+			expected:     1.5,
+			expectError:  false,
+		},
+		{
+			name:         "valid integer as float",
+			envName:      "TEST_POSITIVE_FLOAT",
+			envValue:     "2",
+			defaultValue: 1.0,
+			expected:     2.0,
+			expectError:  false,
+		},
+		{
+			name:         "use default when env not set",
+			envName:      "TEST_POSITIVE_FLOAT",
+			envValue:     "",
+			defaultValue: 3.0,
+			expected:     3.0,
+			expectError:  false,
+		},
+		{
+			name:         "zero value should error",
+			envName:      "TEST_POSITIVE_FLOAT",
+			envValue:     "0",
+			defaultValue: 1.0,
+			expected:     0,
+			expectError:  true,
+		},
+		{
+			name:         "negative value should error",
+			envName:      "TEST_POSITIVE_FLOAT",
+			envValue:     "-1.5",
+			defaultValue: 1.0,
+			expected:     0,
+			expectError:  true,
+		},
+		{
+			name:         "invalid float should error",
+			envName:      "TEST_POSITIVE_FLOAT",
+			envValue:     "not-a-float",
+			defaultValue: 1.0,
+			expected:     0,
+			expectError:  true,
+		},
+		{
+			name:         "very small positive float",
+			envName:      "TEST_POSITIVE_FLOAT",
+			envValue:     "0.0000001",
+			defaultValue: 1.0,
+			expected:     0.0000001,
+			expectError:  false,
+		},
+		{
+			name:         "very large positive float",
+			envName:      "TEST_POSITIVE_FLOAT",
+			envValue:     "999999.999999",
+			defaultValue: 1.0,
+			expected:     999999.999999,
+			expectError:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set up environment
+			if tt.envValue != "" {
+				t.Setenv(tt.envName, tt.envValue)
+			} else {
+				os.Unsetenv(tt.envName)
+			}
+
+			// Create a variable to store the result
+			var result float64
+
+			// Call the function
+			err := parsePositiveFloat(tt.envName, func(val float64) {
+				result = val
+			}, tt.defaultValue)
+
+			// Check error
+			if tt.expectError {
+				assert.Error(t, err)
+				if tt.envValue != "" {
+					assert.Contains(t, err.Error(), tt.envName)
+				}
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, result)
 			}
 		})
 	}

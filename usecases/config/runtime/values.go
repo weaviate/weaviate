@@ -12,6 +12,8 @@
 package runtime
 
 import (
+	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -20,7 +22,7 @@ import (
 
 // DynamicType represents different types that is supported in runtime configs
 type DynamicType interface {
-	~int | ~float64 | ~bool | time.Duration | ~string
+	~int | ~float64 | ~bool | time.Duration | ~string | []string
 }
 
 // DynamicValue represents any runtime config value. It's zero value is
@@ -65,6 +67,10 @@ func (dv *DynamicValue[T]) Get() T {
 
 // Reset removes the old dynamic value.
 func (dv *DynamicValue[T]) Reset() {
+	if dv == nil {
+		return
+	}
+
 	dv.mu.Lock()
 	defer dv.mu.Unlock()
 
@@ -73,6 +79,11 @@ func (dv *DynamicValue[T]) Reset() {
 
 // Set is used by the config manager to update the dynamic value.
 func (dv *DynamicValue[T]) SetValue(val T) {
+	// log this at the high level, that someone is trying to set unitilized runtime value
+	if dv == nil {
+		return
+	}
+
 	dv.mu.Lock()
 	defer dv.mu.Unlock()
 
@@ -91,6 +102,57 @@ func (dv *DynamicValue[T]) UnmarshalYAML(node *yaml.Node) error {
 	dv.mu.Lock()
 	defer dv.mu.Unlock()
 
-	dv.val = &val
+	dv.def = val
 	return nil
+}
+
+// MarshalYAML implements `yaml.v3` custom encoding for `DynamicValue` type.
+func (dv *DynamicValue[T]) MarshalYAML() (any, error) {
+	dv.mu.Lock()
+	val := dv.def
+	if dv.val != nil {
+		val = *dv.val
+	}
+	dv.mu.Unlock()
+
+	return val, nil
+}
+
+// UnmarshalJSON implements `json` custom decoding for `DynamicValue` type.
+func (dv *DynamicValue[T]) UnmarshalJSON(data []byte) error {
+	var val T
+	if err := json.Unmarshal(data, &val); err != nil {
+		return err
+	}
+	dv.mu.Lock()
+	defer dv.mu.Unlock()
+	dv.def = val
+	return nil
+}
+
+// MarshalJSON implements `json` custom encoding for `DynamicValue` type.
+func (dv *DynamicValue[T]) MarshalJSON() ([]byte, error) {
+	dv.mu.Lock()
+	val := dv.def
+	if dv.val != nil {
+		val = *dv.val
+	}
+	dv.mu.Unlock()
+
+	b, err := json.Marshal(val)
+	if err != nil {
+		return nil, err
+	}
+
+	return b, nil
+}
+
+// String implements Stringer interface for `%v` formatting
+// for any dynamic value types.
+func (dv *DynamicValue[T]) String() string {
+	res := dv.val
+	if res == nil {
+		res = &dv.def
+	}
+	return fmt.Sprintf("%v", *res)
 }

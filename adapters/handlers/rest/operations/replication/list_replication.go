@@ -45,9 +45,9 @@ func NewListReplication(ctx *middleware.Context, handler ListReplicationHandler)
 /*
 	ListReplication swagger:route GET /replication/replicate/list replication listReplication
 
-# Get the details of all ongoing replication operations based on query params
+# List replication operations
 
-Returns the details of all ongoing replication operations. This endpoint only supports filtering by (collection, [shard]) or (nodeId)
+Retrieves a list of currently registered replication operations, optionally filtered by collection, shard, or node ID.
 */
 type ListReplication struct {
 	Context *middleware.Context

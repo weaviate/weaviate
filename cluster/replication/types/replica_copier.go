@@ -20,11 +20,11 @@ import (
 
 // ReplicaCopier see cluster/replication/copier.Copier
 type ReplicaCopier interface {
-	// CopyReplica see cluster/replication/copier.Copier.CopyReplica
-	CopyReplica(ctx context.Context, sourceNode string, sourceCollection string, sourceShard string) error
+	// CopyReplicaFiles see cluster/replication/copier.Copier.CopyReplicaFiles
+	CopyReplicaFiles(ctx context.Context, sourceNode string, sourceCollection string, sourceShard string, schemaVersion uint64) error
 
-	// CopyReplica see cluster/replication/copier.Copier.RemoveLocalReplica
-	RemoveLocalReplica(ctx context.Context, sourceCollection string, sourceShard string) error
+	// LoadLocalShard see cluster/replication/copier.Copier.LoadLocalShard
+	LoadLocalShard(ctx context.Context, collectionName, shardName string) error
 
 	// InitAsyncReplicationLocally see cluster/replication/copier.Copier.InitAsyncReplicationLocally
 	InitAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error
@@ -33,7 +33,7 @@ type ReplicaCopier interface {
 	RevertAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error
 
 	// AddAsyncReplicationTargetNode see cluster/replication/copier.Copier.AddAsyncReplicationTargetNode
-	AddAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
+	AddAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error
 
 	// RemoveAsyncReplicationTargetNode see cluster/replication/copier.Copier.RemoveAsyncReplicationTargetNode
 	RemoveAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error

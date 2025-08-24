@@ -13,7 +13,11 @@ package lsmkv
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
 	"testing"
 	"time"
 
@@ -21,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -306,4 +311,350 @@ func TestBucketGetBySecondary(t *testing.T) {
 
 	_, err = b.GetBySecondary(1, []byte("bonjour"))
 	require.Error(t, err)
+}
+
+func TestBucketWalReload(t *testing.T) {
+	for _, strategy := range []string{StrategyReplace, StrategySetCollection, StrategyMapCollection, StrategyRoaringSet, StrategyRoaringSetRange} {
+		t.Run(strategy, func(t *testing.T) {
+			ctx := context.Background()
+			dirName := t.TempDir()
+
+			logger, _ := test.NewNullLogger()
+
+			secondaryIndicesCount := uint16(0)
+			if strategy == StrategyReplace {
+				secondaryIndicesCount = 1
+			}
+
+			// initial bucket, always create segment, even if it is just a single entry
+			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+			require.NoError(t, err)
+
+			if strategy == StrategyReplace {
+				require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
+			} else if strategy == StrategySetCollection {
+				require.NoError(t, b.SetAdd([]byte("hello1"), [][]byte{[]byte("world1")}))
+			} else if strategy == StrategyRoaringSet {
+				require.NoError(t, b.RoaringSetAddOne([]byte("hello1"), uint64(1)))
+			} else if strategy == StrategyMapCollection {
+				require.NoError(t, b.MapSet([]byte("hello1"), MapPair{Key: []byte("hello1"), Value: []byte("world1")}))
+			} else if strategy == StrategyRoaringSetRange {
+				require.NoError(t, b.RoaringSetRangeAdd(uint64(1), uint64(1)))
+			} else {
+				require.Fail(t, "unknown strategy %s", strategy)
+			}
+			testBucketContent(t, strategy, b, 2)
+
+			require.NoError(t, b.Shutdown(ctx))
+
+			entries, err := os.ReadDir(dirName)
+			require.NoError(t, err)
+			require.Len(t, entries, 1, "single wal file should be created")
+
+			testBucketContent(t, strategy, b, 2)
+
+			// start fresh with a new memtable, new entries will stay in wal until size is reached
+			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+			require.NoError(t, err)
+
+			if strategy == StrategyReplace {
+				require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
+			} else if strategy == StrategySetCollection {
+				require.NoError(t, b.SetAdd([]byte("hello2"), [][]byte{[]byte("world2")}))
+			} else if strategy == StrategyRoaringSet {
+				require.NoError(t, b.RoaringSetAddOne([]byte("hello2"), uint64(2)))
+			} else if strategy == StrategyMapCollection {
+				require.NoError(t, b.MapSet([]byte("hello2"), MapPair{Key: []byte("hello2"), Value: []byte("world2")}))
+			} else if strategy == StrategyRoaringSetRange {
+				require.NoError(t, b.RoaringSetRangeAdd(uint64(2), uint64(2)))
+			}
+			require.NoError(t, b.Shutdown(ctx))
+
+			entries, err = os.ReadDir(dirName)
+			require.NoError(t, err)
+			fileTypes := map[string]int{}
+			for _, entry := range entries {
+				fileTypes[filepath.Ext(entry.Name())] += 1
+			}
+			require.Equal(t, 0, fileTypes[".db"], "no segment file")
+			require.Equal(t, 1, fileTypes[".wal"], "single wal file")
+
+			// will load wal and reuse memtable
+			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithStrategy(strategy), WithSecondaryIndices(1), WithMinWalThreshold(4096),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+			require.NoError(t, err)
+
+			testBucketContent(t, strategy, b, 3)
+
+			if strategy == StrategyReplace {
+				require.NoError(t, b.Put([]byte("hello3"), []byte("world3"), WithSecondaryKey(0, []byte("bonjour3"))))
+			} else if strategy == StrategySetCollection {
+				require.NoError(t, b.SetAdd([]byte("hello3"), [][]byte{[]byte("world3")}))
+			} else if strategy == StrategyRoaringSet {
+				require.NoError(t, b.RoaringSetAddOne([]byte("hello3"), uint64(3)))
+			} else if strategy == StrategyMapCollection {
+				require.NoError(t, b.MapSet([]byte("hello3"), MapPair{Key: []byte("hello3"), Value: []byte("world3")}))
+			} else if strategy == StrategyRoaringSetRange {
+				require.NoError(t, b.RoaringSetRangeAdd(uint64(3), uint64(3)))
+				require.NoError(t, err)
+			}
+			require.NoError(t, b.Shutdown(ctx))
+
+			entries, err = os.ReadDir(dirName)
+			require.NoError(t, err)
+			clear(fileTypes)
+			for _, entry := range entries {
+				fileTypes[filepath.Ext(entry.Name())] += 1
+			}
+			require.Equal(t, 0, fileTypes[".db"], "no segment file")
+			require.Equal(t, 1, fileTypes[".wal"], "single wal file")
+
+			// now add a lot of entries to hit .wal file limit
+			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+			require.NoError(t, err)
+
+			testBucketContent(t, strategy, b, 4)
+
+			for i := 4; i < 120; i++ { // larger than min .wal threshold
+				if strategy == StrategyReplace {
+					require.NoError(t, b.Put([]byte(fmt.Sprintf("hello%d", i)), []byte(fmt.Sprintf("world%d", i)), WithSecondaryKey(0, []byte(fmt.Sprintf("bonjour%d", i)))))
+				} else if strategy == StrategySetCollection {
+					require.NoError(t, b.SetAdd([]byte(fmt.Sprintf("hello%d", i)), [][]byte{[]byte(fmt.Sprintf("world%d", i))}))
+				} else if strategy == StrategyRoaringSet {
+					require.NoError(t, b.RoaringSetAddOne([]byte(fmt.Sprintf("hello%d", i)), uint64(i)))
+				} else if strategy == StrategyMapCollection {
+					require.NoError(t, b.MapSet([]byte(fmt.Sprintf("hello%d", i)), MapPair{Key: []byte(fmt.Sprintf("hello%d", i)), Value: []byte(fmt.Sprintf("world%d", i))}))
+				} else if strategy == StrategyRoaringSetRange {
+					require.NoError(t, b.RoaringSetRangeAdd(uint64(4), uint64(4)))
+				}
+			}
+			testBucketContent(t, strategy, b, 120)
+
+			require.NoError(t, b.Shutdown(ctx))
+
+			entries, err = os.ReadDir(dirName)
+			require.NoError(t, err)
+			clear(fileTypes)
+			for _, entry := range entries {
+				fileTypes[filepath.Ext(entry.Name())] += 1
+			}
+			require.Equal(t, 1, fileTypes[".db"], "no segment file")
+			require.Equal(t, 0, fileTypes[".wal"], "single wal file")
+
+			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+			require.NoError(t, err)
+
+			testBucketContent(t, strategy, b, 120)
+		})
+	}
+}
+
+func testBucketContent(t *testing.T, strategy string, b *Bucket, maxObject int) {
+	t.Helper()
+	ctx := context.Background()
+	for i := 1; i < maxObject; i++ {
+		key := []byte(fmt.Sprintf("hello%d", i))
+		val := []byte(fmt.Sprintf("world%d", i))
+		if strategy == StrategyReplace {
+			get, err := b.Get(key)
+			require.NoError(t, err)
+			require.Equal(t, val, get)
+
+			secondary, err := b.GetBySecondary(0, []byte(fmt.Sprintf("bonjour%d", i)))
+			require.NoError(t, err)
+			require.Equal(t, val, secondary)
+		} else if strategy == StrategySetCollection {
+			get, err := b.SetList(key)
+			require.NoError(t, err)
+			require.Equal(t, val, get[0])
+		} else if strategy == StrategyRoaringSet {
+			get, release, err := b.RoaringSetGet(key)
+			require.NoError(t, err)
+			defer release()
+			require.True(t, get.Contains(uint64(i)))
+		} else if strategy == StrategyRoaringSetRange {
+			//_, err :=  b.Rang
+			//require.NoError(t,err)
+		} else if strategy == StrategyMapCollection {
+			get, err := b.MapList(ctx, key)
+			require.NoError(t, err)
+			require.Equal(t, val, get[0].Value)
+		}
+	}
+}
+
+func TestBucketInfoInFileName(t *testing.T) {
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+
+	for _, segmentInfo := range []bool{true, false} {
+		t.Run(fmt.Sprintf("%t", segmentInfo), func(t *testing.T) {
+			dirName := t.TempDir()
+			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(segmentInfo),
+			)
+			require.NoError(t, err)
+			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
+			require.NoError(t, b.FlushMemtable())
+			dbFiles, _ := countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 1)
+		})
+	}
+}
+
+func TestBucketCompactionFileName(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	tests := []struct {
+		firstSegment  bool
+		secondSegment bool
+		compaction    bool
+	}{
+		{firstSegment: false, secondSegment: false, compaction: true},
+		{firstSegment: false, secondSegment: true, compaction: true},
+		{firstSegment: true, secondSegment: false, compaction: true},
+		{firstSegment: true, secondSegment: true, compaction: true},
+		{firstSegment: true, secondSegment: true, compaction: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("firstSegment: %t", tt.firstSegment), func(t *testing.T) {
+			dirName := t.TempDir()
+			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.firstSegment),
+			)
+			require.NoError(t, err)
+			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
+			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.Shutdown(ctx))
+			dbFiles, _ := countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 1)
+			oldNames := verifyFileInfo(t, dirName, nil, tt.firstSegment, 0)
+
+			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.secondSegment),
+			)
+			require.NoError(t, err)
+			require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
+			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.Shutdown(ctx))
+
+			dbFiles, _ = countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 2)
+			oldNames = verifyFileInfo(t, dirName, oldNames, tt.secondSegment, 0)
+
+			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.compaction),
+			)
+			require.NoError(t, err)
+			compact, err := b.disk.compactOnce()
+			require.NoError(t, err)
+			require.True(t, compact)
+			dbFiles, _ = countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 1)
+			verifyFileInfo(t, dirName, oldNames, tt.compaction, 1)
+		})
+	}
+}
+
+func countDbAndWalFiles(t *testing.T, path string) (int, int) {
+	t.Helper()
+	fileTypes := map[string]int{}
+	entries, err := os.ReadDir(path)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		fileTypes[filepath.Ext(entry.Name())] += 1
+	}
+	return fileTypes[".db"], fileTypes[".wal"]
+}
+
+func verifyFileInfo(t *testing.T, path string, oldEntries []string, segmentInfo bool, level int) []string {
+	t.Helper()
+	entries, err := os.ReadDir(path)
+	require.NoError(t, err)
+	fileNames := []string{}
+	for _, entry := range entries {
+		fileNames = append(fileNames, entry.Name())
+		if oldEntries != nil && slices.Contains(oldEntries, entry.Name()) {
+			continue
+		}
+		if filepath.Ext(entry.Name()) == ".db" {
+			if segmentInfo {
+				require.Contains(t, entry.Name(), fmt.Sprintf(".l%d.", level))
+				require.Contains(t, entry.Name(), ".s0.")
+			} else {
+				require.NotRegexp(t, regexp.MustCompile(`\.l\d+\.`), entry.Name())
+				require.NotContains(t, entry.Name(), ".s0.")
+			}
+		}
+	}
+	return fileNames
+}
+
+func TestBucketRecovery(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	ctx := context.Background()
+	dirName := t.TempDir()
+	tmpDir := t.TempDir()
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+	)
+	require.NoError(t, err)
+	require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
+	require.NoError(t, b.Shutdown(ctx))
+	dbFiles, walFiles := countDbAndWalFiles(t, dirName)
+	require.Equal(t, dbFiles, 0)
+	require.Equal(t, walFiles, 1)
+
+	// move .wal file somewhere else to recover later
+	var oldPath, tmpPath string
+	entries, err := os.ReadDir(dirName)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".wal" {
+			oldPath = dirName + "/" + entry.Name()
+			tmpPath = tmpDir + "/" + entry.Name()
+			require.NoError(t, os.Rename(oldPath, tmpPath))
+		}
+	}
+	_, walFiles = countDbAndWalFiles(t, dirName)
+	require.Equal(t, walFiles, 0)
+
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+	)
+	require.NoError(t, err)
+	require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
+	require.NoError(t, b.Shutdown(ctx))
+	dbFiles, walFiles = countDbAndWalFiles(t, dirName)
+	require.Equal(t, dbFiles, 0)
+	require.Equal(t, walFiles, 1)
+
+	// move .wal file back so we can recover one
+	require.NoError(t, os.Rename(tmpPath, oldPath))
+
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+	)
+	require.NoError(t, err)
+	get, err := b.Get([]byte("hello1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("world1"), get)
 }

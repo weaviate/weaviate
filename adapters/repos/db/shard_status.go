@@ -47,11 +47,6 @@ func (s *Shard) GetStatus() storagestate.Status {
 	return status
 }
 
-// Same implem for for a regular shard, this only differ in lazy loaded shards
-func (s *Shard) GetStatusNoLoad() storagestate.Status {
-	return s.GetStatus()
-}
-
 // isReadOnly returns an error if shard is readOnly and nil otherwise
 func (s *Shard) isReadOnly() error {
 	s.statusLock.Lock()
@@ -98,13 +93,16 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 	}
 
 	s.index.metrics.UpdateShardStatus(oldStatus.String(), targetStatus.String())
-
-	s.index.logger.
+	logger := s.index.logger
+	logger.
 		WithField("action", "update shard status").
 		WithField("class", s.index.Config.ClassName).
 		WithField("shard", s.name).
-		WithField("status", in).
-		WithField("readOnlyReason", reason)
+		WithField("status", in)
+	if in == storagestate.StatusReadOnly.String() {
+		logger.WithField("readOnlyReason", reason)
+	}
+	logger.Warn()
 
 	return nil
 }

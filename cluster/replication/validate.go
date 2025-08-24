@@ -31,6 +31,9 @@ func ValidateReplicationReplicateShard(schemaReader schema.SchemaReader, c *api.
 	if c.Uuid == "" {
 		return fmt.Errorf("uuid is required: %w", ErrBadRequest)
 	}
+	if c.SourceNode == c.TargetNode {
+		return fmt.Errorf("source and target node are the same: %w", ErrBadRequest)
+	}
 
 	classInfo := schemaReader.ClassInfo(c.SourceCollection)
 	// ClassInfo doesn't return an error, so the only way to know if the class exist is to check if the Exists

@@ -189,6 +189,55 @@ func (_c *MockDbUserAndRolesGetter_CreateUser_Call) RunAndReturn(run func(string
 	return _c
 }
 
+// CreateUserWithKey provides a mock function with given fields: userId, apiKeyFirstLetters, weakHash, createdAt
+func (_m *MockDbUserAndRolesGetter) CreateUserWithKey(userId string, apiKeyFirstLetters string, weakHash [32]byte, createdAt time.Time) error {
+	ret := _m.Called(userId, apiKeyFirstLetters, weakHash, createdAt)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateUserWithKey")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, string, [32]byte, time.Time) error); ok {
+		r0 = rf(userId, apiKeyFirstLetters, weakHash, createdAt)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockDbUserAndRolesGetter_CreateUserWithKey_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateUserWithKey'
+type MockDbUserAndRolesGetter_CreateUserWithKey_Call struct {
+	*mock.Call
+}
+
+// CreateUserWithKey is a helper method to define mock.On call
+//   - userId string
+//   - apiKeyFirstLetters string
+//   - weakHash [32]byte
+//   - createdAt time.Time
+func (_e *MockDbUserAndRolesGetter_Expecter) CreateUserWithKey(userId interface{}, apiKeyFirstLetters interface{}, weakHash interface{}, createdAt interface{}) *MockDbUserAndRolesGetter_CreateUserWithKey_Call {
+	return &MockDbUserAndRolesGetter_CreateUserWithKey_Call{Call: _e.mock.On("CreateUserWithKey", userId, apiKeyFirstLetters, weakHash, createdAt)}
+}
+
+func (_c *MockDbUserAndRolesGetter_CreateUserWithKey_Call) Run(run func(userId string, apiKeyFirstLetters string, weakHash [32]byte, createdAt time.Time)) *MockDbUserAndRolesGetter_CreateUserWithKey_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string), args[2].([32]byte), args[3].(time.Time))
+	})
+	return _c
+}
+
+func (_c *MockDbUserAndRolesGetter_CreateUserWithKey_Call) Return(_a0 error) *MockDbUserAndRolesGetter_CreateUserWithKey_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockDbUserAndRolesGetter_CreateUserWithKey_Call) RunAndReturn(run func(string, string, [32]byte, time.Time) error) *MockDbUserAndRolesGetter_CreateUserWithKey_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DeactivateUser provides a mock function with given fields: userId, revokeKey
 func (_m *MockDbUserAndRolesGetter) DeactivateUser(userId string, revokeKey bool) error {
 	ret := _m.Called(userId, revokeKey)
@@ -528,7 +577,8 @@ func (_c *MockDbUserAndRolesGetter_RotateKey_Call) RunAndReturn(run func(string,
 func NewMockDbUserAndRolesGetter(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockDbUserAndRolesGetter {
+},
+) *MockDbUserAndRolesGetter {
 	mock := &MockDbUserAndRolesGetter{}
 	mock.Mock.Test(t)
 

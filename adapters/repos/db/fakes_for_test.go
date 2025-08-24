@@ -264,7 +264,7 @@ func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, sha
 	return nil
 }
 
-func (f *fakeRemoteClient) PauseFileActivity(ctx context.Context, hostName, indexName, shardName string) error {
+func (f *fakeRemoteClient) PauseFileActivity(ctx context.Context, hostName, indexName, shardName string, schemaVersion uint64) error {
 	return nil
 }
 
@@ -288,7 +288,7 @@ func (f *fakeRemoteClient) GetFile(ctx context.Context, hostName, indexName, sha
 	return nil, nil
 }
 
-func (f *fakeRemoteClient) AddAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+func (f *fakeRemoteClient) AddAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error {
 	return nil
 }
 
@@ -308,7 +308,7 @@ func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
 
 type fakeRemoteNodeClient struct{}
 
-func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, output string) (*models.NodeStatus, error) {
+func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, shardName, output string) (*models.NodeStatus, error) {
 	return &models.NodeStatus{}, nil
 }
 
@@ -373,8 +373,8 @@ func (fakeReplicationClient) Exists(ctx context.Context, hostName, indexName,
 func (*fakeReplicationClient) FetchObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties, numRetries int,
-) (objects.Replica, error) {
-	return objects.Replica{}, nil
+) (replica.Replica, error) {
+	return replica.Replica{}, nil
 }
 
 func (*fakeReplicationClient) DigestObjects(ctx context.Context,
@@ -385,7 +385,7 @@ func (*fakeReplicationClient) DigestObjects(ctx context.Context,
 
 func (*fakeReplicationClient) FetchObjects(ctx context.Context, host,
 	index, shard string, ids []strfmt.UUID,
-) ([]objects.Replica, error) {
+) ([]replica.Replica, error) {
 	return nil, nil
 }
 

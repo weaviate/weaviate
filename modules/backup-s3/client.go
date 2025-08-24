@@ -122,24 +122,44 @@ func (s *s3Client) AllBackups(ctx context.Context,
 			Prefix:    s.config.BackupPath,
 		},
 	)
+
 	for info := range objectsInfo {
-		if strings.Contains(info.Key, ubak.GlobalBackupFile) {
-			obj, err := s.client.GetObject(ctx,
-				s.config.Bucket, info.Key, minio.GetObjectOptions{})
-			if err != nil {
-				return nil, fmt.Errorf("get object %q: %w", info.Key, err)
-			}
-			contents, err := io.ReadAll(obj)
-			if err != nil {
-				return nil, fmt.Errorf("read object %q: %w", info.Key, err)
-			}
-			var desc backup.DistributedBackupDescriptor
-			if err := json.Unmarshal(contents, &desc); err != nil {
-				return nil, fmt.Errorf("unmarshal object %q: %w", info.Key, err)
-			}
-			meta = append(meta, &desc)
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
+
+		// Only process global backup files - this is the key filter
+		// This filters out all other files and only processes backup_config.json
+		if !strings.HasSuffix(info.Key, ubak.GlobalBackupFile) {
+			continue
+		}
+
+		// Get the backup object
+		obj, err := s.client.GetObject(ctx,
+			s.config.Bucket, info.Key, minio.GetObjectOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("get object %q: %w", info.Key, err)
+		}
+
+		// Ensure object is closed to prevent connection leaks
+		defer obj.Close()
+
+		// Use a buffer to limit memory usage
+		var buf bytes.Buffer
+		_, err = io.Copy(&buf, obj)
+		if err != nil {
+			return nil, fmt.Errorf("read object %q: %w", info.Key, err)
+		}
+
+		// Unmarshal the backup metadata
+		var desc backup.DistributedBackupDescriptor
+		if err := json.Unmarshal(buf.Bytes(), &desc); err != nil {
+			return nil, fmt.Errorf("unmarshal object %q: %w", info.Key, err)
+		}
+
+		meta = append(meta, &desc)
 	}
+
 	return meta, nil
 }
 
@@ -168,7 +188,12 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object %s", remotePath))
 	}
 
-	contents, err := io.ReadAll(obj)
+	// Ensure object is closed to prevent connection leaks
+	defer obj.Close()
+
+	// Use a buffer to limit memory usage
+	var buf bytes.Buffer
+	_, err = io.Copy(&buf, obj)
 	if err != nil {
 		var s3Err minio.ErrorResponse
 		if errors.As(err, &s3Err) && s3Err.StatusCode == http.StatusNotFound {
@@ -177,6 +202,7 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object contents from %s:%s %s", bucket, remotePath, remotePath))
 	}
 
+	contents := buf.Bytes()
 	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, "class")
 	if err == nil {
 		metric.Add(float64(len(contents)))
@@ -192,7 +218,11 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 	}
 
 	remotePath := s.makeObjectName(backupID, key)
-	opt := minio.PutObjectOptions{ContentType: "application/octet-stream", PartSize: MINIO_MIN_PART_SIZE}
+	opt := minio.PutObjectOptions{
+		ContentType:    "application/octet-stream",
+		PartSize:       MINIO_MIN_PART_SIZE,
+		SendContentMd5: true,
+	}
 	reader := bytes.NewReader(byes)
 	objectSize := int64(len(byes))
 
@@ -280,6 +310,7 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, ove
 		ContentType:      "application/octet-stream",
 		DisableMultipart: false,
 		PartSize:         MINIO_MIN_PART_SIZE,
+		SendContentMd5:   true,
 	}
 
 	if overridePath != "" {

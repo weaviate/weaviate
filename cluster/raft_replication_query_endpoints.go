@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 )
 
-func (s *Raft) GetReplicationDetailsByReplicationId(uuid strfmt.UUID) (api.ReplicationDetailsResponse, error) {
+func (s *Raft) GetReplicationDetailsByReplicationId(ctx context.Context, uuid strfmt.UUID) (api.ReplicationDetailsResponse, error) {
 	request := &api.ReplicationDetailsRequest{
 		Uuid: uuid,
 	}
@@ -38,7 +38,7 @@ func (s *Raft) GetReplicationDetailsByReplicationId(uuid strfmt.UUID) (api.Repli
 		SubCommand: subCommand,
 	}
 
-	queryResponse, err := s.Query(context.Background(), command)
+	queryResponse, err := s.Query(ctx, command)
 	if err != nil {
 		if strings.Contains(err.Error(), replicationTypes.ErrReplicationOperationNotFound.Error()) {
 			return api.ReplicationDetailsResponse{}, fmt.Errorf("%w: %w", types.ErrNotFound, replicationTypes.ErrReplicationOperationNotFound)
@@ -55,7 +55,7 @@ func (s *Raft) GetReplicationDetailsByReplicationId(uuid strfmt.UUID) (api.Repli
 	return response, nil
 }
 
-func (s *Raft) GetReplicationDetailsByCollection(collection string) ([]api.ReplicationDetailsResponse, error) {
+func (s *Raft) GetReplicationDetailsByCollection(ctx context.Context, collection string) ([]api.ReplicationDetailsResponse, error) {
 	request := &api.ReplicationDetailsRequestByCollection{
 		Collection: collection,
 	}
@@ -70,7 +70,7 @@ func (s *Raft) GetReplicationDetailsByCollection(collection string) ([]api.Repli
 		SubCommand: subCommand,
 	}
 
-	queryResponse, err := s.Query(context.Background(), command)
+	queryResponse, err := s.Query(ctx, command)
 	if err != nil {
 		if strings.Contains(err.Error(), replicationTypes.ErrReplicationOperationNotFound.Error()) {
 			return []api.ReplicationDetailsResponse{}, fmt.Errorf("%w: %w", types.ErrNotFound, replicationTypes.ErrReplicationOperationNotFound)
@@ -87,7 +87,7 @@ func (s *Raft) GetReplicationDetailsByCollection(collection string) ([]api.Repli
 	return response, nil
 }
 
-func (s *Raft) GetReplicationDetailsByCollectionAndShard(collection string, shard string) ([]api.ReplicationDetailsResponse, error) {
+func (s *Raft) GetReplicationDetailsByCollectionAndShard(ctx context.Context, collection string, shard string) ([]api.ReplicationDetailsResponse, error) {
 	request := &api.ReplicationDetailsRequestByCollectionAndShard{
 		Collection: collection,
 		Shard:      shard,
@@ -103,7 +103,7 @@ func (s *Raft) GetReplicationDetailsByCollectionAndShard(collection string, shar
 		SubCommand: subCommand,
 	}
 
-	queryResponse, err := s.Query(context.Background(), command)
+	queryResponse, err := s.Query(ctx, command)
 	if err != nil {
 		if strings.Contains(err.Error(), replicationTypes.ErrReplicationOperationNotFound.Error()) {
 			return []api.ReplicationDetailsResponse{}, fmt.Errorf("%w: %w", types.ErrNotFound, replicationTypes.ErrReplicationOperationNotFound)
@@ -120,7 +120,7 @@ func (s *Raft) GetReplicationDetailsByCollectionAndShard(collection string, shar
 	return response, nil
 }
 
-func (s *Raft) GetReplicationDetailsByTargetNode(node string) ([]api.ReplicationDetailsResponse, error) {
+func (s *Raft) GetReplicationDetailsByTargetNode(ctx context.Context, node string) ([]api.ReplicationDetailsResponse, error) {
 	request := &api.ReplicationDetailsRequestByTargetNode{
 		Node: node,
 	}
@@ -135,7 +135,7 @@ func (s *Raft) GetReplicationDetailsByTargetNode(node string) ([]api.Replication
 		SubCommand: subCommand,
 	}
 
-	queryResponse, err := s.Query(context.Background(), command)
+	queryResponse, err := s.Query(ctx, command)
 	if err != nil {
 		if strings.Contains(err.Error(), replicationTypes.ErrReplicationOperationNotFound.Error()) {
 			return []api.ReplicationDetailsResponse{}, fmt.Errorf("%w: %w", types.ErrNotFound, replicationTypes.ErrReplicationOperationNotFound)
@@ -152,7 +152,29 @@ func (s *Raft) GetReplicationDetailsByTargetNode(node string) ([]api.Replication
 	return response, nil
 }
 
-func (s *Raft) QueryShardingStateByCollection(collection string) (api.ShardingState, error) {
+func (s *Raft) GetAllReplicationDetails(ctx context.Context) ([]api.ReplicationDetailsResponse, error) {
+	command := &api.QueryRequest{
+		Type: api.QueryRequest_TYPE_GET_ALL_REPLICATION_DETAILS,
+	}
+
+	queryResponse, err := s.Query(ctx, command)
+	if err != nil {
+		if strings.Contains(err.Error(), replicationTypes.ErrReplicationOperationNotFound.Error()) {
+			return []api.ReplicationDetailsResponse{}, fmt.Errorf("%w: %w", types.ErrNotFound, replicationTypes.ErrReplicationOperationNotFound)
+		}
+		return []api.ReplicationDetailsResponse{}, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	response := []api.ReplicationDetailsResponse{}
+	err = json.Unmarshal(queryResponse.Payload, &response)
+	if err != nil {
+		return []api.ReplicationDetailsResponse{}, fmt.Errorf("failed to unmarshal query response: %w", err)
+	}
+
+	return response, nil
+}
+
+func (s *Raft) QueryShardingStateByCollection(ctx context.Context, collection string) (api.ShardingState, error) {
 	request := &api.ReplicationQueryShardingStateByCollectionRequest{
 		Collection: collection,
 	}
@@ -167,7 +189,7 @@ func (s *Raft) QueryShardingStateByCollection(collection string) (api.ShardingSt
 		SubCommand: subCommand,
 	}
 
-	queryResponse, err := s.Query(context.Background(), command)
+	queryResponse, err := s.Query(ctx, command)
 	if err != nil {
 		if strings.Contains(err.Error(), replicationTypes.ErrNotFound.Error()) {
 			return api.ShardingState{}, fmt.Errorf("%w: %w", types.ErrNotFound, replicationTypes.ErrNotFound)
@@ -184,7 +206,7 @@ func (s *Raft) QueryShardingStateByCollection(collection string) (api.ShardingSt
 	return response, nil
 }
 
-func (s *Raft) QueryShardingStateByCollectionAndShard(collection string, shard string) (api.ShardingState, error) {
+func (s *Raft) QueryShardingStateByCollectionAndShard(ctx context.Context, collection string, shard string) (api.ShardingState, error) {
 	request := &api.ReplicationQueryShardingStateByCollectionAndShardRequest{
 		Collection: collection,
 		Shard:      shard,
@@ -200,7 +222,7 @@ func (s *Raft) QueryShardingStateByCollectionAndShard(collection string, shard s
 		SubCommand: subCommand,
 	}
 
-	queryResponse, err := s.Query(context.Background(), command)
+	queryResponse, err := s.Query(ctx, command)
 	if err != nil {
 		if strings.Contains(err.Error(), replicationTypes.ErrNotFound.Error()) {
 			return api.ShardingState{}, fmt.Errorf("%w: %w", types.ErrNotFound, replicationTypes.ErrNotFound)
@@ -215,4 +237,36 @@ func (s *Raft) QueryShardingStateByCollectionAndShard(collection string, shard s
 	}
 
 	return response, nil
+}
+
+func (s *Raft) ReplicationGetReplicaOpStatus(ctx context.Context, id uint64) (api.ShardReplicationState, error) {
+	request := &api.ReplicationOperationStateRequest{
+		Id: id,
+	}
+
+	subCommand, err := json.Marshal(request)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	command := &api.QueryRequest{
+		Type:       api.QueryRequest_TYPE_GET_REPLICATION_OPERATION_STATE,
+		SubCommand: subCommand,
+	}
+
+	queryResponse, err := s.Query(ctx, command)
+	if err != nil {
+		if strings.Contains(err.Error(), replicationTypes.ErrReplicationOperationNotFound.Error()) {
+			return "", fmt.Errorf("%w: %w", types.ErrNotFound, replicationTypes.ErrReplicationOperationNotFound)
+		}
+		return "", fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	response := api.ReplicationOperationStateResponse{}
+	err = json.Unmarshal(queryResponse.Payload, &response)
+	if err != nil {
+		return "", fmt.Errorf("failed to unmarshal query response: %w", err)
+	}
+
+	return response.State, nil
 }

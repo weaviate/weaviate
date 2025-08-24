@@ -27,43 +27,52 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ReplicationReplicateDetailsReplicaResponse The current status and details of a replication operation, including information about the resources involved in the replication process.
+// ReplicationReplicateDetailsReplicaResponse Provides a comprehensive overview of a specific replication operation, detailing its unique ID, the involved collection, shard, source and target nodes, transfer type, current status, and optionally, its status history.
 //
 // swagger:model ReplicationReplicateDetailsReplicaResponse
 type ReplicationReplicateDetailsReplicaResponse struct {
 
-	// The name of the collection holding data being replicated.
+	// The name of the collection to which the shard being replicated belongs.
 	// Required: true
 	Collection *string `json:"collection"`
 
-	// The unique id of the replication operation.
+	// The unique identifier (ID) of this specific replication operation.
 	// Required: true
 	// Format: uuid
 	ID *strfmt.UUID `json:"id"`
 
-	// The id of the shard to collect replication details for.
+	// Whether the replica operation is scheduled for cancellation.
+	ScheduledForCancel bool `json:"scheduledForCancel,omitempty"`
+
+	// Whether the replica operation is scheduled for deletion.
+	ScheduledForDelete bool `json:"scheduledForDelete,omitempty"`
+
+	// The identifier of the shard involved in this replication operation.
 	// Required: true
 	ShardID *string `json:"shardId"`
 
-	// The id of the node where the source replica is allocated.
+	// The identifier of the node from which the replica is being moved or copied (the source node).
 	// Required: true
 	SourceNodeID *string `json:"sourceNodeId"`
 
-	// The current status of the replication operation
+	// An object detailing the current operational state of the replica movement and any errors encountered.
 	// Required: true
 	Status *ReplicationReplicateDetailsReplicaStatus `json:"status"`
 
-	// The history of the replication operation
+	// An array detailing the historical sequence of statuses the replication operation has transitioned through, if requested and available.
 	StatusHistory []*ReplicationReplicateDetailsReplicaStatus `json:"statusHistory"`
 
-	// The id of the node where the target replica is allocated.
+	// The identifier of the node to which the replica is being moved or copied (the destination node).
 	// Required: true
 	TargetNodeID *string `json:"targetNodeId"`
 
-	// The transfer type of the replication request, being 'copy' or 'move'.
+	// Indicates whether the operation is a 'COPY' (source replica remains) or a 'MOVE' (source replica is removed after successful transfer).
 	// Required: true
 	// Enum: [COPY MOVE]
 	TransferType *string `json:"transferType"`
+
+	// Whether the replica operation is uncancelable.
+	Uncancelable bool `json:"uncancelable,omitempty"`
 }
 
 // Validate validates this replication replicate details replica response

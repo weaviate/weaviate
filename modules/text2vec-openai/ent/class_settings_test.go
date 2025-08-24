@@ -219,7 +219,7 @@ func Test_classSettings(t *testing.T) {
 			},
 		}
 
-		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", targetVector)
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", targetVector, nil)
 		ic := NewClassSettings(cfg)
 
 		assert.True(t, ic.PropertyIndexed(propertyToIndex))

@@ -289,7 +289,7 @@ jobs:
           "--only-module-text2vec-aws",
           "--only-module-text2vec-jinaai",
           "--only-module-multi2vec-jinaai",
-          "--only-module-text2colbert-jinaai",
+          "--only-module-text2multivec-jinaai",
         ]
     steps:
       - uses: actions/checkout@v4
@@ -362,7 +362,8 @@ jobs:
           "--acceptance-only-authz",
           "--acceptance-only-replication",
           "--acceptance-only-async-replication",
-          "--acceptance-only-replica-replication",
+          "--acceptance-only-replica-replication-fast",
+          "--acceptance-only-replica-replication-slow",
           "--acceptance-go-client-only-fast",
           "--acceptance-only-python",
         ]

@@ -90,6 +90,18 @@ func (n *NoopCommitLogger) Shutdown(context.Context) error {
 	return nil
 }
 
+func (n *NoopCommitLogger) CreateSnapshot() (bool, int64, error) {
+	return false, 0, nil
+}
+
+func (n *NoopCommitLogger) CreateAndLoadSnapshot() (*DeserializationResult, int64, error) {
+	return nil, 0, nil
+}
+
+func (n *NoopCommitLogger) LoadSnapshot() (*DeserializationResult, int64, error) {
+	return nil, 0, nil
+}
+
 func MakeNoopCommitLogger() (CommitLogger, error) {
 	return &NoopCommitLogger{}, nil
 }
@@ -113,3 +125,5 @@ func (n *NoopCommitLogger) RootPath() string {
 func (n *NoopCommitLogger) SwitchCommitLogs(force bool) error {
 	return nil
 }
+
+func (n *NoopCommitLogger) InitMaintenance() {}

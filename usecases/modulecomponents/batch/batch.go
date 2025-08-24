@@ -442,7 +442,7 @@ func (b *Batch[T]) makeRequest(job BatchJob[T], texts []string, cfg moduletools.
 	res, rateLimitNew, tokensUsed, err := b.client.Vectorize(job.ctx, texts, cfg)
 
 	if err != nil {
-		b.logger.WithField("class", job.cfg.Class()).WithError(err).Error("vectorization failed")
+		b.logger.WithField("class", job.cfg.Class()).WithError(err).Debug("vectorization failed")
 		monitoring.GetMetrics().ModuleBatchError.WithLabelValues("batchVectorize", b.Label).Inc()
 		for j := 0; j < len(texts); j++ {
 			job.errs[origIndex[j]] = err

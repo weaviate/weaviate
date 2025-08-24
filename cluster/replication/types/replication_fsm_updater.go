@@ -18,10 +18,15 @@ import (
 )
 
 type FSMUpdater interface {
-	AddReplicaToShard(context.Context, string, string, string) (uint64, error)
-	DeleteReplicaFromShard(context.Context, string, string, string) (uint64, error)
-	ReplicationUpdateReplicaOpStatus(id uint64, state api.ShardReplicationState) error
-	ReplicationRegisterError(id uint64, errorToRegister string) error
-	ReplicationRemoveReplicaOp(id uint64) error
-	ReplicationCancellationComplete(id uint64) error
+	ReplicationAddReplicaToShard(ctx context.Context, collection string, shard string, nodeId string, opId uint64) (uint64, error)
+	DeleteReplicaFromShard(ctx context.Context, collection string, shard string, nodeId string) (uint64, error)
+	SyncShard(ctx context.Context, collection string, shard string, nodeId string) (uint64, error)
+	ReplicationUpdateReplicaOpStatus(ctx context.Context, id uint64, state api.ShardReplicationState) error
+	ReplicationRegisterError(ctx context.Context, id uint64, errorToRegister string) error
+	ReplicationRemoveReplicaOp(ctx context.Context, id uint64) error
+	ReplicationCancellationComplete(ctx context.Context, id uint64) error
+	ReplicationGetReplicaOpStatus(ctx context.Context, id uint64) (api.ShardReplicationState, error)
+	ReplicationStoreSchemaVersion(ctx context.Context, id uint64, schemaVersion uint64) error
+	UpdateTenants(ctx context.Context, class string, req *api.UpdateTenantsRequest) (uint64, error)
+	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
 }

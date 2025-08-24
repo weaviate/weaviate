@@ -12,5 +12,10 @@
 package types
 
 type ReplicationFSMReader interface {
-	FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string)
+	// FilterOneShardReplicasRead returns the read and write replicas for a given shard
+	// It returns a tuple of readReplicas
+	FilterOneShardReplicasRead(collection string, shard string, shardReplicasLocation []string) []string
+	// FilterOneShardReplicasWrite returns the write replicas for a given shard
+	// It returns a tuple of (writeReplicas, additionalWriteReplicas)
+	FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string)
 }

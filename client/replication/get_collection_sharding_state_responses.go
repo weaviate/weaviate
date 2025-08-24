@@ -70,6 +70,12 @@ func (o *GetCollectionShardingStateReader) ReadResponse(response runtime.ClientR
 			return nil, err
 		}
 		return nil, result
+	case 501:
+		result := NewGetCollectionShardingStateNotImplemented()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -83,7 +89,7 @@ func NewGetCollectionShardingStateOK() *GetCollectionShardingStateOK {
 /*
 GetCollectionShardingStateOK describes a response with status code 200, with default header values.
 
-Successfully retrieved.
+Successfully retrieved sharding state.
 */
 type GetCollectionShardingStateOK struct {
 	Payload *models.ReplicationShardingStateResponse
@@ -151,7 +157,7 @@ func NewGetCollectionShardingStateBadRequest() *GetCollectionShardingStateBadReq
 /*
 GetCollectionShardingStateBadRequest describes a response with status code 400, with default header values.
 
-Bad request
+Bad request.
 */
 type GetCollectionShardingStateBadRequest struct {
 	Payload *models.ErrorResponse
@@ -343,7 +349,7 @@ func NewGetCollectionShardingStateNotFound() *GetCollectionShardingStateNotFound
 /*
 GetCollectionShardingStateNotFound describes a response with status code 404, with default header values.
 
-Shard replica operation not found
+Collection or shard not found.
 */
 type GetCollectionShardingStateNotFound struct {
 	Payload *models.ErrorResponse
@@ -460,6 +466,74 @@ func (o *GetCollectionShardingStateInternalServerError) GetPayload() *models.Err
 }
 
 func (o *GetCollectionShardingStateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewGetCollectionShardingStateNotImplemented creates a GetCollectionShardingStateNotImplemented with default headers values
+func NewGetCollectionShardingStateNotImplemented() *GetCollectionShardingStateNotImplemented {
+	return &GetCollectionShardingStateNotImplemented{}
+}
+
+/*
+GetCollectionShardingStateNotImplemented describes a response with status code 501, with default header values.
+
+Replica movement operations are disabled.
+*/
+type GetCollectionShardingStateNotImplemented struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this get collection sharding state not implemented response has a 2xx status code
+func (o *GetCollectionShardingStateNotImplemented) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this get collection sharding state not implemented response has a 3xx status code
+func (o *GetCollectionShardingStateNotImplemented) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this get collection sharding state not implemented response has a 4xx status code
+func (o *GetCollectionShardingStateNotImplemented) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this get collection sharding state not implemented response has a 5xx status code
+func (o *GetCollectionShardingStateNotImplemented) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this get collection sharding state not implemented response a status code equal to that given
+func (o *GetCollectionShardingStateNotImplemented) IsCode(code int) bool {
+	return code == 501
+}
+
+// Code gets the status code for the get collection sharding state not implemented response
+func (o *GetCollectionShardingStateNotImplemented) Code() int {
+	return 501
+}
+
+func (o *GetCollectionShardingStateNotImplemented) Error() string {
+	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateNotImplemented  %+v", 501, o.Payload)
+}
+
+func (o *GetCollectionShardingStateNotImplemented) String() string {
+	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateNotImplemented  %+v", 501, o.Payload)
+}
+
+func (o *GetCollectionShardingStateNotImplemented) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *GetCollectionShardingStateNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

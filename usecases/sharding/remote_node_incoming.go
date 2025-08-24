@@ -18,7 +18,7 @@ import (
 )
 
 type RemoteNodeIncomingRepo interface {
-	IncomingGetNodeStatus(ctx context.Context, className, output string) (*models.NodeStatus, error)
+	IncomingGetNodeStatus(ctx context.Context, className, shardName, output string) (*models.NodeStatus, error)
 	IncomingGetNodeStatistics() (*models.Statistics, error)
 }
 
@@ -32,8 +32,8 @@ func NewRemoteNodeIncoming(repo RemoteNodeIncomingRepo) *RemoteNodeIncoming {
 	}
 }
 
-func (rni *RemoteNodeIncoming) GetNodeStatus(ctx context.Context, className, output string) (*models.NodeStatus, error) {
-	return rni.repo.IncomingGetNodeStatus(ctx, className, output)
+func (rni *RemoteNodeIncoming) GetNodeStatus(ctx context.Context, className, shardName, output string) (*models.NodeStatus, error) {
+	return rni.repo.IncomingGetNodeStatus(ctx, className, shardName, output)
 }
 
 func (rni *RemoteNodeIncoming) GetStatistics(ctx context.Context) (*models.Statistics, error) {

@@ -29,14 +29,14 @@ type OpsCache struct {
 	// ops is a map of opId to an empty struct
 	// It is used to track whether an operation is currently being handled by
 	// a worker goroutine
-	ops sync.Map
+	inFlight sync.Map
 }
 
 func NewOpsCache() *OpsCache {
 	return &OpsCache{
 		hasBeenCancelled: sync.Map{},
 		cancels:          sync.Map{},
-		ops:              sync.Map{},
+		inFlight:         sync.Map{},
 	}
 }
 
@@ -49,13 +49,17 @@ func (c *OpsCache) StoreHasBeenCancelled(opId uint64) {
 	c.hasBeenCancelled.Store(opId, struct{}{})
 }
 
+func (c *OpsCache) DeleteHasBeenCancelled(opId uint64) {
+	c.hasBeenCancelled.Delete(opId)
+}
+
 func (c *OpsCache) LoadOrStore(opId uint64) bool {
-	_, ok := c.ops.LoadOrStore(opId, struct{}{})
+	_, ok := c.inFlight.LoadOrStore(opId, struct{}{})
 	return ok
 }
 
-func (c *OpsCache) Load(opId uint64) bool {
-	_, ok := c.ops.Load(opId)
+func (c *OpsCache) InFlight(opId uint64) bool {
+	_, ok := c.inFlight.Load(opId)
 	return ok
 }
 
@@ -84,8 +88,19 @@ func (c *OpsCache) Cancel(opId uint64) bool {
 	return true
 }
 
-func (c *OpsCache) Remove(opId uint64) {
-	c.hasBeenCancelled.Delete(opId)
+func (c *OpsCache) CancelAll() {
+	c.cancels.Range(func(key, value any) bool {
+		cancel, ok := value.(context.CancelFunc)
+		if ok {
+			cancel()
+		}
+
+		// Iterate on all
+		return true
+	})
+}
+
+func (c *OpsCache) DeleteInFlight(opId uint64) {
 	c.cancels.Delete(opId)
-	c.ops.Delete(opId)
+	c.inFlight.Delete(opId)
 }

@@ -67,8 +67,8 @@ func TestReplicationReplicate(t *testing.T) {
 			},
 		}
 
-		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.On("ReplicationReplicateReplica", mock.AnythingOfType("strfmt.UUID"), sourceNodeId, collection, shardId, targetNodeId, transferType).Return(nil)
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockReplicationManager.EXPECT().ReplicationReplicateReplica(mock.Anything, mock.AnythingOfType("strfmt.UUID"), sourceNodeId, collection, shardId, targetNodeId, transferType).Return(nil)
 
 		// WHEN
 		response := handler.replicate(params, &models.Principal{})
@@ -200,8 +200,8 @@ func TestReplicationReplicate(t *testing.T) {
 			},
 		}
 
-		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.On("ReplicationReplicateReplica", mock.AnythingOfType("strfmt.UUID"), sourceNodeId, collection, shardId, targetNodeId, transferType).Return(types.ErrInvalidRequest)
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockReplicationManager.EXPECT().ReplicationReplicateReplica(mock.Anything, mock.AnythingOfType("strfmt.UUID"), sourceNodeId, collection, shardId, targetNodeId, transferType).Return(types.ErrInvalidRequest)
 
 		// WHEN
 		response := handler.replicate(params, &models.Principal{})
@@ -232,8 +232,8 @@ func TestReplicationReplicate(t *testing.T) {
 			},
 		}
 
-		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.On("ReplicationReplicateReplica", mock.AnythingOfType("strfmt.UUID"), sourceNodeId, collection, shardId, targetNodeId, transferType).Return(errors.New("target node does not exist"))
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockReplicationManager.EXPECT().ReplicationReplicateReplica(mock.Anything, mock.AnythingOfType("strfmt.UUID"), sourceNodeId, collection, shardId, targetNodeId, transferType).Return(errors.New("target node does not exist"))
 
 		// WHEN
 		response := handler.replicate(params, &models.Principal{})
@@ -264,7 +264,7 @@ func TestReplicationReplicate(t *testing.T) {
 			},
 		}
 
-		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("authorization error"))
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("authorization error"))
 
 		// WHEN
 		response := handler.replicate(params, &models.Principal{})
@@ -290,11 +290,12 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
 		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
 		statusOptions := []string{
+			models.ReplicationReplicateDetailsReplicaStatusStateREGISTERED,
+			models.ReplicationReplicateDetailsReplicaStatusStateHYDRATING,
+			models.ReplicationReplicateDetailsReplicaStatusStateFINALIZING,
+			models.ReplicationReplicateDetailsReplicaStatusStateDEHYDRATING,
 			models.ReplicationReplicateDetailsReplicaStatusStateREADY,
-			models.ReplicationReplicateDetailsReplicaStatusStateINDEXING,
-			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONDEHYDRATING,
-			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONFINALIZING,
-			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONHYDRATING,
+			models.ReplicationReplicateDetailsReplicaStatusStateCANCELLED,
 		}
 		status := randomString(statusOptions)
 		transferType := randomTransferType()
@@ -313,8 +314,8 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 			TransferType:  transferType,
 		}
 
-		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.On("GetReplicationDetailsByReplicationId", id).Return(expectedResponse, nil)
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockReplicationManager.EXPECT().GetReplicationDetailsByReplicationId(mock.Anything, id).Return(expectedResponse, nil)
 
 		// WHEN
 		response := handler.getReplicationDetailsByReplicationId(params, &models.Principal{})
@@ -350,11 +351,12 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
 		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
 		statusOptions := []string{
+			models.ReplicationReplicateDetailsReplicaStatusStateREGISTERED,
+			models.ReplicationReplicateDetailsReplicaStatusStateHYDRATING,
+			models.ReplicationReplicateDetailsReplicaStatusStateFINALIZING,
+			models.ReplicationReplicateDetailsReplicaStatusStateDEHYDRATING,
 			models.ReplicationReplicateDetailsReplicaStatusStateREADY,
-			models.ReplicationReplicateDetailsReplicaStatusStateINDEXING,
-			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONDEHYDRATING,
-			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONFINALIZING,
-			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONHYDRATING,
+			models.ReplicationReplicateDetailsReplicaStatusStateCANCELLED,
 		}
 		status := randomString(statusOptions)
 		historyStatus := randomString(statusOptions)
@@ -378,8 +380,8 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 			},
 		}
 
-		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.On("GetReplicationDetailsByReplicationId", mock.AnythingOfType("strfmt.UUID")).Return(expectedResponse, nil)
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockReplicationManager.EXPECT().GetReplicationDetailsByReplicationId(mock.Anything, mock.AnythingOfType("strfmt.UUID")).Return(expectedResponse, nil)
 
 		// WHEN
 		response := handler.getReplicationDetailsByReplicationId(params, &models.Principal{})
@@ -400,7 +402,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		assert.Equal(t, []string{"error1", "error2"}, replicationDetails.Payload.StatusHistory[0].Errors)
 	})
 
-	t.Run("request id not found", func(t *testing.T) {
+	t.Run("request id not found authorized", func(t *testing.T) {
 		// GIVEN
 		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
 		id := uuid4()
@@ -409,14 +411,34 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 			HTTPRequest: &http.Request{},
 		}
 
-		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.On("GetReplicationDetailsByReplicationId", id).Return(api.ReplicationDetailsResponse{}, types.ErrReplicationOperationNotFound)
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, authorization.READ, authorization.Replications("*", "*")).Return(nil)
+		mockReplicationManager.EXPECT().GetReplicationDetailsByReplicationId(mock.Anything, id).Return(api.ReplicationDetailsResponse{}, types.ErrReplicationOperationNotFound)
 
 		// WHEN
 		response := handler.getReplicationDetailsByReplicationId(params, &models.Principal{})
 
 		// THEN
 		assert.IsType(t, &replication.ReplicationDetailsNotFound{}, response)
+		mockAuthorizer.AssertExpectations(t)
+	})
+
+	t.Run("request id not found forbidden", func(t *testing.T) {
+		// GIVEN
+		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		id := uuid4()
+		params := replication.ReplicationDetailsParams{
+			ID:          id,
+			HTTPRequest: &http.Request{},
+		}
+
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, authorization.READ, authorization.Replications("*", "*")).Return(fmt.Errorf("forbidden access"))
+		mockReplicationManager.EXPECT().GetReplicationDetailsByReplicationId(mock.Anything, id).Return(api.ReplicationDetailsResponse{}, types.ErrReplicationOperationNotFound)
+
+		// WHEN
+		response := handler.getReplicationDetailsByReplicationId(params, &models.Principal{})
+
+		// THEN
+		assert.IsType(t, &replication.ReplicationDetailsForbidden{}, response)
 		mockAuthorizer.AssertExpectations(t)
 	})
 
@@ -429,8 +451,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 			HTTPRequest: &http.Request{},
 		}
 
-		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.On("GetReplicationDetailsByReplicationId", id).Return(api.ReplicationDetailsResponse{}, errors.New("internal error"))
+		mockReplicationManager.EXPECT().GetReplicationDetailsByReplicationId(mock.Anything, id).Return(api.ReplicationDetailsResponse{}, errors.New("internal error"))
 
 		// WHEN
 		response := handler.getReplicationDetailsByReplicationId(params, &models.Principal{})
@@ -442,14 +463,16 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 
 	t.Run("authorization error", func(t *testing.T) {
 		// GIVEN
-		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
 		id := uuid4()
 		params := replication.ReplicationDetailsParams{
 			ID:          id,
 			HTTPRequest: &http.Request{},
 		}
 
-		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("forbidden access"))
+		// Retrieves details first by ID then authorizes on the collection/shard of the replication
+		mockReplicationManager.EXPECT().GetReplicationDetailsByReplicationId(mock.Anything, id).Return(api.ReplicationDetailsResponse{}, nil)
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("forbidden access"))
 
 		// WHEN
 		response := handler.getReplicationDetailsByReplicationId(params, &models.Principal{})

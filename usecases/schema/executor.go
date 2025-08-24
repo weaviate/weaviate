@@ -111,7 +111,7 @@ func (e *executor) AddReplicaToShard(class string, shard string, targetNode stri
 	} else if !slices.Contains(replicas, targetNode) {
 		return fmt.Errorf("replica %s does not exists for collection %s shard %s", targetNode, class, shard)
 	}
-	return e.migrator.AddReplicaToShard(ctx, class, shard)
+	return e.migrator.LoadShard(ctx, class, shard)
 }
 
 func (e *executor) DeleteReplicaFromShard(class string, shard string, targetNode string) error {
@@ -121,7 +121,40 @@ func (e *executor) DeleteReplicaFromShard(class string, shard string, targetNode
 	} else if slices.Contains(replicas, targetNode) {
 		return fmt.Errorf("replica %s exists for collection %s shard %s", targetNode, class, shard)
 	}
-	return e.migrator.DeleteReplicaFromShard(ctx, class, shard)
+	return e.migrator.DropShard(ctx, class, shard)
+}
+
+func (e *executor) LoadShard(class string, shard string) {
+	ctx := context.Background()
+	if err := e.migrator.LoadShard(ctx, class, shard); err != nil {
+		e.logger.WithFields(logrus.Fields{
+			"action": "load_shard",
+			"class":  class,
+			"shard":  shard,
+		}).WithError(err).Warn("migrator")
+	}
+}
+
+func (e *executor) ShutdownShard(class string, shard string) {
+	ctx := context.Background()
+	if err := e.migrator.ShutdownShard(ctx, class, shard); err != nil {
+		e.logger.WithFields(logrus.Fields{
+			"action": "shutdown_shard",
+			"class":  class,
+			"shard":  shard,
+		}).WithError(err).Warn("migrator")
+	}
+}
+
+func (e *executor) DropShard(class string, shard string) {
+	ctx := context.Background()
+	if err := e.migrator.DropShard(ctx, class, shard); err != nil {
+		e.logger.WithFields(logrus.Fields{
+			"action": "drop_shard",
+			"class":  class,
+			"shard":  shard,
+		}).WithError(err).Warn("migrator")
+	}
 }
 
 // RestoreClassDir restores classes on the filesystem directly from the temporary class backup stored on disk.
@@ -233,7 +266,7 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 		})
 	}
 
-	if err := e.migrator.UpdateTenants(ctx, cls, updates); err != nil {
+	if err := e.migrator.UpdateTenants(ctx, cls, updates, req.ImplicitUpdateRequest); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action": "update_tenants",
 			"class":  class,
@@ -265,7 +298,7 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 		})
 	}
 
-	if err := e.migrator.UpdateTenants(ctx, cls, updates); err != nil {
+	if err := e.migrator.UpdateTenants(ctx, cls, updates, false); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action":     "update_tenants_process",
 			"sub-action": "update_tenants",

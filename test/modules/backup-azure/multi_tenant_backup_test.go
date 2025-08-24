@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/journey"
@@ -37,7 +38,6 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 }
 
 func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
-	azureBackupJourneyContainerName := containerName
 	azureBackupJourneyBackupIDCluster := "azure-backup-cluster-multi-tenant"
 	azureBackupJourneyBackupIDSingleNode := "azure-backup-single-node-multi-tenant"
 	if override {
@@ -51,13 +51,17 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 	}
 
 	t.Run("single node", func(t *testing.T) {
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
-		t.Setenv(envAzureContainer, azureBackupJourneyContainerName)
+		containerToUse := containerName
+		if override {
+			containerToUse = overrideBucket
+		}
+		t.Setenv(envAzureContainer, containerToUse)
 
 		compose, err := docker.New().
-			WithBackendAzure(azureBackupJourneyContainerName).
+			WithBackendAzure(containerToUse).
 			WithText2VecContextionary().
-			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
@@ -70,8 +74,8 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		t.Setenv(envAzureEndpoint, azuriteEndpoint)
 		t.Setenv(envAzureStorageConnectionString, fmt.Sprintf(connectionString, azuriteEndpoint))
 
-		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
-		defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
+		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, containerToUse)
+		defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, containerToUse)
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-azure", func(t *testing.T) {
@@ -81,13 +85,17 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 	})
 
 	t.Run("multiple node", func(t *testing.T) {
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
-		t.Setenv(envAzureContainer, azureBackupJourneyContainerName)
+		containerToUse := containerName
+		if override {
+			containerToUse = overrideBucket
+		}
+		t.Setenv(envAzureContainer, containerToUse)
 
 		compose, err := docker.New().
-			WithBackendAzure(azureBackupJourneyContainerName).
+			WithBackendAzure(containerToUse).
 			WithText2VecContextionary().
-			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviateCluster(3).
 			Start(ctx)
 		require.Nil(t, err)
@@ -100,8 +108,8 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		t.Setenv(envAzureEndpoint, azuriteEndpoint)
 		t.Setenv(envAzureStorageConnectionString, fmt.Sprintf(connectionString, azuriteEndpoint))
 
-		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
-		defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
+		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, containerToUse)
+		defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, containerToUse)
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-azure", func(t *testing.T) {

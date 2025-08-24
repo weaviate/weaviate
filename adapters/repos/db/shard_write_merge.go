@@ -26,7 +26,7 @@ import (
 var errObjectNotFound = errors.New("object not found")
 
 func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) error {
-	s.activityTracker.Add(1)
+	s.activityTrackerWrite.Add(1)
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
@@ -111,10 +111,6 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 		return errors.Wrap(err, "flush all buffered WALs")
 	}
 
-	if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
-		return errors.Wrap(err, "object merge in hashtree")
-	}
-
 	return nil
 }
 
@@ -131,10 +127,17 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
+		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
+
+		err := s.waitForMinimalHashTreeInitialization(context.Background())
+		if err != nil {
+			return err
+		}
+
 		lock.Lock()
 		defer lock.Unlock()
 
-		var err error
 		prevObj, err = fetchObject(bucket, idBytes)
 		if err != nil {
 			return errors.Wrap(err, "get bucket")
@@ -166,6 +169,10 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 
 		if err := s.upsertObjectDataLSM(bucket, idBytes, objBytes, status.docID); err != nil {
 			return errors.Wrap(err, "upsert object data")
+		}
+
+		if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
+			return errors.Wrap(err, "object merge in hashtree")
 		}
 
 		return nil
@@ -207,6 +214,14 @@ func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	out := mutableMergeResult{}
 
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	err := s.waitForMinimalHashTreeInitialization(context.Background())
+	if err != nil {
+		return out, err
+	}
+
 	// see comment in shard_write_put.go::putObjectLSM
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
 	lock.Lock()
@@ -245,6 +260,10 @@ func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 
 	if err := s.upsertObjectDataLSM(bucket, idBytes, objBytes, status.docID); err != nil {
 		return out, errors.Wrap(err, "upsert object data")
+	}
+
+	if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
+		return out, fmt.Errorf("object merge in hashtree: %w", err)
 	}
 
 	// do not updated inverted index, since this requires delta analysis, which

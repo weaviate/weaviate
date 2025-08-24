@@ -12,13 +12,13 @@
 package ent
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
@@ -43,7 +43,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 		},
 		{
-			name: "Explicit correct model",
+			name: "Explicit model",
 			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model": "Snowflake/snowflake-arctic-embed-m-v1.5",
@@ -51,30 +51,12 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 		},
 		{
-			name: "Explicit wrong model",
-			cfg: &fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model": "not-available-model",
-				},
-			},
-			wantErr: errors.New("wrong model name, available model names are: [Snowflake/snowflake-arctic-embed-l-v2.0 Snowflake/snowflake-arctic-embed-m-v1.5]"),
-		},
-		{
-			name: "Explicit correct dimensions",
+			name: "Explicit dimensions",
 			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"dimensions": 256,
 				},
 			},
-		},
-		{
-			name: "Explicit wrong dimensions",
-			cfg: &fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"dimensions": 768,
-				},
-			},
-			wantErr: errors.New("wrong dimensions setting for Snowflake/snowflake-arctic-embed-l-v2.0 model, available dimensions are: [256 1024]"),
 		},
 	}
 	for _, tt := range tests {
@@ -133,5 +115,9 @@ func (f fakeClassConfig) TargetVector() string {
 }
 
 func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
+}
+
+func (f fakeClassConfig) Config() *config.Config {
 	return nil
 }

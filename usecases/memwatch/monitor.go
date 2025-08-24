@@ -24,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
@@ -178,6 +179,7 @@ func (m *Monitor) obtainCurrentUsage() {
 
 func (m *Monitor) obtainCurrentMappings() {
 	used := getCurrentMappings()
+	monitoring.GetMetrics().MmapProcMaps.Set(float64(used))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.usedMappings = used

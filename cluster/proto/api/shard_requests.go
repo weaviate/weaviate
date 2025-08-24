@@ -73,7 +73,6 @@ type ReplicationRegisterErrorRequest struct {
 
 	Id    uint64
 	Error string
-	Uuid  strfmt.UUID
 }
 
 type ReplicationRegisterErrorResponse struct{}
@@ -116,6 +115,10 @@ type ReplicationDetailsResponse struct {
 	SourceNodeId string
 	TargetNodeId string
 
+	Uncancelable       bool
+	ScheduledForCancel bool
+	ScheduledForDelete bool
+
 	Status        ReplicationDetailsState
 	StatusHistory []ReplicationDetailsState
 	TransferType  string
@@ -136,6 +139,17 @@ type ReplicationCancellationCompleteRequest struct {
 	Id      uint64
 }
 
+type ReplicationsDeleteByCollectionRequest struct {
+	Version    int
+	Collection string
+}
+
+type ReplicationsDeleteByTenantsRequest struct {
+	Version    int
+	Collection string
+	Tenants    []string
+}
+
 type ShardingState struct {
 	Collection string
 	Shards     map[string][]string
@@ -148,4 +162,51 @@ type ReplicationQueryShardingStateByCollectionRequest struct {
 type ReplicationQueryShardingStateByCollectionAndShardRequest struct {
 	Collection string
 	Shard      string
+}
+
+type ReplicationDeleteAllRequest struct {
+	Version int
+}
+
+type ReplicationPurgeRequest struct {
+	Version int
+}
+
+type ReplicationOperationStateRequest struct {
+	Id uint64
+}
+
+type ReplicationOperationStateResponse struct {
+	State ShardReplicationState
+}
+
+type ReplicationStoreSchemaVersionRequest struct {
+	Version       int
+	SchemaVersion uint64
+	Id            uint64
+}
+
+type ReplicationAddReplicaToShard struct {
+	OpId                     uint64
+	Class, Shard, TargetNode string
+	SchemaVersion            uint64
+}
+
+type ReplicationForceDeleteAllRequest struct{}
+
+type ReplicationForceDeleteByCollectionRequest struct {
+	Collection string
+}
+
+type ReplicationForceDeleteByCollectionAndShardRequest struct {
+	Collection string
+	Shard      string
+}
+
+type ReplicationForceDeleteByTargetNodeRequest struct {
+	Node string
+}
+
+type ReplicationForceDeleteByUuidRequest struct {
+	Uuid strfmt.UUID
 }

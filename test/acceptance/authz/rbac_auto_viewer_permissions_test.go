@@ -62,6 +62,8 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		"/backups/{backend}", // we ignore backup because there is multiple endpoints doesn't need authZ and many validations
 		"/backups/{backend}/{id}",
 		"/backups/{backend}/{id}/restore",
+		"/replication/replicate/{id}", // for the same reason as backups above
+		"/replication/replicate/{id}/cancel",
 		"/authz/roles/{id}/has-permission", // must be a POST rather than GET or HEAD due to need of body. but viewer can access it due to its permissions
 	}
 

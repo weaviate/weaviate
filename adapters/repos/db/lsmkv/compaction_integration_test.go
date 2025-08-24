@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 func testCtx() context.Context {
@@ -62,7 +63,7 @@ func TestCompaction(t *testing.T) {
 				compactionReplaceStrategy(ctx, t, opts, 12116, 12116)
 			},
 			opts: []BucketOption{
-				WithStrategy(StrategyReplace),
+				WithStrategy(StrategyReplace), WithCalcCountNetAdditions(true),
 			},
 		},
 		{
@@ -73,6 +74,7 @@ func TestCompaction(t *testing.T) {
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
 				WithKeepTombstones(true),
+				WithCalcCountNetAdditions(true),
 			},
 		},
 		{
@@ -232,6 +234,13 @@ func TestCompaction(t *testing.T) {
 			},
 		},
 		{
+			name: "compactionMapStrategy_HugeEntries",
+			f:    compactionMapStrategy_HugeEntries,
+			opts: []BucketOption{
+				WithStrategy(StrategyMapCollection),
+			},
+		},
+		{
 			name: "compactionMapStrategy_RemoveUnnecessary_KeepTombstones",
 			f:    compactionMapStrategy_RemoveUnnecessary,
 			opts: []BucketOption{
@@ -261,6 +270,7 @@ func TestCompaction(t *testing.T) {
 			f:    compactionRoaringSetStrategy_Random,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 			},
 		},
 		{
@@ -268,6 +278,7 @@ func TestCompaction(t *testing.T) {
 			f:    compactionRoaringSetStrategy_Random,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 				WithKeepTombstones(true),
 			},
 		},
@@ -278,6 +289,7 @@ func TestCompaction(t *testing.T) {
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 			},
 		},
 		{
@@ -287,6 +299,7 @@ func TestCompaction(t *testing.T) {
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 				WithKeepTombstones(true),
 			},
 		},
@@ -295,6 +308,7 @@ func TestCompaction(t *testing.T) {
 			f:    compactionRoaringSetStrategy_RemoveUnnecessary,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 			},
 		},
 		{
@@ -302,6 +316,7 @@ func TestCompaction(t *testing.T) {
 			f:    compactionRoaringSetStrategy_RemoveUnnecessary,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 				WithKeepTombstones(true),
 			},
 		},
@@ -310,6 +325,7 @@ func TestCompaction(t *testing.T) {
 			f:    compactionRoaringSetStrategy_FrequentPutDeleteOperations,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 			},
 		},
 		{
@@ -317,6 +333,7 @@ func TestCompaction(t *testing.T) {
 			f:    compactionRoaringSetStrategy_FrequentPutDeleteOperations,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 				WithKeepTombstones(true),
 			},
 		},

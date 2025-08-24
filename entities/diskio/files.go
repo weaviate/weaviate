@@ -11,7 +11,11 @@
 
 package diskio
 
-import "os"
+import (
+	"errors"
+	"io"
+	"os"
+)
 
 func FileExists(file string) (bool, error) {
 	_, err := os.Stat(file)
@@ -24,6 +28,21 @@ func FileExists(file string) (bool, error) {
 	return true, nil
 }
 
+func IsDirEmpty(dir string) (bool, error) {
+	f, err := os.Open(dir)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	_, err = f.Readdirnames(1)
+	if errors.Is(err, io.EOF) {
+		return true, nil
+	}
+
+	return false, err
+}
+
 func Fsync(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -32,4 +51,28 @@ func Fsync(path string) error {
 	defer f.Close()
 
 	return f.Sync()
+}
+
+// GetFileWithSizes gets all files in a directory including their filesize
+func GetFileWithSizes(dirPath string) (map[string]int64, error) {
+	dir, err := os.Open(dirPath)
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+
+	// Read all entries at once including file sizes
+	fileInfos, err := dir.Readdir(-1)
+	if err != nil {
+		return nil, err
+	}
+
+	fileSizes := make(map[string]int64)
+	for _, info := range fileInfos {
+		if !info.IsDir() { // Skip directories
+			fileSizes[info.Name()] = info.Size()
+		}
+	}
+
+	return fileSizes, nil
 }

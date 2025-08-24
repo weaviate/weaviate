@@ -29,19 +29,20 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
-
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const (
@@ -95,6 +96,7 @@ type asyncReplicationConfig struct {
 	propagationConcurrency      int
 	propagationBatchSize        int
 	targetNodeOverrides         []additional.AsyncReplicationTargetNodeOverride
+	maintenanceModeEnabled      func() bool
 }
 
 func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err error) {
@@ -182,6 +184,8 @@ func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err 
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE", err)
 	}
+
+	config.maintenanceModeEnabled = s.index.Config.MaintenanceModeEnabled
 
 	return
 }
@@ -320,58 +324,16 @@ func (s *Shard) initAsyncReplication() error {
 		return err
 	}
 
-	// sync hashtree with current object states
+	s.hashtreeFullyInitialized = false
+	s.minimalHashtreeInitializationCh = make(chan struct{})
 
 	enterrors.GoWrapper(func() {
-		err := s.store.PauseCompaction(ctx)
-		if err != nil {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Errorf("pausing compaction during hashtree initialization: %v", err)
-			return
-		}
-		defer s.store.ResumeCompaction(ctx)
-
-		objCount := 0
-		prevProgressLogging := time.Now()
-
-		err = bucket.ApplyToObjectDigests(ctx, func(object *storobj.Object) error {
-			if time.Since(prevProgressLogging) >= config.loggingFrequency {
-				s.index.logger.
-					WithField("action", "async_replication").
-					WithField("class_name", s.class.Class).
-					WithField("shard_name", s.name).
-					WithField("object_count", objCount).
-					WithField("took", fmt.Sprintf("%v", time.Since(start))).
-					Infof("hashtree initialization in progress...")
-				prevProgressLogging = time.Now()
+		for i := 0; ; i++ {
+			err := s.initHashtree(ctx, config, bucket)
+			if err == nil {
+				break
 			}
 
-			uuidBytes, err := parseBytesUUID(object.ID())
-			if err != nil {
-				return err
-			}
-
-			err = s.mayUpsertObjectHashTree(object, uuidBytes, objectInsertStatus{})
-			if err != nil {
-				return err
-			}
-
-			objCount++
-
-			if config.initShieldCPUEveryN > 0 {
-				if objCount%config.initShieldCPUEveryN == 0 {
-					// yield the processor so other goroutines can run
-					runtime.Gosched()
-					time.Sleep(time.Millisecond)
-				}
-			}
-
-			return nil
-		})
-		if err != nil {
 			if ctx.Err() != nil {
 				s.index.logger.
 					WithField("action", "async_replication").
@@ -385,39 +347,124 @@ func (s *Shard) initAsyncReplication() error {
 				WithField("action", "async_replication").
 				WithField("class_name", s.class.Class).
 				WithField("shard_name", s.name).
-				Errorf("iterating objects during hashtree initialization: %v", err)
-			return
-		}
+				Errorf("hashtree initialization attempt %d failure: %v", i, err)
 
-		s.asyncReplicationRWMux.Lock()
+			// exponential backoff: min(2^i * 100ms, 5s)
+			backoff := min(time.Duration(1<<i)*100*time.Millisecond, 5*time.Second)
+			time.Sleep(backoff)
 
-		if s.hashtree == nil {
+			s.asyncReplicationRWMux.Lock()
+			s.hashtree.Reset()
+			s.minimalHashtreeInitializationCh = make(chan struct{})
 			s.asyncReplicationRWMux.Unlock()
+		}
+	}, s.index.logger)
 
+	return nil
+}
+
+func (s *Shard) initHashtree(ctx context.Context, config asyncReplicationConfig, bucket *lsmkv.Bucket) error {
+	start := time.Now()
+
+	releaseInitialization := func() {
+		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
+
+		close(s.minimalHashtreeInitializationCh)
+	}
+
+	err := s.store.PauseCompaction(ctx)
+	if err != nil {
+		releaseInitialization()
+		return fmt.Errorf("pausing compaction: %w", err)
+	}
+	defer s.store.ResumeCompaction(ctx)
+
+	objCount := 0
+	prevProgressLogging := time.Now()
+
+	err = bucket.ApplyToObjectDigests(ctx, releaseInitialization, func(object *storobj.Object) error {
+		if time.Since(prevProgressLogging) >= config.loggingFrequency {
 			s.index.logger.
 				WithField("action", "async_replication").
 				WithField("class_name", s.class.Class).
 				WithField("shard_name", s.name).
-				Info("hashtree initialization stopped")
-			return
+				WithField("object_count", objCount).
+				WithField("took", fmt.Sprintf("%v", time.Since(start))).
+				Infof("hashtree initialization in progress...")
+			prevProgressLogging = time.Now()
 		}
 
-		s.hashtreeFullyInitialized = true
+		uuidBytes, err := parseBytesUUID(object.ID())
+		if err != nil {
+			return err
+		}
+
+		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
+
+		err = s.mayUpsertObjectHashTree(object, uuidBytes, objectInsertStatus{})
+		if err != nil {
+			return err
+		}
+
+		objCount++
+
+		if config.initShieldCPUEveryN > 0 {
+			if objCount%config.initShieldCPUEveryN == 0 {
+				// yield the processor so other goroutines can run
+				runtime.Gosched()
+				time.Sleep(time.Millisecond)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("iterating objects: %w", err)
+	}
+
+	s.asyncReplicationRWMux.Lock()
+
+	if s.hashtree == nil {
+		s.asyncReplicationRWMux.Unlock()
 
 		s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
 			WithField("shard_name", s.name).
-			WithField("object_count", objCount).
-			WithField("took", fmt.Sprintf("%v", time.Since(start))).
-			Info("hashtree successfully initialized")
+			Info("hashtree initialization stopped")
+		return nil
+	}
 
-		s.asyncReplicationRWMux.Unlock()
+	s.hashtreeFullyInitialized = true
 
-		s.initHashBeater(ctx, config)
-	}, s.index.logger)
+	s.index.logger.
+		WithField("action", "async_replication").
+		WithField("class_name", s.class.Class).
+		WithField("shard_name", s.name).
+		WithField("object_count", objCount).
+		WithField("took", fmt.Sprintf("%v", time.Since(start))).
+		Info("hashtree successfully initialized")
+
+	s.asyncReplicationRWMux.Unlock()
+
+	s.initHashBeater(ctx, config)
 
 	return nil
+}
+
+func (s *Shard) waitForMinimalHashTreeInitialization(ctx context.Context) error {
+	if s.hashtree == nil || s.hashtreeFullyInitialized {
+		return nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.minimalHashtreeInitializationCh:
+		return nil
+	}
 }
 
 func (s *Shard) mayStopAsyncReplication() {
@@ -446,7 +493,7 @@ func (s *Shard) mayStopAsyncReplication() {
 	s.hashtreeFullyInitialized = false
 }
 
-func (s *Shard) UpdateAsyncReplicationConfig(_ context.Context, enabled bool) error {
+func (s *Shard) SetAsyncReplicationEnabled(_ context.Context, enabled bool) error {
 	s.asyncReplicationRWMux.Lock()
 	defer s.asyncReplicationRWMux.Unlock()
 
@@ -473,7 +520,7 @@ func (s *Shard) UpdateAsyncReplicationConfig(_ context.Context, enabled bool) er
 func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
 	func() {
 		s.asyncReplicationRWMux.Lock()
-		// unlock before calling UpdateAsyncReplicationConfig because it will lock again
+		// unlock before calling SetAsyncReplicationEnabled because it will lock again
 		defer s.asyncReplicationRWMux.Unlock()
 
 		for i, existing := range s.asyncReplicationConfig.targetNodeOverrides {
@@ -489,18 +536,21 @@ func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride ad
 			}
 		}
 
+		if s.asyncReplicationConfig.targetNodeOverrides == nil {
+			s.asyncReplicationConfig.targetNodeOverrides = make([]additional.AsyncReplicationTargetNodeOverride, 0, 1)
+		}
 		s.asyncReplicationConfig.targetNodeOverrides = append(s.asyncReplicationConfig.targetNodeOverrides, targetNodeOverride)
 	}()
 	// we call update async replication config here to ensure that async replication starts
 	// if it's not already running
-	return s.UpdateAsyncReplicationConfig(ctx, true)
+	return s.SetAsyncReplicationEnabled(ctx, true)
 }
 
 func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverrideToRemove additional.AsyncReplicationTargetNodeOverride) error {
 	targetNodeOverrideLen := 0
 	func() {
 		s.asyncReplicationRWMux.Lock()
-		// unlock before calling UpdateAsyncReplicationConfig because it will lock again
+		// unlock before calling SetAsyncReplicationEnabled because it will lock again
 		defer s.asyncReplicationRWMux.Unlock()
 
 		newTargetNodeOverrides := make([]additional.AsyncReplicationTargetNodeOverride, 0, len(s.asyncReplicationConfig.targetNodeOverrides))
@@ -520,9 +570,19 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 	// if there are no overrides left, return the async replication config to what it
 	// was before overrides were added
 	if targetNodeOverrideLen == 0 {
-		s.UpdateAsyncReplicationConfig(ctx, s.index.Config.AsyncReplicationEnabled)
+		return s.SetAsyncReplicationEnabled(ctx, s.index.Config.AsyncReplicationEnabled)
 	}
 	return nil
+}
+
+func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
+	func() {
+		s.asyncReplicationRWMux.Lock()
+		// unlock before calling SetAsyncReplicationEnabled because it will lock again
+		defer s.asyncReplicationRWMux.Unlock()
+		s.asyncReplicationConfig.targetNodeOverrides = make([]additional.AsyncReplicationTargetNodeOverride, 0)
+	}()
+	return s.SetAsyncReplicationEnabled(ctx, s.index.Config.AsyncReplicationEnabled)
 }
 
 func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus {
@@ -631,6 +691,32 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 			case <-ctx.Done():
 				return
 			case <-propagationRequired:
+				// Reload target node overrides
+				func() {
+					s.asyncReplicationRWMux.Lock()
+					defer s.asyncReplicationRWMux.Unlock()
+					config.targetNodeOverrides = s.asyncReplicationConfig.targetNodeOverrides
+				}()
+
+				if (!s.index.asyncReplicationEnabled() && len(config.targetNodeOverrides) == 0) ||
+					(config.maintenanceModeEnabled != nil && config.maintenanceModeEnabled()) {
+					// skip hashbeat iteration when async replication is disabled and no target node overrides are set
+					// or maintenance mode is enabled for localhost
+					if config.maintenanceModeEnabled != nil && config.maintenanceModeEnabled() {
+						s.index.logger.
+							WithField("action", "async_replication").
+							WithField("class_name", s.class.Class).
+							WithField("shard_name", s.name).
+							Info("skipping async replication in maintenance mode")
+					}
+					backoffTimer.Reset()
+					lastHashbeatMux.Lock()
+					lastHashbeat = time.Now()
+					lastHashbeatPropagatedObjects = false
+					lastHashbeatMux.Unlock()
+					continue
+				}
+
 				stats, err := s.hashBeat(ctx, config)
 				// update the shard stats for the target node
 				// anonymous func only here so we can use defer unlock
@@ -644,6 +730,17 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 					if (err == nil || errors.Is(err, replica.ErrNoDiffFound)) && stats != nil {
 						for _, stat := range stats {
 							if stat != nil {
+								s.index.logger.WithFields(logrus.Fields{
+									"source_shard":                s.name,
+									"target_shard":                s.name,
+									"target_node":                 stat.targetNodeName,
+									"objects_propagated":          stat.objectsPropagated,
+									"start_diff_time_unix_millis": stat.diffStartTime.UnixMilli(),
+									"diff_calculation_took":       stat.diffCalculationTook.String(),
+									"local_objects":               stat.localObjects,
+									"remote_objects":              stat.remoteObjects,
+									"object_progation_took":       stat.objectProgationTook.String(),
+								}).Info("updating async replication stats")
 								s.asyncReplicationStatsByTargetNode[stat.targetNodeName] = stat
 							}
 						}
@@ -663,7 +760,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 								WithField("class_name", s.class.Class).
 								WithField("shard_name", s.name).
 								WithField("hosts", s.getLastComparedHosts()).
-								Info("hashbeat iteration successfully completed: no differences were found")
+								Debug("hashbeat iteration successfully completed: no differences were found")
 						}
 
 						backoffTimer.Reset()

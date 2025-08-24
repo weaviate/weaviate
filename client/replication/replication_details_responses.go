@@ -58,8 +58,20 @@ func (o *ReplicationDetailsReader) ReadResponse(response runtime.ClientResponse,
 			return nil, err
 		}
 		return nil, result
+	case 422:
+		result := NewReplicationDetailsUnprocessableEntity()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewReplicationDetailsInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 501:
+		result := NewReplicationDetailsNotImplemented()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -201,7 +213,7 @@ func NewReplicationDetailsForbidden() *ReplicationDetailsForbidden {
 /*
 ReplicationDetailsForbidden describes a response with status code 403, with default header values.
 
-Forbidden
+Forbidden.
 */
 type ReplicationDetailsForbidden struct {
 	Payload *models.ErrorResponse
@@ -269,7 +281,7 @@ func NewReplicationDetailsNotFound() *ReplicationDetailsNotFound {
 /*
 ReplicationDetailsNotFound describes a response with status code 404, with default header values.
 
-Shard replica operation not found
+Shard replica operation not found.
 */
 type ReplicationDetailsNotFound struct {
 }
@@ -313,6 +325,74 @@ func (o *ReplicationDetailsNotFound) String() string {
 }
 
 func (o *ReplicationDetailsNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewReplicationDetailsUnprocessableEntity creates a ReplicationDetailsUnprocessableEntity with default headers values
+func NewReplicationDetailsUnprocessableEntity() *ReplicationDetailsUnprocessableEntity {
+	return &ReplicationDetailsUnprocessableEntity{}
+}
+
+/*
+ReplicationDetailsUnprocessableEntity describes a response with status code 422, with default header values.
+
+Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+*/
+type ReplicationDetailsUnprocessableEntity struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this replication details unprocessable entity response has a 2xx status code
+func (o *ReplicationDetailsUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this replication details unprocessable entity response has a 3xx status code
+func (o *ReplicationDetailsUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this replication details unprocessable entity response has a 4xx status code
+func (o *ReplicationDetailsUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this replication details unprocessable entity response has a 5xx status code
+func (o *ReplicationDetailsUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this replication details unprocessable entity response a status code equal to that given
+func (o *ReplicationDetailsUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the replication details unprocessable entity response
+func (o *ReplicationDetailsUnprocessableEntity) Code() int {
+	return 422
+}
+
+func (o *ReplicationDetailsUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *ReplicationDetailsUnprocessableEntity) String() string {
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *ReplicationDetailsUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ReplicationDetailsUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
@@ -374,6 +454,74 @@ func (o *ReplicationDetailsInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *ReplicationDetailsInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewReplicationDetailsNotImplemented creates a ReplicationDetailsNotImplemented with default headers values
+func NewReplicationDetailsNotImplemented() *ReplicationDetailsNotImplemented {
+	return &ReplicationDetailsNotImplemented{}
+}
+
+/*
+ReplicationDetailsNotImplemented describes a response with status code 501, with default header values.
+
+Replica movement operations are disabled.
+*/
+type ReplicationDetailsNotImplemented struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this replication details not implemented response has a 2xx status code
+func (o *ReplicationDetailsNotImplemented) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this replication details not implemented response has a 3xx status code
+func (o *ReplicationDetailsNotImplemented) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this replication details not implemented response has a 4xx status code
+func (o *ReplicationDetailsNotImplemented) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this replication details not implemented response has a 5xx status code
+func (o *ReplicationDetailsNotImplemented) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this replication details not implemented response a status code equal to that given
+func (o *ReplicationDetailsNotImplemented) IsCode(code int) bool {
+	return code == 501
+}
+
+// Code gets the status code for the replication details not implemented response
+func (o *ReplicationDetailsNotImplemented) Code() int {
+	return 501
+}
+
+func (o *ReplicationDetailsNotImplemented) Error() string {
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsNotImplemented  %+v", 501, o.Payload)
+}
+
+func (o *ReplicationDetailsNotImplemented) String() string {
+	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsNotImplemented  %+v", 501, o.Payload)
+}
+
+func (o *ReplicationDetailsNotImplemented) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ReplicationDetailsNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

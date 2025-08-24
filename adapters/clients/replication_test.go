@@ -53,6 +53,7 @@ type fakeServer struct {
 }
 
 func newFakeReplicationServer(t *testing.T, method, path string, schemaVersion uint64) *fakeServer {
+	t.Helper()
 	return &fakeServer{
 		method:                method,
 		path:                  path,
@@ -63,6 +64,7 @@ func newFakeReplicationServer(t *testing.T, method, path string, schemaVersion u
 }
 
 func (f *fakeServer) server(t *testing.T) *httptest.Server {
+	t.Helper()
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != f.method {
 			t.Errorf("method want %s got %s", f.method, r.Method)
@@ -424,7 +426,7 @@ func TestReplicationCommit(t *testing.T) {
 func TestReplicationFetchObject(t *testing.T) {
 	t.Parallel()
 
-	expected := objects.Replica{
+	expected := replica.Replica{
 		ID: UUID1,
 		Object: &storobj.Object{
 			MarshallerVersion: 1,
@@ -455,7 +457,7 @@ func TestReplicationFetchObject(t *testing.T) {
 
 func TestReplicationFetchObjects(t *testing.T) {
 	t.Parallel()
-	expected := objects.Replicas{
+	expected := replica.Replicas{
 		{
 			ID: UUID1,
 			Object: &storobj.Object{

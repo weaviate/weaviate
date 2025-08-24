@@ -32,15 +32,15 @@ type mockResolver struct {
 
 type mockAuthorizer struct{}
 
-func (m *mockAuthorizer) Authorize(principal *models.Principal, action string, resource ...string) error {
+func (m *mockAuthorizer) Authorize(ctx context.Context, principal *models.Principal, action string, resource ...string) error {
 	return nil
 }
 
-func (m *mockAuthorizer) AuthorizeSilent(principal *models.Principal, action string, resource ...string) error {
+func (m *mockAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, action string, resource ...string) error {
 	return nil
 }
 
-func (m *mockAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+func (m *mockAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
 	return resources, nil
 }
 

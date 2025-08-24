@@ -29,7 +29,7 @@ type DbWrapper interface {
 	GetIndex(name schema.ClassName) *db.Index
 
 	// GetOneNodeStatus See adapters/repos/db.DB.GetOneNodeStatus
-	GetOneNodeStatus(ctx context.Context, nodeName string, className, output string) (*models.NodeStatus, error)
+	GetOneNodeStatus(ctx context.Context, nodeName string, className, shardName, output string) (*models.NodeStatus, error)
 }
 
 // ShardLoader is a type that can load a shard from disk files, this is used to avoid a circular
@@ -43,7 +43,7 @@ type ShardLoader interface {
 // dependency between the copier and the db package.
 type RemoteIndex interface {
 	// PauseFileActivity See adapters/clients.RemoteIndex.PauseFileActivity
-	PauseFileActivity(ctx context.Context, hostName, indexName, shardName string) error
+	PauseFileActivity(ctx context.Context, hostName, indexName, shardName string, schemaVersion uint64) error
 	// ResumeFileActivity See adapters/clients.RemoteIndex.ResumeFileActivity
 	ResumeFileActivity(ctx context.Context, hostName, indexName, shardName string) error
 	// ListFiles See adapters/clients.RemoteIndex.ListFiles
@@ -57,7 +57,7 @@ type RemoteIndex interface {
 		hostName, indexName, shardName, fileName string) (io.ReadCloser, error)
 	// AddAsyncReplicationTargetNode See adapters/clients.RemoteIndex.AddAsyncReplicationTargetNode
 	AddAsyncReplicationTargetNode(ctx context.Context,
-		hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
+		hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error
 	// RemoveAsyncReplicationTargetNode See adapters/clients.RemoteIndex.RemoveAsyncReplicationTargetNode
 	RemoveAsyncReplicationTargetNode(ctx context.Context,
 		hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error

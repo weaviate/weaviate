@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -178,7 +179,7 @@ type shards interface {
 	CreateShard(ctx context.Context, indexName, shardName string) error
 	ReInitShard(ctx context.Context, indexName, shardName string) error
 	// PauseFileActivity See adapters/clients.RemoteIndex.PauseFileActivity
-	PauseFileActivity(ctx context.Context, indexName, shardName string) error
+	PauseFileActivity(ctx context.Context, indexName, shardName string, schemaVersion uint64) error
 	// ResumeFileActivity See adapters/clients.RemoteIndex.ResumeFileActivity
 	ResumeFileActivity(ctx context.Context, indexName, shardName string) error
 	// ListFiles See adapters/clients.RemoteIndex.ListFiles
@@ -191,7 +192,7 @@ type shards interface {
 		relativeFilePath string) (io.ReadCloser, error)
 	// AddAsyncReplicationTargetNode See adapters/clients.RemoteIndex.AddAsyncReplicationTargetNode
 	AddAsyncReplicationTargetNode(ctx context.Context, indexName, shardName string,
-		targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
+		targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error
 	// RemoveAsyncReplicationTargetNode See adapters/clients.RemoteIndex.RemoveAsyncReplicationTargetNode
 	RemoveAsyncReplicationTargetNode(ctx context.Context, indexName, shardName string,
 		targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
@@ -1534,7 +1535,13 @@ func (i *indices) postPauseFileActivity() http.Handler {
 
 		indexName, shardName := args[1], args[2]
 
-		err := i.shards.PauseFileActivity(r.Context(), indexName, shardName)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		err = i.shards.PauseFileActivity(r.Context(), indexName, shardName, schemaVersion)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -1619,6 +1626,11 @@ func (i *indices) postAddAsyncReplicationTargetNode() http.Handler {
 		}
 
 		indexName, shardName := args[1], args[2]
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		var targetNodeOverride additional.AsyncReplicationTargetNodeOverride
 		if err := json.NewDecoder(r.Body).Decode(&targetNodeOverride); err != nil {
@@ -1626,7 +1638,7 @@ func (i *indices) postAddAsyncReplicationTargetNode() http.Handler {
 			return
 		}
 
-		err := i.shards.AddAsyncReplicationTargetNode(r.Context(), indexName, shardName, targetNodeOverride)
+		err = i.shards.AddAsyncReplicationTargetNode(r.Context(), indexName, shardName, targetNodeOverride, schemaVersion)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -1654,10 +1666,15 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 
 		err := i.shards.RemoveAsyncReplicationTargetNode(r.Context(), indexName, shardName, targetNodeOverride)
 		if err != nil {
+			// There's no easy to have a re-usable error type via all our interfaces to reach the shard/index
+			if strings.Contains(err.Error(), "shard not found") {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusNoContent)
 	})
 }

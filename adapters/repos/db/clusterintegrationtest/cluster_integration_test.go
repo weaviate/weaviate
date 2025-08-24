@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -365,7 +366,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 
 		logger, _ := test.NewNullLogger()
 		node := nodes[rnd.Intn(len(nodes))]
-		res, err := node.repo.Aggregate(context.Background(), params, modules.NewProvider(logger))
+		res, err := node.repo.Aggregate(context.Background(), params, modules.NewProvider(logger, config.Config{}))
 		require.Nil(t, err)
 
 		expectedResult := &aggregation.Result{

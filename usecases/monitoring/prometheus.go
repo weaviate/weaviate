@@ -52,10 +52,12 @@ type PrometheusMetrics struct {
 	LSMObjectsBucketSegmentCount        *prometheus.GaugeVec
 	LSMCompressedVecsBucketSegmentCount *prometheus.GaugeVec
 	LSMSegmentCountByLevel              *prometheus.GaugeVec
+	LSMSegmentUnloaded                  *prometheus.GaugeVec
 	LSMSegmentObjects                   *prometheus.GaugeVec
 	LSMSegmentSize                      *prometheus.GaugeVec
 	LSMMemtableSize                     *prometheus.GaugeVec
 	LSMMemtableDurations                *prometheus.SummaryVec
+	LSMBitmapBuffersUsage               *prometheus.CounterVec
 	ObjectCount                         *prometheus.GaugeVec
 	QueriesCount                        *prometheus.GaugeVec
 	RequestsTotal                       *prometheus.GaugeVec
@@ -73,6 +75,9 @@ type PrometheusMetrics struct {
 	BackupRestoreDataTransferred        *prometheus.CounterVec
 	BackupStoreDataTransferred          *prometheus.CounterVec
 	FileIOWrites                        *prometheus.SummaryVec
+	FileIOReads                         *prometheus.SummaryVec
+	MmapOperations                      *prometheus.CounterVec
+	MmapProcMaps                        prometheus.Gauge
 
 	// offload metric
 	QueueSize                        *prometheus.GaugeVec
@@ -481,6 +486,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "lsm_segment_count",
 			Help: "Number of segments by level",
 		}, []string{"strategy", "class_name", "shard_name", "path", "level"}),
+		LSMSegmentUnloaded: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "lsm_segment_unloaded",
+			Help: "Number of unloaded segments",
+		}, []string{"strategy", "class_name", "shard_name", "path"}),
 		LSMMemtableSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_memtable_size",
 			Help: "Size of memtable by path",
@@ -489,10 +498,26 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "lsm_memtable_durations_ms",
 			Help: "Time in ms for a bucket operation to complete",
 		}, []string{"strategy", "class_name", "shard_name", "path", "operation"}),
+		LSMBitmapBuffersUsage: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "lsm_bitmap_buffers_usage",
+			Help: "Number of bitmap buffers used by size",
+		}, []string{"size", "operation"}),
 		FileIOWrites: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "file_io_writes_total_bytes",
 			Help: "Total number of bytes written to disk",
 		}, []string{"operation", "strategy"}),
+		FileIOReads: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "file_io_reads_total_bytes",
+			Help: "Total number of bytes read from disk",
+		}, []string{"operation"}),
+		MmapOperations: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "mmap_operations_total",
+			Help: "Total number of mmap operations",
+		}, []string{"operation", "strategy"}),
+		MmapProcMaps: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "mmap_proc_maps",
+			Help: "Number of entries in /proc/self/maps",
+		}),
 
 		// Queue metrics
 		QueueSize: promauto.NewGaugeVec(prometheus.GaugeOpts{

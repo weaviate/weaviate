@@ -47,9 +47,30 @@ func WithMinMMapSize(minMMapSize int64) BucketOption {
 	}
 }
 
+func WithMinWalThreshold(threshold int64) BucketOption {
+	return func(b *Bucket) error {
+		b.minWalThreshold = uint64(threshold)
+		return nil
+	}
+}
+
 func WithWalThreshold(threshold uint64) BucketOption {
 	return func(b *Bucket) error {
 		b.walThreshold = threshold
+		return nil
+	}
+}
+
+// WithLazySegmentLoading enables that segments are only initialized when they are actually used
+//
+// This option should be used:
+//   - For buckets that are NOT used in every request. For example, the object bucket is accessed for
+//     almost all operations anyway.
+//   - For implicit request only (== requests originating with auto-tenant activation). Explicit activation should
+//     always load all segments.
+func WithLazySegmentLoading(lazyLoading bool) BucketOption {
+	return func(b *Bucket) error {
+		b.lazySegmentLoading = lazyLoading
 		return nil
 	}
 }
@@ -64,6 +85,14 @@ func WithDirtyThreshold(threshold time.Duration) BucketOption {
 func WithSecondaryIndices(count uint16) BucketOption {
 	return func(b *Bucket) error {
 		b.secondaryIndices = count
+		return nil
+	}
+}
+
+// WithWriteMetadata enables writing all metadata (primary+secondary bloom+ cna) in a single file instead of separate files
+func WithWriteMetadata(writeMetadata bool) BucketOption {
+	return func(b *Bucket) error {
+		b.writeMetadata = writeMetadata
 		return nil
 	}
 }
@@ -102,6 +131,13 @@ func WithDynamicMemtableSizing(
 func WithAllocChecker(mm memwatch.AllocChecker) BucketOption {
 	return func(b *Bucket) error {
 		b.allocChecker = mm
+		return nil
+	}
+}
+
+func WithWriteSegmentInfoIntoFileName(writeSegmentInfoIntoFileName bool) BucketOption {
+	return func(b *Bucket) error {
+		b.writeSegmentInfoIntoFileName = writeSegmentInfoIntoFileName
 		return nil
 	}
 }
@@ -198,6 +234,13 @@ func WithForceCompaction(opt bool) BucketOption {
 func WithDisableCompaction(disable bool) BucketOption {
 	return func(b *Bucket) error {
 		b.disableCompaction = disable
+		return nil
+	}
+}
+
+func WithKeepLevelCompaction(keepLevelCompaction bool) BucketOption {
+	return func(b *Bucket) error {
+		b.keepLevelCompaction = keepLevelCompaction
 		return nil
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
@@ -88,12 +89,12 @@ func GetClass(t *testing.T, class string) *models.Class {
 	return resp.Payload
 }
 
-func GetSchemaAuth(t *testing.T, class string, authInfo runtime.ClientAuthInfoWriter) []*models.Class {
+func GetClassAuth(t *testing.T, class string, key string) *models.Class {
 	t.Helper()
-	params := schema.NewSchemaDumpParams()
-	resp, err := Client(t).Schema.SchemaDump(params, authInfo)
+	params := schema.NewSchemaObjectsGetParams().WithClassName(class)
+	resp, err := Client(t).Schema.SchemaObjectsGet(params, CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
-	return resp.Payload.Classes
+	return resp.Payload
 }
 
 func GetClassWithoutAssert(t *testing.T, class string) (*models.Class, error) {
@@ -117,6 +118,14 @@ func UpdateClass(t *testing.T, class *models.Class) {
 func CreateObject(t *testing.T, object *models.Object) error {
 	t.Helper()
 	params := objects.NewObjectsCreateParams().WithBody(object)
+	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	return err
+}
+
+func CreateObjectWithTimeout(t *testing.T, object *models.Object, timeout time.Duration) error {
+	t.Helper()
+	params := objects.NewObjectsCreateParamsWithTimeout(timeout).WithBody(object)
 	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	return err

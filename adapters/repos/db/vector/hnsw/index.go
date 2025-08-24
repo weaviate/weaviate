@@ -165,6 +165,9 @@ type hnsw struct {
 	acornSearch      atomic.Bool
 	acornFilterRatio float64
 
+	disableSnapshots  bool
+	snapshotOnStartup bool
+
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
 	bqConfig   ent.BQConfig
@@ -216,6 +219,11 @@ type CommitLogger interface {
 	AddPQCompression(compressionhelpers.PQData) error
 	AddSQCompression(compressionhelpers.SQData) error
 	AddMuvera(multivector.MuveraData) error
+	InitMaintenance()
+
+	CreateSnapshot() (bool, int64, error)
+	CreateAndLoadSnapshot() (*DeserializationResult, int64, error)
+	LoadSnapshot() (*DeserializationResult, int64, error)
 }
 
 type BufferedLinksLogger interface {
@@ -256,7 +264,13 @@ func New(cfg Config, uc ent.UserConfig,
 	} else {
 		if uc.Multivector.MuveraConfig.Enabled {
 			muveraEncoder = multivector.NewMuveraEncoder(uc.Multivector.MuveraConfig, store)
-			err := store.CreateOrLoadBucket(context.Background(), cfg.ID+"_muvera_vectors", lsmkv.WithStrategy(lsmkv.StrategyReplace))
+			err := store.CreateOrLoadBucket(
+				context.Background(),
+				cfg.ID+"_muvera_vectors",
+				lsmkv.WithStrategy(lsmkv.StrategyReplace),
+				lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
+				lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (muvera store)")
 			}
@@ -286,6 +300,8 @@ func New(cfg Config, uc ent.UserConfig,
 		flatSearchCutoff:      int64(uc.FlatSearchCutoff),
 		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
 		acornFilterRatio:      cfg.AcornFilterRatio,
+		disableSnapshots:      cfg.DisableSnapshots,
+		snapshotOnStartup:     cfg.SnapshotOnStartup,
 		nodes:                 make([]*vertex, cache.InitialSize),
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
@@ -360,7 +376,14 @@ func New(cfg Config, uc ent.UserConfig,
 	if uc.Multivector.Enabled {
 		index.multiDistancerProvider = distancer.NewDotProductProvider()
 		if !uc.Multivector.MuveraConfig.Enabled {
-			err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace))
+			err := index.store.CreateOrLoadBucket(
+				context.Background(),
+				cfg.ID+"_mv_mappings",
+				lsmkv.WithStrategy(lsmkv.StrategyReplace),
+				lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
+				lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
+				lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
 			}

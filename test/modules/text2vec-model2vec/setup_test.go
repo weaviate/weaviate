@@ -33,14 +33,9 @@ func TestText2VecModel2Vec(t *testing.T) {
 
 func createSingleNodeEnvironment(ctx context.Context,
 ) (compose *docker.DockerCompose, err error) {
-	compose, err = composeModules().
+	compose, err = docker.New().
+		WithText2VecModel2Vec().
 		WithWeaviate().
 		Start(ctx)
-	return
-}
-
-func composeModules() (composeModules *docker.Compose) {
-	composeModules = docker.New().
-		WithText2VecModel2Vec()
 	return
 }

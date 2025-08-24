@@ -45,9 +45,9 @@ func NewGetCollectionShardingState(ctx *middleware.Context, handler GetCollectio
 /*
 	GetCollectionShardingState swagger:route GET /replication/sharding-state replication getCollectionShardingState
 
-Get the sharding state for a collection and optionally a shard.
+# Get sharding state
 
-Get the sharding state for a collection and optionally a shard.
+Fetches the current sharding state, including replica locations and statuses, for all collections or a specified collection. If a shard name is provided along with a collection, the state for that specific shard is returned.
 */
 type GetCollectionShardingState struct {
 	Context *middleware.Context

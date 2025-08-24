@@ -66,7 +66,7 @@ type schemaManager interface {
 	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
 
 	// GetConsistentSchema retrieves a locally cached copy of the schema
-	GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error)
+	GetConsistentSchema(ctx context.Context, principal *models.Principal, consistency bool) (schema.Schema, error)
 }
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of

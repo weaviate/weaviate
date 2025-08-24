@@ -14,6 +14,7 @@ package traverser
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"github.com/go-openapi/strfmt"
 
@@ -45,12 +46,20 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 		return nil, "", fmt.Errorf("invalid params, pagination object is nil")
 	}
 
+	if params.HybridSearch.SearchOperator != "" {
+		params.KeywordRanking.SearchOperator = params.HybridSearch.SearchOperator
+	}
+
+	if params.HybridSearch.MinimumOrTokensMatch != 0 {
+		params.KeywordRanking.MinimumOrTokensMatch = params.HybridSearch.MinimumOrTokensMatch
+	}
+
 	totalLimit, err := e.CalculateTotalLimit(params.Pagination)
 	if err != nil {
 		return nil, "", err
 	}
 
-	enforcedMin := MaxInt(params.Pagination.Offset+hybrid.DefaultLimit, totalLimit)
+	enforcedMin := MaxInt(params.Pagination.Offset+int(e.config.QueryHybridMaximumResults), totalLimit)
 
 	oldLimit := params.Pagination.Limit
 	params.Pagination.Limit = enforcedMin - params.Pagination.Offset
@@ -74,8 +83,8 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 // Do a nearvector search.  The results will be used in the hybrid algorithm
 func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchname string, targetVectors []string, searchVector *searchparams.NearVector) ([]*search.Result, string, error) {
 	params.Pagination.Offset = 0
-	if params.Pagination.Limit < hybrid.DefaultLimit {
-		params.Pagination.Limit = hybrid.DefaultLimit
+	if params.Pagination.Limit < int(e.config.QueryHybridMaximumResults) {
+		params.Pagination.Limit = int(e.config.QueryHybridMaximumResults)
 	}
 	params.Group = nil
 	params.GroupBy = nil
@@ -200,14 +209,14 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	// pagination is handled after combining results
 	vectorParams := params
 	vectorParams.Pagination = &filters.Pagination{
-		Limit:   params.Pagination.Limit,
+		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(params.Pagination.Limit))),
 		Offset:  0,
 		Autocut: -1,
 	}
 
 	keywordParams := params
 	keywordParams.Pagination = &filters.Pagination{
-		Limit:   params.Pagination.Limit,
+		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(params.Pagination.Limit))),
 		Offset:  0,
 		Autocut: -1,
 	}
@@ -405,7 +414,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	var pointerResultList hybrid.Results
 
 	if origParams.Pagination.Limit <= 0 {
-		origParams.Pagination.Limit = hybrid.DefaultLimit
+		origParams.Pagination.Limit = int(e.config.QueryHybridMaximumResults)
 	}
 
 	if origParams.Pagination.Offset < 0 {

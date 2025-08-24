@@ -180,7 +180,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 	if found == nil {
 		return nil, fmt.Errorf("no vectorizer found for class %q", class.Class)
 	}
-	cfg := NewClassBasedModuleConfig(class, found.Name(), "", targetVector)
+	cfg := NewClassBasedModuleConfig(class, found.Name(), "", targetVector, &p.cfg)
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer[[]float32]); ok {
 		// each target vector can have its own associated properties, and we need to determine for each one if we should
@@ -193,7 +193,8 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				skipRevectorization[i] = true
 				continue
 			}
-			reVectorize, addProps, vector, err := reVectorize(ctx, cfg, vectorizer, obj, class, nil, targetVector, findObjectFn)
+			reVectorize, addProps, vector, err := reVectorize(ctx, cfg, vectorizer, obj,
+				class, nil, targetVector, findObjectFn, p.cfg.RevectorizeCheckDisabled.Get())
 			if err != nil {
 				return nil, fmt.Errorf("cannot vectorize class %q: %w", class.Class, err)
 			}
@@ -232,7 +233,9 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				skipRevectorization[i] = true
 				continue
 			}
-			reVectorize, addProps, multiVector, err := reVectorizeMulti(ctx, cfg, vectorizer, obj, class, nil, targetVector, findObjectFn)
+			reVectorize, addProps, multiVector, err := reVectorizeMulti(ctx, cfg,
+				vectorizer, obj, class, nil, targetVector, findObjectFn,
+				p.cfg.RevectorizeCheckDisabled.Get())
 			if err != nil {
 				return nil, fmt.Errorf("cannot vectorize class %q: %w", class.Class, err)
 			}
@@ -360,7 +363,7 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 			"no vectorizer found for class %q", object.Class)
 	}
 
-	cfg := NewClassBasedModuleConfig(class, found.Name(), "", targetVector)
+	cfg := NewClassBasedModuleConfig(class, found.Name(), "", targetVector, &p.cfg)
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer[[]float32]); ok {
 		if p.shouldVectorizeObject(object, cfg) {
@@ -373,7 +376,9 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 					}
 				}
 			}
-			needsRevectorization, additionalProperties, vector, err := reVectorize(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
+			needsRevectorization, additionalProperties, vector, err := reVectorize(ctx,
+				cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn,
+				p.cfg.RevectorizeCheckDisabled.Get())
 			if err != nil {
 				return fmt.Errorf("cannot revectorize class %q: %w", object.Class, err)
 			}
@@ -401,7 +406,9 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 					}
 				}
 			}
-			needsRevectorization, additionalProperties, multiVector, err := reVectorizeMulti(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
+			needsRevectorization, additionalProperties, multiVector, err := reVectorizeMulti(ctx,
+				cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn,
+				p.cfg.RevectorizeCheckDisabled.Get())
 			if err != nil {
 				return fmt.Errorf("cannot revectorize class %q: %w", object.Class, err)
 			}

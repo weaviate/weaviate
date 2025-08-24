@@ -20,7 +20,7 @@ import (
 var ErrMaxErrorsReached = errors.New("max errors reached")
 
 const (
-	MaxErrors = 1000
+	MaxErrors = 50
 )
 
 // State is the status of a shard replication operation
@@ -37,6 +37,11 @@ type StateHistory []State
 
 // ShardReplicationOpStatus is the status of a shard replication operation as well as the history of the state changes and their associated errors (if any)
 type ShardReplicationOpStatus struct {
+	// SchemaVersion is the minimum schema version that the shard replication operation can safely proceed with
+	// It's necessary to track this because the schema version is not always the same across multiple nodes due to EC issues with RAFT.
+	// By communicating it with remote nodes, we can ensure that they will wait for the schema version to be the same or greater before proceeding with the operation.
+	SchemaVersion uint64
+
 	// Current is the current state of the shard replication operation
 	Current State
 
@@ -44,6 +49,9 @@ type ShardReplicationOpStatus struct {
 	ShouldCancel bool
 	// ShouldDelete is a flag indicating that the operation should be cancelled at the earliest possible time and then deleted
 	ShouldDelete bool
+	// UnCancellable is a flag indicating that an operation is not capable of being cancelled.
+	// E.g., an op is not cancellable if it is in the DEHYDRATING state after the replica has been added to the sharding state.
+	UnCancellable bool
 
 	// History is the history of the state changes of the shard replication operation
 	History StateHistory
@@ -103,8 +111,14 @@ func (s *ShardReplicationOpStatus) TriggerDeletion() {
 	s.ShouldDelete = true
 }
 
+// OnlyCancellation returns true if ShouldCancel is true and ShouldDelete is false
 func (s *ShardReplicationOpStatus) OnlyCancellation() bool {
 	return s.ShouldCancel && !s.ShouldDelete
+}
+
+// ShouldCleanup returns true if the current state is not READY
+func (s *ShardReplicationOpStatus) ShouldCleanup() bool {
+	return s.GetCurrentState() != api.READY && s.GetCurrentState() != api.DEHYDRATING
 }
 
 // GetHistory returns the history of the state changes of the shard replication operation

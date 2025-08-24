@@ -27,12 +27,14 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -94,6 +96,9 @@ type DB struct {
 	shardLoadLimiter ShardLoadLimiter
 
 	reindexer ShardReindexerV3
+
+	bitmapBufPool      roaringset.BitmapBufPool
+	bitmapBufPoolClose func()
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -166,6 +171,8 @@ func New(logger logrus.FieldLogger, config Config,
 		memMonitor:          memMonitor,
 		shardLoadLimiter:    NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
 		reindexer:           NewShardReindexerV3Noop(),
+		bitmapBufPool:       roaringset.NewBitmapBufPoolNoop(),
+		bitmapBufPoolClose:  func() {},
 	}
 
 	if db.maxNumberGoroutines == 0 {
@@ -202,24 +209,25 @@ type Config struct {
 	RootPath                            string
 	QueryLimit                          int64
 	QueryMaximumResults                 int64
+	QueryHybridMaximumResults           int64
 	QueryNestedRefLimit                 int64
 	ResourceUsage                       config.ResourceUsage
 	MaxImportGoroutinesFactor           float64
+	LazySegmentsDisabled                bool
+	SegmentInfoIntoFileNameEnabled      bool
+	WriteMetadataFilesEnabled           bool
 	MemtablesFlushDirtyAfter            int
 	MemtablesInitialSizeMB              int
 	MemtablesMaxSizeMB                  int
 	MemtablesMinActiveSeconds           int
 	MemtablesMaxActiveSeconds           int
 	MinMMapSize                         int64
+	MaxReuseWalSize                     int64
 	SegmentsCleanupIntervalSeconds      int
 	SeparateObjectsCompactions          bool
 	MaxSegmentSize                      int64
-	HNSWMaxLogSize                      int64
-	HNSWWaitForCachePrefill             bool
-	HNSWFlatSearchConcurrency           int
-	HNSWAcornFilterRatio                float64
-	VisitedListPoolMaxSize              int
 	TrackVectorDimensions               bool
+	TrackVectorDimensionsInterval       time.Duration
 	ServerVersion                       string
 	GitHash                             string
 	AvoidMMap                           bool
@@ -231,6 +239,24 @@ type Config struct {
 	MaximumConcurrentShardLoads         int
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+
+	HNSWMaxLogSize                               int64
+	HNSWDisableSnapshots                         bool
+	HNSWSnapshotIntervalSeconds                  int
+	HNSWSnapshotOnStartup                        bool
+	HNSWSnapshotMinDeltaCommitlogsNumber         int
+	HNSWSnapshotMinDeltaCommitlogsSizePercentage int
+	HNSWWaitForCachePrefill                      bool
+	HNSWFlatSearchConcurrency                    int
+	HNSWAcornFilterRatio                         float64
+	VisitedListPoolMaxSize                       int
+
+	TenantActivityReadLogLevel  *configRuntime.DynamicValue[string]
+	TenantActivityWriteLogLevel *configRuntime.DynamicValue[string]
+	QuerySlowLogEnabled         *configRuntime.DynamicValue[bool]
+	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
+	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
+	MaintenanceModeEnabled      func() bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -316,6 +342,7 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 
 func (db *DB) Shutdown(ctx context.Context) error {
 	db.shutdown <- struct{}{}
+	db.bitmapBufPoolClose()
 
 	if !asyncEnabled() {
 		// shut down the workers that add objects to
@@ -385,5 +412,11 @@ func (db *DB) batchWorker(first bool) {
 
 func (db *DB) WithReindexer(reindexer ShardReindexerV3) *DB {
 	db.reindexer = reindexer
+	return db
+}
+
+func (db *DB) WithBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) *DB {
+	db.bitmapBufPool = bufPool
+	db.bitmapBufPoolClose = close
 	return db
 }

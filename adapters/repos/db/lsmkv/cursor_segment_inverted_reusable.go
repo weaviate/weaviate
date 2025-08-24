@@ -81,10 +81,12 @@ func (s *segmentCursorInvertedReusable) first() ([]byte, []MapPair, error) {
 
 func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset) error {
 	buffer := make([]byte, 16)
-	r, err := s.segment.newNodeReader(offset)
+	r, err := s.segment.newNodeReader(offset, "segmentCursorInvertedReusable")
 	if err != nil {
 		return err
 	}
+	defer r.Release()
+
 	_, err = r.Read(buffer)
 	if err != nil {
 		return err
@@ -96,10 +98,11 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset)
 	}
 	offset.end = offset.start + end + 4
 
-	r, err = s.segment.newNodeReader(offset)
+	r, err = s.segment.newNodeReader(offset, "segmentCursorInvertedReusable")
 	if err != nil {
 		return err
 	}
+	defer r.Release()
 
 	allBytes := make([]byte, offset.end-offset.start)
 
@@ -114,17 +117,20 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset)
 
 	offset.start = offset.end
 	offset.end += uint64(keyLen)
-	r, err = s.segment.newNodeReader(offset)
-	if err != nil {
-		return err
-	}
-
 	key := make([]byte, keyLen)
-	_, err = r.Read(key)
-	if err != nil {
-		return err
-	}
 
+	// empty keys are possible if using non-word tokenizers, so let's handle them
+	if keyLen > 0 {
+		r, err = s.segment.newNodeReader(offset, "segmentCursorInvertedReusable")
+		if err != nil {
+			return err
+		}
+		defer r.Release()
+		_, err = r.Read(key)
+		if err != nil {
+			return err
+		}
+	}
 	s.nodeBuf.key = key
 	s.nodeBuf.values = nodes
 

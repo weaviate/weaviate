@@ -27,7 +27,8 @@ import (
 type NodesGetClassURL struct {
 	ClassName string
 
-	Output *string
+	Output    *string
+	ShardName *string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -76,6 +77,14 @@ func (o *NodesGetClassURL) Build() (*url.URL, error) {
 	}
 	if outputQ != "" {
 		qs.Set("output", outputQ)
+	}
+
+	var shardNameQ string
+	if o.ShardName != nil {
+		shardNameQ = *o.ShardName
+	}
+	if shardNameQ != "" {
+		qs.Set("shardName", shardNameQ)
 	}
 
 	_result.RawQuery = qs.Encode()

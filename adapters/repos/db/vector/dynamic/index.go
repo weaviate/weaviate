@@ -14,6 +14,7 @@ package dynamic
 import (
 	"context"
 	"encoding/binary"
+	simpleErrors "errors"
 	"fmt"
 	"io"
 	"math"
@@ -96,27 +97,34 @@ type upgradableIndexer interface {
 
 type dynamic struct {
 	sync.RWMutex
-	id                    string
-	targetVector          string
-	store                 *lsmkv.Store
-	logger                logrus.FieldLogger
-	rootPath              string
-	shardName             string
-	className             string
-	prometheusMetrics     *monitoring.PrometheusMetrics
-	vectorForIDThunk      common.VectorForID[float32]
-	tempVectorForIDThunk  common.TempVectorForID[float32]
-	distanceProvider      distancer.Provider
-	makeCommitLoggerThunk hnsw.MakeCommitLogger
-	threshold             uint64
-	index                 VectorIndex
-	upgraded              atomic.Bool
-	upgradeOnce           sync.Once
-	tombstoneCallbacks    cyclemanager.CycleCallbackGroup
-	hnswUC                hnswent.UserConfig
-	db                    *bbolt.DB
-	ctx                   context.Context
-	cancel                context.CancelFunc
+	id                           string
+	targetVector                 string
+	store                        *lsmkv.Store
+	logger                       logrus.FieldLogger
+	rootPath                     string
+	shardName                    string
+	className                    string
+	prometheusMetrics            *monitoring.PrometheusMetrics
+	vectorForIDThunk             common.VectorForID[float32]
+	tempVectorForIDThunk         common.TempVectorForID[float32]
+	distanceProvider             distancer.Provider
+	makeCommitLoggerThunk        hnsw.MakeCommitLogger
+	threshold                    uint64
+	index                        VectorIndex
+	upgraded                     atomic.Bool
+	upgradeOnce                  sync.Once
+	tombstoneCallbacks           cyclemanager.CycleCallbackGroup
+	hnswUC                       hnswent.UserConfig
+	db                           *bbolt.DB
+	ctx                          context.Context
+	cancel                       context.CancelFunc
+	hnswDisableSnapshots         bool
+	hnswSnapshotOnStartup        bool
+	hnswWaitForCachePrefill      bool
+	LazyLoadSegments             bool
+	flatBQ                       bool
+	WriteSegmentInfoIntoFileName bool
+	WriteMetadataFilesEnabled    bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -135,34 +143,47 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	}
 
 	flatConfig := flat.Config{
-		ID:               cfg.ID,
-		RootPath:         cfg.RootPath,
-		TargetVector:     cfg.TargetVector,
-		Logger:           cfg.Logger,
-		DistanceProvider: cfg.DistanceProvider,
+		ID:                           cfg.ID,
+		RootPath:                     cfg.RootPath,
+		TargetVector:                 cfg.TargetVector,
+		Logger:                       cfg.Logger,
+		DistanceProvider:             cfg.DistanceProvider,
+		MinMMapSize:                  cfg.MinMMapSize,
+		MaxWalReuseSize:              cfg.MaxWalReuseSize,
+		LazyLoadSegments:             cfg.LazyLoadSegments,
+		AllocChecker:                 cfg.AllocChecker,
+		WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
+		WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	index := &dynamic{
-		id:                    cfg.ID,
-		targetVector:          cfg.TargetVector,
-		logger:                logger,
-		rootPath:              cfg.RootPath,
-		shardName:             cfg.ShardName,
-		className:             cfg.ClassName,
-		prometheusMetrics:     cfg.PrometheusMetrics,
-		vectorForIDThunk:      cfg.VectorForIDThunk,
-		tempVectorForIDThunk:  cfg.TempVectorForIDThunk,
-		distanceProvider:      cfg.DistanceProvider,
-		makeCommitLoggerThunk: cfg.MakeCommitLoggerThunk,
-		store:                 store,
-		threshold:             uc.Threshold,
-		tombstoneCallbacks:    cfg.TombstoneCallbacks,
-		hnswUC:                uc.HnswUC,
-		db:                    cfg.SharedDB,
-		ctx:                   ctx,
-		cancel:                cancel,
+		id:                           cfg.ID,
+		targetVector:                 cfg.TargetVector,
+		logger:                       logger,
+		rootPath:                     cfg.RootPath,
+		shardName:                    cfg.ShardName,
+		className:                    cfg.ClassName,
+		prometheusMetrics:            cfg.PrometheusMetrics,
+		vectorForIDThunk:             cfg.VectorForIDThunk,
+		tempVectorForIDThunk:         cfg.TempVectorForIDThunk,
+		distanceProvider:             cfg.DistanceProvider,
+		makeCommitLoggerThunk:        cfg.MakeCommitLoggerThunk,
+		store:                        store,
+		threshold:                    uc.Threshold,
+		tombstoneCallbacks:           cfg.TombstoneCallbacks,
+		hnswUC:                       uc.HnswUC,
+		db:                           cfg.SharedDB,
+		ctx:                          ctx,
+		cancel:                       cancel,
+		hnswDisableSnapshots:         cfg.HNSWDisableSnapshots,
+		hnswSnapshotOnStartup:        cfg.HNSWSnapshotOnStartup,
+		hnswWaitForCachePrefill:      cfg.HNSWWaitForCachePrefill,
+		LazyLoadSegments:             cfg.LazyLoadSegments,
+		flatBQ:                       uc.FlatUC.BQ.Enabled,
+		WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
+		WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
 	}
 
 	err := cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
@@ -194,16 +215,22 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		index.upgraded.Store(true)
 		hnsw, err := hnsw.New(
 			hnsw.Config{
-				Logger:                index.logger,
-				RootPath:              index.rootPath,
-				ID:                    index.id,
-				ShardName:             index.shardName,
-				ClassName:             index.className,
-				PrometheusMetrics:     index.prometheusMetrics,
-				VectorForIDThunk:      index.vectorForIDThunk,
-				TempVectorForIDThunk:  index.tempVectorForIDThunk,
-				DistanceProvider:      index.distanceProvider,
-				MakeCommitLoggerThunk: index.makeCommitLoggerThunk,
+				Logger:                       index.logger,
+				RootPath:                     index.rootPath,
+				ID:                           index.id,
+				ShardName:                    index.shardName,
+				ClassName:                    index.className,
+				PrometheusMetrics:            index.prometheusMetrics,
+				VectorForIDThunk:             index.vectorForIDThunk,
+				TempVectorForIDThunk:         index.tempVectorForIDThunk,
+				DistanceProvider:             index.distanceProvider,
+				MakeCommitLoggerThunk:        index.makeCommitLoggerThunk,
+				DisableSnapshots:             index.hnswDisableSnapshots,
+				SnapshotOnStartup:            index.hnswSnapshotOnStartup,
+				LazyLoadSegments:             index.LazyLoadSegments,
+				WaitForCachePrefill:          index.hnswWaitForCachePrefill,
+				WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
+				WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
 			},
 			index.hnswUC,
 			index.tombstoneCallbacks,
@@ -244,6 +271,13 @@ func (dynamic *dynamic) getBucketName() string {
 	}
 
 	return helpers.VectorsBucketLSM
+}
+
+func (dynamic *dynamic) getCompressedBucketName() string {
+	if dynamic.targetVector != "" {
+		return fmt.Sprintf("%s_%s", helpers.VectorsCompressedBucketLSM, dynamic.targetVector)
+	}
+	return helpers.VectorsCompressedBucketLSM
 }
 
 func (dynamic *dynamic) Compressed() bool {
@@ -509,16 +543,21 @@ func (dynamic *dynamic) doUpgrade() error {
 
 	index, err := hnsw.New(
 		hnsw.Config{
-			Logger:                dynamic.logger,
-			RootPath:              dynamic.rootPath,
-			ID:                    dynamic.id,
-			ShardName:             dynamic.shardName,
-			ClassName:             dynamic.className,
-			PrometheusMetrics:     dynamic.prometheusMetrics,
-			VectorForIDThunk:      dynamic.vectorForIDThunk,
-			TempVectorForIDThunk:  dynamic.tempVectorForIDThunk,
-			DistanceProvider:      dynamic.distanceProvider,
-			MakeCommitLoggerThunk: dynamic.makeCommitLoggerThunk,
+			Logger:                       dynamic.logger,
+			RootPath:                     dynamic.rootPath,
+			ID:                           dynamic.id,
+			ShardName:                    dynamic.shardName,
+			ClassName:                    dynamic.className,
+			PrometheusMetrics:            dynamic.prometheusMetrics,
+			VectorForIDThunk:             dynamic.vectorForIDThunk,
+			TempVectorForIDThunk:         dynamic.tempVectorForIDThunk,
+			DistanceProvider:             dynamic.distanceProvider,
+			MakeCommitLoggerThunk:        dynamic.makeCommitLoggerThunk,
+			DisableSnapshots:             dynamic.hnswDisableSnapshots,
+			SnapshotOnStartup:            dynamic.hnswSnapshotOnStartup,
+			WaitForCachePrefill:          dynamic.hnswWaitForCachePrefill,
+			WriteSegmentInfoIntoFileName: dynamic.WriteSegmentInfoIntoFileName,
+			WriteMetadataFilesEnabled:    dynamic.WriteMetadataFilesEnabled,
 		},
 		dynamic.hnswUC,
 		dynamic.tombstoneCallbacks,
@@ -575,8 +614,34 @@ func (dynamic *dynamic) doUpgrade() error {
 		return errors.Wrap(err, "update dynamic")
 	}
 
+	dynamic.index.Drop(dynamic.ctx)
 	dynamic.index = index
 	dynamic.upgraded.Store(true)
+
+	var errs []error
+	bDir := dynamic.store.Bucket(dynamic.getBucketName()).GetDir()
+	err = dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getBucketName())
+	if err != nil {
+		errs = append(errs, err)
+	}
+	err = os.RemoveAll(bDir)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	if dynamic.flatBQ && !dynamic.hnswUC.BQ.Enabled {
+		bDir = dynamic.store.Bucket(dynamic.getCompressedBucketName()).GetDir()
+		err = dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getCompressedBucketName())
+		if err != nil {
+			errs = append(errs, err)
+		}
+		err = os.RemoveAll(bDir)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		dynamic.logger.Warn(simpleErrors.Join(errs...))
+	}
 
 	return nil
 }

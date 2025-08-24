@@ -34,7 +34,6 @@ import (
 func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
-	s.activityTracker.Add(1)
 	if err := s.isReadOnly(); err != nil {
 		return []error{err}
 	}
@@ -54,6 +53,7 @@ func asyncEnabled() bool {
 func (s *Shard) putBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
+	s.activityTrackerWrite.Add(1)
 	if asyncEnabled() {
 		return s.putBatchAsync(ctx, objects)
 	}
@@ -202,10 +202,6 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 
 	if err := ctx.Err(); err != nil {
 		return errors.Wrapf(err, "end store object %d of batch", objectIndex)
-	}
-
-	if err := ob.shard.mayUpsertObjectHashTree(object, idBytes, status); err != nil {
-		return errors.Wrap(err, "object creation in hashtree")
 	}
 
 	return nil

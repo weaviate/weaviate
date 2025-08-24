@@ -32,8 +32,9 @@ func TestHandler_AddProperty(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 		class := models.Class{
-			Class:      "NewClass",
-			Vectorizer: "none",
+			Class:             "NewClass",
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -90,7 +91,8 @@ func TestHandler_AddProperty(t *testing.T) {
 					DataType: schema.DataTypeText.PropString(),
 				},
 			},
-			Vectorizer: "none",
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -131,8 +133,9 @@ func TestHandler_AddProperty_Object(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 		class := models.Class{
-			Class:      "NewClass",
-			Vectorizer: "none",
+			Class:             "NewClass",
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -165,8 +168,9 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 	ctx := context.Background()
 
 	class := models.Class{
-		Class:      "NewClass",
-		Vectorizer: "none",
+		Class:             "NewClass",
+		Vectorizer:        "none",
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 
 	type testCase struct {
@@ -399,12 +403,14 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 	class := models.Class{
-		Class:      "NewClass",
-		Vectorizer: "none",
+		Class:             "NewClass",
+		Vectorizer:        "none",
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	refClass := models.Class{
-		Class:      "RefClass",
-		Vectorizer: "none",
+		Class:             "RefClass",
+		Vectorizer:        "none",
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&refClass)
 	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil).Twice()

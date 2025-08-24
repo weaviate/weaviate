@@ -58,8 +58,26 @@ func (o *DeleteReplicationReader) ReadResponse(response runtime.ClientResponse, 
 			return nil, err
 		}
 		return nil, result
+	case 409:
+		result := NewDeleteReplicationConflict()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 422:
+		result := NewDeleteReplicationUnprocessableEntity()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewDeleteReplicationInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 501:
+		result := NewDeleteReplicationNotImplemented()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -189,7 +207,7 @@ func NewDeleteReplicationForbidden() *DeleteReplicationForbidden {
 /*
 DeleteReplicationForbidden describes a response with status code 403, with default header values.
 
-Forbidden
+Forbidden.
 */
 type DeleteReplicationForbidden struct {
 	Payload *models.ErrorResponse
@@ -257,7 +275,7 @@ func NewDeleteReplicationNotFound() *DeleteReplicationNotFound {
 /*
 DeleteReplicationNotFound describes a response with status code 404, with default header values.
 
-Shard replica operation not found
+Shard replica operation not found.
 */
 type DeleteReplicationNotFound struct {
 }
@@ -301,6 +319,142 @@ func (o *DeleteReplicationNotFound) String() string {
 }
 
 func (o *DeleteReplicationNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewDeleteReplicationConflict creates a DeleteReplicationConflict with default headers values
+func NewDeleteReplicationConflict() *DeleteReplicationConflict {
+	return &DeleteReplicationConflict{}
+}
+
+/*
+DeleteReplicationConflict describes a response with status code 409, with default header values.
+
+The operation is not in a deletable state, e.g. it is a MOVE op in the DEHYDRATING state.
+*/
+type DeleteReplicationConflict struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this delete replication conflict response has a 2xx status code
+func (o *DeleteReplicationConflict) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this delete replication conflict response has a 3xx status code
+func (o *DeleteReplicationConflict) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this delete replication conflict response has a 4xx status code
+func (o *DeleteReplicationConflict) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this delete replication conflict response has a 5xx status code
+func (o *DeleteReplicationConflict) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this delete replication conflict response a status code equal to that given
+func (o *DeleteReplicationConflict) IsCode(code int) bool {
+	return code == 409
+}
+
+// Code gets the status code for the delete replication conflict response
+func (o *DeleteReplicationConflict) Code() int {
+	return 409
+}
+
+func (o *DeleteReplicationConflict) Error() string {
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationConflict  %+v", 409, o.Payload)
+}
+
+func (o *DeleteReplicationConflict) String() string {
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationConflict  %+v", 409, o.Payload)
+}
+
+func (o *DeleteReplicationConflict) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *DeleteReplicationConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewDeleteReplicationUnprocessableEntity creates a DeleteReplicationUnprocessableEntity with default headers values
+func NewDeleteReplicationUnprocessableEntity() *DeleteReplicationUnprocessableEntity {
+	return &DeleteReplicationUnprocessableEntity{}
+}
+
+/*
+DeleteReplicationUnprocessableEntity describes a response with status code 422, with default header values.
+
+Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+*/
+type DeleteReplicationUnprocessableEntity struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this delete replication unprocessable entity response has a 2xx status code
+func (o *DeleteReplicationUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this delete replication unprocessable entity response has a 3xx status code
+func (o *DeleteReplicationUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this delete replication unprocessable entity response has a 4xx status code
+func (o *DeleteReplicationUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this delete replication unprocessable entity response has a 5xx status code
+func (o *DeleteReplicationUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this delete replication unprocessable entity response a status code equal to that given
+func (o *DeleteReplicationUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the delete replication unprocessable entity response
+func (o *DeleteReplicationUnprocessableEntity) Code() int {
+	return 422
+}
+
+func (o *DeleteReplicationUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *DeleteReplicationUnprocessableEntity) String() string {
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *DeleteReplicationUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *DeleteReplicationUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
@@ -362,6 +516,74 @@ func (o *DeleteReplicationInternalServerError) GetPayload() *models.ErrorRespons
 }
 
 func (o *DeleteReplicationInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewDeleteReplicationNotImplemented creates a DeleteReplicationNotImplemented with default headers values
+func NewDeleteReplicationNotImplemented() *DeleteReplicationNotImplemented {
+	return &DeleteReplicationNotImplemented{}
+}
+
+/*
+DeleteReplicationNotImplemented describes a response with status code 501, with default header values.
+
+Replica movement operations are disabled.
+*/
+type DeleteReplicationNotImplemented struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this delete replication not implemented response has a 2xx status code
+func (o *DeleteReplicationNotImplemented) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this delete replication not implemented response has a 3xx status code
+func (o *DeleteReplicationNotImplemented) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this delete replication not implemented response has a 4xx status code
+func (o *DeleteReplicationNotImplemented) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this delete replication not implemented response has a 5xx status code
+func (o *DeleteReplicationNotImplemented) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this delete replication not implemented response a status code equal to that given
+func (o *DeleteReplicationNotImplemented) IsCode(code int) bool {
+	return code == 501
+}
+
+// Code gets the status code for the delete replication not implemented response
+func (o *DeleteReplicationNotImplemented) Code() int {
+	return 501
+}
+
+func (o *DeleteReplicationNotImplemented) Error() string {
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationNotImplemented  %+v", 501, o.Payload)
+}
+
+func (o *DeleteReplicationNotImplemented) String() string {
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationNotImplemented  %+v", 501, o.Payload)
+}
+
+func (o *DeleteReplicationNotImplemented) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *DeleteReplicationNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

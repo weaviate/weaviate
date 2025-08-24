@@ -12,12 +12,14 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -57,6 +59,8 @@ type Replicator interface {
 	AbortReplication(shardName,
 		requestID string) interface{}
 }
+
+const tmpCopyExtension = ".copy.tmp" // indexcount and proplen temporary copy
 
 func (db *DB) ReplicateObject(ctx context.Context, class,
 	shard, requestID string, object *storobj.Object,
@@ -275,14 +279,16 @@ func (i *Index) AbortReplication(shard, requestID string) interface{} {
 func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
 	filePath string,
 ) (io.WriteCloser, error) {
-	localShard, release, err := i.getOrInitShard(context.Background(), shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+		return nil, fmt.Errorf("incoming file putter get shard %s err: %w", shardName, err)
 	}
-
+	if shard == nil {
+		return nil, fmt.Errorf("incoming file putter get shard %s: shard not found", shardName)
+	}
 	defer release()
 
-	return localShard.filePutter(ctx, filePath)
+	return shard.filePutter(ctx, filePath)
 }
 
 func (i *Index) IncomingCreateShard(ctx context.Context, className string, shardName string) error {
@@ -328,13 +334,16 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 func (i *Index) IncomingPauseFileActivity(ctx context.Context,
 	shardName string,
 ) error {
-	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return fmt.Errorf("shard %q could not be found locally", shardName)
+		return fmt.Errorf("incoming pause file activity get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("incoming pause file activity get shard %s: shard not found", shardName)
 	}
 	defer release()
 
-	err = localShard.HaltForTransfer(ctx, false, i.Config.TransferInactivityTimeout)
+	err = shard.HaltForTransfer(ctx, false, i.Config.TransferInactivityTimeout)
 	if err != nil {
 		return fmt.Errorf("shard %q could not be halted for transfer: %w", shardName, err)
 	}
@@ -346,13 +355,16 @@ func (i *Index) IncomingPauseFileActivity(ctx context.Context,
 func (i *Index) IncomingResumeFileActivity(ctx context.Context,
 	shardName string,
 ) error {
-	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return fmt.Errorf("shard %q could not be found locally", shardName)
+		return fmt.Errorf("incoming resume file activity get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("incoming resume file activity get shard %s: shard not found", shardName)
 	}
 	defer release()
 
-	err = localShard.resumeMaintenanceCycles(ctx)
+	err = shard.resumeMaintenanceCycles(ctx)
 	if err != nil {
 		return fmt.Errorf("shard %q could not be resumed after transfer: %w", shardName, err)
 	}
@@ -367,9 +379,12 @@ func (i *Index) IncomingResumeFileActivity(ctx context.Context,
 func (i *Index) IncomingListFiles(ctx context.Context,
 	shardName string,
 ) ([]string, error) {
-	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return nil, fmt.Errorf("shard %q could not be found locally", shardName)
+		return nil, fmt.Errorf("incoming list files get shard %s: %w", shardName, err)
+	}
+	if shard == nil {
+		return nil, fmt.Errorf("incoming list files get shard is nil: %s", shardName)
 	}
 	defer release()
 
@@ -380,12 +395,22 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 	defer i.shardTransferMutex.Unlock()
 
 	// flushing memtable before gathering the files to prevent the inclusion of a partially written file
-	if err = localShard.Store().FlushMemtables(ctx); err != nil {
+	if err = shard.Store().FlushMemtables(ctx); err != nil {
 		return nil, fmt.Errorf("flush memtables: %w", err)
 	}
 
-	if err := localShard.ListBackupFiles(ctx, &sd); err != nil {
+	if err := shard.ListBackupFiles(ctx, &sd); err != nil {
 		return nil, fmt.Errorf("shard %q could not list backup files: %w", shardName, err)
+	}
+
+	err = i.tmpCopy(shard.Counter().FileName(), sd.DocIDCounter)
+	if err != nil {
+		return nil, err
+	}
+
+	err = i.tmpCopy(shard.GetPropertyLengthTracker().FileName(), sd.PropLengthTracker)
+	if err != nil {
+		return nil, err
 	}
 
 	files := []string{
@@ -398,16 +423,35 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 	return files, nil
 }
 
+func (i *Index) tmpCopy(path string, b []byte) error {
+	tmpFile, err := os.OpenFile(path+tmpCopyExtension, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
+	if err != nil {
+		return err
+	}
+	defer tmpFile.Close()
+
+	_, err = io.Copy(tmpFile, bytes.NewBuffer(b))
+	return err
+}
+
 // IncomingGetFileMetadata returns file metadata at the given path in the specified shards's root
 // directory.
 func (i *Index) IncomingGetFileMetadata(ctx context.Context, shardName, relativeFilePath string) (file.FileMetadata, error) {
-	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return file.FileMetadata{}, fmt.Errorf("shard %q does not exist locally", shardName)
+		return file.FileMetadata{}, fmt.Errorf("incoming get file metadata get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return file.FileMetadata{}, fmt.Errorf("incoming get file metadata get shard %s: shard not found", shardName)
 	}
 	defer release()
 
-	return localShard.GetFileMetadata(ctx, relativeFilePath)
+	if strings.HasSuffix(shard.Counter().FileName(), relativeFilePath) ||
+		strings.HasSuffix(shard.GetPropertyLengthTracker().FileName(), relativeFilePath) {
+		relativeFilePath = relativeFilePath + tmpCopyExtension
+	}
+
+	return shard.GetFileMetadata(ctx, relativeFilePath)
 }
 
 // IncomingGetFile returns a reader for the file at the given path in the specified shard's root
@@ -415,13 +459,21 @@ func (i *Index) IncomingGetFileMetadata(ctx context.Context, shardName, relative
 func (i *Index) IncomingGetFile(ctx context.Context, shardName,
 	relativeFilePath string,
 ) (io.ReadCloser, error) {
-	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+		return nil, fmt.Errorf("incoming get file get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return nil, fmt.Errorf("incoming get file get shard %s: shard not found", shardName)
 	}
 	defer release()
 
-	return localShard.GetFile(ctx, relativeFilePath)
+	if strings.HasSuffix(shard.Counter().FileName(), relativeFilePath) ||
+		strings.HasSuffix(shard.GetPropertyLengthTracker().FileName(), relativeFilePath) {
+		relativeFilePath = relativeFilePath + tmpCopyExtension
+	}
+
+	return shard.GetFile(ctx, relativeFilePath)
 }
 
 // IncomingAddAsyncReplicationTargetNode adds the given target node override for async replication.
@@ -433,14 +485,16 @@ func (i *Index) IncomingAddAsyncReplicationTargetNode(
 	shardName string,
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
 ) error {
-	// TODO do we want to init the shard if it's deactivated (eg on disk)?
-	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return err
+		return fmt.Errorf("incoming add async replication get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("incoming add async replication get shard %s: shard not found", shardName)
 	}
 	defer release()
 
-	return localShard.addTargetNodeOverride(ctx, targetNodeOverride)
+	return shard.addTargetNodeOverride(ctx, targetNodeOverride)
 }
 
 // IncomingRemoveAsyncReplicationTargetNode removes the given target node override for async
@@ -452,13 +506,33 @@ func (i *Index) IncomingRemoveAsyncReplicationTargetNode(ctx context.Context,
 	shardName string,
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
 ) error {
-	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return err
+		return fmt.Errorf("incoming remove async replication get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("incoming remove async replication get shard %s: shard not found", shardName)
 	}
 	defer release()
 
-	return localShard.removeTargetNodeOverride(ctx, targetNodeOverride)
+	return shard.removeTargetNodeOverride(ctx, targetNodeOverride)
+}
+
+// IncomingAllRemoveAsyncReplicationTargetNodes removes all target node overrides for async
+// replication. Async replication will be reset to it's default configuration.
+func (i *Index) IncomingRemoveAllAsyncReplicationTargetNodes(ctx context.Context,
+	shardName string,
+) error {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return fmt.Errorf("incoming remove all async replication get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("incoming remove all async replication get shard %s: shard not found", shardName)
+	}
+	defer release()
+
+	return shard.removeAllTargetNodeOverrides(ctx)
 }
 
 func (s *Shard) filePutter(ctx context.Context,
@@ -726,27 +800,27 @@ func (i *Index) IncomingHashTreeLevel(ctx context.Context,
 
 func (i *Index) FetchObject(ctx context.Context,
 	shardName string, id strfmt.UUID,
-) (objects.Replica, error) {
+) (replica.Replica, error) {
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
-		return objects.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
+		return replica.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
 	defer release()
 
 	if shard.GetStatus() == storagestate.StatusLoading {
-		return objects.Replica{}, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+		return replica.Replica{}, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	obj, err := shard.ObjectByID(ctx, id, nil, additional.Properties{})
 	if err != nil {
-		return objects.Replica{}, fmt.Errorf("shard %q read repair get object: %w", shard.ID(), err)
+		return replica.Replica{}, fmt.Errorf("shard %q read repair get object: %w", shard.ID(), err)
 	}
 
 	if obj == nil {
 		deleted, deletionTime, err := shard.WasDeleted(ctx, id)
 		if err != nil {
-			return objects.Replica{}, err
+			return replica.Replica{}, err
 		}
 
 		var updateTime int64
@@ -754,14 +828,14 @@ func (i *Index) FetchObject(ctx context.Context,
 			updateTime = deletionTime.UnixMilli()
 		}
 
-		return objects.Replica{
+		return replica.Replica{
 			ID:                      id,
 			Deleted:                 deleted,
 			LastUpdateTimeUnixMilli: updateTime,
 		}, nil
 	}
 
-	return objects.Replica{
+	return replica.Replica{
 		Object:                  obj,
 		ID:                      obj.ID(),
 		LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
@@ -770,7 +844,7 @@ func (i *Index) FetchObject(ctx context.Context,
 
 func (i *Index) FetchObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
-) ([]objects.Replica, error) {
+) ([]replica.Replica, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
@@ -789,7 +863,7 @@ func (i *Index) FetchObjects(ctx context.Context,
 		return nil, fmt.Errorf("shard %q replication multi get objects: %w", shard.ID(), err)
 	}
 
-	resp := make([]objects.Replica, len(ids))
+	resp := make([]replica.Replica, len(ids))
 
 	for j, obj := range objs {
 		if obj == nil {
@@ -803,13 +877,13 @@ func (i *Index) FetchObjects(ctx context.Context,
 				updateTime = deletionTime.UnixMilli()
 			}
 
-			resp[j] = objects.Replica{
+			resp[j] = replica.Replica{
 				ID:                      ids[j],
 				Deleted:                 deleted,
 				LastUpdateTimeUnixMilli: updateTime,
 			}
 		} else {
-			resp[j] = objects.Replica{
+			resp[j] = replica.Replica{
 				Object:                  obj,
 				ID:                      obj.ID(),
 				LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),

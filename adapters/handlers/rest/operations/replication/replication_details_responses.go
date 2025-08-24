@@ -98,7 +98,7 @@ func (o *ReplicationDetailsUnauthorized) WriteResponse(rw http.ResponseWriter, p
 const ReplicationDetailsForbiddenCode int = 403
 
 /*
-ReplicationDetailsForbidden Forbidden
+ReplicationDetailsForbidden Forbidden.
 
 swagger:response replicationDetailsForbidden
 */
@@ -143,7 +143,7 @@ func (o *ReplicationDetailsForbidden) WriteResponse(rw http.ResponseWriter, prod
 const ReplicationDetailsNotFoundCode int = 404
 
 /*
-ReplicationDetailsNotFound Shard replica operation not found
+ReplicationDetailsNotFound Shard replica operation not found.
 
 swagger:response replicationDetailsNotFound
 */
@@ -162,6 +162,51 @@ func (o *ReplicationDetailsNotFound) WriteResponse(rw http.ResponseWriter, produ
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
+}
+
+// ReplicationDetailsUnprocessableEntityCode is the HTTP code returned for type ReplicationDetailsUnprocessableEntity
+const ReplicationDetailsUnprocessableEntityCode int = 422
+
+/*
+ReplicationDetailsUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+
+swagger:response replicationDetailsUnprocessableEntity
+*/
+type ReplicationDetailsUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewReplicationDetailsUnprocessableEntity creates ReplicationDetailsUnprocessableEntity with default headers values
+func NewReplicationDetailsUnprocessableEntity() *ReplicationDetailsUnprocessableEntity {
+
+	return &ReplicationDetailsUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the replication details unprocessable entity response
+func (o *ReplicationDetailsUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *ReplicationDetailsUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the replication details unprocessable entity response
+func (o *ReplicationDetailsUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ReplicationDetailsUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // ReplicationDetailsInternalServerErrorCode is the HTTP code returned for type ReplicationDetailsInternalServerError
@@ -201,6 +246,51 @@ func (o *ReplicationDetailsInternalServerError) SetPayload(payload *models.Error
 func (o *ReplicationDetailsInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// ReplicationDetailsNotImplementedCode is the HTTP code returned for type ReplicationDetailsNotImplemented
+const ReplicationDetailsNotImplementedCode int = 501
+
+/*
+ReplicationDetailsNotImplemented Replica movement operations are disabled.
+
+swagger:response replicationDetailsNotImplemented
+*/
+type ReplicationDetailsNotImplemented struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewReplicationDetailsNotImplemented creates ReplicationDetailsNotImplemented with default headers values
+func NewReplicationDetailsNotImplemented() *ReplicationDetailsNotImplemented {
+
+	return &ReplicationDetailsNotImplemented{}
+}
+
+// WithPayload adds the payload to the replication details not implemented response
+func (o *ReplicationDetailsNotImplemented) WithPayload(payload *models.ErrorResponse) *ReplicationDetailsNotImplemented {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the replication details not implemented response
+func (o *ReplicationDetailsNotImplemented) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ReplicationDetailsNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(501)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

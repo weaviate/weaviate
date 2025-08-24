@@ -26,7 +26,7 @@ const (
 	DefaultMultivectorMuveraEnabled = false
 	DefaultMultivectorKSim          = 4
 	DefaultMultivectorDProjections  = 16
-	DefaultMultivectorRepetitions   = 20
+	DefaultMultivectorRepetitions   = 10
 	DefaultMultivectorAggregation   = "maxSim"
 )
 

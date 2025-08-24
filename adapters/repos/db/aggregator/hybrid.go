@@ -25,8 +25,10 @@ import (
 
 func (a *Aggregator) buildHybridKeywordRanking() (*searchparams.KeywordRanking, error) {
 	kw := &searchparams.KeywordRanking{
-		Type:  "bm25",
-		Query: a.params.Hybrid.Query,
+		Type:                 "bm25",
+		Query:                a.params.Hybrid.Query,
+		MinimumOrTokensMatch: a.params.Hybrid.MinimumOrTokensMatch,
+		SearchOperator:       a.params.Hybrid.SearchOperator,
 	}
 
 	cl := a.getSchema.ReadOnlyClass(a.params.ClassName.String())

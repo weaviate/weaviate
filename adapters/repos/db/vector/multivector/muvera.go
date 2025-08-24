@@ -15,7 +15,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"math/rand"
+	"math/rand/v2"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -36,10 +36,13 @@ type MuveraEncoder struct {
 	config               MuveraConfig
 	gaussians            [][][]float32 // Random Gaussian vectors for SimHash projection
 	S                    [][][]float32 // Random projection matrix with ±1 entries
-	Sfinal               [][]float32   // Random projection matrix with ±1 entries
 	dotDistancerProvider distancer.Provider
 	muveraStore          *lsmkv.Store
 }
+
+const (
+	DefaultMuveraSeed = uint64(0x532ca5105169b1df)
+)
 
 func NewMuveraEncoder(config ent.MuveraConfig, muveraStore *lsmkv.Store) *MuveraEncoder {
 	encoder := &MuveraEncoder{
@@ -57,6 +60,7 @@ func NewMuveraEncoder(config ent.MuveraConfig, muveraStore *lsmkv.Store) *Muvera
 }
 
 func (encoder *MuveraEncoder) InitEncoder(dimensions int) {
+	rng := rand.New(rand.NewPCG(DefaultMuveraSeed, 0x385ab5285169b1ac))
 	encoder.config.Dimensions = dimensions
 	encoder.gaussians = make([][][]float32, encoder.config.Repetitions)
 	encoder.S = make([][][]float32, encoder.config.Repetitions)
@@ -66,22 +70,22 @@ func (encoder *MuveraEncoder) InitEncoder(dimensions int) {
 		for i := 0; i < encoder.config.KSim; i++ {
 			encoder.gaussians[rep][i] = make([]float32, encoder.config.Dimensions)
 			for j := 0; j < encoder.config.Dimensions; j++ {
-				u1 := rand.Float64()
-				u2 := rand.Float64()
+				u1 := rng.Float64()
+				u2 := rng.Float64()
 				encoder.gaussians[rep][i][j] = float32(math.Sqrt(-2.0*math.Log(u1)) * math.Cos(2*math.Pi*u2))
 			}
 		}
 
-		encoder.S[rep] = initProjectionMatrix(encoder.config.DProjections, encoder.config.Dimensions)
+		encoder.S[rep] = initProjectionMatrix(encoder.config.DProjections, encoder.config.Dimensions, rng)
 	}
 }
 
-func initProjectionMatrix(rows int, cols int) [][]float32 {
+func initProjectionMatrix(rows int, cols int, rng *rand.Rand) [][]float32 {
 	matrix := make([][]float32, rows)
 	for i := 0; i < rows; i++ {
 		matrix[i] = make([]float32, cols)
 		for j := 0; j < cols; j++ {
-			matrix[i][j] = float32(rand.Intn(2)*2 - 1)
+			matrix[i][j] = float32(rng.IntN(2)*2 - 1)
 		}
 	}
 	return matrix

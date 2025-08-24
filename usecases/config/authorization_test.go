@@ -37,11 +37,6 @@ func Test_Validation(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "Only rbac - wrong config",
-			config:  Authorization{Rbac: rbacconf.Config{Enabled: true}},
-			wantErr: true,
-		},
-		{
 			name:    "Only adminlist - wrong config",
 			config:  Authorization{AdminList: adminlist.Config{Enabled: true, Users: []string{"1"}, ReadOnlyUsers: []string{"1"}}},
 			wantErr: true,
