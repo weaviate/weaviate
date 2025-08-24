@@ -220,6 +220,7 @@ func TestBucket_MemtableCountWithFlushing(t *testing.T) {
 		// memtable portion in isolation
 		disk: &SegmentGroup{},
 	}
+	ctx := context.Background()
 
 	tests := []struct {
 		name                string
@@ -261,11 +262,13 @@ func TestBucket_MemtableCountWithFlushing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actualActive := b.memtableNetCount(tt.current, tt.previous)
+			actualActive, err := b.memtableNetCount(ctx, tt.current, tt.previous)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedNetActive, actualActive)
 
 			if tt.previous != nil {
-				actualPrevious := b.memtableNetCount(tt.previous, nil)
+				actualPrevious, err := b.memtableNetCount(ctx, tt.previous, nil)
+				require.NoError(t, err)
 				assert.Equal(t, tt.expectedNetPrevious, actualPrevious)
 
 				assert.Equal(t, tt.expectedNetTotal, actualPrevious+actualActive)

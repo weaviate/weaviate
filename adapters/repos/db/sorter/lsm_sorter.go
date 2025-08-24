@@ -79,7 +79,12 @@ func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([
 		return is.SortDocIDs(ctx, limit, sort, nil)
 	}
 
-	helper, err := s.createHelper(sort, validateLimit(limit, s.bucket.Count()))
+	bucketCount, err := s.bucket.Count(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	helper, err := s.createHelper(sort, validateLimit(limit, bucketCount))
 	if err != nil {
 		return nil, err
 	}

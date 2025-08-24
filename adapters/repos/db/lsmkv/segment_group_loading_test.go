@@ -72,7 +72,9 @@ func TestCompactionCleanupBothSegmentsPresent(t *testing.T) {
 					require.Error(t, err)
 				} else {
 					require.NoError(t, err)
-					require.Equal(t, 20, b2.Count())
+					count, err := b2.Count(context.Background())
+					require.NoError(t, err)
+					require.Equal(t, 20, count)
 					entries, err := os.ReadDir(testDir)
 					require.NoError(t, err)
 					for _, entry := range entries {
@@ -152,7 +154,9 @@ func TestCompactionCleanupBothSegmentsPresentUpgrade(t *testing.T) {
 					require.Error(t, err)
 				} else {
 					require.NoError(t, err)
-					require.Equal(t, 20, b2.Count())
+					count, err := b2.Count(context.Background())
+					require.NoError(t, err)
+					require.Equal(t, 20, count)
 					entries, err := os.ReadDir(testDir)
 					require.NoError(t, err)
 					for _, entry := range entries {
