@@ -1104,12 +1104,23 @@ func (b *Bucket) Count(ctx context.Context) (int, error) {
 	memtableCount := 0
 	if b.flushing == nil {
 		// only consider active
-		memtableCount += b.memtableNetCount(b.active.countStats(), nil)
+		delta, err := b.memtableNetCount(ctx, b.active.countStats(), nil)
+		if err != nil {
+			return 0, err
+		}
+		memtableCount += delta
 	} else {
 		flushingCountStats := b.flushing.countStats()
 		activeCountStats := b.active.countStats()
-		deltaActive := b.memtableNetCount(activeCountStats, flushingCountStats)
-		deltaFlushing := b.memtableNetCount(flushingCountStats, nil)
+		deltaActive, err := b.memtableNetCount(ctx, activeCountStats, flushingCountStats)
+		if err != nil {
+			return 0, err
+		}
+
+		deltaFlushing, err := b.memtableNetCount(ctx, flushingCountStats, nil)
+		if err != nil {
+			return 0, err
+		}
 
 		memtableCount = deltaActive + deltaFlushing
 	}
@@ -1130,25 +1141,33 @@ func (b *Bucket) CountAsync() int {
 	return b.disk.count()
 }
 
-func (b *Bucket) memtableNetCount(stats *countStats, previousMemtable *countStats) int {
+func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previousMemtable *countStats) (int, error) {
 	netCount := 0
 
 	// TODO: this uses regular get, given that this may be called quite commonly,
 	// we might consider building a pure Exists(), which skips reading the value
 	// and only checks for tombstones, etc.
 	for _, key := range stats.upsertKeys {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+
 		if !b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
 			netCount++
 		}
 	}
 
 	for _, key := range stats.tombstonedKeys {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+
 		if b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
 			netCount--
 		}
 	}
 
-	return netCount
+	return netCount, nil
 }
 
 func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byte) bool {
