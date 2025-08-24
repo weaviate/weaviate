@@ -29,7 +29,7 @@ func (s *segment) get(key []byte) ([]byte, error) {
 	before := time.Now()
 
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
-		s.bloomFilterMetrics.trueNegative(before)
+		// s.bloomFilterMetrics.trueNegative(before)
 		return nil, lsmkv.NotFound
 	}
 
