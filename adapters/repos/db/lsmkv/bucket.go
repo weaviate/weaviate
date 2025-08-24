@@ -1093,7 +1093,7 @@ func (b *Bucket) setNewActiveMemtable() error {
 	return nil
 }
 
-func (b *Bucket) Count() int {
+func (b *Bucket) Count(ctx context.Context) (int, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -1119,7 +1119,7 @@ func (b *Bucket) Count() int {
 	if b.monitorCount {
 		b.metrics.ObjectCount(memtableCount + diskCount)
 	}
-	return memtableCount + diskCount
+	return memtableCount + diskCount, nil
 }
 
 // CountAsync ignores the current memtable, that makes it async because it only
