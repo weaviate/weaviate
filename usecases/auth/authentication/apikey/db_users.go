@@ -65,6 +65,7 @@ type DBUser struct {
 	data           dbUserdata
 	memoryOnlyData memoryOnlyData
 	path           string
+	enabled        bool
 }
 
 type DBUserSnapshot struct {
@@ -141,6 +142,7 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 			weakKeyStorageById:     make(map[string][sha256.Size]byte),
 			importedApiKeysBlocked: make([][sha256.Size]byte, 0),
 		},
+		enabled: enabled,
 	}
 
 	// we save every change to file after a request is done, EXCEPT the lastUsedAt time as we do not want to write to a

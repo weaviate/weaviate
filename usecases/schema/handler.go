@@ -78,6 +78,7 @@ type SchemaManager interface {
 	ReplaceAlias(ctx context.Context, alias *models.Alias, newClass *models.Class) (uint64, error)
 	DeleteAlias(ctx context.Context, alias string) (uint64, error)
 	GetAliases(ctx context.Context, alias string, class *models.Class) ([]*models.Alias, error)
+	GetAlias(ctx context.Context, alias string) (*models.Alias, error)
 }
 
 // SchemaReader allows reading the local schema with or without using a schema version.
