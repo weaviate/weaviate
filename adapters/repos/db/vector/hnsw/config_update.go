@@ -64,6 +64,14 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 			name:     "muvera enabled",
 			accessor: func(c ent.UserConfig) interface{} { return c.Multivector.MuveraConfig.Enabled },
 		},
+		{
+			name:     "skipDefaultQuantization",
+			accessor: func(c ent.UserConfig) interface{} { return c.SkipDefaultQuantization },
+		},
+		{
+			name:     "trackDefaultQuantization",
+			accessor: func(c ent.UserConfig) interface{} { return c.TrackDefaultQuantization },
+		},
 	}
 
 	for _, u := range immutableFields {

@@ -402,6 +402,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	if len(replicasHostAddrs) > 1 {
 		// Use the global rand package which is thread-safe
 		rand.Shuffle(len(replicasHostAddrs), func(i, j int) {
+			replicaNodeNames[i], replicaNodeNames[j] = replicaNodeNames[j], replicaNodeNames[i]
 			replicasHostAddrs[i], replicasHostAddrs[j] = replicasHostAddrs[j], replicasHostAddrs[i]
 		})
 	}

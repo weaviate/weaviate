@@ -38,6 +38,7 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 	var endpointStats endpointStatsSlice
 
 	className := "ABC"
+	aliasName := "AliasABC"
 	tenantNames := []string{
 		"Tenant1", "Tenant2", "Tenant3",
 	}
@@ -50,6 +51,10 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 	}
 	helper.CreateTenantsAuth(t, className, tenants, adminKey)
 
+	helper.CreateAliasAuth(t, &models.Alias{
+		Class: className,
+		Alias: aliasName,
+	}, adminKey)
 	col, err := newCollector()
 	require.Nil(t, err)
 
@@ -69,8 +74,8 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 		url = strings.ReplaceAll(url, "{propertyName}", "someProperty")
 		url = strings.ReplaceAll(url, "{user_id}", "random-user")
 		url = strings.ReplaceAll(url, "{userType}", "db")
-		url = strings.ReplaceAll(url, "{aliasName}", "aliasName")
 		url = strings.ReplaceAll(url, "{groupType}", "oidc")
+		url = strings.ReplaceAll(url, "{aliasName}", aliasName)
 
 		t.Run(url+"("+strings.ToUpper(endpoint.method)+")", func(t *testing.T) {
 			require.NotContains(t, url, "{")
