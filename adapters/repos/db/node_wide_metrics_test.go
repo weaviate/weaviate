@@ -50,22 +50,22 @@ func TestShardActivity(t *testing.T) {
 		},
 	}
 
-	db.indices["Col1"].shards.Store("t1_overflow", &Shard{})
-	db.indices["Col1"].shards.Store("t2_only_reads", &Shard{})
-	db.indices["Col1"].shards.Store("t3_no_reads_and_writes", &Shard{})
-	db.indices["Col1"].shards.Store("t4_only_writes", &Shard{})
-	db.indices["Col1"].shards.Store("t5_reads_and_writes", &Shard{})
+	db.Indices()["Col1"].shards.Store("t1_overflow", &Shard{})
+	db.Indices()["Col1"].shards.Store("t2_only_reads", &Shard{})
+	db.Indices()["Col1"].shards.Store("t3_no_reads_and_writes", &Shard{})
+	db.Indices()["Col1"].shards.Store("t4_only_writes", &Shard{})
+	db.Indices()["Col1"].shards.Store("t5_reads_and_writes", &Shard{})
 	o := newNodeWideMetricsObserver(db)
 
 	o.observeActivity()
 
 	// show activity on two tenants
 	time.Sleep(10 * time.Millisecond)
-	db.indices["Col1"].shards.Load("t1_overflow").(*Shard).activityTrackerRead.Store(math.MaxInt32)
-	db.indices["Col1"].shards.Load("t2_only_reads").(*Shard).activityTrackerRead.Add(1)
-	db.indices["Col1"].shards.Load("t4_only_writes").(*Shard).activityTrackerWrite.Add(1)
-	db.indices["Col1"].shards.Load("t5_reads_and_writes").(*Shard).activityTrackerRead.Add(1)
-	db.indices["Col1"].shards.Load("t5_reads_and_writes").(*Shard).activityTrackerWrite.Add(1)
+	db.Indices()["Col1"].shards.Load("t1_overflow").(*Shard).activityTrackerRead.Store(math.MaxInt32)
+	db.Indices()["Col1"].shards.Load("t2_only_reads").(*Shard).activityTrackerRead.Add(1)
+	db.Indices()["Col1"].shards.Load("t4_only_writes").(*Shard).activityTrackerWrite.Add(1)
+	db.Indices()["Col1"].shards.Load("t5_reads_and_writes").(*Shard).activityTrackerRead.Add(1)
+	db.Indices()["Col1"].shards.Load("t5_reads_and_writes").(*Shard).activityTrackerWrite.Add(1)
 
 	// observe to update timestamps
 	o.observeActivity()
@@ -74,7 +74,7 @@ func TestShardActivity(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	// previous value was math.MaxInt32, so this counter will overflow now.
 	// Assert that everything still works as expected
-	db.indices["Col1"].shards.Load("t1_overflow").(*Shard).activityTrackerRead.Add(1)
+	db.Indices()["Col1"].shards.Load("t1_overflow").(*Shard).activityTrackerRead.Add(1)
 	o.observeActivity()
 
 	t.Run("total usage", func(t *testing.T) {
@@ -132,7 +132,7 @@ func TestShardActivity(t *testing.T) {
 		assert.True(t, ok, "t5 should be contained")
 
 		// write into t5 again
-		db.indices["Col1"].shards.Load("t5_reads_and_writes").(*Shard).activityTrackerWrite.Add(1)
+		db.Indices()["Col1"].shards.Load("t5_reads_and_writes").(*Shard).activityTrackerWrite.Add(1)
 		time.Sleep(10 * time.Millisecond)
 		o.observeActivity()
 
