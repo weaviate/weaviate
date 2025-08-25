@@ -91,12 +91,12 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, postingID uint64, r
 		// might happen if we are reassigning
 		if s.VersionMap.Get(vector.ID()) == vector.Version() {
 			err := s.enqueueReassign(ctx, postingID, vector)
-			s.postingLocks.Unlock(postingID)
 			if err != nil {
+				s.postingLocks.Unlock(postingID)
 				return false, err
 			}
 		}
-
+		s.postingLocks.Unlock(postingID)
 		return false, nil
 	}
 
