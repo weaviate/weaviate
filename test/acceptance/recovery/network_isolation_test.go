@@ -25,7 +25,8 @@ import (
 )
 
 func TestNetworkIsolationSplitBrain(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
 	compose, err := docker.New().
 		With3NodeCluster().
