@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/usecases/cluster"
 
@@ -109,14 +110,22 @@ func Benchmark_Migration(b *testing.B) {
 			fmt.Printf("Added vectors, now migrating\n")
 
 			repo.config.TrackVectorDimensions = true
-			migrator.RecalculateVectorDimensions(context.TODO())
+			migrator.RecalculateVectorDimensions(context.TODO(), false, true)
 			fmt.Printf("Benchmark complete")
 		}()
 	}
 }
 
+
 // Rebuild dimensions at startup
 func Test_Migration(t *testing.T) {
+	dimensionTrackingVersion = "v1"
+	do_Migration(t)
+	dimensionTrackingVersion = "v2"
+	do_Migration(t)
+}
+
+func do_Migration(t *testing.T) {
 	r := getRandomSeed()
 	dirName := t.TempDir()
 
@@ -189,31 +198,34 @@ func Test_Migration(t *testing.T) {
 	dimBefore := getDimensionsFromRepo(context.Background(), repo, "Test")
 	require.Equal(t, 0, dimBefore, "dimensions should not have been calculated")
 	repo.config.TrackVectorDimensions = true
-	migrator.RecalculateVectorDimensions(context.TODO())
+	migrator.RecalculateVectorDimensions(context.TODO(), false, true)
 	dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
 	require.Equal(t, 12800, dimAfter, "dimensions should be counted now")
 }
 
-func Test_DimensionTracking(t *testing.T) {
-	r := getRandomSeed()
-	dirName := t.TempDir()
 
+func Test_DimensionTracking(t *testing.T) {
+
+	nodeName := "node_v1"
+	dirName := t.TempDir()
 	shardState := singleShardState()
-	logger := logrus.New()
+logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
+
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{nodeName}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
+	mockNodeSelector.EXPECT().LocalName().Return(nodeName).Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return(nodeName, true).Maybe()
+
+	repo, err := New(logger, nodeName, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -225,7 +237,23 @@ func Test_DimensionTracking(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger, "node1")
+
+	dimensionTrackingVersion = "v1"
+	do_DimensionTracking(t,nodeName, repo)
+
+
+
+	dimensionTrackingVersion = "v2"
+	do_DimensionTracking(t, "node_v2", repo)
+}
+
+func do_DimensionTracking(t *testing.T, nodeName string, repo *DB) {
+	r := getRandomSeed()
+	logger := repo.logger
+	schemaGetter := repo.schemaGetter.(*fakeSchemaGetter)
+
+
+	migrator := NewMigrator(repo, logger, nodeName)
 
 	t.Run("set schema", func(t *testing.T) {
 		class := &models.Class{
@@ -422,7 +450,19 @@ func Test_DimensionTracking(t *testing.T) {
 	})
 }
 
-func TestTotalDimensionTrackingMetrics(t *testing.T) {
+
+
+func TestTotalDimensionTrackingMetrics_v1(t *testing.T) {
+	dimensionTrackingVersion = "v1"
+	do_TotalDimensionTrackingMetrics(t)
+}
+
+func TestTotalDimensionTrackingMetrics_v2(t *testing.T) {
+	dimensionTrackingVersion = "v2"
+	do_TotalDimensionTrackingMetrics(t)
+}
+
+func do_TotalDimensionTrackingMetrics(t *testing.T) {
 	const (
 		objectCount         = 100
 		multiVecCard        = 3
@@ -601,6 +641,12 @@ func intToUUID(i int) strfmt.UUID {
 }
 
 func TestDimensionTrackingWithGrouping(t *testing.T) {
+	dimensionTrackingVersion = "v1"
+	do_DimensionTrackingWithGrouping(t)
+	dimensionTrackingVersion = "v2"
+	do_DimensionTrackingWithGrouping(t)
+}
+func do_DimensionTrackingWithGrouping(t *testing.T) {
 	const (
 		nClasses          = 2
 		shardsPerClass    = 1 // createTestDatabaseWithClass does not support multi-tenancy

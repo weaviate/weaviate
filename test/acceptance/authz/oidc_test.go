@@ -468,68 +468,70 @@ func TestRbacWithOIDCAssignRevokeGroups(t *testing.T) {
 	}
 }
 
-func TestOidcRootAndDynamicUsers(t *testing.T) {
+func TestOidcRootAndDynamicUsersWithCertificate(t *testing.T) {
 	ctx := context.Background()
-	tests := []struct {
-		name  string
-		image *docker.Compose
-	}{
-		{
-			name:  "without certificate",
-			image: docker.New().WithWeaviate().WithMockOIDC().WithDbUsers(),
-		},
-		{
-			name:  "with certificate",
-			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithDbUsers(),
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			compose, err := test.image.Start(ctx)
-			require.NoError(t, err)
-			defer func() {
-				require.NoError(t, compose.Terminate(ctx))
-			}()
+	compose, err := docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithDbUsers().Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
 
-			helper.SetupClient(compose.GetWeaviate().URI())
-			defer helper.ResetClient()
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
 
-			// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
-			// description for details
-			tokenAdmin, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
+	tokenAdmin, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
 
-			helper.DeleteUser(t, "dynamic1", tokenAdmin)
-			apiKey := helper.CreateUser(t, "dynamic1", tokenAdmin)
+	helper.DeleteUser(t, "dynamic1", tokenAdmin)
+	apiKey := helper.CreateUser(t, "dynamic1", tokenAdmin)
 
-			info := helper.GetInfoForOwnUser(t, apiKey)
-			require.Equal(t, *info.Username, "dynamic1")
-		})
-	}
+	info := helper.GetInfoForOwnUser(t, apiKey)
+	require.Equal(t, *info.Username, "dynamic1")
+}
+
+// This test checks that Weaviate can start with proper certificates
+func TestOidcProperCertificate(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().
+		WithWeaviate().WithDbUsers().
+		WithMockOIDCWithCertificate().
+		Start(ctx)
+	require.NoError(t, err)
+	require.NoError(t, compose.Terminate(ctx))
 }
 
 func TestOidcWrongCertificate(t *testing.T) {
 	ctx := context.Background()
-	t.Run("wrong certificates", func(t *testing.T) {
-		// MockOIDC server has been created with it's own certifcates but we pass here some other certifcate, this situation should
-		// lead to Weaviate not being able to connect OIDC server thus not being able to start
-		wrongCertificate, _, err := docker.GenerateCertificateAndKey(docker.MockOIDC)
-		require.NoError(t, err)
-		compose, err := docker.New().
-			WithWeaviate().WithDbUsers().
-			WithMockOIDCWithCertificate().
-			// pass some other certificate which is not used by MockOIDC
-			WithWeaviateEnv("AUTHENTICATION_OIDC_CERTIFICATE", wrongCertificate).
-			Start(ctx)
-		// Weaviate should not start in this configuration
-		require.Error(t, err)
+	// MockOIDC server has been created with it's own certifcates but we pass here some other certifcate, this situation should
+	// lead to Weaviate not being able to connect OIDC server thus not being able to start
+	wrongCertificate, _, err := docker.GenerateCertificateAndKey(docker.MockOIDC)
+	require.NoError(t, err)
+	compose, err := docker.New().
+		WithWeaviate().WithDbUsers().
+		WithMockOIDCWithCertificate().
+		// pass some other certificate which is not used by MockOIDC
+		WithWeaviateEnv("AUTHENTICATION_OIDC_CERTIFICATE", wrongCertificate).
+		Start(ctx)
+	// Weaviate should not start in this configuration
+	require.Error(t, err)
+	require.NoError(t, compose.Terminate(ctx))
+}
+
+func TestOidcRootAndDynamicUsersWithoutCertificate(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithDbUsers().Start(ctx)
+	require.NoError(t, err)
+	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
-	})
-	t.Run("proper certificates", func(t *testing.T) {
-		compose, err := docker.New().
-			WithWeaviate().WithDbUsers().
-			WithMockOIDCWithCertificate().
-			Start(ctx)
-		require.NoError(t, err)
-		require.NoError(t, compose.Terminate(ctx))
-	})
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	tokenAdmin, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
+
+	helper.DeleteUser(t, "dynamic1", tokenAdmin)
+	apiKey := helper.CreateUser(t, "dynamic1", tokenAdmin)
+
+	info := helper.GetInfoForOwnUser(t, apiKey)
+	require.Equal(t, *info.Username, "dynamic1")
 }

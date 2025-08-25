@@ -49,9 +49,17 @@ func (c DimensionCategory) String() string {
 
 // DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
 func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (types.Dimensionality, error) {
-	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
-		return len(v), dimLength
-	})
+	var dimensionality types.Dimensionality
+	var err error
+	if dimensionTrackingVersion == "v2" {
+		dimensionality, err = s.calcTargetVectorDimensions_v2(ctx, targetVector, func(dimLength int, v int) (int, int) {
+			return v, dimLength
+		})
+	} else {
+		dimensionality, err = s.calcTargetVectorDimensions_v1(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
+			return len(v), dimLength
+		})
+	}
 	if err != nil {
 		return types.Dimensionality{}, err
 	}
@@ -60,9 +68,17 @@ func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (types
 
 // Dimensions returns the total number of dimensions for a given vector
 func (s *Shard) Dimensions(ctx context.Context, targetVector string) (int, error) {
-	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
-		return dimLength * len(v), dimLength
-	})
+	var dimensionality types.Dimensionality
+	var err error
+	if dimensionTrackingVersion == "v2" {
+		dimensionality, err = s.calcTargetVectorDimensions_v2(ctx, targetVector, func(dimLength int, v int) (int, int) {
+			return dimLength * v, dimLength
+		})
+	} else {
+		dimensionality, err = s.calcTargetVectorDimensions_v1(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
+			return dimLength * len(v), dimLength
+		})
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -70,18 +86,23 @@ func (s *Shard) Dimensions(ctx context.Context, targetVector string) (int, error
 }
 
 func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
-	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
-		return len(v), dimLength
-	})
+	var dimensionality types.Dimensionality
+	var err error
+	if dimensionTrackingVersion == "v2" {
+		dimensionality, err = s.calcTargetVectorDimensions_v2(ctx, targetVector, func(dimLength int, v int) (int, int) {
+			return v, dimLength
+		})
+	} else {
+		dimensionality, err = s.calcTargetVectorDimensions_v1(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
+			return len(v), dimLength
+		})
+	}
+
 	if err != nil {
 		return 0
 	}
 
 	return dimensionality.Count * correctEmptySegments(segments, dimensionality.Dimensions)
-}
-
-func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) (types.Dimensionality, error) {
-	return calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, calcEntry), nil
 }
 
 // DimensionMetrics represents the dimension tracking metrics for a vector.

@@ -798,52 +798,6 @@ func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string
 	return nil
 }
 
-func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
-	count := 0
-	m.logger.
-		WithField("action", "reindex").
-		Info("Reindexing dimensions, this may take a while")
-
-	m.db.indexLock.Lock()
-	defer m.db.indexLock.Unlock()
-
-	// Iterate over all indexes
-	for _, index := range m.db.indices {
-		err := index.ForEachShard(func(name string, shard ShardLike) error {
-			return shard.resetDimensionsLSM(ctx)
-		})
-		if err != nil {
-			m.logger.WithField("action", "reindex").WithError(err).Warn("could not reset vector dimensions")
-			return err
-		}
-
-		// Iterate over all shards
-		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
-			count = count + 1
-			return object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
-				if err = shard.extendDimensionTrackerLSM(dims, object.DocID, targetVector); err != nil {
-					return fmt.Errorf("failed to extend dimension tracker for vector %q: %w", targetVector, err)
-				}
-				return nil
-			})
-		})
-		if err != nil {
-			m.logger.WithField("action", "reindex").WithError(err).Warn("could not extend vector dimensions")
-			return err
-		}
-	}
-	f := func() {
-		for {
-			m.logger.
-				WithField("action", "reindex").
-				Warnf("Reindexed %v objects. Reindexing dimensions complete. Please remove environment variable REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup", count)
-			time.Sleep(5 * time.Minute)
-		}
-	}
-	enterrors.GoWrapper(f, m.logger)
-
-	return nil
-}
 
 func (m *Migrator) RecountProperties(ctx context.Context) error {
 	count := 0
