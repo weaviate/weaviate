@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
@@ -257,7 +259,9 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Nil(t, err)
 	info.ClassVersion = version
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
-	assert.Equal(t, []string{"Node-1", "Node-2"}, schemaReader.CopyShardingState("C").Physical["T2"].BelongsToNodes)
+	ss, err = readShardingState(schemaReader, "C")
+	require.Nil(t, err)
+	assert.Equal(t, []string{"Node-1", "Node-2"}, ss.Physical["T2"].BelongsToNodes)
 
 	// DeleteReplicaFromShard
 	_, err = srv.DeleteReplicaFromShard(ctx, "", "", "")
@@ -266,7 +270,9 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Nil(t, err)
 	info.ClassVersion = version
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
-	assert.Equal(t, []string{"Node-1"}, schemaReader.CopyShardingState("C").Physical["T2"].BelongsToNodes)
+	ss, err = readShardingState(schemaReader, "C")
+	require.Nil(t, err)
+	assert.Equal(t, []string{"Node-1"}, ss.Physical["T2"].BelongsToNodes)
 
 	// SyncShard with active tenant
 	_, err = srv.SyncShard(ctx, "", "", "")
@@ -334,7 +340,9 @@ func TestRaftEndpoints(t *testing.T) {
 	info.Tenants -= 1
 	info.ShardVersion = version
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
-	assert.Equal(t, "S2", schemaReader.CopyShardingState("C").Physical["T2"].Status)
+	ss, err = readShardingState(schemaReader, "C")
+	require.Nil(t, err)
+	assert.Equal(t, "S2", ss.Physical["T2"].Status)
 
 	// Self Join
 	assert.Nil(t, srv.Join(ctx, m.store.cfg.NodeID, addr, true))
@@ -444,4 +452,14 @@ func TestRaftPanics(t *testing.T) {
 	// Cannot Open File Store
 	m.indexer.On("Open", mock.Anything).Return(errAny)
 	assert.Panics(t, func() { m.store.openDatabase(context.TODO()) })
+}
+
+func readShardingState(schemaReader schema.SchemaReader, className string) (*sharding.State, error) {
+	var result *sharding.State
+	err := schemaReader.Read(className, func(_ *models.Class, state *sharding.State) error {
+		stateCopy := state.DeepCopy()
+		result = &stateCopy
+		return nil
+	})
+	return result, err
 }

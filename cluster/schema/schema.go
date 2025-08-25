@@ -264,8 +264,9 @@ func (s *schema) CopyShardingState(class string) (*sharding.State, uint64) {
 	if meta == nil {
 		return nil, 0
 	}
+	shardingState := meta.Sharding.DeepCopy()
 
-	return meta.CopyShardingState()
+	return &shardingState, meta.version()
 }
 
 func (s *schema) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {

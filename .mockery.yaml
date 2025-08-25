@@ -27,6 +27,9 @@ packages:
     interfaces:
       SchemaGetter:
       SchemaReader:
+  github.com/weaviate/weaviate/cluster/schema/types:
+    interfaces:
+      SchemaReader:
   github.com/weaviate/weaviate/usecases/auth/authorization:
     interfaces:
       Controller:

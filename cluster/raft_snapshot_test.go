@@ -69,7 +69,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	_, err = srv.AddClass(ctx, cls, ss)
 	assert.Nil(t, err)
 	assert.Equal(t, schemaReader.ClassEqual(cls.Class), cls.Class)
-	assert.Equal(t, "S0", schemaReader.CopyShardingState(cls.Class).Physical["T0"].Status)
+	assert.Equal(t, "S0", getTenantStatus(t, schemaReader, cls.Class, "T0"))
 
 	// Create a snapshot here with the class and the tenant existing
 	assert.Nil(t, srv.store.raft.Barrier(2*time.Second).Error())
@@ -88,7 +88,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 		Tenants:      []*api.Tenant{{Name: "T0", Status: "S1"}},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "S1", schemaReader.CopyShardingState(cls.Class).Physical["T0"].Status)
+	assert.Equal(t, "S1", getTenantStatus(t, schemaReader, cls.Class, "T0"))
 
 	// close service
 	m.indexer.On("Close", Anything).Return(nil)
@@ -115,8 +115,38 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	// Ensure that the class has been restored and that the tenant is present with the right state
 	schemaReader = srv.SchemaReader()
 	assert.Equal(t, cls.Class, schemaReader.ClassEqual(cls.Class))
-	assert.Equal(t, "S1", schemaReader.CopyShardingState(cls.Class).Physical["T0"].Status)
+	assert.Equal(t, "S1", getTenantStatus(t, schemaReader, cls.Class, "T0"))
 
 	// Ensure there was no supplementary call to the underlying DB as we were just recovering the schema
 	m.indexer.AssertExpectations(t)
+}
+
+func getTenantStatus(t *testing.T, schemaReader interface{}, className, tenantName string) string {
+	type schemaReaderWithRead interface {
+		Read(className string, readerFunc func(*models.Class, *sharding.State) error) error
+	}
+
+	reader, ok := schemaReader.(schemaReaderWithRead)
+	if !ok {
+		t.Fatalf("schemaReader does not have Read method")
+	}
+
+	var tenantStatus string
+
+	err := reader.Read(className, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("no sharding state found for class %q", className)
+		}
+
+		physical, exists := state.Physical[tenantName]
+		if !exists {
+			return fmt.Errorf("tenant %q not found in class %q", tenantName, className)
+		}
+
+		tenantStatus = physical.Status
+		return nil
+	})
+
+	require.NoError(t, err)
+	return tenantStatus
 }
