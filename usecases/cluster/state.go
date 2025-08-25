@@ -312,6 +312,12 @@ func (s *State) NodeAddress(id string) string {
 	s.listLock.RLock()
 	defer s.listLock.RUnlock()
 
+	for _, mem := range s.list.Members() {
+		if mem.Name == id {
+			return mem.Addr.String()
+		}
+	}
+
 	// network interruption detection which can cause a single node to be isolated from the cluster (split brain)
 	nodeCount := s.list.NumMembers()
 	var joinAddr []string
@@ -343,6 +349,7 @@ func (s *State) NodeAddress(id string) string {
 			return mem.Addr.String()
 		}
 	}
+
 	return ""
 }
 
