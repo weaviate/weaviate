@@ -19,6 +19,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/config"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -713,6 +715,113 @@ func setupDebugHandlers(appState *state.State) {
 		if bytesToWrite != nil {
 			w.Write(bytesToWrite)
 		}
+	}))
+
+	http.HandleFunc("/debug/index/deadlock_lsm_detect", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		collections := []string{}
+
+		collectionsNameStr := strings.TrimSpace(r.URL.Query().Get("collections"))
+		if collectionsNameStr != "" {
+			collections = strings.Split(collectionsNameStr, ",")
+		} else {
+			// if no collections are specified, we check all
+			for _, class := range appState.SchemaManager.ReadOnlySchema().Classes {
+				collections = append(collections, class.Class)
+			}
+		}
+
+		shardsToLockStr := strings.TrimSpace(r.URL.Query().Get("shards"))
+
+		shardsToLock := []string{}
+		if shardsToLockStr != "" {
+			shardsToLock = strings.Split(shardsToLockStr, ",")
+		}
+
+		timeoutDurationString := strings.TrimSpace(r.URL.Query().Get("timeout"))
+		var timeout time.Duration
+		if timeoutDurationString != "" {
+			var err error
+			timeout, err = time.ParseDuration(timeoutDurationString)
+			if err != nil {
+				http.Error(w, "invalid timeout duration", http.StatusBadRequest)
+				return
+			}
+		} else {
+			timeout = 5 * time.Second
+		}
+
+		timeoutAfter := time.After(timeout)
+
+		eg := enterrors.NewErrorGroupWrapper(logger)
+
+		output := make(map[string]map[string]string)
+		outputLock := sync.RWMutex{}
+
+		for _, colName := range collections {
+			eg.Go(func() error {
+				className := schema.ClassName(colName)
+				idx := appState.DB.GetIndex(className)
+
+				if idx == nil {
+					logger.WithField("collection", colName).Error("collection not found or not ready")
+					outputLock.Lock()
+					output[colName] = map[string]string{
+						"error": fmt.Sprintf("collection %s not found or not ready", colName),
+					}
+					outputLock.Unlock()
+					return nil
+				} else {
+					outputLock.Lock()
+					output[colName] = map[string]string{}
+					outputLock.Unlock()
+				}
+
+				startTime := time.Now()
+				// shards will not be force loaded, as we are only getting the name
+				idx.ForEachShardConcurrently(
+					func(shardName string, shard db.ShardLike) error {
+						if len(shardsToLock) == 0 || slices.Contains(shardsToLock, shardName) {
+							b := shard.Store().Bucket(helpers.ObjectsBucketLSM)
+
+							status := "unlocked"
+							running := true
+							tries := 0
+							for running {
+								select {
+								case <-timeoutAfter:
+									status = fmt.Sprintf("locked after %d tries and %s", tries, time.Since(startTime))
+									running = false
+								default:
+									if b.GetLockStatus() == "is unlocked" {
+										status = fmt.Sprintf("unlocked after %d tries and %s", tries, time.Since(startTime))
+										running = false
+									}
+									tries++
+								}
+							}
+
+							outputLock.Lock()
+							output[colName][shardName] = status
+							outputLock.Unlock()
+						}
+						return nil
+					})
+
+				return nil
+			})
+		}
+
+		eg.Wait()
+		outputLock.Lock()
+		jsonBytes, err := json.Marshal(output)
+		outputLock.Unlock()
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(jsonBytes)
 	}))
 
 	http.HandleFunc("/debug/index/deadlock_lsm", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
