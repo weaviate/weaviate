@@ -17,7 +17,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/weaviate/weaviate/multitenancy"
+	"github.com/weaviate/weaviate/usecases/multitenancy"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"

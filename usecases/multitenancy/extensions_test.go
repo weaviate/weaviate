@@ -14,7 +14,7 @@ package multitenancy_test
 import (
 	"testing"
 
-	"github.com/weaviate/weaviate/multitenancy"
+	"github.com/weaviate/weaviate/usecases/multitenancy"
 
 	"github.com/weaviate/weaviate/entities/models"
 )

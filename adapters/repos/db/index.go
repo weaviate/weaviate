@@ -27,7 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/multitenancy"
+	"github.com/weaviate/weaviate/usecases/multitenancy"
 
 	"github.com/weaviate/weaviate/cluster/router/executor"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"

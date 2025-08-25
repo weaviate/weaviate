@@ -18,7 +18,7 @@ import (
 	"path"
 	"time"
 
-	"github.com/weaviate/weaviate/multitenancy"
+	"github.com/weaviate/weaviate/usecases/multitenancy"
 
 	"github.com/pkg/errors"
 
