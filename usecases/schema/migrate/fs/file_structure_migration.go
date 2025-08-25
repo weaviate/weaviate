@@ -166,7 +166,7 @@ func newFileMatcher(schemaReader schemaReader, rootPath string) (*fileMatcher, e
 		className := class.Class
 		shards, err := schemaReader.Shards(className)
 		if err != nil {
-			return nil, fmt.Errorf("unable to retrieve shards for class %q", className)
+			return nil, fmt.Errorf("unable to retrieve shards for class %s", className)
 		}
 		lowercasedClass := strings.ToLower(class.Class)
 
