@@ -135,7 +135,6 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 			h.muvera.Store(true)
 		}
 	}
-
 	if state.Compressed {
 		h.compressed.Store(state.Compressed)
 		h.cache.Drop()
@@ -230,6 +229,8 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 				h.dims = int32(len(vec))
 			}
 		}
+	} else {
+		h.compressor.GrowCache(uint64(len(h.nodes)))
 	}
 
 	if h.compressed.Load() && h.multivector.Load() && !h.muvera.Load() {
