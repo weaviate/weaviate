@@ -1876,3 +1876,26 @@ func (b *Bucket) MetadataSize() int64 {
 	}
 	return b.disk.MetadataSize()
 }
+
+func (b *Bucket) Lock() {
+	if b.disk != nil {
+		b.disk.maintenanceLock.Lock()
+	}
+}
+
+func (b *Bucket) Unlock() {
+	if b.disk != nil {
+		b.disk.maintenanceLock.Unlock()
+	}
+}
+
+func (b *Bucket) GetLockStatus() string {
+	if b.disk == nil {
+		return "no segment group found"
+	}
+	if b.disk.maintenanceLock.TryLock() {
+		b.disk.maintenanceLock.Unlock()
+		return "is unlocked"
+	}
+	return "is locked"
+}
