@@ -172,7 +172,7 @@ func (db *DB) Shards(ctx context.Context, class string) ([]string, error) {
 
 	err := db.schemaReader.Read(class, func(_ *models.Class, state *sharding.State) error {
 		if state == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %q", class)
+			return fmt.Errorf("unable to retrieve sharding state for class %s", class)
 		}
 		shardCount = len(state.Physical)
 		if shardCount == 0 {
@@ -195,11 +195,11 @@ func (db *DB) Shards(ctx context.Context, class string) ([]string, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to read sharding state for class %q: %w", class, err)
+		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", class, err)
 	}
 
 	if shardCount > 0 && len(nodes) == 0 {
-		return nil, fmt.Errorf("found %d shards but no nodes for class %q", shardCount, class)
+		return nil, fmt.Errorf("found %d shards but no nodes for class %s", shardCount, class)
 	}
 
 	return nodes, nil
@@ -313,7 +313,7 @@ func (i *Index) marshalShardingState() ([]byte, error) {
 	var jsonBytes []byte
 	err := i.schemaReader.Read(i.Config.ClassName.String(), func(_ *models.Class, state *sharding.State) error {
 		if state == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %q", i.Config.ClassName.String())
+			return fmt.Errorf("unable to retrieve sharding state for class %s", i.Config.ClassName.String())
 		}
 		bytes, jsonErr := state.JSON()
 		if jsonErr != nil {
