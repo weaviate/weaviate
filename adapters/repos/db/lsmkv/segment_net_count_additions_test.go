@@ -160,7 +160,9 @@ func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOp
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
-	assert.Equal(t, 1, b2.Count())
+	count, err := b2.Count(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
 }
 
 func TestCNA_OFF(t *testing.T) {
@@ -215,7 +217,9 @@ func dontCreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 	})
 
 	t.Run("count", func(t *testing.T) {
-		assert.Equal(t, 0, b.Count())
+		count, err := b.Count(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, 0, count)
 	})
 }
 
@@ -249,7 +253,9 @@ func dontRecreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 	})
 
 	t.Run("count", func(t *testing.T) {
-		assert.Equal(t, 0, b2.Count())
+		count, err := b2.Count(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, 0, count)
 	})
 }
 
@@ -284,7 +290,9 @@ func dontPrecomputeCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 	})
 
 	t.Run("count", func(t *testing.T) {
-		assert.Equal(t, 0, b.Count())
+		count, err := b.Count(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, 0, count)
 	})
 }
 

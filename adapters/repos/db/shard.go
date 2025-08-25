@@ -75,7 +75,7 @@ type ShardLike interface {
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) // Search and return document ids
 
 	Counter() *indexcounter.Counter
-	ObjectCount() int
+	ObjectCount(ctx context.Context) (int, error)
 	ObjectCountAsync(ctx context.Context) (int64, error)
 	ObjectStorageSize(ctx context.Context) (int64, error)
 	VectorStorageSize(ctx context.Context) (int64, error)
@@ -395,13 +395,13 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 }
 
 // ObjectCount returns the exact count at any moment
-func (s *Shard) ObjectCount() int {
+func (s *Shard) ObjectCount(ctx context.Context) (int, error) {
 	b := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
-		return 0
+		return 0, nil
 	}
 
-	return b.Count()
+	return b.Count(ctx)
 }
 
 // ObjectCountAsync returns the eventually consistent "async" count which is

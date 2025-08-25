@@ -283,7 +283,8 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 					dimensions, err = shard.Dimensions(ctx, "text")
 					require.NoError(t, err)
 				}
-				objectCount := shard.ObjectCount()
+				objectCount, err := shard.ObjectCount(ctx)
+				require.NoError(t, err)
 
 				// For PQ compression, we need to account for the actual compression ratio
 				if len(tt.vectorConfigs) == 1 {
@@ -330,7 +331,8 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				require.NoError(t, err)
 				dimensions, err := shard.Dimensions(ctx, "")
 				require.NoError(t, err)
-				objectCount := shard.ObjectCount()
+				objectCount, err := shard.ObjectCount(ctx)
+				require.NoError(t, err)
 
 				assert.Equal(t, tt.expectedVectorStorageSize, vectorStorageSize)
 				assert.Equal(t, 0, dimensions, "Empty shard should have 0 dimensions")
@@ -715,7 +717,8 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	require.NoError(t, err)
 	dimensionality, err := activeShard.DimensionsUsage(ctx, "")
 	require.NoError(t, err)
-	activeObjectCount := activeShard.ObjectCount()
+	activeObjectCount, err := activeShard.ObjectCount(ctx)
+	require.NoError(t, err)
 	assert.Greater(t, activeVectorStorageSize, int64(0), "Active shard calculation should have vector storage size > 0")
 
 	// Test that active calculations are correct
