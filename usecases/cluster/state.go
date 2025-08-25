@@ -344,12 +344,6 @@ func (s *State) NodeAddress(id string) string {
 		}
 	}
 
-	for _, mem := range s.list.Members() {
-		if mem.Name == id {
-			return mem.Addr.String()
-		}
-	}
-
 	return ""
 }
 
