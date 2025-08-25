@@ -12,6 +12,8 @@
 package apikey
 
 import (
+	"fmt"
+
 	"github.com/go-openapi/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -41,23 +43,35 @@ func New(cfg config.Config, logger logrus.FieldLogger) (*ApiKey, error) {
 }
 
 func (a *ApiKey) ValidateAndExtract(token string, scopes []string) (*models.Principal, error) {
-	if randomKey, userIdentifier, err := keys.DecodeApiKey(token); err == nil {
-		principal, err := a.Dynamic.ValidateAndExtract(randomKey, userIdentifier)
-		if err != nil {
-			return nil, errors.New(401, "unauthorized: %v", err)
+	validate := func(token string, scopes []string) (*models.Principal, error) {
+		if a.Dynamic.enabled {
+			if randomKey, userIdentifier, err := keys.DecodeApiKey(token); err == nil {
+				principal, err := a.Dynamic.ValidateAndExtract(randomKey, userIdentifier)
+				if err != nil {
+					return nil, fmt.Errorf("invalid api key: %w", err)
+				}
+				return principal, nil
+			}
+			principal, err := a.Dynamic.ValidateImportedKey(token)
+			if err != nil {
+				return nil, fmt.Errorf("invalid api key: %w", err)
+			}
+			if principal != nil {
+				return principal, nil
+			} else if a.Dynamic.IsBlockedKey(token) {
+				// make sure static keys do not work after import and key rotation
+				return nil, fmt.Errorf("invalid api key")
+			}
 		}
-		return principal, nil
+		if a.static.config.Enabled {
+			return a.static.ValidateAndExtract(token, scopes)
+		}
+		return nil, fmt.Errorf("invalid api key")
 	}
-	principal, err := a.Dynamic.ValidateImportedKey(token)
+
+	principal, err := validate(token, scopes)
 	if err != nil {
 		return nil, errors.New(401, "unauthorized: %v", err)
 	}
-	if principal != nil {
-		return principal, nil
-	} else if a.Dynamic.IsBlockedKey(token) {
-		// make sure static keys do not work after import and key rotation
-		return nil, errors.New(401, "unauthorized: invalid token")
-	} else {
-		return a.static.ValidateAndExtract(token, scopes)
-	}
+	return principal, nil
 }
