@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	schemaUC "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 
 	logrus "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"

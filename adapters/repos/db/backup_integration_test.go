@@ -23,11 +23,11 @@ import (
 	"testing"
 	"time"
 
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 
 	"github.com/stretchr/testify/mock"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/usecases/cluster"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -273,7 +273,7 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
@@ -330,7 +330,7 @@ func TestDB_Shards(t *testing.T) {
 			},
 		}
 
-		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
 			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
@@ -361,7 +361,7 @@ func TestDB_Shards(t *testing.T) {
 			},
 		}
 
-		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
 			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
@@ -402,7 +402,7 @@ func TestDB_Shards(t *testing.T) {
 			},
 		}
 
-		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
 			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
@@ -443,7 +443,7 @@ func TestDB_Shards(t *testing.T) {
 			},
 		}
 
-		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
 			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
@@ -472,7 +472,7 @@ func TestDB_Shards(t *testing.T) {
 			Physical: map[string]sharding.Physical{},
 		}
 
-		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
 			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
@@ -494,7 +494,7 @@ func TestDB_Shards(t *testing.T) {
 	t.Run("nil sharding state", func(t *testing.T) {
 		className := "NilStateClass"
 
-		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
 			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
@@ -516,7 +516,7 @@ func TestDB_Shards(t *testing.T) {
 	t.Run("schema reader error", func(t *testing.T) {
 		className := "ErrorClass"
 
-		mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Read(className, mock.Anything).Return(
 			fmt.Errorf("schema read failed"),
 		)

@@ -140,7 +140,7 @@ func getTenantStatus(t *testing.T, schemaReader interface{}, className, tenantNa
 
 		physical, exists := state.Physical[tenantName]
 		if !exists {
-			return fmt.Errorf("tenant %s not found in class %s", tenantName, className)
+			return fmt.Errorf("tenant %s	 not found in class %s", tenantName, className)
 		}
 
 		tenantStatus = physical.Status
