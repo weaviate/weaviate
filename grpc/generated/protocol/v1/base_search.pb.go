@@ -227,12 +227,10 @@ func (x *WeightsForTarget) GetWeight() float32 {
 }
 
 type Targets struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TargetVectors []string               `protobuf:"bytes,1,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"`
-	Combination   CombinationMethod      `protobuf:"varint,2,opt,name=combination,proto3,enum=weaviate.v1.CombinationMethod" json:"combination,omitempty"`
-	// Deprecated: Marked as deprecated in v1/base_search.proto.
-	Weights           map[string]float32  `protobuf:"bytes,3,rep,name=weights,proto3" json:"weights,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"fixed32,2,opt,name=value"` // deprecated in 1.26.2 - use weights_for_targets
-	WeightsForTargets []*WeightsForTarget `protobuf:"bytes,4,rep,name=weights_for_targets,json=weightsForTargets,proto3" json:"weights_for_targets,omitempty"`
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	TargetVectors     []string               `protobuf:"bytes,1,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"`
+	Combination       CombinationMethod      `protobuf:"varint,2,opt,name=combination,proto3,enum=weaviate.v1.CombinationMethod" json:"combination,omitempty"`
+	WeightsForTargets []*WeightsForTarget    `protobuf:"bytes,4,rep,name=weights_for_targets,json=weightsForTargets,proto3" json:"weights_for_targets,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -279,14 +277,6 @@ func (x *Targets) GetCombination() CombinationMethod {
 		return x.Combination
 	}
 	return CombinationMethod_COMBINATION_METHOD_UNSPECIFIED
-}
-
-// Deprecated: Marked as deprecated in v1/base_search.proto.
-func (x *Targets) GetWeights() map[string]float32 {
-	if x != nil {
-		return x.Weights
-	}
-	return nil
 }
 
 func (x *Targets) GetWeightsForTargets() []*WeightsForTarget {
@@ -1412,7 +1402,7 @@ type NearTextSearch_Move struct {
 
 func (x *NearTextSearch_Move) Reset() {
 	*x = NearTextSearch_Move{}
-	mi := &file_v1_base_search_proto_msgTypes[17]
+	mi := &file_v1_base_search_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1424,7 +1414,7 @@ func (x *NearTextSearch_Move) String() string {
 func (*NearTextSearch_Move) ProtoMessage() {}
 
 func (x *NearTextSearch_Move) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_base_search_proto_msgTypes[17]
+	mi := &file_v1_base_search_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1468,15 +1458,11 @@ const file_v1_base_search_proto_rawDesc = "" +
 	"\x14v1/base_search.proto\x12\vweaviate.v1\x1a\rv1/base.proto\"B\n" +
 	"\x10WeightsForTarget\x12\x16\n" +
 	"\x06target\x18\x01 \x01(\tR\x06target\x12\x16\n" +
-	"\x06weight\x18\x02 \x01(\x02R\x06weight\"\xbe\x02\n" +
+	"\x06weight\x18\x02 \x01(\x02R\x06weight\"\xc7\x01\n" +
 	"\aTargets\x12%\n" +
 	"\x0etarget_vectors\x18\x01 \x03(\tR\rtargetVectors\x12@\n" +
-	"\vcombination\x18\x02 \x01(\x0e2\x1e.weaviate.v1.CombinationMethodR\vcombination\x12?\n" +
-	"\aweights\x18\x03 \x03(\v2!.weaviate.v1.Targets.WeightsEntryB\x02\x18\x01R\aweights\x12M\n" +
-	"\x13weights_for_targets\x18\x04 \x03(\v2\x1d.weaviate.v1.WeightsForTargetR\x11weightsForTargets\x1a:\n" +
-	"\fWeightsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x02R\x05value:\x028\x01\"|\n" +
+	"\vcombination\x18\x02 \x01(\x0e2\x1e.weaviate.v1.CombinationMethodR\vcombination\x12M\n" +
+	"\x13weights_for_targets\x18\x04 \x03(\v2\x1d.weaviate.v1.WeightsForTargetR\x11weightsForTargetsJ\x04\b\x03\x10\x04\"|\n" +
 	"\x0fVectorForTarget\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12%\n" +
 	"\fvector_bytes\x18\x02 \x01(\fB\x02\x18\x01R\vvectorBytes\x12.\n" +
@@ -1644,7 +1630,7 @@ func file_v1_base_search_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_base_search_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_v1_base_search_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_v1_base_search_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_v1_base_search_proto_goTypes = []any{
 	(CombinationMethod)(0),              // 0: weaviate.v1.CombinationMethod
 	(SearchOperatorOptions_Operator)(0), // 1: weaviate.v1.SearchOperatorOptions.Operator
@@ -1664,43 +1650,41 @@ var file_v1_base_search_proto_goTypes = []any{
 	(*NearThermalSearch)(nil),           // 15: weaviate.v1.NearThermalSearch
 	(*NearIMUSearch)(nil),               // 16: weaviate.v1.NearIMUSearch
 	(*BM25)(nil),                        // 17: weaviate.v1.BM25
-	nil,                                 // 18: weaviate.v1.Targets.WeightsEntry
-	nil,                                 // 19: weaviate.v1.NearVector.VectorPerTargetEntry
-	(*NearTextSearch_Move)(nil),         // 20: weaviate.v1.NearTextSearch.Move
-	(*Vectors)(nil),                     // 21: weaviate.v1.Vectors
+	nil,                                 // 18: weaviate.v1.NearVector.VectorPerTargetEntry
+	(*NearTextSearch_Move)(nil),         // 19: weaviate.v1.NearTextSearch.Move
+	(*Vectors)(nil),                     // 20: weaviate.v1.Vectors
 }
 var file_v1_base_search_proto_depIdxs = []int32{
 	0,  // 0: weaviate.v1.Targets.combination:type_name -> weaviate.v1.CombinationMethod
-	18, // 1: weaviate.v1.Targets.weights:type_name -> weaviate.v1.Targets.WeightsEntry
-	3,  // 2: weaviate.v1.Targets.weights_for_targets:type_name -> weaviate.v1.WeightsForTarget
-	21, // 3: weaviate.v1.VectorForTarget.vectors:type_name -> weaviate.v1.Vectors
-	1,  // 4: weaviate.v1.SearchOperatorOptions.operator:type_name -> weaviate.v1.SearchOperatorOptions.Operator
-	2,  // 5: weaviate.v1.Hybrid.fusion_type:type_name -> weaviate.v1.Hybrid.FusionType
-	10, // 6: weaviate.v1.Hybrid.near_text:type_name -> weaviate.v1.NearTextSearch
-	8,  // 7: weaviate.v1.Hybrid.near_vector:type_name -> weaviate.v1.NearVector
-	4,  // 8: weaviate.v1.Hybrid.targets:type_name -> weaviate.v1.Targets
-	6,  // 9: weaviate.v1.Hybrid.bm25_search_operator:type_name -> weaviate.v1.SearchOperatorOptions
-	21, // 10: weaviate.v1.Hybrid.vectors:type_name -> weaviate.v1.Vectors
-	4,  // 11: weaviate.v1.NearVector.targets:type_name -> weaviate.v1.Targets
-	19, // 12: weaviate.v1.NearVector.vector_per_target:type_name -> weaviate.v1.NearVector.VectorPerTargetEntry
-	5,  // 13: weaviate.v1.NearVector.vector_for_targets:type_name -> weaviate.v1.VectorForTarget
-	21, // 14: weaviate.v1.NearVector.vectors:type_name -> weaviate.v1.Vectors
-	4,  // 15: weaviate.v1.NearObject.targets:type_name -> weaviate.v1.Targets
-	20, // 16: weaviate.v1.NearTextSearch.move_to:type_name -> weaviate.v1.NearTextSearch.Move
-	20, // 17: weaviate.v1.NearTextSearch.move_away:type_name -> weaviate.v1.NearTextSearch.Move
-	4,  // 18: weaviate.v1.NearTextSearch.targets:type_name -> weaviate.v1.Targets
-	4,  // 19: weaviate.v1.NearImageSearch.targets:type_name -> weaviate.v1.Targets
-	4,  // 20: weaviate.v1.NearAudioSearch.targets:type_name -> weaviate.v1.Targets
-	4,  // 21: weaviate.v1.NearVideoSearch.targets:type_name -> weaviate.v1.Targets
-	4,  // 22: weaviate.v1.NearDepthSearch.targets:type_name -> weaviate.v1.Targets
-	4,  // 23: weaviate.v1.NearThermalSearch.targets:type_name -> weaviate.v1.Targets
-	4,  // 24: weaviate.v1.NearIMUSearch.targets:type_name -> weaviate.v1.Targets
-	6,  // 25: weaviate.v1.BM25.search_operator:type_name -> weaviate.v1.SearchOperatorOptions
-	26, // [26:26] is the sub-list for method output_type
-	26, // [26:26] is the sub-list for method input_type
-	26, // [26:26] is the sub-list for extension type_name
-	26, // [26:26] is the sub-list for extension extendee
-	0,  // [0:26] is the sub-list for field type_name
+	3,  // 1: weaviate.v1.Targets.weights_for_targets:type_name -> weaviate.v1.WeightsForTarget
+	20, // 2: weaviate.v1.VectorForTarget.vectors:type_name -> weaviate.v1.Vectors
+	1,  // 3: weaviate.v1.SearchOperatorOptions.operator:type_name -> weaviate.v1.SearchOperatorOptions.Operator
+	2,  // 4: weaviate.v1.Hybrid.fusion_type:type_name -> weaviate.v1.Hybrid.FusionType
+	10, // 5: weaviate.v1.Hybrid.near_text:type_name -> weaviate.v1.NearTextSearch
+	8,  // 6: weaviate.v1.Hybrid.near_vector:type_name -> weaviate.v1.NearVector
+	4,  // 7: weaviate.v1.Hybrid.targets:type_name -> weaviate.v1.Targets
+	6,  // 8: weaviate.v1.Hybrid.bm25_search_operator:type_name -> weaviate.v1.SearchOperatorOptions
+	20, // 9: weaviate.v1.Hybrid.vectors:type_name -> weaviate.v1.Vectors
+	4,  // 10: weaviate.v1.NearVector.targets:type_name -> weaviate.v1.Targets
+	18, // 11: weaviate.v1.NearVector.vector_per_target:type_name -> weaviate.v1.NearVector.VectorPerTargetEntry
+	5,  // 12: weaviate.v1.NearVector.vector_for_targets:type_name -> weaviate.v1.VectorForTarget
+	20, // 13: weaviate.v1.NearVector.vectors:type_name -> weaviate.v1.Vectors
+	4,  // 14: weaviate.v1.NearObject.targets:type_name -> weaviate.v1.Targets
+	19, // 15: weaviate.v1.NearTextSearch.move_to:type_name -> weaviate.v1.NearTextSearch.Move
+	19, // 16: weaviate.v1.NearTextSearch.move_away:type_name -> weaviate.v1.NearTextSearch.Move
+	4,  // 17: weaviate.v1.NearTextSearch.targets:type_name -> weaviate.v1.Targets
+	4,  // 18: weaviate.v1.NearImageSearch.targets:type_name -> weaviate.v1.Targets
+	4,  // 19: weaviate.v1.NearAudioSearch.targets:type_name -> weaviate.v1.Targets
+	4,  // 20: weaviate.v1.NearVideoSearch.targets:type_name -> weaviate.v1.Targets
+	4,  // 21: weaviate.v1.NearDepthSearch.targets:type_name -> weaviate.v1.Targets
+	4,  // 22: weaviate.v1.NearThermalSearch.targets:type_name -> weaviate.v1.Targets
+	4,  // 23: weaviate.v1.NearIMUSearch.targets:type_name -> weaviate.v1.Targets
+	6,  // 24: weaviate.v1.BM25.search_operator:type_name -> weaviate.v1.SearchOperatorOptions
+	25, // [25:25] is the sub-list for method output_type
+	25, // [25:25] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_v1_base_search_proto_init() }
@@ -1729,7 +1713,7 @@ func file_v1_base_search_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_base_search_proto_rawDesc), len(file_v1_base_search_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   18,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
