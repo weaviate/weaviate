@@ -19,13 +19,15 @@ import (
 	"testing"
 	"time"
 
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
+
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/usecases/cluster"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -87,7 +89,11 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		},
 	}}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -218,7 +224,13 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			},
 		}
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+		mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+			class := &models.Class{Class: className}
+			return readFunc(class, shardState)
+		}).Maybe()
+		mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
+		mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 		mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 		mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 		mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -282,9 +294,9 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		}
 
 		migrator := NewMigrator(repo, repo.logger, "node1")
-		err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+		err := migrator.AddClass(context.Background(), class)
 		require.Nil(t, err)
-		err = migrator.AddClass(context.Background(), refClass, schemaGetter.shardState)
+		err = migrator.AddClass(context.Background(), refClass)
 		require.Nil(t, err)
 		schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class, refClass)
 	})
@@ -497,7 +509,12 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			},
 		}
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+		mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+			class := &models.Class{Class: className}
+			return readFunc(class, shardState)
+		}).Maybe()
+		mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 		mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 		mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 		mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -563,9 +580,9 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 		}
 
 		migrator := NewMigrator(repo, repo.logger, "node1")
-		err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+		err := migrator.AddClass(context.Background(), class)
 		require.Nil(t, err)
-		err = migrator.AddClass(context.Background(), refClass, schemaGetter.shardState)
+		err = migrator.AddClass(context.Background(), refClass)
 		require.Nil(t, err)
 		schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class, refClass)
 	})
@@ -863,7 +880,12 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			},
 		}
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+		mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+			class := &models.Class{Class: className}
+			return readFunc(class, shardState)
+		}).Maybe()
+		mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 		mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 		mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 		mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -926,9 +948,9 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		}
 
 		migrator := NewMigrator(repo, repo.logger, "node1")
-		err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+		err := migrator.AddClass(context.Background(), class)
 		require.Nil(t, err)
-		err = migrator.AddClass(context.Background(), refClass, schemaGetter.shardState)
+		err = migrator.AddClass(context.Background(), refClass)
 		require.Nil(t, err)
 		schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class, refClass)
 	})
@@ -1378,7 +1400,7 @@ func TestFilterPropertyLengthError(t *testing.T) {
 	class := createClassWithEverything(false, false)
 	migrator, repo, schemaGetter := createRepo(t)
 	defer repo.Shutdown(context.Background())
-	err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+	err := migrator.AddClass(context.Background(), class)
 	require.Nil(t, err)
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{

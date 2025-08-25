@@ -17,6 +17,9 @@ import (
 	"context"
 	"testing"
 
+	schema2 "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
+
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/usecases/cluster"
 
@@ -35,7 +38,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // Cannot filter for null state without enabling in the InvertedIndexConfig
@@ -43,7 +45,7 @@ func TestFilterNullStateError(t *testing.T) {
 	class := createClassWithEverything(false, false)
 	migrator, repo, schemaGetter := createRepo(t)
 	defer repo.Shutdown(context.Background())
-	err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+	err := migrator.AddClass(context.Background(), class)
 	require.Nil(t, err)
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
@@ -83,7 +85,7 @@ func TestNullArrayClass(t *testing.T) {
 		t.Run("add nil object via "+name, func(t *testing.T) {
 			migrator, repo, schemaGetter := createRepo(t)
 			defer repo.Shutdown(context.Background())
-			err := migrator.AddClass(context.Background(), arrayClass, schemaGetter.shardState)
+			err := migrator.AddClass(context.Background(), arrayClass)
 			require.Nil(t, err)
 			// update schema getter so it's in sync with class
 			schemaGetter.schema = schema.Schema{
@@ -154,8 +156,13 @@ func createRepo(t *testing.T) (*Migrator, *DB, *fakeSchemaGetter) {
 	}
 	logger, _ := test.NewNullLogger()
 	dirName := t.TempDir()
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader := schema2.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()

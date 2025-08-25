@@ -18,6 +18,9 @@ import (
 	"context"
 	"testing"
 
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
+
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/usecases/cluster"
 
@@ -30,7 +33,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/objects"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func TestNodesAPI_Journey(t *testing.T) {
@@ -43,7 +45,12 @@ func TestNodesAPI_Journey(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -98,7 +105,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	}
 
 	require.Nil(t,
-		migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+		migrator.AddClass(context.Background(), class))
 
 	schemaGetter.schema.Objects = &models.Schema{
 		Classes: []*models.Class{class},

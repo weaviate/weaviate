@@ -17,12 +17,14 @@ import (
 	"context"
 	"testing"
 
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
+
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -41,7 +43,11 @@ func TestVectorDistanceQuery(t *testing.T) {
 	dirName := t.TempDir()
 	shardState := singleShardState()
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -78,7 +84,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 	migrator := NewMigrator(repo, logger, "node1")
 
 	require.Nil(t,
-		migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+		migrator.AddClass(context.Background(), class))
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{

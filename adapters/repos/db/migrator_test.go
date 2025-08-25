@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -89,13 +90,17 @@ func TestUpdateIndexTenants(t *testing.T) {
 				PartitioningEnabled: true,
 			}
 
+			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				return readFunc(class, originalSS)
+			}).Maybe()
 			index, err := NewIndex(context.Background(), IndexConfig{
 				ClassName:         schema.ClassName("TestClass"),
 				RootPath:          t.TempDir(),
 				ReplicationFactor: 1,
 				ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
-			}, originalSS, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
+				hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
 
 			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
@@ -248,6 +253,10 @@ func TestUpdateIndexShards(t *testing.T) {
 				Logger:  logger,
 				Workers: 1,
 			})
+			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				return readFunc(class, initialState)
+			}).Maybe()
 			// Create index with proper configuration
 			index, err := NewIndex(ctx, IndexConfig{
 				ClassName:             schema.ClassName("TestClass"),
@@ -255,8 +264,8 @@ func TestUpdateIndexShards(t *testing.T) {
 				ReplicationFactor:     1,
 				ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 				DisableLazyLoadShards: !tt.lazyLoading, // Enable lazy loading when lazyLoading is true
-			}, initialState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
+				hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
 
 			// Initialize shards
@@ -349,13 +358,17 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		PartitioningEnabled: true,
 	}
 
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		return readFunc(class, originalSS)
+	}).Maybe()
 	index, err := NewIndex(context.Background(), IndexConfig{
 		ClassName:         schema.ClassName("TestClass"),
 		RootPath:          t.TempDir(),
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
-	}, originalSS, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
+		hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.NoError(t, err)
 
 	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,

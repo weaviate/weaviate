@@ -34,7 +34,7 @@ type UpdateTenantPayload struct {
 
 // Migrator represents both the input and output interface of the Composer
 type Migrator interface {
-	AddClass(ctx context.Context, class *models.Class, shardingState *sharding.State) error
+	AddClass(ctx context.Context, class *models.Class) error
 	DropClass(ctx context.Context, className string, hasFrozen bool) error
 	// UpdateClass(ctx context.Context, className string,newClassName *string) error
 	GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error)
