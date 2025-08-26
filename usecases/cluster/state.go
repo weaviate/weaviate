@@ -17,7 +17,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -304,19 +306,37 @@ func (s *State) ClusterHealthScore() int {
 	return s.list.GetHealthScore()
 }
 
+// NodeHostname return hosts address for a specific node name
 func (s *State) NodeHostname(nodeName string) (string, bool) {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxElapsedTime = 10 * time.Second // TODO configurable
 
-	for _, mem := range s.list.Members() {
-		if mem.Name == nodeName {
-			// TODO: how can we find out the actual data port as opposed to relying on
-			// the convention that it's 1 higher than the gossip port
-			return fmt.Sprintf("%s:%d", mem.Addr.String(), mem.Port+1), true
+	var lastErr error
+	var lastAddr string
+
+	err := backoff.Retry(func() error {
+		s.listLock.RLock()
+		defer s.listLock.RUnlock()
+
+		for _, mem := range s.list.Members() {
+			if mem.Name == nodeName {
+				lastAddr = fmt.Sprintf("%s:%d", mem.Addr.String(), mem.Port+1)
+				return nil
+			}
 		}
+		lastErr = errors.New("node not found")
+		return lastErr
+	}, bo)
+
+	if err != nil {
+		s.delegate.log.WithFields(logrus.Fields{
+			"action":    "node_hostname_failed",
+			"node_name": nodeName,
+		}).Debug("node hostname resolution failed after all retries")
+		return "", false
 	}
 
-	return "", false
+	return lastAddr, true
 }
 
 // NodeAddress is used to resolve the node name into an ip address without the port
