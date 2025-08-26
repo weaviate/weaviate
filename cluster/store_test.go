@@ -1382,7 +1382,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			SnapshotThreshold:      125,
 			DB:                     indexer,
 			Parser:                 parser,
-			NodeSelector:           mocks.NewMockNodeSelector("localhost"),
+			NodeSelector:           mocks.NewMockNodeSelector(nodeID),
 			Logger:                 logger,
 			ConsistencyWaitTimeout: time.Millisecond * 50,
 		},

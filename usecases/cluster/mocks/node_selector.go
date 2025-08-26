@@ -11,7 +11,10 @@
 
 package mocks
 
-import "sort"
+import (
+	"sort"
+	"time"
+)
 
 type memberlist struct {
 	// nodes include the node names only
@@ -64,6 +67,14 @@ func (m memberlist) NodeAddress(name string) string {
 
 func (m memberlist) NodeGRPCPort(name string) (int, error) {
 	return 0, nil
+}
+
+func (m memberlist) Leave() error {
+	return nil
+}
+
+func (m memberlist) Shutdown(timeout time.Duration) error {
+	return nil
 }
 
 func NewMockNodeSelector(node ...string) memberlist {
