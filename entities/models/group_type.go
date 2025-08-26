@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// GroupType the type group
+// GroupType If the group contains OIDC or database users.
 //
 // swagger:model GroupType
 type GroupType string

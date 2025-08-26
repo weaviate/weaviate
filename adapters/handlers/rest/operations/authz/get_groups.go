@@ -45,7 +45,9 @@ func NewGetGroups(ctx *middleware.Context, handler GetGroupsHandler) *GetGroups 
 /*
 	GetGroups swagger:route GET /authz/groups/{groupType} authz getGroups
 
-get all groups for the given type
+# List all groups of a specific type
+
+Retrieves a list of all available group names for a specified group type (`oidc` or `db`).
 */
 type GetGroups struct {
 	Context *middleware.Context
