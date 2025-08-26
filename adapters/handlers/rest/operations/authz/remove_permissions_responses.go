@@ -193,7 +193,7 @@ func (o *RemovePermissionsNotFound) WriteResponse(rw http.ResponseWriter, produc
 const RemovePermissionsUnprocessableEntityCode int = 422
 
 /*
-RemovePermissionsUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+RemovePermissionsUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
 
 swagger:response removePermissionsUnprocessableEntity
 */

@@ -193,7 +193,7 @@ func (o *AddPermissionsNotFound) WriteResponse(rw http.ResponseWriter, producer 
 const AddPermissionsUnprocessableEntityCode int = 422
 
 /*
-AddPermissionsUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+AddPermissionsUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
 
 swagger:response addPermissionsUnprocessableEntity
 */

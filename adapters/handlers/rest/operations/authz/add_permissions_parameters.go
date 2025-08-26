@@ -49,7 +49,7 @@ type AddPermissionsParams struct {
 	  In: body
 	*/
 	Body AddPermissionsBody
-	/*The name of the role being modified.
+	/*The name (ID) of the role being modified.
 	  Required: true
 	  In: path
 	*/

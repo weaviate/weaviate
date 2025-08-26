@@ -403,7 +403,7 @@ func NewGetRolesForUserDeprecatedUnprocessableEntity() *GetRolesForUserDeprecate
 /*
 GetRolesForUserDeprecatedUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+The request syntax is correct, but the server couldn't process it due to semantic issues.
 */
 type GetRolesForUserDeprecatedUnprocessableEntity struct {
 	Payload *models.ErrorResponse

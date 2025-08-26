@@ -666,7 +666,7 @@ func (m *PermissionAliases) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionBackups resources applicable for backup actions
+// PermissionBackups Resources applicable for backup actions.
 //
 // swagger:model PermissionBackups
 type PermissionBackups struct {
@@ -915,7 +915,7 @@ func (m *PermissionReplicate) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionRoles resources applicable for role actions
+// PermissionRoles Resources applicable for role actions.
 //
 // swagger:model PermissionRoles
 type PermissionRoles struct {

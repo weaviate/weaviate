@@ -630,7 +630,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -758,7 +758,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the role being modified.",
+            "description": "The name (ID) of the role being modified.",
             "name": "id",
             "in": "path",
             "required": true
@@ -770,7 +770,6 @@ func init() {
             "schema": {
               "type": "object",
               "required": [
-                "name",
                 "permissions"
               ],
               "properties": {
@@ -808,7 +807,7 @@ func init() {
             "description": "No role found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -874,7 +873,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -951,7 +950,7 @@ func init() {
             "description": "No role found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -993,7 +992,7 @@ func init() {
               "items": {
                 "type": "object",
                 "required": [
-                  "name",
+                  "userId",
                   "userType"
                 ],
                 "properties": {
@@ -1287,7 +1286,7 @@ func init() {
             "description": "No roles found for specified user."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1334,7 +1333,7 @@ func init() {
           {
             "type": "boolean",
             "default": false,
-            "description": "Whether to include detailed role information required for the roles permission.",
+            "description": "Whether to include detailed role information like its assigned permissions.",
             "name": "includeFullRoles",
             "in": "query"
           }
@@ -1365,7 +1364,7 @@ func init() {
             "description": "No roles found for specified user."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5147,7 +5146,7 @@ func init() {
             "description": "User not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5233,7 +5232,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5288,7 +5287,7 @@ func init() {
             "description": "User not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5348,7 +5347,7 @@ func init() {
             "description": "User already activated."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5422,7 +5421,7 @@ func init() {
             "description": "User already deactivated."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5482,7 +5481,7 @@ func init() {
             "description": "User not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9270,7 +9269,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9398,7 +9397,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the role being modified.",
+            "description": "The name (ID) of the role being modified.",
             "name": "id",
             "in": "path",
             "required": true
@@ -9410,7 +9409,6 @@ func init() {
             "schema": {
               "type": "object",
               "required": [
-                "name",
                 "permissions"
               ],
               "properties": {
@@ -9448,7 +9446,7 @@ func init() {
             "description": "No role found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9514,7 +9512,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9591,7 +9589,7 @@ func init() {
             "description": "No role found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9915,7 +9913,7 @@ func init() {
             "description": "No roles found for specified user."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9962,7 +9960,7 @@ func init() {
           {
             "type": "boolean",
             "default": false,
-            "description": "Whether to include detailed role information required for the roles permission.",
+            "description": "Whether to include detailed role information like its assigned permissions.",
             "name": "includeFullRoles",
             "in": "query"
           }
@@ -9993,7 +9991,7 @@ func init() {
             "description": "No roles found for specified user."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13897,7 +13895,7 @@ func init() {
             "description": "User not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13983,7 +13981,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14038,7 +14036,7 @@ func init() {
             "description": "User not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14098,7 +14096,7 @@ func init() {
             "description": "User already activated."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14172,7 +14170,7 @@ func init() {
             "description": "User already deactivated."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14232,7 +14230,7 @@ func init() {
             "description": "User not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15537,7 +15535,7 @@ func init() {
     "GetUsersForRoleOKBodyItems0": {
       "type": "object",
       "required": [
-        "name",
+        "userId",
         "userType"
       ],
       "properties": {
@@ -17744,6 +17742,14 @@ func init() {
     {
       "description": "These operations enable manipulation of the schema in Weaviate schema.",
       "name": "schema"
+    },
+    {
+      "description": "Endpoints for user account management in Weaviate. This includes operations specific to Weaviate-managed database users (` + "`" + `db` + "`" + ` users), such as creation (which generates an API key), listing, deletion, activation/deactivation, and API key rotation. It also provides operations applicable to any authenticated user (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `), like retrieving their own information (username and assigned roles).\n\n**User Types:**\n* **` + "`" + `db` + "`" + ` users:** Managed entirely within Weaviate (creation, deletion, API keys). Use these endpoints for full lifecycle management.\n* **` + "`" + `oidc` + "`" + ` users:** Authenticated via an external OpenID Connect provider. Their lifecycle (creation, credentials) is managed externally, but their role assignments *within Weaviate* are managed via the ` + "`" + `authz` + "`" + ` endpoints.",
+      "name": "users"
+    },
+    {
+      "description": "Endpoints for managing Weaviate's Role-Based Access Control (RBAC) system. Access to Weaviate resources is granted through roles, which are collections of fine-grained permissions. \n\n**Permissions:** Define allowed actions (e.g., ` + "`" + `read_data` + "`" + `, ` + "`" + `create_collections` + "`" + `, ` + "`" + `delete_users` + "`" + `) on specific resources. Resources can be specified broadly (e.g., all collections: ` + "`" + `*` + "`" + `) or narrowly (e.g., a specific collection name, tenant pattern, user name, or role name).\n\n**Roles:** Are named sets of permissions. Managing roles involves creating roles with specific permissions, retrieving role definitions, deleting roles, and adding or removing permissions from existing roles.\n\n**Role assignment:** Roles grant their contained permissions to users or groups. These endpoints allow assigning roles to:\n* ` + "`" + `db` + "`" + ` users: Users managed directly by Weaviate via API or environment variables, authenticating with API keys.\n* ` + "`" + `oidc` + "`" + ` users: Users authenticated via an external OpenID Connect provider, managed externally but assigned roles within Weaviate.\n* OIDC ` + "`" + `groups` + "`" + `: Users authenticated via OIDC who belong to a group automatically inherit roles assigned to that group.\n\nOperations also include revoking roles, checking if a role has a specific permission, listing roles assigned to a user, and listing users/groups assigned to a role. The authorization framework applies universally to both ` + "`" + `db` + "`" + ` and ` + "`" + `oidc` + "`" + ` users based on their assigned roles.",
+      "name": "authz"
     },
     {
       "description": "Operations related to managing data replication, including initiating and monitoring shard replica movements between nodes, querying current sharding states, and managing the lifecycle of replication tasks.",

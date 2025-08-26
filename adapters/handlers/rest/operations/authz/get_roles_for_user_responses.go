@@ -216,7 +216,7 @@ func (o *GetRolesForUserNotFound) WriteResponse(rw http.ResponseWriter, producer
 const GetRolesForUserUnprocessableEntityCode int = 422
 
 /*
-GetRolesForUserUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+GetRolesForUserUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
 
 swagger:response getRolesForUserUnprocessableEntity
 */

@@ -168,7 +168,7 @@ func (o *GetUserInfoNotFound) WriteResponse(rw http.ResponseWriter, producer run
 const GetUserInfoUnprocessableEntityCode int = 422
 
 /*
-GetUserInfoUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+GetUserInfoUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
 
 swagger:response getUserInfoUnprocessableEntity
 */

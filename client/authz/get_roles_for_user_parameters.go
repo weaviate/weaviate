@@ -81,7 +81,7 @@ type GetRolesForUserParams struct {
 
 	/* IncludeFullRoles.
 
-	   Whether to include detailed role information required for the roles permission.
+	   Whether to include detailed role information like its assigned permissions.
 	*/
 	IncludeFullRoles *bool
 

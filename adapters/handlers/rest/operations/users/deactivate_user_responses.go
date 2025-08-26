@@ -218,7 +218,7 @@ func (o *DeactivateUserConflict) WriteResponse(rw http.ResponseWriter, producer 
 const DeactivateUserUnprocessableEntityCode int = 422
 
 /*
-DeactivateUserUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+DeactivateUserUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
 
 swagger:response deactivateUserUnprocessableEntity
 */

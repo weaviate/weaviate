@@ -186,7 +186,7 @@ func (o *HasPermissionForbidden) WriteResponse(rw http.ResponseWriter, producer 
 const HasPermissionUnprocessableEntityCode int = 422
 
 /*
-HasPermissionUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+HasPermissionUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
 
 swagger:response hasPermissionUnprocessableEntity
 */
