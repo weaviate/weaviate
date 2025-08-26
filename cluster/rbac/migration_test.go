@@ -47,7 +47,7 @@ func TestMigrationsUpsert(t *testing.T) {
 						{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_MATCH)},
 						{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH)},
 					},
-					"assign_users": {{Resource: "roles/something", Domain: authorization.UsersDomain, Verb: authorization.USER_ASSIGN_AND_REVOKE}},
+					"assign_users": {{Resource: "roles/something", Domain: authorization.UsersDomain, Verb: authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE}},
 				},
 			},
 		},
@@ -139,7 +139,7 @@ func TestMigrationUpsertV3(t *testing.T) {
 				"assign": {{Resource: "users/something", Domain: authorization.UsersDomain, Verb: authorization.UPDATE}},
 			},
 			output: map[string][]authorization.Policy{
-				"assign": {{Resource: "users/something", Domain: authorization.UsersDomain, Verb: authorization.USER_ASSIGN_AND_REVOKE}},
+				"assign": {{Resource: "users/something", Domain: authorization.UsersDomain, Verb: authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE}},
 			},
 		},
 	}
@@ -174,7 +174,7 @@ func TestMigrationsRemove(t *testing.T) {
 					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH)},
 					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_MATCH)},
 					{Resource: "roles/something", Domain: authorization.RolesDomain, Verb: authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_MATCH)},
-					{Resource: "roles/testUserAssign", Domain: authorization.UsersDomain, Verb: authorization.USER_ASSIGN_AND_REVOKE},
+					{Resource: "roles/testUserAssign", Domain: authorization.UsersDomain, Verb: authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE},
 				},
 			},
 		},
@@ -256,7 +256,7 @@ func TestMigrationRemoveV32(t *testing.T) {
 				{Resource: "roles/something", Domain: authorization.UsersDomain, Verb: authorization.UPDATE},
 			},
 			output: []*authorization.Policy{
-				{Resource: "roles/something", Domain: authorization.UsersDomain, Verb: authorization.USER_ASSIGN_AND_REVOKE},
+				{Resource: "roles/something", Domain: authorization.UsersDomain, Verb: authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE},
 			},
 		},
 	}
