@@ -42,7 +42,7 @@ type GetGroupsParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The type of group
+	/*The type of group to retrieve.
 	  Required: true
 	  In: path
 	*/

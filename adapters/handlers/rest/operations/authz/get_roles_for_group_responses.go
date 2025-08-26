@@ -28,7 +28,7 @@ import (
 const GetRolesForGroupOKCode int = 200
 
 /*
-GetRolesForGroupOK Role assigned to group
+GetRolesForGroupOK A list of roles assigned to the specified group.
 
 swagger:response getRolesForGroupOK
 */
@@ -191,7 +191,7 @@ func (o *GetRolesForGroupForbidden) WriteResponse(rw http.ResponseWriter, produc
 const GetRolesForGroupNotFoundCode int = 404
 
 /*
-GetRolesForGroupNotFound group not found
+GetRolesForGroupNotFound The specified group was not found.
 
 swagger:response getRolesForGroupNotFound
 */
@@ -216,7 +216,7 @@ func (o *GetRolesForGroupNotFound) WriteResponse(rw http.ResponseWriter, produce
 const GetRolesForGroupUnprocessableEntityCode int = 422
 
 /*
-GetRolesForGroupUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+GetRolesForGroupUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
 
 swagger:response getRolesForGroupUnprocessableEntity
 */

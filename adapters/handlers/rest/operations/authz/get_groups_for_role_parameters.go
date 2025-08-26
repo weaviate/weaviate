@@ -41,7 +41,7 @@ type GetGroupsForRoleParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*role name
+	/*The unique name of the role.
 	  Required: true
 	  In: path
 	*/

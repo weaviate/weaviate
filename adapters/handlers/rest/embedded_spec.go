@@ -412,10 +412,11 @@ func init() {
     },
     "/authz/groups/{groupType}": {
       "get": {
+        "description": "Retrieves a list of all available group names for a specified group type (` + "`" + `oidc` + "`" + ` or ` + "`" + `db` + "`" + `).",
         "tags": [
           "authz"
         ],
-        "summary": "get all groups for the given type",
+        "summary": "List all groups of a specific type",
         "operationId": "getGroups",
         "parameters": [
           {
@@ -423,7 +424,7 @@ func init() {
               "oidc"
             ],
             "type": "string",
-            "description": "The type of group",
+            "description": "The type of group to retrieve.",
             "name": "groupType",
             "in": "path",
             "required": true
@@ -431,7 +432,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Rolenames assigned to group",
+            "description": "A list of group names for the specified type.",
             "schema": {
               "type": "array",
               "items": {
@@ -455,7 +456,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -614,15 +615,16 @@ func init() {
     },
     "/authz/groups/{id}/roles/{groupType}": {
       "get": {
+        "description": "Retrieves a list of all roles assigned to a specific group. The group must be identified by both its name (` + "`" + `id` + "`" + `) and its type (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `).",
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to the group of a given type",
+        "summary": "Get roles assigned to a specific group",
         "operationId": "getRolesForGroup",
         "parameters": [
           {
             "type": "string",
-            "description": "group name",
+            "description": "The unique name of the group.",
             "name": "id",
             "in": "path",
             "required": true
@@ -632,7 +634,7 @@ func init() {
               "oidc"
             ],
             "type": "string",
-            "description": "The type of group",
+            "description": "The type of the group.",
             "name": "groupType",
             "in": "path",
             "required": true
@@ -640,14 +642,14 @@ func init() {
           {
             "type": "boolean",
             "default": false,
-            "description": "Whether to include detailed role information needed the roles permission",
+            "description": "If true, the response will include the full role definitions with all associated permissions. If false, only role names are returned.",
             "name": "includeFullRoles",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Role assigned to group",
+            "description": "A list of roles assigned to the specified group.",
             "schema": {
               "$ref": "#/definitions/RolesListResponse"
             }
@@ -668,10 +670,10 @@ func init() {
             }
           },
           "404": {
-            "description": "group not found"
+            "description": "The specified group was not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -964,15 +966,16 @@ func init() {
     },
     "/authz/roles/{id}/group-assignments": {
       "get": {
+        "description": "Retrieves a list of all groups that have been assigned a specific role, identified by its name.",
         "tags": [
           "authz"
         ],
-        "summary": "get groups assigned to role",
+        "summary": "Get groups that have a specific role assigned",
         "operationId": "getGroupsForRole",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The unique name of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -980,7 +983,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Groups assigned to this role",
+            "description": "Successfully retrieved the list of groups that have the role assigned.",
             "schema": {
               "type": "array",
               "items": {
@@ -1016,7 +1019,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "The specified role was not found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -6897,7 +6900,7 @@ func init() {
       }
     },
     "GroupType": {
-      "description": "the type group",
+      "description": "If the group contains OIDC or database users.",
       "type": "string",
       "enum": [
         "db",
@@ -7521,11 +7524,11 @@ func init() {
           }
         },
         "groups": {
-          "description": "resources applicable for group actions",
+          "description": "Resources applicable for group actions.",
           "type": "object",
           "properties": {
             "group": {
-              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
               "type": "string",
               "default": "*"
             },
@@ -9256,10 +9259,11 @@ func init() {
     },
     "/authz/groups/{groupType}": {
       "get": {
+        "description": "Retrieves a list of all available group names for a specified group type (` + "`" + `oidc` + "`" + ` or ` + "`" + `db` + "`" + `).",
         "tags": [
           "authz"
         ],
-        "summary": "get all groups for the given type",
+        "summary": "List all groups of a specific type",
         "operationId": "getGroups",
         "parameters": [
           {
@@ -9267,7 +9271,7 @@ func init() {
               "oidc"
             ],
             "type": "string",
-            "description": "The type of group",
+            "description": "The type of group to retrieve.",
             "name": "groupType",
             "in": "path",
             "required": true
@@ -9275,7 +9279,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Rolenames assigned to group",
+            "description": "A list of group names for the specified type.",
             "schema": {
               "type": "array",
               "items": {
@@ -9299,7 +9303,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9458,15 +9462,16 @@ func init() {
     },
     "/authz/groups/{id}/roles/{groupType}": {
       "get": {
+        "description": "Retrieves a list of all roles assigned to a specific group. The group must be identified by both its name (` + "`" + `id` + "`" + `) and its type (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `).",
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to the group of a given type",
+        "summary": "Get roles assigned to a specific group",
         "operationId": "getRolesForGroup",
         "parameters": [
           {
             "type": "string",
-            "description": "group name",
+            "description": "The unique name of the group.",
             "name": "id",
             "in": "path",
             "required": true
@@ -9476,7 +9481,7 @@ func init() {
               "oidc"
             ],
             "type": "string",
-            "description": "The type of group",
+            "description": "The type of the group.",
             "name": "groupType",
             "in": "path",
             "required": true
@@ -9484,14 +9489,14 @@ func init() {
           {
             "type": "boolean",
             "default": false,
-            "description": "Whether to include detailed role information needed the roles permission",
+            "description": "If true, the response will include the full role definitions with all associated permissions. If false, only role names are returned.",
             "name": "includeFullRoles",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Role assigned to group",
+            "description": "A list of roles assigned to the specified group.",
             "schema": {
               "$ref": "#/definitions/RolesListResponse"
             }
@@ -9512,10 +9517,10 @@ func init() {
             }
           },
           "404": {
-            "description": "group not found"
+            "description": "The specified group was not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9808,15 +9813,16 @@ func init() {
     },
     "/authz/roles/{id}/group-assignments": {
       "get": {
+        "description": "Retrieves a list of all groups that have been assigned a specific role, identified by its name.",
         "tags": [
           "authz"
         ],
-        "summary": "get groups assigned to role",
+        "summary": "Get groups that have a specific role assigned",
         "operationId": "getGroupsForRole",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The unique name of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -9824,7 +9830,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Groups assigned to this role",
+            "description": "Successfully retrieved the list of groups that have the role assigned.",
             "schema": {
               "type": "array",
               "items": {
@@ -9848,7 +9854,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "The specified role was not found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -16030,7 +16036,7 @@ func init() {
       }
     },
     "GroupType": {
-      "description": "the type group",
+      "description": "If the group contains OIDC or database users.",
       "type": "string",
       "enum": [
         "db",
@@ -16671,11 +16677,11 @@ func init() {
           }
         },
         "groups": {
-          "description": "resources applicable for group actions",
+          "description": "Resources applicable for group actions.",
           "type": "object",
           "properties": {
             "group": {
-              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
               "type": "string",
               "default": "*"
             },
@@ -16829,11 +16835,11 @@ func init() {
       }
     },
     "PermissionGroups": {
-      "description": "resources applicable for group actions",
+      "description": "Resources applicable for group actions.",
       "type": "object",
       "properties": {
         "group": {
-          "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+          "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
           "type": "string",
           "default": "*"
         },
