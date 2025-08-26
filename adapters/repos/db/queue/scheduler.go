@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -50,6 +50,8 @@ type SchedulerOptions struct {
 	Workers int
 	// The interval at which the scheduler checks the queues for tasks. Defaults to 1 second.
 	ScheduleInterval time.Duration
+	// The interval between retries for failed tasks.
+	RetryInterval time.Duration
 	// Function to be called when the scheduler is closed
 	OnClose func()
 }
@@ -81,6 +83,23 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 			it = 1 * time.Second
 		}
 		opts.ScheduleInterval = it
+	}
+
+	if opts.RetryInterval == 0 {
+		var ri time.Duration
+		v := os.Getenv("QUEUE_RETRY_INTERVAL")
+
+		if v != "" {
+			ri, err = time.ParseDuration(v)
+			if err != nil {
+				opts.Logger.WithError(err).WithField("value", v).Warn("failed to parse QUEUE_RETRY_INTERVAL, using default")
+			}
+		}
+
+		if ri == 0 {
+			ri = 5 * time.Second
+		}
+		opts.RetryInterval = ri
 	}
 
 	s := Scheduler{
@@ -145,7 +164,7 @@ func (s *Scheduler) Start() {
 	chans := make([]chan *Batch, s.Workers)
 
 	for i := 0; i < s.Workers; i++ {
-		worker, ch := NewWorker(s.Logger, 5*time.Second)
+		worker, ch := NewWorker(s.Logger, s.RetryInterval)
 		chans[i] = ch
 
 		s.wg.Add(1)

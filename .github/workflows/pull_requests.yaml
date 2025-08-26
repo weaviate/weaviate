@@ -18,7 +18,7 @@ jobs:
     name: buf-checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: bufbuild/buf-setup-action@v1
         with:
           github_token: ${{ github.token }}
@@ -34,7 +34,7 @@ jobs:
     name: run-swagger
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -60,7 +60,7 @@ jobs:
       PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Run locally Docker build
         run: docker build -t weaviate:${{ github.sha }} .
       - name: Run Orca Container Image Scan
@@ -85,7 +85,7 @@ jobs:
       PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Run Orca SAST Scan
         id: orcasecurity_container_sast_action
         uses: orcasecurity/shiftleft-sast-action@v1
@@ -101,7 +101,7 @@ jobs:
     name: unit-tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -125,7 +125,7 @@ jobs:
           "--integration-without-vector-package"
         ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -156,7 +156,7 @@ jobs:
           "--only-module-text2vec-model2vec"
         ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -183,7 +183,7 @@ jobs:
     outputs:
       run_pipeline: ${{ steps.check.outputs.run_pipeline }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 2
       - id: check
@@ -214,7 +214,7 @@ jobs:
           "--only-module-reranker-transformers"
         ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -250,7 +250,7 @@ jobs:
           "--only-module-many-generative"
         ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -289,10 +289,11 @@ jobs:
           "--only-module-text2vec-aws",
           "--only-module-text2vec-jinaai",
           "--only-module-multi2vec-jinaai",
-          "--only-module-text2colbert-jinaai",
+          "--only-module-text2multivec-jinaai",
+          "--only-module-multi2multivec-jinaai",
         ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 2
       - name: Set up Go
@@ -362,12 +363,13 @@ jobs:
           "--acceptance-only-authz",
           "--acceptance-only-replication",
           "--acceptance-only-async-replication",
-          "--acceptance-only-replica-replication",
+          "--acceptance-only-replica-replication-fast",
+          "--acceptance-only-replica-replication-slow",
           "--acceptance-go-client-only-fast",
           "--acceptance-only-python",
         ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -392,7 +394,7 @@ jobs:
       matrix:
         test: ["--acceptance-go-client-named-vectors-single-node", "--acceptance-go-client-named-vectors-cluster", "--acceptance-lsmkv"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -427,18 +429,18 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'main') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Download coverage artifacts integration
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: coverage-report-unit
       - name: Download coverage integration without vector package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: coverage-report-integration--integration-without-vector-package
           path: coverage-integration-without-vector-package.txt
       - name: Download coverage integration vector package only
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: coverage-report-integration--integration-vector-package-only
           path: coverage-integration-vector-package-only.txt
@@ -452,7 +454,7 @@ jobs:
     name: compile-and-upload-binaries
     runs-on: DB-ubuntu-24.04-4-cores
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -505,9 +507,9 @@ jobs:
       RAFT_JOIN: node1
       GRPC_PORT: 50052
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Download binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binaries-windows-amd64
       - name: Set up Go
@@ -532,7 +534,7 @@ jobs:
     timeout-minutes: 30
     runs-on: DB-ubuntu-24.04-8-cores
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -566,7 +568,7 @@ jobs:
       preview-tags-arm64: ${{ steps.set-outputs.outputs.preview-tags-arm64 }}
       semver-tags-arm64: ${{ steps.set-outputs.outputs.semver-tags-arm64 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -588,7 +590,7 @@ jobs:
     name: generate-docker-report
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Combine tags
         run: |
           # Collect all architecture-specific outputs

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,7 +41,7 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 						"properties":         []interface{}{"description"},
 						"vectorizeClassName": false,
 						"projectId":          gcpProject,
-						"modelId":            "textembedding-gecko@001",
+						"modelId":            "text-embedding-005",
 					},
 				},
 				VectorIndexType: "flat",
@@ -56,71 +56,25 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 			withImages         bool
 		}{
 			{
-				name:             "chat-bison",
-				generativeModel:  "chat-bison",
+				name:             "gemini-2.0-flash-lite-001",
+				generativeModel:  "gemini-2.0-flash-lite-001",
 				frequencyPenalty: grpchelper.ToPtr(0.5),
 				presencePenalty:  grpchelper.ToPtr(0.5),
 			},
 			{
-				name:             "chat-bison-32k",
-				generativeModel:  "chat-bison-32k",
+				name:             "gemini-2.0-flash-001",
+				generativeModel:  "gemini-2.0-flash-001",
 				frequencyPenalty: grpchelper.ToPtr(0.5),
 				presencePenalty:  grpchelper.ToPtr(0.5),
-			},
-			{
-				name:             "chat-bison@002",
-				generativeModel:  "chat-bison@002",
-				frequencyPenalty: grpchelper.ToPtr(0.5),
-				presencePenalty:  grpchelper.ToPtr(0.5),
-			},
-			{
-				name:             "chat-bison-32k@002",
-				generativeModel:  "chat-bison-32k@002",
-				frequencyPenalty: grpchelper.ToPtr(0.5),
-				presencePenalty:  grpchelper.ToPtr(0.5),
-			},
-			{
-				name:            "chat-bison@001",
-				generativeModel: "chat-bison@001",
-			},
-			{
-				name:             "gemini-1.5-pro-preview-0514",
-				generativeModel:  "gemini-1.5-pro-preview-0514",
-				frequencyPenalty: grpchelper.ToPtr(0.5),
-				presencePenalty:  grpchelper.ToPtr(0.5),
-			},
-			{
-				name:             "gemini-1.5-pro-preview-0409",
-				generativeModel:  "gemini-1.5-pro-preview-0409",
-				frequencyPenalty: grpchelper.ToPtr(0.5),
-				presencePenalty:  grpchelper.ToPtr(0.5),
-			},
-			{
-				name:             "gemini-1.5-flash-preview-0514",
-				generativeModel:  "gemini-1.5-flash-preview-0514",
-				frequencyPenalty: grpchelper.ToPtr(0.5),
-				presencePenalty:  grpchelper.ToPtr(0.5),
-			},
-			{
-				name:            "gemini-1.0-pro-002",
-				generativeModel: "gemini-1.0-pro-002",
-			},
-			{
-				name:            "gemini-1.0-pro-001",
-				generativeModel: "gemini-1.0-pro-001",
-			},
-			{
-				name:            "gemini-1.0-pro",
-				generativeModel: "gemini-1.0-pro",
 			},
 			{
 				name:               "absent module config",
-				generativeModel:    "gemini-1.0-pro",
+				generativeModel:    "gemini-2.0-flash-lite-001",
 				absentModuleConfig: true,
 			},
 			{
-				name:            "gemini-1.0-pro-vision",
-				generativeModel: "gemini-1.0-pro-vision",
+				name:            "gemini-2.0-flash-001",
+				generativeModel: "gemini-2.0-flash-001",
 				withImages:      true,
 			},
 		}

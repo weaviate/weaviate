@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,7 +38,11 @@ type Indexer interface {
 	DeleteTenants(class string, tenants []*models.Tenant) error
 	UpdateTenantsProcess(class string, req *api.TenantProcessRequest) error
 	UpdateShardStatus(*api.UpdateShardStatusRequest) error
-	AddReplicaToShard(class, shard, replica string) error
+	AddReplicaToShard(class, shard, targetNode string) error
+	DeleteReplicaFromShard(class, shard, targetNode string) error
+	LoadShard(class, shard string)     // is a no-op
+	ShutdownShard(class, shard string) // is a no-op
+	DropShard(class, shard string)     // is a no-op
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 	UpdateIndex(api.UpdateClassRequest) error
 

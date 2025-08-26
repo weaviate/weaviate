@@ -16,10 +16,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        goos: [linux, windows]
+        goos: [linux]
         goarch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: wangyoucao577/go-release-action@v1.53
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

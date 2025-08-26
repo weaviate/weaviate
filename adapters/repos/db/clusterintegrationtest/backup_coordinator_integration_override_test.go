@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,7 +15,6 @@ package clusterintegrationtest
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -41,9 +40,6 @@ func TestDistributedBackupsOverride(t *testing.T) {
 
 	t.Run("setup", func(t *testing.T) {
 		overallShardState := multiShardState(numNodes)
-		shardStateSerialized, err := json.Marshal(overallShardState)
-		require.Nil(t, err)
-
 		backend = &fakeBackupBackend{
 			backupsPath: dirName,
 			backupID:    backupID,
@@ -54,9 +50,10 @@ func TestDistributedBackupsOverride(t *testing.T) {
 			node := &node{
 				name: fmt.Sprintf("node-%d", i),
 			}
-
-			node.init(dirName, shardStateSerialized, &nodes)
 			nodes = append(nodes, node)
+		}
+		for _, node := range nodes {
+			node.init(t, dirName, &nodes, overallShardState)
 		}
 	})
 
@@ -113,7 +110,7 @@ func TestDistributedBackupsOverride(t *testing.T) {
 			Include: []string{distributedClass},
 		}
 
-		resp, err := nodes[0].scheduler.Restore(context.Background(), &models.Principal{}, req)
+		resp, err := nodes[0].scheduler.Restore(context.Background(), &models.Principal{}, req, false)
 		assert.Nil(t, resp)
 		assert.Contains(t, err.Error(), "local filesystem backend is not viable for backing up a node cluster")
 	})
@@ -166,7 +163,7 @@ func TestDistributedBackupsOverride(t *testing.T) {
 					Include: []string{distributedClass},
 				}
 
-				resp, err := node.scheduler.Restore(ctx, &models.Principal{}, req)
+				resp, err := node.scheduler.Restore(ctx, &models.Principal{}, req, false)
 				assert.Nil(t, err, "expected nil err, got: %s", err)
 				assert.Empty(t, resp.Error, "expected empty, got: %s", resp.Error)
 				assert.NotEmpty(t, resp.Path)

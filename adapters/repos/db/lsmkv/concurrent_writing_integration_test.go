@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,6 +27,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 )
@@ -237,6 +238,7 @@ func TestConcurrentWriting_RoaringSet(t *testing.T) {
 	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), flushGroup,
 		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 		WithMemtableThreshold(1000))
 	require.Nil(t, err)
 
@@ -272,9 +274,13 @@ func TestConcurrentWriting_RoaringSet(t *testing.T) {
 
 	t.Run("verify get", func(t *testing.T) {
 		for i := range keys {
-			value, err := bucket.RoaringSetGet(keys[i])
-			require.NoError(t, err)
-			assert.ElementsMatch(t, values[i], value.ToArray())
+			func() {
+				value, release, err := bucket.RoaringSetGet(keys[i])
+				require.NoError(t, err)
+				defer release()
+
+				assert.ElementsMatch(t, values[i], value.ToArray())
+			}()
 		}
 	})
 

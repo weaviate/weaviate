@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -444,55 +444,117 @@ func nullLogger() logrus.FieldLogger {
 	return l
 }
 
-func TestOpenAIApiErrorDecode(t *testing.T) {
-	t.Run("getModelStringQuery", func(t *testing.T) {
-		type args struct {
-			response []byte
-		}
-		tests := []struct {
-			name string
-			args args
-			want string
-		}{
-			{
-				name: "Error code: missing property",
-				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg..."}`),
-				},
-				want: "",
-			},
-			{
-				name: "Error code: as int",
-				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": 500}`),
-				},
-				want: "500",
-			},
-			{
-				name: "Error code as string number",
-				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": "500"}`),
-				},
-				want: "500",
-			},
-			{
-				name: "Error code as string text",
-				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": "invalid_api_key"}`),
-				},
-				want: "invalid_api_key",
-			},
-		}
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				var got *openAIApiError
-				err := json.Unmarshal(tt.args.response, &got)
-				require.NoError(t, err)
-
-				if got.Code.String() != tt.want {
-					t.Errorf("OpenAIerror.code = %v, want %v", got.Code, tt.want)
-				}
-			})
-		}
+func TestGetApiKeyFromContext(t *testing.T) {
+	t.Run("value from context", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), "X-Openai-Api-Key", []string{"key-from-ctx"})
+		c := New("", "", "", 0, nullLogger())
+		key, err := c.getApiKey(ctx, false)
+		require.NoError(t, err)
+		assert.Equal(t, "key-from-ctx", key)
 	})
+
+	t.Run("value from env fallback", func(t *testing.T) {
+		ctx := context.Background()
+		c := New("env-key", "", "", 0, nullLogger())
+		key, err := c.getApiKey(ctx, false)
+		require.NoError(t, err)
+		assert.Equal(t, "env-key", key)
+	})
+
+	t.Run("no value at all", func(t *testing.T) {
+		ctx := context.Background()
+		c := New("", "", "", 0, nullLogger())
+		_, err := c.getApiKey(ctx, false)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no api key found")
+	})
+}
+
+func TestGetOpenAIOrganization(t *testing.T) {
+	t.Run("from context", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), "X-Openai-Organization", []string{"from-context"})
+		c := New("", "default-org", "", 0, nullLogger())
+		assert.Equal(t, "from-context", c.getOpenAIOrganization(ctx))
+	})
+
+	t.Run("from default", func(t *testing.T) {
+		ctx := context.Background()
+		c := New("", "default-org", "", 0, nullLogger())
+		assert.Equal(t, "default-org", c.getOpenAIOrganization(ctx))
+	})
+}
+
+func TestGetEmbeddingsRequest(t *testing.T) {
+	t.Run("Azure true omits model", func(t *testing.T) {
+		c := New("", "", "", 0, nullLogger())
+		req := c.getEmbeddingsRequest([]string{"foo"}, "model", true, nil)
+		assert.Equal(t, []string{"foo"}, req.Input)
+		assert.Equal(t, (*int64)(nil), req.Dimensions)
+		assert.Empty(t, req.Model)
+	})
+	t.Run("Non-Azure includes model", func(t *testing.T) {
+		c := New("", "", "", 0, nullLogger())
+		dim := int64(42)
+		req := c.getEmbeddingsRequest([]string{"foo"}, "model", false, &dim)
+		assert.Equal(t, []string{"foo"}, req.Input)
+		assert.Equal(t, "model", req.Model)
+		assert.Equal(t, &dim, req.Dimensions)
+	})
+}
+
+func TestGetApiKeyHeaderAndValue(t *testing.T) {
+	c := New("", "", "", 0, nullLogger())
+	h, v := c.getApiKeyHeaderAndValue("some-key", true)
+	assert.Equal(t, "api-key", h)
+	assert.Equal(t, "some-key", v)
+
+	h, v = c.getApiKeyHeaderAndValue("other-key", false)
+	assert.Equal(t, "Authorization", h)
+	assert.Equal(t, "Bearer other-key", v)
+}
+
+func TestGetApiKeyHash(t *testing.T) {
+	c := New("super-secret", "", "", 0, nullLogger())
+	hash := c.GetApiKeyHash(context.Background(), fakeClassConfig{})
+	assert.NotEqual(t, [32]byte{}, hash)
+	assert.Equal(t, hash, c.GetApiKeyHash(context.Background(), fakeClassConfig{}))
+}
+
+func TestGetErrorFormat(t *testing.T) {
+	c := New("", "", "", 0, nullLogger())
+	err := c.getError(403, "abc-123", &openAIApiError{Message: "denied"}, false)
+	assert.Contains(t, err.Error(), "403")
+	assert.Contains(t, err.Error(), "abc-123")
+	assert.Contains(t, err.Error(), "denied")
+}
+
+func TestOpenAIApiErrorDecode(t *testing.T) {
+	tests := []struct {
+		name     string
+		payload  string
+		expected string
+	}{
+		{"missing code", `{"message": "fail", "type": "err", "param": "x"}`, ""},
+		{"numeric code", `{"message": "fail", "type": "err", "param": "x", "code": 500}`, "500"},
+		{"string number", `{"message": "fail", "type": "err", "param": "x", "code": "500"}`, "500"},
+		{"string literal", `{"message": "fail", "type": "err", "param": "x", "code": "invalid_key"}`, "invalid_key"},
+		{"empty string", `{"message": "fail", "type": "err", "param": "x", "code": ""}`, ""},
+		{"null code", `{"message": "fail", "type": "err", "param": "x", "code": null}`, ""},
+		{"code as boolean (invalid)", `{"message": "fail", "type": "err", "param": "x", "code": true}`, ""},
+		{"code as array (invalid)", `{"message": "fail", "type": "err", "param": "x", "code": ["bad"]}`, ""},
+		{"code as object (invalid)", `{"message": "fail", "type": "err", "param": "x", "code": {"key": "val"}}`, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got *openAIApiError
+			err := json.Unmarshal([]byte(tt.payload), &got)
+			if err != nil && tt.expected != "" {
+				t.Errorf("unexpected unmarshal error: %v", err)
+				return
+			}
+			if got != nil && got.Code.String() != tt.expected {
+				t.Errorf("got code %q, expected %q", got.Code.String(), tt.expected)
+			}
+		})
+	}
 }

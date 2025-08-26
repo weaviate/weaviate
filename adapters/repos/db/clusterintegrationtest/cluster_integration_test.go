@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,7 +16,6 @@ package clusterintegrationtest
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
@@ -40,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -73,16 +73,16 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 
 	t.Run("setup", func(t *testing.T) {
 		overallShardState := multiShardState(numberOfNodes)
-		shardStateSerialized, err := json.Marshal(overallShardState)
-		require.Nil(t, err)
-
 		for i := 0; i < numberOfNodes; i++ {
 			node := &node{
 				name: fmt.Sprintf("node-%d", i),
 			}
 
-			node.init(dirName, shardStateSerialized, &nodes)
 			nodes = append(nodes, node)
+		}
+
+		for _, node := range nodes {
+			node.init(t, dirName, &nodes, overallShardState)
 		}
 	})
 
@@ -365,7 +365,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 
 		logger, _ := test.NewNullLogger()
 		node := nodes[rnd.Intn(len(nodes))]
-		res, err := node.repo.Aggregate(context.Background(), params, modules.NewProvider(logger))
+		res, err := node.repo.Aggregate(context.Background(), params, modules.NewProvider(logger, config.Config{}))
 		require.Nil(t, err)
 
 		expectedResult := &aggregation.Result{
@@ -701,19 +701,17 @@ func TestDistributedVectorDistance(t *testing.T) {
 			os.Setenv("ASYNC_INDEXING", strconv.FormatBool(tt.asyncIndexing))
 
 			collection := multiVectorClass(tt.asyncIndexing)
-
 			overallShardState := multiShardState(numberOfNodes)
-			shardStateSerialized, err := json.Marshal(overallShardState)
-			require.Nil(t, err)
-
 			var nodes []*node
 			for i := 0; i < numberOfNodes; i++ {
 				node := &node{
 					name: fmt.Sprintf("node-%d", i),
 				}
-
-				node.init(dirName, shardStateSerialized, &nodes)
 				nodes = append(nodes, node)
+			}
+
+			for _, node := range nodes {
+				node.init(t, dirName, &nodes, overallShardState)
 			}
 
 			for i := range nodes {

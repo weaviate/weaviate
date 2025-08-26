@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/usecases/byteops"
 
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 
@@ -338,7 +339,7 @@ func TestGRPCReply(t *testing.T) {
 						TargetCollection: className,
 						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
-								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
+								"word": {Kind: &pb.Value_TextValue{TextValue: "word"}},
 								"age":  {Kind: &pb.Value_IntValue{IntValue: 21}},
 							},
 						},
@@ -352,7 +353,7 @@ func TestGRPCReply(t *testing.T) {
 						TargetCollection: className,
 						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
-								"word": {Kind: &pb.Value_StringValue{StringValue: "other"}},
+								"word": {Kind: &pb.Value_TextValue{TextValue: "other"}},
 								"age":  {Kind: &pb.Value_IntValue{IntValue: 26}},
 							},
 						},
@@ -384,7 +385,7 @@ func TestGRPCReply(t *testing.T) {
 						TargetCollection: className,
 						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
-								"word":   {Kind: &pb.Value_StringValue{StringValue: "word"}},
+								"word":   {Kind: &pb.Value_TextValue{TextValue: "word"}},
 								"age":    {Kind: &pb.Value_NullValue{}},
 								"nested": {Kind: &pb.Value_NullValue{}},
 							},
@@ -412,11 +413,7 @@ func TestGRPCReply(t *testing.T) {
 						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
 								"nums": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
-									Values: []*pb.Value{
-										{Kind: &pb.Value_IntValue{IntValue: 1}},
-										{Kind: &pb.Value_IntValue{IntValue: 2}},
-										{Kind: &pb.Value_IntValue{IntValue: 3}},
-									},
+									Kind: &pb.ListValue_IntValues{IntValues: &pb.IntValues{Values: byteops.IntsToByteVector([]float64{1, 2, 3})}},
 								}}},
 							},
 						},
@@ -493,34 +490,26 @@ func TestGRPCReply(t *testing.T) {
 								"something": {Kind: &pb.Value_ObjectValue{
 									ObjectValue: &pb.Properties{
 										Fields: map[string]*pb.Value{
-											"name": {Kind: &pb.Value_StringValue{StringValue: "Bob"}},
+											"name": {Kind: &pb.Value_TextValue{TextValue: "Bob"}},
 											"names": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
-												Values: []*pb.Value{
-													{Kind: &pb.Value_StringValue{StringValue: "Jo"}},
-													{Kind: &pb.Value_StringValue{StringValue: "Jill"}},
-												},
+												Kind: &pb.ListValue_TextValues{TextValues: &pb.TextValues{Values: []string{"Jo", "Jill"}}},
 											}}},
 											"else": {Kind: &pb.Value_ObjectValue{
 												ObjectValue: &pb.Properties{
 													Fields: map[string]*pb.Value{
-														"name": {Kind: &pb.Value_StringValue{StringValue: "Bill"}},
+														"name": {Kind: &pb.Value_TextValue{TextValue: "Bill"}},
 														"names": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
-															Values: []*pb.Value{
-																{Kind: &pb.Value_StringValue{StringValue: "Jo"}},
-																{Kind: &pb.Value_StringValue{StringValue: "Jill"}},
-															},
+															Kind: &pb.ListValue_TextValues{TextValues: &pb.TextValues{Values: []string{"Jo", "Jill"}}},
 														}}},
 													},
 												},
 											}},
 											"objs": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
-												Values: []*pb.Value{{Kind: &pb.Value_ObjectValue{
-													ObjectValue: &pb.Properties{
-														Fields: map[string]*pb.Value{
-															"name": {Kind: &pb.Value_StringValue{StringValue: "Bill"}},
-														},
+												Kind: &pb.ListValue_ObjectValues{ObjectValues: &pb.ObjectValues{Values: []*pb.Properties{{
+													Fields: map[string]*pb.Value{
+														"name": {Kind: &pb.Value_TextValue{TextValue: "Bill"}},
 													},
-												}}},
+												}}}},
 											}}},
 										},
 									},
@@ -599,33 +588,25 @@ func TestGRPCReply(t *testing.T) {
 								"something": {Kind: &pb.Value_ObjectValue{
 									ObjectValue: &pb.Properties{
 										Fields: map[string]*pb.Value{
-											"name": {Kind: &pb.Value_StringValue{StringValue: "Bob"}},
+											"name": {Kind: &pb.Value_TextValue{TextValue: "Bob"}},
 											"names": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
-												Values: []*pb.Value{
-													{Kind: &pb.Value_StringValue{StringValue: "Jo"}},
-													{Kind: &pb.Value_StringValue{StringValue: "Jill"}},
-												},
+												Kind: &pb.ListValue_TextValues{TextValues: &pb.TextValues{Values: []string{"Jo", "Jill"}}},
 											}}},
 											"else": {Kind: &pb.Value_ObjectValue{
 												ObjectValue: &pb.Properties{
 													Fields: map[string]*pb.Value{
 														"names": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
-															Values: []*pb.Value{
-																{Kind: &pb.Value_StringValue{StringValue: "Jo"}},
-																{Kind: &pb.Value_StringValue{StringValue: "Jill"}},
-															},
+															Kind: &pb.ListValue_TextValues{TextValues: &pb.TextValues{Values: []string{"Jo", "Jill"}}},
 														}}},
 													},
 												},
 											}},
 											"objs": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
-												Values: []*pb.Value{{Kind: &pb.Value_ObjectValue{
-													ObjectValue: &pb.Properties{
-														Fields: map[string]*pb.Value{
-															"name": {Kind: &pb.Value_StringValue{StringValue: "Bill"}},
-														},
+												Kind: &pb.ListValue_ObjectValues{ObjectValues: &pb.ObjectValues{Values: []*pb.Properties{{
+													Fields: map[string]*pb.Value{
+														"name": {Kind: &pb.Value_TextValue{TextValue: "Bill"}},
 													},
-												}}},
+												}}}},
 											}}},
 										},
 									},
@@ -666,7 +647,7 @@ func TestGRPCReply(t *testing.T) {
 						TargetCollection: className,
 						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
-								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
+								"word": {Kind: &pb.Value_TextValue{TextValue: "word"}},
 							},
 						},
 						RefProps:          []*pb.RefPropertiesResult{},
@@ -679,7 +660,7 @@ func TestGRPCReply(t *testing.T) {
 						TargetCollection: className,
 						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
-								"word": {Kind: &pb.Value_StringValue{StringValue: "other"}},
+								"word": {Kind: &pb.Value_TextValue{TextValue: "other"}},
 							},
 						},
 						RefProps:          []*pb.RefPropertiesResult{},
@@ -736,7 +717,7 @@ func TestGRPCReply(t *testing.T) {
 						TargetCollection: className,
 						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
-								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
+								"word": {Kind: &pb.Value_TextValue{TextValue: "word"}},
 							},
 						},
 						RefProps: []*pb.RefPropertiesResult{{
@@ -747,7 +728,7 @@ func TestGRPCReply(t *testing.T) {
 									Metadata:         &pb.MetadataResult{Vector: []float32{3}, VectorBytes: byteVector([]float32{3})},
 									NonRefProps: &pb.Properties{
 										Fields: map[string]*pb.Value{
-											"something": {Kind: &pb.Value_StringValue{StringValue: "other"}},
+											"something": {Kind: &pb.Value_TextValue{TextValue: "other"}},
 										},
 									},
 								},
@@ -762,7 +743,7 @@ func TestGRPCReply(t *testing.T) {
 						TargetCollection: className,
 						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
-								"word": {Kind: &pb.Value_StringValue{StringValue: "other"}},
+								"word": {Kind: &pb.Value_TextValue{TextValue: "other"}},
 							},
 						},
 						RefProps: []*pb.RefPropertiesResult{{
@@ -773,7 +754,7 @@ func TestGRPCReply(t *testing.T) {
 									Metadata:         &pb.MetadataResult{Vector: []float32{4}, VectorBytes: byteVector([]float32{4})},
 									NonRefProps: &pb.Properties{
 										Fields: map[string]*pb.Value{
-											"something": {Kind: &pb.Value_StringValue{StringValue: "thing"}},
+											"something": {Kind: &pb.Value_TextValue{TextValue: "thing"}},
 										},
 									},
 								},
@@ -836,7 +817,7 @@ func TestGRPCReply(t *testing.T) {
 						TargetCollection: className,
 						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
-								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
+								"word": {Kind: &pb.Value_TextValue{TextValue: "word"}},
 							},
 						},
 						RefProps: []*pb.RefPropertiesResult{{
@@ -847,7 +828,7 @@ func TestGRPCReply(t *testing.T) {
 									Metadata:         &pb.MetadataResult{},
 									NonRefProps: &pb.Properties{
 										Fields: map[string]*pb.Value{
-											"something": {Kind: &pb.Value_StringValue{StringValue: "other"}},
+											"something": {Kind: &pb.Value_TextValue{TextValue: "other"}},
 										},
 									},
 									RefProps: []*pb.RefPropertiesResult{{
@@ -857,7 +838,7 @@ func TestGRPCReply(t *testing.T) {
 											Metadata:         &pb.MetadataResult{},
 											NonRefProps: &pb.Properties{
 												Fields: map[string]*pb.Value{
-													"else": {Kind: &pb.Value_StringValue{StringValue: "thing"}},
+													"else": {Kind: &pb.Value_TextValue{TextValue: "thing"}},
 												},
 											},
 											RefProps:          []*pb.RefPropertiesResult{},
@@ -917,7 +898,7 @@ func TestGRPCReply(t *testing.T) {
 						TargetCollection: className,
 						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
-								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
+								"word": {Kind: &pb.Value_TextValue{TextValue: "word"}},
 							},
 						},
 						RefProps: []*pb.RefPropertiesResult{{
@@ -928,7 +909,7 @@ func TestGRPCReply(t *testing.T) {
 									Metadata:         &pb.MetadataResult{},
 									NonRefProps: &pb.Properties{
 										Fields: map[string]*pb.Value{
-											"something": {Kind: &pb.Value_StringValue{StringValue: "other"}},
+											"something": {Kind: &pb.Value_TextValue{TextValue: "other"}},
 										},
 									},
 									RefProps:          []*pb.RefPropertiesResult{},
@@ -977,7 +958,7 @@ func TestGRPCReply(t *testing.T) {
 						TargetCollection: className,
 						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
-								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
+								"word": {Kind: &pb.Value_TextValue{TextValue: "word"}},
 							},
 						},
 						RefProps: []*pb.RefPropertiesResult{{
@@ -989,11 +970,7 @@ func TestGRPCReply(t *testing.T) {
 									NonRefProps: &pb.Properties{
 										Fields: map[string]*pb.Value{
 											"nums": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
-												Values: []*pb.Value{
-													{Kind: &pb.Value_IntValue{IntValue: 1}},
-													{Kind: &pb.Value_IntValue{IntValue: 2}},
-													{Kind: &pb.Value_IntValue{IntValue: 3}},
-												},
+												Kind: &pb.ListValue_IntValues{IntValues: &pb.IntValues{Values: byteops.IntsToByteVector([]float64{1, 2, 3})}},
 											}}},
 										},
 									},
@@ -1207,7 +1184,7 @@ func TestGRPCReply(t *testing.T) {
 				Objects: []*pb.SearchResult{
 					{
 						Properties: &pb.PropertiesResult{
-							NonRefProperties: newStruct(t, map[string]interface{}{"word": "word"}),
+							NonRefProps: &pb.Properties{Fields: map[string]*pb.Value{"word": {Kind: &pb.Value_TextValue{TextValue: "word"}}}},
 							RefProps: []*pb.RefPropertiesResult{
 								{
 									PropName: "other",
@@ -1334,8 +1311,8 @@ func TestGRPCReply(t *testing.T) {
 									PropName: "other",
 									Properties: []*pb.PropertiesResult{
 										{
-											NonRefProperties: newStruct(t, map[string]interface{}{"something": "other"}),
-											Metadata:         &pb.MetadataResult{Vector: []float32{2}, Id: UUID1.String()},
+											NonRefProps: &pb.Properties{Fields: map[string]*pb.Value{"something": {Kind: &pb.Value_TextValue{TextValue: "other"}}}},
+											Metadata:    &pb.MetadataResult{Vector: []float32{2}, Id: UUID1.String()},
 										},
 									},
 								},
@@ -1362,7 +1339,7 @@ func TestGRPCReply(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		replier := NewReplier(false, false, fakeGenerativeParams{}, nil)
+		replier := NewReplier(false, fakeGenerativeParams{}, nil)
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := replier.Search(tt.res, time.Now(), tt.searchParams, scheme)
 			if tt.hasError {
@@ -1400,6 +1377,10 @@ func (f fakeGenerativeParams) ReturnMetadataForGrouped() bool {
 	return false
 }
 
-func (f fakeGenerativeParams) Debug() bool {
+func (f fakeGenerativeParams) ReturnDebugForSingle() bool {
+	return false
+}
+
+func (f fakeGenerativeParams) ReturnDebugForGrouped() bool {
 	return false
 }

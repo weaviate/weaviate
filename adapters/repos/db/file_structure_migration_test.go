@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -271,6 +271,14 @@ func (sg *fakeMigrationSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 
 func (sg *fakeMigrationSchemaGetter) ReadOnlyClass(class string) *models.Class {
 	return sg.sch.GetClass(class)
+}
+
+func (sg *fakeMigrationSchemaGetter) ResolveAlias(string) string {
+	return ""
+}
+
+func (sg *fakeMigrationSchemaGetter) GetAliasesForClass(string) []*models.Alias {
+	return nil
 }
 
 func (sg *fakeMigrationSchemaGetter) Nodes() []string {

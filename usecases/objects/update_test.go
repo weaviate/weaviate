@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -25,10 +26,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
-
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func Test_UpdateAction(t *testing.T) {
@@ -73,7 +73,8 @@ func Test_UpdateAction(t *testing.T) {
 		metrics := &fakeMetrics{}
 		modulesProvider = getFakeModulesProviderWithCustomExtenders(extender, projectorFake)
 		manager = NewManager(schemaManager, cfg,
-			logger, authorizer, db, modulesProvider, metrics, nil)
+			logger, authorizer, db, modulesProvider, metrics, nil,
+			NewAutoSchemaManager(schemaManager, db, cfg, authorizer, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	t.Run("ensure creation timestamp persists", func(t *testing.T) {

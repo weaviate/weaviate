@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -68,7 +68,8 @@ func (rs SchemaReader) ClassInfo(class string) (ci ClassInfo) {
 // ClassEqual returns the name of an existing class with a similar name, and "" otherwise
 // strings.EqualFold is used to compare classes
 func (rs SchemaReader) ClassEqual(name string) string {
-	return rs.schema.ClassEqual(name)
+	x, _ := rs.schema.ClassEqual(name)
+	return x
 }
 
 func (rs SchemaReader) MultiTenancy(class string) models.MultiTenancyConfig {
@@ -96,6 +97,10 @@ func (rs SchemaReader) ReadOnlyClass(class string) (cls *models.Class) {
 
 	res, _ := rs.ReadOnlyClassWithVersion(context.TODO(), class, 0)
 	return res
+}
+
+func (rs SchemaReader) GetAliasesForClass(class string) []*models.Alias {
+	return rs.schema.GetAliasesForClass(class)
 }
 
 // ReadOnlyVersionedClass returns a shallow copy of a class along with its version.
@@ -130,8 +135,17 @@ func (rs SchemaReader) metaClass(class string) (meta *metaClass) {
 func (rs SchemaReader) ReadOnlySchema() models.Schema {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ReadOnlySchema"))
 	defer t.ObserveDuration()
-
 	return rs.schema.ReadOnlySchema()
+}
+
+func (rs SchemaReader) ResolveAlias(alias string) string {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ResolveAlias"))
+	defer t.ObserveDuration()
+	return rs.schema.ResolveAlias(alias)
+}
+
+func (rs SchemaReader) Aliases() map[string]string {
+	return rs.schema.getAliases("", "")
 }
 
 // ShardOwner returns the node owner of the specified shard

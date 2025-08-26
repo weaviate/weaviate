@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,17 +23,22 @@ import (
 )
 
 // HeadObject check object's existence in the connected DB
-func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, class string,
+func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, className string,
 	id strfmt.UUID, repl *additional.ReplicationProperties, tenant string,
 ) (bool, *Error) {
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(class, tenant, id)); err != nil {
+	className, _ = m.resolveAlias(className)
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, tenant, id)); err != nil {
 		return false, &Error{err.Error(), StatusForbidden, err}
 	}
 
 	m.metrics.HeadObjectInc()
 	defer m.metrics.HeadObjectDec()
 
-	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenant)
+	if cls := m.schemaManager.ResolveAlias(className); cls != "" {
+		className = cls
+	}
+
+	ok, err := m.vectorRepo.Exists(ctx, className, id, repl, tenant)
 	if err != nil {
 		switch {
 		case errors.As(err, &ErrMultiTenancy{}):

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,37 +25,37 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ReplicationDeleteReplicaRequest Request body to delete a replica of given shard of a given collection
+// ReplicationDeleteReplicaRequest Specifies the parameters required to permanently delete a specific shard replica from a particular node. This action will remove the replica's data from the node.
 //
 // swagger:model ReplicationDeleteReplicaRequest
 type ReplicationDeleteReplicaRequest struct {
 
-	// The collection name holding the replica to be delete
+	// The name of the collection to which the shard replica belongs.
 	// Required: true
-	CollectionID *string `json:"collectionId"`
+	Collection *string `json:"collection"`
 
-	// The node containing the replica to be deleted
+	// The name of the Weaviate node from which the shard replica will be deleted.
 	// Required: true
-	NodeName *string `json:"nodeName"`
+	Node *string `json:"node"`
 
-	// The shard id holding the replica to be deleted
+	// The ID of the shard whose replica is to be deleted.
 	// Required: true
-	ShardID *string `json:"shardId"`
+	Shard *string `json:"shard"`
 }
 
 // Validate validates this replication delete replica request
 func (m *ReplicationDeleteReplicaRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateCollectionID(formats); err != nil {
+	if err := m.validateCollection(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateNodeName(formats); err != nil {
+	if err := m.validateNode(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateShardID(formats); err != nil {
+	if err := m.validateShard(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -65,27 +65,27 @@ func (m *ReplicationDeleteReplicaRequest) Validate(formats strfmt.Registry) erro
 	return nil
 }
 
-func (m *ReplicationDeleteReplicaRequest) validateCollectionID(formats strfmt.Registry) error {
+func (m *ReplicationDeleteReplicaRequest) validateCollection(formats strfmt.Registry) error {
 
-	if err := validate.Required("collectionId", "body", m.CollectionID); err != nil {
+	if err := validate.Required("collection", "body", m.Collection); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *ReplicationDeleteReplicaRequest) validateNodeName(formats strfmt.Registry) error {
+func (m *ReplicationDeleteReplicaRequest) validateNode(formats strfmt.Registry) error {
 
-	if err := validate.Required("nodeName", "body", m.NodeName); err != nil {
+	if err := validate.Required("node", "body", m.Node); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *ReplicationDeleteReplicaRequest) validateShardID(formats strfmt.Registry) error {
+func (m *ReplicationDeleteReplicaRequest) validateShard(formats strfmt.Registry) error {
 
-	if err := validate.Required("shardId", "body", m.ShardID); err != nil {
+	if err := validate.Required("shard", "body", m.Shard); err != nil {
 		return err
 	}
 

@@ -25,7 +25,7 @@ message WeightsForTarget {
 message Targets {
   repeated string target_vectors = 1;
   CombinationMethod combination = 2;
-  map<string,float> weights = 3 [deprecated = true];   // deprecated in 1.26.2 - use weights_for_targets
+  reserved 3; // was weights
   repeated WeightsForTarget weights_for_targets = 4;
 }
 
@@ -33,6 +33,16 @@ message VectorForTarget {
   string name = 1;
   bytes vector_bytes = 2 [deprecated = true];  // deprecated in 1.29.0 - use vectors
   repeated Vectors vectors = 3;
+}
+
+message SearchOperatorOptions {
+  enum Operator {
+    OPERATOR_UNSPECIFIED = 0;
+    OPERATOR_OR = 1;
+    OPERATOR_AND = 2;
+  }
+  Operator operator = 1;
+  optional int32 minimum_or_tokens_match = 2;
 }
 
 message Hybrid {
@@ -52,6 +62,7 @@ message Hybrid {
   NearTextSearch near_text = 8;  // targets in msg is ignored and should not be set for hybrid
   NearVector near_vector = 9;  // same as above. Use the target vector in the hybrid message
   Targets targets = 10;
+  optional SearchOperatorOptions bm25_search_operator = 11;
 
   // only vector distance, but keep it extendable
   oneof threshold {
@@ -150,4 +161,5 @@ message NearIMUSearch {
 message BM25 {
   string query = 1;
   repeated string properties = 2;
+  optional SearchOperatorOptions search_operator = 3;
 }

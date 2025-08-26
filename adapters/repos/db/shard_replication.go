@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -122,17 +122,9 @@ func (s *Shard) prepareMergeObject(ctx context.Context, requestID string, doc *o
 }
 
 func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid strfmt.UUID, deletionTime time.Time) replica.SimpleResponse {
-	bucket, obj, idBytes, docID, updateTime, err := s.canDeleteOne(ctx, uuid)
-	if err != nil {
-		return replica.SimpleResponse{
-			Errors: []replica.Error{
-				{Code: replica.StatusPreconditionFailed, Msg: err.Error()},
-			},
-		}
-	}
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
-		if err := s.deleteOne(ctx, bucket, obj, idBytes, docID, updateTime, deletionTime); err != nil {
+		if err := s.DeleteObject(ctx, uuid, deletionTime); err != nil {
 			resp.Errors = []replica.Error{
 				{Code: replica.StatusConflict, Msg: err.Error()},
 			}

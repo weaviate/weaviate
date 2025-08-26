@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,7 +37,6 @@ func Test_BackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendFilesystem().
 			WithText2VecContextionary().
-			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
@@ -59,7 +58,6 @@ func Test_BackupJourney(t *testing.T) {
 			WithBackendFilesystem().
 			WithText2VecContextionary().
 			WithWeaviateEnv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true").
-			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
@@ -78,50 +76,6 @@ func Test_BackupJourney(t *testing.T) {
 		t.Run("cancel after restart", func(t *testing.T) {
 			helper.SetupClient(compose.GetWeaviate().URI())
 			journey.CancelFromRestartJourney(t, compose, compose.GetWeaviate().Name(), modstgfilesystem.Name)
-		})
-	})
-
-	t.Run("multiple nodes", func(t *testing.T) {
-		compose, err := docker.New().
-			WithBackendFilesystem().
-			WithText2VecContextionary().
-			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
-			WithWeaviateCluster(3).
-			Start(ctx)
-		require.Nil(t, err)
-
-		defer func() {
-			if err := compose.Terminate(ctx); err != nil {
-				t.Fatalf("failed to terminate test containers: %s", err.Error())
-			}
-		}()
-
-		t.Run("backup-filesystem", func(t *testing.T) {
-			journey.BackupJourneyTests_Cluster(t, "filesystem",
-				fsBackupJourneyClassName, fsBackupJourneyBackupIDCluster, nil, true, "testbucketoverride", "testBucketPathOverride",
-				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
-		})
-	})
-
-	t.Run("multiple nodes", func(t *testing.T) {
-		compose, err := docker.New().
-			WithBackendFilesystem().
-			WithText2VecContextionary().
-			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
-			WithWeaviateCluster(3).
-			Start(ctx)
-		require.Nil(t, err)
-
-		defer func() {
-			if err := compose.Terminate(ctx); err != nil {
-				t.Fatalf("failed to terminate test containers: %s", err.Error())
-			}
-		}()
-
-		t.Run("backup-filesystem", func(t *testing.T) {
-			journey.BackupJourneyTests_Cluster(t, "filesystem",
-				fsBackupJourneyClassName, fsBackupJourneyBackupIDCluster, nil, false, "", "",
-				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})
 }

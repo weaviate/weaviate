@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,45 +26,44 @@ import (
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
-const GetNodeStatusTimeout = 30 * time.Second
-
 type db interface {
-	GetNodeStatus(ctx context.Context, className, verbosity string) ([]*models.NodeStatus, error)
+	GetNodeStatus(ctx context.Context, className, shardName, verbosity string) ([]*models.NodeStatus, error)
 	GetNodeStatistics(ctx context.Context) ([]*models.Statistics, error)
 }
 
 type Manager struct {
-	logger        logrus.FieldLogger
-	authorizer    authorization.Authorizer
-	db            db
-	schemaManager *schemaUC.Manager
-	rbacconfig    rbacconf.Config
+	logger                 logrus.FieldLogger
+	authorizer             authorization.Authorizer
+	db                     db
+	schemaManager          *schemaUC.Manager
+	rbacconfig             rbacconf.Config
+	minimumInternalTimeout time.Duration
 }
 
 func NewManager(logger logrus.FieldLogger, authorizer authorization.Authorizer,
-	db db, schemaManager *schemaUC.Manager, rbacconfig rbacconf.Config,
+	db db, schemaManager *schemaUC.Manager, rbacconfig rbacconf.Config, minimumInternalTimeout time.Duration,
 ) *Manager {
-	return &Manager{logger, authorizer, db, schemaManager, rbacconfig}
+	return &Manager{logger, authorizer, db, schemaManager, rbacconfig, minimumInternalTimeout}
 }
 
 // GetNodeStatus aggregates the status across all nodes. It will try for a
 // maximum of the configured timeout, then mark nodes as timed out.
 func (m *Manager) GetNodeStatus(ctx context.Context,
-	principal *models.Principal, className string, verbosityString string,
+	principal *models.Principal, className, shardName, verbosityString string,
 ) ([]*models.NodeStatus, error) {
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, m.minimumInternalTimeout)
 	defer cancel()
 
 	// filter output after getting results if info about all shards is requested
 	filterOutput := verbosityString == verbosity.OutputVerbose && className == "" && m.rbacconfig.Enabled
 
 	if !filterOutput {
-		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Nodes(verbosityString, className)...); err != nil {
+		if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Nodes(verbosityString, className)...); err != nil {
 			return nil, err
 		}
 	}
 
-	status, err := m.db.GetNodeStatus(ctxWithTimeout, className, verbosityString)
+	status, err := m.db.GetNodeStatus(ctxWithTimeout, className, shardName, verbosityString)
 	if err != nil {
 		return nil, err
 	}
@@ -74,6 +73,7 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 
 		for i, nodeS := range status {
 			status[i].Shards = resourceFilter.Filter(
+				ctx,
 				m.logger,
 				principal,
 				nodeS.Shards,
@@ -91,10 +91,10 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 func (m *Manager) GetNodeStatistics(ctx context.Context,
 	principal *models.Principal,
 ) ([]*models.Statistics, error) {
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, m.minimumInternalTimeout)
 	defer cancel()
 
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Cluster()); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Cluster()); err != nil {
 		return nil, err
 	}
 	return m.db.GetNodeStatistics(ctxWithTimeout)

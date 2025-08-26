@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -51,8 +51,8 @@ func NewReplicationClient(httpClient *http.Client) replica.Client {
 func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	shard string, id strfmt.UUID, selectProps search.SelectProperties,
 	additional additional.Properties, numRetries int,
-) (objects.Replica, error) {
-	resp := objects.Replica{}
+) (replica.Replica, error) {
+	resp := replica.Replica{}
 	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", id.String(), nil, 0)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
@@ -141,8 +141,8 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 
 func (c *replicationClient) FetchObjects(ctx context.Context, host,
 	index, shard string, ids []strfmt.UUID,
-) ([]objects.Replica, error) {
-	resp := make(objects.Replicas, len(ids))
+) ([]replica.Replica, error) {
+	resp := make(replica.Replicas, len(ids))
 	idsBytes, err := json.Marshal(ids)
 	if err != nil {
 		return nil, fmt.Errorf("marshal ids: %w", err)

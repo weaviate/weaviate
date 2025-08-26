@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,11 +28,16 @@ import (
 const ReplicateOKCode int = 200
 
 /*
-ReplicateOK Replication operation registered successfully
+ReplicateOK Replication operation registered successfully. ID of the operation is returned.
 
 swagger:response replicateOK
 */
 type ReplicateOK struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ReplicationReplicateReplicaResponse `json:"body,omitempty"`
 }
 
 // NewReplicateOK creates ReplicateOK with default headers values
@@ -41,12 +46,27 @@ func NewReplicateOK() *ReplicateOK {
 	return &ReplicateOK{}
 }
 
+// WithPayload adds the payload to the replicate o k response
+func (o *ReplicateOK) WithPayload(payload *models.ReplicationReplicateReplicaResponse) *ReplicateOK {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the replicate o k response
+func (o *ReplicateOK) SetPayload(payload *models.ReplicationReplicateReplicaResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *ReplicateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(200)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // ReplicateBadRequestCode is the HTTP code returned for type ReplicateBadRequest
@@ -246,6 +266,51 @@ func (o *ReplicateInternalServerError) SetPayload(payload *models.ErrorResponse)
 func (o *ReplicateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// ReplicateNotImplementedCode is the HTTP code returned for type ReplicateNotImplemented
+const ReplicateNotImplementedCode int = 501
+
+/*
+ReplicateNotImplemented Replica movement operations are disabled.
+
+swagger:response replicateNotImplemented
+*/
+type ReplicateNotImplemented struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewReplicateNotImplemented creates ReplicateNotImplemented with default headers values
+func NewReplicateNotImplemented() *ReplicateNotImplemented {
+
+	return &ReplicateNotImplemented{}
+}
+
+// WithPayload adds the payload to the replicate not implemented response
+func (o *ReplicateNotImplemented) WithPayload(payload *models.ErrorResponse) *ReplicateNotImplemented {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the replicate not implemented response
+func (o *ReplicateNotImplemented) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ReplicateNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(501)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,7 +12,6 @@
 package ent
 
 import (
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
@@ -28,22 +27,6 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	LowerCaseInput               = false
-)
-
-var (
-	availableVoyageAIModels = []string{
-		"voyage-3-large",
-		"voyage-3",
-		"voyage-3-lite",
-		"voyage-large-2",
-		"voyage-code-2",
-		"voyage-2",
-		"voyage-law-2",
-		"voyage-large-2-instruct",
-		"voyage-finance-2",
-		"voyage-multilingual-2",
-	}
-	experimetnalVoyageAIModels = []string{}
 )
 
 type classSettings struct {
@@ -71,11 +54,5 @@ func (cs classSettings) Validate(class *models.Class) error {
 	if err := cs.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}
-
-	model := cs.Model()
-	if !basesettings.ValidateSetting[string](model, append(availableVoyageAIModels, experimetnalVoyageAIModels...)) {
-		return errors.Errorf("wrong VoyageAI model name, available model names are: %v", availableVoyageAIModels)
-	}
-
 	return nil
 }

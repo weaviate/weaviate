@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -564,7 +564,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			Return(&search.Result{ClassName: "Publication"}, nil).Once()
 		vectorRepo.On("ObjectByID", strfmt.UUID("df48b9f6-ba48-470c-bf6a-57657cb07391"), mock.Anything, mock.Anything, mock.Anything).
 			Return(&search.Result{ClassName: "Article"}, nil).Once()
-		m := &autoSchemaManager{
+		m := &AutoSchemaManager{
 			schemaManager: &fakeSchemaManager{},
 			vectorRepo:    vectorRepo,
 			config:        tt.fields.config,
@@ -593,7 +593,7 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 		Return(&search.Result{ClassName: "Publication"}, nil).Once()
 	schemaManager := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
-	autoSchemaManager := &autoSchemaManager{
+	autoSchemaManager := &AutoSchemaManager{
 		schemaManager: schemaManager,
 		vectorRepo:    vectorRepo,
 		config: config.AutoSchema{
@@ -621,7 +621,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 		Return(&search.Result{ClassName: "Publication"}, nil).Once()
 	schemaManager := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
-	autoSchemaManager := &autoSchemaManager{
+	autoSchemaManager := &AutoSchemaManager{
 		schemaManager: schemaManager,
 		vectorRepo:    vectorRepo,
 		config: config.AutoSchema{
@@ -702,7 +702,7 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 			},
 		},
 	}
-	autoSchemaManager := &autoSchemaManager{
+	autoSchemaManager := &AutoSchemaManager{
 		schemaManager: schemaManager,
 		vectorRepo:    vectorRepo,
 		config: config.AutoSchema{
@@ -1281,7 +1281,7 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 		},
 	}
 
-	manager := &autoSchemaManager{
+	manager := &AutoSchemaManager{
 		schemaManager: &fakeSchemaManager{},
 		vectorRepo:    &fakeVectorRepo{},
 		config: config.AutoSchema{
@@ -1643,7 +1643,7 @@ func Test_autoSchemaManager_perform_withNested(t *testing.T) {
 			},
 		},
 	}
-	manager := &autoSchemaManager{
+	manager := &AutoSchemaManager{
 		schemaManager: schemaManager,
 		vectorRepo:    &fakeVectorRepo{},
 		config: config.AutoSchema{
@@ -1699,14 +1699,14 @@ func assertPropsMatch(t *testing.T, propsA, propsB []*models.Property) {
 
 type fakeAuthorizer struct{}
 
-func (f fakeAuthorizer) Authorize(_ *models.Principal, _ string, _ ...string) error {
+func (f fakeAuthorizer) Authorize(ctx context.Context, _ *models.Principal, _ string, _ ...string) error {
 	return nil
 }
 
-func (f fakeAuthorizer) AuthorizeSilent(_ *models.Principal, _ string, _ ...string) error {
+func (f fakeAuthorizer) AuthorizeSilent(ctx context.Context, _ *models.Principal, _ string, _ ...string) error {
 	return nil
 }
 
-func (f fakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+func (f fakeAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
 	return resources, nil
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,10 +25,9 @@ import (
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/jonboulle/clockwork"
-
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
@@ -42,8 +41,10 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -90,6 +91,12 @@ type Config struct {
 	// ElectionTimeout specifies the time in candidate state without contact
 	// from a leader before we attempt an election.
 	ElectionTimeout time.Duration
+	// LeaderLeaseTimeout specifies the time in leader state without contact
+	// from a follower before we attempt an election.
+	LeaderLeaseTimeout time.Duration
+	// TimeoutsMultiplier is the multiplier for the timeout values for
+	// raft election, heartbeat, and leader lease
+	TimeoutsMultiplier int
 
 	// Raft snapshot related settings
 
@@ -155,15 +162,26 @@ type Config struct {
 	ForceOneNodeRecovery bool
 
 	// 	AuthzController to manage RBAC commands and apply it to casbin
-	AuthzController       authorization.Controller
-	AuthNConfig           config.Authentication
+	AuthzController authorization.Controller
+	AuthNConfig     config.Authentication
+	RBAC            *rbac.Manager
+
 	DynamicUserController *apikey.DBUser
 
 	// ReplicaCopier copies shard replicas between nodes
 	ReplicaCopier replicationTypes.ReplicaCopier
 
+	// ReplicationEngineMaxWorkers is the maximum number of workers for the replication engine
+	ReplicationEngineMaxWorkers int
+
 	// DistributedTasks is the configuration for the distributed task manager.
 	DistributedTasks config.DistributedTasksConfig
+
+	ReplicaMovementDisabled bool
+
+	// ReplicaMovementMinimumAsyncWait is the minimum time bound that replica movement operations will wait before
+	// async replication can complete.
+	ReplicaMovementMinimumAsyncWait *runtime.DynamicValue[time.Duration]
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -221,12 +239,74 @@ type Store struct {
 
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
-	// / lastAppliedIndex index of latest update to the store
+	// lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
+
+	// snapshotter is the snapshotter for the store
+	snapshotter fsm.Snapshotter
+
+	// authZController is the authz controller for the store
+	authZController authorization.Controller
+
+	metrics *storeMetrics
+}
+
+// storeMetrics exposes RAFT store related prometheus metrics
+type storeMetrics struct {
+	applyDuration prometheus.Histogram
+	applyFailures prometheus.Counter
+
+	// raftLastAppliedIndex represents current applied index of a raft cluster in local node.
+	// This includes every commands including config changes
+	raftLastAppliedIndex prometheus.Gauge
+
+	// fsmLastAppliedIndex represents current applied index of cluster store FSM in local node.
+	// This includes commands without config changes
+	fsmLastAppliedIndex prometheus.Gauge
+
+	// fsmStartupAppliedIndex represents previous applied index of the cluster store FSM in local node
+	// that any restart would try to catch up
+	fsmStartupAppliedIndex prometheus.Gauge
+}
+
+// newStoreMetrics cretes and registers the store related metrics on
+// given prometheus registry.
+func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
+	r := promauto.With(reg)
+	return &storeMetrics{
+		applyDuration: r.NewHistogram(prometheus.HistogramOpts{
+			Name:        "weaviate_cluster_store_fsm_apply_duration_seconds",
+			Help:        "Time to apply cluster store FSM state in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+			Buckets:     prometheus.ExponentialBuckets(0.001, 5, 5), // 1ms, 5ms, 25ms, 125ms, 625ms
+		}),
+		applyFailures: r.NewCounter(prometheus.CounterOpts{
+			Name:        "weaviate_cluster_store_fsm_apply_failures_total",
+			Help:        "Total failure count of cluster store FSM state apply in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		raftLastAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
+			Name:        "weaviate_cluster_store_raft_last_applied_index",
+			Help:        "Current applied index of a raft cluster in local node. This includes every commands including config changes",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		fsmLastAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
+			Name:        "weaviate_cluster_store_fsm_last_applied_index",
+			Help:        "Current applied index of cluster store FSM in local node. This includes commands without config changes",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		fsmStartupAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
+			Name:        "weaviate_cluster_store_fsm_startup_applied_index",
+			Help:        "Previous applied index of the cluster store FSM in local node that any restart would try to catch up",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+	}
 }
 
 func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
+	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), reg)
+	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 
 	return Store{
 		cfg:          cfg,
@@ -240,13 +320,16 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			NodeNameToPortMap:  cfg.NodeNameToPortMap,
 		}),
 		schemaManager:      schemaManager,
-		authZManager:       rbacRaft.NewManager(authZController, cfg.AuthNConfig, snapshotter, cfg.Logger),
+		snapshotter:        snapshotter,
+		authZController:    authZController,
+		authZManager:       rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
-		replicationManager: replication.NewManager(cfg.Logger, schemaManager.NewSchemaReader(), cfg.ReplicaCopier, reg),
+		replicationManager: replicationManager,
 		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
 			Clock:            clockwork.NewRealClock(),
 			CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
 		}),
+		metrics: newStoreMetrics(cfg.NodeID, reg),
 	}
 }
 
@@ -282,7 +365,9 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("initialize raft store: %w", err)
 	}
 
-	st.lastAppliedIndexToDB.Store(st.lastIndex())
+	li := st.lastIndex()
+	st.lastAppliedIndexToDB.Store(li)
+	st.metrics.fsmStartupAppliedIndex.Set(float64(li))
 
 	// we have to open the DB before constructing new raft in case of restore calls
 	st.openDatabase(ctx)
@@ -345,7 +430,7 @@ func (st *Store) init() error {
 	}
 
 	// file snapshot store
-	st.snapshotStore, err = raft.NewFileSnapshotStore(st.cfg.WorkDir, nRetainedSnapShots, os.Stdout)
+	st.snapshotStore, err = raft.NewFileSnapshotStore(st.cfg.WorkDir, nRetainedSnapShots, st.log.Out)
 	if err != nil {
 		return fmt.Errorf("file snapshot store: %w", err)
 	}
@@ -635,11 +720,25 @@ func (st *Store) assertFuture(fut raft.IndexFuture) error {
 
 func (st *Store) raftConfig() *raft.Config {
 	cfg := raft.DefaultConfig()
+	// If the TimeoutsMultiplier is set, use it to multiply the timeout values
+	// This is used to speed up the raft election, heartbeat, and leader lease
+	// in a multi-node cluster.
+	// the default value is 1
+	// for production requirement,it's recommended to set it to 5
+	// this in order to tolerate the network delay and avoid extensive leader election triggered more frequently
+	// example : https://developer.hashicorp.com/consul/docs/reference/architecture/server#production-server-requirements
+	timeOutMultiplier := 1
+	if st.cfg.TimeoutsMultiplier > 1 {
+		timeOutMultiplier = st.cfg.TimeoutsMultiplier
+	}
 	if st.cfg.HeartbeatTimeout > 0 {
 		cfg.HeartbeatTimeout = st.cfg.HeartbeatTimeout
 	}
 	if st.cfg.ElectionTimeout > 0 {
 		cfg.ElectionTimeout = st.cfg.ElectionTimeout
+	}
+	if st.cfg.LeaderLeaseTimeout > 0 {
+		cfg.LeaderLeaseTimeout = st.cfg.LeaderLeaseTimeout
 	}
 	if st.cfg.SnapshotInterval > 0 {
 		cfg.SnapshotInterval = st.cfg.SnapshotInterval
@@ -650,9 +749,12 @@ func (st *Store) raftConfig() *raft.Config {
 	if st.cfg.TrailingLogs > 0 {
 		cfg.TrailingLogs = st.cfg.TrailingLogs
 	}
-
+	cfg.HeartbeatTimeout *= time.Duration(timeOutMultiplier)
+	cfg.ElectionTimeout *= time.Duration(timeOutMultiplier)
+	cfg.LeaderLeaseTimeout *= time.Duration(timeOutMultiplier)
 	cfg.LocalID = raft.ServerID(st.cfg.NodeID)
 	cfg.LogLevel = st.cfg.Logger.GetLevel().String()
+	cfg.NoLegacyTelemetry = true
 
 	logger := log.NewHCLogrusLogger("raft", st.log)
 	cfg.Logger = logger
@@ -703,7 +805,10 @@ func (st *Store) reloadDBFromSchema() {
 	if err != nil {
 		st.log.WithField("error", err).Warn("can't detect the last applied command, setting the lastLogApplied to 0")
 	}
-	st.lastAppliedIndexToDB.Store(max(lastSnapshotIndex(st.snapshotStore), lastLogApplied))
+
+	val := max(lastSnapshotIndex(st.snapshotStore), lastLogApplied)
+	st.lastAppliedIndexToDB.Store(val)
+	st.metrics.fsmStartupAppliedIndex.Set(float64(val))
 }
 
 func (st *Store) FSMHasCaughtUp() bool {
@@ -717,8 +822,12 @@ type Response struct {
 
 var _ raft.FSM = &Store{}
 
-func lastSnapshotIndex(ss *raft.FileSnapshotStore) uint64 {
-	ls, err := ss.List()
+func lastSnapshotIndex(snapshotStore *raft.FileSnapshotStore) uint64 {
+	if snapshotStore == nil {
+		return 0
+	}
+
+	ls, err := snapshotStore.List()
 	if err != nil || len(ls) == 0 {
 		return 0
 	}
@@ -774,18 +883,12 @@ func (st *Store) recoverSingleNode(force bool) error {
 	// the restore to avoid any data change.
 	recoveryConfig.MetadataOnlyVoters = true
 	recoveryConfig.DB = nil
-	if err := raft.RecoverCluster(st.raftConfig(), &Store{
-		cfg:           recoveryConfig,
-		log:           st.log,
-		raftResolver:  st.raftResolver,
-		raftTransport: st.raftTransport,
-		applyTimeout:  st.applyTimeout,
-		snapshotStore: st.snapshotStore,
-		schemaManager: st.schemaManager,
-		authZManager:  st.authZManager,
-		logStore:      st.logStore,
-		logCache:      st.logCache,
-	}, st.logCache,
+	// we don't use actual registry here, because we don't want to register metrics, it's already registered
+	// in actually FSM and this is FSM is temporary for recovery.
+	tempFSM := NewFSM(recoveryConfig, st.authZController, st.snapshotter, prometheus.NewPedanticRegistry())
+	if err := raft.RecoverCluster(st.raftConfig(),
+		&tempFSM,
+		st.logCache,
 		st.logStore,
 		st.snapshotStore,
 		st.raftTransport,

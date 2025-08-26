@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,7 +30,7 @@ func TestVectorCacheGrowth(t *testing.T) {
 	id := 100_000
 	expectedCount := int64(0)
 
-	vectorCache := NewShardedFloat32LockCache(vecForId, 1_000_000, 1, logger, false, time.Duration(10_000), nil)
+	vectorCache := NewShardedFloat32LockCache(vecForId, nil, 1_000_000, 1, logger, false, time.Duration(10_000), nil)
 	initialSize := vectorCache.Len()
 	assert.Less(t, int(initialSize), id)
 	assert.Equal(t, expectedCount, vectorCache.CountVectors())
@@ -52,7 +52,7 @@ func TestCache_ParallelGrowth(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	var vecForId common.VectorForID[float32] = func(context.Context, uint64) ([]float32, error) { return nil, nil }
-	vectorCache := NewShardedFloat32LockCache(vecForId, 1_000_000, 1, logger, false, time.Second, nil)
+	vectorCache := NewShardedFloat32LockCache(vecForId, nil, 1_000_000, 1, logger, false, time.Second, nil)
 
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	count := 10_000
@@ -83,7 +83,7 @@ func TestCacheCleanup(t *testing.T) {
 	sleepDuration := deletionInterval + 100*time.Millisecond
 
 	t.Run("count is not reset on unnecessary deletion", func(t *testing.T) {
-		vectorCache := NewShardedFloat32LockCache(vecForId, maxSize, 1, logger, false, deletionInterval, nil)
+		vectorCache := NewShardedFloat32LockCache(vecForId, nil, maxSize, 1, logger, false, deletionInterval, nil)
 		shardedLockCache, ok := vectorCache.(*shardedLockCache[float32])
 		assert.True(t, ok)
 
@@ -102,7 +102,7 @@ func TestCacheCleanup(t *testing.T) {
 	})
 
 	t.Run("deletion clears cache and counter when maxSize exceeded", func(t *testing.T) {
-		vectorCache := NewShardedFloat32LockCache(vecForId, maxSize, 1, logger, false, deletionInterval, nil)
+		vectorCache := NewShardedFloat32LockCache(vecForId, nil, maxSize, 1, logger, false, deletionInterval, nil)
 		shardedLockCache, ok := vectorCache.(*shardedLockCache[float32])
 		assert.True(t, ok)
 
@@ -141,7 +141,7 @@ func TestGetAllInCurrentLock(t *testing.T) {
 
 	t.Run("fully cached page", func(t *testing.T) {
 		// Setup a cache with some pre-loaded vectors
-		vectorCache := NewShardedFloat32LockCache(nil, maxSize, pageSize, logger, false, 0, nil)
+		vectorCache := NewShardedFloat32LockCache(nil, nil, maxSize, pageSize, logger, false, 0, nil)
 		cache := vectorCache.(*shardedLockCache[float32])
 
 		// Preload vectors for a full page
@@ -173,7 +173,7 @@ func TestGetAllInCurrentLock(t *testing.T) {
 			return []float32{float32(id * 100)}, nil
 		}
 
-		vectorCache := NewShardedFloat32LockCache(vecForID, maxSize, pageSize, logger, false, 0, nil)
+		vectorCache := NewShardedFloat32LockCache(vecForID, nil, maxSize, pageSize, logger, false, 0, nil)
 		cache := vectorCache.(*shardedLockCache[float32])
 
 		// Preload only some vectors
@@ -204,7 +204,7 @@ func TestGetAllInCurrentLock(t *testing.T) {
 	})
 
 	t.Run("page beyond cache size", func(t *testing.T) {
-		vectorCache := NewShardedFloat32LockCache(nil, maxSize, pageSize, logger, false, 0, nil)
+		vectorCache := NewShardedFloat32LockCache(nil, nil, maxSize, pageSize, logger, false, 0, nil)
 		cache := vectorCache.(*shardedLockCache[float32])
 
 		// Request vectors beyond current cache size
@@ -232,7 +232,7 @@ func TestGetAllInCurrentLock(t *testing.T) {
 			return nil, expectedErr
 		}
 
-		vectorCache := NewShardedFloat32LockCache(vecForID, maxSize, pageSize, logger, false, 0, nil)
+		vectorCache := NewShardedFloat32LockCache(vecForID, nil, maxSize, pageSize, logger, false, 0, nil)
 		cache := vectorCache.(*shardedLockCache[float32])
 
 		out := make([][]float32, pageSize)

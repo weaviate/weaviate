@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -34,6 +34,7 @@ func TestCNA(t *testing.T) {
 			f:    createCNAOnFlush,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
+				WithCalcCountNetAdditions(true),
 			},
 		},
 		{
@@ -41,6 +42,7 @@ func TestCNA(t *testing.T) {
 			f:    createCNAInit,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
+				WithCalcCountNetAdditions(true),
 			},
 		},
 		{
@@ -48,6 +50,7 @@ func TestCNA(t *testing.T) {
 			f:    repairCorruptedCNAOnInit,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
+				WithCalcCountNetAdditions(true),
 			},
 		},
 	}
@@ -97,6 +100,10 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	err = os.RemoveAll(path.Join(dirName, fname))
 	require.Nil(t, err)
 
+	// just to ensure segments are loaded
+	cursor := b.Cursor()
+	cursor.Close()
+
 	files, err = os.ReadDir(dirName)
 	require.Nil(t, err)
 	_, ok = findFileWithExt(files, ".cna")
@@ -110,6 +117,10 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
+
+	// just to ensure segments are loaded
+	cursor = b2.Cursor()
+	cursor.Close()
 
 	files, err = os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -160,7 +171,6 @@ func TestCNA_OFF(t *testing.T) {
 			f:    dontCreateCNA,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
-				WithCalcCountNetAdditions(false),
 			},
 		},
 		{
@@ -168,7 +178,6 @@ func TestCNA_OFF(t *testing.T) {
 			f:    dontRecreateCNA,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
-				WithCalcCountNetAdditions(false),
 			},
 		},
 		{
@@ -176,7 +185,6 @@ func TestCNA_OFF(t *testing.T) {
 			f:    dontPrecomputeCNA,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
-				WithCalcCountNetAdditions(false),
 			},
 		},
 	}

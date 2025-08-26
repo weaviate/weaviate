@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -355,4 +355,50 @@ func TestConcurrentReads(t *testing.T) {
 			assert.Less(t, latency, float32(1_000_000))
 		})
 	}
+}
+
+func TestFlat_Validation(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := t.Context()
+
+	dirName := t.TempDir()
+
+	store, err := lsmkv.New(dirName, dirName, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+
+	distancr := distancer.NewCosineDistanceProvider()
+
+	index, err := New(Config{
+		ID:               "id",
+		RootPath:         t.TempDir(),
+		DistanceProvider: distancr,
+	}, flatent.UserConfig{}, store)
+	require.Nil(t, err)
+
+	// call ValidateBeforeInsert before inserting anything
+	err = index.ValidateBeforeInsert([]float32{-2, 0})
+	require.Nil(t, err)
+
+	// add a vector with 2 dims
+	err = index.Add(ctx, uint64(0), []float32{-2, 0})
+	require.Nil(t, err)
+
+	// validate before inserting a vector with 2 dim
+	err = index.ValidateBeforeInsert([]float32{-1, 0})
+	require.NoError(t, err)
+
+	// add again
+	err = index.Add(ctx, uint64(0), []float32{-1, 0})
+	require.Nil(t, err)
+
+	// validate before inserting a vector with 1 dim
+	err = index.ValidateBeforeInsert([]float32{-2})
+	require.Error(t, err)
+
+	// add a vector with 1 dim
+	err = index.Add(ctx, uint64(0), []float32{-2})
+	require.Error(t, err)
 }

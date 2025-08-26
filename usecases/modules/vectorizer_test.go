@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,12 +25,13 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestProvider_ValidateVectorizer(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	t.Run("with vectorizer module", func(t *testing.T) {
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		vec := newDummyModule("some-module", modulecapabilities.Text2Vec)
 		p.Register(vec)
 
@@ -39,7 +40,7 @@ func TestProvider_ValidateVectorizer(t *testing.T) {
 	})
 
 	t.Run("with reference vectorizer module", func(t *testing.T) {
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		refVec := newDummyModule("some-module", modulecapabilities.Ref2Vec)
 		p.Register(refVec)
 
@@ -49,7 +50,7 @@ func TestProvider_ValidateVectorizer(t *testing.T) {
 
 	t.Run("with non-vectorizer module", func(t *testing.T) {
 		modName := "some-module"
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		nonVec := newDummyModule(modName, "")
 		p.Register(nonVec)
 
@@ -62,7 +63,7 @@ func TestProvider_ValidateVectorizer(t *testing.T) {
 
 	t.Run("with unregistered module", func(t *testing.T) {
 		modName := "does-not-exist"
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		expectedErr := fmt.Sprintf(
 			"no module with name %q present",
 			modName)
@@ -85,7 +86,7 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 				},
 			}},
 		}}
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 		p.Register(mod)
 		assert.True(t, p.UsingRef2Vec(className))
@@ -103,7 +104,7 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 				},
 			}},
 		}}
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 		p.Register(mod)
 		assert.False(t, p.UsingRef2Vec(className))
@@ -113,7 +114,7 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 		className := "SomeClass"
 		mod := newDummyModule("", "")
 
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.SetSchemaGetter(&fakeSchemaGetter{schema.Schema{}})
 		p.Register(mod)
 		assert.False(t, p.UsingRef2Vec(className))
@@ -128,7 +129,7 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 				Class: className,
 			}},
 		}}
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 		p.Register(mod)
 		assert.False(t, p.UsingRef2Vec(className))
@@ -145,7 +146,7 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 				},
 			}},
 		}}
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 		assert.False(t, p.UsingRef2Vec(className))
 	})
@@ -173,7 +174,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		repo := &fakeObjectsRepo{}
 		logger, _ := test.NewNullLogger()
 
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.Register(mod)
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 
@@ -192,7 +193,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		mod := newDummyModule("", "")
 		logger, _ := test.NewNullLogger()
 
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.Register(mod)
 		p.SetSchemaGetter(&fakeSchemaGetter{schema.Schema{}})
 
@@ -210,7 +211,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		}
 
 		logger, _ := test.NewNullLogger()
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 
 		obj := &models.Object{Class: class.Class, ID: newUUID()}
 		err := p.UpdateVector(ctx, obj, class, (&fakeObjectsRepo{}).Object, logger)
@@ -237,7 +238,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		repo := &fakeObjectsRepo{}
 		logger, _ := test.NewNullLogger()
 
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.Register(mod)
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 
@@ -265,7 +266,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		repo := &fakeObjectsRepo{}
 		logger, _ := test.NewNullLogger()
 
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.Register(mod)
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 
@@ -281,7 +282,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		ctx := context.Background()
 		modName := "colbert"
 		className := "SomeClass"
-		mod := newDummyModule(modName, modulecapabilities.Text2ColBERT)
+		mod := newDummyModule(modName, modulecapabilities.Text2Multivec)
 		class := models.Class{
 			Class: className,
 			VectorConfig: map[string]models.VectorConfig{
@@ -300,7 +301,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		repo := &fakeObjectsRepo{}
 		logger, _ := test.NewNullLogger()
 
-		p := NewProvider(logger)
+		p := NewProvider(logger, config.Config{})
 		p.Register(mod)
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 

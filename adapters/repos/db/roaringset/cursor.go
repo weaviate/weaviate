@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -95,36 +95,38 @@ func (c *CombinedCursor) getResultFromStates(states []innerCursorState) ([]byte,
 	// If all cursors returned NotFound, combined Seek has no result, therefore inner cursors' states
 	// should not be updated to allow combined cursor to proceed with following Next calls
 
-	key, ids, allNotFound := c.getCursorIdsWithLowestKey(states)
-	if !allNotFound {
-		c.states = states
-	}
-	layers := BitmapLayers{}
-	for _, id := range ids {
-		layers = append(layers, c.states[id].layer)
-		// forward cursors used in final result
-		c.states[id] = c.createState(c.cursors[id].Next())
-	}
+	for {
+		key, ids, allNotFound := c.getCursorIdsWithLowestKey(states)
+		if !allNotFound {
+			c.states = states
+		}
+		layers := BitmapLayers{}
+		for _, id := range ids {
+			layers = append(layers, c.states[id].layer)
+			// forward cursors used in final result
+			c.states[id] = c.createState(c.cursors[id].Next())
+		}
 
-	if key == nil && c.keyOnly {
-		return nil, nil
-	}
+		if key == nil && c.keyOnly {
+			return nil, nil
+		}
 
-	bm := layers.Flatten(true)
-	if key == nil {
-		return nil, bm
-	}
+		bm := layers.Flatten(true)
+		if key == nil {
+			return nil, bm
+		}
 
-	if bm.IsEmpty() {
-		// all values deleted, skip key
-		return c.Next()
-	}
+		if bm.IsEmpty() {
+			// all values deleted, skip key
+			continue
+		}
 
-	// TODO remove keyOnly option, not used anyway
-	if !c.keyOnly {
-		return key, bm
+		// TODO remove keyOnly option, not used anyway
+		if !c.keyOnly {
+			return key, bm
+		}
+		return key, nil
 	}
-	return key, nil
 }
 
 func (c *CombinedCursor) getCursorIdsWithLowestKey(states []innerCursorState) ([]byte, []int, bool) {

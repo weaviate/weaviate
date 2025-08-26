@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,38 +35,37 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/scaler"
 )
 
 var IndicesPayloads = indicesPayloads{}
 
 type indicesPayloads struct {
-	ErrorList                 errorListPayload
-	SingleObject              singleObjectPayload
-	MergeDoc                  mergeDocPayload
-	ObjectList                objectListPayload
-	VersionedObjectList       versionedObjectListPayload
-	SearchResults             searchResultsPayload
-	SearchParams              searchParamsPayload
-	VectorDistanceParams      vectorDistanceParamsPayload
-	VectorDistanceResults     vectorDistanceResultsPayload
-	ReferenceList             referenceListPayload
-	AggregationParams         aggregationParamsPayload
-	AggregationResult         aggregationResultPayload
-	FindUUIDsParams           findUUIDsParamsPayload
-	FindUUIDsResults          findUUIDsResultsPayload
-	BatchDeleteParams         batchDeleteParamsPayload
-	BatchDeleteResults        batchDeleteResultsPayload
-	GetShardQueueSizeParams   getShardQueueSizeParamsPayload
-	GetShardQueueSizeResults  getShardQueueSizeResultsPayload
-	GetShardStatusParams      getShardStatusParamsPayload
-	GetShardStatusResults     getShardStatusResultsPayload
-	UpdateShardStatusParams   updateShardStatusParamsPayload
-	UpdateShardsStatusResults updateShardsStatusResultsPayload
-	ShardFiles                shardFilesPayload
-	IncreaseReplicationFactor increaseReplicationFactorPayload
-	ShardFileMetadataResults  shardFileMetadataResultsPayload
-	ShardFilesResults         shardFilesResultsPayload
+	ErrorList                  errorListPayload
+	SingleObject               singleObjectPayload
+	MergeDoc                   mergeDocPayload
+	ObjectList                 objectListPayload
+	VersionedObjectList        versionedObjectListPayload
+	SearchResults              searchResultsPayload
+	SearchParams               searchParamsPayload
+	VectorDistanceParams       vectorDistanceParamsPayload
+	VectorDistanceResults      vectorDistanceResultsPayload
+	ReferenceList              referenceListPayload
+	AggregationParams          aggregationParamsPayload
+	AggregationResult          aggregationResultPayload
+	FindUUIDsParams            findUUIDsParamsPayload
+	FindUUIDsResults           findUUIDsResultsPayload
+	BatchDeleteParams          batchDeleteParamsPayload
+	BatchDeleteResults         batchDeleteResultsPayload
+	GetShardQueueSizeParams    getShardQueueSizeParamsPayload
+	GetShardQueueSizeResults   getShardQueueSizeResultsPayload
+	GetShardStatusParams       getShardStatusParamsPayload
+	GetShardStatusResults      getShardStatusResultsPayload
+	UpdateShardStatusParams    updateShardStatusParamsPayload
+	UpdateShardsStatusResults  updateShardsStatusResultsPayload
+	ShardFiles                 shardFilesPayload
+	ShardFileMetadataResults   shardFileMetadataResultsPayload
+	ShardFilesResults          shardFilesResultsPayload
+	AsyncReplicationTargetNode asyncReplicationTargetNode
 }
 
 type shardFileMetadataResultsPayload struct{}
@@ -105,28 +104,18 @@ func (p shardFilesResultsPayload) Unmarshal(in []byte) ([]string, error) {
 	return shardFiles, nil
 }
 
-type increaseReplicationFactorPayload struct{}
+type asyncReplicationTargetNode struct{}
 
-func (p increaseReplicationFactorPayload) Marshall(dist scaler.ShardDist) ([]byte, error) {
-	type payload struct {
-		ShardDist scaler.ShardDist `json:"shard_distribution"`
-	}
-
-	pay := payload{ShardDist: dist}
-	return json.Marshal(pay)
+func (p asyncReplicationTargetNode) MIME() string {
+	return "application/vnd.weaviate.asyncreplicationtargetnode+json"
 }
 
-func (p increaseReplicationFactorPayload) Unmarshal(in []byte) (scaler.ShardDist, error) {
-	type payload struct {
-		ShardDist scaler.ShardDist `json:"shard_distribution"`
-	}
+func (p asyncReplicationTargetNode) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
 
-	pay := payload{}
-	if err := json.Unmarshal(in, &pay); err != nil {
-		return nil, fmt.Errorf("unmarshal replication factor payload: %w", err)
-	}
-
-	return pay.ShardDist, nil
+func (p asyncReplicationTargetNode) Marshal(in additional.AsyncReplicationTargetNodeOverride) ([]byte, error) {
+	return json.Marshal(in)
 }
 
 type errorListPayload struct{}
@@ -441,10 +430,6 @@ func (p vectorDistanceResultsPayload) Unmarshal(in []byte) ([]float32, error) {
 		read += 4
 	}
 
-	if read != uint64(len(in)) {
-		return nil, errors.Errorf("corrupt read: %d != %d", read, len(in))
-	}
-
 	return dists, nil
 }
 
@@ -608,10 +593,6 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 	for i := range dists {
 		dists[i] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
 		read += 4
-	}
-
-	if read != uint64(len(in)) {
-		return nil, nil, errors.Errorf("corrupt read: %d != %d", read, len(in))
 	}
 
 	return objs, dists, nil

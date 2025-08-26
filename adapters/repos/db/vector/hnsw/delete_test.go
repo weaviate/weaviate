@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,10 +29,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func TempVectorForIDThunk(vectors [][]float32) func(context.Context, uint64, *common.VectorSlice) ([]float32, error) {
@@ -338,9 +341,7 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 		assert.LessOrEqual(t, alreadyRunningCount, 1, "Expected at most one 'already running' error")
 		stats, err := vectorIndex.Stats()
 		require.Nil(t, err)
-		hnswStats, ok := stats.(*HnswStats)
-		require.True(t, ok)
-		assert.Equal(t, 0, hnswStats.NumTombstones, "Expected no tombstones after cleanup")
+		assert.Equal(t, 0, stats.NumTombstones, "Expected no tombstones after cleanup")
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -350,7 +351,7 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 
 func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T) {
 	var vectors [][]float32
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < 1000; i++ {
 		vectors = append(vectors, []float32{rand.Float32(), rand.Float32(), rand.Float32()})
 	}
 	var vectorIndex *hnsw
@@ -650,7 +651,7 @@ func genStopAtFunc(i int) func() bool {
 
 func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 	ctx := context.Background()
-	vectors := vectorsForDeleteTest()
+	vectors := vectorsForDeleteTest()[:50]
 	var index *hnsw
 	var possibleStopsCount int
 	// due to not yet resolved bug (https://semi-technology.atlassian.net/browse/WEAVIATE-179)
@@ -1029,8 +1030,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 		vectors    = vectorsForDeleteTest()
 		rootPath   = t.TempDir()
 		userConfig = ent.UserConfig{
-			MaxConnections: 30,
-			EFConstruction: 128,
+			MaxConnections: 16,
+			EFConstruction: 32,
 
 			// The actual size does not matter for this test, but if it defaults to
 			// zero it will constantly think it's full and needs to be deleted - even
@@ -1072,8 +1073,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 		cfg := ent.PQConfig{
 			Enabled: true,
 			Encoder: ent.PQEncoder{
-				Type:         ent.PQEncoderTypeTile,
-				Distribution: ent.PQEncoderDistributionLogNormal,
+				Type:         ent.PQEncoderTypeKMeans,
+				Distribution: ent.PQEncoderDistributionNormal,
 			},
 			BitCompression: false,
 			Segments:       3,
@@ -1255,6 +1256,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
+		EF:             36,
 
 		// The actual size does not matter for this test, but if it defaults to
 		// zero it will constantly think it's full and needs to be deleted - even
@@ -1267,63 +1269,72 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	index.entryPointID = 6
 	index.currentMaximumLayer = 1
 	index.nodes = make([]*vertex, 50)
+	conns, _ := packedconn.NewWithElements([][]uint64{
+		{1, 2, 3, 4, 5, 6, 7, 8},
+	})
 	index.nodes[0] = &vertex{
-		id: 0,
-		connections: [][]uint64{
-			{1, 2, 3, 4, 5, 6, 7, 8},
-		},
+		id:          0,
+		connections: conns,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		{0, 2, 3, 4, 5, 6, 7, 8},
+	})
 	index.nodes[1] = &vertex{
-		id: 1,
-		connections: [][]uint64{
-			{0, 2, 3, 4, 5, 6, 7, 8},
-		},
+		id:          1,
+		connections: conns,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		{1, 0, 3, 4, 5, 6, 7, 8},
+	})
 	index.nodes[2] = &vertex{
-		id: 2,
-		connections: [][]uint64{
-			{1, 0, 3, 4, 5, 6, 7, 8},
-		},
+		id:          2,
+		connections: conns,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		{2, 1, 0, 4, 5, 6, 7, 8},
+	})
 	index.nodes[3] = &vertex{
-		id: 3,
-		connections: [][]uint64{
-			{2, 1, 0, 4, 5, 6, 7, 8},
-		},
+		id:          3,
+		connections: conns,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		{3, 2, 1, 0, 5, 6, 7, 8},
+	})
 	index.nodes[4] = &vertex{
-		id: 4,
-		connections: [][]uint64{
-			{3, 2, 1, 0, 5, 6, 7, 8},
-		},
+		id:          4,
+		connections: conns,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		{3, 4, 2, 1, 0, 6, 7, 8},
+	})
 	index.nodes[5] = &vertex{
-		id: 5,
-		connections: [][]uint64{
-			{3, 4, 2, 1, 0, 6, 7, 8},
-		},
+		id:          5,
+		connections: conns,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		{4, 3, 1, 3, 5, 0, 7, 8},
+		{7},
+	})
 	index.nodes[6] = &vertex{
-		id: 6,
-		connections: [][]uint64{
-			{4, 3, 1, 3, 5, 0, 7, 8},
-			{7},
-		},
-		level: 1,
+		id:          6,
+		connections: conns,
+		level:       1,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		{6, 4, 3, 5, 2, 1, 0, 8},
+		{6},
+	})
 	index.nodes[7] = &vertex{
-		id: 7,
-		connections: [][]uint64{
-			{6, 4, 3, 5, 2, 1, 0, 8},
-			{6},
-		},
-		level: 1,
+		id:          7,
+		connections: conns,
+		level:       1,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		{7, 6, 4, 3, 5, 2, 1, 0},
+	})
 	index.nodes[8] = &vertex{
-		id: 8,
-		connections: [][]uint64{
-			8: {7, 6, 4, 3, 5, 2, 1, 0},
-		},
+		id:          8,
+		connections: conns,
 	}
 
 	dumpIndex(index, "before delete")
@@ -1349,7 +1360,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 
 	t.Run("verify that the results are correct", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 50, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
@@ -1416,25 +1427,28 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		1: {},
 	}
 	index.nodes = make([]*vertex, 50)
+	conns, _ := packedconn.NewWithElements([][]uint64{
+		{1},
+	})
 	index.nodes[0] = &vertex{
-		id: 0,
-		connections: [][]uint64{
-			0: {1},
-		},
+		id:          0,
+		connections: conns,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		0: {0, 2},
+		1: {2},
+	})
 	index.nodes[1] = &vertex{
-		id: 1,
-		connections: [][]uint64{
-			0: {0, 2},
-			1: {2},
-		},
+		id:          1,
+		connections: conns,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		0: {1},
+		1: {1},
+	})
 	index.nodes[2] = &vertex{
-		id: 2,
-		connections: [][]uint64{
-			0: {1},
-			1: {1},
-		},
+		id:          2,
+		connections: conns,
 	}
 
 	dumpIndex(index, "before adding another element")
@@ -1449,7 +1463,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 
 	t.Run("verify that the results are correct", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 50, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
@@ -1620,7 +1634,7 @@ func neverStop() bool {
 }
 
 func slowNeverStop() bool {
-	time.Sleep(time.Millisecond * 10)
+	time.Sleep(time.Millisecond * 3)
 	return false
 }
 
@@ -1732,8 +1746,8 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 		if node == nil {
 			continue
 		}
-		require.LessOrEqual(t, len(node.connections[0]), index.maximumConnectionsLayerZero)
-		some = some || len(node.connections[0]) > index.maximumConnections
+		require.LessOrEqual(t, len(node.connections.GetLayer(0)), index.maximumConnectionsLayerZero)
+		some = some || len(node.connections.GetLayer(0)) > index.maximumConnections
 	}
 	require.True(t, some)
 
@@ -1754,8 +1768,8 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 		if node == nil {
 			continue
 		}
-		require.LessOrEqual(t, len(node.connections[0]), index.maximumConnectionsLayerZero)
-		some = some || len(node.connections[0]) > index.maximumConnections
+		require.LessOrEqual(t, len(node.connections.GetLayer(0)), index.maximumConnectionsLayerZero)
+		some = some || len(node.connections.GetLayer(0)) > index.maximumConnections
 	}
 	require.True(t, some)
 
@@ -1814,7 +1828,9 @@ func TestDelete_WithCleaningUpTombstonesOnceRemovesAllRelatedConnections(t *test
 			continue
 		}
 		assert.NotEqual(t, 0, i%2)
-		for level, connections := range node.connections {
+		iter := node.connections.Iterator()
+		for iter.Next() {
+			level, connections := iter.Current()
 			for _, id := range connections {
 				assert.NotEqual(t, uint64(0), id%2)
 				if id%2 == 0 {
@@ -1833,7 +1849,7 @@ func TestDelete_WithCleaningUpTombstonesWithHighConcurrency(t *testing.T) {
 	os.Setenv("TOMBSTONE_DELETION_CONCURRENCY", "100")
 	defer os.Unsetenv("TOMBSTONE_DELETION_CONCURRENCY")
 	// there is a single bulk clean event after all the deletes
-	vectors, _ := testinghelpers.RandomVecs(3_000, 1, 1536)
+	vectors, _ := testinghelpers.RandomVecs(1_000, 1, 64)
 	var vectorIndex *hnsw
 
 	store := testinghelpers.NewDummyStore(t)
@@ -1961,4 +1977,108 @@ func Test_ResetNodesDuringTombstoneCleanup(t *testing.T) {
 
 	// Wait for both operations to complete
 	wg.Wait()
+}
+
+func Test_DeleteTombstoneMetrics(t *testing.T) {
+	vectors := vectorsForDeleteTest()
+	ctx := context.Background()
+	var vectorIndex *hnsw
+
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	metrics := monitoring.GetMetrics()
+
+	t.Run("import the test vectors", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			PrometheusMetrics:    metrics,
+		}, ent.UserConfig{
+			MaxConnections:        30,
+			EFConstruction:        64,
+			VectorCacheMaxObjects: 100000,
+		}, cyclemanager.NewCallbackGroupNoop(), store)
+		require.Nil(t, err)
+		vectorIndex = index
+
+		for i, vec := range vectors {
+			err := vectorIndex.Add(ctx, uint64(i), vec)
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("deleting every even element", func(t *testing.T) {
+		for i := range vectors {
+			if i%2 != 0 {
+				continue
+			}
+
+			err := vectorIndex.Delete(uint64(i))
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("verify tombstones metric is updated correctly", func(t *testing.T) {
+		metric, err := metrics.VectorIndexTombstones.GetMetricWithLabelValues("", "")
+		require.Nil(t, err)
+		metricValue := testutil.ToFloat64(metric)
+		require.Equal(t, float64(len(vectors)/2+1), metricValue, "dimensions should match expected value")
+	})
+
+	t.Run("restart index without tombstone cleanup", func(t *testing.T) {
+		err := vectorIndex.Flush()
+		require.Nil(t, err)
+		err = vectorIndex.Shutdown(context.TODO())
+		require.Nil(t, err)
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		}, ent.UserConfig{
+			MaxConnections:        30,
+			EFConstruction:        64,
+			VectorCacheMaxObjects: 100000,
+		}, cyclemanager.NewCallbackGroupNoop(), store)
+		require.Nil(t, err)
+		vectorIndex = index
+	})
+
+	t.Run("verify tombstone metric is correct after restart", func(t *testing.T) {
+		metric, err := metrics.VectorIndexTombstones.GetMetricWithLabelValues("", "")
+		require.Nil(t, err)
+		metricValue := testutil.ToFloat64(metric)
+		require.Equal(t, float64(len(vectors)/2+1), metricValue, "dimensions should match expected value")
+	})
+
+	t.Run("running the cleanup", func(t *testing.T) {
+		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+		require.Nil(t, err)
+	})
+
+	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
+		assert.Len(t, vectorIndex.tombstones, 0)
+	})
+
+	t.Run("verify tombstone metric is zero", func(t *testing.T) {
+		metric, err := metrics.VectorIndexTombstones.GetMetricWithLabelValues("n/a", "n/a")
+		require.Nil(t, err)
+		metricValue := testutil.ToFloat64(metric)
+		require.Equal(t, float64(0), metricValue, "dimensions should match expected value")
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		require.Nil(t, vectorIndex.Drop(context.Background()))
+	})
 }

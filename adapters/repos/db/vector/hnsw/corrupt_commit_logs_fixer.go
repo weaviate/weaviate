@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,19 +16,14 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 )
 
 // CorruptCommitLogFixer helps identify potentially corrupt commit logs and
 // tries to mitigate the problem
-type CorruptCommitLogFixer struct {
-	logger logrus.FieldLogger
-}
+type CorruptCommitLogFixer struct{}
 
-func NewCorruptedCommitLogFixer(logger logrus.FieldLogger) *CorruptCommitLogFixer {
-	return &CorruptCommitLogFixer{
-		logger: logger,
-	}
+func NewCorruptedCommitLogFixer() *CorruptCommitLogFixer {
+	return &CorruptCommitLogFixer{}
 }
 
 // Do tries to delete files that could be corrupt and removes them from the

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,10 +16,12 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/objects/alias"
 )
 
 // BatchManager manages kind changes in batch at a use-case level , i.e.
@@ -32,7 +34,7 @@ type BatchManager struct {
 	vectorRepo        BatchVectorRepo
 	timeSource        timeSource
 	modulesProvider   ModulesProvider
-	autoSchemaManager *autoSchemaManager
+	autoSchemaManager *AutoSchemaManager
 	metrics           *Metrics
 }
 
@@ -54,7 +56,7 @@ type batchRepoNew interface {
 func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider,
 	schemaManager schemaManager, config *config.WeaviateConfig,
 	logger logrus.FieldLogger, authorizer authorization.Authorizer,
-	prom *monitoring.PrometheusMetrics,
+	prom *monitoring.PrometheusMetrics, autoSchemaManager *AutoSchemaManager,
 ) *BatchManager {
 	return &BatchManager{
 		config:            config,
@@ -64,7 +66,12 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 		timeSource:        defaultTimeSource{},
 		modulesProvider:   modulesProvider,
 		authorizer:        authorizer,
-		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger),
+		autoSchemaManager: autoSchemaManager,
 		metrics:           NewMetrics(prom),
 	}
+}
+
+// Alias support
+func (m *BatchManager) resolveAlias(class string) (className, aliasName string) {
+	return alias.ResolveAlias(m.schemaManager, class)
 }

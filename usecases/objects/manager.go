@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -34,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/objects/alias"
 )
 
 type schemaManager interface {
@@ -65,7 +67,10 @@ type schemaManager interface {
 	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
 
 	// GetConsistentSchema retrieves a locally cached copy of the schema
-	GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error)
+	GetConsistentSchema(ctx context.Context, principal *models.Principal, consistency bool) (schema.Schema, error)
+
+	// ResolveAlias returns a class name associated with a given alias, empty string if doesn't exist
+	ResolveAlias(alias string) string
 }
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of
@@ -78,7 +83,7 @@ type Manager struct {
 	vectorRepo        VectorRepo
 	timeSource        timeSource
 	modulesProvider   ModulesProvider
-	autoSchemaManager *autoSchemaManager
+	autoSchemaManager *AutoSchemaManager
 	metrics           objectsMetrics
 	allocChecker      *memwatch.Monitor
 }
@@ -157,6 +162,7 @@ func NewManager(schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorization.Authorizer, vectorRepo VectorRepo,
 	modulesProvider ModulesProvider, metrics objectsMetrics, allocChecker *memwatch.Monitor,
+	autoSchemaManager *AutoSchemaManager,
 ) *Manager {
 	if allocChecker == nil {
 		allocChecker = memwatch.NewDummyMonitor()
@@ -170,10 +176,15 @@ func NewManager(schemaManager schemaManager,
 		vectorRepo:        vectorRepo,
 		timeSource:        defaultTimeSource{},
 		modulesProvider:   modulesProvider,
-		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger),
+		autoSchemaManager: autoSchemaManager,
 		metrics:           metrics,
 		allocChecker:      allocChecker,
 	}
+}
+
+// Alias
+func (m *Manager) resolveAlias(class string) (className, aliasName string) {
+	return alias.ResolveAlias(m.schemaManager, class)
 }
 
 func generateUUID() (strfmt.UUID, error) {

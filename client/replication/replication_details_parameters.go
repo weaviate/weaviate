@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // NewReplicationDetailsParams creates a new ReplicationDetailsParams object,
@@ -74,9 +75,17 @@ type ReplicationDetailsParams struct {
 
 	/* ID.
 
-	   The replication operation id to get details for.
+	   The ID of the replication operation to get details for.
+
+	   Format: uuid
 	*/
-	ID string
+	ID strfmt.UUID
+
+	/* IncludeHistory.
+
+	   Whether to include the history of the replication operation.
+	*/
+	IncludeHistory *bool
 
 	timeout    time.Duration
 	Context    context.Context
@@ -132,14 +141,25 @@ func (o *ReplicationDetailsParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithID adds the id to the replication details params
-func (o *ReplicationDetailsParams) WithID(id string) *ReplicationDetailsParams {
+func (o *ReplicationDetailsParams) WithID(id strfmt.UUID) *ReplicationDetailsParams {
 	o.SetID(id)
 	return o
 }
 
 // SetID adds the id to the replication details params
-func (o *ReplicationDetailsParams) SetID(id string) {
+func (o *ReplicationDetailsParams) SetID(id strfmt.UUID) {
 	o.ID = id
+}
+
+// WithIncludeHistory adds the includeHistory to the replication details params
+func (o *ReplicationDetailsParams) WithIncludeHistory(includeHistory *bool) *ReplicationDetailsParams {
+	o.SetIncludeHistory(includeHistory)
+	return o
+}
+
+// SetIncludeHistory adds the includeHistory to the replication details params
+func (o *ReplicationDetailsParams) SetIncludeHistory(includeHistory *bool) {
+	o.IncludeHistory = includeHistory
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -151,8 +171,25 @@ func (o *ReplicationDetailsParams) WriteToRequest(r runtime.ClientRequest, reg s
 	var res []error
 
 	// path param id
-	if err := r.SetPathParam("id", o.ID); err != nil {
+	if err := r.SetPathParam("id", o.ID.String()); err != nil {
 		return err
+	}
+
+	if o.IncludeHistory != nil {
+
+		// query param includeHistory
+		var qrIncludeHistory bool
+
+		if o.IncludeHistory != nil {
+			qrIncludeHistory = *o.IncludeHistory
+		}
+		qIncludeHistory := swag.FormatBool(qrIncludeHistory)
+		if qIncludeHistory != "" {
+
+			if err := r.SetQueryParam("includeHistory", qIncludeHistory); err != nil {
+				return err
+			}
+		}
 	}
 
 	if len(res) > 0 {

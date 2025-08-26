@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,11 +21,16 @@ import (
 	"net/url"
 	golangswaggerpaths "path"
 	"strings"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // ReplicationDetailsURL generates an URL for the replication details operation
 type ReplicationDetailsURL struct {
-	ID string
+	ID strfmt.UUID
+
+	IncludeHistory *bool
 
 	_basePath string
 	// avoid unkeyed usage
@@ -53,7 +58,7 @@ func (o *ReplicationDetailsURL) Build() (*url.URL, error) {
 
 	var _path = "/replication/replicate/{id}"
 
-	id := o.ID
+	id := o.ID.String()
 	if id != "" {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
@@ -65,6 +70,18 @@ func (o *ReplicationDetailsURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var includeHistoryQ string
+	if o.IncludeHistory != nil {
+		includeHistoryQ = swag.FormatBool(*o.IncludeHistory)
+	}
+	if includeHistoryQ != "" {
+		qs.Set("includeHistory", includeHistoryQ)
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

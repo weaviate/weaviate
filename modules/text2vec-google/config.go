@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package modgoogle
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/qna-openai/config"
 	"github.com/weaviate/weaviate/modules/text2vec-google/vectorizer"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -41,7 +40,7 @@ func (m *GoogleModule) PropertyConfigDefaults(
 func (m *GoogleModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
-	settings := config.NewClassSettings(cfg)
+	settings := vectorizer.NewClassSettings(cfg)
 	return settings.Validate(class)
 }
 

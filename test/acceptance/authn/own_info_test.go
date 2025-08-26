@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -58,10 +58,9 @@ func TestAuthnGetOwnInfoWithAdminlistAndOidc(t *testing.T) {
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 
-	authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
 	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
 	// description for details
-	token, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
+	token, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
 
 	defer func() {
 		helper.ResetClient()
@@ -93,10 +92,9 @@ func TestAuthnGetOwnInfoWithOidc(t *testing.T) {
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 
-	authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
 	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
 	// description for details
-	token, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
+	token, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
 
 	defer func() {
 		helper.ResetClient()
@@ -137,7 +135,7 @@ func TestAuthnGetOwnInfoWithRBAC(t *testing.T) {
 		WithApiKey().
 		WithUserApiKey(customUser, customKey).
 		WithUserApiKey(adminUser, adminKey).
-		WithRbacAdmins(adminUser).
+		WithRbacRoots(adminUser).
 		WithRbacViewers(customUser).
 		Start(ctx)
 	require.Nil(t, err)
@@ -201,7 +199,7 @@ func TestAuthnGetOwnInfoWithRBACAndOIDC(t *testing.T) {
 		WithWeaviate().
 		WithRBAC().
 		WithApiKey().
-		WithRbacAdmins(adminUser).
+		WithRbacRoots(adminUser).
 		WithRbacViewers(customUser).
 		WithMockOIDC().
 		Start(ctx)
@@ -209,11 +207,10 @@ func TestAuthnGetOwnInfoWithRBACAndOIDC(t *testing.T) {
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 
-	authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
 	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
 	// description for details
-	tokenAdmin, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
-	tokenCustom, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
+	tokenAdmin, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
+	tokenCustom, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
 
 	defer func() {
 		helper.DeleteRole(t, tokenAdmin, testingRole)

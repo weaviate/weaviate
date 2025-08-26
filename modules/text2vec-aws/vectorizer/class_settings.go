@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -63,14 +63,8 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return errors.New("empty config")
-	}
-
 	var errorMessages []string
-
-	if err := ic.BaseClassSettings.ValidateClassSettings(); err != nil {
+	if err := ic.BaseClassSettings.Validate(class); err != nil {
 		errorMessages = append(errorMessages, err.Error())
 	}
 

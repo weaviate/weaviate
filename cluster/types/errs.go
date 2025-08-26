@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,4 +22,5 @@ var (
 	ErrUnknownCommand = errors.New("unknown command")
 	// ErrDeadlineExceeded represents an error returned when the deadline for waiting for a specific update is exceeded.
 	ErrDeadlineExceeded = errors.New("deadline exceeded for waiting for update")
+	ErrNotFound         = errors.New("not found")
 )

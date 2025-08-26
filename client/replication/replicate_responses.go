@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -70,6 +70,12 @@ func (o *ReplicateReader) ReadResponse(response runtime.ClientResponse, consumer
 			return nil, err
 		}
 		return nil, result
+	case 501:
+		result := NewReplicateNotImplemented()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -83,9 +89,10 @@ func NewReplicateOK() *ReplicateOK {
 /*
 ReplicateOK describes a response with status code 200, with default header values.
 
-Replication operation registered successfully
+Replication operation registered successfully. ID of the operation is returned.
 */
 type ReplicateOK struct {
+	Payload *models.ReplicationReplicateReplicaResponse
 }
 
 // IsSuccess returns true when this replicate o k response has a 2xx status code
@@ -119,14 +126,25 @@ func (o *ReplicateOK) Code() int {
 }
 
 func (o *ReplicateOK) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateOK ", 200)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateOK  %+v", 200, o.Payload)
 }
 
 func (o *ReplicateOK) String() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateOK ", 200)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateOK  %+v", 200, o.Payload)
+}
+
+func (o *ReplicateOK) GetPayload() *models.ReplicationReplicateReplicaResponse {
+	return o.Payload
 }
 
 func (o *ReplicateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ReplicationReplicateReplicaResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
@@ -448,6 +466,74 @@ func (o *ReplicateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ReplicateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewReplicateNotImplemented creates a ReplicateNotImplemented with default headers values
+func NewReplicateNotImplemented() *ReplicateNotImplemented {
+	return &ReplicateNotImplemented{}
+}
+
+/*
+ReplicateNotImplemented describes a response with status code 501, with default header values.
+
+Replica movement operations are disabled.
+*/
+type ReplicateNotImplemented struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this replicate not implemented response has a 2xx status code
+func (o *ReplicateNotImplemented) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this replicate not implemented response has a 3xx status code
+func (o *ReplicateNotImplemented) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this replicate not implemented response has a 4xx status code
+func (o *ReplicateNotImplemented) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this replicate not implemented response has a 5xx status code
+func (o *ReplicateNotImplemented) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this replicate not implemented response a status code equal to that given
+func (o *ReplicateNotImplemented) IsCode(code int) bool {
+	return code == 501
+}
+
+// Code gets the status code for the replicate not implemented response
+func (o *ReplicateNotImplemented) Code() int {
+	return 501
+}
+
+func (o *ReplicateNotImplemented) Error() string {
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateNotImplemented  %+v", 501, o.Payload)
+}
+
+func (o *ReplicateNotImplemented) String() string {
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateNotImplemented  %+v", 501, o.Payload)
+}
+
+func (o *ReplicateNotImplemented) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ReplicateNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

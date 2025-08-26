@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,12 +21,10 @@ import (
 	"google.golang.org/protobuf/runtime/protoimpl"
 )
 
-type Mapper struct {
-	uses125 bool
-}
+type Mapper struct{}
 
-func NewMapping(uses125 bool) *Mapper {
-	return &Mapper{uses125: uses125}
+func NewMapping() *Mapper {
+	return &Mapper{}
 }
 
 func (m *Mapper) NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
@@ -67,21 +65,13 @@ func (m *Mapper) NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value
 			if !ok {
 				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing string property", v)
 			}
-			if m.uses125 {
-				return NewTextValue(val), nil
-			} else {
-				return NewStringValue(val), nil
-			}
+			return NewTextValue(val), nil
 		case schema.DataTypeText:
 			val, ok := v.(string)
 			if !ok {
 				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing text property", v)
 			}
-			if m.uses125 {
-				return NewTextValue(val), nil
-			} else {
-				return NewStringValue(val), nil
-			}
+			return NewTextValue(val), nil
 		case schema.DataTypeUUID:
 			val, ok := v.(string)
 			if !ok {
@@ -130,13 +120,7 @@ func (m *Mapper) NewNestedValue(v interface{}, dt schema.DataType, parent schema
 		if _, ok := v.([]interface{}); !ok {
 			return nil, protoimpl.X.NewError("invalid type: %T expected []map[string]interface{}", v)
 		}
-		var list *pb.ListValue
-		var err error
-		if m.uses125 {
-			list, err = m.newObjectList125(v.([]interface{}), parent, prop)
-		} else {
-			list, err = m.newObjectList123(v.([]interface{}), parent, prop)
-		}
+		list, err := m.newObjectList125(v.([]interface{}), parent, prop)
 		if err != nil {
 			return nil, errors.Wrap(err, "creating nested object array")
 		}
@@ -197,25 +181,14 @@ func (m *Mapper) newListValueBool(v interface{}) (*pb.Value, error) {
 		return &pb.ListValue{Kind: &pb.ListValue_BoolValues{BoolValues: &pb.BoolValues{Values: v}}}
 	}
 	if _, ok := v.([]interface{}); ok {
-		if m.uses125 {
-			listValue = makeListValue([]bool{})
-		} else {
-			listValue = &pb.ListValue{Values: []*pb.Value{}}
-		}
+		listValue = makeListValue([]bool{})
 	} else {
 		values, err := parseArray[bool](v, schema.DataTypeBooleanArray)
 		if err != nil {
 			return nil, err
 		}
-		if m.uses125 {
-			listValue = makeListValue(values)
-		} else {
-			x := make([]*pb.Value, len(values))
-			for i, v := range values {
-				x[i] = NewBoolValue(v)
-			}
-			listValue = &pb.ListValue{Values: x}
-		}
+		listValue = makeListValue(values)
+
 	}
 	return &pb.Value{Kind: &pb.Value_ListValue{ListValue: listValue}}, nil
 }
@@ -226,25 +199,13 @@ func (m *Mapper) newListValueDate(v interface{}) (*pb.Value, error) {
 		return &pb.ListValue{Kind: &pb.ListValue_DateValues{DateValues: &pb.DateValues{Values: v}}}
 	}
 	if _, ok := v.([]interface{}); ok {
-		if m.uses125 {
-			listValue = makeListValue([]string{})
-		} else {
-			listValue = &pb.ListValue{Values: []*pb.Value{}}
-		}
+		listValue = makeListValue([]string{})
 	} else {
 		values, err := parseArray[string](v, schema.DataTypeDateArray)
 		if err != nil {
 			return nil, err
 		}
-		if m.uses125 {
-			listValue = makeListValue(values)
-		} else {
-			x := make([]*pb.Value, len(values))
-			for i, v := range values {
-				x[i] = NewDateValue(v)
-			}
-			listValue = &pb.ListValue{Values: x}
-		}
+		listValue = makeListValue(values)
 	}
 	return &pb.Value{Kind: &pb.Value_ListValue{ListValue: listValue}}, nil
 }
@@ -255,25 +216,13 @@ func (m *Mapper) newListValueNumber(v interface{}) (*pb.Value, error) {
 		return &pb.ListValue{Kind: &pb.ListValue_NumberValues{NumberValues: &pb.NumberValues{Values: byteops.Fp64SliceToBytes(v)}}}
 	}
 	if _, ok := v.([]interface{}); ok {
-		if m.uses125 {
-			listValue = makeListValue([]float64{})
-		} else {
-			listValue = &pb.ListValue{Values: []*pb.Value{}}
-		}
+		listValue = makeListValue([]float64{})
 	} else {
 		values, err := parseArray[float64](v, schema.DataTypeNumberArray)
 		if err != nil {
 			return nil, err
 		}
-		if m.uses125 {
-			listValue = makeListValue(values)
-		} else {
-			x := make([]*pb.Value, len(values))
-			for i, v := range values {
-				x[i] = NewNumberValue(v)
-			}
-			listValue = &pb.ListValue{Values: x}
-		}
+		listValue = makeListValue(values)
 	}
 	return &pb.Value{Kind: &pb.Value_ListValue{ListValue: listValue}}, nil
 }
@@ -284,25 +233,13 @@ func (m *Mapper) newListValueInt(v interface{}) (*pb.Value, error) {
 		return &pb.ListValue{Kind: &pb.ListValue_IntValues{IntValues: &pb.IntValues{Values: byteops.IntsToByteVector((v))}}}
 	}
 	if _, ok := v.([]interface{}); ok {
-		if m.uses125 {
-			listValue = makeListValue([]float64{})
-		} else {
-			listValue = &pb.ListValue{Values: []*pb.Value{}}
-		}
+		listValue = makeListValue([]float64{})
 	} else {
 		values, err := parseArray[float64](v, schema.DataTypeIntArray)
 		if err != nil {
 			return nil, err
 		}
-		if m.uses125 {
-			listValue = makeListValue(values)
-		} else {
-			x := make([]*pb.Value, len(values))
-			for i, v := range values {
-				x[i] = NewIntValue(int64(v))
-			}
-			listValue = &pb.ListValue{Values: x}
-		}
+		listValue = makeListValue(values)
 	}
 	return &pb.Value{Kind: &pb.Value_ListValue{ListValue: listValue}}, nil
 }
@@ -313,25 +250,13 @@ func (m *Mapper) newListValueText(v interface{}) (*pb.Value, error) {
 		return &pb.ListValue{Kind: &pb.ListValue_TextValues{TextValues: &pb.TextValues{Values: v}}}
 	}
 	if _, ok := v.([]interface{}); ok {
-		if m.uses125 {
-			listValue = makeListValue([]string{})
-		} else {
-			listValue = &pb.ListValue{Values: []*pb.Value{}}
-		}
+		listValue = makeListValue([]string{})
 	} else {
 		values, err := parseArray[string](v, schema.DataTypeTextArray)
 		if err != nil {
 			return nil, err
 		}
-		if m.uses125 {
-			listValue = makeListValue(values)
-		} else {
-			x := make([]*pb.Value, len(values))
-			for i, v := range values {
-				x[i] = NewStringValue(v)
-			}
-			listValue = &pb.ListValue{Values: x}
-		}
+		listValue = makeListValue(values)
 	}
 	return &pb.Value{Kind: &pb.Value_ListValue{ListValue: listValue}}, nil
 }
@@ -342,25 +267,13 @@ func (m *Mapper) newListValueUuid(v interface{}) (*pb.Value, error) {
 		return &pb.ListValue{Kind: &pb.ListValue_UuidValues{UuidValues: &pb.UuidValues{Values: v}}}
 	}
 	if _, ok := v.([]interface{}); ok {
-		if m.uses125 {
-			listValue = makeListValue([]string{})
-		} else {
-			listValue = &pb.ListValue{Values: []*pb.Value{}}
-		}
+		listValue = makeListValue([]string{})
 	} else {
 		values, err := parseArray[string](v, schema.DataTypeUUIDArray)
 		if err != nil {
 			return nil, err
 		}
-		if m.uses125 {
-			listValue = makeListValue(values)
-		} else {
-			x := make([]*pb.Value, len(values))
-			for i, v := range values {
-				x[i] = NewUuidValue(v)
-			}
-			listValue = &pb.ListValue{Values: x}
-		}
+		listValue = makeListValue(values)
 	}
 	return &pb.Value{Kind: &pb.Value_ListValue{ListValue: listValue}}, nil
 }
@@ -384,24 +297,6 @@ func (m *Mapper) parsePrimitiveArray(v interface{}, dt, innerDt schema.DataType)
 	default:
 		return nil, protoimpl.X.NewError("invalid type: %T", v)
 	}
-}
-
-func (m *Mapper) newObjectList123(v []interface{}, parent schema.PropertyInterface, selectProp search.SelectProperty) (*pb.ListValue, error) {
-	if !selectProp.IsObject {
-		return nil, errors.New("select property is not an object")
-	}
-	x := &pb.ListValue{Values: make([]*pb.Value, len(v))}
-	for i, v := range v {
-		if _, ok := v.(map[string]interface{}); !ok {
-			return nil, protoimpl.X.NewError("invalid type: %T expected map[string]interface{}", v)
-		}
-		value, err := m.newObject(v.(map[string]interface{}), parent, selectProp)
-		if err != nil {
-			return nil, err
-		}
-		x.Values[i] = NewObjectValue(value)
-	}
-	return x, nil
 }
 
 func (m *Mapper) newObjectList125(v []interface{}, parent schema.PropertyInterface, selectProp search.SelectProperty) (*pb.ListValue, error) {
@@ -435,11 +330,6 @@ func NewNumberValue(v float64) *pb.Value {
 // NewIntValue constructs a new number Value.
 func NewIntValue(v int64) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_IntValue{IntValue: v}}
-}
-
-// NewStringValue constructs a new string Value.
-func NewStringValue(v string) *pb.Value {
-	return &pb.Value{Kind: &pb.Value_StringValue{StringValue: v}}
 }
 
 func NewTextValue(v string) *pb.Value {

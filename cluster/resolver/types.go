@@ -4,16 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 package resolver
-
-const (
-	invalidAddr = "256.256.256.256:99999999"
-)
 
 // ClusterStateReader allows the resolver to compute node-id to ip addresses.
 type ClusterStateReader interface {

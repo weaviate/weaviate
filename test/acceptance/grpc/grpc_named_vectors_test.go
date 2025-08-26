@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,99 +49,142 @@ func TestGRPC_NamedVectors(t *testing.T) {
 		require.NotNil(t, resp)
 	})
 
-	t.Run("Search with hybrid", func(t *testing.T) {
-		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
-			Collection: booksClass.Class,
-			HybridSearch: &pb.Hybrid{
-				Query:         "Dune",
-				TargetVectors: []string{"all"},
-			},
-			Uses_123Api: true,
-			Uses_125Api: true,
-		})
-		require.NoError(t, err)
-		require.NotNil(t, resp)
-		require.NotNil(t, resp.Results)
-		require.Equal(t, "Dune", resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue())
-	})
-
-	t.Run("Search with hybrid and group by", func(t *testing.T) {
-		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
-			Collection: booksClass.Class,
-			GroupBy: &pb.GroupBy{
-				Path:            []string{"title"},
-				NumberOfGroups:  1,
-				ObjectsPerGroup: 1,
-			},
-			HybridSearch: &pb.Hybrid{
-				Query:         "Dune",
-				TargetVectors: []string{"all"},
-			},
-			Uses_123Api: true,
-		})
-		require.NoError(t, err)
-		require.NotNil(t, resp)
-		require.NotNil(t, resp.GroupByResults)
-		require.Len(t, resp.GroupByResults, 1)
-	})
-
-	t.Run("Search with hybrid near text and group by", func(t *testing.T) {
-		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
-			Collection: booksClass.Class,
-			GroupBy: &pb.GroupBy{
-				Path:            []string{"title"},
-				NumberOfGroups:  1,
-				ObjectsPerGroup: 1,
-			},
-			HybridSearch: &pb.Hybrid{
-				Alpha: 0.5,
-				NearText: &pb.NearTextSearch{
-					Query: []string{"Dune"},
+	tests := []struct {
+		name         string
+		req          *pb.MetadataRequest
+		expectedVecs int
+	}{
+		{
+			name:         "all vectors",
+			req:          &pb.MetadataRequest{Vector: true},
+			expectedVecs: 3,
+		},
+		{
+			name:         "one vector",
+			req:          &pb.MetadataRequest{Vectors: []string{"all"}},
+			expectedVecs: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("Search with hybrid return returning %s", tt.name), func(t *testing.T) {
+			resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
+				Collection: booksClass.Class,
+				Metadata:   tt.req,
+				HybridSearch: &pb.Hybrid{
+					Query:         "Dune",
+					TargetVectors: []string{"all"},
 				},
-				TargetVectors: []string{"all"},
-			},
-			Uses_123Api: true,
-			Uses_125Api: true,
+				Uses_123Api: true,
+				Uses_125Api: true,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			require.NotNil(t, resp.Results)
+			require.Equal(t, "Dune", resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue())
+			require.Len(t, resp.Results[0].Metadata.Vectors, tt.expectedVecs)
+			if tt.expectedVecs == 1 {
+				require.Equal(t, "all", resp.Results[0].Metadata.Vectors[0].Name)
+			}
 		})
-		require.NoError(t, err)
-		require.NotNil(t, resp)
-		require.NotNil(t, resp.GroupByResults)
-		require.Len(t, resp.GroupByResults, 1)
-	})
 
-	t.Run("Search with near text", func(t *testing.T) {
-		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
-			Collection: booksClass.Class,
-			NearText: &pb.NearTextSearch{
-				Query:         []string{"Dune"},
-				TargetVectors: []string{"all"},
-			},
-			Uses_123Api: true,
-			Uses_125Api: true,
+		t.Run(fmt.Sprintf("Search with hybrid and group by returning %s", tt.name), func(t *testing.T) {
+			resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
+				Collection: booksClass.Class,
+				Metadata:   tt.req,
+				GroupBy: &pb.GroupBy{
+					Path:            []string{"title"},
+					NumberOfGroups:  1,
+					ObjectsPerGroup: 1,
+				},
+				HybridSearch: &pb.Hybrid{
+					Query:         "Dune",
+					TargetVectors: []string{"all"},
+				},
+				Uses_123Api: true,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			require.NotNil(t, resp.GroupByResults)
+			require.Len(t, resp.GroupByResults, 1)
+			require.Len(t, resp.GroupByResults[0].Objects[0].Metadata.Vectors, tt.expectedVecs)
+			if tt.expectedVecs == 1 {
+				require.Equal(t, "all", resp.GroupByResults[0].Objects[0].Metadata.Vectors[0].Name)
+			}
 		})
-		require.NoError(t, err)
-		require.NotNil(t, resp)
-		require.NotNil(t, resp.Results)
-		require.Equal(t, "Dune", resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue())
-	})
 
-	t.Run("Search with near text and group by", func(t *testing.T) {
-		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
-			Collection: booksClass.Class,
-			GroupBy: &pb.GroupBy{
-				Path:            []string{"title"},
-				NumberOfGroups:  1,
-				ObjectsPerGroup: 1,
-			},
-			NearText: &pb.NearTextSearch{
-				Query:         []string{"Dune"},
-				TargetVectors: []string{"all"},
-			},
-			Uses_123Api: true,
+		t.Run(fmt.Sprintf("Search with hybrid near text and group by returning %s", tt.name), func(t *testing.T) {
+			resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
+				Collection: booksClass.Class,
+				GroupBy: &pb.GroupBy{
+					Path:            []string{"title"},
+					NumberOfGroups:  1,
+					ObjectsPerGroup: 1,
+				},
+				Metadata: tt.req,
+				HybridSearch: &pb.Hybrid{
+					Alpha: 0.5,
+					NearText: &pb.NearTextSearch{
+						Query: []string{"Dune"},
+					},
+					TargetVectors: []string{"all"},
+				},
+				Uses_123Api: true,
+				Uses_125Api: true,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			require.NotNil(t, resp.GroupByResults)
+			require.Len(t, resp.GroupByResults, 1)
+			require.Len(t, resp.GroupByResults[0].Objects[0].Metadata.Vectors, tt.expectedVecs)
+			if tt.expectedVecs == 1 {
+				require.Equal(t, "all", resp.GroupByResults[0].Objects[0].Metadata.Vectors[0].Name)
+			}
 		})
-		require.NoError(t, err)
-		require.NotNil(t, resp)
-		require.NotNil(t, resp.GroupByResults)
-		require.Len(t, resp.GroupByResults, 1)
-	})
+
+		t.Run(fmt.Sprintf("Search with near text returning %s", tt.name), func(t *testing.T) {
+			resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
+				Collection: booksClass.Class,
+				Metadata:   tt.req,
+				NearText: &pb.NearTextSearch{
+					Query:         []string{"Dune"},
+					TargetVectors: []string{"all"},
+				},
+				Uses_123Api: true,
+				Uses_125Api: true,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			require.NotNil(t, resp.Results)
+			require.Equal(t, "Dune", resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue())
+			require.Len(t, resp.Results[0].Metadata.Vectors, tt.expectedVecs)
+			if tt.expectedVecs == 1 {
+				require.Equal(t, "all", resp.Results[0].Metadata.Vectors[0].Name)
+			}
+		})
+
+		t.Run(fmt.Sprintf("Search with near text and group by returning %s", tt.name), func(t *testing.T) {
+			resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
+				Collection: booksClass.Class,
+				GroupBy: &pb.GroupBy{
+					Path:            []string{"title"},
+					NumberOfGroups:  1,
+					ObjectsPerGroup: 1,
+				},
+				Metadata: tt.req,
+				NearText: &pb.NearTextSearch{
+					Query:         []string{"Dune"},
+					TargetVectors: []string{"all"},
+				},
+				Uses_123Api: true,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			require.NotNil(t, resp.GroupByResults)
+			require.Len(t, resp.GroupByResults, 1)
+			require.Len(t, resp.GroupByResults[0].Objects[0].Metadata.Vectors, tt.expectedVecs)
+			if tt.expectedVecs == 1 {
+				require.Equal(t, "all", resp.GroupByResults[0].Objects[0].Metadata.Vectors[0].Name)
+			}
+		})
+	}
 }

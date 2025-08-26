@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,16 +30,7 @@ const (
 	LowerCaseInput               = false
 )
 
-var (
-	availableCohereModels = []string{
-		"medium",
-		"large", "small", "multilingual-22-12",
-		"embed-english-v2.0", "embed-english-light-v2.0", "embed-multilingual-v2.0",
-		"embed-english-v3.0", "embed-english-light-v3.0", "embed-multilingual-v3.0", "embed-multilingual-light-v3.0",
-	}
-	experimetnalCohereModels = []string{"multilingual-2210-alpha"}
-	availableTruncates       = []string{"NONE", "START", "END", "LEFT", "RIGHT"}
-)
+var availableTruncates = []string{"NONE", "START", "END", "LEFT", "RIGHT"}
 
 type classSettings struct {
 	basesettings.BaseClassSettings
@@ -67,12 +58,8 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
-	model := cs.Model()
-	if !basesettings.ValidateSetting[string](model, append(availableCohereModels, experimetnalCohereModels...)) {
-		return errors.Errorf("wrong Cohere model name, available model names are: %v", availableCohereModels)
-	}
 	truncate := cs.Truncate()
-	if !basesettings.ValidateSetting[string](truncate, availableTruncates) {
+	if !basesettings.ValidateSetting(truncate, availableTruncates) {
 		return errors.Errorf("wrong truncate type, available types are: %v", availableTruncates)
 	}
 

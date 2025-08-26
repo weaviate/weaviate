@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,10 +16,13 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	rCluster "github.com/weaviate/weaviate/cluster"
@@ -38,7 +41,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
-	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -55,6 +57,7 @@ type State struct {
 	Authorizer       authorization.Authorizer
 	AuthzController  authorization.Controller
 	AuthzSnapshotter fsm.Snapshotter
+	RBAC             *rbac.Manager
 
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration
@@ -63,7 +66,6 @@ type State struct {
 	GraphQL               graphql.GraphQL
 	Modules               *modules.Provider
 	SchemaManager         *schema.Manager
-	Scaler                *scaler.Scaler
 	Cluster               *cluster.State
 	RemoteIndexIncoming   *sharding.RemoteIndexIncoming
 	RemoteNodeIncoming    *sharding.RemoteNodeIncoming
@@ -77,12 +79,14 @@ type State struct {
 	BackupManager      *backup.Handler
 	DB                 *db.DB
 	BatchManager       *objects.BatchManager
+	AutoSchemaManager  *objects.AutoSchemaManager
 	ClusterHttpClient  *http.Client
 	ReindexCtxCancel   context.CancelCauseFunc
 	MemWatch           *memwatch.Monitor
 
 	ClusterService *rCluster.Service
 	TenantActivity *tenantactivity.Handler
+	InternalServer types.ClusterServer
 
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator

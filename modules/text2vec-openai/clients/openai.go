@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -144,7 +144,7 @@ func (v *client) VectorizeQuery(ctx context.Context, input []string,
 	config := v.getVectorizationConfig(cfg, "query")
 	res, _, _, err := v.vectorize(ctx, input, config.ModelString, config)
 	if err != nil {
-		monitoring.GetMetrics().ModuleExternalError.WithLabelValues("openai", "-", "-").Inc()
+		monitoring.GetMetrics().ModuleExternalError.WithLabelValues("text2vec", "openai", "-", "-").Inc()
 	}
 	return res, err
 }
@@ -231,6 +231,10 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 			vrt.WithLabelValues("input", endpoint).Observe(float64(resBody.Usage.PromptTokens))
 			vrt.WithLabelValues("output", endpoint).Observe(float64(resBody.Usage.CompletionTokens))
 		}
+	}
+
+	if len(resBody.Data) == 0 {
+		return nil, nil, 0, errors.New("no data returned from OpenAI API")
 	}
 
 	return &modulecomponents.VectorizationResult[[]float32]{

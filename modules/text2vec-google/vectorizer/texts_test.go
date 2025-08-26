@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,44 +32,44 @@ func TestVectorizingTexts(t *testing.T) {
 		{
 			name:                "single word",
 			input:               []string{"hello"},
-			googleModel:         "textembedding-gecko@001",
-			expectedGoogleModel: "textembedding-gecko@001",
+			googleModel:         DefaultModel,
+			expectedGoogleModel: DefaultModel,
 		},
 		{
 			name:                "multiple words",
 			input:               []string{"hello world, this is me!"},
-			googleModel:         "textembedding-gecko@001",
-			expectedGoogleModel: "textembedding-gecko@001",
+			googleModel:         DefaultModel,
+			expectedGoogleModel: DefaultModel,
 		},
 		{
 			name:                "multiple sentences (joined with a dot)",
 			input:               []string{"this is sentence 1", "and here's number 2"},
-			googleModel:         "textembedding-gecko@001",
-			expectedGoogleModel: "textembedding-gecko@001",
+			googleModel:         DefaultModel,
+			expectedGoogleModel: DefaultModel,
 		},
 		{
 			name:                "multiple sentences already containing a dot",
 			input:               []string{"this is sentence 1.", "and here's number 2"},
-			googleModel:         "textembedding-gecko@001",
-			expectedGoogleModel: "textembedding-gecko@001",
+			googleModel:         DefaultModel,
+			expectedGoogleModel: DefaultModel,
 		},
 		{
 			name:                "multiple sentences already containing a question mark",
 			input:               []string{"this is sentence 1?", "and here's number 2"},
-			googleModel:         "textembedding-gecko@001",
-			expectedGoogleModel: "textembedding-gecko@001",
+			googleModel:         DefaultModel,
+			expectedGoogleModel: DefaultModel,
 		},
 		{
 			name:                "multiple sentences already containing an exclamation mark",
 			input:               []string{"this is sentence 1!", "and here's number 2"},
-			googleModel:         "textembedding-gecko@001",
-			expectedGoogleModel: "textembedding-gecko@001",
+			googleModel:         DefaultModel,
+			expectedGoogleModel: DefaultModel,
 		},
 		{
 			name:                "multiple sentences already containing comma",
 			input:               []string{"this is sentence 1,", "and here's number 2"},
-			googleModel:         "textembedding-gecko@001",
-			expectedGoogleModel: "textembedding-gecko@001",
+			googleModel:         DefaultModel,
+			expectedGoogleModel: DefaultModel,
 		},
 	}
 

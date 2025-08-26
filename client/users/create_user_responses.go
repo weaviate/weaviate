@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,11 +17,15 @@ package users
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"fmt"
 	"io"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -54,6 +58,12 @@ func (o *CreateUserReader) ReadResponse(response runtime.ClientResponse, consume
 		return nil, result
 	case 403:
 		result := NewCreateUserForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 404:
+		result := NewCreateUserNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -341,6 +351,74 @@ func (o *CreateUserForbidden) readResponse(response runtime.ClientResponse, cons
 	return nil
 }
 
+// NewCreateUserNotFound creates a CreateUserNotFound with default headers values
+func NewCreateUserNotFound() *CreateUserNotFound {
+	return &CreateUserNotFound{}
+}
+
+/*
+CreateUserNotFound describes a response with status code 404, with default header values.
+
+user not found
+*/
+type CreateUserNotFound struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this create user not found response has a 2xx status code
+func (o *CreateUserNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this create user not found response has a 3xx status code
+func (o *CreateUserNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this create user not found response has a 4xx status code
+func (o *CreateUserNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this create user not found response has a 5xx status code
+func (o *CreateUserNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this create user not found response a status code equal to that given
+func (o *CreateUserNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the create user not found response
+func (o *CreateUserNotFound) Code() int {
+	return 404
+}
+
+func (o *CreateUserNotFound) Error() string {
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserNotFound  %+v", 404, o.Payload)
+}
+
+func (o *CreateUserNotFound) String() string {
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserNotFound  %+v", 404, o.Payload)
+}
+
+func (o *CreateUserNotFound) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *CreateUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
 // NewCreateUserConflict creates a CreateUserConflict with default headers values
 func NewCreateUserConflict() *CreateUserConflict {
 	return &CreateUserConflict{}
@@ -542,5 +620,68 @@ func (o *CreateUserInternalServerError) readResponse(response runtime.ClientResp
 		return err
 	}
 
+	return nil
+}
+
+/*
+CreateUserBody create user body
+swagger:model CreateUserBody
+*/
+type CreateUserBody struct {
+
+	// EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time
+	// Format: date-time
+	CreateTime strfmt.DateTime `json:"createTime,omitempty"`
+
+	// EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user
+	Import *bool `json:"import,omitempty"`
+}
+
+// Validate validates this create user body
+func (o *CreateUserBody) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.validateCreateTime(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *CreateUserBody) validateCreateTime(formats strfmt.Registry) error {
+	if swag.IsZero(o.CreateTime) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("body"+"."+"createTime", "body", "date-time", o.CreateTime.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validates this create user body based on context it is used
+func (o *CreateUserBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *CreateUserBody) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *CreateUserBody) UnmarshalBinary(b []byte) error {
+	var res CreateUserBody
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
 	return nil
 }

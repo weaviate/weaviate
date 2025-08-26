@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -185,6 +185,55 @@ func (_c *MockDbUserAndRolesGetter_CreateUser_Call) Return(_a0 error) *MockDbUse
 }
 
 func (_c *MockDbUserAndRolesGetter_CreateUser_Call) RunAndReturn(run func(string, string, string, string, time.Time) error) *MockDbUserAndRolesGetter_CreateUser_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CreateUserWithKey provides a mock function with given fields: userId, apiKeyFirstLetters, weakHash, createdAt
+func (_m *MockDbUserAndRolesGetter) CreateUserWithKey(userId string, apiKeyFirstLetters string, weakHash [32]byte, createdAt time.Time) error {
+	ret := _m.Called(userId, apiKeyFirstLetters, weakHash, createdAt)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateUserWithKey")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, string, [32]byte, time.Time) error); ok {
+		r0 = rf(userId, apiKeyFirstLetters, weakHash, createdAt)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockDbUserAndRolesGetter_CreateUserWithKey_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateUserWithKey'
+type MockDbUserAndRolesGetter_CreateUserWithKey_Call struct {
+	*mock.Call
+}
+
+// CreateUserWithKey is a helper method to define mock.On call
+//   - userId string
+//   - apiKeyFirstLetters string
+//   - weakHash [32]byte
+//   - createdAt time.Time
+func (_e *MockDbUserAndRolesGetter_Expecter) CreateUserWithKey(userId interface{}, apiKeyFirstLetters interface{}, weakHash interface{}, createdAt interface{}) *MockDbUserAndRolesGetter_CreateUserWithKey_Call {
+	return &MockDbUserAndRolesGetter_CreateUserWithKey_Call{Call: _e.mock.On("CreateUserWithKey", userId, apiKeyFirstLetters, weakHash, createdAt)}
+}
+
+func (_c *MockDbUserAndRolesGetter_CreateUserWithKey_Call) Run(run func(userId string, apiKeyFirstLetters string, weakHash [32]byte, createdAt time.Time)) *MockDbUserAndRolesGetter_CreateUserWithKey_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string), args[2].([32]byte), args[3].(time.Time))
+	})
+	return _c
+}
+
+func (_c *MockDbUserAndRolesGetter_CreateUserWithKey_Call) Return(_a0 error) *MockDbUserAndRolesGetter_CreateUserWithKey_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockDbUserAndRolesGetter_CreateUserWithKey_Call) RunAndReturn(run func(string, string, [32]byte, time.Time) error) *MockDbUserAndRolesGetter_CreateUserWithKey_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -473,17 +522,17 @@ func (_c *MockDbUserAndRolesGetter_RevokeRolesForUser_Call) RunAndReturn(run fun
 	return _c
 }
 
-// RotateKey provides a mock function with given fields: userId, secureHash, oldIdentifier, newIdentifier
-func (_m *MockDbUserAndRolesGetter) RotateKey(userId string, secureHash string, oldIdentifier string, newIdentifier string) error {
-	ret := _m.Called(userId, secureHash, oldIdentifier, newIdentifier)
+// RotateKey provides a mock function with given fields: userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier
+func (_m *MockDbUserAndRolesGetter) RotateKey(userId string, apiKeyFirstLetters string, secureHash string, oldIdentifier string, newIdentifier string) error {
+	ret := _m.Called(userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier)
 
 	if len(ret) == 0 {
 		panic("no return value specified for RotateKey")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(string, string, string, string) error); ok {
-		r0 = rf(userId, secureHash, oldIdentifier, newIdentifier)
+	if rf, ok := ret.Get(0).(func(string, string, string, string, string) error); ok {
+		r0 = rf(userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -498,16 +547,17 @@ type MockDbUserAndRolesGetter_RotateKey_Call struct {
 
 // RotateKey is a helper method to define mock.On call
 //   - userId string
+//   - apiKeyFirstLetters string
 //   - secureHash string
 //   - oldIdentifier string
 //   - newIdentifier string
-func (_e *MockDbUserAndRolesGetter_Expecter) RotateKey(userId interface{}, secureHash interface{}, oldIdentifier interface{}, newIdentifier interface{}) *MockDbUserAndRolesGetter_RotateKey_Call {
-	return &MockDbUserAndRolesGetter_RotateKey_Call{Call: _e.mock.On("RotateKey", userId, secureHash, oldIdentifier, newIdentifier)}
+func (_e *MockDbUserAndRolesGetter_Expecter) RotateKey(userId interface{}, apiKeyFirstLetters interface{}, secureHash interface{}, oldIdentifier interface{}, newIdentifier interface{}) *MockDbUserAndRolesGetter_RotateKey_Call {
+	return &MockDbUserAndRolesGetter_RotateKey_Call{Call: _e.mock.On("RotateKey", userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier)}
 }
 
-func (_c *MockDbUserAndRolesGetter_RotateKey_Call) Run(run func(userId string, secureHash string, oldIdentifier string, newIdentifier string)) *MockDbUserAndRolesGetter_RotateKey_Call {
+func (_c *MockDbUserAndRolesGetter_RotateKey_Call) Run(run func(userId string, apiKeyFirstLetters string, secureHash string, oldIdentifier string, newIdentifier string)) *MockDbUserAndRolesGetter_RotateKey_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string), args[2].(string), args[3].(string))
+		run(args[0].(string), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
 	})
 	return _c
 }
@@ -517,7 +567,7 @@ func (_c *MockDbUserAndRolesGetter_RotateKey_Call) Return(_a0 error) *MockDbUser
 	return _c
 }
 
-func (_c *MockDbUserAndRolesGetter_RotateKey_Call) RunAndReturn(run func(string, string, string, string) error) *MockDbUserAndRolesGetter_RotateKey_Call {
+func (_c *MockDbUserAndRolesGetter_RotateKey_Call) RunAndReturn(run func(string, string, string, string, string) error) *MockDbUserAndRolesGetter_RotateKey_Call {
 	_c.Call.Return(run)
 	return _c
 }

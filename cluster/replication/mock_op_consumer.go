@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,7 +33,7 @@ func (_m *MockOpConsumer) EXPECT() *MockOpConsumer_Expecter {
 }
 
 // Consume provides a mock function with given fields: ctx, in
-func (_m *MockOpConsumer) Consume(ctx context.Context, in <-chan ShardReplicationOp) error {
+func (_m *MockOpConsumer) Consume(ctx context.Context, in <-chan ShardReplicationOpAndStatus) error {
 	ret := _m.Called(ctx, in)
 
 	if len(ret) == 0 {
@@ -41,7 +41,7 @@ func (_m *MockOpConsumer) Consume(ctx context.Context, in <-chan ShardReplicatio
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, <-chan ShardReplicationOp) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, <-chan ShardReplicationOpAndStatus) error); ok {
 		r0 = rf(ctx, in)
 	} else {
 		r0 = ret.Error(0)
@@ -57,14 +57,14 @@ type MockOpConsumer_Consume_Call struct {
 
 // Consume is a helper method to define mock.On call
 //   - ctx context.Context
-//   - in <-chan ShardReplicationOp
+//   - in <-chan ShardReplicationOpAndStatus
 func (_e *MockOpConsumer_Expecter) Consume(ctx interface{}, in interface{}) *MockOpConsumer_Consume_Call {
 	return &MockOpConsumer_Consume_Call{Call: _e.mock.On("Consume", ctx, in)}
 }
 
-func (_c *MockOpConsumer_Consume_Call) Run(run func(ctx context.Context, in <-chan ShardReplicationOp)) *MockOpConsumer_Consume_Call {
+func (_c *MockOpConsumer_Consume_Call) Run(run func(ctx context.Context, in <-chan ShardReplicationOpAndStatus)) *MockOpConsumer_Consume_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(<-chan ShardReplicationOp))
+		run(args[0].(context.Context), args[1].(<-chan ShardReplicationOpAndStatus))
 	})
 	return _c
 }
@@ -74,7 +74,7 @@ func (_c *MockOpConsumer_Consume_Call) Return(_a0 error) *MockOpConsumer_Consume
 	return _c
 }
 
-func (_c *MockOpConsumer_Consume_Call) RunAndReturn(run func(context.Context, <-chan ShardReplicationOp) error) *MockOpConsumer_Consume_Call {
+func (_c *MockOpConsumer_Consume_Call) RunAndReturn(run func(context.Context, <-chan ShardReplicationOpAndStatus) error) *MockOpConsumer_Consume_Call {
 	_c.Call.Return(run)
 	return _c
 }

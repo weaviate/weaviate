@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,8 +22,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/modelsext"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	cschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -34,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -41,7 +45,7 @@ import (
 )
 
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 		return nil, err
 	}
 	name = schema.UppercaseClassName(name)
@@ -53,7 +57,7 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, nam
 func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Principal,
 	name string, consistency bool,
 ) (*models.Class, uint64, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 		return nil, 0, err
 	}
 
@@ -73,7 +77,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	principal *models.Principal, names ...string,
 ) (map[string]versioned.Class, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(names...)...); err != nil {
+	if err := h.Authorizer.Authorize(ctxWithClassCache, principal, authorization.READ, authorization.CollectionsMetadata(names...)...); err != nil {
 		return nil, err
 	}
 
@@ -98,13 +102,13 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls.Class = schema.UppercaseClassName(cls.Class)
 	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
 
-	err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...)
+	err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	classGetterWithAuth := func(name string) (*models.Class, error) {
-		if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
+		if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err
 		}
 		return h.schemaReader.ReadOnlyClass(name), nil
@@ -151,6 +155,10 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, 0, errors.Wrap(err, "init sharding state")
 	}
+
+	defaultQuantization := h.config.DefaultQuantization
+	h.enableQuantization(cls, defaultQuantization)
+
 	version, err := h.schemaManager.AddClass(ctx, cls, shardState)
 	if err != nil {
 		return nil, 0, err
@@ -158,17 +166,72 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	return cls, version, err
 }
 
-func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string) error {
+func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[string]) {
+	compression := defaultQuantization.Get()
+	if !hasTargetVectors(class) || class.VectorIndexType != "" {
+		class.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+	}
+
+	for k, vectorConfig := range class.VectorConfig {
+		vectorConfig.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+		class.VectorConfig[k] = vectorConfig
+	}
+}
+
+func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) schemaConfig.VectorIndexConfig {
+	if len(vectorIndexType) == 0 {
+		vectorIndexType = vectorindex.DefaultVectorIndexType
+	}
+	if vectorIndexType == vectorindex.VectorIndexTypeHNSW && vectorIndexConfig.IndexType() == vectorindex.VectorIndexTypeHNSW {
+		hnswConfig := vectorIndexConfig.(hnsw.UserConfig)
+		pqEnabled := hnswConfig.PQ.Enabled
+		sqEnabled := hnswConfig.SQ.Enabled
+		rqEnabled := hnswConfig.RQ.Enabled
+		bqEnabled := hnswConfig.BQ.Enabled
+		skipDefaultQuantization := hnswConfig.SkipDefaultQuantization
+		hnswConfig.TrackDefaultQuantization = false
+		if pqEnabled || sqEnabled || rqEnabled || bqEnabled {
+			return hnswConfig
+		}
+		if skipDefaultQuantization {
+			return hnswConfig
+		}
+		switch compression {
+		case "pq":
+			hnswConfig.PQ.Enabled = true
+		case "sq":
+			hnswConfig.SQ.Enabled = true
+		case "rq":
+			hnswConfig.RQ.Enabled = true
+		case "bq":
+			hnswConfig.BQ.Enabled = true
+		default:
+			return hnswConfig
+		}
+		hnswConfig.TrackDefaultQuantization = true
+		return hnswConfig
+	}
+	return vectorIndexConfig
+}
+
+func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string, overwriteAlias bool) error {
 	// get schema and sharding state
 	class := &models.Class{}
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
-		return fmt.Errorf("marshal class schema: %w", err)
+		return fmt.Errorf("unmarshal class schema: %w", err)
 	}
 	var shardingState sharding.State
 	if d.ShardingState != nil {
 		err := json.Unmarshal(d.ShardingState, &shardingState)
 		if err != nil {
-			return fmt.Errorf("marshal sharding state: %w", err)
+			return fmt.Errorf("unmarshal sharding state: %w", err)
+		}
+	}
+
+	aliases := make([]*models.Alias, 0)
+	if d.AliasesIncluded {
+		if err := json.Unmarshal(d.Aliases, &aliases); err != nil {
+			return fmt.Errorf("unmarshal aliases: %w", err)
 		}
 	}
 
@@ -207,28 +270,66 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	shardingState.MigrateFromOldFormat()
+	err = shardingState.MigrateShardingStateReplicationFactor()
+	if err != nil {
+		return fmt.Errorf("error while migrating replication factor: %w", err)
+	}
 	shardingState.ApplyNodeMapping(m)
 	_, err = h.schemaManager.RestoreClass(ctx, class, &shardingState)
-	return err
+	if err != nil {
+		return fmt.Errorf("error when trying to restore class: %w", err)
+	}
+
+	for _, alias := range aliases {
+		var err error
+		_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
+		if errors.Is(err, cschema.ErrAliasExists) {
+			// Overwrite if user asks to during restore
+			if overwriteAlias {
+				_, err = h.schemaManager.DeleteAlias(ctx, alias.Alias)
+				if err != nil {
+					return fmt.Errorf("failed to restore alias for class: delete alias failed: %w", err)
+				}
+				// retry again
+				_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
+				if err != nil {
+					return fmt.Errorf("failed to restore alias for class: create alias failed: %w", err)
+				}
+				return nil
+			}
+			// Schema returned alias already exists error. So let user know
+			// that there is a "flag overwrite" if she want's to overwrite alias.
+			return fmt.Errorf("failed to restore alias for class: alias already exists. You can overwrite using `overwrite_alias` param when restoring")
+		}
+
+		if err != nil {
+			return fmt.Errorf("failed to restore alias for class: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // DeleteClass from the schema
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.CollectionsMetadata(class)...)
+	err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsMetadata(class)...)
 	if err != nil {
 		return err
 	}
 
 	class = schema.UppercaseClassName(class)
 
-	_, err = h.schemaManager.DeleteClass(ctx, class)
-	return err
+	if _, err = h.schemaManager.DeleteClass(ctx, class); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
-	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
+	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
 	if err != nil || updated == nil {
 		return err
 	}
@@ -265,37 +366,13 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		return err
 	}
 
-	initial := h.schemaReader.ReadOnlyClass(className)
-	var shardingState *sharding.State
-
-	if initial != nil {
-		_, err := validateUpdatingMT(initial, updated)
-		if err != nil {
-			return err
-		}
-
-		initialRF := initial.ReplicationConfig.Factor
-		updatedRF := updated.ReplicationConfig.Factor
-
-		if initialRF != updatedRF {
-			ss, _, err := h.schemaManager.QueryShardingState(className)
-			if err != nil {
-				return fmt.Errorf("query sharding state for %q: %w", className, err)
-			}
-			shardingState, err = h.scaleOut.Scale(ctx, className, ss.Config, initialRF, updatedRF)
-			if err != nil {
-				return fmt.Errorf(
-					"scale %q from %d replicas to %d: %w",
-					className, initialRF, updatedRF, err)
-			}
-		}
-
+	if initial := h.schemaReader.ReadOnlyClass(className); initial != nil {
 		if err := validateImmutableFields(initial, updated); err != nil {
 			return err
 		}
 	}
-
-	_, err := h.schemaManager.UpdateClass(ctx, updated, shardingState)
+	// A nil sharding state means that the sharding state will not be updated.
+	_, err := h.schemaManager.UpdateClass(ctx, updated, nil)
 	return err
 }
 
@@ -785,7 +862,7 @@ func (h *Handler) validateVectorSettings(class *models.Class) error {
 		}
 
 		if asMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && len(asMap) > 0 {
-			parsed, err := h.parser.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, h.parser.modules.IsMultiVector(class.Vectorizer))
+			parsed, err := h.parser.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, h.parser.modules.IsMultiVector(class.Vectorizer), h.config.DefaultQuantization)
 			if err != nil {
 				return fmt.Errorf("class.VectorIndexConfig can not parse: %w", err)
 			}
@@ -923,8 +1000,4 @@ func validateLegacyVectorIndexConfigImmutableFields(initial, updated *models.Cla
 			accessor: func(c *models.Class) string { return c.VectorIndexType },
 		},
 	}...)
-}
-
-func experimentBackwardsCompatibleNamedVectorsEnabled() bool {
-	return entcfg.Enabled(os.Getenv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS"))
 }

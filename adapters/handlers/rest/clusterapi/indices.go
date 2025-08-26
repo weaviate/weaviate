@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -74,6 +75,8 @@ type indices struct {
 	regexpResumeFileActivity *regexp.Regexp
 	regexpListFiles          *regexp.Regexp
 
+	regexpAsyncReplicationTargetNode *regexp.Regexp
+
 	logger logrus.FieldLogger
 }
 
@@ -121,6 +124,8 @@ const (
 		`\/shards\/(` + sh + `)\/background:resume`
 	urlPatternListFiles = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/background:list`
+	urlPatternAsyncReplicationTargetNode = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/async-replication-target-node`
 )
 
 type shards interface {
@@ -174,7 +179,7 @@ type shards interface {
 	CreateShard(ctx context.Context, indexName, shardName string) error
 	ReInitShard(ctx context.Context, indexName, shardName string) error
 	// PauseFileActivity See adapters/clients.RemoteIndex.PauseFileActivity
-	PauseFileActivity(ctx context.Context, indexName, shardName string) error
+	PauseFileActivity(ctx context.Context, indexName, shardName string, schemaVersion uint64) error
 	// ResumeFileActivity See adapters/clients.RemoteIndex.ResumeFileActivity
 	ResumeFileActivity(ctx context.Context, indexName, shardName string) error
 	// ListFiles See adapters/clients.RemoteIndex.ListFiles
@@ -185,6 +190,12 @@ type shards interface {
 	// GetFile See adapters/clients.RemoteIndex.GetFile
 	GetFile(ctx context.Context, indexName, shardName,
 		relativeFilePath string) (io.ReadCloser, error)
+	// AddAsyncReplicationTargetNode See adapters/clients.RemoteIndex.AddAsyncReplicationTargetNode
+	AddAsyncReplicationTargetNode(ctx context.Context, indexName, shardName string,
+		targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error
+	// RemoveAsyncReplicationTargetNode See adapters/clients.RemoteIndex.RemoveAsyncReplicationTargetNode
+	RemoveAsyncReplicationTargetNode(ctx context.Context, indexName, shardName string,
+		targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 }
 
 type db interface {
@@ -201,23 +212,24 @@ func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled func() b
 		regexpObjectsSearch:        regexp.MustCompile(urlPatternObjectsSearch),
 		regexpObjectsFind:          regexp.MustCompile(urlPatternObjectsFind),
 
-		regexpObjectsAggregations: regexp.MustCompile(urlPatternObjectsAggregations),
-		regexpObject:              regexp.MustCompile(urlPatternObject),
-		regexpReferences:          regexp.MustCompile(urlPatternReferences),
-		regexpShardsQueueSize:     regexp.MustCompile(urlPatternShardsQueueSize),
-		regexpShardsStatus:        regexp.MustCompile(urlPatternShardsStatus),
-		regexpShardFiles:          regexp.MustCompile(urlPatternShardFiles),
-		regexpShardFileMetadata:   regexp.MustCompile(urlPatternShardFileMetadata),
-		regexpShard:               regexp.MustCompile(urlPatternShard),
-		regexpShardReinit:         regexp.MustCompile(urlPatternShardReinit),
-		regexpPauseFileActivity:   regexp.MustCompile(urlPatternPauseFileActivity),
-		regexpResumeFileActivity:  regexp.MustCompile(urlPatternResumeFileActivity),
-		regexpListFiles:           regexp.MustCompile(urlPatternListFiles),
-		shards:                    shards,
-		db:                        db,
-		auth:                      auth,
-		maintenanceModeEnabled:    maintenanceModeEnabled,
-		logger:                    logger,
+		regexpObjectsAggregations:        regexp.MustCompile(urlPatternObjectsAggregations),
+		regexpObject:                     regexp.MustCompile(urlPatternObject),
+		regexpReferences:                 regexp.MustCompile(urlPatternReferences),
+		regexpShardsQueueSize:            regexp.MustCompile(urlPatternShardsQueueSize),
+		regexpShardsStatus:               regexp.MustCompile(urlPatternShardsStatus),
+		regexpShardFiles:                 regexp.MustCompile(urlPatternShardFiles),
+		regexpShardFileMetadata:          regexp.MustCompile(urlPatternShardFileMetadata),
+		regexpShard:                      regexp.MustCompile(urlPatternShard),
+		regexpShardReinit:                regexp.MustCompile(urlPatternShardReinit),
+		regexpPauseFileActivity:          regexp.MustCompile(urlPatternPauseFileActivity),
+		regexpResumeFileActivity:         regexp.MustCompile(urlPatternResumeFileActivity),
+		regexpListFiles:                  regexp.MustCompile(urlPatternListFiles),
+		regexpAsyncReplicationTargetNode: regexp.MustCompile(urlPatternAsyncReplicationTargetNode),
+		shards:                           shards,
+		db:                               db,
+		auth:                             auth,
+		maintenanceModeEnabled:           maintenanceModeEnabled,
+		logger:                           logger,
 	}
 }
 
@@ -396,6 +408,17 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 		case i.regexpListFiles.MatchString(path):
 			if r.Method == http.MethodPost {
 				i.postListFiles().ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
+		case i.regexpAsyncReplicationTargetNode.MatchString(path):
+			if r.Method == http.MethodPost {
+				i.postAddAsyncReplicationTargetNode().ServeHTTP(w, r)
+				return
+			}
+			if r.Method == http.MethodDelete {
+				i.deleteAsyncReplicationTargetNode().ServeHTTP(w, r)
 				return
 			}
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
@@ -1512,7 +1535,13 @@ func (i *indices) postPauseFileActivity() http.Handler {
 
 		indexName, shardName := args[1], args[2]
 
-		err := i.shards.PauseFileActivity(r.Context(), indexName, shardName)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		err = i.shards.PauseFileActivity(r.Context(), indexName, shardName, schemaVersion)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -1585,5 +1614,71 @@ func (i *indices) postListFiles() http.Handler {
 
 		w.Write(resBytes)
 		w.WriteHeader(http.StatusOK)
+	})
+}
+
+func (i *indices) postAddAsyncReplicationTargetNode() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpAsyncReplicationTargetNode.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		indexName, shardName := args[1], args[2]
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		var targetNodeOverride additional.AsyncReplicationTargetNodeOverride
+		if err := json.NewDecoder(r.Body).Decode(&targetNodeOverride); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		err = i.shards.AddAsyncReplicationTargetNode(r.Context(), indexName, shardName, targetNodeOverride, schemaVersion)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpAsyncReplicationTargetNode.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		indexName, shardName := args[1], args[2]
+
+		var targetNodeOverride additional.AsyncReplicationTargetNodeOverride
+		if err := json.NewDecoder(r.Body).Decode(&targetNodeOverride); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		err := i.shards.RemoveAsyncReplicationTargetNode(r.Context(), indexName, shardName, targetNodeOverride)
+		if err != nil {
+			// There's no easy to have a re-usable error type via all our interfaces to reach the shard/index
+			if strings.Contains(err.Error(), "shard not found") {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			if strings.Contains(err.Error(), fmt.Sprintf("local index %q not found", indexName)) {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
 	})
 }

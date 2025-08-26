@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/additional"
@@ -34,28 +36,52 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
-type autoSchemaManager struct {
+type AutoSchemaManager struct {
 	mutex         sync.RWMutex
 	authorizer    authorization.Authorizer
 	schemaManager schemaManager
 	vectorRepo    VectorRepo
 	config        config.AutoSchema
 	logger        logrus.FieldLogger
+
+	// Metrics without labels to avoid cardinality issues
+	opsDuration  *prometheus.HistogramVec
+	tenantsCount prometheus.Counter
 }
 
-func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
+func NewAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
 	config *config.WeaviateConfig, authorizer authorization.Authorizer, logger logrus.FieldLogger,
-) *autoSchemaManager {
-	return &autoSchemaManager{
+	reg prometheus.Registerer,
+) *AutoSchemaManager {
+	r := promauto.With(reg)
+
+	tenantsCount := r.NewCounter(
+		prometheus.CounterOpts{
+			Name: "weaviate_auto_tenant_total",
+			Help: "Total number of tenants processed",
+		},
+	)
+
+	opDuration := r.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name: "weaviate_auto_tenant_duration_seconds",
+			Help: "Time spent in auto tenant operations",
+		},
+		[]string{"operation"},
+	)
+
+	return &AutoSchemaManager{
 		schemaManager: schemaManager,
 		vectorRepo:    vectorRepo,
 		config:        config.Config.AutoSchema,
 		logger:        logger,
 		authorizer:    authorizer,
+		tenantsCount:  tenantsCount,
+		opsDuration:   opDuration,
 	}
 }
 
-func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Principal,
+func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Principal,
 	allowCreateClass bool, classes map[string]versioned.Class, objects ...*models.Object,
 ) (uint64, error) {
 	enabled := m.config.Enabled.Get()
@@ -93,7 +119,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		}
 
 		if schemaClass == nil {
-			err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.CollectionsMetadata(object.Class)...)
+			err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.CollectionsMetadata(object.Class)...)
 			if err != nil {
 				return 0, fmt.Errorf("auto schema can't create objects because can't create collection: %w", err)
 			}
@@ -108,7 +134,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			classcache.RemoveClassFromContext(ctx, object.Class)
 		} else {
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
-				err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(schemaClass.Class)...)
+				err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(schemaClass.Class)...)
 				if err != nil {
 					return 0, fmt.Errorf("auto schema can't create objects because can't update collection: %w", err)
 				}
@@ -129,7 +155,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 	return maxSchemaVersion, nil
 }
 
-func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.Principal,
+func (m *AutoSchemaManager) createClass(ctx context.Context, principal *models.Principal,
 	className string, properties []*models.Property,
 ) (*models.Class, uint64, error) {
 	now := time.Now()
@@ -145,7 +171,7 @@ func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.P
 	return newClass, schemaVersion, err
 }
 
-func (m *autoSchemaManager) getProperties(object *models.Object) ([]*models.Property, error) {
+func (m *AutoSchemaManager) getProperties(object *models.Object) ([]*models.Property, error) {
 	properties := []*models.Property{}
 	if props, ok := object.Properties.(map[string]interface{}); ok {
 		for name, value := range props {
@@ -182,7 +208,7 @@ func (m *autoSchemaManager) getProperties(object *models.Object) ([]*models.Prop
 	return properties, nil
 }
 
-func (m *autoSchemaManager) getDataTypes(dataTypes []schema.DataType) []string {
+func (m *AutoSchemaManager) getDataTypes(dataTypes []schema.DataType) []string {
 	dtypes := make([]string, len(dataTypes))
 	for i := range dataTypes {
 		dtypes[i] = string(dataTypes[i])
@@ -190,7 +216,7 @@ func (m *autoSchemaManager) getDataTypes(dataTypes []schema.DataType) []string {
 	return dtypes
 }
 
-func (m *autoSchemaManager) determineType(value interface{}, ofNestedProp bool) ([]schema.DataType, error) {
+func (m *AutoSchemaManager) determineType(value interface{}, ofNestedProp bool) ([]schema.DataType, error) {
 	fallbackDataType := []schema.DataType{schema.DataTypeText}
 	fallbackArrayDataType := []schema.DataType{schema.DataTypeTextArray}
 
@@ -304,7 +330,7 @@ func asSingleDataType(arrayDataType schema.DataType) schema.DataType {
 	return arrayDataType
 }
 
-func (m *autoSchemaManager) determineArrayType(value interface{}, ofNestedProp bool,
+func (m *AutoSchemaManager) determineArrayType(value interface{}, ofNestedProp bool,
 ) (schema.DataType, schema.DataType, error) {
 	switch typedValue := value.(type) {
 	case string:
@@ -355,7 +381,7 @@ func (m *autoSchemaManager) determineArrayType(value interface{}, ofNestedProp b
 	}
 }
 
-func (m *autoSchemaManager) asGeoCoordinatesType(val map[string]interface{}) ([]schema.DataType, bool) {
+func (m *AutoSchemaManager) asGeoCoordinatesType(val map[string]interface{}) ([]schema.DataType, bool) {
 	if len(val) == 2 {
 		if val["latitude"] != nil && val["longitude"] != nil {
 			return []schema.DataType{schema.DataTypeGeoCoordinates}, true
@@ -364,7 +390,7 @@ func (m *autoSchemaManager) asGeoCoordinatesType(val map[string]interface{}) ([]
 	return nil, false
 }
 
-func (m *autoSchemaManager) asPhoneNumber(val map[string]interface{}) ([]schema.DataType, bool) {
+func (m *AutoSchemaManager) asPhoneNumber(val map[string]interface{}) ([]schema.DataType, bool) {
 	if val["input"] != nil {
 		if len(val) == 1 {
 			return []schema.DataType{schema.DataTypePhoneNumber}, true
@@ -379,7 +405,7 @@ func (m *autoSchemaManager) asPhoneNumber(val map[string]interface{}) ([]schema.
 	return nil, false
 }
 
-func (m *autoSchemaManager) asRef(val map[string]interface{}) (schema.DataType, bool) {
+func (m *AutoSchemaManager) asRef(val map[string]interface{}) (schema.DataType, bool) {
 	if v, ok := val["beacon"]; ok {
 		if beacon, ok := v.(string); ok {
 			ref, err := crossref.Parse(beacon)
@@ -398,7 +424,7 @@ func (m *autoSchemaManager) asRef(val map[string]interface{}) (schema.DataType, 
 	return "", false
 }
 
-func (m *autoSchemaManager) determineNestedProperties(values map[string]interface{}, now time.Time,
+func (m *AutoSchemaManager) determineNestedProperties(values map[string]interface{}, now time.Time,
 ) ([]*models.NestedProperty, error) {
 	i := 0
 	nestedProperties := make([]*models.NestedProperty, len(values))
@@ -413,7 +439,7 @@ func (m *autoSchemaManager) determineNestedProperties(values map[string]interfac
 	return nestedProperties, nil
 }
 
-func (m *autoSchemaManager) determineNestedProperty(name string, value interface{}, now time.Time,
+func (m *AutoSchemaManager) determineNestedProperty(name string, value interface{}, now time.Time,
 ) (*models.NestedProperty, error) {
 	dt, err := m.determineType(value, true)
 	if err != nil {
@@ -444,7 +470,7 @@ func (m *autoSchemaManager) determineNestedProperty(name string, value interface
 	}, nil
 }
 
-func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interface{}, now time.Time,
+func (m *AutoSchemaManager) determineNestedPropertiesOfArray(valArray []interface{}, now time.Time,
 ) ([]*models.NestedProperty, error) {
 	if len(valArray) == 0 {
 		return []*models.NestedProperty{}, nil
@@ -490,9 +516,16 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 	return nestedProperties, nil
 }
 
-func (m *autoSchemaManager) autoTenants(ctx context.Context,
+func (m *AutoSchemaManager) autoTenants(ctx context.Context,
 	principal *models.Principal, objects []*models.Object, fetchedClasses map[string]versioned.Class,
 ) (uint64, int, error) {
+	start := time.Now()
+	defer func() {
+		m.opsDuration.With(prometheus.Labels{
+			"operation": "total",
+		}).Observe(time.Since(start).Seconds())
+	}()
+
 	classTenants := make(map[string]map[string]struct{})
 
 	// group by tenants by class
@@ -526,13 +559,19 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 			tenants[i] = &models.Tenant{Name: name}
 			i++
 		}
-		err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(className, names...)...)
+		err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsMetadata(className, names...)...)
 		if err != nil {
 			return 0, totalTenants, fmt.Errorf("add tenants because can't create collection: %w", err)
 		}
+
+		addStart := time.Now()
 		if err := m.addTenants(ctx, principal, className, tenants); err != nil {
 			return 0, totalTenants, fmt.Errorf("add tenants to class %q: %w", className, err)
 		}
+		m.tenantsCount.Add(float64(len(tenants)))
+		m.opsDuration.With(prometheus.Labels{
+			"operation": "add",
+		}).Observe(time.Since(addStart).Seconds())
 
 		if vclass.Version > maxSchemaVersion {
 			maxSchemaVersion = vclass.Version
@@ -547,15 +586,22 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 	return maxSchemaVersion, totalTenants, nil
 }
 
-func (m *autoSchemaManager) addTenants(ctx context.Context, principal *models.Principal,
+func (m *AutoSchemaManager) addTenants(ctx context.Context, principal *models.Principal,
 	class string, tenants []*models.Tenant,
 ) error {
 	if len(tenants) == 0 {
 		return fmt.Errorf(
 			"tenants must be included for multitenant-enabled class %q", class)
 	}
-	if _, err := m.schemaManager.AddTenants(ctx, principal, class, tenants); err != nil {
+	version, err := m.schemaManager.AddTenants(ctx, principal, class, tenants)
+	if err != nil {
 		return err
 	}
+
+	err = m.schemaManager.WaitForUpdate(ctx, version)
+	if err != nil {
+		return fmt.Errorf("could not wait for update: %w", err)
+	}
+
 	return nil
 }

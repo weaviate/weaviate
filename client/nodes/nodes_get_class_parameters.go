@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -82,6 +82,9 @@ type NodesGetClassParams struct {
 	   Default: "minimal"
 	*/
 	Output *string
+
+	// ShardName.
+	ShardName *string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -169,6 +172,17 @@ func (o *NodesGetClassParams) SetOutput(output *string) {
 	o.Output = output
 }
 
+// WithShardName adds the shardName to the nodes get class params
+func (o *NodesGetClassParams) WithShardName(shardName *string) *NodesGetClassParams {
+	o.SetShardName(shardName)
+	return o
+}
+
+// SetShardName adds the shardName to the nodes get class params
+func (o *NodesGetClassParams) SetShardName(shardName *string) {
+	o.ShardName = shardName
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *NodesGetClassParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -194,6 +208,23 @@ func (o *NodesGetClassParams) WriteToRequest(r runtime.ClientRequest, reg strfmt
 		if qOutput != "" {
 
 			if err := r.SetQueryParam("output", qOutput); err != nil {
+				return err
+			}
+		}
+	}
+
+	if o.ShardName != nil {
+
+		// query param shardName
+		var qrShardName string
+
+		if o.ShardName != nil {
+			qrShardName = *o.ShardName
+		}
+		qShardName := qrShardName
+		if qShardName != "" {
+
+			if err := r.SetQueryParam("shardName", qShardName); err != nil {
 				return err
 			}
 		}

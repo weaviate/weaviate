@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,28 +37,28 @@ func TestHnswIndex(t *testing.T) {
 
 	t.Run("searching within cluster 1", func(t *testing.T) {
 		position := 0
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 3, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 3, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []uint64{0, 1, 2}, res)
 	})
 
 	t.Run("searching within cluster 2", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 3, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 3, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []uint64{3, 4, 5}, res)
 	})
 
 	t.Run("searching within cluster 3", func(t *testing.T) {
 		position := 6
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 3, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 3, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []uint64{6, 7, 8}, res)
 	})
 
 	t.Run("searching within cluster 2 with a scope larger than the cluster", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 50, nil)
 		require.Nil(t, err)
 		assert.Equal(t, []uint64{
 			3, 5, 4, // cluster 2
@@ -69,7 +69,7 @@ func TestHnswIndex(t *testing.T) {
 
 	t.Run("searching with negative value of k", func(t *testing.T) {
 		position := 0
-		_, _, err := index.knnSearchByVector(ctx, testVectors[position], -1, 36, nil)
+		_, _, err := index.SearchByVector(ctx, testVectors[position], -1, nil)
 		require.Error(t, err)
 	})
 }
@@ -184,6 +184,7 @@ func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[fl
 	index, err := New(cfg, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
+		EF:             36,
 	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 	return index

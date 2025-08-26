@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,21 +36,21 @@ func (s *Shard) drop() (err error) {
 	s.metrics.baseMetrics.StartUnloadingShard()
 	s.replicationMap.clear()
 
-	if s.index.Config.TrackVectorDimensions {
-		// tracking vector dimensions goroutine only works when tracking is enabled
-		// that's why we are trying to stop it only in this case
-		s.stopDimensionTracking <- struct{}{}
-		// send 0 in when index gets dropped
-		s.clearDimensionMetrics()
-	}
-
 	s.index.logger.WithFields(logrus.Fields{
 		"action": "drop_shard",
 		"class":  s.class.Class,
 		"shard":  s.name,
 	}).Debug("dropping shard")
 
+	s.clearDimensionMetrics() // not deleted in s.metrics.DeleteShardLabels
+
 	s.mayStopAsyncReplication()
+
+	s.haltForTransferMux.Lock()
+	if s.haltForTransferCancel != nil {
+		s.haltForTransferCancel()
+	}
+	s.haltForTransferMux.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,6 +19,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
+
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
@@ -26,19 +28,6 @@ import (
 const (
 	replicationEngineLogAction = "replication_engine"
 )
-
-// TimeProvider abstracts time operations to enable testing without time dependencies.
-type TimeProvider interface {
-	Now() time.Time
-}
-
-// RealTimeProvider implements the TimeProvider interface using the standard time package
-type RealTimeProvider struct{}
-
-// Now returns the current time
-func (p RealTimeProvider) Now() time.Time {
-	return time.Now()
-}
 
 // ShardReplicationEngine coordinates the replication of shard data between nodes in a distributed system.
 //
@@ -87,7 +76,7 @@ type ShardReplicationEngine struct {
 	// opsChan is the buffered channel used to pass operations from the producer to the consumer.
 	// A bounded channel ensures that backpressure is applied when the consumer is overwhelmed or when
 	// a certain number of concurrent workers are already busy processing replication operations.
-	opsChan chan ShardReplicationOp
+	opsChan chan ShardReplicationOpAndStatus
 
 	// stopChan is a signal-only channel used to trigger graceful shutdown of the engine.
 	// It is closed when Stop() is invoked, prompting shutdown of producer and consumer goroutines.
@@ -104,12 +93,6 @@ type ShardReplicationEngine struct {
 	// The wait group helps ensure that the engine doesn't terminate prematurely before all goroutines have finished.
 	wg sync.WaitGroup
 
-	// cancel is a function that cancels the context associated with the replication engine's main execution loop.
-	// It is used to gracefully stop the operation of the engine by canceling the context passed to the producer
-	// and consumer goroutines. The context cancellation triggers the shutdown sequence for the engine, allowing
-	// the producer and consumer to stop gracefully.
-	cancel context.CancelFunc
-
 	// maxWorkers controls the maximum number of concurrent workers in the consumer pool.
 	// It is used to limit the parallelism of replication operations, preventing the system from being overwhelmed by
 	// too many concurrent tasks performing replication operations.
@@ -119,6 +102,10 @@ type ShardReplicationEngine struct {
 	// If the engine takes longer than this timeout to shut down, a warning is logged, and the process is forcibly stopped.
 	// This ensures that the system doesn't hang indefinitely during shutdown.
 	shutdownTimeout time.Duration
+
+	// engineMetricCallbacks defines optional hooks for tracking engine lifecycle events
+	// like start/stop of the engine, producer, and consumer via Prometheus metrics or custom logic.
+	engineMetricCallbacks *metrics.ReplicationEngineCallbacks
 }
 
 // NewShardReplicationEngine creates a new replication engine
@@ -130,16 +117,18 @@ func NewShardReplicationEngine(
 	opBufferSize int,
 	maxWorkers int,
 	shutdownTimeout time.Duration,
+	engineMetricCallbacks *metrics.ReplicationEngineCallbacks,
 ) *ShardReplicationEngine {
 	return &ShardReplicationEngine{
-		nodeId:          nodeId,
-		logger:          logger.WithFields(logrus.Fields{"action": replicationEngineLogAction, "node": nodeId}),
-		producer:        producer,
-		consumer:        consumer,
-		opBufferSize:    opBufferSize,
-		maxWorkers:      maxWorkers,
-		shutdownTimeout: shutdownTimeout,
-		stopChan:        make(chan struct{}),
+		nodeId:                nodeId,
+		logger:                logger.WithFields(logrus.Fields{"action": replicationEngineLogAction, "node": nodeId}),
+		producer:              producer,
+		consumer:              consumer,
+		opBufferSize:          opBufferSize,
+		maxWorkers:            maxWorkers,
+		shutdownTimeout:       shutdownTimeout,
+		stopChan:              make(chan struct{}),
+		engineMetricCallbacks: engineMetricCallbacks,
 	}
 }
 
@@ -158,12 +147,12 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 		return nil
 	}
 
+	e.engineMetricCallbacks.OnEngineStart(e.nodeId)
 	// Channels are creating while starting the replication engine to allow start/stop.
-	e.opsChan = make(chan ShardReplicationOp, e.opBufferSize)
+	e.opsChan = make(chan ShardReplicationOpAndStatus, e.opBufferSize)
 	e.stopChan = make(chan struct{})
 
 	engineCtx, engineCancel := context.WithCancel(ctx)
-	e.cancel = engineCancel
 	e.logger.WithFields(logrus.Fields{"engine": e}).Info("starting replication engine")
 
 	// Channels for error reporting used by producer and consumer.
@@ -174,6 +163,8 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 	e.wg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer e.wg.Done()
+		defer e.engineMetricCallbacks.OnProducerStop(e.nodeId)
+		e.engineMetricCallbacks.OnProducerStart(e.nodeId)
 		e.logger.WithField("producer", e.producer).Info("starting replication engine producer")
 		err := e.producer.Produce(engineCtx, e.opsChan)
 		if err != nil && !errors.Is(err, context.Canceled) {
@@ -187,6 +178,8 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 	e.wg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer e.wg.Done()
+		defer e.engineMetricCallbacks.OnConsumerStop(e.nodeId)
+		e.engineMetricCallbacks.OnConsumerStart(e.nodeId)
 		e.logger.WithField("consumer", e.consumer).Info("starting replication engine consumer")
 		err := e.consumer.Consume(engineCtx, e.opsChan)
 		if err != nil && !errors.Is(err, context.Canceled) {
@@ -218,8 +211,8 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 	// Always cancel the replication engine context and wait for the producer and consumers to terminate to gracefully
 	// shut down the replication engine the both the producer and consumer.
 	engineCancel()
-	e.wg.Wait()
 	close(e.opsChan)
+	e.wg.Wait()
 	e.isRunning.Store(false)
 	return err
 }
@@ -239,27 +232,9 @@ func (e *ShardReplicationEngine) Stop() {
 	// Closing the stop channel notifies both the producer and consumer to shut down gracefully coordinating with the
 	// replication engine.
 	close(e.stopChan)
-	e.cancel()
-
-	// We use a timeout mechanism to wait for the replication engine to shut down and prevent it from running
-	// indefinitely.
-	timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), e.shutdownTimeout)
-	defer timeoutCancel()
-
-	done := make(chan struct{})
-	enterrors.GoWrapper(func() {
-		e.wg.Wait()
-		close(done)
-	}, e.logger)
-
-	select {
-	case <-done:
-		e.logger.WithField("engine", e).Info("replication engine shutdown completed successfully")
-	case <-timeoutCtx.Done():
-		e.logger.WithField("engine", e).WithField("timeout", e.shutdownTimeout).Warn("replication engine shutdown timed out")
-	}
-
+	e.wg.Wait()
 	e.isRunning.Store(false)
+	e.engineMetricCallbacks.OnEngineStop(e.nodeId)
 }
 
 // IsRunning reports whether the replication engine is currently running.

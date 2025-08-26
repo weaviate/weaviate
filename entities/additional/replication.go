@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,4 +26,28 @@ type ReplicationProperties struct {
 	// NodeName is the node which is expected to
 	// fulfill the request
 	NodeName string
+}
+
+type AsyncReplicationTargetNodeOverride struct {
+	CollectionID         string
+	ShardID              string
+	SourceNode           string
+	TargetNode           string
+	UpperTimeBound       int64
+	NoDeletionResolution bool
+}
+
+type AsyncReplicationTargetNodeOverrides []AsyncReplicationTargetNodeOverride
+
+func (left *AsyncReplicationTargetNodeOverride) Equal(right *AsyncReplicationTargetNodeOverride) bool {
+	return left.SourceNode == right.SourceNode && left.TargetNode == right.TargetNode && left.CollectionID == right.CollectionID && left.ShardID == right.ShardID
+}
+
+func (overrides AsyncReplicationTargetNodeOverrides) NoDeletionResolution(targetNode string) bool {
+	for _, override := range overrides {
+		if override.TargetNode == targetNode {
+			return override.NoDeletionResolution
+		}
+	}
+	return false
 }

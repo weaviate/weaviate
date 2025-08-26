@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,10 +23,11 @@ const (
 )
 
 const (
-	DefaultCohereModel = "rerank-multilingual-v3.0"
+	DefaultCohereModel = "rerank-v3.5"
 )
 
 var availableCohereModels = []string{
+	"rerank-v3.5",
 	"rerank-english-v3.0",
 	"rerank-multilingual-v3.0",
 	"rerank-english-v2.0",

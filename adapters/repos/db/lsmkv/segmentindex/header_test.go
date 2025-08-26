@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,7 +12,6 @@
 package segmentindex
 
 import (
-	"bytes"
 	"os"
 	"testing"
 
@@ -24,7 +23,7 @@ func BenchmarkParseHeader(b *testing.B) {
 	require.Len(b, data, HeaderSize)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := ParseHeader(bytes.NewReader(data))
+		_, err := ParseHeader(data)
 		require.NoError(b, err)
 	}
 }

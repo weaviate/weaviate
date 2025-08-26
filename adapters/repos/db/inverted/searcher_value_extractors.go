@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	ent "github.com/weaviate/weaviate/entities/inverted"
 )
 
 func (s *Searcher) extractNumberValue(in interface{}) ([]byte, error) {
@@ -26,7 +27,7 @@ func (s *Searcher) extractNumberValue(in interface{}) ([]byte, error) {
 		return nil, fmt.Errorf("expected value to be float64, got %T", in)
 	}
 
-	return LexicographicallySortableFloat64(value)
+	return ent.LexicographicallySortableFloat64(value)
 }
 
 // assumes an untyped int and stores as string-formatted int64
@@ -36,7 +37,7 @@ func (s *Searcher) extractIntValue(in interface{}) ([]byte, error) {
 		return nil, fmt.Errorf("expected value to be int, got %T", in)
 	}
 
-	return LexicographicallySortableInt64(int64(value))
+	return ent.LexicographicallySortableInt64(int64(value))
 }
 
 // assumes an untyped int and stores as string-formatted int64
@@ -46,7 +47,7 @@ func (s *Searcher) extractIntCountValue(in interface{}) ([]byte, error) {
 		return nil, fmt.Errorf("expected value to be int, got %T", in)
 	}
 
-	return LexicographicallySortableUint64(uint64(value))
+	return ent.LexicographicallySortableUint64(uint64(value))
 }
 
 // assumes an untyped bool and stores as bool64
@@ -86,5 +87,5 @@ func (s *Searcher) extractDateValue(in interface{}) ([]byte, error) {
 			", got %T", in)
 	}
 
-	return LexicographicallySortableInt64(asInt64)
+	return ent.LexicographicallySortableInt64(asInt64)
 }

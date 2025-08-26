@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,31 +19,49 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func TestBM25FJourneyBlock(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.Background()))
@@ -170,8 +188,8 @@ func TestBM25FJourneyBlock(t *testing.T) {
 			require.Equal(t, len(scores), len(res))
 			// Check results in correct order
 			require.Equal(t, uint64(4), res[0].DocID)
-			require.Equal(t, uint64(5), res[1].DocID)
-			require.Equal(t, uint64(1), res[2].DocID)
+			require.Equal(t, uint64(1), res[1].DocID)
+			require.Equal(t, uint64(5), res[2].DocID)
 			require.Equal(t, uint64(6), res[3].DocID)
 			require.Equal(t, uint64(2), res[4].DocID)
 		})
@@ -184,8 +202,8 @@ func TestBM25FJourneyBlock(t *testing.T) {
 
 			// Check results in correct order
 			require.Equal(t, uint64(4), res[0].DocID)
-			require.Equal(t, uint64(5), res[1].DocID)
-			require.Equal(t, uint64(1), res[2].DocID)
+			require.Equal(t, uint64(1), res[1].DocID)
+			require.Equal(t, uint64(5), res[2].DocID)
 			require.Equal(t, uint64(6), res[3].DocID)
 		})
 
@@ -270,15 +288,15 @@ func TestBM25FJourneyBlock(t *testing.T) {
 
 			require.Less(t, len(resAutoCut), len(resNoAutoCut))
 
-			EqualFloats(t, float32(0.51602507), noautocutscores[0], 5)
-			EqualFloats(t, float32(0.4975062), noautocutscores[1], 5) // <= autocut last element
-			EqualFloats(t, float32(0.34149727), noautocutscores[2], 5)
-			EqualFloats(t, float32(0.3049518), noautocutscores[3], 5)
-			EqualFloats(t, float32(0.27547202), noautocutscores[4], 5)
+			EqualFloats(t, float32(0.5253056), noautocutscores[0], 5)
+			EqualFloats(t, float32(0.50612706), noautocutscores[1], 5) // <= autocut last element
+			EqualFloats(t, float32(0.35391074), noautocutscores[2], 5)
+			EqualFloats(t, float32(0.31824225), noautocutscores[3], 5)
+			EqualFloats(t, float32(0.28910512), noautocutscores[4], 5)
 
 			require.Len(t, resAutoCut, 2)
-			EqualFloats(t, float32(0.51602507), autocutscores[0], 5)
-			EqualFloats(t, float32(0.4975062), autocutscores[1], 5)
+			EqualFloats(t, float32(0.5253056), autocutscores[0], 5)
+			EqualFloats(t, float32(0.50612706), autocutscores[1], 5)
 		})
 
 		for _, index := range repo.indices {
@@ -293,25 +311,37 @@ func TestBM25FJourneyBlock(t *testing.T) {
 }
 
 func TestBM25FSinglePropBlock(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -328,12 +358,12 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 			}
 			require.Nil(t, err)
 			// Check results in correct order
-			require.Equal(t, uint64(3), res[0].DocID)
-			require.Equal(t, uint64(6), res[3].DocID)
+			require.Equal(t, uint64(5), res[0].DocID)
+			require.Equal(t, uint64(3), res[3].DocID)
 
 			// Check scores
-			EqualFloats(t, float32(0.1248), scores[0], 5)
-			EqualFloats(t, float32(0.0363), scores[1], 5)
+			EqualFloats(t, float32(0.6178051), scores[0], 5)
+			EqualFloats(t, float32(0.6178051), scores[1], 5)
 		})
 
 		for _, index := range repo.indices {
@@ -347,25 +377,37 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 }
 
 func TestBM25FWithFiltersBlock(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -450,19 +492,31 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 }
 
 func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -521,25 +575,37 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 }
 
 func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -560,8 +626,8 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 			require.Nil(t, err)
 
 			// Check results in correct order
-			require.Equal(t, uint64(6), res[0].DocID)
-			require.Equal(t, uint64(2), res[2].DocID)
+			require.Equal(t, uint64(5), res[0].DocID)
+			require.Equal(t, uint64(6), res[2].DocID)
 
 			// Print results
 			t.Log("--- Start results for boosted search ---")
@@ -570,8 +636,8 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 			}
 
 			// Check scores
-			EqualFloats(t, float32(0.98), scores[0], 2)
-			EqualFloats(t, float32(0.59), scores[1], 2)
+			EqualFloats(t, float32(1.7730504), scores[0], 2)
+			EqualFloats(t, float32(1.7730504), scores[1], 2)
 		})
 
 		for _, index := range repo.indices {
@@ -586,25 +652,37 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 
 // Compare with previous BM25 version to ensure the algorithm functions correctly
 func TestBM25FCompareBlock(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -643,19 +721,19 @@ func TestBM25FCompareBlock(t *testing.T) {
 				}
 
 				// Not all the scores are unique and the search is not stable, so pick ones that don't move
-				require.Equal(t, uint64(4), objs[0].DocID)
-				require.Equal(t, uint64(6), objs[1].DocID)
-				require.Equal(t, uint64(5), objs[2].DocID)
-				require.Equal(t, uint64(1), objs[3].DocID)
-				require.Equal(t, uint64(2), objs[4].DocID)
-				require.Equal(t, uint64(0), objs[5].DocID)
+				require.Equal(t, uint64(1), objs[0].DocID)
+				require.Equal(t, uint64(2), objs[1].DocID)
+				require.Equal(t, uint64(0), objs[2].DocID)
+				require.Equal(t, uint64(6), objs[3].DocID)
+				require.Equal(t, uint64(5), objs[4].DocID)
+				require.Equal(t, uint64(4), objs[5].DocID)
 
-				require.Equal(t, uint64(4), withBM25Fobjs[0].DocID)
-				require.Equal(t, uint64(6), withBM25Fobjs[1].DocID)
-				require.Equal(t, uint64(5), withBM25Fobjs[2].DocID)
-				require.Equal(t, uint64(1), withBM25Fobjs[3].DocID)
-				require.Equal(t, uint64(2), withBM25Fobjs[4].DocID)
-				require.Equal(t, uint64(0), withBM25Fobjs[5].DocID)
+				require.Equal(t, uint64(1), withBM25Fobjs[0].DocID)
+				require.Equal(t, uint64(2), withBM25Fobjs[1].DocID)
+				require.Equal(t, uint64(0), withBM25Fobjs[2].DocID)
+				require.Equal(t, uint64(6), withBM25Fobjs[3].DocID)
+				require.Equal(t, uint64(5), withBM25Fobjs[4].DocID)
+				require.Equal(t, uint64(4), withBM25Fobjs[5].DocID)
 
 			}
 		})
@@ -671,25 +749,36 @@ func TestBM25FCompareBlock(t *testing.T) {
 }
 
 func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{},
 		},
 	}
-
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -721,9 +810,9 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 			require.Len(t, res, 3)
 
 			// Check scores
-			EqualFloats(t, float32(0.8550), scores[0], 5)
-			EqualFloats(t, float32(0.5116), scores[1], 5)
-			EqualFloats(t, float32(0.3325), scores[2], 5)
+			EqualFloats(t, float32(0.93171), scores[0], 5)
+			EqualFloats(t, float32(0.54312956), scores[1], 5)
+			EqualFloats(t, float32(0.3794713), scores[2], 5)
 		})
 
 		t.Run("Results without stopwords "+location, func(t *testing.T) {
@@ -768,24 +857,36 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 }
 
 func TestBM25F_SortMultiPropBlock(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{},
 		},
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -846,4 +947,87 @@ func TestBM25F_SortMultiPropBlock(t *testing.T) {
 		}
 
 	}
+}
+
+func TestBM25FWithFiltersMemtable(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	shardState := singleShardState()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
+	defer repo.Shutdown(context.Background())
+
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
+
+	idx := repo.GetIndex("MyClass")
+	require.NotNil(t, idx)
+
+	filter := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorOr,
+			Operands: []filters.Clause{
+				{
+					Operator: filters.OperatorNotEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "unrelated",
+						Type:  schema.DataType("text"),
+					},
+				},
+			},
+		},
+	}
+
+	resultIds := make([][]uint64, 2)
+	resultScores := make([][]float32, 2)
+	for i, location := range []string{"memory", "disk"} {
+		t.Run("bm25f with filter "+location, func(t *testing.T) {
+			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "my unrelated journey", AdditionalExplanations: true}
+			addit := additional.Properties{}
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, nil, "", 0, props)
+
+			require.Nil(t, err)
+
+			for j, r := range res {
+				resultIds[i] = append(resultIds[i], r.DocID)
+				resultScores[i] = append(resultScores[i], scores[j])
+			}
+		})
+
+		for _, index := range repo.indices {
+			index.ForEachShard(func(name string, shard ShardLike) error {
+				err := shard.Store().FlushMemtables(context.Background())
+				require.Nil(t, err)
+				return nil
+			})
+		}
+	}
+	assert.Equal(t, resultIds[0], resultIds[1], "Result IDs should be the same for memory and disk")
+	assert.Equal(t, resultScores[0], resultScores[1], "Result scores should be the same for memory and disk")
 }

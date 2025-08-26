@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -73,9 +73,9 @@ func testSchemaValidation(host string) func(t *testing.T) {
 					},
 				},
 				VectorConfig: map[string]models.VectorConfig{
-					c11y: {
+					m2vec: {
 						Vectorizer: map[string]interface{}{
-							text2vecContextionary: map[string]interface{}{
+							text2vecModel2Vec: map[string]interface{}{
 								"vectorizeClassName": false,
 								"properties":         []interface{}{"text", 1111},
 							},
@@ -116,7 +116,7 @@ func testSchemaValidation(host string) func(t *testing.T) {
 					VectorConfig: map[string]models.VectorConfig{
 						tt.targetVectorName: {
 							Vectorizer: map[string]interface{}{
-								text2vecContextionary: map[string]interface{}{
+								text2vecModel2Vec: map[string]interface{}{
 									"vectorizeClassName": false,
 								},
 							},
@@ -145,7 +145,7 @@ func testSchemaValidation(host string) func(t *testing.T) {
 				VectorConfig: map[string]models.VectorConfig{
 					oneTargetVector: {
 						Vectorizer: map[string]interface{}{
-							text2vecContextionary: map[string]interface{}{
+							text2vecModel2Vec: map[string]interface{}{
 								"vectorizeClassName": false,
 							},
 						},
@@ -190,7 +190,7 @@ func testSchemaValidation(host string) func(t *testing.T) {
 						"model": "wrong-model",
 					},
 				},
-				Vectorizer:      text2vecContextionary,
+				Vectorizer:      text2vecModel2Vec,
 				VectorIndexType: "hnsw",
 			}
 			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
@@ -208,9 +208,9 @@ func testSchemaValidation(host string) func(t *testing.T) {
 					},
 				},
 				VectorConfig: map[string]models.VectorConfig{
-					c11y: {
+					m2vec: {
 						Vectorizer: map[string]interface{}{
-							text2vecContextionary: map[string]interface{}{
+							text2vecModel2Vec: map[string]interface{}{
 								"vectorizeClassName": false,
 							},
 						},
@@ -246,9 +246,9 @@ func testSchemaValidation(host string) func(t *testing.T) {
 					},
 				},
 				VectorConfig: map[string]models.VectorConfig{
-					c11y: {
+					m2vec: {
 						Vectorizer: map[string]interface{}{
-							text2vecContextionary: map[string]interface{}{
+							text2vecModel2Vec: map[string]interface{}{
 								"vectorizeClassName": false,
 							},
 						},

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -127,33 +127,33 @@ type KMeans struct {
 	tmp                temporaryData          // Temporary heap-allocated data used during fitting.
 }
 
-// Reasoning behind default settings
-// =================================
-// Experiments show that GraphPruning speeds up k-means compared to BruteForce
-// when d <= 16 on random data. The speedup is about 5x for d = 4, 2x for d = 8,
-// and insignificant at d = 16. We use GraphPruning by default as there is
-// almost no additional cost for high-dimensional data at typical problem sizes
-// (n = 100_000, k = 256), and a clear benefit for low-dimensional data.
-//
-// The IterationThreshold is what typically determines the number of iterations.
-// It is set to balance running time and quality. The DeltaThreshold only comes
-// into effect after e.g. 50-100 iterations on random data.
-//
-// k-means++ initialization seems to provide slightly better WCSS on random data
-// compared to random initialization. It does come at at a slight increase in
-// cost, something like 3-5% of the total k-means running time, but the
-// robustness and increased quality seems worth it.
-//
-// Notes
-// =====
-// There exists other heuristics to speed up k-means, see e.g. the paper
-// "Making k-means even faster" by Greg Hamerly. We tried implementing this
-// method, but it turned out that it mostly saves distance computations when the
-// clusters are nearly stable, which only happens after e.g. 50+ iterations.
-// Therefore the current heuristic (I don't know if it is published somewhere)
-// seems to provide better speedups in the setting that is relewvant for
-// product quantization (d = 4 or d = 8, and few iterations).
 func New(k int, dimensions int, segment int) *KMeans {
+	// Reasoning behind default settings
+	// =================================
+	// Experiments show that GraphPruning speeds up k-means compared to BruteForce
+	// when d <= 16 on random data. The speedup is about 5x for d = 4, 2x for d = 8,
+	// and insignificant at d = 16. We use GraphPruning by default as there is
+	// almost no additional cost for high-dimensional data at typical problem sizes
+	// (n = 100_000, k = 256), and a clear benefit for low-dimensional data.
+	//
+	// The IterationThreshold is what typically determines the number of iterations.
+	// It is set to balance running time and quality. The DeltaThreshold only comes
+	// into effect after e.g. 50-100 iterations on random data.
+	//
+	// k-means++ initialization seems to provide slightly better WCSS on random data
+	// compared to random initialization. It does come at at a slight increase in
+	// cost, something like 3-5% of the total k-means running time, but the
+	// robustness and increased quality seems worth it.
+	//
+	// Notes
+	// =====
+	// There exists other heuristics to speed up k-means, see e.g. the paper
+	// "Making k-means even faster" by Greg Hamerly. We tried implementing this
+	// method, but it turned out that it mostly saves distance computations when the
+	// clusters are nearly stable, which only happens after e.g. 50+ iterations.
+	// Therefore the current heuristic (I don't know if it is published somewhere)
+	// seems to provide better speedups in the setting that is relewvant for
+	// product quantization (d = 4 or d = 8, and few iterations).
 	kMeans := &KMeans{
 		K:                  k,
 		DeltaThreshold:     0.01,

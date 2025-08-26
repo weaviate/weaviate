@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,6 +25,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
@@ -40,22 +41,20 @@ type modulesProvider interface {
 }
 
 type Parser struct {
-	clusterState clusterState
-	configParser VectorConfigParser
-	validator    validator
-	modules      modulesProvider
-
-	experimentBackwardsCompatibleNamedVectorsEnabled bool
+	clusterState        clusterState
+	configParser        VectorConfigParser
+	validator           validator
+	modules             modulesProvider
+	defaultQuantization *configRuntime.DynamicValue[string]
 }
 
-func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider) *Parser {
+func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider, defaultQuantization *configRuntime.DynamicValue[string]) *Parser {
 	return &Parser{
-		clusterState: cs,
-		configParser: vCfg,
-		validator:    v,
-		modules:      modules,
-
-		experimentBackwardsCompatibleNamedVectorsEnabled: experimentBackwardsCompatibleNamedVectorsEnabled(),
+		clusterState:        cs,
+		configParser:        vCfg,
+		validator:           v,
+		modules:             modules,
+		defaultQuantization: defaultQuantization,
 	}
 }
 
@@ -157,7 +156,7 @@ func (p *Parser) moduleConfig(moduleConfig map[string]any) (map[string]any, erro
 
 func (p *Parser) parseVectorIndexConfig(class *models.Class) error {
 	if !hasTargetVectors(class) || class.VectorIndexType != "" {
-		parsed, err := p.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, p.modules.IsMultiVector(class.Vectorizer))
+		parsed, err := p.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, p.modules.IsMultiVector(class.Vectorizer), p.defaultQuantization)
 		if err != nil {
 			return err
 		}
@@ -197,7 +196,7 @@ func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 				vectorizerModuleName = name
 			}
 		}
-		parsed, err := p.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig, isMultiVector)
+		parsed, err := p.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig, isMultiVector, p.defaultQuantization)
 		if err != nil {
 			return fmt.Errorf("parse vector config for %s: %w", targetVector, err)
 		}
@@ -211,7 +210,7 @@ func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 }
 
 func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
-	vectorIndexConfig interface{}, isMultiVector bool,
+	vectorIndexConfig interface{}, isMultiVector bool, defaultQuantization *configRuntime.DynamicValue[string],
 ) (schemaConfig.VectorIndexConfig, error) {
 	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC {
 		return nil, errors.Errorf(
@@ -452,7 +451,7 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 			continue
 		}
 
-		if _, moduleExisted := initialModConf[module]; p.experimentBackwardsCompatibleNamedVectorsEnabled && !moduleExisted {
+		if _, moduleExisted := initialModConf[module]; !moduleExisted {
 			continue
 		}
 
@@ -498,14 +497,6 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 }
 
 func (p *Parser) validateNamedVectorConfigsParityAndImmutables(initial, updated *models.Class) error {
-	if !p.experimentBackwardsCompatibleNamedVectorsEnabled {
-		for vecName := range updated.VectorConfig {
-			if _, ok := initial.VectorConfig[vecName]; !ok {
-				return fmt.Errorf("additional config for vector %q", vecName)
-			}
-		}
-	}
-
 	if modelsext.ClassHasLegacyVectorIndex(initial) {
 		for targetVector := range updated.VectorConfig {
 			if targetVector == modelsext.DefaultNamedVectorName {

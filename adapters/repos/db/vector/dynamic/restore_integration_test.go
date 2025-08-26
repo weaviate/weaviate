@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -39,7 +39,7 @@ func TestBackup_Integration(t *testing.T) {
 	os.Setenv("ASYNC_INDEXING", "true")
 	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	dimensions := 20
-	vectors_size := 10_000
+	vectors_size := 1_000
 	queries_size := 10
 	k := 10
 

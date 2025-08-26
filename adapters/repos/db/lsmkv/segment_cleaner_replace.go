@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,10 +16,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type segmentCleanerReplace struct {
@@ -151,8 +154,12 @@ func (p *segmentCleanerReplace) writeIndexes(f *segmentindex.SegmentFile,
 		Keys:                keys,
 		SecondaryIndexCount: p.secondaryIndexCount,
 		ScratchSpacePath:    p.scratchSpacePath,
+		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+			"strategy":  StrategyReplace,
+			"operation": "cleanupWriteIndices",
+		}),
 	}
-	_, err := f.WriteIndexes(indexes)
+	_, err := f.WriteIndexes(indexes, math.MaxInt64) // segment cleaner only runs for big files
 	return err
 }
 

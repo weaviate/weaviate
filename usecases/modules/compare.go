@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,7 +32,12 @@ func reVectorize(ctx context.Context,
 	sourceProperties []string,
 	targetVector string,
 	findObjectFn modulecapabilities.FindObjectFn,
+	reVectorizeDisabled bool,
 ) (bool, models.AdditionalProperties, []float32, error) {
+	if reVectorizeDisabled {
+		return true, nil, nil, nil
+	}
+
 	shouldReVectorize, oldObject := reVectorizeEmbeddings(ctx, cfg, mod, object, class, sourceProperties, findObjectFn)
 	if shouldReVectorize {
 		return shouldReVectorize, nil, nil, nil
@@ -68,7 +73,12 @@ func reVectorizeMulti(ctx context.Context,
 	sourceProperties []string,
 	targetVector string,
 	findObjectFn modulecapabilities.FindObjectFn,
+	reVectorizeDisabled bool,
 ) (bool, models.AdditionalProperties, [][]float32, error) {
+	if reVectorizeDisabled {
+		return true, nil, nil, nil
+	}
+
 	shouldReVectorize, oldObject := reVectorizeEmbeddings(ctx, cfg, mod, object, class, sourceProperties, findObjectFn)
 	if shouldReVectorize {
 		return shouldReVectorize, nil, nil, nil

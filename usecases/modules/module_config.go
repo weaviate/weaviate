@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package modules
 import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 type ClassBasedModuleConfig struct {
@@ -21,16 +22,19 @@ type ClassBasedModuleConfig struct {
 	moduleName   string
 	tenant       string
 	targetVector string
+	cfg          *config.Config
 }
 
 func NewClassBasedModuleConfig(class *models.Class,
 	moduleName, tenant, targetVector string,
+	cfg *config.Config,
 ) *ClassBasedModuleConfig {
 	return &ClassBasedModuleConfig{
 		class:        class,
 		moduleName:   moduleName,
 		tenant:       tenant,
 		targetVector: targetVector,
+		cfg:          cfg,
 	}
 }
 
@@ -117,4 +121,8 @@ func (cbmc *ClassBasedModuleConfig) Property(propName string) map[string]interfa
 	}
 
 	return asMap
+}
+
+func (cbmc *ClassBasedModuleConfig) Config() *config.Config {
+	return cbmc.cfg
 }

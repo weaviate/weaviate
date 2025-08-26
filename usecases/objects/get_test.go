@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -65,7 +66,8 @@ func Test_GetAction(t *testing.T) {
 		metrics = &fakeMetrics{}
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo,
-			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil)
+			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil,
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	t.Run("get non-existing action by id", func(t *testing.T) {
@@ -693,7 +695,8 @@ func Test_GetThing(t *testing.T) {
 		metrics := &fakeMetrics{}
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo,
-			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil)
+			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil,
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	t.Run("get non-existing thing by id", func(t *testing.T) {
@@ -1089,7 +1092,8 @@ func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fake
 	logger, _ := test.NewNullLogger()
 	r.modulesProvider = getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
 	r.Manager = NewManager(schemaManager, cfg, logger,
-		r.authorizer, r.repo, r.modulesProvider, r.metrics, nil)
+		r.authorizer, r.repo, r.modulesProvider, r.metrics, nil,
+		NewAutoSchemaManager(schemaManager, r.repo, cfg, r.authorizer, logger, prometheus.NewPedanticRegistry()))
 
 	return r
 }

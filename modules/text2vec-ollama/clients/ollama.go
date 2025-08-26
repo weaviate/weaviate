@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,13 +29,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
-func buildURL(apiEndoint string) string {
-	return fmt.Sprintf("%s/api/embed", apiEndoint)
+func buildURL(apiEndpoint string) string {
+	return fmt.Sprintf("%s/api/embed", apiEndpoint)
 }
 
 type ollama struct {
 	httpClient   *http.Client
-	urlBuilderFn func(apiEndoint string) string
+	urlBuilderFn func(apiEndpoint string) string
 	logger       logrus.FieldLogger
 }
 

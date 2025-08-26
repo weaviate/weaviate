@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	ent "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -970,7 +971,7 @@ func TestIndexInverted(t *testing.T) {
 }
 
 func mustGetByteIntNumber(in int) []byte {
-	out, err := LexicographicallySortableInt64(int64(in))
+	out, err := ent.LexicographicallySortableInt64(int64(in))
 	if err != nil {
 		panic(err)
 	}
@@ -978,7 +979,7 @@ func mustGetByteIntNumber(in int) []byte {
 }
 
 func mustGetByteFloatNumber(in float64) []byte {
-	out, err := LexicographicallySortableFloat64(in)
+	out, err := ent.LexicographicallySortableFloat64(in)
 	if err != nil {
 		panic(err)
 	}

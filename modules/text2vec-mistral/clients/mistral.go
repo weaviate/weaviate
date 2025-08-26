@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,13 +33,14 @@ import (
 )
 
 type embeddingsRequest struct {
-	Input          []string `json:"input"`
-	Model          string   `json:"model"`
-	EncodingFormat string   `json:"encoding_format"`
+	Input []string `json:"input"`
+	Model string   `json:"model"`
 }
 
 type embeddingsDataResponse struct {
-	Embeddings []float32 `json:"embedding"`
+	Embedding []float32 `json:"embedding"`
+	Index     int64     `json:"index,omitempty"`
+	Object    string    `json:"object,omitempty"`
 }
 
 type embeddingsResponse struct {
@@ -100,9 +101,8 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	model string, url string,
 ) (*modulecomponents.VectorizationResult[[]float32], int, error) {
 	body, err := json.Marshal(embeddingsRequest{
-		Input:          input,
-		Model:          model,
-		EncodingFormat: "float",
+		Input: input,
+		Model: model,
 	})
 	if err != nil {
 		return nil, 0, errors.Wrapf(err, "marshal body")
@@ -143,18 +143,18 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		return nil, 0, errors.New(errorMessage)
 	}
 
-	if len(resBody.Data) == 0 || len(resBody.Data[0].Embeddings) == 0 {
+	if len(resBody.Data) == 0 || len(resBody.Data[0].Embedding) == 0 {
 		return nil, 0, errors.Errorf("empty embeddings response")
 	}
 
 	vectors := make([][]float32, len(resBody.Data))
 	for i, data := range resBody.Data {
-		vectors[i] = data.Embeddings
+		vectors[i] = data.Embedding
 	}
 
 	return &modulecomponents.VectorizationResult[[]float32]{
 		Text:       input,
-		Dimensions: len(resBody.Data[0].Embeddings),
+		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     vectors,
 	}, modulecomponents.GetTotalTokens(resBody.Usage), nil
 }

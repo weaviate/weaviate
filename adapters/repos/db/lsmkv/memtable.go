@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,9 +14,12 @@ package lsmkv
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -24,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 type Memtable struct {
@@ -35,40 +39,49 @@ type Memtable struct {
 	roaringSet         *roaringset.BinarySearchTree
 	roaringSetRange    *roaringsetrange.Memtable
 	commitlog          memtableCommitLogger
+	allocChecker       memwatch.AllocChecker
 	size               uint64
 	path               string
 	strategy           string
 	secondaryIndices   uint16
 	secondaryToPrimary []map[string][]byte
 	// stores time memtable got dirty to determine when flush is needed
-	dirtyAt   time.Time
-	createdAt time.Time
-	metrics   *memtableMetrics
+	dirtyAt             time.Time
+	createdAt           time.Time
+	metrics             *memtableMetrics
+	writesSinceLastSync bool
 
 	tombstones *sroar.Bitmap
 
 	enableChecksumValidation bool
+
+	bm25config                   *models.BM25Config
+	averagePropLength            float64
+	propLengthCount              uint64
+	writeSegmentInfoIntoFileName bool
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
 	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
-	enableChecksumValidation bool,
+	enableChecksumValidation bool, bm25config *models.BM25Config, writeSegmentInfoIntoFileName bool, allocChecker memwatch.AllocChecker,
 ) (*Memtable, error) {
 	m := &Memtable{
-		key:                      &binarySearchTree{},
-		keyMulti:                 &binarySearchTreeMulti{},
-		keyMap:                   &binarySearchTreeMap{},
-		primaryIndex:             &binarySearchTree{}, // todo, sort upfront
-		roaringSet:               &roaringset.BinarySearchTree{},
-		roaringSetRange:          roaringsetrange.NewMemtable(logger),
-		commitlog:                cl,
-		path:                     path,
-		strategy:                 strategy,
-		secondaryIndices:         secondaryIndices,
-		dirtyAt:                  time.Time{},
-		createdAt:                time.Now(),
-		metrics:                  newMemtableMetrics(metrics, filepath.Dir(path), strategy),
-		enableChecksumValidation: enableChecksumValidation,
+		key:                          &binarySearchTree{},
+		keyMulti:                     &binarySearchTreeMulti{},
+		keyMap:                       &binarySearchTreeMap{},
+		primaryIndex:                 &binarySearchTree{}, // todo, sort upfront
+		roaringSet:                   &roaringset.BinarySearchTree{},
+		roaringSetRange:              roaringsetrange.NewMemtable(logger),
+		commitlog:                    cl,
+		path:                         path,
+		strategy:                     strategy,
+		secondaryIndices:             secondaryIndices,
+		dirtyAt:                      time.Time{},
+		createdAt:                    time.Now(),
+		metrics:                      newMemtableMetrics(metrics, filepath.Dir(path), strategy),
+		enableChecksumValidation:     enableChecksumValidation,
+		bm25config:                   bm25config,
+		writeSegmentInfoIntoFileName: writeSegmentInfoIntoFileName,
 	}
 
 	if m.secondaryIndices > 0 {
@@ -130,6 +143,7 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 
 	m.Lock()
 	defer m.Unlock()
+	m.writesSinceLastSync = true
 
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
@@ -178,6 +192,7 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 
 	m.Lock()
 	defer m.Unlock()
+	m.writesSinceLastSync = true
 
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
@@ -217,6 +232,7 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 
 	m.Lock()
 	defer m.Unlock()
+	m.writesSinceLastSync = true
 
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
@@ -325,6 +341,8 @@ func (m *Memtable) append(key []byte, values []value) error {
 
 	m.Lock()
 	defer m.Unlock()
+	m.writesSinceLastSync = true
+
 	if err := m.commitlog.append(segmentCollectionNode{
 		primaryKey: key,
 		values:     values,
@@ -369,6 +387,7 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 
 	m.Lock()
 	defer m.Unlock()
+	m.writesSinceLastSync = true
 
 	if err := m.commitlog.append(newNode); err != nil {
 		return errors.Wrap(err, "write into commit log")
@@ -459,4 +478,30 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 	m.tombstones.Set(docId)
 
 	return nil
+}
+
+func (m *Memtable) GetPropLengths() (uint64, uint64, error) {
+	m.RLock()
+	flatA := m.keyMap.flattenInOrder()
+	m.RUnlock()
+
+	docIdsLengths := make(map[uint64]uint32)
+	propLengthSum := uint64(0)
+	propLengthCount := uint64(0)
+
+	for _, mapNode := range flatA {
+		for j := range mapNode.values {
+			docId := binary.BigEndian.Uint64(mapNode.values[j].Key)
+			if !mapNode.values[j].Tombstone {
+				fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(mapNode.values[j].Value[4:]))
+				if _, ok := docIdsLengths[docId]; !ok {
+					propLengthSum += uint64(fieldLength)
+					propLengthCount++
+				}
+				docIdsLengths[docId] = uint32(fieldLength)
+			}
+		}
+	}
+
+	return propLengthSum, propLengthCount, nil
 }

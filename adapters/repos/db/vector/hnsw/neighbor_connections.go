@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -31,17 +32,17 @@ func (h *hnsw) findAndConnectNeighbors(ctx context.Context, node *vertex,
 	denyList helpers.AllowList,
 ) error {
 	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
-		currentMaxLevel, denyList, false)
+		currentMaxLevel, denyList, false, nil)
 
 	return nfc.Do(ctx)
 }
 
 func (h *hnsw) reconnectNeighboursOf(ctx context.Context, node *vertex,
 	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
-	denyList helpers.AllowList,
+	denyList helpers.AllowList, processedIDs *sync.Map,
 ) error {
 	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
-		currentMaxLevel, denyList, true)
+		currentMaxLevel, denyList, true, processedIDs)
 
 	return nfc.Do(ctx)
 }
@@ -59,11 +60,12 @@ type neighborFinderConnector struct {
 	denyList        helpers.AllowList
 	// bufLinksLog     BufferedLinksLogger
 	tombstoneCleanupNodes bool
+	processedIDs          *sync.Map
 }
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 	nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
-	denyList helpers.AllowList, tombstoneCleanupNodes bool,
+	denyList helpers.AllowList, tombstoneCleanupNodes bool, processedIDs *sync.Map,
 ) *neighborFinderConnector {
 	return &neighborFinderConnector{
 		ctx:                   graph.shutdownCtx,
@@ -76,6 +78,7 @@ func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 		currentMaxLevel:       currentMaxLevel,
 		denyList:              denyList,
 		tombstoneCleanupNodes: tombstoneCleanupNodes,
+		processedIDs:          processedIDs,
 	}
 }
 
@@ -124,24 +127,41 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	nodesLen := uint64(len(n.graph.nodes))
 	n.graph.RUnlock()
 	var pending []uint64
+	// Check if already completed (not just started)
+	if n.processedIDs != nil {
+		if _, alreadyProcessed := n.processedIDs.Load(from); alreadyProcessed {
+			return nil
+		}
+	}
+
 	// lock the nodes slice
-	n.graph.shardedNodeLocks.RLock(from)
+	n.graph.shardedNodeLocks.Lock(from)
+	// Double-check after acquiring lock
+	if n.processedIDs != nil {
+		if _, alreadyProcessed := n.processedIDs.Load(from); alreadyProcessed {
+			n.graph.shardedNodeLocks.Unlock(from)
+			return nil
+		}
+	}
 	if nodesLen < from || n.graph.nodes[from] == nil {
 		n.graph.handleDeletedNode(from, "processRecursively")
-		n.graph.shardedNodeLocks.RUnlock(from)
+		if n.processedIDs != nil {
+			n.processedIDs.Store(from, struct{}{})
+		}
+		n.graph.shardedNodeLocks.Unlock(from)
 		return nil
 	}
 	// lock the node itself
 	n.graph.nodes[from].Lock()
-	if level >= len(n.graph.nodes[from].connections) {
+	if level >= int(n.graph.nodes[from].connections.Layers()) {
 		n.graph.nodes[from].Unlock()
-		n.graph.shardedNodeLocks.RUnlock(from)
+		n.graph.shardedNodeLocks.Unlock(from)
 		return nil
 	}
-	connections := make([]uint64, len(n.graph.nodes[from].connections[level]))
-	copy(connections, n.graph.nodes[from].connections[level])
+	connections := make([]uint64, n.graph.nodes[from].connections.LenAtLayer(uint8(level)))
+	n.graph.nodes[from].connections.CopyLayer(connections, uint8(level))
 	n.graph.nodes[from].Unlock()
-	n.graph.shardedNodeLocks.RUnlock(from)
+	n.graph.shardedNodeLocks.Unlock(from)
 	for _, id := range connections {
 		if visited.Visited(id) {
 			continue
@@ -207,8 +227,8 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		visited := n.graph.pools.visitedLists.Borrow()
 		n.graph.pools.visitedListsLock.RUnlock()
 		n.node.Lock()
-		connections := make([]uint64, len(n.node.connections[level]))
-		copy(connections, n.node.connections[level])
+		connections := make([]uint64, n.node.connections.LenAtLayer(uint8(level)))
+		n.node.connections.CopyLayer(connections, uint8(level))
 		n.node.Unlock()
 		visited.Visit(n.node.id)
 		top := n.graph.efConstruction
@@ -279,13 +299,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 	neighborsCpy := neighbors
 	// the node will potentially own the neighbors slice (cf. hnsw.vertex#setConnectionsAtLevel).
 	// if so, we need to create a copy
-	owned := n.node.setConnectionsAtLevel(level, neighbors)
-	if owned {
-		n.node.Lock()
-		neighborsCpy = make([]uint64, len(neighbors))
-		copy(neighborsCpy, neighbors)
-		n.node.Unlock()
-	}
+	n.node.setConnectionsAtLevel(level, neighbors)
 
 	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighborsCpy); err != nil {
 		return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.node.id, level)
@@ -379,13 +393,15 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			return err
 		}
 
+		ids := make([]uint64, 0, candidates.Len())
 		for candidates.Len() > 0 {
 			id := candidates.Pop().ID
-			neighbor.appendConnectionAtLevelNoLock(level, id, maximumConnections)
+			ids = append(ids, id)
 			if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, id); err != nil {
 				return err
 			}
 		}
+		neighbor.appendConnectionsAtLevelNoLock(level, ids, maximumConnections)
 	}
 
 	return nil

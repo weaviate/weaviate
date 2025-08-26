@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -40,6 +40,7 @@ func TestCreateRoleSuccess(t *testing.T) {
 			name:      "all are *",
 			principal: &models.Principal{Username: "user1"},
 			params: authz.CreateRoleParams{
+				HTTPRequest: req,
 				Body: &models.Role{
 					Name: String("newRole"),
 					Permissions: []*models.Permission{
@@ -55,6 +56,7 @@ func TestCreateRoleSuccess(t *testing.T) {
 			name:      "collection checks",
 			principal: &models.Principal{Username: "user1"},
 			params: authz.CreateRoleParams{
+				HTTPRequest: req,
 				Body: &models.Role{
 					Name: String("newRole"),
 					Permissions: []*models.Permission{
@@ -72,6 +74,7 @@ func TestCreateRoleSuccess(t *testing.T) {
 			name:      "collection and tenant checks",
 			principal: &models.Principal{Username: "user1"},
 			params: authz.CreateRoleParams{
+				HTTPRequest: req,
 				Body: &models.Role{
 					Name: String("newRole"),
 					Permissions: []*models.Permission{
@@ -90,6 +93,7 @@ func TestCreateRoleSuccess(t *testing.T) {
 			name:      "* collections and tenant checks",
 			principal: &models.Principal{Username: "user1"},
 			params: authz.CreateRoleParams{
+				HTTPRequest: req,
 				Body: &models.Role{
 					Name: String("newRole"),
 					Permissions: []*models.Permission{
@@ -112,7 +116,7 @@ func TestCreateRoleSuccess(t *testing.T) {
 			schemaReader := schema.NewMockSchemaGetter(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			controller.On("GetRoles", *tt.params.Body.Name).Return(map[string][]authorization.Policy{}, nil)
 			controller.On("CreateRolesPermissions", mock.Anything).Return(nil)
 
@@ -137,6 +141,7 @@ func TestCreateRoleConflict(t *testing.T) {
 
 	principal := &models.Principal{Username: "user1"}
 	params := authz.CreateRoleParams{
+		HTTPRequest: req,
 		Body: &models.Role{
 			Name: String("newRole"),
 			Permissions: []*models.Permission{
@@ -147,7 +152,7 @@ func TestCreateRoleConflict(t *testing.T) {
 			},
 		},
 	}
-	authorizer.On("Authorize", principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("newRole")[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles("newRole")[0]).Return(nil)
 	controller.On("GetRoles", *params.Body.Name).Return(map[string][]authorization.Policy{"newRole": {}}, nil)
 
 	h := &authZHandlers{
@@ -173,6 +178,7 @@ func TestCreateRoleBadRequest(t *testing.T) {
 		{
 			name: "role name is required",
 			params: authz.CreateRoleParams{
+				HTTPRequest: req,
 				Body: &models.Role{
 					Name: String(""),
 					Permissions: []*models.Permission{
@@ -188,6 +194,7 @@ func TestCreateRoleBadRequest(t *testing.T) {
 		{
 			name: "invalid role name",
 			params: authz.CreateRoleParams{
+				HTTPRequest: req,
 				Body: &models.Role{
 					Name: String("something/wrong"),
 					Permissions: []*models.Permission{
@@ -203,6 +210,7 @@ func TestCreateRoleBadRequest(t *testing.T) {
 		{
 			name: "invalid permission",
 			params: authz.CreateRoleParams{
+				HTTPRequest: req,
 				Body: &models.Role{
 					Name: String("someRole"),
 					Permissions: []*models.Permission{
@@ -217,6 +225,7 @@ func TestCreateRoleBadRequest(t *testing.T) {
 		{
 			name: "cannot create role with the same name as builtin role",
 			params: authz.CreateRoleParams{
+				HTTPRequest: req,
 				Body: &models.Role{
 					Name: &authorization.BuiltInRoles[0],
 					Permissions: []*models.Permission{
@@ -239,7 +248,7 @@ func TestCreateRoleBadRequest(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if tt.expectedError == "" {
-				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				controller.On("GetRoles", *tt.params.Body.Name).Return(map[string][]authorization.Policy{}, nil)
 				controller.On("upsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
 			}
@@ -274,6 +283,7 @@ func TestCreateRoleForbidden(t *testing.T) {
 		{
 			name: "authorization error",
 			params: authz.CreateRoleParams{
+				HTTPRequest: req,
 				Body: &models.Role{
 					Name: String("newRole"),
 					Permissions: []*models.Permission{
@@ -296,9 +306,9 @@ func TestCreateRoleForbidden(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
 			if tt.authorizeErr != nil {
-				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH), authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
+				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_MATCH), authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{
@@ -330,6 +340,7 @@ func TestCreateRoleInternalServerError(t *testing.T) {
 		{
 			name: "upsert roles permissions error",
 			params: authz.CreateRoleParams{
+				HTTPRequest: req,
 				Body: &models.Role{
 					Name: String("newRole"),
 					Permissions: []*models.Permission{
@@ -355,7 +366,7 @@ func TestCreateRoleInternalServerError(t *testing.T) {
 			policies, err := conv.RolesToPolicies(tt.params.Body)
 			require.Nil(t, err)
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.CREATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
 			controller.On("GetRoles", *tt.params.Body.Name).Return(map[string][]authorization.Policy{}, nil)
 			controller.On("CreateRolesPermissions", policies).Return(tt.upsertErr)
 
@@ -381,6 +392,7 @@ func TestCreateRoleUnprocessableRegexp(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	params := authz.CreateRoleParams{
+		HTTPRequest: req,
 		Body: &models.Role{
 			Name: String("newRole"),
 			Permissions: []*models.Permission{

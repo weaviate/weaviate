@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,11 +31,11 @@ import (
 )
 
 const (
-	DefaultOrigin = "https://api-inference.huggingface.co"
+	DefaultOrigin = "https://router.huggingface.co/hf-inference/models"
 	DefaultPath   = "pipeline/feature-extraction"
 )
 
-// there are no explicit rate limits: https://huggingface.co/docs/api-inference/en/faq#rate-limits
+// there are no explicit rate limits: https://huggingface.co/docs/inference-providers/providers/hf-inference#feature-extraction
 // so we set values that work and leave it up to the users to increase these values
 const (
 	DefaultRPM = 100      //
@@ -285,7 +285,7 @@ func (v *vectorizer) getURL(config ent.VectorizationConfig) string {
 		return config.EndpointURL
 	}
 
-	return fmt.Sprintf("%s/%s/%s", DefaultOrigin, DefaultPath, config.Model)
+	return fmt.Sprintf("%s/%s/%s", DefaultOrigin, config.Model, DefaultPath)
 }
 
 func (v *vectorizer) HasTokenLimit() bool { return false }

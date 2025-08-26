@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,6 +25,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -650,7 +652,8 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
 		require.Nil(t, err)
 
-		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: make([][]uint64, 4)})
+		conns, _ := packedconn.NewWithMaxLayer(3)
+		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: conns})
 		assert.Equal(t, uint64(17), res.Entrypoint)
 		assert.Equal(t, uint16(3), res.Level)
 	})
@@ -737,6 +740,261 @@ func TestCondensorWithPQInformation(t *testing.T) {
 		}
 
 		assert.Equal(t, expected, *res.CompressionPQData)
+	})
+}
+
+func TestCondensorWithMUVERAInformation(t *testing.T) {
+	rootPath := t.TempDir()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	defer uncondensed.Shutdown(ctx)
+
+	gaussians := [][][]float32{
+		{
+			{1, 2, 3, 4, 5}, // cluster 1
+			{1, 2, 3, 4, 5}, // cluster 2
+		}, // rep 1
+		{
+			{5, 6, 7, 8, 9}, // cluster 1
+			{5, 6, 7, 8, 9}, // cluster 2
+		}, // rep 2
+	} // (repetitions, kSim, dimensions)
+
+	s := [][][]float32{
+		{
+			{-1, 1, 1, -1, 1}, // dprojection 1
+			{1, -1, 1, 1, -1}, // dprojection 2
+		}, // rep 1
+		{
+			{-1, 1, 1, -1, 1}, // dprojection 1
+			{1, -1, 1, 1, -1}, // dprojection 2
+		}, // rep 2
+	} // (repetitions, dProjections, dimensions)
+
+	t.Run("add muvera info", func(t *testing.T) {
+		uncondensed.AddMuvera(multivector.MuveraData{
+			KSim:         2,
+			NumClusters:  4,
+			Dimensions:   5,
+			DProjections: 2,
+			Repetitions:  2,
+			Gaussians:    gaussians,
+			S:            s,
+		})
+
+		require.Nil(t, uncondensed.Flush())
+	})
+
+	t.Run("condense the original and verify the MUVERA info is present", func(t *testing.T) {
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
+		require.Nil(t, err)
+
+		actual, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "uncondensed"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		assert.True(t, strings.HasSuffix(actual, ".condensed"),
+			"commit log is now saved as condensed")
+
+		initialState := DeserializationResult{}
+		fd, err := os.Open(commitLogFileName(rootPath, "uncondensed", actual))
+		require.Nil(t, err)
+
+		bufr := bufio.NewReader(fd)
+		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
+		require.Nil(t, err)
+
+		assert.True(t, res.MuveraEnabled)
+		expected := multivector.MuveraData{
+			KSim:         2,
+			NumClusters:  4,
+			Dimensions:   5,
+			DProjections: 2,
+			Repetitions:  2,
+			Gaussians:    gaussians,
+			S:            s,
+		}
+
+		assert.Equal(t, expected, *res.EncoderMuvera)
+	})
+}
+
+func TestCondensorWithRQ8Information(t *testing.T) {
+	rootPath := t.TempDir()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	defer uncondensed.Shutdown(ctx)
+
+	rqData := compressionhelpers.RQData{
+		InputDim: 10,
+		Bits:     8,
+		Rotation: compressionhelpers.FastRotation{
+			OutputDim: 4,
+			Rounds:    5,
+			Swaps: [][]compressionhelpers.Swap{
+				{
+					{I: 0, J: 2},
+					{I: 1, J: 3},
+				},
+				{
+					{I: 4, J: 6},
+					{I: 5, J: 7},
+				},
+				{
+					{I: 8, J: 10},
+					{I: 9, J: 11},
+				},
+				{
+					{I: 12, J: 14},
+					{I: 13, J: 15},
+				},
+				{
+					{I: 16, J: 18},
+					{I: 17, J: 19},
+				},
+			},
+			Signs: [][]float32{
+				{1, -1, 1, -1},
+				{1, -1, 1, -1},
+				{1, -1, 1, -1},
+				{1, -1, 1, -1},
+				{1, -1, 1, -1},
+			},
+		},
+	}
+
+	t.Run("add rotational quantization info", func(t *testing.T) {
+		uncondensed.AddRQCompression(rqData)
+
+		require.Nil(t, uncondensed.Flush())
+	})
+
+	t.Run("condense the original and verify the RQ info is present", func(t *testing.T) {
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
+		require.Nil(t, err)
+
+		actual, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "uncondensed"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		assert.True(t, strings.HasSuffix(actual, ".condensed"),
+			"commit log is now saved as condensed")
+
+		initialState := DeserializationResult{}
+		fd, err := os.Open(commitLogFileName(rootPath, "uncondensed", actual))
+		require.Nil(t, err)
+
+		bufr := bufio.NewReader(fd)
+		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
+		require.Nil(t, err)
+
+		assert.True(t, res.Compressed)
+		expected := rqData
+
+		assert.Equal(t, expected, *res.CompressionRQData)
+	})
+}
+
+func TestCondensorWithRQ1Information(t *testing.T) {
+	rootPath := t.TempDir()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	defer uncondensed.Shutdown(ctx)
+
+	brqData := compressionhelpers.BRQData{
+		InputDim: 10,
+		Rotation: compressionhelpers.FastRotation{
+			OutputDim: 4,
+			Rounds:    5,
+			Swaps: [][]compressionhelpers.Swap{
+				{
+					{I: 0, J: 2},
+					{I: 1, J: 3},
+				},
+				{
+					{I: 4, J: 6},
+					{I: 5, J: 7},
+				},
+				{
+					{I: 8, J: 10},
+					{I: 9, J: 11},
+				},
+				{
+					{I: 12, J: 14},
+					{I: 13, J: 15},
+				},
+				{
+					{I: 16, J: 18},
+					{I: 17, J: 19},
+				},
+			},
+			Signs: [][]float32{
+				{1, -1, 1, -1},
+				{1, -1, 1, -1},
+				{1, -1, 1, -1},
+				{1, -1, 1, -1},
+				{1, -1, 1, -1},
+			},
+		},
+		Rounding: []float32{0.1, 0.2, 0.3, 0.4},
+	}
+
+	t.Run("add binary rotational quantization info", func(t *testing.T) {
+		uncondensed.AddBRQCompression(brqData)
+
+		require.Nil(t, uncondensed.Flush())
+	})
+
+	t.Run("condense the original and verify the BRQ info is present", func(t *testing.T) {
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
+		require.Nil(t, err)
+
+		actual, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "uncondensed"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		assert.True(t, strings.HasSuffix(actual, ".condensed"),
+			"commit log is now saved as condensed")
+
+		initialState := DeserializationResult{}
+		fd, err := os.Open(commitLogFileName(rootPath, "uncondensed", actual))
+		require.Nil(t, err)
+
+		bufr := bufio.NewReader(fd)
+		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
+		require.Nil(t, err)
+
+		assert.True(t, res.Compressed)
+		expected := brqData
+
+		assert.Equal(t, expected, *res.CompressionBRQData)
 	})
 }
 

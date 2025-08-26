@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -331,7 +331,7 @@ func (t *Terms) FindMinIDWand(minScore float64) (uint64, int, bool) {
 		if term.Exhausted() {
 			continue
 		}
-		cumScore += float64(term.CurrentBlockImpact())
+		cumScore += term.Idf()
 		if cumScore >= minScore {
 			return term.IdPointer(), i, false
 		}
@@ -394,17 +394,17 @@ func (t *Terms) FindFirstNonExhausted() (int, bool) {
 	return -1, false
 }
 
-func (t *Terms) ScoreNext(averagePropLength float64, additionalExplanations bool) (uint64, float64, []*DocPointerWithScore) {
+func (t *Terms) ScoreNext(averagePropLength float64, additionalExplanations bool, minimumOrTokensMatch int) (uint64, float64, []*DocPointerWithScore, bool) {
 	var docInfos []*DocPointerWithScore
 
 	pos, ok := t.FindFirstNonExhausted()
 	if !ok {
 		// done, nothing left to score
-		return 0, 0, docInfos
+		return 0, 0, docInfos, false
 	}
 
 	if len(t.T) == 0 {
-		return 0, 0, docInfos
+		return 0, 0, docInfos, false
 	}
 
 	if additionalExplanations {
@@ -413,10 +413,18 @@ func (t *Terms) ScoreNext(averagePropLength float64, additionalExplanations bool
 
 	id := t.T[pos].IdPointer()
 	var cumScore float64
+
+	matchedTerms := 0
+
+	if len(t.T)-pos < minimumOrTokensMatch {
+		return 0, 0, docInfos, false
+	}
+
 	for i := pos; i < len(t.T); i++ {
 		if t.T[i].IdPointer() != id || t.T[i].Exhausted() {
 			continue
 		}
+		matchedTerms++
 		term := t.T[i]
 		_, score, docInfo := term.Score(averagePropLength, additionalExplanations)
 		term.Advance()
@@ -426,8 +434,13 @@ func (t *Terms) ScoreNext(averagePropLength float64, additionalExplanations bool
 		cumScore += score
 	}
 
+	if matchedTerms < minimumOrTokensMatch {
+		// not enough terms matched, return 0
+		return 0, 0, docInfos, false
+	}
+
 	// t.FullSort()
-	return id, cumScore, docInfos
+	return id, cumScore, docInfos, true
 }
 
 // provide sort interface

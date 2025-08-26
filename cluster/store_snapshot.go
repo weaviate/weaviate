@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,9 +28,14 @@ import (
 // and call sink.Close() when finished or call sink.Cancel() on error.
 func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 	defer sink.Close()
-	schemaSnapshot, err := s.schemaManager.Snapshot()
+	schemaSnapshot, err := s.schemaManager.SchemaSnapshot()
 	if err != nil {
 		return fmt.Errorf("schema snapshot: %w", err)
+	}
+
+	aliasSnapshot, err := s.schemaManager.AliasSnapshot()
+	if err != nil {
+		return fmt.Errorf("alias snapshot: %w", err)
 	}
 
 	rbacSnapshot, err := s.authZManager.Snapshot()
@@ -38,17 +43,30 @@ func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 		return fmt.Errorf("rbac snapshot: %w", err)
 	}
 
+	dbUserSnapshot, err := s.dynUserManager.Snapshot()
+	if err != nil {
+		return fmt.Errorf("db user snapshot: %w", err)
+	}
+
 	tasksSnapshot, err := s.distributedTasksManager.Snapshot()
 	if err != nil {
 		return fmt.Errorf("tasks snapshot: %w", err)
+	}
+
+	replicationSnapshot, err := s.replicationManager.Snapshot()
+	if err != nil {
+		return fmt.Errorf("replication snapshot: %w", err)
 	}
 
 	snap := fsm.Snapshot{
 		NodeID:           s.cfg.NodeID,
 		SnapshotID:       sink.ID(),
 		Schema:           schemaSnapshot,
+		Aliases:          aliasSnapshot,
 		RBAC:             rbacSnapshot,
+		DbUsers:          dbUserSnapshot,
 		DistributedTasks: tasksSnapshot,
+		ReplicationOps:   replicationSnapshot,
 	}
 	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
 		return fmt.Errorf("encode: %w", err)
@@ -116,6 +134,12 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 
 		st.log.Info("successfully restored schema from snapshot")
 
+		if snap.Aliases != nil {
+			if err := st.schemaManager.RestoreAliases(snap.Aliases); err != nil {
+				return fmt.Errorf("restore aliases from snapshot: %w", err)
+			}
+		}
+
 		if snap.RBAC != nil {
 			if err := st.authZManager.Restore(snap.RBAC); err != nil {
 				st.log.WithError(err).Error("restoring rbac from snapshot")
@@ -123,9 +147,25 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			}
 		}
 
-		if err := st.distributedTasksManager.Restore(snap.DistributedTasks); err != nil {
-			st.log.WithError(err).Error("restoring distributed tasks from snapshot")
-			return fmt.Errorf("restore distributed tasks from snapshot: %w", err)
+		if snap.DistributedTasks != nil {
+			if err := st.distributedTasksManager.Restore(snap.DistributedTasks); err != nil {
+				st.log.WithError(err).Error("restoring distributed tasks from snapshot")
+				return fmt.Errorf("restore distributed tasks from snapshot: %w", err)
+			}
+		}
+
+		if snap.ReplicationOps != nil {
+			if err := st.replicationManager.Restore(snap.ReplicationOps); err != nil {
+				st.log.WithError(err).Error("restoring replication ops from snapshot")
+				return fmt.Errorf("restore replication ops from snapshot: %w", err)
+			}
+		}
+
+		if snap.DbUsers != nil {
+			if err := st.dynUserManager.Restore(snap.DbUsers); err != nil {
+				st.log.WithError(err).Error("restoring db user from snapshot")
+				return fmt.Errorf("restore db user from snapshot: %w", err)
+			}
 		}
 
 		if st.cfg.MetadataOnlyVoters {

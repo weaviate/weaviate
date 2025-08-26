@@ -5,6 +5,10 @@ dir: "{{ .InterfaceDir }}"
 outpkg: "{{ .PackageName }}"
 filename: "mock_{{ snakecase .InterfaceName }}.go"
 packages:
+  github.com/weaviate/weaviate/cluster/schema:
+    interfaces:
+      Parser:
+      replicationFSM:
   github.com/weaviate/weaviate/adapters/repos/db/lsmkv:
     interfaces:
       BucketCreator:
@@ -16,11 +20,12 @@ packages:
       BackupBackendProvider:
       NodeResolver:
       Selector:
+  github.com/weaviate/weaviate/usecases/cluster:
+    interfaces:
+      NodeSelector:
   github.com/weaviate/weaviate/usecases/schema:
     interfaces:
       SchemaGetter:
-  github.com/weaviate/weaviate/cluster/schema/types:
-    interfaces:
       SchemaReader:
   github.com/weaviate/weaviate/usecases/auth/authorization:
     interfaces:
@@ -36,13 +41,48 @@ packages:
     interfaces:
       OpProducer:
       OpConsumer:
-      TimeProvider:
       Timer:
   github.com/weaviate/weaviate/cluster/replication/types:
     interfaces:
       ReplicationFSMReader:
       Manager:
+      FSMUpdater:
+      ReplicaCopier:
   github.com/weaviate/weaviate/cluster/distributedtask:
     interfaces:
       TaskCleaner:
       TaskCompletionRecorder:
+  github.com/weaviate/weaviate/cluster/replication/copier:
+    interfaces:
+      FileReplicationServiceClient:
+      FileMetadataStream:
+      FileChunkStream:
+  github.com/weaviate/weaviate/cluster/replication/copier/types:
+    interfaces:
+      RemoteIndex:
+  github.com/weaviate/weaviate/cluster/router/types:
+    interfaces:
+      Router:
+  github.com/weaviate/weaviate/entities/moduletools:
+    interfaces:
+      ModuleInitParams:
+  github.com/weaviate/weaviate/cluster/usage:
+    interfaces:
+      Service:
+  github.com/weaviate/weaviate/adapters/repos/db:
+    interfaces:
+      ShardLike:
+      IndexGetter:
+      IndexLike:
+      VectorIndex:
+  github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic:
+    interfaces:
+      Index:
+      VectorIndex:
+  github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers:
+    interfaces:
+      CompressionStats:
+  github.com/weaviate/weaviate/usecases/modulecomponents/usage:
+    interfaces:
+      StorageBackend:
+

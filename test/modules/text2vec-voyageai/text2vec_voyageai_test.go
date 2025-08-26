@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,6 +32,14 @@ func testText2VecVoyageAI(rest, grpc string) func(t *testing.T) {
 			name  string
 			model string
 		}{
+			{
+				name:  "voyage-3.5",
+				model: "voyage-3.5",
+			},
+			{
+				name:  "voyage-3.5-lite",
+				model: "voyage-3.5-lite",
+			},
 			{
 				name:  "voyage-3",
 				model: "voyage-3",

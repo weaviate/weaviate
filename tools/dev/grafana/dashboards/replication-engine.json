@@ -1,0 +1,862 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Replication engine",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 3,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dejuz2d5dpptsa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #pending"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Pending"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #ongoing"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Ongoing"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #complete"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Completed"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #failed"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Failed"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 17,
+        "x": 0,
+        "y": 0
+      },
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.6.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum (weaviate_replication_pending_operations)",
+          "format": "table",
+          "instant": false,
+          "legendFormat": "Pending",
+          "range": true,
+          "refId": "pending"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dejuz2d5dpptsa"
+          },
+          "editorMode": "code",
+          "expr": "sum (weaviate_replication_ongoing_operations)",
+          "format": "table",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Ongoing",
+          "range": true,
+          "refId": "ongoing"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dejuz2d5dpptsa"
+          },
+          "editorMode": "code",
+          "expr": "sum (increase(weaviate_replication_complete_operations[$__range]))",
+          "format": "table",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Completed",
+          "range": true,
+          "refId": "complete"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dejuz2d5dpptsa"
+          },
+          "editorMode": "code",
+          "expr": "sum (increase(weaviate_replication_failed_operations[$__range]))",
+          "format": "table",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Failed",
+          "range": true,
+          "refId": "failed"
+        }
+      ],
+      "title": "Replication operations",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "dejuz2d5dpptsa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 7,
+        "x": 17,
+        "y": 0
+      },
+      "id": 11,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.6.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "count(weaviate_replication_engine_running_status)",
+          "format": "table",
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "total"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dejuz2d5dpptsa"
+          },
+          "editorMode": "code",
+          "expr": "sum(weaviate_replication_engine_running_status)",
+          "format": "table",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "running"
+        }
+      ],
+      "title": "Running replication engines",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Value #running"
+                }
+              },
+              "operator": "/",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Value #total"
+                }
+              }
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            },
+            "replaceFields": true
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dejuz2d5dpptsa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "id": 6,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "vertical",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "11.6.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "weaviate_replication_pending_operations",
+          "instant": false,
+          "legendFormat": "{{node}}",
+          "range": true,
+          "refId": "top_pending_by_node"
+        }
+      ],
+      "title": "Top 3 nodes with pending operations",
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "labelsToFields": false,
+            "reducers": [
+              "last"
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "includeByName": {},
+            "indexByName": {},
+            "renameByName": {
+              "Field": "",
+              "Last": "Pending"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "desc": true,
+                "field": "Pending"
+              }
+            ]
+          }
+        },
+        {
+          "id": "limit",
+          "options": {
+            "limitField": "3"
+          }
+        }
+      ],
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dejuz2d5dpptsa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "id": 7,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "vertical",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "11.6.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "weaviate_replication_ongoing_operations",
+          "instant": false,
+          "legendFormat": "{{node}}",
+          "range": true,
+          "refId": "top_pending_by_node"
+        }
+      ],
+      "title": "Top 3 nodes with ongoing operations",
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "labelsToFields": false,
+            "reducers": [
+              "last"
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "includeByName": {},
+            "indexByName": {},
+            "renameByName": {
+              "Field": "",
+              "Last": "Ongoing"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "desc": true,
+                "field": "Ongoing"
+              }
+            ]
+          }
+        },
+        {
+          "id": "limit",
+          "options": {
+            "limitField": "3"
+          }
+        }
+      ],
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dejuz2d5dpptsa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "failed_ops_by_node"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green"
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.6.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dejuz2d5dpptsa"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum by (node) (weaviate_replication_pending_operations)",
+          "hide": false,
+          "legendFormat": "{{node}} (pending)",
+          "range": true,
+          "refId": "pending_ops_by_node"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dejuz2d5dpptsa"
+          },
+          "editorMode": "code",
+          "expr": "sum by (node) (weaviate_replication_ongoing_operations)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "{{node}} (ongoing)",
+          "range": true,
+          "refId": "ongoing_ops_by_node"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dejuz2d5dpptsa"
+          },
+          "editorMode": "code",
+          "expr": "sum by (node) (increase(weaviate_replication_complete_operations[$__range]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "{{node}} (completed)",
+          "range": true,
+          "refId": "complted_ops_by_node"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dejuz2d5dpptsa"
+          },
+          "editorMode": "code",
+          "expr": "sum by (node) (increase(weaviate_replication_failed_operations[$__range]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "{{node}} (failed)",
+          "range": true,
+          "refId": "failed_ops_by_node"
+        }
+      ],
+      "title": "Replication operations by node",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "dejuz2d5dpptsa"
+      },
+      "description": "Replication engine running status (0: not running, 1: running)",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "Not running"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "Running"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "id": 1,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 100,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": false,
+        "sizing": "manual"
+      },
+      "pluginVersion": "11.6.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum by (node) (weaviate_replication_engine_running_status)",
+          "legendFormat": "engine-{{node}}",
+          "range": true,
+          "refId": "engine_running_status_by_node"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dejuz2d5dpptsa"
+          },
+          "editorMode": "code",
+          "expr": "sum by (node) (weaviate_replication_engine_producer_running_status)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "producer-{{node}}",
+          "range": true,
+          "refId": "producer_running_status_by_node"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dejuz2d5dpptsa"
+          },
+          "editorMode": "code",
+          "expr": "sum by (node) (weaviate_replication_engine_consumer_running_status)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "consumer-{{node}}",
+          "range": true,
+          "refId": "consumer_running_status_by_node"
+        }
+      ],
+      "title": "Running status by node",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dejuz2d5dpptsa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.6.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "(\n  sum by (node) (increase(weaviate_replication_failed_operations[$__range]))\n)\n/\n(\n  sum by (node) (increase(weaviate_replication_complete_operations[$__range]))\n  +\n  sum by (node) (increase(weaviate_replication_failed_operations[$__range]))\n)\n",
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "replication_failure_rate_by_node"
+        }
+      ],
+      "title": "Failure rate by node",
+      "type": "stat"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 41,
+  "tags": [],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Replication engine",
+  "uid": "aejvwfv8vkq2oa",
+  "version": 79
+}

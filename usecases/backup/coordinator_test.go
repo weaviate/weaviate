@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -83,6 +84,12 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
 
 		coordinator := *fc.coordinator()
+		mockBackendProvider := NewMockBackupBackendProvider(t)
+		coordinator.backends = mockBackendProvider
+		mockBackendProvider.EXPECT().BackupBackend(backendName).Return(fc.backend, nil)
+		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Success)})
+		fc.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(bytes, nil).Twice()
+
 		req := newReq(classes, backendName, backupID)
 		store := coordStore{objectStore{fc.backend, req.ID, "", ""}}
 		err := coordinator.Backup(ctx, store, &req)
@@ -156,6 +163,12 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
 
 		coordinator := *fc.coordinator()
+		mockBackendProvider := NewMockBackupBackendProvider(t)
+		coordinator.backends = mockBackendProvider
+		mockBackendProvider.EXPECT().BackupBackend(backendName).Return(fc.backend, nil)
+		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Success)})
+		fc.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(bytes, nil).Twice()
+
 		req := newReq(classes, backendName, backupID)
 		store := coordStore{objectStore{fc.backend, req.ID, "", ""}}
 		err := coordinator.Backup(ctx, store, &req)
@@ -216,6 +229,11 @@ func Test_CoordinatedBackup(t *testing.T) {
 			store       = coordStore{objectStore{fc.backend, req.ID, "", ""}}
 		)
 		coordinator.timeoutNodeDown = 0
+		mockBackendProvider := NewMockBackupBackendProvider(t)
+		coordinator.backends = mockBackendProvider
+		mockBackendProvider.EXPECT().BackupBackend(backendName).Return(fc.backend, nil)
+		fc.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{}).Twice()
+
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 
@@ -597,7 +615,7 @@ func newFakeNodeResolver(nodes []string) *fakeNodeResolver {
 }
 
 func (fc *fakeCoordinator) coordinator() *coordinator {
-	c := newCoordinator(&fc.selector, &fc.client, &fc.schema, fc.log, fc.nodeResolver)
+	c := newCoordinator(&fc.selector, &fc.client, &fc.schema, fc.log, fc.nodeResolver, nil)
 	c.timeoutNextRound = time.Millisecond * 200
 	return c
 }

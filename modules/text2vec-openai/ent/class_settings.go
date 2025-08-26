@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -169,7 +169,7 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	}
 
 	docType := cs.Type()
-	if !basesettings.ValidateSetting[string](docType, availableOpenAITypes) {
+	if !basesettings.ValidateSetting(docType, availableOpenAITypes) {
 		return errors.Errorf("wrong OpenAI type name, available model names are: %v", availableOpenAITypes)
 	}
 
@@ -177,18 +177,18 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	// only validate models for openAI endpoints
 	if !cs.IsThirdPartyProvider() {
 		availableModels := append(availableOpenAIModels, availableV3Models...)
-		if !basesettings.ValidateSetting[string](model, availableModels) {
+		if !basesettings.ValidateSetting(model, availableModels) {
 			return errors.Errorf("wrong OpenAI model name, available model names are: %v", availableModels)
 		}
 	}
 
 	dimensions := cs.Dimensions()
 	if !cs.IsThirdPartyProvider() && dimensions != nil {
-		if !basesettings.ValidateSetting[string](model, availableV3Models) {
+		if !basesettings.ValidateSetting(model, availableV3Models) {
 			return errors.Errorf("dimensions setting can only be used with V3 embedding models: %v", availableV3Models)
 		}
 		availableDimensions := availableV3ModelsDimensions[model]
-		if !basesettings.ValidateSetting[int64](*dimensions, availableDimensions) {
+		if !basesettings.ValidateSetting(*dimensions, availableDimensions) {
 			return errors.Errorf("wrong dimensions setting for %s model, available dimensions are: %v", model, availableDimensions)
 		}
 	}
@@ -248,7 +248,7 @@ func (cs *classSettings) validateAzureConfig(resourceName, deploymentId, apiVers
 	if (resourceName == "" && deploymentId != "") || (resourceName != "" && deploymentId == "") {
 		return fmt.Errorf("both resourceName and deploymentId must be provided")
 	}
-	if !basesettings.ValidateSetting[string](apiVersion, availableApiVersions) {
+	if !basesettings.ValidateSetting(apiVersion, availableApiVersions) {
 		return errors.Errorf("wrong Azure OpenAI apiVersion setting, available api versions are: %v", availableApiVersions)
 	}
 	return nil

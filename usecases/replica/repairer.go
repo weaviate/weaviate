@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,22 +30,23 @@ import (
 )
 
 var (
-	// errConflictFindDeleted object exists on one replica but is deleted on the other.
+	// ErrConflictFindDeleted object exists on one replica but is deleted on the other.
 	//
 	// It depends on the order of operations
 	// Created -> Deleted    => It is safe in this case to propagate deletion to all replicas
 	// Created -> Deleted -> Created => propagating deletion will result in data lost
-	errConflictExistOrDeleted = errors.New("conflict: object has been deleted on another replica")
 
-	// errConflictObjectChanged object changed since last time and cannot be repaired
-	errConflictObjectChanged = errors.New("source object changed during repair")
+	ErrConflictExistOrDeleted = errors.New("conflict: object has been deleted on another replica")
+
+	// ErrConflictObjectChanged object changed since last time and cannot be repaired
+	ErrConflictObjectChanged = errors.New("source object changed during repair")
 )
 
 // repairer tries to detect inconsistencies and repair objects when reading them from replicas
 type repairer struct {
 	class               string
 	getDeletionStrategy func() string
-	client              finderClient // needed to commit and abort operation
+	client              FinderClient // needed to commit and abort operation
 	logger              logrus.FieldLogger
 }
 
@@ -53,7 +54,7 @@ type repairer struct {
 func (r *repairer) repairOne(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
-	votes []objTuple,
+	votes []ObjTuple,
 	contentIdx int,
 ) (_ *storobj.Object, err error) {
 	var (
@@ -66,7 +67,7 @@ func (r *repairer) repairOne(ctx context.Context,
 	)
 
 	for i, x := range votes {
-		if x.o.Deleted {
+		if x.O.Deleted {
 			deleted = true
 
 			if x.UTime > deletionTime {
@@ -82,7 +83,7 @@ func (r *repairer) repairOne(ctx context.Context,
 	if deleted && deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
 		gr := enterrors.NewErrorGroupWrapper(r.logger)
 		for _, vote := range votes {
-			if vote.o.Deleted && vote.UTime == deletionTime {
+			if vote.O.Deleted && vote.UTime == deletionTime {
 				continue
 			}
 
@@ -95,12 +96,12 @@ func (r *repairer) repairOne(ctx context.Context,
 					LastUpdateTimeUnixMilli: deletionTime,
 					StaleUpdateTime:         vote.UTime,
 				}}
-				resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
+				resp, err := cl.Overwrite(ctx, vote.Sender, r.class, shard, ups)
 				if err != nil {
-					return fmt.Errorf("node %q could not repair deleted object: %w", vote.sender, err)
+					return fmt.Errorf("node %q could not repair deleted object: %w", vote.Sender, err)
 				}
 				if len(resp) > 0 && resp[0].Err != "" {
-					return fmt.Errorf("overwrite deleted object %w %s: %s", errConflictObjectChanged, vote.sender, resp[0].Err)
+					return fmt.Errorf("overwrite deleted object %w %s: %s", ErrConflictObjectChanged, vote.Sender, resp[0].Err)
 				}
 				return nil
 			})
@@ -110,21 +111,21 @@ func (r *repairer) repairOne(ctx context.Context,
 	}
 
 	if deleted && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
-		return nil, errConflictExistOrDeleted
+		return nil, ErrConflictExistOrDeleted
 	}
 
 	// fetch most recent object
-	updates := votes[contentIdx].o
+	updates := votes[contentIdx].O
 	winner := votes[winnerIdx]
 
 	if updates.UpdateTime() != lastUTime {
-		updates, err = cl.FullRead(ctx, winner.sender, r.class, shard, id,
+		updates, err = cl.FullRead(ctx, winner.Sender, r.class, shard, id,
 			search.SelectProperties{}, additional.Properties{}, 9)
 		if err != nil {
-			return nil, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
+			return nil, fmt.Errorf("get most recent object from %s: %w", winner.Sender, err)
 		}
 		if updates.UpdateTime() != lastUTime {
-			return nil, fmt.Errorf("fetch new state from %s: %w, %w", winner.sender, errConflictObjectChanged, err)
+			return nil, fmt.Errorf("fetch new state from %s: %w, %w", winner.Sender, ErrConflictObjectChanged, err)
 		}
 	}
 
@@ -169,12 +170,12 @@ func (r *repairer) repairOne(ctx context.Context,
 				MultiVectors:            multiVectors,
 				StaleUpdateTime:         vote.UTime,
 			}}
-			resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
+			resp, err := cl.Overwrite(ctx, vote.Sender, r.class, shard, ups)
 			if err != nil {
-				return fmt.Errorf("node %q could not repair object: %w", vote.sender, err)
+				return fmt.Errorf("node %q could not repair object: %w", vote.Sender, err)
 			}
 			if len(resp) > 0 && resp[0].Err != "" {
-				return fmt.Errorf("overwrite %w %s: %s", errConflictObjectChanged, vote.sender, resp[0].Err)
+				return fmt.Errorf("overwrite %w %s: %s", ErrConflictObjectChanged, vote.Sender, resp[0].Err)
 			}
 			return nil
 		})
@@ -195,7 +196,7 @@ type iTuple struct {
 func (r *repairer) repairExist(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
-	votes []boolTuple,
+	votes []BoolTuple,
 ) (_ bool, err error) {
 	var (
 		deleted          bool
@@ -207,7 +208,7 @@ func (r *repairer) repairExist(ctx context.Context,
 	)
 
 	for i, x := range votes {
-		if x.o.Deleted {
+		if x.O.Deleted {
 			deleted = true
 
 			if x.UTime > deletionTime {
@@ -224,7 +225,7 @@ func (r *repairer) repairExist(ctx context.Context,
 		gr := enterrors.NewErrorGroupWrapper(r.logger)
 
 		for _, vote := range votes {
-			if vote.o.Deleted && vote.UTime == deletionTime {
+			if vote.O.Deleted && vote.UTime == deletionTime {
 				continue
 			}
 
@@ -237,12 +238,12 @@ func (r *repairer) repairExist(ctx context.Context,
 					LastUpdateTimeUnixMilli: deletionTime,
 					StaleUpdateTime:         vote.UTime,
 				}}
-				resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
+				resp, err := cl.Overwrite(ctx, vote.Sender, r.class, shard, ups)
 				if err != nil {
-					return fmt.Errorf("node %q could not repair deleted object: %w", vote.sender, err)
+					return fmt.Errorf("node %q could not repair deleted object: %w", vote.Sender, err)
 				}
 				if len(resp) > 0 && resp[0].Err != "" {
-					return fmt.Errorf("overwrite deleted object %w %s: %s", errConflictObjectChanged, vote.sender, resp[0].Err)
+					return fmt.Errorf("overwrite deleted object %w %s: %s", ErrConflictObjectChanged, vote.Sender, resp[0].Err)
 				}
 				return nil
 			})
@@ -252,17 +253,17 @@ func (r *repairer) repairExist(ctx context.Context,
 	}
 
 	if deleted && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
-		return false, errConflictExistOrDeleted
+		return false, ErrConflictExistOrDeleted
 	}
 
 	// fetch most recent object
 	winner := votes[winnerIdx]
-	resp, err := cl.FullRead(ctx, winner.sender, r.class, shard, id, search.SelectProperties{}, additional.Properties{}, 9)
+	resp, err := cl.FullRead(ctx, winner.Sender, r.class, shard, id, search.SelectProperties{}, additional.Properties{}, 9)
 	if err != nil {
-		return false, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
+		return false, fmt.Errorf("get most recent object from %s: %w", winner.Sender, err)
 	}
 	if resp.UpdateTime() != lastUTime {
-		return false, fmt.Errorf("fetch new state from %s: %w, %w", winner.sender, errConflictObjectChanged, err)
+		return false, fmt.Errorf("fetch new state from %s: %w, %w", winner.Sender, ErrConflictObjectChanged, err)
 	}
 
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, ctx)
@@ -308,12 +309,12 @@ func (r *repairer) repairExist(ctx context.Context,
 				StaleUpdateTime:         vote.UTime,
 			}}
 
-			resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
+			resp, err := cl.Overwrite(ctx, vote.Sender, r.class, shard, ups)
 			if err != nil {
-				return fmt.Errorf("node %q could not repair object: %w", vote.sender, err)
+				return fmt.Errorf("node %q could not repair object: %w", vote.Sender, err)
 			}
 			if len(resp) > 0 && resp[0].Err != "" {
-				return fmt.Errorf("overwrite %w %s: %s", errConflictObjectChanged, vote.sender, resp[0].Err)
+				return fmt.Errorf("overwrite %w %s: %s", ErrConflictObjectChanged, vote.Sender, resp[0].Err)
 			}
 
 			return nil
@@ -327,7 +328,7 @@ func (r *repairer) repairExist(ctx context.Context,
 func (r *repairer) repairBatchPart(ctx context.Context,
 	shard string,
 	ids []strfmt.UUID,
-	votes []vote,
+	votes []Vote,
 	contentIdx int,
 ) ([]*storobj.Object, error) {
 	var (
@@ -446,9 +447,9 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 				alreadyDeleted := false
 
 				if rid == contentIdx {
-					alreadyDeleted = vote.batchReply.FullData[j].Deleted
+					alreadyDeleted = vote.BatchReply.FullData[j].Deleted
 				} else {
-					alreadyDeleted = vote.batchReply.DigestData[j].Deleted
+					alreadyDeleted = vote.BatchReply.DigestData[j].Deleted
 				}
 
 				if alreadyDeleted && lastDeletionTimes[j] == vote.UpdateTimeAt(j) {

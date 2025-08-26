@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,7 +33,7 @@ func (_m *MockOpProducer) EXPECT() *MockOpProducer_Expecter {
 }
 
 // Produce provides a mock function with given fields: ctx, out
-func (_m *MockOpProducer) Produce(ctx context.Context, out chan<- ShardReplicationOp) error {
+func (_m *MockOpProducer) Produce(ctx context.Context, out chan<- ShardReplicationOpAndStatus) error {
 	ret := _m.Called(ctx, out)
 
 	if len(ret) == 0 {
@@ -41,7 +41,7 @@ func (_m *MockOpProducer) Produce(ctx context.Context, out chan<- ShardReplicati
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, chan<- ShardReplicationOp) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, chan<- ShardReplicationOpAndStatus) error); ok {
 		r0 = rf(ctx, out)
 	} else {
 		r0 = ret.Error(0)
@@ -57,14 +57,14 @@ type MockOpProducer_Produce_Call struct {
 
 // Produce is a helper method to define mock.On call
 //   - ctx context.Context
-//   - out chan<- ShardReplicationOp
+//   - out chan<- ShardReplicationOpAndStatus
 func (_e *MockOpProducer_Expecter) Produce(ctx interface{}, out interface{}) *MockOpProducer_Produce_Call {
 	return &MockOpProducer_Produce_Call{Call: _e.mock.On("Produce", ctx, out)}
 }
 
-func (_c *MockOpProducer_Produce_Call) Run(run func(ctx context.Context, out chan<- ShardReplicationOp)) *MockOpProducer_Produce_Call {
+func (_c *MockOpProducer_Produce_Call) Run(run func(ctx context.Context, out chan<- ShardReplicationOpAndStatus)) *MockOpProducer_Produce_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(chan<- ShardReplicationOp))
+		run(args[0].(context.Context), args[1].(chan<- ShardReplicationOpAndStatus))
 	})
 	return _c
 }
@@ -74,7 +74,7 @@ func (_c *MockOpProducer_Produce_Call) Return(_a0 error) *MockOpProducer_Produce
 	return _c
 }
 
-func (_c *MockOpProducer_Produce_Call) RunAndReturn(run func(context.Context, chan<- ShardReplicationOp) error) *MockOpProducer_Produce_Call {
+func (_c *MockOpProducer_Produce_Call) RunAndReturn(run func(context.Context, chan<- ShardReplicationOpAndStatus) error) *MockOpProducer_Produce_Call {
 	_c.Call.Return(run)
 	return _c
 }

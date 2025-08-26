@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"time"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/getsentry/sentry-go"
@@ -150,7 +149,7 @@ func (s *Raft) QueryCollectionsCount() (int, error) {
 
 // QueryTenants build a Query to read the tenants of a given class that will be directed to the leader to ensure we
 // will read the class with strong consistency
-func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.TenantResponse, uint64, error) {
+func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -166,7 +165,7 @@ func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.TenantRes
 	req := cmd.QueryTenantsRequest{Class: class, Tenants: tenants}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return []*models.TenantResponse{}, 0, fmt.Errorf("marshal request: %w", err)
+		return []*models.Tenant{}, 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.QueryRequest{
 		Type:       cmd.QueryRequest_TYPE_GET_TENANTS,
@@ -174,14 +173,14 @@ func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.TenantRes
 	}
 	queryResp, err := s.Query(ctx, command)
 	if err != nil {
-		return []*models.TenantResponse{}, 0, fmt.Errorf("failed to execute query: %w", err)
+		return []*models.Tenant{}, 0, fmt.Errorf("failed to execute query: %w", err)
 	}
 
 	// Unmarshal the response
 	resp := cmd.QueryTenantsResponse{}
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
-		return []*models.TenantResponse{}, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
+		return []*models.Tenant{}, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
 
 	return resp.Tenants, resp.ShardVersion, nil
@@ -380,15 +379,13 @@ func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResp
 	var leader string
 	if err := backoff.Retry(func() error {
 		if leader = s.store.Leader(); leader == "" {
-			err := s.leaderErr()
-			s.log.Warnf("query: could not find leader: %s", err)
-			return err
+			return s.leaderErr()
 		}
 
 		return nil
-	}, backoff.WithContext(backoff.WithMaxRetries(
-		backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx)); err != nil {
-		s.log.Errorf("query: failed to find leader after retries: %s", err)
+		// pass in the election timeout after applying multiplier
+	}, backoffConfig(ctx, s.store.raftConfig().ElectionTimeout)); err != nil {
+		s.log.Warnf("query: failed to find leader after retries: %s", err)
 		return &cmd.QueryResponse{}, err
 	}
 

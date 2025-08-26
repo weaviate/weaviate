@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,14 +33,9 @@ func TestText2VecModel2Vec(t *testing.T) {
 
 func createSingleNodeEnvironment(ctx context.Context,
 ) (compose *docker.DockerCompose, err error) {
-	compose, err = composeModules().
+	compose, err = docker.New().
+		WithText2VecModel2Vec().
 		WithWeaviate().
 		Start(ctx)
-	return
-}
-
-func composeModules() (composeModules *docker.Compose) {
-	composeModules = docker.New().
-		WithText2VecModel2Vec()
 	return
 }

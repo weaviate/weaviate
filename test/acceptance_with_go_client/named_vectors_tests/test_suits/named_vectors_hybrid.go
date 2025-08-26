@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -52,9 +52,9 @@ func testHybrid(host string) func(t *testing.T) {
 					},
 					VectorIndexType: "flat",
 				},
-				contextionary: {
+				model2vec: {
 					Vectorizer: map[string]interface{}{
-						text2vecContextionary: map[string]interface{}{
+						text2vecModel2Vec: map[string]interface{}{
 							"vectorizeClassName": false,
 							"sourceProperties":   []string{"text2"},
 						},
@@ -142,7 +142,7 @@ func testHybrid(host string) func(t *testing.T) {
 					WithHybrid(client.GraphQL().
 						HybridArgumentBuilder().
 						WithQuery("apple").
-						WithAlpha(1).WithTargetVectors(transformers, contextionary)).
+						WithAlpha(1).WithTargetVectors(transformers, model2vec)).
 					WithFields(field).
 					Do(ctx)
 				require.NoError(t, err)
@@ -162,9 +162,9 @@ func testHybrid(host string) func(t *testing.T) {
 					},
 				},
 				VectorConfig: map[string]models.VectorConfig{
-					contextionary: {
+					model2vec: {
 						Vectorizer: map[string]interface{}{
-							text2vecContextionary: map[string]interface{}{},
+							text2vecModel2Vec: map[string]interface{}{},
 						},
 						VectorIndexType: "flat",
 					},

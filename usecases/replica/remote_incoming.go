@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,8 +45,8 @@ type RemoteIndexIncomingRepo interface {
 	AbortReplication(shardName, requestID string) interface{}
 	OverwriteObjects(ctx context.Context, shard string, vobjects []*objects.VObject) ([]types.RepairResponse, error)
 	// Read endpoints
-	FetchObject(ctx context.Context, shardName string, id strfmt.UUID) (objects.Replica, error)
-	FetchObjects(ctx context.Context, shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
+	FetchObject(ctx context.Context, shardName string, id strfmt.UUID) (Replica, error)
+	FetchObjects(ctx context.Context, shardName string, ids []strfmt.UUID) ([]Replica, error)
 	DigestObjects(ctx context.Context, shardName string, ids []strfmt.UUID) (result []types.RepairResponse, err error)
 	DigestObjectsInRange(ctx context.Context, shardName string,
 		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
@@ -158,20 +158,20 @@ func (rri *RemoteReplicaIncoming) OverwriteObjects(ctx context.Context,
 
 func (rri *RemoteReplicaIncoming) FetchObject(ctx context.Context,
 	indexName, shardName string, id strfmt.UUID,
-) (objects.Replica, error) {
+) (Replica, error) {
 	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
 	if simpleResp != nil {
-		return objects.Replica{}, simpleResp.Errors[0].Err
+		return Replica{}, simpleResp.Errors[0].Err
 	}
 	return index.FetchObject(ctx, shardName, id)
 }
 
 func (rri *RemoteReplicaIncoming) FetchObjects(ctx context.Context,
 	indexName, shardName string, ids []strfmt.UUID,
-) ([]objects.Replica, error) {
+) ([]Replica, error) {
 	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
 	if simpleResp != nil {
-		return []objects.Replica{}, simpleResp.Errors[0].Err
+		return []Replica{}, simpleResp.Errors[0].Err
 	}
 	return index.FetchObjects(ctx, shardName, ids)
 }

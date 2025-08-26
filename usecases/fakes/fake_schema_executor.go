@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -43,9 +43,26 @@ func (m *MockSchemaExecutor) UpdateClass(req cmd.UpdateClassRequest) error {
 	return args.Error(0)
 }
 
-func (m *MockSchemaExecutor) AddReplicaToShard(class string, shard string, replica string) error {
-	args := m.Called(class, shard, replica)
+func (m *MockSchemaExecutor) AddReplicaToShard(class string, shard string, targetNode string) error {
+	args := m.Called(class, shard, targetNode)
 	return args.Error(0)
+}
+
+func (m *MockSchemaExecutor) DeleteReplicaFromShard(class string, shard string, targetNode string) error {
+	args := m.Called(class, shard, targetNode)
+	return args.Error(0)
+}
+
+func (m *MockSchemaExecutor) LoadShard(class string, shard string) {
+	m.Called(class, shard)
+}
+
+func (m *MockSchemaExecutor) DropShard(class string, shard string) {
+	m.Called(class, shard)
+}
+
+func (m *MockSchemaExecutor) ShutdownShard(class string, shard string) {
+	m.Called(class, shard)
 }
 
 func (m *MockSchemaExecutor) UpdateIndex(req cmd.UpdateClassRequest) error {

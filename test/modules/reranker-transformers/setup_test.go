@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,32 +13,27 @@ package test
 
 import (
 	"context"
-	"os"
 	"testing"
 
-	"github.com/pkg/errors"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-const weaviateEndpoint = "WEAVIATE_ENDPOINT"
-
-func TestMain(m *testing.M) {
+func TestRerankerTransformers(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
-		WithWeaviate().
-		WithText2VecContextionary().
+		WithWeaviateWithGRPC().
+		WithText2VecModel2Vec().
 		WithRerankerTransformers().
+		WithGenerativeOllama().
 		Start(ctx)
-	if err != nil {
-		panic(errors.Wrapf(err, "cannot start"))
-	}
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	rest := compose.GetWeaviate().URI()
+	grpc := compose.GetWeaviate().GrpcURI()
+	ollamaApiEndpoint := compose.GetOllamaGenerative().GetEndpoint("apiEndpoint")
 
-	os.Setenv(weaviateEndpoint, compose.GetWeaviate().URI())
-	code := m.Run()
-
-	if err := compose.Terminate(ctx); err != nil {
-		panic(errors.Wrapf(err, "cannot terminate"))
-	}
-
-	os.Exit(code)
+	t.Run("reranker-transformers", testRerankerTransformers(rest, grpc, ollamaApiEndpoint))
 }

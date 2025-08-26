@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,6 +37,7 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+
 	_, _, err := s.manager.AddClass(ctx, principal, params.ObjectClass)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ObjectClass.Class, err)
@@ -145,7 +146,7 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 }
 
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
-	dbSchema, err := s.manager.GetConsistentSchema(principal, *params.Consistency)
+	dbSchema, err := s.manager.GetConsistentSchema(params.HTTPRequest.Context(), principal, *params.Consistency)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {
@@ -301,7 +302,7 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewTenantsGetOK().WithPayload(schemaUC.TenantResponsesToTenants(tenants))
+	return schema.NewTenantsGetOK().WithPayload(tenants)
 }
 
 func (s *schemaHandlers) getTenant(

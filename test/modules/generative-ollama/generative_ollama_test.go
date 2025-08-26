@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -100,6 +100,10 @@ func testGenerativeOllama(rest, grpc, ollamaApiEndpoint string) func(t *testing.
 						ReturnMetadata: false, // no metadata for ollama
 						Kind:           params,
 					})
+				})
+				t.Run("check if other properties are being added to prompt", func(t *testing.T) {
+					prompt := "Write a summary using: planet's name: {name}, mean radius: {meanRadius}, moons: {satellites}, surface temperatures [min,mean,max]: {surfaceTemperaturesCelcius} and is habitable: {isHabitable} information"
+					planets.CreatePromptTestWithParamsWithDebug(t, class.Class, prompt, "", true)
 				})
 			})
 		}
