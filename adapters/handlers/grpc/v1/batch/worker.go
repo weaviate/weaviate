@@ -61,7 +61,9 @@ func (w *Worker) wgForStream(streamId string) *sync.WaitGroup {
 }
 
 func (w *Worker) isReplicationError(err string) bool {
-	return strings.Contains(err, replica.ErrReplicas.Error()) || (strings.Contains(err, "connect: Post") && strings.Contains(err, ":commit"))
+	return strings.Contains(err, replica.ErrReplicas.Error()) || // broadcast error to shutdown node
+		(strings.Contains(err, "connect: Post") && strings.Contains(err, ":commit")) || // failed to connect to shutdown node when committing
+		(strings.Contains(err, "status code: 404, error: request not found")) // failed to find request on shutdown node
 }
 
 func (w *Worker) sendObjects(ctx context.Context, wg *sync.WaitGroup, streamId string, req *SendObjects) error {
@@ -77,9 +79,6 @@ func (w *Worker) sendObjects(ctx context.Context, wg *sync.WaitGroup, streamId s
 	if err != nil {
 		return err
 	}
-	// TODO: add logic to re-add any known transient errors to the queue here
-	// e.g., broadcast: cannot reach enough replicas or internal clusterAPI failed comms
-	// like dial tcp 10.244.0.15:7001: connect: connection refused
 	if len(reply.GetErrors()) > 0 {
 		errs := make([]*pb.BatchError, 0, len(reply.GetErrors()))
 		for _, err := range reply.GetErrors() {
