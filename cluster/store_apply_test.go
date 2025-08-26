@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -462,7 +463,7 @@ func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 	}
 
 	// Initialize the schema manager to avoid nil pointer dereference
-	mockStore.store.schemaManager = clusterschema.NewSchemaManager("Node-1", mockStore.indexer, mockStore.parser, prometheus.NewPedanticRegistry(), mockStore.logger)
+	mockStore.store.schemaManager = clusterschema.NewSchemaManager("Node-1", mockStore.indexer, mockStore.parser, mocks.NewMockNodeSelector("Node-1"), prometheus.NewPedanticRegistry(), mockStore.logger)
 
 	return mockStore, log
 }
