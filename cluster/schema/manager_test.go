@@ -66,9 +66,6 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 	cls, err := sc.ReadOnlyClass(ctx, "C", 1)
 	assert.Nil(t, cls)
 	assert.Nil(t, err)
-	ss, err := sc.CopyShardingState(ctx, "C", 1)
-	assert.Nil(t, ss)
-	assert.Nil(t, err)
 	mt, err := sc.MultiTenancy(ctx, "C", 1)
 	assert.Equal(t, mt, models.MultiTenancyConfig{})
 	assert.Nil(t, err)
@@ -190,7 +187,6 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.Nil(t, sc.ReadOnlyClass("C"))
 	cl := sc.ReadOnlyVersionedClass("C")
 	assert.Nil(t, cl.Class)
-	assert.Nil(t, sc.CopyShardingState("C"))
 	assert.Equal(t, sc.ReadOnlySchema(), models.Schema{Classes: make([]*models.Class, 0)})
 	assert.Equal(t, sc.MultiTenancy("C"), models.MultiTenancyConfig{})
 
