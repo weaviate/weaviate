@@ -21,8 +21,8 @@ import (
 
 const (
 	TrucAt    = 64
-	MaxLevels = 12
-	rate      = 0.5
+	MaxLevels = 18  // 12 // or 12+1500
+	rescore   = 300 // 150
 	size      = 1_000_000
 )
 
@@ -32,8 +32,7 @@ type heapPool struct {
 
 func (p *heapPool) Get() *[]uint64 {
 	slice := p.pool.Get().(*[]uint64)
-	indirect := *slice
-	indirect = indirect[:0]
+	*slice = (*slice)[:0]
 	return slice
 }
 
@@ -68,6 +67,8 @@ type RegionalIVF struct {
 	bencoder compressionhelpers.BinaryQuantizer
 	pool     *heapPool
 
+	rate float64
+
 	initList []uint64
 }
 
@@ -100,6 +101,7 @@ func New(cfg Config) (*RegionalIVF, error) {
 		bencoder:          compressionhelpers.NewBinaryQuantizer(cfg.DistanceProvider),
 		codes:             make([][]uint64, MaxLevels),
 		vectors:           make([][]float32, size),
+		rate:              math.Pow(float64(rescore)/float64(size), 1/float64(MaxLevels)),
 		pool: &heapPool{
 			pool: &sync.Pool{
 				New: func() interface{} {
@@ -192,7 +194,7 @@ func (r *RegionalIVF) SearchByVector(ctx context.Context, searchVector []float32
 	oldHeap[0] = r.initList
 	maxDist := 0
 	for i := 0; i < MaxLevels; i++ {
-		part := int(total * math.Pow(rate, float64(i)))
+		part := int(total * math.Pow(r.rate, float64(i)))
 		heap := make([][]uint64, maxDist+64)
 		soFar := 0
 		for j := 0; soFar < part; j++ {
