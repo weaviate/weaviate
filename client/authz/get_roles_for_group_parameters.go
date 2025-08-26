@@ -75,19 +75,19 @@ type GetRolesForGroupParams struct {
 
 	/* GroupType.
 
-	   The type of group
+	   The type of the group.
 	*/
 	GroupType string
 
 	/* ID.
 
-	   group name
+	   The unique name of the group.
 	*/
 	ID string
 
 	/* IncludeFullRoles.
 
-	   Whether to include detailed role information needed the roles permission
+	   If true, the response will include the full role definitions with all associated permissions. If false, only role names are returned.
 	*/
 	IncludeFullRoles *bool
 

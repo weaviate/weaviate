@@ -74,7 +74,7 @@ type GetGroupsForRoleParams struct {
 
 	/* ID.
 
-	   role name
+	   The unique name of the role.
 	*/
 	ID string
 

@@ -87,7 +87,7 @@ func NewGetGroupsForRoleOK() *GetGroupsForRoleOK {
 /*
 GetGroupsForRoleOK describes a response with status code 200, with default header values.
 
-Groups assigned to this role
+Successfully retrieved the list of groups that have the role assigned.
 */
 type GetGroupsForRoleOK struct {
 	Payload []*GetGroupsForRoleOKBodyItems0
@@ -345,7 +345,7 @@ func NewGetGroupsForRoleNotFound() *GetGroupsForRoleNotFound {
 /*
 GetGroupsForRoleNotFound describes a response with status code 404, with default header values.
 
-no role found
+The specified role was not found.
 */
 type GetGroupsForRoleNotFound struct {
 }

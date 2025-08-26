@@ -51,17 +51,17 @@ type GetRolesForGroupParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The type of group
+	/*The type of the group.
 	  Required: true
 	  In: path
 	*/
 	GroupType string
-	/*group name
+	/*The unique name of the group.
 	  Required: true
 	  In: path
 	*/
 	ID string
-	/*Whether to include detailed role information needed the roles permission
+	/*If true, the response will include the full role definitions with all associated permissions. If false, only role names are returned.
 	  In: query
 	  Default: false
 	*/
