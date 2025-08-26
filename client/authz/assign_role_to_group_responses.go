@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
@@ -455,17 +456,69 @@ swagger:model AssignRoleToGroupBody
 */
 type AssignRoleToGroupBody struct {
 
-	// The roles to assign to the specified group.
+	// group type
+	GroupType models.GroupType `json:"groupType,omitempty"`
+
+	// the roles that assigned to group
 	Roles []string `json:"roles"`
 }
 
 // Validate validates this assign role to group body
 func (o *AssignRoleToGroupBody) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.validateGroupType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
 	return nil
 }
 
-// ContextValidate validates this assign role to group body based on context it is used
+func (o *AssignRoleToGroupBody) validateGroupType(formats strfmt.Registry) error {
+	if swag.IsZero(o.GroupType) { // not required
+		return nil
+	}
+
+	if err := o.GroupType.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("body" + "." + "groupType")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("body" + "." + "groupType")
+		}
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this assign role to group body based on the context it is used
 func (o *AssignRoleToGroupBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.contextValidateGroupType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *AssignRoleToGroupBody) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("body" + "." + "groupType")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("body" + "." + "groupType")
+		}
+		return err
+	}
+
 	return nil
 }
 

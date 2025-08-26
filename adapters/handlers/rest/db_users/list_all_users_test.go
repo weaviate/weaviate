@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -62,10 +64,10 @@ func TestSuccessListAll(t *testing.T) {
 			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Users()[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers").Return(map[string]*apikey.User{dbUser: {Id: dbUser}}, nil)
-			dynUser.On("GetRolesForUser", dbUser, models.UserTypeInputDb).Return(
+			dynUser.On("GetRolesForUserOrGroup", dbUser, authentication.AuthTypeDb, false).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
 			if tt.includeStatic {
-				dynUser.On("GetRolesForUser", staticUser, models.UserTypeInputDb).Return(
+				dynUser.On("GetRolesForUserOrGroup", staticUser, authentication.AuthTypeDb, false).Return(
 					map[string][]authorization.Policy{"role": {}}, nil)
 			}
 
@@ -97,7 +99,7 @@ func TestSuccessListAllAfterImport(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, &models.Principal{Username: "root"}, authorization.READ, authorization.Users()[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers").Return(map[string]*apikey.User{exStaticUser: {Id: exStaticUser, Active: true}}, nil)
-	dynUser.On("GetRolesForUser", exStaticUser, models.UserTypeInputDb).Return(
+	dynUser.On("GetRolesForUserOrGroup", exStaticUser, authentication.AuthTypeDb, false).Return(
 		map[string][]authorization.Policy{"role": {}}, nil)
 
 	h := dynUserHandler{
@@ -200,7 +202,7 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 
 			dynUser.On("GetUsers").Return(usersRet, nil)
 			for _, user := range tt.userIds {
-				dynUser.On("GetRolesForUser", user, models.UserTypeInputDb).Return(map[string][]authorization.Policy{"role": {}}, nil)
+				dynUser.On("GetRolesForUserOrGroup", user, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
 			}
 
 			var nodes []string
