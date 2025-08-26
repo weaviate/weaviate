@@ -309,9 +309,8 @@ func (s *State) ClusterHealthScore() int {
 // NodeHostname return hosts address for a specific node name
 func (s *State) NodeHostname(nodeName string) (string, bool) {
 	bo := backoff.NewExponentialBackOff()
-	bo.MaxElapsedTime = 10 * time.Second // TODO configurable
+	bo.MaxElapsedTime = 3 * time.Second // TODO configurable
 
-	var lastErr error
 	var lastAddr string
 
 	err := backoff.Retry(func() error {
@@ -324,8 +323,7 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 				return nil
 			}
 		}
-		lastErr = errors.New("node not found")
-		return lastErr
+		return errors.New("node not found")
 	}, bo)
 
 	if err != nil {
