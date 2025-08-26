@@ -13,15 +13,44 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+
 	"github.com/stretchr/testify/require"
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/fakes"
+
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
+
+func TestResolveAlais(t *testing.T) {
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	areq := cmd.QueryResolveAliasRequest{
+		Alias: "AliasNotExist",
+	}
+
+	subCommand, err := json.Marshal(&areq)
+	require.NoError(t, err)
+
+	req := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_RESOLVE_ALIAS,
+		SubCommand: subCommand,
+	}
+	res, err := sm.ResolveAlias(req)
+	// Make sure ResolveAlias api returns ErrAliasNotFound in the error chain
+	// This is used to decide the final http status code on the http handlers
+	require.ErrorIs(t, err, ErrAliasNotFound)
+	require.Nil(t, res)
+}
 
 func TestVersionedSchemaReaderShardReplicas(t *testing.T) {
 	var (
@@ -65,9 +94,6 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 	// class not found
 	cls, err := sc.ReadOnlyClass(ctx, "C", 1)
 	assert.Nil(t, cls)
-	assert.Nil(t, err)
-	ss, err := sc.CopyShardingState(ctx, "C", 1)
-	assert.Nil(t, ss)
 	assert.Nil(t, err)
 	mt, err := sc.MultiTenancy(ctx, "C", 1)
 	assert.Equal(t, mt, models.MultiTenancyConfig{})
@@ -190,7 +216,6 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.Nil(t, sc.ReadOnlyClass("C"))
 	cl := sc.ReadOnlyVersionedClass("C")
 	assert.Nil(t, cl.Class)
-	assert.Nil(t, sc.CopyShardingState("C"))
 	assert.Equal(t, sc.ReadOnlySchema(), models.Schema{Classes: make([]*models.Class, 0)})
 	assert.Equal(t, sc.MultiTenancy("C"), models.MultiTenancyConfig{})
 

@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes create_roles read_roles update_roles delete_roles create_collections read_collections update_collections delete_collections assign_and_revoke_users create_users read_users update_users delete_users create_tenants read_tenants update_tenants delete_tenants create_replicate read_replicate update_replicate delete_replicate create_aliases read_aliases update_aliases delete_aliases]
+	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes create_roles read_roles update_roles delete_roles create_collections read_collections update_collections delete_collections assign_and_revoke_users create_users read_users update_users delete_users create_tenants read_tenants update_tenants delete_tenants create_replicate read_replicate update_replicate delete_replicate create_aliases read_aliases update_aliases delete_aliases assign_and_revoke_groups read_groups]
 	Action *string `json:"action"`
 
 	// aliases
@@ -47,6 +47,9 @@ type Permission struct {
 
 	// data
 	Data *PermissionData `json:"data,omitempty"`
+
+	// groups
+	Groups *PermissionGroups `json:"groups,omitempty"`
 
 	// nodes
 	Nodes *PermissionNodes `json:"nodes,omitempty"`
@@ -88,6 +91,10 @@ func (m *Permission) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateGroups(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateNodes(formats); err != nil {
 		res = append(res, err)
 	}
@@ -118,7 +125,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_backups","read_cluster","create_data","read_data","update_data","delete_data","read_nodes","create_roles","read_roles","update_roles","delete_roles","create_collections","read_collections","update_collections","delete_collections","assign_and_revoke_users","create_users","read_users","update_users","delete_users","create_tenants","read_tenants","update_tenants","delete_tenants","create_replicate","read_replicate","update_replicate","delete_replicate","create_aliases","read_aliases","update_aliases","delete_aliases"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_backups","read_cluster","create_data","read_data","update_data","delete_data","read_nodes","create_roles","read_roles","update_roles","delete_roles","create_collections","read_collections","update_collections","delete_collections","assign_and_revoke_users","create_users","read_users","update_users","delete_users","create_tenants","read_tenants","update_tenants","delete_tenants","create_replicate","read_replicate","update_replicate","delete_replicate","create_aliases","read_aliases","update_aliases","delete_aliases","assign_and_revoke_groups","read_groups"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -223,6 +230,12 @@ const (
 
 	// PermissionActionDeleteAliases captures enum value "delete_aliases"
 	PermissionActionDeleteAliases string = "delete_aliases"
+
+	// PermissionActionAssignAndRevokeGroups captures enum value "assign_and_revoke_groups"
+	PermissionActionAssignAndRevokeGroups string = "assign_and_revoke_groups"
+
+	// PermissionActionReadGroups captures enum value "read_groups"
+	PermissionActionReadGroups string = "read_groups"
 )
 
 // prop value enum
@@ -315,6 +328,25 @@ func (m *Permission) validateData(formats strfmt.Registry) error {
 				return ve.ValidateName("data")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
 				return ce.ValidateName("data")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Permission) validateGroups(formats strfmt.Registry) error {
+	if swag.IsZero(m.Groups) { // not required
+		return nil
+	}
+
+	if m.Groups != nil {
+		if err := m.Groups.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("groups")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("groups")
 			}
 			return err
 		}
@@ -438,6 +470,10 @@ func (m *Permission) ContextValidate(ctx context.Context, formats strfmt.Registr
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateGroups(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateNodes(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -520,6 +556,22 @@ func (m *Permission) contextValidateData(ctx context.Context, formats strfmt.Reg
 				return ve.ValidateName("data")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
 				return ce.ValidateName("data")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Permission) contextValidateGroups(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Groups != nil {
+		if err := m.Groups.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("groups")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("groups")
 			}
 			return err
 		}
@@ -776,6 +828,95 @@ func (m *PermissionData) MarshalBinary() ([]byte, error) {
 // UnmarshalBinary interface implementation
 func (m *PermissionData) UnmarshalBinary(b []byte) error {
 	var res PermissionData
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
+// PermissionGroups Resources applicable for group actions.
+//
+// swagger:model PermissionGroups
+type PermissionGroups struct {
+
+	// A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value `*` applies the permission to all groups.
+	Group *string `json:"group,omitempty"`
+
+	// group type
+	GroupType GroupType `json:"groupType,omitempty"`
+}
+
+// Validate validates this permission groups
+func (m *PermissionGroups) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateGroupType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *PermissionGroups) validateGroupType(formats strfmt.Registry) error {
+	if swag.IsZero(m.GroupType) { // not required
+		return nil
+	}
+
+	if err := m.GroupType.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("groups" + "." + "groupType")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("groups" + "." + "groupType")
+		}
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this permission groups based on the context it is used
+func (m *PermissionGroups) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateGroupType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *PermissionGroups) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := m.GroupType.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("groups" + "." + "groupType")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("groups" + "." + "groupType")
+		}
+		return err
+	}
+
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *PermissionGroups) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *PermissionGroups) UnmarshalBinary(b []byte) error {
+	var res PermissionGroups
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

@@ -199,7 +199,7 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 		Path:              path,
 		RbacRestoreOption: roleOption,
 		UserRestoreOption: userOption,
-	})
+	}, params.Body.OverwriteAlias)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		s.logger.WithError(err).WithField("id", params.ID).

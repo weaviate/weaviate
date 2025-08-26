@@ -92,6 +92,7 @@ message Filters {
     OPERATOR_CONTAINS_ANY = 12;
     OPERATOR_CONTAINS_ALL = 13;
     OPERATOR_CONTAINS_NONE = 14;
+    OPERATOR_NOT = 15;
   }
 
   Operator operator = 1;

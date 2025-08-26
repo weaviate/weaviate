@@ -22,11 +22,17 @@ import (
 
 func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuthzFunc, className, tenant string) (filters.Clause, error) {
 	returnFilter := filters.Clause{}
-	if filterIn.Operator == pb.Filters_OPERATOR_AND || filterIn.Operator == pb.Filters_OPERATOR_OR {
-		if filterIn.Operator == pb.Filters_OPERATOR_AND {
+
+	switch filterIn.Operator {
+	case pb.Filters_OPERATOR_AND, pb.Filters_OPERATOR_OR, pb.Filters_OPERATOR_NOT:
+		switch filterIn.Operator {
+		case pb.Filters_OPERATOR_AND:
 			returnFilter.Operator = filters.OperatorAnd
-		} else {
+		case pb.Filters_OPERATOR_OR:
 			returnFilter.Operator = filters.OperatorOr
+		case pb.Filters_OPERATOR_NOT:
+			returnFilter.Operator = filters.OperatorNot
+		default:
 		}
 
 		clauses := make([]filters.Clause, len(filterIn.Filters))
@@ -40,7 +46,7 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 
 		returnFilter.Operands = clauses
 
-	} else {
+	default:
 		if filterIn.Target == nil && len(filterIn.On)%2 != 1 {
 			return filters.Clause{}, fmt.Errorf(
 				"paths needs to have a uneven number of components: property, class, property, ...., got %v", filterIn.On,
@@ -152,7 +158,7 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 		}
 
 		// correct type for containsXXX in case users send int/float for a float/int array
-		if (returnFilter.Operator == filters.ContainsAll || returnFilter.Operator == filters.ContainsAny) && dataType == schema.DataTypeNumber {
+		if returnFilter.Operator.IsContains() && dataType == schema.DataTypeNumber {
 			valSlice, ok := val.([]int)
 			if ok {
 				val64 := make([]float64, len(valSlice))
@@ -163,7 +169,7 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 			}
 		}
 
-		if (returnFilter.Operator == filters.ContainsAll || returnFilter.Operator == filters.ContainsAny) && dataType == schema.DataTypeInt {
+		if returnFilter.Operator.IsContains() && dataType == schema.DataTypeInt {
 			valSlice, ok := val.([]float64)
 			if ok {
 				valInt := make([]int, len(valSlice))

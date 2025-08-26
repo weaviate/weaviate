@@ -71,8 +71,7 @@ func parseRQMap(in map[string]interface{}, rq *RQConfig) error {
 		return err
 	}
 
-	// update default rescore limit if bits=1
-	if rq.Bits == 1 {
+	if rq.Bits == 1 && rqConfigMap["rescoreLimit"] == nil {
 		rq.RescoreLimit = DefaultBRQRescoreLimit
 	}
 

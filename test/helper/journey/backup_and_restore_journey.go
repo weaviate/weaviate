@@ -199,8 +199,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 			CPUPercentage: 180,
 			Bucket:        overrideName,
 			Path:          overridePath,
-		}, booksClass.Class, backend, backupID, map[string]string{})
-
+		}, booksClass.Class, backend, backupID, map[string]string{}, false)
 		helper.AssertRequestFail(t, resp, err, func() {
 			var customErr *backups.BackupsRestoreUnprocessableEntity
 			require.True(t, errors.As(err, &customErr), "not backups.BackupsRestoreUnprocessableEntity")

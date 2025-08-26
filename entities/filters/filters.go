@@ -99,6 +99,15 @@ func (o Operator) Name() string {
 	}
 }
 
+func (o Operator) IsContains() bool {
+	switch o {
+	case ContainsAny, ContainsAll, ContainsNone:
+		return true
+	default:
+		return false
+	}
+}
+
 type LocalFilter struct {
 	Root *Clause `json:"root"`
 }
