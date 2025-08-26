@@ -244,8 +244,8 @@ func TestHandler(t *testing.T) {
 				},
 			}).Return(nil).Once()
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				Message: &pb.BatchStreamMessage_PartialError{
-					PartialError: &pb.BatchPartialError{
+				Message: &pb.BatchStreamMessage_Error{
+					Error: &pb.BatchError{
 						Error: "processing error",
 					},
 				},
@@ -269,7 +269,7 @@ func TestHandler(t *testing.T) {
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
 			go func() {
-				ch <- batch.NewErrorsObject([]*pb.BatchPartialError{{Error: "processing error"}})
+				ch <- batch.NewErrorsObject([]*pb.BatchError{{Error: "processing error"}})
 			}()
 
 			readQueues.Make(StreamId)
@@ -290,8 +290,8 @@ func TestHandler(t *testing.T) {
 				},
 			}).Return(nil).Once()
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				Message: &pb.BatchStreamMessage_PartialError{
-					PartialError: &pb.BatchPartialError{
+				Message: &pb.BatchStreamMessage_Error{
+					Error: &pb.BatchError{
 						Error: "processing error",
 					},
 				},
@@ -315,7 +315,7 @@ func TestHandler(t *testing.T) {
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
 			go func() {
-				ch <- batch.NewErrorsObject([]*pb.BatchPartialError{{Error: "processing error"}})
+				ch <- batch.NewErrorsObject([]*pb.BatchError{{Error: "processing error"}})
 				close(ch)
 			}()
 

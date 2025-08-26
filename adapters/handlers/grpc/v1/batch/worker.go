@@ -81,42 +81,22 @@ func (w *Worker) sendObjects(ctx context.Context, wg *sync.WaitGroup, streamId s
 	// e.g., broadcast: cannot reach enough replicas or internal clusterAPI failed comms
 	// like dial tcp 10.244.0.15:7001: connect: connection refused
 	if len(reply.GetErrors()) > 0 {
-		if len(reply.GetErrors()) == len(req.Values) {
-			indicesByError := make(map[string][]int32)
-			for i, err := range reply.GetErrors() {
-				if err == nil {
-					continue
-				}
-				indicesByError[err.Error] = append(indicesByError[err.Error], req.Index+int32(i))
+		errs := make([]*pb.BatchError, 0, len(reply.GetErrors()))
+		for _, err := range reply.GetErrors() {
+			if err == nil {
+				continue
 			}
-			errs := make([]*pb.BatchFullError, 0, len(indicesByError))
-			for errStr, indices := range indicesByError {
-				errs = append(errs, &pb.BatchFullError{
-					Error:     errStr,
-					Indices:   indices,
-					IsObject:  true,
-					Retriable: w.isReplicationError(errStr),
-				})
-			}
-			if ch, ok := w.readQueues.Get(streamId); ok {
-				ch <- &readObject{FullErrors: errs}
-			}
-		} else {
-			errs := make([]*pb.BatchPartialError, 0, len(reply.GetErrors()))
-			for _, err := range reply.GetErrors() {
-				if err == nil {
-					continue
-				}
-				errs = append(errs, &pb.BatchPartialError{
-					Error:    err.Error,
-					IsObject: true,
-					Index:    req.Index + int32(err.Index),
-				})
-			}
-			if ch, ok := w.readQueues.Get(streamId); ok {
-				ch <- &readObject{PartialErrors: errs}
-			}
+			errs = append(errs, &pb.BatchError{
+				Error:       err.Error,
+				IsObject:    true,
+				Index:       req.Index + int32(err.Index),
+				IsRetriable: w.isReplicationError(err.Error),
+			})
 		}
+		if ch, ok := w.readQueues.Get(streamId); ok {
+			ch <- &readObject{Errors: errs}
+		}
+
 	}
 	return nil
 }
@@ -135,41 +115,20 @@ func (w *Worker) sendReferences(ctx context.Context, wg *sync.WaitGroup, streamI
 		return err
 	}
 	if len(reply.GetErrors()) > 0 {
-		if len(reply.GetErrors()) == len(req.Values) {
-			indicesByError := make(map[string][]int32)
-			for i, err := range reply.GetErrors() {
-				if err == nil {
-					continue
-				}
-				indicesByError[err.Error] = append(indicesByError[err.Error], req.Index+int32(i))
+		errs := make([]*pb.BatchError, 0, len(reply.GetErrors()))
+		for _, err := range reply.GetErrors() {
+			if err == nil {
+				continue
 			}
-			errs := make([]*pb.BatchFullError, 0, len(indicesByError))
-			for errStr, indices := range indicesByError {
-				errs = append(errs, &pb.BatchFullError{
-					Error:       errStr,
-					Indices:     indices,
-					IsReference: true,
-					Retriable:   w.isReplicationError(errStr),
-				})
-			}
-			if ch, ok := w.readQueues.Get(streamId); ok {
-				ch <- &readObject{FullErrors: errs}
-			}
-		} else {
-			errs := make([]*pb.BatchPartialError, 0, len(reply.GetErrors()))
-			for _, err := range reply.GetErrors() {
-				if err == nil {
-					continue
-				}
-				errs = append(errs, &pb.BatchPartialError{
-					Error:       err.Error,
-					IsReference: true,
-					Index:       req.Index + int32(err.Index),
-				})
-			}
-			if ch, ok := w.readQueues.Get(streamId); ok {
-				ch <- &readObject{PartialErrors: errs}
-			}
+			errs = append(errs, &pb.BatchError{
+				Error:       err.Error,
+				IsReference: true,
+				Index:       req.Index + int32(err.Index),
+				IsRetriable: w.isReplicationError(err.Error),
+			})
+		}
+		if ch, ok := w.readQueues.Get(streamId); ok {
+			ch <- &readObject{Errors: errs}
 		}
 	}
 	return nil

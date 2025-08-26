@@ -64,11 +64,10 @@ message BatchStreamMessage {
   }
   oneof message {
     BatchStart start = 1;
-    BatchPartialError partial_error = 2;
-    BatchFullError full_error = 3;
-    BatchStop stop = 4;
-    BatchShutdown shutdown = 5;
-    BatchShuttingDown shutting_down = 6;
+    BatchError error = 2;
+    BatchStop stop = 3;
+    BatchShutdown shutdown = 4;
+    BatchShuttingDown shutting_down = 5;
   }
 }
 
@@ -119,17 +118,10 @@ message BatchReference {
   string tenant = 6;
 }
 
-message BatchPartialError {
+message BatchError {
   string error = 1;
   int32 index = 2;
-  bool is_object = 3;
-  bool is_reference = 4;
-}
-
-message BatchFullError {
-  string error = 1;
-  repeated int32 indices = 2;
-  bool retriable = 3;
+  bool is_retriable = 3;
   bool is_object = 4;
   bool is_reference = 5;
 }

@@ -106,13 +106,8 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 					}
 					return h.wait(ctx)
 				}
-				for _, err := range readObj.PartialErrors {
-					if innerErr := stream.Send(newPartialBatchErrorMessage(err)); innerErr != nil {
-						return innerErr
-					}
-				}
-				for _, err := range readObj.FullErrors {
-					if innerErr := stream.Send(newFullBatchErrorMessage(err)); innerErr != nil {
+				for _, err := range readObj.Errors {
+					if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
 						return innerErr
 					}
 				}
@@ -183,18 +178,10 @@ func newBatchStartMessage(streamId string) *pb.BatchStreamMessage {
 	}
 }
 
-func newPartialBatchErrorMessage(err *pb.BatchPartialError) *pb.BatchStreamMessage {
+func newBatchErrorMessage(err *pb.BatchError) *pb.BatchStreamMessage {
 	return &pb.BatchStreamMessage{
-		Message: &pb.BatchStreamMessage_PartialError{
-			PartialError: err,
-		},
-	}
-}
-
-func newFullBatchErrorMessage(err *pb.BatchFullError) *pb.BatchStreamMessage {
-	return &pb.BatchStreamMessage{
-		Message: &pb.BatchStreamMessage_FullError{
-			FullError: err,
+		Message: &pb.BatchStreamMessage_Error{
+			Error: err,
 		},
 	}
 }
@@ -224,8 +211,7 @@ func newBatchShuttingDownMessage(streamId string) *pb.BatchStreamMessage {
 }
 
 type readObject struct {
-	PartialErrors []*pb.BatchPartialError
-	FullErrors    []*pb.BatchFullError
+	Errors []*pb.BatchError
 }
 
 type writeObject struct {
@@ -276,9 +262,9 @@ func NewStopWriteObject() *writeObject {
 	}
 }
 
-func NewErrorsObject(errs []*pb.BatchPartialError) *readObject {
+func NewErrorsObject(errs []*pb.BatchError) *readObject {
 	return &readObject{
-		PartialErrors: errs,
+		Errors: errs,
 	}
 }
 

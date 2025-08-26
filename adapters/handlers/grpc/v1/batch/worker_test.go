@@ -157,7 +157,7 @@ func TestWorkerLoop(t *testing.T) {
 
 		errorsObj := []*pb.BatchObjectsReply_BatchError{
 			{
-				Error: "objs error",
+				Error: replica.ErrReplicas.Error(),
 				Index: 0,
 			},
 		}
@@ -205,107 +205,21 @@ func TestWorkerLoop(t *testing.T) {
 
 		// Read first error
 		errs := <-ch
-		require.NotNil(t, errs.PartialErrors, "Expected errors to be returned")
-		require.Len(t, errs.PartialErrors, 1, "Expected one error to be returned")
-		require.Equal(t, "objs error", errs.PartialErrors[0].Error, "Expected error message to match")
-		require.True(t, errs.PartialErrors[0].IsObject, "Expected IsObject to be true for object errors")
-		require.False(t, errs.PartialErrors[0].IsReference, "Expected IsReference to be false for object errors")
+		require.NotNil(t, errs.Errors, "Expected errors to be returned")
+		require.Len(t, errs.Errors, 1, "Expected one error to be returned")
+		require.Equal(t, replica.ErrReplicas.Error(), errs.Errors[0].Error, "Expected error message to match")
+		require.True(t, errs.Errors[0].IsObject, "Expected IsObject to be true for object errors")
+		require.False(t, errs.Errors[0].IsReference, "Expected IsReference to be false for object errors")
+		require.True(t, errs.Errors[0].IsRetriable, "Expected IsRetriable to be true for this error")
 
 		// Read second error
 		errs = <-ch
-		require.NotNil(t, errs.PartialErrors, "Expected errors to be returned")
-		require.Len(t, errs.PartialErrors, 1, "Expected one error to be returned")
-		require.Equal(t, "refs error", errs.PartialErrors[0].Error, "Expected error message to match")
-		require.False(t, errs.PartialErrors[0].IsObject, "Expected IsObject to be false for reference errors")
-		require.True(t, errs.PartialErrors[0].IsReference, "Expected IsReference to be true for reference errors")
-
-		// Read sentinel
-		_, ok = <-ch
-		require.False(t, ok, "Expected read queue to be closed")
-
-		cancel()             // Cancel the context to stop the worker loop
-		close(internalQueue) // Allow the draining logic to exit naturally
-		wg.Wait()
-		require.Empty(t, internalQueue, "Expected internal queue to be empty after processing")
-		require.Empty(t, ch, "Expected read queue to be empty after processing")
-		require.Equal(t, ctx.Err(), context.Canceled, "Expected context to be canceled")
-	})
-
-	t.Run("should process from the queue and send data returning retriable full error", func(t *testing.T) {
-		mockBatcher := mocks.NewMockBatcher(t)
-
-		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
-
-		readQueues := batch.NewBatchReadQueues()
-		readQueues.Make(StreamId)
-		internalQueue := batch.NewBatchInternalQueue()
-
-		errorsObj := []*pb.BatchObjectsReply_BatchError{
-			{
-				Error: replica.ErrReplicas.Error(),
-				Index: 0,
-			},
-		}
-		errorsRefs := []*pb.BatchReferencesReply_BatchError{
-			{
-				Error: replica.ErrReplicas.Error(),
-				Index: 0,
-			},
-		}
-		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
-			Took:   float32(1),
-			Errors: errorsObj,
-		}, nil)
-		mockBatcher.EXPECT().BatchReferences(ctx, mock.Anything).Return(&pb.BatchReferencesReply{
-			Took:   float32(1),
-			Errors: errorsRefs,
-		}, nil)
-		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, mockBatcher, logger)
-
-		// Send data
-		obj := &pb.BatchObject{}
-		internalQueue <- &batch.ProcessRequest{
-			StreamId: StreamId,
-			Objects: &batch.SendObjects{
-				Values: []*pb.BatchObject{obj},
-			},
-		}
-		ref := &pb.BatchReference{}
-		internalQueue <- &batch.ProcessRequest{
-			StreamId: StreamId,
-			References: &batch.SendReferences{
-				Values: []*pb.BatchReference{ref},
-			},
-		}
-
-		// Send sentinel
-		internalQueue <- &batch.ProcessRequest{
-			StreamId: StreamId,
-			Stop:     true,
-		}
-
-		ch, ok := readQueues.Get(StreamId)
-		require.True(t, ok, "Expected read queue to exist and to contain message")
-
-		// Read first error
-		errs := <-ch
-		require.NotNil(t, errs.FullErrors, "Expected errors to be returned")
-		require.Len(t, errs.FullErrors, 1, "Expected one error to be returned")
-		require.Equal(t, replica.ErrReplicas.Error(), errs.FullErrors[0].Error, "Expected error message to match")
-		require.True(t, errs.FullErrors[0].IsObject, "Expected IsObject to be true for object errors")
-		require.False(t, errs.FullErrors[0].IsReference, "Expected IsReference to be false for object errors")
-		require.True(t, errs.FullErrors[0].Retriable, "Expected Retriable to be true for retriable errors")
-
-		// Read second error
-		errs = <-ch
-		require.NotNil(t, errs.FullErrors, "Expected errors to be returned")
-		require.Len(t, errs.FullErrors, 1, "Expected one error to be returned")
-		require.Equal(t, replica.ErrReplicas.Error(), errs.FullErrors[0].Error, "Expected error message to match")
-		require.False(t, errs.FullErrors[0].IsObject, "Expected IsObject to be false for reference errors")
-		require.True(t, errs.FullErrors[0].IsReference, "Expected IsReference to be true for reference errors")
-		require.True(t, errs.FullErrors[0].Retriable, "Expected Retriable to be true for retriable errors")
+		require.NotNil(t, errs.Errors, "Expected errors to be returned")
+		require.Len(t, errs.Errors, 1, "Expected one error to be returned")
+		require.Equal(t, "refs error", errs.Errors[0].Error, "Expected error message to match")
+		require.False(t, errs.Errors[0].IsObject, "Expected IsObject to be false for reference errors")
+		require.True(t, errs.Errors[0].IsReference, "Expected IsReference to be true for reference errors")
+		require.False(t, errs.Errors[0].IsRetriable, "Expected IsRetriable to be false for this error")
 
 		// Read sentinel
 		_, ok = <-ch
