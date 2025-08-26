@@ -255,11 +255,9 @@ func (s *State) StorageCandidates() []string {
 	// add collection or tenant while a node down
 	if len(cacheNodes) > len(storageNodes) {
 		storageNodes = make([]string, 0, len(cacheNodes))
-		n := 0
 		for name := range cacheNodes {
 			if _, ok := s.nonStorageNodes[name]; !ok {
-				storageNodes[n] = name
-				n++
+				storageNodes = append(storageNodes, name)
 			}
 		}
 	}
