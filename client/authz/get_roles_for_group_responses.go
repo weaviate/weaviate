@@ -89,7 +89,7 @@ func NewGetRolesForGroupOK() *GetRolesForGroupOK {
 /*
 GetRolesForGroupOK describes a response with status code 200, with default header values.
 
-Role assigned to group
+A list of roles assigned to the specified group.
 */
 type GetRolesForGroupOK struct {
 	Payload models.RolesListResponse
@@ -347,7 +347,7 @@ func NewGetRolesForGroupNotFound() *GetRolesForGroupNotFound {
 /*
 GetRolesForGroupNotFound describes a response with status code 404, with default header values.
 
-group not found
+The specified group was not found.
 */
 type GetRolesForGroupNotFound struct {
 }
@@ -403,7 +403,7 @@ func NewGetRolesForGroupUnprocessableEntity() *GetRolesForGroupUnprocessableEnti
 /*
 GetRolesForGroupUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+The request syntax is correct, but the server couldn't process it due to semantic issues.
 */
 type GetRolesForGroupUnprocessableEntity struct {
 	Payload *models.ErrorResponse

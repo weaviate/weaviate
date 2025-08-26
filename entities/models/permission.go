@@ -835,12 +835,12 @@ func (m *PermissionData) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionGroups resources applicable for group actions
+// PermissionGroups Resources applicable for group actions.
 //
 // swagger:model PermissionGroups
 type PermissionGroups struct {
 
-	// string or regex. if a specific name, if left empty it will be ALL or *
+	// A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value `*` applies the permission to all groups.
 	Group *string `json:"group,omitempty"`
 
 	// group type
