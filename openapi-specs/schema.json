@@ -3064,7 +3064,7 @@
             "description": "User not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3125,7 +3125,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3180,7 +3180,7 @@
             "description": "User not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3240,7 +3240,7 @@
             "description": "User not found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3300,7 +3300,7 @@
             "description": "User already activated."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3375,7 +3375,7 @@
             "description": "User already deactivated."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3476,7 +3476,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3503,7 +3503,7 @@
         ],
         "parameters": [
           {
-            "description": "The name of the role being modified.",
+            "description": "The name (ID) of the role being modified.",
             "in": "path",
             "name": "id",
             "required": true,
@@ -3524,7 +3524,7 @@
                   "description": "Permissions to be added to the role."
                 }
               },
-              "required": ["name", "permissions"]
+              "required": ["permissions"]
 
             }
           }
@@ -3552,7 +3552,7 @@
             "description": "No role found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3627,7 +3627,7 @@
             "description": "No role found."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3793,7 +3793,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3900,7 +3900,7 @@
                     "$ref": "#/definitions/UserTypeOutput"
                   }
                 },
-                "required": ["name", "userType"]
+                "required": ["userId", "userType"]
               }
             }
           },
@@ -3978,7 +3978,7 @@
             "description": "No roles found for specified user."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4025,7 +4025,7 @@
             "required": false,
             "type": "boolean",
             "default": false,
-            "description": "Whether to include detailed role information required for the roles permission."
+            "description": "Whether to include detailed role information like its assigned permissions."
           }
         ],
         "responses": {
@@ -4054,7 +4054,7 @@
             "description": "No roles found for specified user."
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
