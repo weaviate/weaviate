@@ -341,7 +341,7 @@ func NewGetGroupsUnprocessableEntity() *GetGroupsUnprocessableEntity {
 /*
 GetGroupsUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed, but semantically incorrect.
+The request syntax is correct, but the server couldn't process it due to semantic issues.
 */
 type GetGroupsUnprocessableEntity struct {
 	Payload *models.ErrorResponse

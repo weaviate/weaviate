@@ -456,7 +456,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed, but semantically incorrect.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -673,7 +673,7 @@ func init() {
             "description": "The specified group was not found."
           },
           "422": {
-            "description": "Request body is well-formed, but semantically incorrect.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9301,7 +9301,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Request body is well-formed, but semantically incorrect.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9518,7 +9518,7 @@ func init() {
             "description": "The specified group was not found."
           },
           "422": {
-            "description": "Request body is well-formed, but semantically incorrect.",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
