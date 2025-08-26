@@ -18,6 +18,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
@@ -160,34 +163,43 @@ func (db *DB) ClassExists(name string) bool {
 	return db.IndexExists(schema.ClassName(name))
 }
 
-// Returns the list of nodes where shards of class are contained.
+// Shards returns the list of nodes where shards of class are contained.
 // If there are no shards for the class, returns an empty list
 // If there are shards for the class but no nodes are found, return an error
 func (db *DB) Shards(ctx context.Context, class string) ([]string, error) {
-	unique := make(map[string]struct{})
+	var nodes []string
+	var shardCount int
 
-	ss := db.schemaGetter.CopyShardingState(class)
-	if len(ss.Physical) == 0 {
-		return []string{}, nil
-	}
-
-	for _, shard := range ss.Physical {
-		for _, node := range shard.BelongsToNodes {
-			unique[node] = struct{}{}
+	err := db.schemaReader.Read(class, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %s", class)
 		}
+		shardCount = len(state.Physical)
+		if shardCount == 0 {
+			nodes = []string{}
+			return nil
+		}
+
+		unique := make(map[string]struct{})
+		for _, shard := range state.Physical {
+			for _, node := range shard.BelongsToNodes {
+				unique[node] = struct{}{}
+			}
+		}
+
+		nodes = make([]string, 0, len(unique))
+		for node := range unique {
+			nodes = append(nodes, node)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", class, err)
 	}
 
-	var (
-		nodes   = make([]string, len(unique))
-		counter = 0
-	)
-
-	for node := range unique {
-		nodes[counter] = node
-		counter++
-	}
-	if len(nodes) == 0 {
-		return nil, fmt.Errorf("found %v shards, but has 0 nodes", len(ss.Physical))
+	if shardCount > 0 && len(nodes) == 0 {
+		return nil, fmt.Errorf("found %d shards but no nodes for class %s", shardCount, class)
 	}
 
 	return nodes, nil
@@ -298,12 +310,24 @@ func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
 }
 
 func (i *Index) marshalShardingState() ([]byte, error) {
-	b, err := i.getSchema.CopyShardingState(i.Config.ClassName.String()).JSON()
+	var jsonBytes []byte
+	err := i.schemaReader.Read(i.Config.ClassName.String(), func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %s", i.Config.ClassName.String())
+		}
+		bytes, jsonErr := state.JSON()
+		if jsonErr != nil {
+			return jsonErr
+		}
+
+		jsonBytes = bytes
+		return nil
+	})
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal sharding state")
 	}
 
-	return b, nil
+	return jsonBytes, nil
 }
 
 func (i *Index) marshalSchema() ([]byte, error) {

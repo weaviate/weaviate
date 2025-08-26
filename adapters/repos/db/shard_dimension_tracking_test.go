@@ -20,6 +20,9 @@ import (
 	"testing"
 	"time"
 
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
+
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/usecases/cluster"
 
@@ -35,7 +38,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func Benchmark_Migration(b *testing.B) {
@@ -52,7 +54,12 @@ func Benchmark_Migration(b *testing.B) {
 				shardState: shardState,
 			}
 			mockSchemaReader := schemaUC.NewMockSchemaReader(b)
-			mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+			mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				class := &models.Class{Class: className}
+				return readFunc(class, shardState)
+			}).Maybe()
+			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 			mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 			mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(b)
 			mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -85,7 +92,7 @@ func Benchmark_Migration(b *testing.B) {
 				},
 			}
 
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+			migrator.AddClass(context.Background(), class)
 
 			schemaGetter.schema = schema
 
@@ -127,7 +134,12 @@ func Test_Migration(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -162,7 +174,7 @@ func Test_Migration(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+			migrator.AddClass(context.Background(), class))
 
 		schemaGetter.schema = schema
 	})
@@ -205,7 +217,12 @@ func Test_DimensionTracking(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -239,7 +256,7 @@ func Test_DimensionTracking(t *testing.T) {
 			},
 		}
 
-		require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+		require.Nil(t, migrator.AddClass(context.Background(), class))
 
 		schemaGetter.schema = schema
 	})
@@ -440,26 +457,26 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 	}{
 		{
 			name:         "legacy",
-			vectorConfig: enthnsw.NewDefaultUserConfig,
+			vectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 
 			expectDimensions: dimensionsPerVector * objectCount,
 		},
 		{
 			name:              "named",
-			namedVectorConfig: enthnsw.NewDefaultUserConfig,
+			namedVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 
 			expectDimensions: dimensionsPerVector * objectCount,
 		},
 		{
 			name:              "multi",
-			multiVectorConfig: enthnsw.NewDefaultUserConfig,
+			multiVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 
 			expectDimensions: multiVecCard * dimensionsPerVector * objectCount,
 		},
 		{
 			name:              "mixed",
-			vectorConfig:      enthnsw.NewDefaultUserConfig,
-			namedVectorConfig: enthnsw.NewDefaultUserConfig,
+			vectorConfig:      func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
+			namedVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 
 			expectDimensions: 2 * dimensionsPerVector * objectCount,
 		},
@@ -500,7 +517,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 				cfg.BQ.Enabled = true
 				return cfg
 			},
-			multiVectorConfig: enthnsw.NewDefaultUserConfig,
+			multiVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 			expectDimensions:  multiVecCard * dimensionsPerVector * objectCount,
 			expectSegments:    (dimensionsPerVector / 8) * objectCount,
 		},

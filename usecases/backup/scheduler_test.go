@@ -513,7 +513,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		fs.client.On("Status", any, nodeB, sReq).Return(sresp, nil).After(time.Minute)
 
 		s := fs.scheduler()
-		resp, err := s.Restore(ctx, nil, &req1)
+		resp, err := s.Restore(ctx, nil, &req1, false)
 		assert.Nil(t, err)
 		status1 := string(backup.Started)
 		want1 := &models.BackupRestoreResponse{
@@ -525,7 +525,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		}
 		assert.Equal(t, resp, want1)
 
-		resp, err = s.Restore(ctx, nil, &req1)
+		resp, err = s.Restore(ctx, nil, &req1, false)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "already in progress")
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
@@ -556,7 +556,7 @@ func TestSchedulerRestoration(t *testing.T) {
 			fs.client.On("Status", any, nodeB, sReq).Return(sresp, nil)
 			fs.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
 			s := fs.scheduler()
-			resp, err := s.Restore(ctx, nil, &req)
+			resp, err := s.Restore(ctx, nil, &req, false)
 			assert.Nil(t, err)
 			status1 := string(backup.Started)
 			want1 := &models.BackupRestoreResponse{
@@ -625,7 +625,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 			ID:      id,
 			Include: []string{cls},
 			Exclude: []string{cls},
-		})
+		}, false)
 		assert.NotNil(t, err)
 	})
 
@@ -635,7 +635,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 			ID:      id,
 			Include: []string{"C1", "C2", "C1"},
 			Exclude: []string{},
-		})
+		}, false)
 		assert.NotNil(t, err)
 		assert.ErrorContains(t, err, "C1")
 	})
@@ -648,7 +648,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 			ID:      id,
 			Include: []string{cls},
 			Exclude: []string{},
-		})
+		}, false)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), backendName)
 	})
@@ -660,7 +660,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		_, err := fs.scheduler().Restore(ctx, nil, req)
+		_, err := fs.scheduler().Restore(ctx, nil, req, false)
 		if err == nil || !strings.Contains(err.Error(), "find") {
 			t.Errorf("must return an error if it fails to get meta data: %v", err)
 		}
@@ -670,7 +670,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 
-		_, err = fs.scheduler().Restore(ctx, nil, req)
+		_, err = fs.scheduler().Restore(ctx, nil, req, false)
 		if !errors.As(err, &backup.ErrNotFound{}) {
 			t.Errorf("must return an error if meta data doesn't exist: %v", err)
 		}
@@ -681,7 +681,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Failed)})
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		_, err := fs.scheduler().Restore(ctx, nil, req)
+		_, err := fs.scheduler().Restore(ctx, nil, req, false)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), backup.Failed)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
@@ -704,7 +704,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		bytes := marshalCoordinatorMeta(meta)
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		_, err := fs.scheduler().Restore(ctx, nil, req)
+		_, err := fs.scheduler().Restore(ctx, nil, req, false)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), errMsgHigherVersion)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
@@ -715,7 +715,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Success)})
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		_, err := fs.scheduler().Restore(ctx, nil, req)
+		_, err := fs.scheduler().Restore(ctx, nil, req, false)
 		assert.NotNil(t, err)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 		assert.Contains(t, err.Error(), "corrupted")
@@ -727,7 +727,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		bytes := marshalMeta(backup.BackupDescriptor{ID: "123", Status: string(backup.Success)})
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		_, err := fs.scheduler().Restore(ctx, nil, req)
+		_, err := fs.scheduler().Restore(ctx, nil, req, false)
 		assert.NotNil(t, err)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 		assert.Contains(t, err.Error(), "wrong backup file")
@@ -739,7 +739,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		bytes := marshalCoordinatorMeta(meta)
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{ID: id, Include: []string{"unknown"}})
+		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{ID: id, Include: []string{"unknown"}}, false)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "unknown")
 	})
@@ -750,7 +750,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		bytes := marshalCoordinatorMeta(meta)
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{ID: id, Exclude: []string{cls}})
+		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{ID: id, Exclude: []string{cls}}, false)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), cls)
 	})

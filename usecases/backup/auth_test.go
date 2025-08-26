@@ -60,7 +60,7 @@ func Test_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "Restore",
-			additionalArgs:   []interface{}{req},
+			additionalArgs:   []interface{}{req, false},
 			expectedVerb:     authorization.CREATE,
 			expectedResource: authorization.Backups("ABC")[0],
 			classes:          []string{"ABC"},

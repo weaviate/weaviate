@@ -153,6 +153,23 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		PropertyPaths: propertyPaths,
 	}
 
+	deletedIds := sroar.NewBitmap()
+	deletedCount := 0
+	handleDeletedId := func(id uint64) {
+		if deletedIds.Set(id) {
+			if deletedCount++; deletedCount >= 1024 {
+				s.bitmapFactory.Remove(deletedIds)
+				deletedIds = sroar.NewBitmap().CloneToBuf(deletedIds.ToBuffer())
+				deletedCount = 0
+			}
+		}
+	}
+	defer func() {
+		if deletedCount > 0 {
+			s.bitmapFactory.Remove(deletedIds)
+		}
+	}()
+
 	i := 0
 	loop := 0
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
@@ -168,6 +185,7 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		}
 
 		if res == nil {
+			handleDeletedId(docID)
 			continue
 		}
 
@@ -250,8 +268,11 @@ func (s *Searcher) extractPropValuePair(
 		return out, nil
 	}
 
-	if filter.Operator == filters.ContainsAny || filter.Operator == filters.ContainsAll {
+	switch filter.Operator {
+	case filters.ContainsAll, filters.ContainsAny, filters.ContainsNone:
 		return s.extractContains(ctx, filter.On, filter.Value.Type, filter.Value.Value, filter.Operator, class)
+	default:
+		// proceed
 	}
 
 	// on value or non-nested filter
@@ -723,13 +744,29 @@ func (s *Searcher) extractContains(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("new prop value pair: %w", err)
 	}
+
 	out.children = children
-	// filters.ContainsAny
-	out.operator = filters.OperatorOr
-	if operator == filters.ContainsAll {
-		out.operator = filters.OperatorAnd
-	}
 	out.Class = class
+
+	switch operator {
+	case filters.ContainsAll:
+		out.operator = filters.OperatorAnd
+	case filters.ContainsAny:
+		out.operator = filters.OperatorOr
+	case filters.ContainsNone:
+		out.operator = filters.OperatorOr
+
+		parent, err := newPropValuePair(class)
+		if err != nil {
+			return nil, fmt.Errorf("new prop value pair: %w", err)
+		}
+		parent.operator = filters.OperatorNot
+		parent.children = []*propValuePair{out}
+		parent.Class = class
+		out = parent
+	default:
+		return nil, fmt.Errorf("unknown contains operator %v", operator)
+	}
 	return out, nil
 }
 

@@ -331,8 +331,11 @@ func verifySchemaRestoration(t *testing.T, source, target MockStore) {
 				"Vector config count should match for class %s", sourceClass.Class)
 
 			// Compare sharding state
-			sourceShardingState := sourceSchema.CopyShardingState(sourceClass.Class)
-			targetShardingState := targetSchema.CopyShardingState(sourceClass.Class)
+			sourceShardingState, err := readShardingState(sourceSchema, sourceClass.Class)
+			require.Nil(t, err)
+
+			targetShardingState, err := readShardingState(targetSchema, targetClass.Class)
+			require.Nil(t, err)
 
 			if sourceShardingState != nil && targetShardingState != nil {
 				assert.Equal(t, len(sourceShardingState.Physical), len(targetShardingState.Physical),
@@ -406,7 +409,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
 			"error while reading class schema")
 
-		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		sourceState, err := readShardingState(source.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.Equal(t, int64(1), sourceState.ReplicationFactor,
 			"error while copying sharding state")
 
@@ -436,7 +440,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
 		require.NotNil(t, targetClass, "Class should be restored")
 
-		targetState := target.store.SchemaReader().CopyShardingState(className)
+		targetState, err := readShardingState(target.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.NotNil(t, targetState, "Sharding state should be restored")
 		require.Equal(t, int64(1), targetState.ReplicationFactor,
 			"Replication factor should be migrated to match the number of nodes (1)")
@@ -485,7 +490,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
 			"error while reading class schema")
 
-		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		sourceState, err := readShardingState(source.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.Equal(t, int64(1), sourceState.ReplicationFactor,
 			"source replication factor should be 1 before snapshot")
 		require.True(t, sourceState.PartitioningEnabled,
@@ -518,7 +524,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
 		require.NotNil(t, targetClass, "error while reading class")
 
-		targetState := target.store.SchemaReader().CopyShardingState(className)
+		targetState, err := readShardingState(target.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.NotNil(t, targetState, "Sharding state should be restored")
 		require.True(t, targetState.PartitioningEnabled,
 			"partitioning should still be enabled after restoring the snapshot")
@@ -569,7 +576,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
 			"error while reading class schema")
 
-		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		sourceState, err := readShardingState(source.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.Equal(t, int64(1), sourceState.ReplicationFactor,
 			"error while copying sharding state")
 
@@ -599,7 +607,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
 		require.NotNil(t, targetClass, "Class should be restored")
 
-		targetState := target.store.SchemaReader().CopyShardingState(className)
+		targetState, err := readShardingState(target.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.NotNil(t, targetState, "Sharding state should be restored")
 		require.Equal(t, int64(1), targetState.ReplicationFactor,
 			"Replication factor should be migrated to match the number of nodes (1)")
@@ -648,7 +657,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
 			"error while reading class schema")
 
-		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		sourceState, err := readShardingState(source.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.Equal(t, int64(1), sourceState.ReplicationFactor,
 			"source replication factor should be 1 before snapshot")
 		require.True(t, sourceState.PartitioningEnabled,
@@ -681,7 +691,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
 		require.NotNil(t, targetClass, "error while reading class")
 
-		targetState := target.store.SchemaReader().CopyShardingState(className)
+		targetState, err := readShardingState(target.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.NotNil(t, targetState, "Sharding state should be restored")
 		require.True(t, targetState.PartitioningEnabled,
 			"partitioning should still be enabled after restoring the snapshot")
@@ -732,7 +743,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
 			"error while reading class schema")
 
-		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		sourceState, err := readShardingState(source.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.Equal(t, int64(4), sourceState.ReplicationFactor,
 			"error while copying sharding state")
 
@@ -762,7 +774,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
 		require.NotNil(t, targetClass, "Class should be restored")
 
-		targetState := target.store.SchemaReader().CopyShardingState(className)
+		targetState, err := readShardingState(target.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.NotNil(t, targetState, "Sharding state should be restored")
 		require.Equal(t, int64(4), targetState.ReplicationFactor,
 			"Replication factor should be migrated to match the number of nodes (1)")
@@ -811,7 +824,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		require.NotNil(t, source.store.SchemaReader().ReadOnlyClass(className),
 			"error while reading class schema")
 
-		sourceState := source.store.SchemaReader().CopyShardingState(className)
+		sourceState, err := readShardingState(source.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.Equal(t, int64(3), sourceState.ReplicationFactor,
 			"source replication factor should be 1 before snapshot")
 		require.True(t, sourceState.PartitioningEnabled,
@@ -844,7 +858,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 		targetClass := target.store.SchemaReader().ReadOnlyClass(className)
 		require.NotNil(t, targetClass, "error while reading class")
 
-		targetState := target.store.SchemaReader().CopyShardingState(className)
+		targetState, err := readShardingState(target.store.SchemaReader(), class.Class)
+		require.Nil(t, err)
 		require.NotNil(t, targetState, "Sharding state should be restored")
 		require.True(t, targetState.PartitioningEnabled,
 			"partitioning should still be enabled after restoring the snapshot")

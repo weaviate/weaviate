@@ -17,6 +17,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/multitenancy"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -91,9 +93,7 @@ func (m *Migrator) SetOffloadProvider(provider provider, moduleName string) {
 	m.logger.Info(fmt.Sprintf("module %s is enabled", moduleName))
 }
 
-func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
-	shardState *sharding.State,
-) error {
+func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	if err := replica.ValidateConfig(class, m.db.config.Replication); err != nil {
 		return fmt.Errorf("replication config: %w", err)
 	}
@@ -108,11 +108,10 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
-	multiTenancyEnabled := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 	collection := schema.ClassName(class.Class).String()
 	indexRouter := router.NewBuilder(
 		collection,
-		multiTenancyEnabled,
+		multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		m.db.nodeSelector,
 		m.db.schemaGetter,
 		m.db.schemaReader,
@@ -166,14 +165,14 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			QuerySlowLogEnabled:                          m.db.config.QuerySlowLogEnabled,
 			QuerySlowLogThreshold:                        m.db.config.QuerySlowLogThreshold,
 			InvertedSorterDisabled:                       m.db.config.InvertedSorterDisabled,
+			MaintenanceModeEnabled:                       m.db.config.MaintenanceModeEnabled,
 		},
-		shardState,
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
-		indexRouter, m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
+		indexRouter, m.db.schemaGetter, m.db.schemaReader, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
 		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool)
 	if err != nil {
@@ -263,7 +262,7 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 
 	{ // add index if missing
 		if idx == nil {
-			if err := m.AddClass(ctx, incomingClass, incomingSS); err != nil {
+			if err := m.AddClass(ctx, incomingClass); err != nil {
 				return fmt.Errorf(
 					"add missing class %s during update index: %w",
 					incomingClass.Class, err)

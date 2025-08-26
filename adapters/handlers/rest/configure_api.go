@@ -514,7 +514,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	addrs := strings.Split(nodeAddr, ":")
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
-	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules)
+	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization)
 
 	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
 		grpcConfig := appState.ServerConfig.Config.GRPC
@@ -1715,14 +1715,14 @@ func postInitModules(appState *state.State) {
 		// Initialize usage service for GCS
 		if usageGCSModule := appState.Modules.GetByName(modusagegcs.Name); usageGCSModule != nil {
 			if usageModuleWithService, ok := usageGCSModule.(modulecapabilities.ModuleWithUsageService); ok {
-				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, usageModuleWithService.Logger())
+				usageService := usage.NewService(appState.ClusterService.SchemaReader(), appState.DB, appState.Modules, appState.Cluster.LocalName(), usageModuleWithService.Logger())
 				usageModuleWithService.SetUsageService(usageService)
 			}
 		}
 		// Initialize usage service for S3
 		if usageS3Module := appState.Modules.GetByName(modusages3.Name); usageS3Module != nil {
 			if usageModuleWithService, ok := usageS3Module.(modulecapabilities.ModuleWithUsageService); ok {
-				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, usageModuleWithService.Logger())
+				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, appState.Cluster.LocalName(), usageModuleWithService.Logger())
 				usageModuleWithService.SetUsageService(usageService)
 			}
 		}
@@ -1909,6 +1909,7 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
 
 		if appState.Modules.UsageEnabled() {
 			// gcs config
