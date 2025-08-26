@@ -24,7 +24,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
 
@@ -42,8 +41,8 @@ func TestResolveAlais(t *testing.T) {
 	subCommand, err := json.Marshal(&areq)
 	require.NoError(t, err)
 
-	req := &command.QueryRequest{
-		Type:       command.QueryRequest_TYPE_RESOLVE_ALIAS,
+	req := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_RESOLVE_ALIAS,
 		SubCommand: subCommand,
 	}
 	res, err := sm.ResolveAlias(req)
