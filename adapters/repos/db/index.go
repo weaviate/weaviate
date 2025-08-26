@@ -474,6 +474,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			continue
 		}
 
+		activeShardNames = append(activeShardNames, shard.name)
+
 		lazyShard := NewLazyLoadShard(ctx, promMetrics, shard.name, i, class, i.centralJobQueue, i.indexCheckpoints,
 			i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
 		i.shards.Store(shard.name, lazyShard)
