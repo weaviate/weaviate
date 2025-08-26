@@ -316,8 +316,6 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-	// TODO : remove from original request
-	req.ClusterNodes = s.nodeSelector.StorageCandidates()
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),

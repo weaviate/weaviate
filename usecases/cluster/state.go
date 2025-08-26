@@ -248,7 +248,22 @@ func (s *State) storageNodes() []string {
 // StorageCandidates returns list of storage nodes (names)
 // sorted by the free amount of disk space in descending order
 func (s *State) StorageCandidates() []string {
-	return s.delegate.sortCandidates(s.storageNodes())
+	storageNodes := s.storageNodes()
+	cacheNodes := s.delegate.Cache
+	// this means there is a  node rolling out or down
+	// however this is made to avoid erroring when a request to
+	// add collection or tenant while a node down
+	if len(cacheNodes) > len(storageNodes) {
+		storageNodes = make([]string, 0, len(cacheNodes))
+		n := 0
+		for name := range cacheNodes {
+			if _, ok := s.nonStorageNodes[name]; !ok {
+				storageNodes[n] = name
+				n++
+			}
+		}
+	}
+	return s.delegate.sortCandidates(storageNodes)
 }
 
 // NonStorageNodes return nodes from member list which
