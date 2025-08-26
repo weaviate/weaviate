@@ -485,7 +485,9 @@ func (a *Client) GetRolesForGroup(params *GetRolesForGroupParams, authInfo runti
 }
 
 /*
-GetRolesForUser gets roles assigned to user
+GetRolesForUser gets roles assigned to a user
+
+Get all the roles for a specific user (`db` or `oidc`).
 */
 func (a *Client) GetRolesForUser(params *GetRolesForUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserOK, error) {
 	// TODO: Validate the params before sending

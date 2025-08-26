@@ -924,7 +924,7 @@ func (m *PermissionGroups) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionNodes resources applicable for cluster actions
+// PermissionNodes Resources applicable for cluster actions.
 //
 // swagger:model PermissionNodes
 type PermissionNodes struct {

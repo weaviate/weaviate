@@ -95,7 +95,7 @@ type AssignRoleToGroupBody struct {
 	// group type
 	GroupType models.GroupType `json:"groupType,omitempty" yaml:"groupType,omitempty"`
 
-	// the roles that assigned to group
+	// The roles to assign to the specified group.
 	Roles []string `json:"roles" yaml:"roles"`
 }
 

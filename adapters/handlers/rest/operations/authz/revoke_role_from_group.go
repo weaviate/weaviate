@@ -95,7 +95,7 @@ type RevokeRoleFromGroupBody struct {
 	// group type
 	GroupType models.GroupType `json:"groupType,omitempty" yaml:"groupType,omitempty"`
 
-	// the roles that revoked from group
+	// The roles to revoke from the specified group.
 	Roles []string `json:"roles" yaml:"roles"`
 }
 
