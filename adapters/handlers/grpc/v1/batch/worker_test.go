@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 var StreamId string = "329c306b-c912-4ec7-9b1d-55e5e0ca8dea"
@@ -144,7 +145,7 @@ func TestWorkerLoop(t *testing.T) {
 		require.Equal(t, ctx.Err(), context.Canceled, "Expected context to be canceled")
 	})
 
-	t.Run("should process from the queue and send data returning error", func(t *testing.T) {
+	t.Run("should process from the queue and send data returning partial error", func(t *testing.T) {
 		mockBatcher := mocks.NewMockBatcher(t)
 
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -163,6 +164,92 @@ func TestWorkerLoop(t *testing.T) {
 		errorsRefs := []*pb.BatchReferencesReply_BatchError{
 			{
 				Error: "refs error",
+				Index: 0,
+			},
+		}
+		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
+			Took:   float32(1),
+			Errors: errorsObj,
+		}, nil)
+		mockBatcher.EXPECT().BatchReferences(ctx, mock.Anything).Return(&pb.BatchReferencesReply{
+			Took:   float32(1),
+			Errors: errorsRefs,
+		}, nil)
+		var wg sync.WaitGroup
+		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, mockBatcher, logger)
+
+		// Send data
+		obj := &pb.BatchObject{}
+		internalQueue <- &batch.ProcessRequest{
+			StreamId: StreamId,
+			Objects: &batch.SendObjects{
+				Values: []*pb.BatchObject{obj, obj},
+			},
+		}
+		ref := &pb.BatchReference{}
+		internalQueue <- &batch.ProcessRequest{
+			StreamId: StreamId,
+			References: &batch.SendReferences{
+				Values: []*pb.BatchReference{ref, ref},
+			},
+		}
+
+		// Send sentinel
+		internalQueue <- &batch.ProcessRequest{
+			StreamId: StreamId,
+			Stop:     true,
+		}
+
+		ch, ok := readQueues.Get(StreamId)
+		require.True(t, ok, "Expected read queue to exist and to contain message")
+
+		// Read first error
+		errs := <-ch
+		require.NotNil(t, errs.PartialErrors, "Expected errors to be returned")
+		require.Len(t, errs.PartialErrors, 1, "Expected one error to be returned")
+		require.Equal(t, "objs error", errs.PartialErrors[0].Error, "Expected error message to match")
+		require.True(t, errs.PartialErrors[0].IsObject, "Expected IsObject to be true for object errors")
+		require.False(t, errs.PartialErrors[0].IsReference, "Expected IsReference to be false for object errors")
+
+		// Read second error
+		errs = <-ch
+		require.NotNil(t, errs.PartialErrors, "Expected errors to be returned")
+		require.Len(t, errs.PartialErrors, 1, "Expected one error to be returned")
+		require.Equal(t, "refs error", errs.PartialErrors[0].Error, "Expected error message to match")
+		require.False(t, errs.PartialErrors[0].IsObject, "Expected IsObject to be false for reference errors")
+		require.True(t, errs.PartialErrors[0].IsReference, "Expected IsReference to be true for reference errors")
+
+		// Read sentinel
+		_, ok = <-ch
+		require.False(t, ok, "Expected read queue to be closed")
+
+		cancel()             // Cancel the context to stop the worker loop
+		close(internalQueue) // Allow the draining logic to exit naturally
+		wg.Wait()
+		require.Empty(t, internalQueue, "Expected internal queue to be empty after processing")
+		require.Empty(t, ch, "Expected read queue to be empty after processing")
+		require.Equal(t, ctx.Err(), context.Canceled, "Expected context to be canceled")
+	})
+
+	t.Run("should process from the queue and send data returning retriable full error", func(t *testing.T) {
+		mockBatcher := mocks.NewMockBatcher(t)
+
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+
+		readQueues := batch.NewBatchReadQueues()
+		readQueues.Make(StreamId)
+		internalQueue := batch.NewBatchInternalQueue()
+
+		errorsObj := []*pb.BatchObjectsReply_BatchError{
+			{
+				Error: replica.ErrReplicas.Error(),
+				Index: 0,
+			},
+		}
+		errorsRefs := []*pb.BatchReferencesReply_BatchError{
+			{
+				Error: replica.ErrReplicas.Error(),
 				Index: 0,
 			},
 		}
@@ -204,19 +291,21 @@ func TestWorkerLoop(t *testing.T) {
 
 		// Read first error
 		errs := <-ch
-		require.NotNil(t, errs.Errors, "Expected errors to be returned")
-		require.Len(t, errs.Errors, 1, "Expected one error to be returned")
-		require.Equal(t, "objs error", errs.Errors[0].Error, "Expected error message to match")
-		require.Equal(t, obj, errs.Errors[0].Object, "Expected object to match the one sent")
-		require.Nil(t, errs.Errors[0].Reference, "Expected reference to be nil for object errors")
+		require.NotNil(t, errs.FullErrors, "Expected errors to be returned")
+		require.Len(t, errs.FullErrors, 1, "Expected one error to be returned")
+		require.Equal(t, replica.ErrReplicas.Error(), errs.FullErrors[0].Error, "Expected error message to match")
+		require.True(t, errs.FullErrors[0].IsObject, "Expected IsObject to be true for object errors")
+		require.False(t, errs.FullErrors[0].IsReference, "Expected IsReference to be false for object errors")
+		require.True(t, errs.FullErrors[0].Retriable, "Expected Retriable to be true for retriable errors")
 
 		// Read second error
 		errs = <-ch
-		require.NotNil(t, errs.Errors, "Expected errors to be returned")
-		require.Len(t, errs.Errors, 1, "Expected one error to be returned")
-		require.Equal(t, "refs error", errs.Errors[0].Error, "Expected error message to match")
-		require.Equal(t, ref, errs.Errors[0].Reference, "Expected reference to match the one sent")
-		require.Nil(t, errs.Errors[0].Object, "Expected object to be nil for reference errors")
+		require.NotNil(t, errs.FullErrors, "Expected errors to be returned")
+		require.Len(t, errs.FullErrors, 1, "Expected one error to be returned")
+		require.Equal(t, replica.ErrReplicas.Error(), errs.FullErrors[0].Error, "Expected error message to match")
+		require.False(t, errs.FullErrors[0].IsObject, "Expected IsObject to be false for reference errors")
+		require.True(t, errs.FullErrors[0].IsReference, "Expected IsReference to be true for reference errors")
+		require.True(t, errs.FullErrors[0].Retriable, "Expected Retriable to be true for retriable errors")
 
 		// Read sentinel
 		_, ok = <-ch

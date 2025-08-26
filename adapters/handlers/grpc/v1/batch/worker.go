@@ -14,11 +14,13 @@ package batch
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 type Batcher interface {
@@ -58,6 +60,10 @@ func (w *Worker) wgForStream(streamId string) *sync.WaitGroup {
 	return actual.(*sync.WaitGroup)
 }
 
+func (w *Worker) isReplicationError(err string) bool {
+	return strings.Contains(err, replica.ErrReplicas.Error()) || (strings.Contains(err, "connect: Post") && strings.Contains(err, ":commit"))
+}
+
 func (w *Worker) sendObjects(ctx context.Context, wg *sync.WaitGroup, streamId string, req *SendObjects) error {
 	if req == nil {
 		return fmt.Errorf("received nil sendObjects request")
@@ -75,19 +81,41 @@ func (w *Worker) sendObjects(ctx context.Context, wg *sync.WaitGroup, streamId s
 	// e.g., broadcast: cannot reach enough replicas or internal clusterAPI failed comms
 	// like dial tcp 10.244.0.15:7001: connect: connection refused
 	if len(reply.GetErrors()) > 0 {
-		errs := make([]*pb.BatchError, 0, len(reply.GetErrors()))
-		for _, err := range reply.GetErrors() {
-			if err == nil {
-				continue
+		if len(reply.GetErrors()) == len(req.Values) {
+			indicesByError := make(map[string][]int32)
+			for i, err := range reply.GetErrors() {
+				if err == nil {
+					continue
+				}
+				indicesByError[err.Error] = append(indicesByError[err.Error], req.Index+int32(i))
 			}
-			errs = append(errs, &pb.BatchError{
-				Error:  err.Error,
-				Object: req.Values[err.Index],
-				Index:  req.Index + int32(err.Index),
-			})
-		}
-		if ch, ok := w.readQueues.Get(streamId); ok {
-			ch <- &readObject{Errors: errs}
+			errs := make([]*pb.BatchFullError, 0, len(indicesByError))
+			for errStr, indices := range indicesByError {
+				errs = append(errs, &pb.BatchFullError{
+					Error:     errStr,
+					Indices:   indices,
+					IsObject:  true,
+					Retriable: w.isReplicationError(errStr),
+				})
+			}
+			if ch, ok := w.readQueues.Get(streamId); ok {
+				ch <- &readObject{FullErrors: errs}
+			}
+		} else {
+			errs := make([]*pb.BatchPartialError, 0, len(reply.GetErrors()))
+			for _, err := range reply.GetErrors() {
+				if err == nil {
+					continue
+				}
+				errs = append(errs, &pb.BatchPartialError{
+					Error:    err.Error,
+					IsObject: true,
+					Index:    req.Index + int32(err.Index),
+				})
+			}
+			if ch, ok := w.readQueues.Get(streamId); ok {
+				ch <- &readObject{PartialErrors: errs}
+			}
 		}
 	}
 	return nil
@@ -107,19 +135,41 @@ func (w *Worker) sendReferences(ctx context.Context, wg *sync.WaitGroup, streamI
 		return err
 	}
 	if len(reply.GetErrors()) > 0 {
-		errs := make([]*pb.BatchError, 0, len(reply.GetErrors()))
-		for _, err := range reply.GetErrors() {
-			if err == nil {
-				continue
+		if len(reply.GetErrors()) == len(req.Values) {
+			indicesByError := make(map[string][]int32)
+			for i, err := range reply.GetErrors() {
+				if err == nil {
+					continue
+				}
+				indicesByError[err.Error] = append(indicesByError[err.Error], req.Index+int32(i))
 			}
-			errs = append(errs, &pb.BatchError{
-				Error:     err.Error,
-				Reference: req.Values[err.Index],
-				Index:     req.Index + int32(err.Index),
-			})
-		}
-		if ch, ok := w.readQueues.Get(streamId); ok {
-			ch <- &readObject{Errors: errs}
+			errs := make([]*pb.BatchFullError, 0, len(indicesByError))
+			for errStr, indices := range indicesByError {
+				errs = append(errs, &pb.BatchFullError{
+					Error:       errStr,
+					Indices:     indices,
+					IsReference: true,
+					Retriable:   w.isReplicationError(errStr),
+				})
+			}
+			if ch, ok := w.readQueues.Get(streamId); ok {
+				ch <- &readObject{FullErrors: errs}
+			}
+		} else {
+			errs := make([]*pb.BatchPartialError, 0, len(reply.GetErrors()))
+			for _, err := range reply.GetErrors() {
+				if err == nil {
+					continue
+				}
+				errs = append(errs, &pb.BatchPartialError{
+					Error:       err.Error,
+					IsReference: true,
+					Index:       req.Index + int32(err.Index),
+				})
+			}
+			if ch, ok := w.readQueues.Get(streamId); ok {
+				ch <- &readObject{PartialErrors: errs}
+			}
 		}
 	}
 	return nil
