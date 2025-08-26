@@ -296,6 +296,11 @@ func (f *fakeSchemaManager) DeleteAlias(ctx context.Context, alias string) (uint
 	return 0, args.Error(0)
 }
 
+func (f *fakeSchemaManager) GetAlias(ctx context.Context, alias string) (*models.Alias, error) {
+	args := f.Called(ctx, alias)
+	return args.Get(0).(*models.Alias), args.Error(1)
+}
+
 func (f *fakeSchemaManager) GetAliases(ctx context.Context, alias string, class *models.Class) ([]*models.Alias, error) {
 	args := f.Called(ctx, alias, class)
 	return args.Get(0).([]*models.Alias), args.Error(1)
@@ -309,7 +314,7 @@ type fakeStore struct {
 func NewFakeStore() *fakeStore {
 	return &fakeStore{
 		collections: make(map[string]*models.Class),
-		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}, fakeModulesProvider{}),
+		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}, fakeModulesProvider{}, nil),
 	}
 }
 

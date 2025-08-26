@@ -31,6 +31,14 @@ const (
 	DefaultDistanceMetric        = DistanceCosine
 )
 
+const (
+	CompressionBQ = "bq"
+	CompressionPQ = "pq"
+	CompressionSQ = "sq"
+	CompressionRQ = "rq"
+	NoCompression = "none"
+)
+
 // Tries to parse the int value from the map, if it overflows math.MaxInt64, it
 // uses math.MaxInt64 instead. This is to protect from rounding errors from
 // json marshalling where the type may be assumed as float64

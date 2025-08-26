@@ -22,6 +22,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/modelsext"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	cschema "github.com/weaviate/weaviate/cluster/schema"
@@ -35,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -152,11 +155,63 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, 0, errors.Wrap(err, "init sharding state")
 	}
+
+	defaultQuantization := h.config.DefaultQuantization
+	h.enableQuantization(cls, defaultQuantization)
+
 	version, err := h.schemaManager.AddClass(ctx, cls, shardState)
 	if err != nil {
 		return nil, 0, err
 	}
 	return cls, version, err
+}
+
+func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[string]) {
+	compression := defaultQuantization.Get()
+	if !hasTargetVectors(class) || class.VectorIndexType != "" {
+		class.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+	}
+
+	for k, vectorConfig := range class.VectorConfig {
+		vectorConfig.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+		class.VectorConfig[k] = vectorConfig
+	}
+}
+
+func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) schemaConfig.VectorIndexConfig {
+	if len(vectorIndexType) == 0 {
+		vectorIndexType = vectorindex.DefaultVectorIndexType
+	}
+	if vectorIndexType == vectorindex.VectorIndexTypeHNSW && vectorIndexConfig.IndexType() == vectorindex.VectorIndexTypeHNSW {
+		hnswConfig := vectorIndexConfig.(hnsw.UserConfig)
+		pqEnabled := hnswConfig.PQ.Enabled
+		sqEnabled := hnswConfig.SQ.Enabled
+		rqEnabled := hnswConfig.RQ.Enabled
+		bqEnabled := hnswConfig.BQ.Enabled
+		skipDefaultQuantization := hnswConfig.SkipDefaultQuantization
+		hnswConfig.TrackDefaultQuantization = false
+		if pqEnabled || sqEnabled || rqEnabled || bqEnabled {
+			return hnswConfig
+		}
+		if skipDefaultQuantization {
+			return hnswConfig
+		}
+		switch compression {
+		case "pq":
+			hnswConfig.PQ.Enabled = true
+		case "sq":
+			hnswConfig.SQ.Enabled = true
+		case "rq":
+			hnswConfig.RQ.Enabled = true
+		case "bq":
+			hnswConfig.BQ.Enabled = true
+		default:
+			return hnswConfig
+		}
+		hnswConfig.TrackDefaultQuantization = true
+		return hnswConfig
+	}
+	return vectorIndexConfig
 }
 
 func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string, overwriteAlias bool) error {
@@ -831,7 +886,7 @@ func (h *Handler) validateVectorSettings(class *models.Class) error {
 		}
 
 		if asMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && len(asMap) > 0 {
-			parsed, err := h.parser.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, h.parser.modules.IsMultiVector(class.Vectorizer))
+			parsed, err := h.parser.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, h.parser.modules.IsMultiVector(class.Vectorizer), h.config.DefaultQuantization)
 			if err != nil {
 				return fmt.Errorf("class.VectorIndexConfig can not parse: %w", err)
 			}
