@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
@@ -55,6 +56,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	// we need to save the class two times:
@@ -64,6 +66,10 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	knownClasses := map[string]versioned.Class{}
 	knownClassesAuthCheck := map[string]*models.Class{}
 	classGetter := func(classname, shard string) (*models.Class, error) {
+		// classname might be an alias
+		if cls := h.schemaManager.ResolveAlias(classname); cls != "" {
+			classname = cls
+		}
 		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
 		classTenantName := classname + "#" + shard
 		class, ok := knownClassesAuthCheck[classTenantName]
@@ -131,6 +137,7 @@ func (h *Handler) BatchReferences(ctx context.Context, req *pb.BatchReferencesRe
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 	replProps := extractReplicationProperties(req.ConsistencyLevel)
 
 	response, err := h.batchManager.AddReferences(ctx, principal, BatchReferencesFromProto(req), replProps)
