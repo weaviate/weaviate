@@ -28,7 +28,7 @@ import (
 const CreateUserCreatedCode int = 201
 
 /*
-CreateUserCreated User created successfully
+CreateUserCreated User created successfully and API key returned.
 
 swagger:response createUserCreated
 */
@@ -233,7 +233,7 @@ func (o *CreateUserNotFound) WriteResponse(rw http.ResponseWriter, producer runt
 const CreateUserConflictCode int = 409
 
 /*
-CreateUserConflict User already exists
+CreateUserConflict A user with the specified name already exists.
 
 swagger:response createUserConflict
 */
@@ -278,7 +278,7 @@ func (o *CreateUserConflict) WriteResponse(rw http.ResponseWriter, producer runt
 const CreateUserUnprocessableEntityCode int = 422
 
 /*
-CreateUserUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+CreateUserUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
 
 swagger:response createUserUnprocessableEntity
 */

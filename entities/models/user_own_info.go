@@ -31,13 +31,13 @@ import (
 // swagger:model UserOwnInfo
 type UserOwnInfo struct {
 
-	// The groups associated to the user
+	// The groups associated with the user.
 	Groups []string `json:"groups"`
 
 	// roles
 	Roles []*Role `json:"roles"`
 
-	// The username associated with the provided key
+	// The name (ID) of the user.
 	// Required: true
 	Username *string `json:"username"`
 }

@@ -50,7 +50,9 @@ func NewGetUsersForRole(ctx *middleware.Context, handler GetUsersForRoleHandler)
 /*
 	GetUsersForRole swagger:route GET /authz/roles/{id}/user-assignments authz getUsersForRole
 
-get users assigned to role
+# Get users assigned to a role
+
+Fetch a list of users which have the specified role.
 */
 type GetUsersForRole struct {
 	Context *middleware.Context
@@ -92,7 +94,8 @@ func (o *GetUsersForRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 type GetUsersForRoleOKBodyItems0 struct {
 
 	// user Id
-	UserID string `json:"userId,omitempty" yaml:"userId,omitempty"`
+	// Required: true
+	UserID *string `json:"userId" yaml:"userId"`
 
 	// user type
 	// Required: true
@@ -103,6 +106,10 @@ type GetUsersForRoleOKBodyItems0 struct {
 func (o *GetUsersForRoleOKBodyItems0) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := o.validateUserID(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := o.validateUserType(formats); err != nil {
 		res = append(res, err)
 	}
@@ -110,6 +117,15 @@ func (o *GetUsersForRoleOKBodyItems0) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (o *GetUsersForRoleOKBodyItems0) validateUserID(formats strfmt.Registry) error {
+
+	if err := validate.Required("userId", "body", o.UserID); err != nil {
+		return err
+	}
+
 	return nil
 }
 

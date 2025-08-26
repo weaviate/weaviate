@@ -45,7 +45,9 @@ func NewGetUserInfo(ctx *middleware.Context, handler GetUserInfoHandler) *GetUse
 /*
 	GetUserInfo swagger:route GET /users/db/{user_id} users getUserInfo
 
-get info relevant to user, e.g. username, roles
+# Get user info
+
+Retrieve detailed information about a specific database user (`db` user type), including their roles, status, and type.
 */
 type GetUserInfo struct {
 	Context *middleware.Context

@@ -87,7 +87,7 @@ func NewGetUsersForRoleOK() *GetUsersForRoleOK {
 /*
 GetUsersForRoleOK describes a response with status code 200, with default header values.
 
-Users assigned to this role
+Users assigned to this role.
 */
 type GetUsersForRoleOK struct {
 	Payload []*GetUsersForRoleOKBodyItems0
@@ -153,7 +153,7 @@ func NewGetUsersForRoleBadRequest() *GetUsersForRoleBadRequest {
 /*
 GetUsersForRoleBadRequest describes a response with status code 400, with default header values.
 
-Bad request
+Malformed request.
 */
 type GetUsersForRoleBadRequest struct {
 	Payload *models.ErrorResponse
@@ -345,7 +345,7 @@ func NewGetUsersForRoleNotFound() *GetUsersForRoleNotFound {
 /*
 GetUsersForRoleNotFound describes a response with status code 404, with default header values.
 
-no role found
+No role found.
 */
 type GetUsersForRoleNotFound struct {
 }
@@ -468,7 +468,8 @@ swagger:model GetUsersForRoleOKBodyItems0
 type GetUsersForRoleOKBodyItems0 struct {
 
 	// user Id
-	UserID string `json:"userId,omitempty"`
+	// Required: true
+	UserID *string `json:"userId"`
 
 	// user type
 	// Required: true
@@ -479,6 +480,10 @@ type GetUsersForRoleOKBodyItems0 struct {
 func (o *GetUsersForRoleOKBodyItems0) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := o.validateUserID(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := o.validateUserType(formats); err != nil {
 		res = append(res, err)
 	}
@@ -486,6 +491,15 @@ func (o *GetUsersForRoleOKBodyItems0) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (o *GetUsersForRoleOKBodyItems0) validateUserID(formats strfmt.Registry) error {
+
+	if err := validate.Required("userId", "body", o.UserID); err != nil {
+		return err
+	}
+
 	return nil
 }
 
