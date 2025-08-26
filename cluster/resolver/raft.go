@@ -19,7 +19,6 @@ import (
 
 	raftImpl "github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/cluster/log"
 )
 
@@ -67,7 +66,7 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	defer a.nodesLock.Unlock()
 	if addr == "" {
 		a.notResolvedNodes[id] = struct{}{}
-		return "", fmt.Errorf("could not resolve server id %s", id)
+		return raftImpl.ServerAddress(invalidAddr), nil
 	}
 	delete(a.notResolvedNodes, id)
 
