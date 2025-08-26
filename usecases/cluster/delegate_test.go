@@ -121,7 +121,7 @@ func TestDelegateGetSet(t *testing.T) {
 	for _, x := range spaces {
 		info, ok := st.NodeInfo(x.Node)
 		assert.Greater(t, info.LastTimeMilli, now)
-		want := NodeInfo{x.DiskUsage, info.LastTimeMilli}
+		want := NodeInfo{DiskUsage: x.DiskUsage, LastTimeMilli: info.LastTimeMilli}
 		assert.Equal(t, want, info)
 		assert.True(t, ok)
 		st.delegate.delete(x.Node)
@@ -190,19 +190,19 @@ func TestDelegateSort(t *testing.T) {
 		Cache:    make(map[string]NodeInfo, 32),
 	}
 
-	delegate.set("N1", NodeInfo{DiskUsage{Available: GB}, now})
-	delegate.set("N2", NodeInfo{DiskUsage{Available: 3 * GB}, now})
-	delegate.set("N3", NodeInfo{DiskUsage{Available: 2 * GB}, now})
-	delegate.set("N4", NodeInfo{DiskUsage{Available: 4 * GB}, now})
+	delegate.set("N1", NodeInfo{DiskUsage: DiskUsage{Available: GB}, LastTimeMilli: now})
+	delegate.set("N2", NodeInfo{DiskUsage: DiskUsage{Available: 3 * GB}, LastTimeMilli: now})
+	delegate.set("N3", NodeInfo{DiskUsage: DiskUsage{Available: 2 * GB}, LastTimeMilli: now})
+	delegate.set("N4", NodeInfo{DiskUsage: DiskUsage{Available: 4 * GB}, LastTimeMilli: now})
 	got := delegate.sortCandidates([]string{"N1", "N0", "N2", "N4", "N3"})
 	assert.Equal(t, []string{"N4", "N2", "N3", "N1", "N0"}, got)
 
-	delegate.set("N1", NodeInfo{DiskUsage{Available: GB - 10}, now})
+	delegate.set("N1", NodeInfo{DiskUsage: DiskUsage{Available: GB - 10}, LastTimeMilli: now})
 	// insert equivalent nodes "N2" and "N3"
-	delegate.set("N2", NodeInfo{DiskUsage{Available: GB + 128}, now})
-	delegate.set("N3", NodeInfo{DiskUsage{Available: GB + 512}, now})
+	delegate.set("N2", NodeInfo{DiskUsage: DiskUsage{Available: GB + 128}, LastTimeMilli: now})
+	delegate.set("N3", NodeInfo{DiskUsage: DiskUsage{Available: GB + 512}, LastTimeMilli: now})
 	// one block more
-	delegate.set("N4", NodeInfo{DiskUsage{Available: GB + 1<<25}, now})
+	delegate.set("N4", NodeInfo{DiskUsage: DiskUsage{Available: GB + 1<<25}, LastTimeMilli: now})
 	got = delegate.sortCandidates([]string{"N1", "N0", "N2", "N3", "N4"})
 	if got[1] == "N2" {
 		assert.Equal(t, []string{"N4", "N2", "N3", "N1", "N0"}, got)
@@ -216,6 +216,7 @@ func TestDelegateCleanUp(t *testing.T) {
 		delegate: delegate{
 			Name:     "N0",
 			dataPath: ".",
+			log:      logger,
 		},
 	}
 	diskSpace := func(path string) (DiskUsage, error) {

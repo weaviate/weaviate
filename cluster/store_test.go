@@ -34,6 +34,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -704,7 +705,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			SnapshotThreshold:      125,
 			DB:                     indexer,
 			Parser:                 parser,
-			NodeToAddressResolver:  fakes.NewMockAddressResolver(nil),
+			NodeSelector:           mocks.NewMockNodeSelector(nodeID),
 			Logger:                 logger,
 			ConsistencyWaitTimeout: time.Millisecond * 50,
 		},
