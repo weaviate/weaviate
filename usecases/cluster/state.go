@@ -248,7 +248,7 @@ func (s *State) storageNodes() []string {
 // StorageCandidates returns list of storage nodes (names)
 // sorted by the free amount of disk space in descending order
 func (s *State) StorageCandidates() []string {
-	return s.delegate.sortCandidates(s.AllNames())
+	return s.delegate.sortCandidates(s.storageNodes())
 }
 
 // NonStorageNodes return nodes from member list which
