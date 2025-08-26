@@ -13,6 +13,14 @@
       ],
       "description": "the type of user"
     },
+    "GroupType": {
+      "type": "string",
+      "enum": [
+        "db",
+        "oidc"
+      ],
+      "description": "the type group"
+    },
     "UserTypeOutput": {
       "type": "string",
       "enum": [
@@ -207,6 +215,20 @@
             }
           }
         },
+        "groups": {
+          "type": "object",
+          "description": "resources applicable for group actions",
+          "properties": {
+            "group": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific name, if left empty it will be ALL or *"
+            },
+            "groupType": {
+              "$ref": "#/definitions/GroupType"
+            }
+          }
+        },
         "tenants": {
           "type": "object",
           "description": "resources applicable for tenant actions",
@@ -321,7 +343,9 @@
             "create_aliases",
             "read_aliases",
             "update_aliases",
-            "delete_aliases"
+            "delete_aliases",
+            "assign_and_revoke_groups",
+            "read_groups"
           ]
         }
       },
@@ -4716,6 +4740,74 @@
         }
       }
     },
+    "/authz/roles/{id}/group-assignments": {
+      "get": {
+        "summary": "get groups assigned to role",
+        "operationId": "getGroupsForRole",
+        "x-serviceIds": [
+          "weaviate.authz.get.roles.groups"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "description": "role name",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Groups assigned to this role",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "groupId": {
+                    "type": "string"
+                  },
+                  "groupType": {
+                    "$ref": "#/definitions/GroupType"
+                  }
+                },
+                "required": [
+                  "name",
+                  "groupType"
+                ]
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/authz/users/{id}/roles": {
       "get": {
         "deprecated": true,
@@ -5031,6 +5123,9 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "groupType": {
+                  "$ref": "#/definitions/GroupType"
                 }
               }
             }
@@ -5098,6 +5193,9 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "groupType": {
+                  "$ref": "#/definitions/GroupType"
                 }
               }
             }
@@ -5124,6 +5222,145 @@
           },
           "404": {
             "description": "role or group is not found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/authz/groups/{id}/roles/{groupType}": {
+      "get": {
+        "summary": "get roles assigned to the group of a given type",
+        "operationId": "getRolesForGroup",
+        "x-serviceIds": [
+          "weaviate.authz.get.groups.roles"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "description": "group name",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "path",
+            "name": "groupType",
+            "required": true,
+            "type": "string",
+            "enum": [
+              "oidc"
+            ],
+            "description": "The type of group"
+          },
+          {
+            "in": "query",
+            "name": "includeFullRoles",
+            "required": false,
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include detailed role information needed the roles permission"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned to group",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "group not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/authz/groups/{groupType}": {
+      "get": {
+        "summary": "get all groups for the given type",
+        "operationId": "getGroups",
+        "x-serviceIds": [
+          "weaviate.authz.get.groups"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "groupType",
+            "required": true,
+            "type": "string",
+            "enum": [
+              "oidc"
+            ],
+            "description": "The type of group"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rolenames assigned to group",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
