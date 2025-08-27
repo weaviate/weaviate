@@ -543,6 +543,18 @@ func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state 
 func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename string) error {
 	tmpSnapshotFileName := fmt.Sprintf("%s.tmp", filename)
 
+	// check if checkpoints with the same name already exist
+	if _, err := os.Stat(checkPointsFileName); err == nil {
+		l.logger.WithField("action", "write_snapshot").
+			WithField("path", checkPointsFileName).
+			Info("writing new snapshot with same name as last snapshot, deleting checkpoints file")
+
+		err = os.Remove(checkPointsFileName)
+		if err != nil {
+			return errors.Wrap(err, "remove existing checkpoints file")
+		}
+	}
+
 	snap, err := os.OpenFile(tmpSnapshotFileName, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return errors.Wrapf(err, "create snapshot file %q", tmpSnapshotFileName)
