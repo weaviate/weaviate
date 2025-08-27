@@ -233,7 +233,6 @@ func TestShard_InvalidVectorBatches(t *testing.T) {
 }
 
 func TestShard_InvalidMultiVectorBatches(t *testing.T) {
-
 	t.Run("regular multivector", func(t *testing.T) {
 		ctx := testCtx()
 		class := &models.Class{Class: "TestClass"}
@@ -279,7 +278,6 @@ func TestShard_InvalidMultiVectorBatches(t *testing.T) {
 		require.Equal(t, batchSize, int(shd.Counter().Get()))
 		require.Nil(t, idx.drop())
 	})
-
 }
 
 func TestShard_DebugResetVectorIndex(t *testing.T) {
