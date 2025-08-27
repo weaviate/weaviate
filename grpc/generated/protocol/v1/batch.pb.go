@@ -372,6 +372,8 @@ func (x *BatchSendReply) GetBackoff() float32 {
 type BatchStreamRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	ConsistencyLevel *ConsistencyLevel      `protobuf:"varint,1,opt,name=consistency_level,json=consistencyLevel,proto3,enum=weaviate.v1.ConsistencyLevel,oneof" json:"consistency_level,omitempty"`
+	ObjectIndex      *int32                 `protobuf:"varint,2,opt,name=object_index,json=objectIndex,proto3,oneof" json:"object_index,omitempty"`
+	ReferenceIndex   *int32                 `protobuf:"varint,3,opt,name=reference_index,json=referenceIndex,proto3,oneof" json:"reference_index,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -411,6 +413,20 @@ func (x *BatchStreamRequest) GetConsistencyLevel() ConsistencyLevel {
 		return *x.ConsistencyLevel
 	}
 	return ConsistencyLevel_CONSISTENCY_LEVEL_UNSPECIFIED
+}
+
+func (x *BatchStreamRequest) GetObjectIndex() int32 {
+	if x != nil && x.ObjectIndex != nil {
+		return *x.ObjectIndex
+	}
+	return 0
+}
+
+func (x *BatchStreamRequest) GetReferenceIndex() int32 {
+	if x != nil && x.ReferenceIndex != nil {
+		return *x.ReferenceIndex
+	}
+	return 0
 }
 
 type BatchStart struct {
@@ -1480,10 +1496,14 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\amessage\">\n" +
 	"\x0eBatchSendReply\x12\x12\n" +
 	"\x04next\x18\x01 \x01(\x05R\x04next\x12\x18\n" +
-	"\abackoff\x18\x02 \x01(\x02R\abackoff\"{\n" +
+	"\abackoff\x18\x02 \x01(\x02R\abackoff\"\xf6\x01\n" +
 	"\x12BatchStreamRequest\x12O\n" +
-	"\x11consistency_level\x18\x01 \x01(\x0e2\x1d.weaviate.v1.ConsistencyLevelH\x00R\x10consistencyLevel\x88\x01\x01B\x14\n" +
-	"\x12_consistency_level\")\n" +
+	"\x11consistency_level\x18\x01 \x01(\x0e2\x1d.weaviate.v1.ConsistencyLevelH\x00R\x10consistencyLevel\x88\x01\x01\x12&\n" +
+	"\fobject_index\x18\x02 \x01(\x05H\x01R\vobjectIndex\x88\x01\x01\x12,\n" +
+	"\x0freference_index\x18\x03 \x01(\x05H\x02R\x0ereferenceIndex\x88\x01\x01B\x14\n" +
+	"\x12_consistency_levelB\x0f\n" +
+	"\r_object_indexB\x12\n" +
+	"\x10_reference_index\")\n" +
 	"\n" +
 	"BatchStart\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\",\n" +

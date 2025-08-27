@@ -35,7 +35,7 @@ func TestScheduler(t *testing.T) {
 		writeQueues := batch.NewBatchWriteQueues()
 		internalQueue := batch.NewBatchInternalQueue()
 
-		writeQueues.Make("test-stream", nil)
+		writeQueues.Make("test-stream", nil, 0, 0)
 		var wg sync.WaitGroup
 		batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
 

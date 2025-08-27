@@ -55,7 +55,7 @@ func TestHandler(t *testing.T) {
 			var sWg sync.WaitGroup
 			batch.StartScheduler(shutdownCtx, &sWg, writeQueues, internalQueue, logger)
 
-			writeQueues.Make(req.StreamId, nil)
+			writeQueues.Make(req.StreamId, nil, 0, 0)
 			res, err := handler.Send(ctx, req)
 			require.NoError(t, err, "Expected no error when sending objects")
 			require.Equal(t, int32(10), res.Next, "Expected to be told to scale up by an order of magnitude")
@@ -81,7 +81,7 @@ func TestHandler(t *testing.T) {
 			var streamWg sync.WaitGroup
 			handler := batch.NewQueuesHandler(ctx, &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
 
-			writeQueues.Make(StreamId, nil)
+			writeQueues.Make(StreamId, nil, 0, 0)
 			// Send 8000 objects
 			req := &pb.BatchSendRequest{
 				StreamId: StreamId,
@@ -141,7 +141,7 @@ func TestHandler(t *testing.T) {
 			var streamWg sync.WaitGroup
 			handler := batch.NewQueuesHandler(context.Background(), &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
 
-			writeQueues.Make(StreamId, nil)
+			writeQueues.Make(StreamId, nil, 0, 0)
 			readQueues.Make(StreamId)
 			err := handler.Stream(ctx, StreamId, stream)
 			require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
@@ -173,7 +173,7 @@ func TestHandler(t *testing.T) {
 			var streamWg sync.WaitGroup
 			handler := batch.NewQueuesHandler(context.Background(), &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
 
-			writeQueues.Make(StreamId, nil)
+			writeQueues.Make(StreamId, nil, 0, 0)
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
@@ -224,7 +224,7 @@ func TestHandler(t *testing.T) {
 			var streamWg sync.WaitGroup
 			handler := batch.NewQueuesHandler(shutdownHandlersCtx, &sendWg, &streamWg, shutdownFinished, writeQueues, readQueues, logger)
 
-			writeQueues.Make(StreamId, nil)
+			writeQueues.Make(StreamId, nil, 0, 0)
 			readQueues.Make(StreamId)
 
 			shutdownHandlersCancel() // Trigger shutdown of handlers, which emits the shutting down message
@@ -266,7 +266,7 @@ func TestHandler(t *testing.T) {
 			var streamWg sync.WaitGroup
 			handler := batch.NewQueuesHandler(context.Background(), &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
 
-			writeQueues.Make(StreamId, nil)
+			writeQueues.Make(StreamId, nil, 0, 0)
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
@@ -312,7 +312,7 @@ func TestHandler(t *testing.T) {
 			var streamWg sync.WaitGroup
 			handler := batch.NewQueuesHandler(ctx, &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
 
-			writeQueues.Make(StreamId, nil)
+			writeQueues.Make(StreamId, nil, 0, 0)
 			readQueues.Make(StreamId)
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")

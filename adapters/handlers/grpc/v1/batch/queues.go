@@ -157,7 +157,7 @@ func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) 
 // Setup initializes a read queue for the given stream ID and adds it to the read queues map.
 func (h *QueuesHandler) Setup(streamId string, req *pb.BatchStreamRequest) {
 	h.readQueues.Make(streamId)
-	h.writeQueues.Make(streamId, req.ConsistencyLevel)
+	h.writeQueues.Make(streamId, req.ConsistencyLevel, req.GetObjectIndex(), req.GetReferenceIndex())
 }
 
 // Teardown closes the read queue for the given stream ID and removes it from the read queues map.
@@ -430,7 +430,7 @@ func (w *WriteQueues) Close() {
 	}
 }
 
-func (w *WriteQueues) Make(streamId string, consistencyLevel *pb.ConsistencyLevel) {
+func (w *WriteQueues) Make(streamId string, consistencyLevel *pb.ConsistencyLevel, objIndex, refIndex int32) {
 	w.lock.Lock()
 	defer w.lock.Unlock()
 	buffer := 10000 // Default buffer size

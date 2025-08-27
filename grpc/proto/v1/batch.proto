@@ -45,6 +45,8 @@ message BatchSendReply {
 
 message BatchStreamRequest {
   optional ConsistencyLevel consistency_level = 1;
+  optional int32 object_index = 2;
+  optional int32 reference_index = 3;
 }
 
 message BatchStart {
