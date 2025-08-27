@@ -353,12 +353,14 @@ func (w *WriteQueue) NextBatch(batchSize int) (int32, float32) {
 		w.emaQueueLen = w.alpha*float32(nowLen) + (1-w.alpha)*w.emaQueueLen
 	}
 	usageRatio := w.emaQueueLen / float32(w.buffer)
+	maxSize := w.buffer * 2 / 5
 	if usageRatio < 0.6 {
-		return int32(min(w.buffer*2/5, batchSize*10)), 0 // If usage is lower than 60%, increase by an order of magnitude and cap at 40% of the buffer size
+		// If usage is lower than 60%, increase by an order of magnitude and cap at 40% of the buffer size
+		return int32(min(maxSize, batchSize*10)), w.thresholdCubicBackoff(usageRatio)
 	}
 
 	// quadratic scaling based on usage ratio and ideal batch size length wrt to max buffer size
-	scaledSize := int32(float64(w.buffer/10) * math.Pow(1-float64(usageRatio), 2))
+	scaledSize := int32(float64(maxSize) * math.Pow(1-float64(usageRatio), 2))
 	if scaledSize < 1 {
 		scaledSize = 1 // Ensure at least one object is requested
 	}
