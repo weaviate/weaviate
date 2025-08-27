@@ -409,9 +409,6 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 // NodeAddress is used to resolve the node name into an ip address without the port
 // TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
 func (s *State) NodeAddress(id string) string {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	for _, mem := range s.ActiveMembers() {
 		if mem.Name == id {
 			return mem.Addr.String()
