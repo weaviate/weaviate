@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -461,8 +462,9 @@ func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 		Data:  cmdAsBytes("TestClass", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{Class: cls, State: ss}, nil),
 	}
 
-	// Initialize the schema manager to avoid nil pointer dereference
-	mockStore.store.schemaManager = clusterschema.NewSchemaManager("Node-1", mockStore.indexer, mockStore.parser, prometheus.NewPedanticRegistry(), mockStore.logger)
+	// Initialize the schema manager with replication FSM
+	mockStore.store.schemaManager = clusterschema.NewSchemaManager("Node-1", mockStore.indexer, mockStore.parser, prometheus.NewPedanticRegistry(), mockStore.logger, mocks.NewMockNodeSelector("node1"))
+	mockStore.store.schemaManager.SetReplicationFSM(mockStore.replicationFSM)
 
 	return mockStore, log
 }
