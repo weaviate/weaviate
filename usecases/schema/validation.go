@@ -14,6 +14,10 @@ package schema
 import (
 	"fmt"
 
+	"os"
+
+	entcfg "github.com/weaviate/weaviate/entities/config"
+	
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -97,13 +101,34 @@ func validateNestedPropertyTokenization(property *models.NestedProperty,
 		switch primitiveDataType {
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			switch property.Tokenization {
-			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
-				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase:
-				return nil
-			}
+			case models.PropertyTokenizationField, models.PropertyTokenizationWord,  
+				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase,  
+				models.PropertyTokenizationTrigram:  
+				return nil  
+			case models.PropertyTokenizationGse:  
+				if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
+					return fmt.Errorf("property '%s': the GSE tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE' to 'true' to enable", propName)  
+				}  
+				return nil  
+			case models.PropertyTokenizationKagomeKr:  
+				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
+					return fmt.Errorf("property '%s': the Korean tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_KR' to 'true' to enable", propName)  
+				}  
+				return nil  
+			case models.PropertyTokenizationKagomeJa:  
+				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
+					return fmt.Errorf("property '%s': the Japanese tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_JA' to 'true' to enable", propName)  
+				}  
+				return nil  
+			case models.PropertyTokenizationGseCh:  
+				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE_CH")) {
+					return fmt.Errorf("property '%s': the Chinese tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE_CH' to 'true' to enable", propName)  
+				}  
+				return nil  
+			}  
 			return fmt.Errorf("property '%s': Tokenization '%s' is not allowed for data type '%s'",
 				propName, property.Tokenization, primitiveDataType)
-		default:
+		default: 
 			if property.Tokenization == "" {
 				return nil
 			}
