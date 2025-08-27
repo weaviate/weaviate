@@ -346,23 +346,24 @@ func (w *WriteQueue) NextBatch(batchSize int) (int32, float32) {
 	w.lock.Lock()
 	defer w.lock.Unlock()
 
+	maxSize := w.buffer * 2 / 5
 	nowLen := len(w.queue)
+
 	if w.emaQueueLen == 0 {
 		w.emaQueueLen = float32(nowLen)
 	} else {
 		w.emaQueueLen = w.alpha*float32(nowLen) + (1-w.alpha)*w.emaQueueLen
 	}
 	usageRatio := w.emaQueueLen / float32(w.buffer)
-	maxSize := w.buffer * 2 / 5
+
+	// threshold linear batch size scaling
 	if usageRatio < 0.6 {
-		// If usage is lower than 60%, increase by an order of magnitude and cap at 40% of the buffer size
+		// If usage is lower than 60% threshold, increase by an order of magnitude and cap at 40% of the buffer size
 		return int32(min(maxSize, batchSize*10)), w.thresholdCubicBackoff(usageRatio)
 	}
-
-	// quadratic scaling based on usage ratio and ideal batch size length wrt to max buffer size
-	scaledSize := int32(float64(maxSize) * math.Pow(1-float64(usageRatio), 2))
+	scaledSize := int32(float64(maxSize) * (1 - float64(usageRatio)))
 	if scaledSize < 1 {
-		scaledSize = 1 // Ensure at least one object is requested
+		scaledSize = 1 // Ensure at least one object is always sent in worst-case scenario
 	}
 
 	return scaledSize, w.thresholdCubicBackoff(usageRatio)
