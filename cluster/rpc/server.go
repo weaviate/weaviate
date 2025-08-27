@@ -189,7 +189,9 @@ func toRPCError(err error) error {
 	switch {
 	case errors.Is(err, types.ErrNotLeader):
 		ec = codes.ResourceExhausted
-	case errors.Is(err, types.ErrNotOpen), errors.Is(err, types.ErrLeaderNotFound):
+	case errors.Is(err, types.ErrLeaderNotFound):
+		ec = codes.NotFound
+	case errors.Is(err, types.ErrNotOpen):
 		ec = codes.Unavailable
 	case errors.Is(err, schema.ErrMTDisabled):
 		ec = codes.FailedPrecondition
