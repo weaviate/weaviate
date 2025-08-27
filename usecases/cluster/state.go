@@ -17,7 +17,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -140,23 +142,34 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 	}
 
 	if len(joinAddr) > 0 {
-		_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
-		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"action":          "cluster_attempt_join",
-				"remote_hostname": joinAddr[0],
-			}).WithError(err).Warn(
-				"specified hostname to join cluster cannot be resolved. This is fine" +
-					"if this is the first node of a new cluster, but problematic otherwise.")
-		} else {
-			_, err := state.list.Join(joinAddr)
+		if err := backoff.Retry(func() error {
+			_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
 			if err != nil {
 				logger.WithFields(logrus.Fields{
-					"action":          "memberlist_init",
-					"remote_hostname": joinAddr,
-				}).WithError(err).Error("memberlist join not successful")
-				return nil, errors.Wrap(err, "join cluster")
+					"action":          "cluster_attempt_join",
+					"remote_hostname": joinAddr[0],
+				}).WithError(err).Warn(
+					"specified hostname to join cluster cannot be resolved. This is fine" +
+						"if this is the first node of a new cluster, but problematic otherwise.")
+				return err
+			} else {
+				_, err := state.list.Join(joinAddr)
+				if err != nil {
+					logger.WithFields(logrus.Fields{
+						"action":          "memberlist_init",
+						"remote_hostname": joinAddr,
+					}).WithError(err).Error("memberlist join not successful")
+					return errors.Wrap(err, "join cluster")
+				}
+				return nil
 			}
+		}, backoff.WithMaxRetries(backoff.NewConstantBackOff(500*time.Millisecond), 5)); err != nil {
+			// Don't fail the entire cluster service - just log and continue
+			// Memberlist failures shouldn't prevent Raft bootstrap
+			logger.WithFields(logrus.Fields{
+				"action":          "memberlist_init",
+				"remote_hostname": joinAddr,
+			}).WithError(err).Warn("memberlist join failed after retries, but continuing - bootstrap will handle this")
 		}
 	}
 
