@@ -34,12 +34,12 @@ func TestAssignDynamic(t *testing.T) {
 	require.Equal(t, "rq", d.Get())
 }
 
-func TestDefaultCompression(t *testing.T) {
+func TestDefaultCompressionRQ8(t *testing.T) {
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq").
+		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq-8").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
@@ -110,6 +110,92 @@ func TestDefaultCompression(t *testing.T) {
 	require.NotNil(t, rq)
 	enabled := rq.(map[string]interface{})["enabled"].(bool)
 	require.Equal(t, true, enabled)
+	bits := rq.(map[string]interface{})["bits"].(int)
+	require.Equal(t, 8, bits)
+	skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
+	require.Equal(t, false, skipDefaultQuantization)
+	trackDefaultQuantization := viconfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
+	require.Equal(t, true, trackDefaultQuantization)
+}
+
+func TestDefaultCompressionRQ1(t *testing.T) {
+	mainCtx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq-1").
+		Start(mainCtx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(mainCtx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	cls := articles.ParagraphsClass()
+	cls.ReplicationConfig = &models.ReplicationConfig{
+		Factor: 1,
+	}
+	cls.MultiTenancyConfig = &models.MultiTenancyConfig{
+		Enabled:              true,
+		AutoTenantActivation: true,
+		AutoTenantCreation:   true,
+	}
+
+	// Create the class
+	t.Log("Creating class", cls.Class)
+	helper.DeleteClass(t, cls.Class)
+	helper.CreateClass(t, cls)
+
+	// Load data
+	t.Log("Loading data into tenant...")
+	tenantName := "tenant"
+	batch := make([]*models.Object, 0, 100000)
+	start := time.Now()
+	for j := 0; j < 10; j++ {
+		batch = append(batch, (*models.Object)(articles.NewParagraph().
+			WithContents(fmt.Sprintf("paragraph#%d", j)).
+			WithTenant(tenantName).
+			Object()))
+		if len(batch) == 50000 {
+			helper.CreateObjectsBatch(t, batch)
+			t.Logf("Loaded %d objects", len(batch))
+			batch = batch[:0]
+		}
+	}
+	if len(batch) > 0 {
+		helper.CreateObjectsBatch(t, batch)
+		t.Logf("Loaded remaining %d objects", len(batch))
+	}
+	t.Logf("Data loading took %s", time.Since(start))
+
+	nodes, err := helper.Client(t).Nodes.NodesGet(nil, nil)
+	require.Nil(t, err)
+
+	nodeNames := make([]string, len(nodes.GetPayload().Nodes))
+	for i, node := range nodes.GetPayload().Nodes {
+		nodeNames[i] = node.Name
+	}
+
+	// Get the schema
+
+	t.Log("Getting schema")
+	schema, err := helper.Client(t).Schema.SchemaDump(nil, nil)
+	fmt.Printf("Schema: %+v\n", schema.GetPayload())
+	require.Nil(t, err)
+	require.NotNil(t, schema)
+	payload := schema.GetPayload()
+	require.NotNil(t, payload)
+	viconfig := payload.Classes[0].VectorIndexConfig
+	require.NotNil(t, viconfig)
+	rq := viconfig.(map[string]interface{})["rq"]
+	require.NotNil(t, rq)
+	enabled := rq.(map[string]interface{})["enabled"].(bool)
+	require.Equal(t, true, enabled)
+	bits := rq.(map[string]interface{})["bits"].(int)
+	require.Equal(t, 8, bits)
 	skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
 	require.Equal(t, false, skipDefaultQuantization)
 	trackDefaultQuantization := viconfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
@@ -121,7 +207,7 @@ func TestDefaultCompressionWithSkipDefaultQuantization(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq").
+		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq-1").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
@@ -206,7 +292,7 @@ func TestDefaultCompressionOverride(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq").
+		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq-1").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
