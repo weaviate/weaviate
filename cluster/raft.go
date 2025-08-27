@@ -106,25 +106,25 @@ func (s *Raft) Close(ctx context.Context) (err error) {
 		s.log.Info("successfully set graceful leave state in metadata")
 	}
 
-	// Step 5: Remove from Raft configuration
-	s.log.Info("requesting removal from leader via RemovePeer RPC...")
-	leader := s.store.Leader()
-	if leader != "" && s.cl != nil {
-		req := &cmd.RemovePeerRequest{Id: s.store.ID()}
-		_, err := s.cl.Remove(ctx, leader, req)
-		if err != nil {
-			s.log.WithError(err).Warn("failed to request removal from leader")
-		} else {
-			s.log.Info("successfully requested removal from leader")
-			if err := s.waitRemovedFromConfig(ctx); err != nil {
-				s.log.WithError(err).Warn("timeout waiting for config removal; proceeding with shutdown")
-			} else {
-				s.log.Info("confirmed removal from Raft configuration")
-			}
-		}
-	} else {
-		s.log.Warn("no leader available to request removal from")
-	}
+	// // Step 5: Remove from Raft configuration
+	// s.log.Info("requesting removal from leader via RemovePeer RPC...")
+	// leader := s.store.Leader()
+	// if leader != "" && s.cl != nil {
+	// 	req := &cmd.RemovePeerRequest{Id: s.store.ID()}
+	// 	_, err := s.cl.Remove(ctx, leader, req)
+	// 	if err != nil {
+	// 		s.log.WithError(err).Warn("failed to request removal from leader")
+	// 	} else {
+	// 		s.log.Info("successfully requested removal from leader")
+	// 		if err := s.waitRemovedFromConfig(ctx); err != nil {
+	// 			s.log.WithError(err).Warn("timeout waiting for config removal; proceeding with shutdown")
+	// 		} else {
+	// 			s.log.Info("confirmed removal from Raft configuration")
+	// 		}
+	// 	}
+	// } else {
+	// 	s.log.Warn("no leader available to request removal from")
+	// }
 
 	// Step 6: Shutdown memberlist completely
 	s.log.Info("shutting down memberlist completely...")
@@ -179,35 +179,35 @@ func (s *Raft) waitForNewLeader(ctx context.Context) error {
 // waitRemovedFromConfig polls the Raft configuration until the given node ID is absent
 // or the context times out. This ensures that the node removal has been committed
 // cluster-wide before proceeding with memberlist shutdown.
-func (s *Raft) waitRemovedFromConfig(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
+// func (s *Raft) waitRemovedFromConfig(ctx context.Context) error {
+// 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+// 	defer cancel()
 
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+// 	ticker := time.NewTicker(100 * time.Millisecond)
+// 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("waiting for removal of %s from configuration: %w", s.store.ID(), ctx.Err())
-		case <-ticker.C:
-			fut := s.store.raft.GetConfiguration()
-			if err := fut.Error(); err != nil {
-				continue
-			}
-			removed := true
-			for _, sv := range fut.Configuration().Servers {
-				if string(sv.ID) == s.store.ID() {
-					removed = false
-					break
-				}
-			}
-			if removed {
-				return nil
-			}
-		}
-	}
-}
+// 	for {
+// 		select {
+// 		case <-ctx.Done():
+// 			return fmt.Errorf("waiting for removal of %s from configuration: %w", s.store.ID(), ctx.Err())
+// 		case <-ticker.C:
+// 			fut := s.store.raft.GetConfiguration()
+// 			if err := fut.Error(); err != nil {
+// 				continue
+// 			}
+// 			removed := true
+// 			for _, sv := range fut.Configuration().Servers {
+// 				if string(sv.ID) == s.store.ID() {
+// 					removed = false
+// 					break
+// 				}
+// 			}
+// 			if removed {
+// 				return nil
+// 			}
+// 		}
+// 	}
+// }
 
 func (s *Raft) Ready() bool {
 	return s.store.Ready()
