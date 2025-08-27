@@ -337,6 +337,80 @@ func TestCreateSnapshotCrashRecovery(t *testing.T) {
 		files = readDir(t, sDir)
 		require.Equal(t, []string{"1004.snapshot"}, files)
 	})
+
+	t.Run("corrupt checkpoints", func(t *testing.T) {
+		dir := t.TempDir()
+		id := "main"
+		cl := createTestCommitLoggerForSnapshots(t, dir, id)
+		clDir := commitLogDirectory(dir, id)
+		sDir := snapshotDirectory(dir, id)
+
+		createCommitlogTestData(t, clDir, "1000.condensed", 1000, "1001.condensed", 1000, "1002.condensed", 1000)
+
+		// create snapshot
+		created, _, err := cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.NotNil(t, created)
+		files := readDir(t, sDir)
+		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+
+		// corrupt the checkpoints
+		err = os.WriteFile(filepath.Join(sDir, "1001.snapshot.checkpoints"), []byte("corrupt"), 0o644)
+		require.NoError(t, err)
+
+		// add new files
+		createCommitlogTestData(t, clDir, "1003.condensed", 1000, "1004.condensed", 1000, "1005.condensed", 1000)
+
+		// create snapshot should still work
+		created, _, err = cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.True(t, created)
+		files = readDir(t, sDir)
+		require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
+	})
+
+	t.Run("outdated checkpoints", func(t *testing.T) {
+		dir := t.TempDir()
+		id := "main"
+		cl := createTestCommitLoggerForSnapshots(t, dir, id)
+		clDir := commitLogDirectory(dir, id)
+		sDir := snapshotDirectory(dir, id)
+
+		createCommitlogTestData(t, clDir, "1000.condensed", 1000, "1001.condensed", 1000, "1002.condensed", 1000)
+
+		// create snapshot
+		created, _, err := cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.NotNil(t, created)
+		files := readDir(t, sDir)
+		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+
+		// copy the checkpoints file to a different file
+		oldCp, err := os.ReadFile(filepath.Join(sDir, "1001.snapshot.checkpoints"))
+		require.NoError(t, err)
+
+		// add new files
+		createCommitlogTestData(t, clDir, "1003.condensed", 1500, "1004.condensed", 2500, "1005.condensed", 3000)
+
+		// create new snapshot
+		created, _, err = cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.True(t, created)
+		files = readDir(t, sDir)
+		require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
+
+		// restore the old checkpoints file
+		err = os.WriteFile(filepath.Join(sDir, "1004.snapshot.checkpoints"), oldCp, 0o644)
+		require.NoError(t, err)
+
+		// load the snapshot
+		state, createdAt, err := cl.LoadSnapshot()
+		require.NoError(t, err)
+		require.Nil(t, state)
+		require.Zero(t, createdAt)
+		files = readDir(t, sDir)
+		require.Zero(t, files)
+	})
 }
 
 func TestCreateAndLoadSnapshot(t *testing.T) {

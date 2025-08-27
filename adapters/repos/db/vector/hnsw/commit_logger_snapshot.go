@@ -543,7 +543,7 @@ func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state 
 func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename string) error {
 	tmpSnapshotFileName := fmt.Sprintf("%s.tmp", filename)
 
-	snap, err := os.OpenFile(tmpSnapshotFileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	snap, err := os.OpenFile(tmpSnapshotFileName, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return errors.Wrapf(err, "create snapshot file %q", tmpSnapshotFileName)
 	}
@@ -1854,6 +1854,38 @@ type Checkpoint struct {
 	NodeID uint64
 	Offset uint64
 	Hash   uint32
+}
+
+func writeCheckpoints(fileName string, checkpoints []Checkpoint) error {
+	checkpointFile, err := os.OpenFile(fileName, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
+	if err != nil {
+		return fmt.Errorf("open new checkpoint file for writing: %w", err)
+	}
+	defer checkpointFile.Close()
+
+	// 0-4: checksum
+	// 4+: checkpoints (20 bytes each)
+	buffer := make([]byte, 4+len(checkpoints)*20)
+	offset := 4
+
+	for _, cp := range checkpoints {
+		binary.LittleEndian.PutUint64(buffer[offset:offset+8], cp.NodeID)
+		offset += 8
+		binary.LittleEndian.PutUint64(buffer[offset:offset+8], cp.Offset)
+		offset += 8
+		binary.LittleEndian.PutUint32(buffer[offset:offset+4], cp.Hash)
+		offset += 4
+	}
+
+	checksum := crc32.ChecksumIEEE(buffer[4:])
+	binary.LittleEndian.PutUint32(buffer[:4], checksum)
+
+	_, err = checkpointFile.Write(buffer)
+	if err != nil {
+		return fmt.Errorf("write checkpoint file: %w", err)
+	}
+
+	return checkpointFile.Sync()
 }
 
 func readCheckpoints(snapshotFileName string) (checkpoints []Checkpoint, err error) {
