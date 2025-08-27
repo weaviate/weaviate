@@ -74,7 +74,7 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 		lg.WithField("remoteNode", addr).WithField("status", st.Code()).Info("attempted to join and failed")
 		// Get the leader from response and if not empty try to join it
 		// We need to handle both codes.NotFound and codes.ResourceExhausted
-		if leader := resp.GetLeader(); leader != "" && (st.Code() == codes.NotFound || st.Code() == codes.ResourceExhausted) {
+		if leader := resp.GetLeader(); leader != "" && st.Code() == codes.ResourceExhausted {
 			lg.WithField("leader", leader).Info("redirecting to leader for join attempt")
 			_, err = j.peerJoiner.Join(ctx, leader, req)
 			if err == nil {
