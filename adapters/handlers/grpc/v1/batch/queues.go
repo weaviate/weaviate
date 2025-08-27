@@ -338,7 +338,7 @@ type WriteQueue struct {
 //   - usageRatio = 0.9 -> 4.22s
 //   - usageRatio = 1.0 -> 10s
 func (w *WriteQueue) thresholdCubicBackoff(usageRatio float32) float32 {
-	b := float32(10.0) // You can adjust this value as needed, defines maximum backoff in seconds
+	b := float32(10.0) // Adjust this value as needed, defines maximum backoff in seconds
 	return b * float32(math.Pow(float64(max(0, (usageRatio-0.6)/0.4)), 3))
 }
 
@@ -353,8 +353,8 @@ func (w *WriteQueue) NextBatch(batchSize int) (int32, float32) {
 		w.emaQueueLen = w.alpha*float32(nowLen) + (1-w.alpha)*w.emaQueueLen
 	}
 	usageRatio := w.emaQueueLen / float32(w.buffer)
-	if usageRatio < 0.5 {
-		return int32(min(w.buffer/2, batchSize*10)), 0 // If usage is low, increase by an order of magnitude and cap at half the buffer size
+	if usageRatio < 0.6 {
+		return int32(min(w.buffer*2/5, batchSize*10)), 0 // If usage is lower than 60%, increase by an order of magnitude and cap at 40% of the buffer size
 	}
 
 	// quadratic scaling based on usage ratio and ideal batch size length wrt to max buffer size

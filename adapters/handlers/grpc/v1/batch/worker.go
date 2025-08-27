@@ -95,7 +95,6 @@ func (w *Worker) sendObjects(ctx context.Context, wg *sync.WaitGroup, streamId s
 		if ch, ok := w.readQueues.Get(streamId); ok {
 			ch <- &readObject{Errors: errs}
 		}
-
 	}
 	return nil
 }
