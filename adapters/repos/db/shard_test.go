@@ -232,6 +232,41 @@ func TestShard_InvalidVectorBatches(t *testing.T) {
 	require.Nil(t, idx.drop())
 }
 
+func TestShard_InvalidMultiVectorBatches(t *testing.T) {
+	ctx := testCtx()
+
+	class := &models.Class{Class: "TestClass"}
+
+	vectorIndexConfig := hnsw.NewDefaultUserConfig()
+	vectorIndexConfig.Multivector = hnsw.MultivectorConfig{
+		Enabled: true,
+	}
+
+	shd, idx := testShardWithSettings(t, ctx, class, vectorIndexConfig, false, false)
+
+	testShard(t, context.Background(), class.Class)
+
+	r := getRandomSeed()
+
+	batchSize := 1000
+
+	validBatch := createRandomObjects(r, class.Class, batchSize, 4)
+
+	shd.PutObjectBatch(ctx, validBatch)
+	require.Equal(t, batchSize, int(shd.Counter().Get()))
+
+	invalidBatch := createRandomObjects(r, class.Class, batchSize, 5)
+
+	errs := shd.PutObjectBatch(ctx, invalidBatch)
+	require.Len(t, errs, batchSize)
+	for _, err := range errs {
+		require.ErrorContains(t, err, "new node has a vector with length 5. Existing nodes have vectors with length 4")
+	}
+	require.Equal(t, batchSize, int(shd.Counter().Get()))
+
+	require.Nil(t, idx.drop())
+}
+
 func TestShard_DebugResetVectorIndex(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
