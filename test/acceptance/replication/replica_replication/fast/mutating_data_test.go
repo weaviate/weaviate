@@ -184,8 +184,21 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	// Verify that all replicas have the same number of objects
 	t.Log("Verifying object counts across replicas")
 	for node, count := range objectCountByReplica {
+		if node == sourceNode {
+			// skip the source node as it may have stop receiving updates after it was removed from the replicaset
+			continue
+		}
+		if node == targetNode {
+			// skip the target node as it is used as a baseline for comparison
+			continue
+		}
+
 		t.Logf("Node %s has %d objects for tenant %s", node, count, tenantName)
-		assert.Equal(t, objectCountByReplica[nodeNames[0]], count, "object count mismatch for tenant %s on node %s", tenantName, node)
+
+		// target node may have more objects given deletion requests may have not reached target node and
+		// deletions to be resolved requires async replication to be enabled
+		require.GreaterOrEqual(t, objectCountByReplica[targetNode], count,
+			"object count mismatch for tenant %s on node %s", tenantName, node)
 	}
 }
 
