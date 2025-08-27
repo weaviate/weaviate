@@ -193,9 +193,9 @@ func (l *LazyLoadShard) Counter() *indexcounter.Counter {
 	return l.shard.Counter()
 }
 
-func (l *LazyLoadShard) ObjectCount() int {
+func (l *LazyLoadShard) ObjectCount(ctx context.Context) (int, error) {
 	l.mustLoad()
-	return l.shard.ObjectCount()
+	return l.shard.ObjectCount(ctx)
 }
 
 func (l *LazyLoadShard) ObjectCountAsync() int {
