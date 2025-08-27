@@ -357,8 +357,8 @@ func (w *WriteQueue) NextBatch(batchSize int) (int32, float32) {
 		return int32(min(w.buffer/2, batchSize*10)), 0 // If usage is low, increase by an order of magnitude and cap at half the buffer size
 	}
 
-	// quadratic scaling based on usage ratio
-	scaledSize := int32(float32(batchSize) * usageRatio * usageRatio)
+	// quadratic scaling based on usage ratio and ideal batch size length wrt to max buffer size
+	scaledSize := int32(float64(w.buffer/10) * math.Pow(1-float64(usageRatio), 2))
 	if scaledSize < 1 {
 		scaledSize = 1 // Ensure at least one object is requested
 	}
