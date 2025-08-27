@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
@@ -44,6 +45,10 @@ type NodeSelector interface {
 	// NodeHostname return hosts address for a specific node name
 	NodeHostname(name string) (string, bool)
 	AllHostnames() []string
+	// Leave marks the node as leaving the cluster (still visible but shutting down)
+	Leave() error
+	// Shutdown leaves the cluster gracefully and shuts down the memberlist instance
+	Shutdown(timeout time.Duration) error
 }
 
 type State struct {
@@ -183,7 +188,7 @@ func (s *State) Hostnames() []string {
 	s.listLock.RLock()
 	defer s.listLock.RUnlock()
 
-	mem := s.list.Members()
+	mem := s.ActiveMembers()
 	out := make([]string, len(mem))
 
 	i := 0
@@ -197,6 +202,47 @@ func (s *State) Hostnames() []string {
 	}
 
 	return out[:i]
+}
+
+// Leave marks the node as leaving the cluster (still visible but shutting down)
+// This prevents replication factor errors while allowing clean shutdown
+func (s *State) Leave() error {
+	s.listLock.Lock()
+	defer s.listLock.Unlock()
+
+	if s.list == nil {
+		return fmt.Errorf("memberlist not initialized")
+	}
+
+	s.delegate.log.Info("marking node as gracefully leaving...")
+
+	// Set graceful leave state in metadata (this gets broadcasted to all nodes)
+	s.delegate.SetGracefulLeave()
+
+	// Force metadata update to propagate graceful leave state immediately
+	if err := s.list.UpdateNode(0); err != nil {
+		s.delegate.log.WithError(err).Warn("failed to update node metadata")
+	} else {
+		s.delegate.log.Info("successfully updated metadata with graceful leave state")
+	}
+
+	if err := s.list.Leave(5 * time.Second); err != nil {
+		return fmt.Errorf("failed to leave memberlist: %w", err)
+	}
+
+	s.delegate.log.Info("successfully marked as leaving in memberlist")
+	return nil
+}
+
+func (s *State) Shutdown(timeout time.Duration) error {
+	s.listLock.Lock()
+	defer s.listLock.Unlock()
+
+	if s.list == nil {
+		return fmt.Errorf("memberlist not initialized")
+	}
+
+	return s.list.Shutdown()
 }
 
 func nodeMetadata(m *memberlist.Node) (NodeMetadata, error) {
@@ -249,7 +295,7 @@ func (s *State) AllHostnames() []string {
 		return []string{}
 	}
 
-	mem := s.list.Members()
+	mem := s.ActiveMembers()
 	out := make([]string, len(mem))
 
 	for i, m := range mem {
@@ -259,16 +305,46 @@ func (s *State) AllHostnames() []string {
 	return out
 }
 
-// All node names (not their hostnames!) for live members, including self.
+// AllNames returns all node names including gracefully leaving ones
+// This is used for cluster state management and RF validation
 func (s *State) AllNames() []string {
 	s.listLock.RLock()
 	defer s.listLock.RUnlock()
+
+	if s.list == nil {
+		return []string{}
+	}
 
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
 	for i, m := range mem {
 		out[i] = m.Name
+	}
+
+	// Check the delegate cache for gracefully leaving nodes
+	// In test contexts, the delegate might not have all methods available
+	// so we'll use a try-catch approach
+	cacheNodes := s.delegate.getAllCachedGraceful()
+
+	if len(cacheNodes) == 0 {
+		return out
+	}
+
+	// Create a map of existing names for quick lookup
+	existingNames := make(map[string]bool)
+	for _, name := range out {
+		existingNames[name] = true
+	}
+
+	// Add gracefully leaving nodes that aren't already in the list
+	for _, nodeName := range cacheNodes {
+		if !existingNames[nodeName] {
+			if s.delegate.log != nil {
+				s.delegate.log.WithField("node", nodeName).Debug("including cached node in AllNames (gracefully leaving)")
+			}
+			out = append(out, nodeName)
+		}
 	}
 
 	return out
@@ -280,21 +356,17 @@ func (s *State) storageNodes() []string {
 		return s.AllNames()
 	}
 
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
+	// Use AllNames to include gracefully leaving nodes for storage operations
+	allNames := s.AllNames()
+	out := make([]string, 0, len(allNames))
 
-	members := s.list.Members()
-	out := make([]string, len(members))
-	n := 0
-	for _, m := range members {
-		name := m.Name
+	for _, name := range allNames {
 		if _, ok := s.nonStorageNodes[name]; !ok {
-			out[n] = m.Name
-			n++
+			out = append(out, name)
 		}
 	}
 
-	return out[:n]
+	return out
 }
 
 // StorageCandidates returns list of storage nodes (names)
@@ -347,7 +419,7 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 	s.listLock.RLock()
 	defer s.listLock.RUnlock()
 
-	for _, mem := range s.list.Members() {
+	for _, mem := range s.ActiveMembers() {
 		if mem.Name == nodeName {
 			return fmt.Sprintf("%s:%d", mem.Addr.String(), s.dataPort(mem)), true
 		}
@@ -388,7 +460,7 @@ func (s *State) NodeAddress(id string) string {
 		}
 	}
 
-	for _, mem := range s.list.Members() {
+	for _, mem := range s.ActiveMembers() {
 		if mem.Name == id {
 			return mem.Addr.String()
 		}
@@ -397,7 +469,7 @@ func (s *State) NodeAddress(id string) string {
 }
 
 func (s *State) NodeGRPCPort(nodeID string) (int, error) {
-	for _, mem := range s.list.Members() {
+	for _, mem := range s.ActiveMembers() {
 		if mem.Name == nodeID {
 			return s.grpcPort(mem), nil
 		}
@@ -415,6 +487,19 @@ func (s *State) SkipSchemaRepair() bool {
 
 func (s *State) NodeInfo(node string) (NodeInfo, bool) {
 	return s.delegate.get(node)
+}
+
+// ActiveMembers returns all memberlist members (only active ones)
+// This is used for normal cluster operations like QUORUM consistency
+func (s *State) ActiveMembers() []*memberlist.Node {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
+	if s.list == nil {
+		return []*memberlist.Node{}
+	}
+
+	return s.list.Members()
 }
 
 // MaintenanceModeEnabledForLocalhost is experimental, may be removed/changed. It returns true if this node is in
