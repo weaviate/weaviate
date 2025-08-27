@@ -659,6 +659,9 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor, allowli
 	out := make([]*storobj.Object, c.Limit)
 
 	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		if allowlist != nil {
 			docId, err := storobj.DocIDFromBinary(val)
 			if err != nil {

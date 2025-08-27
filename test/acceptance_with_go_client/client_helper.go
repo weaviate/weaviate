@@ -1,0 +1,1 @@
+package acceptance_with_go_client
