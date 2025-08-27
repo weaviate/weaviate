@@ -15,9 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -333,6 +331,80 @@ func TestCreateSnapshotCrashRecovery(t *testing.T) {
 		require.True(t, created)
 		files = readDir(t, sDir)
 		require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
+	})
+
+	t.Run("corrupt checkpoints", func(t *testing.T) {
+		dir := t.TempDir()
+		id := "main"
+		cl := createTestCommitLoggerForSnapshots(t, dir, id)
+		clDir := commitLogDirectory(dir, id)
+		sDir := snapshotDirectory(dir, id)
+
+		createCommitlogTestData(t, clDir, "1000.condensed", 1000, "1001.condensed", 1000, "1002.condensed", 1000)
+
+		// create snapshot
+		created, _, err := cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.NotNil(t, created)
+		files := readDir(t, sDir)
+		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+
+		// corrupt the checkpoints
+		err = os.WriteFile(filepath.Join(sDir, "1001.snapshot.checkpoints"), []byte("corrupt"), 0o644)
+		require.NoError(t, err)
+
+		// add new files
+		createCommitlogTestData(t, clDir, "1003.condensed", 1000, "1004.condensed", 1000, "1005.condensed", 1000)
+
+		// create snapshot should still work
+		created, _, err = cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.True(t, created)
+		files = readDir(t, sDir)
+		require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
+	})
+
+	t.Run("outdated checkpoints", func(t *testing.T) {
+		dir := t.TempDir()
+		id := "main"
+		cl := createTestCommitLoggerForSnapshots(t, dir, id)
+		clDir := commitLogDirectory(dir, id)
+		sDir := snapshotDirectory(dir, id)
+
+		createCommitlogTestData(t, clDir, "1000.condensed", 1000, "1001.condensed", 1000, "1002.condensed", 1000)
+
+		// create snapshot
+		created, _, err := cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.NotNil(t, created)
+		files := readDir(t, sDir)
+		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+
+		// copy the checkpoints file to a different file
+		oldCp, err := os.ReadFile(filepath.Join(sDir, "1001.snapshot.checkpoints"))
+		require.NoError(t, err)
+
+		// add new files
+		createCommitlogTestData(t, clDir, "1003.condensed", 1500, "1004.condensed", 2500, "1005.condensed", 3000)
+
+		// create new snapshot
+		created, _, err = cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.True(t, created)
+		files = readDir(t, sDir)
+		require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
+
+		// restore the old checkpoints file
+		err = os.WriteFile(filepath.Join(sDir, "1004.snapshot.checkpoints"), oldCp, 0o644)
+		require.NoError(t, err)
+
+		// load the snapshot
+		state, createdAt, err := cl.LoadSnapshot()
+		require.NoError(t, err)
+		require.Nil(t, state)
+		require.Zero(t, createdAt)
+		files = readDir(t, sDir)
+		require.Zero(t, files)
 	})
 }
 
@@ -839,132 +911,4 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestCreateCondensedSnapshot(t *testing.T) {
-	prevFn := generateFakeCommitLogData
-	t.Cleanup(func() {
-		generateFakeCommitLogData = prevFn
-	})
-
-	dir := t.TempDir()
-	id := "main"
-
-	var nodes int
-	var once sync.Once
-	// this creates a commit log file with half of the nodes being tombstones
-	generateFakeCommitLogData = func(t *testing.T, cl *commitlog.Logger, size int64) {
-		var err error
-
-		i := 0
-		for {
-			if i > 0 && i%2 == 0 {
-				err = cl.AddTombstone(uint64(i - 1)) // tombstone
-			} else {
-				err = cl.AddNode(uint64(i), levelForDummyVertex(i))
-			}
-			require.NoError(t, err)
-
-			err = cl.Flush()
-			require.NoError(t, err)
-
-			fsize, err := cl.FileSize()
-			require.NoError(t, err)
-
-			if fsize >= size {
-				break
-			}
-
-			i++
-		}
-
-		once.Do(func() {
-			nodes = i
-		})
-	}
-
-	cl := createTestCommitLoggerForSnapshotsWithOpts(t, dir, id,
-		WithCommitlogThresholdForCombining(1200),
-		WithSnapshotDisabled(false),
-		WithSnapshotCreateInterval(time.Microsecond),
-	)
-
-	// create two condensed commit log files with half of the nodes being tombstones and generate a snapshot
-	createCommitlogAndSnapshotTestData(t, cl, "1000.condensed", 800, "1001.condensed", 200)
-
-	require.Equal(t, []string{"1000.snapshot", "1000.snapshot.checkpoints"}, readDir(t, snapshotDirectory(dir, id)))
-	files, err := os.ReadDir(commitLogDirectory(dir, id))
-	require.NoError(t, err)
-	for _, item := range files {
-		if item.IsDir() {
-			continue
-		}
-		info, err := item.Info()
-		require.NoError(t, err)
-		fmt.Println(info.Name(), info.Size(), info.ModTime())
-	}
-
-	// this creates a commit log file with only deletions
-	generateFakeCommitLogData = func(t *testing.T, cl *commitlog.Logger, size int64) {
-		var err error
-
-		for i := nodes / 2; i < nodes; i++ {
-			err = cl.DeleteNode(uint64(i)) // hard delete
-			require.NoError(t, err)
-
-			err = cl.RemoveTombstone(uint64(i)) // remove tombstone
-			require.NoError(t, err)
-
-			err = cl.Flush()
-			require.NoError(t, err)
-		}
-	}
-
-	// create one commit log file with the second half of the nodes deleted
-	createCommitlogTestData(t, commitLogDirectory(dir, id), "1002.condensed", 1000)
-
-	shouldAbort := func() bool {
-		return false
-	}
-
-	// manually trigger maintenance
-	executed := cl.startCommitLogsMaintenance(shouldAbort)
-	require.True(t, executed)
-
-	require.Equal(t, []string{"1000.condensed", "1002"}, readDir(t, commitLogDirectory(dir, id)))
-	require.Equal(t, []string{"1000.snapshot", "1000.snapshot.checkpoints"}, readDir(t, snapshotDirectory(dir, id)))
-
-	files, err = os.ReadDir(commitLogDirectory(dir, id))
-	require.NoError(t, err)
-	for _, item := range files {
-		if item.IsDir() {
-			continue
-		}
-		info, err := item.Info()
-		require.NoError(t, err)
-		fmt.Println(info.Name(), info.Size(), info.ModTime())
-	}
-
-	// create some delta commit log
-	generateFakeCommitLogData = prevFn
-	createCommitlogTestData(t, commitLogDirectory(dir, id), "1003", 700)
-
-	// manually trigger maintenance
-	executed = cl.startCommitLogsMaintenance(shouldAbort)
-	require.True(t, executed)
-
-	require.Equal(t, []string{"1000.condensed", "1002.condensed", "1003"}, readDir(t, commitLogDirectory(dir, id)))
-	require.Equal(t, []string{"1002.snapshot", "1002.snapshot.checkpoints"}, readDir(t, snapshotDirectory(dir, id)))
-
-	files, err = os.ReadDir(snapshotDirectory(dir, id))
-	require.NoError(t, err)
-	for _, item := range files {
-		if item.IsDir() {
-			continue
-		}
-		info, err := item.Info()
-		require.NoError(t, err)
-		fmt.Println(info.Name(), info.Size(), info.ModTime())
-	}
-	require.True(t, false)
 }
