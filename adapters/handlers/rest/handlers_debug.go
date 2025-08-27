@@ -783,7 +783,7 @@ func setupDebugHandlers(appState *state.State) {
 						if len(shardsToLock) == 0 || slices.Contains(shardsToLock, shardName) {
 							b := shard.Store().Bucket(helpers.ObjectsBucketLSM)
 
-							status := "unlocked"
+							status := "unknown"
 							running := true
 							tries := 0
 							for running {
@@ -796,6 +796,7 @@ func setupDebugHandlers(appState *state.State) {
 										status = fmt.Sprintf("unlocked after %d tries and %s", tries, time.Since(startTime))
 										running = false
 									}
+									time.Sleep(10 * time.Millisecond)
 									tries++
 								}
 							}
