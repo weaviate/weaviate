@@ -250,20 +250,7 @@ func (s *State) storageNodes() []string {
 // StorageCandidates returns list of storage nodes (names)
 // sorted by the free amount of disk space in descending order
 func (s *State) StorageCandidates() []string {
-	storageNodes := s.storageNodes()
-	// cacheNodes := s.delegate.Cache
-	// // this means there is a  node rolling out or down
-	// // however this is made to avoid erroring when a request to
-	// // add collection or tenant while a node down
-	// if len(cacheNodes) > len(storageNodes) {
-	// 	storageNodes = make([]string, 0, len(cacheNodes))
-	// 	for name := range cacheNodes {
-	// 		if _, ok := s.nonStorageNodes[name]; !ok {
-	// 			storageNodes = append(storageNodes, name)
-	// 		}
-	// 	}
-	// }
-	return s.delegate.sortCandidates(storageNodes)
+	return s.delegate.sortCandidates(s.storageNodes())
 }
 
 // NonStorageNodes return nodes from member list which
@@ -340,9 +327,9 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 // TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
 func (s *State) NodeAddress(id string) string {
 	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
-	for _, mem := range s.list.Members() {
+	members := s.list.Members()
+	s.listLock.RUnlock()
+	for _, mem := range members {
 		if mem.Name == id {
 			return mem.Addr.String()
 		}
