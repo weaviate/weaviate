@@ -15,9 +15,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"os"
 	"sort"
-	"strconv"
 
 	"github.com/spaolacci/murmur3"
 
@@ -26,17 +24,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
-
-// TODO for now
-// getExpectedClusterSize returns the expected number of nodes from RAFT_BOOTSTRAP_EXPECT, defaults to 1
-func getExpectedClusterSize() int {
-	if v := os.Getenv("RAFT_BOOTSTRAP_EXPECT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return n
-		}
-	}
-	return 1
-}
 
 const shardNameLength = 12
 
@@ -148,7 +135,7 @@ func (p *Physical) IsLocalShard(nodeName string) bool {
 }
 
 func InitState(id string, config config.Config, nodeLocalName string, names []string, replFactor int64, partitioningEnabled bool) (*State, error) {
-	if f, n := replFactor, len(names); f > int64(n) && f > int64(getExpectedClusterSize()) {
+	if f, n := replFactor, len(names); f > int64(n) {
 		return nil, fmt.Errorf("could not find enough weaviate nodes for replication: %d available, %d requested", len(names), f)
 	}
 
@@ -321,7 +308,7 @@ func (s State) GetPartitions(nodes []string, shards []string, replFactor int64) 
 	if len(nodes) == 0 {
 		return nil, fmt.Errorf("list of storage nodes is empty")
 	}
-	if replFactor > int64(len(nodes)) && replFactor > int64(getExpectedClusterSize()) {
+	if replFactor > int64(len(nodes)) {
 		return nil, fmt.Errorf("not enough replicas: found %d want %d", len(nodes), replFactor)
 	}
 	it, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
