@@ -94,7 +94,8 @@ func TestHandler(t *testing.T) {
 			}
 			res, err := handler.Send(ctx, req)
 			require.NoError(t, err, "Expected no error when sending 8000 objects")
-			require.Equal(t, res.Next, int32(39), "Expected to be told to send 39 objects next")
+			require.Equal(t, int32(799), res.Next, "Expected to be told to send 799 objects next")
+			require.Equal(t, float32(1.2499998), res.Backoff, "Expected to be told to backoff by 1.2499998 seconds")
 
 			// Saturate the buffer
 			req = &pb.BatchSendRequest{
@@ -108,7 +109,8 @@ func TestHandler(t *testing.T) {
 			}
 			res, err = handler.Send(ctx, req)
 			require.NoError(t, err, "Expected no error when sending 2000 objects")
-			require.Equal(t, res.Next, int32(25), "Expected to be told to send 25 objects once buffer is saturated")
+			require.Equal(t, int32(640), res.Next, "Expected to be told to send 640 objects once buffer is saturated")
+			require.Equal(t, float32(2.1599982), res.Backoff, "Expected to be told to backoff by 2.1599982 seconds")
 		})
 	})
 
