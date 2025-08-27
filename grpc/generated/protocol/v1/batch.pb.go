@@ -320,6 +320,7 @@ func (*BatchSendRequest_Stop) isBatchSendRequest_Message() {}
 type BatchSendReply struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Next          int32                  `protobuf:"varint,1,opt,name=next,proto3" json:"next,omitempty"`
+	Backoff       float32                `protobuf:"fixed32,2,opt,name=backoff,proto3" json:"backoff,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -357,6 +358,13 @@ func (*BatchSendReply) Descriptor() ([]byte, []int) {
 func (x *BatchSendReply) GetNext() int32 {
 	if x != nil {
 		return x.Next
+	}
+	return 0
+}
+
+func (x *BatchSendReply) GetBackoff() float32 {
+	if x != nil {
+		return x.Backoff
 	}
 	return 0
 }
@@ -1469,9 +1477,10 @@ const file_v1_batch_proto_rawDesc = "" +
 	"references\x12=\n" +
 	"\x04stop\x18\x04 \x01(\v2'.weaviate.v1.BatchSendRequest.BatchStopH\x00R\x04stop\x1a\v\n" +
 	"\tBatchStopB\t\n" +
-	"\amessage\"$\n" +
+	"\amessage\">\n" +
 	"\x0eBatchSendReply\x12\x12\n" +
-	"\x04next\x18\x01 \x01(\x05R\x04next\"{\n" +
+	"\x04next\x18\x01 \x01(\x05R\x04next\x12\x18\n" +
+	"\abackoff\x18\x02 \x01(\x02R\abackoff\"{\n" +
 	"\x12BatchStreamRequest\x12O\n" +
 	"\x11consistency_level\x18\x01 \x01(\x0e2\x1d.weaviate.v1.ConsistencyLevelH\x00R\x10consistencyLevel\x88\x01\x01B\x14\n" +
 	"\x12_consistency_level\")\n" +

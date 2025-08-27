@@ -40,6 +40,7 @@ message BatchSendRequest {
 
 message BatchSendReply {
   int32 next = 1;
+  float backoff = 2;
 }
 
 message BatchStreamRequest {

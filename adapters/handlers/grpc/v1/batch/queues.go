@@ -14,6 +14,7 @@ package batch
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -121,17 +122,17 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 }
 
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
-func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) (int, error) {
+func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) (*pb.BatchSendReply, error) {
 	h.sendWg.Add(1)
 	defer h.sendWg.Done()
 	if h.shuttingDownCtx.Err() != nil {
-		return 0, fmt.Errorf("grpc shutdown in progress, no more requests are permitted on this node")
+		return nil, fmt.Errorf("grpc shutdown in progress, no more requests are permitted on this node")
 	}
 	streamId := request.GetStreamId()
 	queue, ok := h.writeQueues.GetQueue(streamId)
 	if !ok {
 		h.logger.WithField("streamId", streamId).Error("write queue not found")
-		return 0, fmt.Errorf("write queue for stream %s not found", streamId)
+		return nil, fmt.Errorf("write queue for stream %s not found", streamId)
 	}
 	if request.GetObjects() != nil {
 		for _, obj := range request.GetObjects().GetValues() {
@@ -144,9 +145,13 @@ func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) 
 	} else if request.GetStop() != nil {
 		queue <- &writeObject{Stop: true}
 	} else {
-		return 0, fmt.Errorf("invalid batch send request: neither objects, references nor stop signal provided")
+		return nil, fmt.Errorf("invalid batch send request: neither objects, references nor stop signal provided")
 	}
-	return h.writeQueues.NextBatchSize(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues())), nil
+	batchSize, backoff := h.writeQueues.NextBatch(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues()))
+	return &pb.BatchSendReply{
+		Next:    batchSize,
+		Backoff: backoff,
+	}, nil
 }
 
 // Setup initializes a read queue for the given stream ID and adds it to the read queues map.
@@ -320,20 +325,26 @@ type WriteQueue struct {
 	objIndex int32
 	refIndex int32
 
-	lock             sync.RWMutex // Used when concurrently re-calculating NextBatchSize in Send method
-	emaQueueLen      float32      // Exponential moving average of the queue length
-	buffer           int          // Buffer size for the write queue
-	alpha            float32      // Smoothing factor for EMA, typically between 0 and 1
-	initialBatchSize int          // The size of the first batch sent before scaling occurred
+	lock        sync.RWMutex // Used when concurrently re-calculating NextBatchSize in Send method
+	emaQueueLen float32      // Exponential moving average of the queue length
+	buffer      int          // Buffer size for the write queue
+	alpha       float32      // Smoothing factor for EMA, typically between 0 and 1
 }
 
-func (w *WriteQueue) NextBatchSize(batch int) int {
+// Cubic backoff function: backoff(r) = b * max(0, (r - 0.6) / 0.4) ^ 3, with b = 10s
+// E.g.
+//   - usageRatio = 0.6 -> 0s
+//   - usageRatio = 0.8 -> 1.3s
+//   - usageRatio = 0.9 -> 4.22s
+//   - usageRatio = 1.0 -> 10s
+func (w *WriteQueue) thresholdCubicBackoff(usageRatio float32) float32 {
+	b := float32(10.0) // You can adjust this value as needed, defines maximum backoff in seconds
+	return b * float32(math.Pow(float64(max(0, (usageRatio-0.6)/0.4)), 3))
+}
+
+func (w *WriteQueue) NextBatch(batchSize int) (int32, float32) {
 	w.lock.Lock()
 	defer w.lock.Unlock()
-
-	if w.initialBatchSize == 0 {
-		w.initialBatchSize = batch // Store the initial batch size
-	}
 
 	nowLen := len(w.queue)
 	if w.emaQueueLen == 0 {
@@ -343,16 +354,16 @@ func (w *WriteQueue) NextBatchSize(batch int) int {
 	}
 	usageRatio := w.emaQueueLen / float32(w.buffer)
 	if usageRatio < 0.5 {
-		return w.initialBatchSize // If usage is low, return the original batch size
+		return int32(batchSize * 10), 0 // If usage is low, increase by an order of magnitude
 	}
 
 	// quadratic scaling based on usage ratio
-	scaledSize := int(float32(batch) * usageRatio * usageRatio)
+	scaledSize := int32(float32(batchSize) * usageRatio * usageRatio)
 	if scaledSize < 1 {
 		scaledSize = 1 // Ensure at least one object is requested
 	}
 
-	return scaledSize
+	return scaledSize, w.thresholdCubicBackoff(usageRatio)
 }
 
 type WriteQueues struct {
@@ -367,12 +378,12 @@ func (w *WriteQueues) Uuids() []string {
 	return w.uuids
 }
 
-func (w *WriteQueues) NextBatchSize(streamId string, batch int) int {
+func (w *WriteQueues) NextBatch(streamId string, batchSize int) (int32, float32) {
 	wq, ok := w.Get(streamId)
 	if !ok {
-		return 0
+		return 0, 0
 	}
-	return wq.NextBatchSize(batch)
+	return wq.NextBatch(batchSize)
 }
 
 func (w *WriteQueues) Get(streamId string) (*WriteQueue, bool) {
