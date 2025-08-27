@@ -56,9 +56,9 @@ func TestHandler(t *testing.T) {
 			batch.StartScheduler(shutdownCtx, &sWg, writeQueues, internalQueue, logger)
 
 			writeQueues.Make(req.StreamId, nil)
-			next, err := handler.Send(ctx, req)
+			res, err := handler.Send(ctx, req)
 			require.NoError(t, err, "Expected no error when sending objects")
-			require.Equal(t, 1, next, "Expected to send one object")
+			require.Equal(t, int32(10), res.Next, "Expected to be told to scale up by an order of magnitude")
 
 			// Verify that the internal queue has the object
 			obj := <-internalQueue
@@ -92,9 +92,9 @@ func TestHandler(t *testing.T) {
 			for i := 0; i < 8000; i++ {
 				req.GetObjects().Values = append(req.GetObjects().Values, &pb.BatchObject{Collection: "TestClass"})
 			}
-			next, err := handler.Send(ctx, req)
+			res, err := handler.Send(ctx, req)
 			require.NoError(t, err, "Expected no error when sending 8000 objects")
-			require.Equal(t, next, 5120, "Expected to be told to send 5120 objects next")
+			require.Equal(t, res.Next, int32(5120), "Expected to be told to send 5120 objects next")
 
 			// Saturate the buffer
 			req = &pb.BatchSendRequest{
@@ -106,9 +106,9 @@ func TestHandler(t *testing.T) {
 			for i := 0; i < 2000; i++ {
 				req.GetObjects().Values = append(req.GetObjects().Values, &pb.BatchObject{Collection: "TestClass"})
 			}
-			next, err = handler.Send(ctx, req)
+			res, err = handler.Send(ctx, req)
 			require.NoError(t, err, "Expected no error when sending 2000 objects")
-			require.Equal(t, next, 1411, "Expected to be told to send 1411 objects once buffer is saturated")
+			require.Equal(t, res.Next, int32(1411), "Expected to be told to send 1411 objects once buffer is saturated")
 		})
 	})
 
