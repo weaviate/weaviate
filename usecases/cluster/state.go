@@ -251,18 +251,18 @@ func (s *State) storageNodes() []string {
 // sorted by the free amount of disk space in descending order
 func (s *State) StorageCandidates() []string {
 	storageNodes := s.storageNodes()
-	cacheNodes := s.delegate.Cache
-	// this means there is a  node rolling out or down
-	// however this is made to avoid erroring when a request to
-	// add collection or tenant while a node down
-	if len(cacheNodes) > len(storageNodes) {
-		storageNodes = make([]string, 0, len(cacheNodes))
-		for name := range cacheNodes {
-			if _, ok := s.nonStorageNodes[name]; !ok {
-				storageNodes = append(storageNodes, name)
-			}
-		}
-	}
+	// cacheNodes := s.delegate.Cache
+	// // this means there is a  node rolling out or down
+	// // however this is made to avoid erroring when a request to
+	// // add collection or tenant while a node down
+	// if len(cacheNodes) > len(storageNodes) {
+	// 	storageNodes = make([]string, 0, len(cacheNodes))
+	// 	for name := range cacheNodes {
+	// 		if _, ok := s.nonStorageNodes[name]; !ok {
+	// 			storageNodes = append(storageNodes, name)
+	// 		}
+	// 	}
+	// }
 	return s.delegate.sortCandidates(storageNodes)
 }
 
@@ -309,7 +309,7 @@ func (s *State) ClusterHealthScore() int {
 // NodeHostname return hosts address for a specific node name
 func (s *State) NodeHostname(nodeName string) (string, bool) {
 	bo := backoff.NewExponentialBackOff()
-	bo.MaxElapsedTime = 3 * time.Second // TODO configurable
+	bo.MaxElapsedTime = time.Second // TODO configurable
 
 	var lastAddr string
 
@@ -325,7 +325,6 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 		}
 		return errors.New("node not found")
 	}, bo)
-
 	if err != nil {
 		s.delegate.log.WithFields(logrus.Fields{
 			"action":    "node_hostname_failed",
