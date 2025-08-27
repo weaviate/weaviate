@@ -215,6 +215,10 @@ func (v *PostingSizes) Get(postingID uint64) uint32 {
 	v.m.RLock()
 	page, slot := v.sizes.GetPageFor(postingID)
 	v.m.RUnlock()
+	// TODO how to handle
+	// if page == nil {
+	// 	return 0
+	// }
 	return atomic.LoadUint32(&page[slot])
 }
 

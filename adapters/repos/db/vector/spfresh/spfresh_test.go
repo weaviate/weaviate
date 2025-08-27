@@ -49,14 +49,15 @@ func Test_SPFresh_Add_Search(t *testing.T) {
 	require.NoError(t, err)
 	vectorSize := 2
 	storeBucketName := "bucket"
-	lsmStore, err := NewLSMStore(store, int32(vectorSize), storeBucketName)
+	distancer := distancer.NewCosineDistanceProvider()
+	quantizer := compressionhelpers.NewRotationalQuantizer(vectorSize, 42, 8, distancer)
+	bytesInRqOutput := 80
+	lsmStore, err := NewLSMStore(store, int32(bytesInRqOutput), storeBucketName)
 	require.NoError(t, err)
 	pages := uint64(512)
 	pageSize := uint64(8192)
 	versionMap := NewVersionMap(pages, pageSize)
 	idGenerator := common.NewUint64Counter(0)
-	distancer := distancer.NewCosineDistanceProvider()
-	quantizer := compressionhelpers.NewRotationalQuantizer(vectorSize, 42, 8, distancer)
 	sptag := NewBruteForceSPTAG(quantizer)
 	spfresh := SPFresh{
 		Logger:       logrus.NewEntry(logger),
@@ -68,6 +69,7 @@ func Test_SPFresh_Add_Search(t *testing.T) {
 		PostingSizes: NewPostingSizes(pages, pageSize),
 		Quantizer:    quantizer,
 		Distancer:    distancer,
+		vectorSize:   int32(bytesInRqOutput),
 	}
 	ctx := t.Context()
 	spfresh.Start(ctx)

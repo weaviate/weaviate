@@ -65,10 +65,27 @@ func (s *SPFresh) addOne(ctx context.Context, id uint64, vector []byte) error {
 	if err != nil {
 		return err
 	}
-
 	s.VersionMap.AllocPageFor(id)
-
 	v := NewVector(id, s.VersionMap.Get(id), vector)
+	if len(replicas) == 0 {
+		// persist the new posting first
+		postingID := s.IDs.Next()
+		posting := Posting{
+			vectorSize: int(s.vectorSize),
+			data:       v,
+		}
+		err = s.Store.Put(ctx, postingID, &posting)
+		if err != nil {
+			return errors.Wrapf(err, "failed to persist new posting %d", postingID)
+		}
+
+		// use the vector as the centroid and register it in the SPTAG
+		err = s.SPTAG.Upsert(postingID, vector)
+		if err != nil {
+			return errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
+		}
+		return nil
+	}
 
 	for _, replica := range replicas {
 		_, err = s.append(ctx, v, replica, false)
