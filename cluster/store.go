@@ -274,7 +274,7 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 }
 
 func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
-	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.NodeSelector, reg, cfg.Logger)
+	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 
 	return Store{
 		cfg:          cfg,

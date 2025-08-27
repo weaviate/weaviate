@@ -24,7 +24,6 @@ import (
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 var (
@@ -34,20 +33,18 @@ var (
 )
 
 type SchemaManager struct {
-	schema       *schema
-	db           Indexer
-	parser       Parser
-	log          *logrus.Logger
-	nodeSelector cluster.NodeSelector
+	schema *schema
+	db     Indexer
+	parser Parser
+	log    *logrus.Logger
 }
 
-func NewSchemaManager(nodeId string, db Indexer, parser Parser, nodeSelector cluster.NodeSelector, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
+func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
 	return &SchemaManager{
-		schema:       NewSchema(nodeId, db, reg),
-		db:           db,
-		parser:       parser,
-		log:          log,
-		nodeSelector: nodeSelector,
+		schema: NewSchema(nodeId, db, reg),
+		db:     db,
+		parser: parser,
+		log:    log,
 	}
 }
 
@@ -316,6 +313,7 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
+
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
