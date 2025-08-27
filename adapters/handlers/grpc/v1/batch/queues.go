@@ -354,7 +354,7 @@ func (w *WriteQueue) NextBatch(batchSize int) (int32, float32) {
 	}
 	usageRatio := w.emaQueueLen / float32(w.buffer)
 	if usageRatio < 0.5 {
-		return int32(batchSize * 10), 0 // If usage is low, increase by an order of magnitude
+		return int32(min(w.buffer/2, batchSize*10)), 0 // If usage is low, increase by an order of magnitude and cap at half the buffer size
 	}
 
 	// quadratic scaling based on usage ratio
