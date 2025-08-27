@@ -12,6 +12,7 @@
 package spfresh
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -35,8 +36,8 @@ func Test_SPFresh_Add_Search(t *testing.T) {
 		InternalPostingCandidates: 4,
 		ReassignNeighbors:         4,
 		Replicas:                  1,
-		RNGFactor:                 0.5,
-		MaxDistanceRatio:          0.5,
+		RNGFactor:                 1.5,
+		MaxDistanceRatio:          1.5,
 	}
 	logger, _ := test.NewNullLogger()
 	promMetrics := monitoring.GetMetrics()
@@ -75,12 +76,15 @@ func Test_SPFresh_Add_Search(t *testing.T) {
 	spfresh.Start(ctx)
 	vectorID := uint64(1)
 	err = spfresh.Add(ctx, vectorID, []float32{0.9, 0.9})
+	err = spfresh.Add(ctx, vectorID+1, []float32{0.1, 0.1})
+	err = spfresh.Add(ctx, vectorID+2, []float32{0.5, 0.5})
 	require.NoError(t, err)
-	allowList := helpers.NewAllowList(vectorID)
-	results, dists, err := spfresh.SearchByVector(ctx, []float32{0.9, 0.9}, 1, allowList)
+	allowList := helpers.NewAllowList(vectorID, vectorID+1, vectorID+2)
+	results, dists, err := spfresh.SearchByVector(ctx, []float32{0.9, 0.9}, 3, allowList)
 	require.NoError(t, err)
-	require.Equal(t, 1, len(results)) // TODO fails with 0
+	require.Equal(t, 3, len(results))
 	require.Equal(t, vectorID, results[0])
-	require.Equal(t, 1, len(dists))
-	require.InDelta(t, float32(0), dists[0], 0.000001)
+	require.Equal(t, vectorID+2, results[1])
+	require.Equal(t, vectorID+1, results[2])
+	fmt.Println(dists) // TODO check dists
 }

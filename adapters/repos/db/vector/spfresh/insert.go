@@ -78,6 +78,8 @@ func (s *SPFresh) addOne(ctx context.Context, id uint64, vector []byte) error {
 		if err != nil {
 			return errors.Wrapf(err, "failed to persist new posting %d", postingID)
 		}
+		s.PostingSizes.AllocPageFor(postingID)
+		s.PostingSizes.Set(postingID, 1)
 
 		// use the vector as the centroid and register it in the SPTAG
 		err = s.SPTAG.Upsert(postingID, vector)
