@@ -14,6 +14,7 @@ package test
 import (
 	//"context"
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -110,8 +111,10 @@ func TestDefaultCompressionRQ8(t *testing.T) {
 	require.NotNil(t, rq)
 	enabled := rq.(map[string]interface{})["enabled"].(bool)
 	require.Equal(t, true, enabled)
-	bits := rq.(map[string]interface{})["bits"].(int16)
-	require.Equal(t, 8, bits)
+	jsonBits := rq.(map[string]interface{})["bits"].(json.Number)
+	bits, err := jsonBits.Int64()
+	require.Nil(t, err)
+	require.Equal(t, int64(8), bits)
 	skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
 	require.Equal(t, false, skipDefaultQuantization)
 	trackDefaultQuantization := viconfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
@@ -194,8 +197,10 @@ func TestDefaultCompressionRQ1(t *testing.T) {
 	require.NotNil(t, rq)
 	enabled := rq.(map[string]interface{})["enabled"].(bool)
 	require.Equal(t, true, enabled)
-	bits := rq.(map[string]interface{})["bits"].(int16)
-	require.Equal(t, 8, bits)
+	jsonBits := rq.(map[string]interface{})["bits"].(json.Number)
+	bits, err := jsonBits.Int64()
+	require.Nil(t, err)
+	require.Equal(t, int64(1), bits)
 	skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
 	require.Equal(t, false, skipDefaultQuantization)
 	trackDefaultQuantization := viconfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
