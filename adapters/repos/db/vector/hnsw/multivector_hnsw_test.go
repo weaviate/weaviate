@@ -512,3 +512,49 @@ func TestMuveraHnsw(t *testing.T) {
 		}
 	})
 }
+
+func TestEmptyMuvera(t *testing.T) {
+	var vectorIndex *hnsw
+	ctx := context.Background()
+	maxConnections := 8
+	efConstruction := 64
+	ef := 64
+	k := 10
+
+	t.Run("creating empty hnsw", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "empty-muvera",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewDotProductProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return []float32{0}, errors.New("can not use VectorForIDThunk with multivector")
+			},
+			MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+				return multiVectors[id], nil
+			},
+		}, ent.UserConfig{
+			VectorCacheMaxObjects: 1e12,
+			MaxConnections:        maxConnections,
+			EFConstruction:        efConstruction,
+			EF:                    ef,
+			Multivector: ent.MultivectorConfig{
+				Enabled: true,
+				MuveraConfig: ent.MuveraConfig{
+					Enabled:      true,
+					KSim:         2,
+					DProjections: 3,
+					Repetitions:  5,
+				},
+			},
+		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		require.Nil(t, err)
+		vectorIndex = index
+	})
+
+	t.Run("inspect a query", func(t *testing.T) {
+		ids, _, err := vectorIndex.SearchByMultiVector(ctx, multiQueries[0], k, nil)
+		require.Nil(t, err)
+		require.Equal(t, []uint64{}, ids)
+	})
+}
