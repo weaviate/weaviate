@@ -46,7 +46,8 @@ const serviceConfig = `
 					"ABORTED",
 					"RESOURCE_EXHAUSTED",
 					"INTERNAL",
-					"UNAVAILABLE"
+					"UNAVAILABLE",
+					"NOT_FOUND"
 				]
 			}
 		}

@@ -82,7 +82,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 				assert.NotNil(t, err)
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
-				assert.Equal(t, st.Code(), codes.Unavailable)
+				assert.Equal(t, st.Code(), codes.NotFound)
 				assert.ErrorContains(t, st.Err(), types.ErrLeaderNotFound.Error())
 			},
 		},
@@ -263,7 +263,7 @@ func TestQueryEndpoint(t *testing.T) {
 				assert.NotNil(t, err)
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
-				assert.Equal(t, st.Code(), codes.Unavailable)
+				assert.Equal(t, st.Code(), codes.NotFound)
 				assert.ErrorContains(t, st.Err(), types.ErrLeaderNotFound.Error())
 			},
 		},
@@ -314,7 +314,7 @@ func TestApply(t *testing.T) {
 				assert.NotNil(t, err)
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
-				assert.Equal(t, st.Code(), codes.Unavailable)
+				assert.Equal(t, st.Code(), codes.NotFound)
 				assert.ErrorContains(t, st.Err(), types.ErrLeaderNotFound.Error())
 			},
 		},
