@@ -1876,33 +1876,3 @@ func (b *Bucket) MetadataSize() int64 {
 	}
 	return b.disk.MetadataSize()
 }
-
-func (b *Bucket) Lock() {
-	if b.disk != nil {
-		b.disk.maintenanceLock.Lock()
-	}
-}
-
-func (b *Bucket) Unlock() (output bool) {
-	if b.disk != nil {
-		if b.disk.maintenanceLock.TryLock() {
-			b.disk.maintenanceLock.Unlock()
-			output = false
-		} else {
-			b.disk.maintenanceLock.Unlock()
-			output = true
-		}
-	}
-	return
-}
-
-func (b *Bucket) GetLockStatus() (bool, error) {
-	if b.disk == nil {
-		return false, fmt.Errorf("disk is nil")
-	}
-	if b.disk.maintenanceLock.TryLock() {
-		b.disk.maintenanceLock.Unlock()
-		return false, nil
-	}
-	return true, nil
-}

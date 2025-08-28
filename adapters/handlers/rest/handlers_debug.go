@@ -792,7 +792,7 @@ func setupDebugHandlers(appState *state.State) {
 									status = fmt.Sprintf("locked after %d tries and %s", tries, time.Since(startTime))
 									running = false
 								default:
-									locked, err := b.GetLockStatus()
+									locked, err := b.DebugGetSegmentGroupLockStatus()
 									if err != nil {
 										status = "error: " + err.Error()
 										running = false
@@ -861,7 +861,7 @@ func setupDebugHandlers(appState *state.State) {
 
 					b := shard.Store().Bucket(helpers.ObjectsBucketLSM)
 
-					previousStatus, err := b.GetLockStatus()
+					previousStatus, err := b.DebugGetSegmentGroupLockStatus()
 					locked := false
 
 					if err != nil {
@@ -873,13 +873,13 @@ func setupDebugHandlers(appState *state.State) {
 					} else {
 						switch r.Method {
 						case http.MethodPost:
-							b.Lock()
+							b.DebugLockSegmentGroup()
 							locked = true
 						case http.MethodDelete:
-							b.Unlock()
+							b.DebugUnlockSegmentGroup()
 							locked = false
 						case http.MethodGet:
-							locked, _ = b.GetLockStatus()
+							locked, _ = b.DebugGetSegmentGroupLockStatus()
 
 						}
 						statusString := "unlocked"
