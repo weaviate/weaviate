@@ -30,6 +30,7 @@ const (
 	endpointProperty      = "endpoint"
 	targetModelProperty   = "targetModel"
 	targetVariantProperty = "targetVariant"
+	dimensionsProperty    = "dimensions"
 )
 
 // Default values for service cannot be changed before we solve how old classes
@@ -184,6 +185,21 @@ func (ic *classSettings) TargetModel() string {
 
 func (ic *classSettings) TargetVariant() string {
 	return ic.getStringProperty(targetVariantProperty, "")
+}
+
+func (ic *classSettings) Dimensions() *int {
+	val, ok := ic.cfg.ClassByModuleName("text2vec-aws")[dimensionsProperty]
+	if !ok || val == nil {
+		return nil
+	}
+	if intVal, ok := val.(int); ok {
+		return &intVal
+	}
+	if floatVal, ok := val.(float64); ok {
+		intVal := int(floatVal)
+		return &intVal
+	}
+	return nil
 }
 
 func isSagemaker(service string) bool {

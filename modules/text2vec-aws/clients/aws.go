@@ -296,7 +296,8 @@ func (v *awsClient) getEndpoint(config ent.VectorizationConfig) string {
 }
 
 type bedrockEmbeddingsRequest struct {
-	InputText string `json:"inputText,omitempty"`
+	InputText string    `json:"inputText,omitempty"`
+	Dimensions *int     `json:"dimensions,omitempty"`
 }
 
 type bedrockCohereEmbeddingRequest struct {
@@ -346,8 +347,11 @@ func createRequestBody(model string, texts []string, operation operationType) (i
 
 	switch modelProvider {
 	case "amazon":
+		// Default values for Amazon Bedrock models
+		dimensions := 1536
 		return bedrockEmbeddingsRequest{
 			InputText: texts[0],
+			Dimensions: &dimensions,
 		}, nil
 	case "cohere":
 		inputType := "search_document"

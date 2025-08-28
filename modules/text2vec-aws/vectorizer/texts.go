@@ -33,6 +33,7 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 			Endpoint:      settings.Endpoint(),
 			TargetModel:   settings.TargetModel(),
 			TargetVariant: settings.TargetVariant(),
+			Dimensions:    settings.Dimensions(),
 		})
 		if err != nil {
 			return nil, errors.Wrap(err, "remote client vectorize")

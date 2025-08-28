@@ -18,4 +18,5 @@ type VectorizationConfig struct {
 	Endpoint      string
 	TargetModel   string
 	TargetVariant string
+	Dimensions    *int  // Optional dimensions parameter for Bedrock models
 }
