@@ -277,7 +277,12 @@ type Config struct {
 }
 
 func (db *DB) GetIndexLike(className schema.ClassName) IndexLike {
-	return db.GetIndex(className)
+	index := db.GetIndex(className)
+	if index == nil {
+		return nil
+	}
+
+	return index
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
