@@ -50,14 +50,18 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 
 func (h *Handler) GetAlias(ctx context.Context, principal *models.Principal, alias string) (*models.Alias, error) {
 	alias = schema.UppercaseClassName(alias)
+	// NOTE: We pass empty class, because this endpoint doesn't know what collection the alias belongs to
+	// hence if RBAC is enabled, the user has to have read permission for all the collection for api to go discover
+	// right collection for the alias.
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.Aliases("", alias)...); err != nil {
+		return nil, err
+	}
+
 	a, err := h.schemaManager.GetAlias(ctx, alias)
 	if err != nil {
 		if errors.Is(err, cschema.ErrAliasNotFound) {
 			return nil, fmt.Errorf("alias %s not found: %w", alias, ErrNotFound)
 		}
-		return nil, err
-	}
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.Aliases(a.Class, alias)...); err != nil {
 		return nil, err
 	}
 	return a, nil
