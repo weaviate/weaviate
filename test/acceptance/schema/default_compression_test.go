@@ -39,7 +39,7 @@ func TestDefaultCompression(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq").
+		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq-8").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
@@ -121,7 +121,7 @@ func TestDefaultCompressionWithSkipDefaultQuantization(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq").
+		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq-8").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
@@ -206,7 +206,7 @@ func TestDefaultCompressionOverride(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq").
+		WithWeaviateEnv("DEFAULT_QUANTIZATION", "rq-8").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {

@@ -201,8 +201,10 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 			hnswConfig.PQ.Enabled = true
 		case "sq":
 			hnswConfig.SQ.Enabled = true
-		case "rq":
+		case "rq-8":
 			hnswConfig.RQ.Enabled = true
+			hnswConfig.RQ.Bits = 8
+			hnswConfig.RQ.RescoreLimit = hnsw.DefaultRQRescoreLimit
 		case "bq":
 			hnswConfig.BQ.Enabled = true
 		default:
