@@ -68,7 +68,7 @@ func (h *QueuesHandler) wait(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil
 		case <-ticker.C:
 		}
 	}
