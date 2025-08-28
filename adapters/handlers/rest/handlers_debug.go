@@ -792,7 +792,11 @@ func setupDebugHandlers(appState *state.State) {
 									status = fmt.Sprintf("locked after %d tries and %s", tries, time.Since(startTime))
 									running = false
 								default:
-									if b.GetLockStatus() == "is unlocked" {
+									locked, err := b.GetLockStatus()
+									if err != nil {
+										status = "error: " + err.Error()
+										running = false
+									} else if locked {
 										status = fmt.Sprintf("unlocked after %d tries and %s", tries, time.Since(startTime))
 										running = false
 									}
@@ -857,22 +861,41 @@ func setupDebugHandlers(appState *state.State) {
 
 					b := shard.Store().Bucket(helpers.ObjectsBucketLSM)
 
-					status := "unknown"
-					switch r.Method {
-					case http.MethodPost:
-						b.Lock()
-						status = "was locked"
-					case http.MethodDelete:
-						b.Unlock()
-						status = "was unlocked"
-					case http.MethodGet:
-						status = b.GetLockStatus()
+					previousStatus, err := b.GetLockStatus()
+					locked := false
 
-					}
-					output[shardName] = map[string]string{
-						"shard":   shardName,
-						"status":  status,
-						"message": fmt.Sprintf("shard %s %s", shardName, status),
+					if err != nil {
+						output[shardName] = map[string]string{
+							"shard":   shardName,
+							"error":   "error",
+							"message": err.Error(),
+						}
+					} else {
+						switch r.Method {
+						case http.MethodPost:
+							b.Lock()
+							locked = true
+						case http.MethodDelete:
+							b.Unlock()
+							locked = false
+						case http.MethodGet:
+							locked, _ = b.GetLockStatus()
+
+						}
+						statusString := "unlocked"
+						if locked {
+							statusString = "locked"
+						}
+						previousStatusString := "unlocked"
+						if previousStatus {
+							previousStatusString = "locked"
+						}
+						output[shardName] = map[string]string{
+							"shard":          shardName,
+							"status":         statusString,
+							"previousStatus": previousStatusString,
+							"message":        fmt.Sprintf("shard %s %s", shardName, statusString),
+						}
 					}
 				} else {
 					output[shardName] = map[string]string{

@@ -1883,19 +1883,26 @@ func (b *Bucket) Lock() {
 	}
 }
 
-func (b *Bucket) Unlock() {
+func (b *Bucket) Unlock() (output bool) {
 	if b.disk != nil {
-		b.disk.maintenanceLock.Unlock()
+		if b.disk.maintenanceLock.TryLock() {
+			b.disk.maintenanceLock.Unlock()
+			output = false
+		} else {
+			b.disk.maintenanceLock.Unlock()
+			output = true
+		}
 	}
+	return
 }
 
-func (b *Bucket) GetLockStatus() string {
+func (b *Bucket) GetLockStatus() (bool, error) {
 	if b.disk == nil {
-		return "no segment group found"
+		return false, fmt.Errorf("disk is nil")
 	}
 	if b.disk.maintenanceLock.TryLock() {
 		b.disk.maintenanceLock.Unlock()
-		return "is unlocked"
+		return false, nil
 	}
-	return "is locked"
+	return true, nil
 }
