@@ -65,8 +65,8 @@ message BatchStreamMessage {
   }
   string stream_id = 1;
   oneof message {
-    Start start = 2;
-    Error error = 3;
+    Error error = 2;
+    Start start = 3;
     Stop stop = 4;
     Shutdown shutdown = 5;
     ShuttingDown shutting_down = 6;
