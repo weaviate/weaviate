@@ -35,7 +35,6 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 
 	// create class via admin
 	className := "ABC"
-	aliasName := "AliasABC"
 	tenantNames := []string{
 		"Tenant1", "Tenant2", "Tenant3",
 	}

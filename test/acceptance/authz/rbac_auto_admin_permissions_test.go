@@ -38,7 +38,6 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 	var endpointStats endpointStatsSlice
 
 	className := "ABC"
-	aliasName := "AliasABC"
 	tenantNames := []string{
 		"Tenant1", "Tenant2", "Tenant3",
 	}
