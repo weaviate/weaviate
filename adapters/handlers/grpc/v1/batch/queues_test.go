@@ -36,8 +36,8 @@ func TestHandler(t *testing.T) {
 			// Arrange
 			req := &pb.BatchSendRequest{
 				StreamId: "test-stream",
-				Message: &pb.BatchSendRequest_Objects{
-					Objects: &pb.BatchObjects{
+				Message: &pb.BatchSendRequest_Objects_{
+					Objects: &pb.BatchSendRequest_Objects{
 						Values: []*pb.BatchObject{{Collection: "TestClass"}},
 					},
 				},
@@ -58,7 +58,7 @@ func TestHandler(t *testing.T) {
 			writeQueues.Make(req.StreamId, nil, 0, 0)
 			res, err := handler.Send(ctx, req)
 			require.NoError(t, err, "Expected no error when sending objects")
-			require.Equal(t, int32(10), res.Next, "Expected to be told to scale up by an order of magnitude")
+			require.Equal(t, int32(10), res.NextBatchSize, "Expected to be told to scale up by an order of magnitude")
 
 			// Verify that the internal queue has the object
 			obj := <-internalQueue
@@ -85,8 +85,8 @@ func TestHandler(t *testing.T) {
 			// Send 8000 objects
 			req := &pb.BatchSendRequest{
 				StreamId: StreamId,
-				Message: &pb.BatchSendRequest_Objects{
-					Objects: &pb.BatchObjects{},
+				Message: &pb.BatchSendRequest_Objects_{
+					Objects: &pb.BatchSendRequest_Objects{},
 				},
 			}
 			for i := 0; i < 8000; i++ {
@@ -94,14 +94,14 @@ func TestHandler(t *testing.T) {
 			}
 			res, err := handler.Send(ctx, req)
 			require.NoError(t, err, "Expected no error when sending 8000 objects")
-			require.Equal(t, int32(799), res.Next, "Expected to be told to send 799 objects next")
-			require.Equal(t, float32(1.2499998), res.Backoff, "Expected to be told to backoff by 1.2499998 seconds")
+			require.Equal(t, int32(799), res.NextBatchSize, "Expected to be told to send 799 objects next")
+			require.Equal(t, float32(1.2499998), res.BackoffSeconds, "Expected to be told to backoff by 1.2499998 seconds")
 
 			// Saturate the buffer
 			req = &pb.BatchSendRequest{
 				StreamId: StreamId,
-				Message: &pb.BatchSendRequest_Objects{
-					Objects: &pb.BatchObjects{},
+				Message: &pb.BatchSendRequest_Objects_{
+					Objects: &pb.BatchSendRequest_Objects{},
 				},
 			}
 			for i := 0; i < 2000; i++ {
@@ -109,8 +109,8 @@ func TestHandler(t *testing.T) {
 			}
 			res, err = handler.Send(ctx, req)
 			require.NoError(t, err, "Expected no error when sending 2000 objects")
-			require.Equal(t, int32(640), res.Next, "Expected to be told to send 640 objects once buffer is saturated")
-			require.Equal(t, float32(2.1599982), res.Backoff, "Expected to be told to backoff by 2.1599982 seconds")
+			require.Equal(t, int32(640), res.NextBatchSize, "Expected to be told to send 640 objects once buffer is saturated")
+			require.Equal(t, float32(2.1599982), res.BackoffSeconds, "Expected to be told to backoff by 2.1599982 seconds")
 		})
 	})
 
@@ -121,17 +121,15 @@ func TestHandler(t *testing.T) {
 
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				Message: &pb.BatchStreamMessage_Start{
-					Start: &pb.BatchStart{
-						StreamId: StreamId,
-					},
+				StreamId: StreamId,
+				Message: &pb.BatchStreamMessage_Start_{
+					Start: &pb.BatchStreamMessage_Start{},
 				},
 			}).Return(nil).Once()
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				Message: &pb.BatchStreamMessage_Stop{
-					Stop: &pb.BatchStreamMessage_BatchStop{
-						StreamId: StreamId,
-					},
+				StreamId: StreamId,
+				Message: &pb.BatchStreamMessage_Stop_{
+					Stop: &pb.BatchStreamMessage_Stop{},
 				},
 			}).Return(nil).Once()
 
@@ -153,17 +151,15 @@ func TestHandler(t *testing.T) {
 
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				Message: &pb.BatchStreamMessage_Start{
-					Start: &pb.BatchStart{
-						StreamId: StreamId,
-					},
+				StreamId: StreamId,
+				Message: &pb.BatchStreamMessage_Start_{
+					Start: &pb.BatchStreamMessage_Start{},
 				},
 			}).Return(nil).Once()
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				Message: &pb.BatchStreamMessage_Stop{
-					Stop: &pb.BatchStreamMessage_BatchStop{
-						StreamId: StreamId,
-					},
+				StreamId: StreamId,
+				Message: &pb.BatchStreamMessage_Stop_{
+					Stop: &pb.BatchStreamMessage_Stop{},
 				},
 			}).Return(nil).Once()
 
@@ -193,17 +189,15 @@ func TestHandler(t *testing.T) {
 			shutdownFinished := make(chan struct{})
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				Message: &pb.BatchStreamMessage_Start{
-					Start: &pb.BatchStart{
-						StreamId: StreamId,
-					},
+				StreamId: StreamId,
+				Message: &pb.BatchStreamMessage_Start_{
+					Start: &pb.BatchStreamMessage_Start{},
 				},
 			}).Return(nil).Once()
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				Message: &pb.BatchStreamMessage_ShuttingDown{
-					ShuttingDown: &pb.BatchShuttingDown{
-						StreamId: StreamId,
-					},
+				StreamId: StreamId,
+				Message: &pb.BatchStreamMessage_ShuttingDown_{
+					ShuttingDown: &pb.BatchStreamMessage_ShuttingDown{},
 				},
 			}).RunAndReturn(func(*pb.BatchStreamMessage) error {
 				// Ensure handler cancel call comes after this message has been emitted to avoid races
@@ -211,10 +205,9 @@ func TestHandler(t *testing.T) {
 				return nil
 			}).Once()
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				Message: &pb.BatchStreamMessage_Shutdown{
-					Shutdown: &pb.BatchShutdown{
-						StreamId: StreamId,
-					},
+				StreamId: StreamId,
+				Message: &pb.BatchStreamMessage_Shutdown_{
+					Shutdown: &pb.BatchStreamMessage_Shutdown{},
 				},
 			}).Return(nil).Once()
 
@@ -239,24 +232,23 @@ func TestHandler(t *testing.T) {
 
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				Message: &pb.BatchStreamMessage_Start{
-					Start: &pb.BatchStart{
-						StreamId: StreamId,
-					},
+				StreamId: StreamId,
+				Message: &pb.BatchStreamMessage_Start_{
+					Start: &pb.BatchStreamMessage_Start{},
 				},
 			}).Return(nil).Once()
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				Message: &pb.BatchStreamMessage_Error{
-					Error: &pb.BatchError{
+				StreamId: StreamId,
+				Message: &pb.BatchStreamMessage_Error_{
+					Error: &pb.BatchStreamMessage_Error{
 						Error: "processing error",
 					},
 				},
 			}).Return(nil).Once()
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				Message: &pb.BatchStreamMessage_Stop{
-					Stop: &pb.BatchStreamMessage_BatchStop{
-						StreamId: StreamId,
-					},
+				StreamId: StreamId,
+				Message: &pb.BatchStreamMessage_Stop_{
+					Stop: &pb.BatchStreamMessage_Stop{},
 				},
 			}).Return(nil).Once()
 
@@ -271,7 +263,7 @@ func TestHandler(t *testing.T) {
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
 			go func() {
-				ch <- batch.NewErrorsObject([]*pb.BatchError{{Error: "processing error"}})
+				ch <- batch.NewErrorsObject([]*pb.BatchStreamMessage_Error{{Error: "processing error"}})
 			}()
 
 			readQueues.Make(StreamId)
@@ -285,24 +277,23 @@ func TestHandler(t *testing.T) {
 
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				Message: &pb.BatchStreamMessage_Start{
-					Start: &pb.BatchStart{
-						StreamId: StreamId,
-					},
+				StreamId: StreamId,
+				Message: &pb.BatchStreamMessage_Start_{
+					Start: &pb.BatchStreamMessage_Start{},
 				},
 			}).Return(nil).Once()
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				Message: &pb.BatchStreamMessage_Error{
-					Error: &pb.BatchError{
+				StreamId: StreamId,
+				Message: &pb.BatchStreamMessage_Error_{
+					Error: &pb.BatchStreamMessage_Error{
 						Error: "processing error",
 					},
 				},
 			}).Return(nil).Once()
 			stream.EXPECT().Send(&pb.BatchStreamMessage{
-				Message: &pb.BatchStreamMessage_Stop{
-					Stop: &pb.BatchStreamMessage_BatchStop{
-						StreamId: StreamId,
-					},
+				StreamId: StreamId,
+				Message: &pb.BatchStreamMessage_Stop_{
+					Stop: &pb.BatchStreamMessage_Stop{},
 				},
 			}).Return(nil).Once()
 
@@ -317,7 +308,7 @@ func TestHandler(t *testing.T) {
 			ch, ok := readQueues.Get(StreamId)
 			require.True(t, ok, "Expected read queue to exist")
 			go func() {
-				ch <- batch.NewErrorsObject([]*pb.BatchError{{Error: "processing error"}})
+				ch <- batch.NewErrorsObject([]*pb.BatchStreamMessage_Error{{Error: "processing error"}})
 				close(ch)
 			}()
 

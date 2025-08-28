@@ -57,24 +57,21 @@ func TestShutdownLogic(t *testing.T) {
 
 	stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
 	stream.EXPECT().Send(&pb.BatchStreamMessage{
-		Message: &pb.BatchStreamMessage_Start{
-			Start: &pb.BatchStart{
-				StreamId: StreamId,
-			},
+		StreamId: StreamId,
+		Message: &pb.BatchStreamMessage_Start_{
+			Start: &pb.BatchStreamMessage_Start{},
 		},
 	}).Return(nil).Once()
 	stream.EXPECT().Send(&pb.BatchStreamMessage{
-		Message: &pb.BatchStreamMessage_ShuttingDown{
-			ShuttingDown: &pb.BatchShuttingDown{
-				StreamId: StreamId,
-			},
+		StreamId: StreamId,
+		Message: &pb.BatchStreamMessage_ShuttingDown_{
+			ShuttingDown: &pb.BatchStreamMessage_ShuttingDown{},
 		},
 	}).Return(nil).Once()
 	stream.EXPECT().Send(&pb.BatchStreamMessage{
-		Message: &pb.BatchStreamMessage_Shutdown{
-			Shutdown: &pb.BatchShutdown{
-				StreamId: StreamId,
-			},
+		StreamId: StreamId,
+		Message: &pb.BatchStreamMessage_Shutdown_{
+			Shutdown: &pb.BatchStreamMessage_Shutdown{},
 		},
 	}).Return(nil).Once()
 

@@ -80,12 +80,12 @@ func (w *Worker) sendObjects(ctx context.Context, wg *sync.WaitGroup, streamId s
 		return err
 	}
 	if len(reply.GetErrors()) > 0 {
-		errs := make([]*pb.BatchError, 0, len(reply.GetErrors()))
+		errs := make([]*pb.BatchStreamMessage_Error, 0, len(reply.GetErrors()))
 		for _, err := range reply.GetErrors() {
 			if err == nil {
 				continue
 			}
-			errs = append(errs, &pb.BatchError{
+			errs = append(errs, &pb.BatchStreamMessage_Error{
 				Error:       err.Error,
 				IsObject:    true,
 				Index:       req.Index + int32(err.Index),
@@ -113,12 +113,12 @@ func (w *Worker) sendReferences(ctx context.Context, wg *sync.WaitGroup, streamI
 		return err
 	}
 	if len(reply.GetErrors()) > 0 {
-		errs := make([]*pb.BatchError, 0, len(reply.GetErrors()))
+		errs := make([]*pb.BatchStreamMessage_Error, 0, len(reply.GetErrors()))
 		for _, err := range reply.GetErrors() {
 			if err == nil {
 				continue
 			}
-			errs = append(errs, &pb.BatchError{
+			errs = append(errs, &pb.BatchStreamMessage_Error{
 				Error:       err.Error,
 				IsReference: true,
 				Index:       req.Index + int32(err.Index),

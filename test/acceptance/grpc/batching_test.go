@@ -55,7 +55,7 @@ func TestGRPC_Batching(t *testing.T) {
 		}
 		_, err := grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
 			StreamId: streamId,
-			Message:  &pb.BatchSendRequest_Objects{Objects: &pb.BatchObjects{Values: objects}},
+			Message:  &pb.BatchSendRequest_Objects_{Objects: &pb.BatchSendRequest_Objects{Values: objects}},
 		})
 		require.NoError(t, err, "BatchSend should not return an error")
 
@@ -66,7 +66,7 @@ func TestGRPC_Batching(t *testing.T) {
 		}
 		_, err = grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
 			StreamId: streamId,
-			Message: &pb.BatchSendRequest_References{References: &pb.BatchReferences{
+			Message: &pb.BatchSendRequest_References_{References: &pb.BatchSendRequest_References{
 				Values: references,
 			}},
 		})
@@ -75,7 +75,7 @@ func TestGRPC_Batching(t *testing.T) {
 		// Send stop message
 		_, err = grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
 			StreamId: streamId,
-			Message:  &pb.BatchSendRequest_Stop{Stop: &pb.BatchSendRequest_BatchStop{}},
+			Message:  &pb.BatchSendRequest_Stop_{Stop: &pb.BatchSendRequest_Stop{}},
 		})
 		require.NoError(t, err, "BatchSend Stop should not return an error")
 
@@ -111,7 +111,7 @@ func TestGRPC_Batching(t *testing.T) {
 		}
 		_, err := grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
 			StreamId: streamId,
-			Message:  &pb.BatchSendRequest_Objects{Objects: &pb.BatchObjects{Values: objects}},
+			Message:  &pb.BatchSendRequest_Objects_{Objects: &pb.BatchSendRequest_Objects{Values: objects}},
 		})
 		require.NoError(t, err, "BatchSend should not return an error")
 
@@ -142,7 +142,7 @@ func TestGRPC_Batching(t *testing.T) {
 		}
 		_, err := grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
 			StreamId: streamId,
-			Message:  &pb.BatchSendRequest_Objects{Objects: &pb.BatchObjects{Values: objects}},
+			Message:  &pb.BatchSendRequest_Objects_{Objects: &pb.BatchSendRequest_Objects{Values: objects}},
 		})
 		require.NoError(t, err, "BatchSend should not return an error")
 
@@ -153,7 +153,7 @@ func TestGRPC_Batching(t *testing.T) {
 		}
 		_, err = grpcClient.BatchSend(ctx, &pb.BatchSendRequest{
 			StreamId: streamId,
-			Message: &pb.BatchSendRequest_References{References: &pb.BatchReferences{
+			Message: &pb.BatchSendRequest_References_{References: &pb.BatchSendRequest_References{
 				Values: references,
 			}},
 		})
@@ -183,7 +183,7 @@ func startStream(ctx context.Context, t *testing.T, grpcClient pb.WeaviateClient
 	require.NoError(t, err, "BatchStream should return a response")
 	start := resp.GetStart()
 	require.NotNil(t, start, "Start message should not be nil")
-	streamId := start.GetStreamId()
+	streamId := resp.GetStreamId()
 
 	return stream, streamId
 }

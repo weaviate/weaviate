@@ -19,28 +19,26 @@ message BatchReferencesRequest {
   optional ConsistencyLevel consistency_level = 2;
 }
 
-message BatchObjects {
-  repeated BatchObject values = 1;
-}
-
-message BatchReferences {
-  repeated BatchReference values = 1;
-}
-
 message BatchSendRequest {
-  message BatchStop{
+  message Stop {
+  }
+  message Objects {
+    repeated BatchObject values = 1;
+  }
+  message References {
+    repeated BatchReference values = 1;
   }
   string stream_id = 1;
   oneof message {
-    BatchObjects objects = 2;
-    BatchReferences references = 3;
-    BatchStop stop = 4;
+    Objects objects = 2;
+    References references = 3;
+    Stop stop = 4;
   }
 }
 
 message BatchSendReply {
-  int32 next = 1;
-  float backoff = 2;
+  int32 next_batch_size = 1;
+  float backoff_seconds = 2;
 }
 
 message BatchStreamRequest {
@@ -49,28 +47,29 @@ message BatchStreamRequest {
   optional int32 reference_index = 3;
 }
 
-message BatchStart {
-  string stream_id = 1;
-}
-
-message BatchShutdown {
-  string stream_id = 1;
-}
-
-message BatchShuttingDown {
-  string stream_id = 1;
-}
-
 message BatchStreamMessage {
-  message BatchStop {
-    string stream_id = 1;
+  message Start {
   }
+  message Error {
+    string error = 1;
+    int32 index = 2;
+    bool is_retriable = 3;
+    bool is_object = 4;
+    bool is_reference = 5;
+  }
+  message Stop {
+  }
+  message Shutdown {
+  }
+  message ShuttingDown {
+  }
+  string stream_id = 1;
   oneof message {
-    BatchStart start = 1;
-    BatchError error = 2;
-    BatchStop stop = 3;
-    BatchShutdown shutdown = 4;
-    BatchShuttingDown shutting_down = 5;
+    Start start = 2;
+    Error error = 3;
+    Stop stop = 4;
+    Shutdown shutdown = 5;
+    ShuttingDown shutting_down = 6;
   }
 }
 
@@ -119,14 +118,6 @@ message BatchReference {
   optional string to_collection = 4;
   string to_uuid = 5;
   string tenant = 6;
-}
-
-message BatchError {
-  string error = 1;
-  int32 index = 2;
-  bool is_retriable = 3;
-  bool is_object = 4;
-  bool is_reference = 5;
 }
 
 message BatchObjectsReply {

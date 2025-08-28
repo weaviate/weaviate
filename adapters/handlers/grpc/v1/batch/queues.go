@@ -108,7 +108,7 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 					return h.wait(ctx)
 				}
 				for _, err := range readObj.Errors {
-					if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
+					if innerErr := stream.Send(newBatchErrorMessage(streamId, err)); innerErr != nil {
 						return innerErr
 					}
 				}
@@ -149,8 +149,8 @@ func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) 
 	}
 	batchSize, backoff := h.writeQueues.NextBatch(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues()))
 	return &pb.BatchSendReply{
-		Next:    batchSize,
-		Backoff: backoff,
+		NextBatchSize:  batchSize,
+		BackoffSeconds: backoff,
 	}, nil
 }
 
@@ -177,15 +177,17 @@ func (h *QueuesHandler) Teardown(streamId string) {
 
 func newBatchStartMessage(streamId string) *pb.BatchStreamMessage {
 	return &pb.BatchStreamMessage{
-		Message: &pb.BatchStreamMessage_Start{
-			Start: &pb.BatchStart{StreamId: streamId},
+		StreamId: streamId,
+		Message: &pb.BatchStreamMessage_Start_{
+			Start: &pb.BatchStreamMessage_Start{},
 		},
 	}
 }
 
-func newBatchErrorMessage(err *pb.BatchError) *pb.BatchStreamMessage {
+func newBatchErrorMessage(streamId string, err *pb.BatchStreamMessage_Error) *pb.BatchStreamMessage {
 	return &pb.BatchStreamMessage{
-		Message: &pb.BatchStreamMessage_Error{
+		StreamId: streamId,
+		Message: &pb.BatchStreamMessage_Error_{
 			Error: err,
 		},
 	}
@@ -193,30 +195,33 @@ func newBatchErrorMessage(err *pb.BatchError) *pb.BatchStreamMessage {
 
 func newBatchStopMessage(streamId string) *pb.BatchStreamMessage {
 	return &pb.BatchStreamMessage{
-		Message: &pb.BatchStreamMessage_Stop{
-			Stop: &pb.BatchStreamMessage_BatchStop{StreamId: streamId},
+		StreamId: streamId,
+		Message: &pb.BatchStreamMessage_Stop_{
+			Stop: &pb.BatchStreamMessage_Stop{},
 		},
 	}
 }
 
 func newBatchShutdownMessage(streamId string) *pb.BatchStreamMessage {
 	return &pb.BatchStreamMessage{
-		Message: &pb.BatchStreamMessage_Shutdown{
-			Shutdown: &pb.BatchShutdown{StreamId: streamId},
+		StreamId: streamId,
+		Message: &pb.BatchStreamMessage_Shutdown_{
+			Shutdown: &pb.BatchStreamMessage_Shutdown{},
 		},
 	}
 }
 
 func newBatchShuttingDownMessage(streamId string) *pb.BatchStreamMessage {
 	return &pb.BatchStreamMessage{
-		Message: &pb.BatchStreamMessage_ShuttingDown{
-			ShuttingDown: &pb.BatchShuttingDown{StreamId: streamId},
+		StreamId: streamId,
+		Message: &pb.BatchStreamMessage_ShuttingDown_{
+			ShuttingDown: &pb.BatchStreamMessage_ShuttingDown{},
 		},
 	}
 }
 
 type readObject struct {
-	Errors []*pb.BatchError
+	Errors []*pb.BatchStreamMessage_Error
 }
 
 type writeObject struct {
@@ -267,7 +272,7 @@ func NewStopWriteObject() *writeObject {
 	}
 }
 
-func NewErrorsObject(errs []*pb.BatchError) *readObject {
+func NewErrorsObject(errs []*pb.BatchStreamMessage_Error) *readObject {
 	return &readObject{
 		Errors: errs,
 	}
