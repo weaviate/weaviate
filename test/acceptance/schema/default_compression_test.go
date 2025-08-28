@@ -208,7 +208,7 @@ func TestDefaultCompressionRQ1(t *testing.T) {
 	jsonRescoreLimit := rq.(map[string]interface{})["rescoreLimit"].(json.Number)
 	rescoreLimit, err := jsonRescoreLimit.Int64()
 	require.Nil(t, err)
-	require.Equal(t, int64(DefaultBRQRescoreLimit), rescoreLimit)
+	require.Equal(t, int64(hnsw.DefaultBRQRescoreLimit), rescoreLimit)
 	skipDefaultQuantization := viconfig.(map[string]interface{})["skipDefaultQuantization"].(bool)
 	require.Equal(t, false, skipDefaultQuantization)
 	trackDefaultQuantization := viconfig.(map[string]interface{})["trackDefaultQuantization"].(bool)
