@@ -41,7 +41,15 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 		aliases,
 		authorization.READ,
 		func(alias *models.Alias) string {
-			return authorization.Aliases(className, alias.Alias)[0]
+			// NOTE: copy the shared className explicitly, otherwise, we endup
+			// mutating shared copy for other alias permission checks.
+			class := className
+
+			if class == "" {
+				class = alias.Class
+			}
+			res := authorization.Aliases(class, alias.Alias)
+			return res[0]
 		},
 	)
 
