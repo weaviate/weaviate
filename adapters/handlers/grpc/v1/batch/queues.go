@@ -37,6 +37,7 @@ func NewQueuesHandler(shuttingDownCtx context.Context, sendWg, streamWg *sync.Wa
 	// Poll until the batch logic starts shutting down
 	// Then wait for all BatchSend requests to finish and close all the write queues
 	// Scheduler will then drain the write queues expecting the channels to be closed
+	ticker := time.NewTicker(100 * time.Millisecond)
 	enterrors.GoWrapper(func() {
 		for {
 			select {
@@ -47,8 +48,7 @@ func NewQueuesHandler(shuttingDownCtx context.Context, sendWg, streamWg *sync.Wa
 				writeQueues.Close()
 				logger.Info("write queues closed, exiting handlers shutdown listener")
 				return
-			default:
-				time.Sleep(100 * time.Millisecond) // Polling interval
+			case <-ticker.C:
 			}
 		}
 	}, logger)
@@ -64,13 +64,14 @@ func NewQueuesHandler(shuttingDownCtx context.Context, sendWg, streamWg *sync.Wa
 }
 
 func (h *QueuesHandler) wait(ctx context.Context) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		time.Sleep(10 * time.Millisecond)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
-	return nil
 }
 
 func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {

@@ -36,6 +36,7 @@ func NewScheduler(writeQueues *WriteQueues, internalQueue internalQueue, logger 
 }
 
 func (s *Scheduler) Loop(ctx context.Context) {
+	ticker := time.NewTicker(100 * time.Millisecond)
 	for {
 		select {
 		case <-ctx.Done():
@@ -44,9 +45,8 @@ func (s *Scheduler) Loop(ctx context.Context) {
 			// Close the internal queue so that the workers can exit once they've drained the queue
 			close(s.internalQueue)
 			return
-		default:
+		case <-ticker.C:
 			s.loop(s.schedule)
-			time.Sleep(time.Millisecond * 100)
 		}
 	}
 }
@@ -91,7 +91,7 @@ func (s *Scheduler) schedule(streamId string, wq *WriteQueue) {
 	if (req.Objects != nil && len(req.Objects.Values) > 0) || (req.References != nil && len(req.References.Values) > 0) || req.Stop {
 		s.internalQueue <- req
 	}
-	time.Sleep(time.Millisecond * 5)
+	time.Sleep(time.Millisecond * 10)
 }
 
 func (s *Scheduler) pull(queue writeQueue, max int) ([]*pb.BatchObject, []*pb.BatchReference, bool) {
