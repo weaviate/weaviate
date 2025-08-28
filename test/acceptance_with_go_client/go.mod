@@ -11,8 +11,8 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.10.0
 	github.com/tailor-inc/graphql v0.5.7
-	github.com/weaviate/weaviate v1.32.4-0.20250821224425-5469448cc83a
-	github.com/weaviate/weaviate-go-client/v5 v5.4.2-0.20250822111337-d751da280fa2
+	github.com/weaviate/weaviate v1.32.4-0.20250822155436-0ae8605ffabc
+	github.com/weaviate/weaviate-go-client/v5 v5.4.2-0.20250823033717-f45fe3a09be0
 )
 
 require (
