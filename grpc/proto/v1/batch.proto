@@ -28,12 +28,12 @@ message BatchSendRequest {
   message References {
     repeated BatchReference values = 1;
   }
-  string stream_id = 1;
   oneof message {
+    Stop stop = 1;
     Objects objects = 2;
     References references = 3;
-    Stop stop = 4;
   }
+  string stream_id = 4;
 }
 
 message BatchSendReply {
@@ -50,6 +50,12 @@ message BatchStreamRequest {
 message BatchStreamMessage {
   message Start {
   }
+  message Stop {
+  }
+  message Shutdown {
+  }
+  message ShuttingDown {
+  }
   message Error {
     string error = 1;
     int32 index = 2;
@@ -57,20 +63,14 @@ message BatchStreamMessage {
     bool is_object = 4;
     bool is_reference = 5;
   }
-  message Stop {
-  }
-  message Shutdown {
-  }
-  message ShuttingDown {
-  }
-  string stream_id = 1;
   oneof message {
-    Error error = 2;
-    Start start = 3;
-    Stop stop = 4;
-    Shutdown shutdown = 5;
-    ShuttingDown shutting_down = 6;
+    Start start = 1;
+    Stop stop = 2;
+    Shutdown shutdown = 3;
+    ShuttingDown shutting_down = 4;
+    Error error = 5;
   }
+  string stream_id = 6;
 }
 
 message BatchObject {
