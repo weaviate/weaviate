@@ -481,7 +481,7 @@ func TestShard_RepairIndex(t *testing.T) {
 			// remove some objects from the vector index
 			for i := 400; i < 600; i++ {
 				if test.multiVector {
-					err := vidx.DeleteMulti(uint64(i))
+					err := vidx.(VectorIndexMulti).DeleteMulti(uint64(i))
 					require.NoError(t, err)
 				} else {
 					err := vidx.Delete(uint64(i))
@@ -648,7 +648,7 @@ func TestShard_FillQueue(t *testing.T) {
 			// remove most of the objects from the vector index
 			for i := 100; i < amount; i++ {
 				if test.multiVector {
-					err := vidx.DeleteMulti(uint64(i))
+					err := vidx.(VectorIndexMulti).DeleteMulti(uint64(i))
 					require.NoError(t, err)
 				} else {
 					err := vidx.Delete(uint64(i))
@@ -695,7 +695,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 
 	amount := 10
 	shd.Index().Config.TrackVectorDimensions = true
-	shd.resetDimensionsLSM()
+	shd.resetDimensionsLSM(ctx)
 
 	t.Run("count dimensions before insert", func(t *testing.T) {
 		dims, err := shd.Dimensions(ctx, "")
@@ -724,7 +724,7 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	})
 
 	t.Run("reset dimensions lsm", func(t *testing.T) {
-		err := shd.resetDimensionsLSM()
+		err := shd.resetDimensionsLSM(ctx)
 		require.Nil(t, err)
 	})
 

@@ -40,7 +40,6 @@ func AllTests(endpoint string, asyncIndexingEnabled bool) func(t *testing.T) {
 func ComposeModules() (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecModel2Vec().
-		WithText2VecTransformersImage("semitechnologies/model2vec-inference:minishlab-potion-base-8M-1.0.0").
-		WithWeaviateEnv("ENABLE_API_BASED_MODULES", "true")
+		WithText2VecTransformersImage("semitechnologies/model2vec-inference:minishlab-potion-base-8M-1.0.0")
 	return
 }

@@ -23,6 +23,7 @@ func TestRerankerTransformers(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviateWithGRPC().
+		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
 		WithText2VecModel2Vec().
 		WithRerankerTransformers().
 		WithGenerativeOllama().

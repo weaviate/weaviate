@@ -19,11 +19,17 @@ import (
 	"log"
 	"testing"
 
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
+
+	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -119,25 +125,41 @@ func TestNestedReferences(t *testing.T) {
 		},
 	}
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("adding all classes to the schema", func(t *testing.T) {
 		for _, class := range refSchema.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+				err := migrator.AddClass(context.Background(), class)
 				require.Nil(t, err)
 			})
 		}
@@ -580,26 +602,42 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		},
 	}
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("add required classes", func(t *testing.T) {
 		for _, class := range sch.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+				err := migrator.AddClass(context.Background(), class)
 				require.Nil(t, err)
 			})
 		}

@@ -15,7 +15,7 @@ message Properties {
 message Value {
   oneof kind {
     double number_value = 1;
-    string string_value = 2 [deprecated = true];
+    //dont reuse 2, old field that has been removed; Was "string string_value = 2;"
     bool bool_value = 3;
     Properties object_value = 4;
     ListValue list_value = 5;
@@ -31,7 +31,7 @@ message Value {
 }
 
 message ListValue {
-  repeated Value values = 1 [deprecated = true];
+  reserved 1;  // was values
   oneof kind {
     NumberValues number_values = 2;
     BoolValues bool_values = 3;

@@ -495,7 +495,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 
 		deleted++
 		if vectorIndex.Multivector() {
-			if err := vectorIndex.DeleteMulti(docID); err != nil {
+			if err := vectorIndex.(VectorIndexMulti).DeleteMulti(docID); err != nil {
 				s.index.logger.
 					WithError(err).
 					WithField("class", className).

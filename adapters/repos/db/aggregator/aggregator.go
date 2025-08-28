@@ -33,9 +33,12 @@ type vectorIndex interface {
 	SearchByVectorDistance(ctx context.Context, vector []float32, targetDistance float32, maxLimit int64,
 		allowList helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
+}
+
+type vectorIndexMulti interface {
 	SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, targetDistance float32,
 		maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error)
-	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
 }
 
 type Aggregator struct {
