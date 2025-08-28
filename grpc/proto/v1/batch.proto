@@ -20,18 +20,18 @@ message BatchReferencesRequest {
 }
 
 message BatchSendRequest {
-  message Stop {
-  }
   message Objects {
     repeated BatchObject values = 1;
   }
   message References {
     repeated BatchReference values = 1;
   }
+  message Stop {
+  }
   oneof message {
-    Stop stop = 1;
-    Objects objects = 2;
-    References references = 3;
+    Objects objects = 1;
+    References references = 2;
+    Stop stop = 3;
   }
   string stream_id = 4;
 }
