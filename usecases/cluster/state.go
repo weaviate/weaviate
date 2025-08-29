@@ -308,7 +308,18 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 		if mem.Name == nodeName {
 			// TODO: how can we find out the actual data port as opposed to relying on
 			// the convention that it's 1 higher than the gossip port
-			return fmt.Sprintf("%s:%d", mem.Addr.String(), mem.Port+1), true
+			addr := fmt.Sprintf("%s:%d", mem.Addr.String(), mem.Port+1)
+
+			// Check if the address is reachable before returning it
+			if s.isAddressReachable(addr) {
+				return addr, true
+			}
+
+			s.delegate.log.WithFields(logrus.Fields{
+				"action": "memberlist_hostname_unreachable",
+				"node":   nodeName,
+				"addr":   addr,
+			}).Warn("node address is not reachable, skipping")
 		}
 	}
 
@@ -323,7 +334,12 @@ func (s *State) NodeAddress(id string) string {
 	s.listLock.RUnlock()
 	for _, mem := range members {
 		if mem.Name == id {
-			return mem.Addr.String()
+			addr := mem.Addr.String()
+
+			// Try to resolve the address with retry logic
+			if resolvedAddr := s.resolveAddressWithRetry(id, addr); resolvedAddr != "" {
+				return resolvedAddr
+			}
 		}
 	}
 
@@ -408,4 +424,47 @@ func (s *State) nodeInMaintenanceMode(node string) bool {
 	defer s.maintenanceNodesLock.RUnlock()
 
 	return slices.Contains(s.config.MaintenanceNodes, node)
+}
+
+// isAddressReachable checks if an address is actually reachable using IP lookup
+func (s *State) isAddressReachable(addr string) bool {
+	// Extract IP from address:port
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		// If no port, assume it's just an IP
+		host = addr
+	}
+
+	// Validate IP format and reachability
+	if ip := net.ParseIP(host); ip != nil {
+		// Just check if it's a valid, non-loopback IP
+		return !ip.IsLoopback() && !ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast()
+	}
+
+	// If it's a hostname, try to resolve it
+	_, err = net.LookupIP(host)
+	return err == nil
+}
+
+// resolveAddressWithRetry attempts to resolve an address with retry logic
+func (s *State) resolveAddressWithRetry(nodeID, addr string) string {
+	// Try to resolve the address with retry logic
+	err := backoff.Retry(func() error {
+		if s.isAddressReachable(addr) {
+			return nil // Success
+		}
+		return fmt.Errorf("address not reachable")
+	}, backoff.WithMaxRetries(backoff.NewConstantBackOff(100*time.Millisecond), 3))
+
+	if err != nil {
+		// Log unreachable IP for debugging
+		s.delegate.log.WithFields(logrus.Fields{
+			"action": "memberlist_address_unreachable",
+			"node":   nodeID,
+			"ip":     addr,
+		}).Warn("node IP is not reachable after retries, skipping")
+		return ""
+	}
+
+	return addr
 }
