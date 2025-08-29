@@ -17,12 +17,31 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/memberlist"
 	"github.com/hashicorp/serf/serf"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
+
+// retryWithBackoff executes a function with exponential backoff retry logic
+func retryWithBackoff(operation func() error, initialInterval, maxElapsedTime time.Duration, logFields logrus.Fields, logger logrus.FieldLogger) error {
+	bf := backoff.NewExponentialBackOff()
+	bf.InitialInterval = initialInterval
+	bf.RandomizationFactor = 0.5
+	bf.Multiplier = 2.0
+	bf.MaxElapsedTime = maxElapsedTime
+
+	return backoff.Retry(func() error {
+		err := operation()
+		if err != nil {
+			logger.WithFields(logFields).WithError(err).Debug("operation failed, will retry")
+		}
+		return err
+	}, bf)
+}
 
 // NodeSelector is an interface to select a portion of the available nodes in memberlist
 type NodeSelector interface {
@@ -137,6 +156,7 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 	// Configure Serf-specific settings
 	serfconfig.EventCh = make(chan serf.Event, 2048)
 	serfconfig.EnableNameConflictResolution = true
+	serfconfig.RejoinAfterLeave = true
 
 	state.list, err = serf.Create(serfconfig)
 	if err != nil {
@@ -153,21 +173,43 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 	}
 
 	if len(joinAddr) > 0 {
-		_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
+		// Retry DNS resolution with exponential backoff
+		err = retryWithBackoff(
+			func() error {
+				_, dnsErr := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
+				return dnsErr
+			},
+			100*time.Millisecond,
+			15*time.Second,
+			logrus.Fields{"action": "dns_lookup_retry", "remote_hostname": joinAddr[0]},
+			logger,
+		)
+
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"action":          "cluster_attempt_join",
 				"remote_hostname": joinAddr[0],
 			}).WithError(err).Warn(
-				"specified hostname to join cluster cannot be resolved. This is fine" +
+				"specified hostname to join cluster cannot be resolved after retries. This is fine" +
 					"if this is the first node of a new cluster, but problematic otherwise.")
 		} else {
-			_, err := state.list.Join(joinAddr, true)
+			// Retry Serf join with exponential backoff
+			err = retryWithBackoff(
+				func() error {
+					_, joinErr := state.list.Join(joinAddr, true)
+					return joinErr
+				},
+				100*time.Millisecond,
+				30*time.Second,
+				logrus.Fields{"action": "serf_join_retry", "remote_hostname": joinAddr},
+				logger,
+			)
+
 			if err != nil {
 				logger.WithFields(logrus.Fields{
 					"action":          "serf_init",
 					"remote_hostname": joinAddr,
-				}).WithError(err).Error("memberlist join not successful")
+				}).WithError(err).Error("memberlist join not successful after retries")
 				return nil, errors.Wrap(err, "join cluster")
 			}
 		}
