@@ -102,12 +102,11 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	if hasState {
 		joiner := bootstrap.NewJoiner(c.rpcClient, c.config.NodeID, c.raftAddr, c.config.Voter)
 
-		customBackoff := &backoff.ExponentialBackOff{
-			InitialInterval:     100 * time.Millisecond,
-			RandomizationFactor: 0.5,
-			Multiplier:          2.0,
-			MaxInterval:         c.config.BootstrapTimeout,
-		}
+		customBackoff := backoff.NewExponentialBackOff()
+		customBackoff.InitialInterval = 100 * time.Millisecond
+		customBackoff.RandomizationFactor = 0.5
+		customBackoff.Multiplier = 2.0
+		customBackoff.MaxElapsedTime = c.config.BootstrapTimeout
 
 		err = backoff.Retry(func() error {
 			joinNodes := bootstrap.ResolveRemoteNodes(nodeToAddressResolver, c.config.NodeNameToPortMap)
