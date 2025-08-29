@@ -92,7 +92,6 @@ func (s *Scheduler) schedule(streamId string, wq *WriteQueue) {
 	if (req.Objects != nil && len(req.Objects.Values) > 0) || (req.References != nil && len(req.References.Values) > 0) || req.Stop {
 		s.internalQueue <- req
 	}
-	time.Sleep(time.Millisecond * 10)
 }
 
 func (s *Scheduler) pull(queue writeQueue, max int) ([]*pb.BatchObject, []*pb.BatchReference, bool) {
