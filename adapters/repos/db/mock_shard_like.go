@@ -2702,17 +2702,17 @@ func (_c *MockShardLike_Store_Call) RunAndReturn(run func() *lsmkv.Store) *MockS
 	return _c
 }
 
-// UpdateStatus provides a mock function with given fields: status
-func (_m *MockShardLike) UpdateStatus(status string) error {
-	ret := _m.Called(status)
+// UpdateStatus provides a mock function with given fields: status, reason
+func (_m *MockShardLike) UpdateStatus(status string, reason string) error {
+	ret := _m.Called(status, reason)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpdateStatus")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(string) error); ok {
-		r0 = rf(status)
+	if rf, ok := ret.Get(0).(func(string, string) error); ok {
+		r0 = rf(status, reason)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -2727,13 +2727,14 @@ type MockShardLike_UpdateStatus_Call struct {
 
 // UpdateStatus is a helper method to define mock.On call
 //   - status string
-func (_e *MockShardLike_Expecter) UpdateStatus(status interface{}) *MockShardLike_UpdateStatus_Call {
-	return &MockShardLike_UpdateStatus_Call{Call: _e.mock.On("UpdateStatus", status)}
+//   - reason string
+func (_e *MockShardLike_Expecter) UpdateStatus(status interface{}, reason interface{}) *MockShardLike_UpdateStatus_Call {
+	return &MockShardLike_UpdateStatus_Call{Call: _e.mock.On("UpdateStatus", status, reason)}
 }
 
-func (_c *MockShardLike_UpdateStatus_Call) Run(run func(status string)) *MockShardLike_UpdateStatus_Call {
+func (_c *MockShardLike_UpdateStatus_Call) Run(run func(status string, reason string)) *MockShardLike_UpdateStatus_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
+		run(args[0].(string), args[1].(string))
 	})
 	return _c
 }
@@ -2743,7 +2744,7 @@ func (_c *MockShardLike_UpdateStatus_Call) Return(_a0 error) *MockShardLike_Upda
 	return _c
 }
 
-func (_c *MockShardLike_UpdateStatus_Call) RunAndReturn(run func(string) error) *MockShardLike_UpdateStatus_Call {
+func (_c *MockShardLike_UpdateStatus_Call) RunAndReturn(run func(string, string) error) *MockShardLike_UpdateStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }

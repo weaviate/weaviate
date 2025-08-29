@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -1356,4 +1357,30 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid checksum")
 	})
+}
+
+func TestCommitLogger_Snapshot_Race(t *testing.T) {
+	dir := t.TempDir()
+	id := "main"
+	cl := createTestCommitLoggerForSnapshots(t, dir, id)
+	clDir := commitLogDirectory(dir, id)
+	sDir := snapshotDirectory(dir, id)
+	os.MkdirAll(sDir, os.ModePerm)
+
+	createCommitlogTestData(t, clDir, "1000.condensed", 1000, "1001.condensed", 1000, "1002.condensed", 1000)
+
+	var wg sync.WaitGroup
+	for range 5 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// create snapshot
+			_, _, err := cl.CreateSnapshot()
+			require.NoError(t, err)
+			files := readDir(t, sDir)
+			require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+		}()
+	}
+
+	wg.Wait()
 }
