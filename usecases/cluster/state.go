@@ -130,14 +130,11 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 	serfconfig := serf.DefaultConfig()
 	serfconfig.NodeName = cfg.Name
 	serfconfig.LogOutput = newLogParser(logger)
+
+	// Configure memberlist settings properly
 	serfconfig.MemberlistConfig = cfg
-	serfconfig.MemberlistConfig.AdvertiseAddr = cfg.AdvertiseAddr
-	serfconfig.MemberlistConfig.AdvertisePort = cfg.AdvertisePort
-	serfconfig.MemberlistConfig.BindAddr = cfg.BindAddr
-	serfconfig.MemberlistConfig.BindPort = cfg.BindPort
-	serfconfig.MemberlistConfig.Delegate = cfg.Delegate
-	serfconfig.MemberlistConfig.Events = cfg.Events
-	serfconfig.MemberlistConfig.Conflict = cfg.Conflict
+
+	// Configure Serf-specific settings
 	serfconfig.EventCh = make(chan serf.Event, 2048)
 	serfconfig.EnableNameConflictResolution = true
 
@@ -168,7 +165,7 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 			_, err := state.list.Join(joinAddr, true)
 			if err != nil {
 				logger.WithFields(logrus.Fields{
-					"action":          "memberlist_init",
+					"action":          "serf_init",
 					"remote_hostname": joinAddr,
 				}).WithError(err).Error("memberlist join not successful")
 				return nil, errors.Wrap(err, "join cluster")
