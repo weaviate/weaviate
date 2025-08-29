@@ -227,7 +227,7 @@ func (s *SPFresh) splitPosting(posting *Posting) ([]SplitResult, error) {
 	results := make([]SplitResult, 2)
 	for i := range results {
 		results[i] = SplitResult{
-			Centroid: s.Quantizer.Encode(enc.Centroid(byte(i))),
+			Centroid: compressionhelpers.RQCode(s.Quantizer.Encode(enc.Centroid(byte(i)))).Bytes(),
 			Posting: Posting{
 				vectorSize: int(s.vectorSize),
 				data:       make([]byte, 0, len(posting.data)),
