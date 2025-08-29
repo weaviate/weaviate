@@ -21,13 +21,14 @@ import (
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 const raftGrpcMessageMaxSize = 1024 * 1024 * 1024
@@ -81,7 +82,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 				assert.NotNil(t, err)
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
-				assert.Equal(t, st.Code(), codes.ResourceExhausted)
+				assert.Equal(t, st.Code(), codes.NotFound)
 				assert.ErrorContains(t, st.Err(), types.ErrLeaderNotFound.Error())
 			},
 		},
@@ -262,7 +263,7 @@ func TestQueryEndpoint(t *testing.T) {
 				assert.NotNil(t, err)
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
-				assert.Equal(t, st.Code(), codes.ResourceExhausted)
+				assert.Equal(t, st.Code(), codes.NotFound)
 				assert.ErrorContains(t, st.Err(), types.ErrLeaderNotFound.Error())
 			},
 		},
@@ -313,7 +314,7 @@ func TestApply(t *testing.T) {
 				assert.NotNil(t, err)
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
-				assert.Equal(t, st.Code(), codes.ResourceExhausted)
+				assert.Equal(t, st.Code(), codes.NotFound)
 				assert.ErrorContains(t, st.Err(), types.ErrLeaderNotFound.Error())
 			},
 		},
