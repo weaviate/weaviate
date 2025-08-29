@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"io"
 	"math"
 	"math/rand"
 	"os"
@@ -573,4 +574,52 @@ func TestDeserializerTotalReadMUVERA(t *testing.T) {
 		require.Equal(t, gaussianSize+randomSize+21, deserializeSize)
 		t.Logf("deserializeSize: %v\n", deserializeSize)
 	})
+}
+
+func TestDeserializerInvalidCommitType(t *testing.T) {
+	// Create a buffer with valid commit log entries first, then an invalid one
+	var buf bytes.Buffer
+
+	// First commit log entry: AddNode (type 0)
+	// AddNode requires 11 bytes: 1 byte for commit type + 10 bytes for node data
+	buf.WriteByte(byte(AddNode))
+	// Write dummy node data (10 bytes)
+	nodeData := make([]byte, 10)
+	binary.LittleEndian.PutUint64(nodeData[:8], 123) // node ID
+	binary.LittleEndian.PutUint16(nodeData[8:10], 5) // level
+	buf.Write(nodeData)
+
+	// Second commit log entry: Invalid commit type 180 (> 64)
+	buf.WriteByte(180)
+
+	// Add some garbage data at the end to make sure it's not read
+	buf.WriteByte(99)
+	buf.WriteByte(88)
+
+	t.Logf("Buffer size: %d bytes", buf.Len())
+	t.Logf("Buffer content: %v", buf.Bytes())
+
+	// Create a reader from the buffer
+	reader := bufio.NewReader(&buf)
+
+	// Create deserializer
+	logger, _ := test.NewNullLogger()
+	deserializer := NewDeserializer(logger)
+
+	// Try to deserialize - should fail on the second commit type
+	result, validLength, err := deserializer.Do(reader, nil, true)
+
+	t.Logf("Deserialization result: %v, validLength: %d, error: %v", result, validLength, err)
+
+	// Verify the error is as expected
+	require.Error(t, err)
+	require.Equal(t, io.ErrUnexpectedEOF, err)
+
+	// Verify no result is returned
+	require.Nil(t, result)
+
+	// Verify the valid length is what we expect (first valid entry)
+	// AddNode: 11 bytes total
+	expectedValidLength := 11
+	require.Equal(t, expectedValidLength, validLength)
 }
