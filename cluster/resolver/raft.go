@@ -45,6 +45,7 @@ type raft struct {
 
 	nodesLock        sync.Mutex
 	notResolvedNodes map[raftImpl.ServerID]struct{}
+	lastKnownAddr    map[raftImpl.ServerID]raftImpl.ServerAddress
 }
 
 func NewRaft(cfg RaftConfig) *raft {
@@ -54,6 +55,7 @@ func NewRaft(cfg RaftConfig) *raft {
 		IsLocalCluster:    cfg.IsLocalHost,
 		NodeNameToPortMap: cfg.NodeNameToPortMap,
 		notResolvedNodes:  make(map[raftImpl.ServerID]struct{}),
+		lastKnownAddr:     make(map[raftImpl.ServerID]raftImpl.ServerAddress),
 	}
 }
 
@@ -65,18 +67,30 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	// Update the internal notResolvedNodes if the addr if empty, otherwise delete it from the map
 	a.nodesLock.Lock()
 	defer a.nodesLock.Unlock()
+
 	if addr == "" {
+		// Check if we have a cached address before marking as unresolved
+		if cached, exists := a.lastKnownAddr[id]; exists && string(cached) != "" {
+			return cached, nil
+		}
 		a.notResolvedNodes[id] = struct{}{}
 		return "", fmt.Errorf("could not resolve server id %s", id)
 	}
+
 	delete(a.notResolvedNodes, id)
 
-	// If we are not running a local cluster we can immediately return, otherwise we need to lookup the port of the node
-	// as we can't use the default raft port locally.
+	// Compose the raft address
+	var composed raftImpl.ServerAddress
 	if !a.IsLocalCluster {
-		return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, a.RaftPort)), nil
+		composed = raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, a.RaftPort))
+	} else {
+		composed = raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, a.NodeNameToPortMap[string(id)]))
 	}
-	return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, a.NodeNameToPortMap[string(id)])), nil
+
+	// Cache the successfully resolved address
+	a.lastKnownAddr[id] = composed
+
+	return composed, nil
 }
 
 // NewTCPTransport returns a new raft.NetworkTransportConfig that utilizes
