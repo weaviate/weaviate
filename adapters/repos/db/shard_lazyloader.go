@@ -161,9 +161,9 @@ func (l *LazyLoadShard) GetStatus() storagestate.Status {
 	return storagestate.StatusLazyLoading
 }
 
-func (l *LazyLoadShard) UpdateStatus(status string) error {
+func (l *LazyLoadShard) UpdateStatus(status, reason string) error {
 	l.mustLoad()
-	return l.shard.UpdateStatus(status)
+	return l.shard.UpdateStatus(status, reason)
 }
 
 func (l *LazyLoadShard) SetStatusReadonly(reason string) error {

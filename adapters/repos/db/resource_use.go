@@ -129,7 +129,7 @@ func (db *DB) diskUseReadonly(du diskUse) {
 	diskROPercent := db.config.ResourceUsage.DiskUse.ReadOnlyPercentage
 	if diskROPercent > 0 {
 		if pu := du.percentUsed(); pu > float64(diskROPercent) {
-			db.setShardsReadOnly(fmt.Sprintf("disk usage too high. Set to read-only at %.2f%%, threshold set to %.2f%%\"", pu, float64(diskROPercent)))
+			db.setShardsReadOnly(fmt.Sprintf("disk usage too high. Set to read-only at %.2f%%, threshold set to %.2f%%", pu, float64(diskROPercent)))
 			db.logger.WithField("action", "set_shard_read_only").
 				WithField("path", db.config.RootPath).
 				Warnf("Set READONLY, disk usage currently at %.2f%%, threshold set to %.2f%%",
@@ -142,7 +142,7 @@ func (db *DB) memUseReadonly(mon *memwatch.Monitor) {
 	memROPercent := db.config.ResourceUsage.MemUse.ReadOnlyPercentage
 	if memROPercent > 0 {
 		if pu := mon.Ratio() * 100; pu > float64(memROPercent) {
-			db.setShardsReadOnly(fmt.Sprintf("memory usage too high. Set to read-only at %.2f%%, threshold set to %.2f%%\"", pu, float64(memROPercent)))
+			db.setShardsReadOnly(fmt.Sprintf("memory usage too high. Set to read-only at %.2f%%, threshold set to %.2f%%", pu, float64(memROPercent)))
 			db.logger.WithField("action", "set_shard_read_only").
 				WithField("path", db.config.RootPath).
 				Warnf("Set READONLY, memory usage currently at %.2f%%, threshold set to %.2f%%",
