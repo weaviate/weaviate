@@ -53,7 +53,7 @@ function main() {
           --acceptance-only-graphql|-aog) run_all_tests=false; run_acceptance_graphql_tests=true ;;
           --acceptance-only-authz|-aoa) run_all_tests=false; run_acceptance_only_authz=true;;
           --acceptance-only-replication|-aor) run_all_tests=false; run_acceptance_replication_tests=true ;;
-          --acceptance-only-replica-replication-fast|-aorrf) run_all_tests=false; run_acceptance_replica_replication_fast_tests=true ;;
+          --acceptance-only-replica-replication-fast-*|-aorrf) run_all_tests=false; run_acceptance_replica_replication_fast_tests=true ;;
           --acceptance-only-replica-replication-slow|-aorrs) run_all_tests=false; run_acceptance_replica_replication_slow_tests=true ;;
           --acceptance-only-async-replication|-aoar) run_all_tests=false; run_acceptance_async_replication_tests=true ;;
           --acceptance-only-objects|-aoob) run_all_tests=false; run_acceptance_objects=true ;;
