@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/memberlist"
+	"github.com/hashicorp/serf/serf"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -44,7 +45,7 @@ type State struct {
 	config Config
 	// that lock to serialize access to memberlist
 	listLock             sync.RWMutex
-	list                 *memberlist.Memberlist
+	list                 *serf.Serf
 	nonStorageNodes      map[string]struct{}
 	delegate             delegate
 	maintenanceNodesLock sync.RWMutex
@@ -126,13 +127,28 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 		cfg.SuspicionMult = 1
 	}
 
-	if state.list, err = memberlist.Create(cfg); err != nil {
+	serfconfig := serf.DefaultConfig()
+	serfconfig.NodeName = cfg.Name
+	serfconfig.LogOutput = newLogParser(logger)
+	serfconfig.MemberlistConfig = cfg
+	serfconfig.MemberlistConfig.AdvertiseAddr = cfg.AdvertiseAddr
+	serfconfig.MemberlistConfig.AdvertisePort = cfg.AdvertisePort
+	serfconfig.MemberlistConfig.BindAddr = cfg.BindAddr
+	serfconfig.MemberlistConfig.BindPort = cfg.BindPort
+	serfconfig.MemberlistConfig.Delegate = cfg.Delegate
+	serfconfig.MemberlistConfig.Events = cfg.Events
+	serfconfig.MemberlistConfig.Conflict = cfg.Conflict
+	serfconfig.EventCh = make(chan serf.Event, 2048)
+	serfconfig.EnableNameConflictResolution = true
+
+	state.list, err = serf.Create(serfconfig)
+	if err != nil {
 		logger.WithFields(logrus.Fields{
-			"action":    "memberlist_init",
+			"action":    "serf_init",
 			"hostname":  userConfig.Hostname,
 			"bind_port": userConfig.GossipBindPort,
-		}).WithError(err).Error("memberlist not created")
-		return nil, errors.Wrap(err, "create member list")
+		}).WithError(err).Error("serf not created")
+		return nil, errors.Wrap(err, "create serf")
 	}
 	var joinAddr []string
 	if userConfig.Join != "" {
@@ -149,7 +165,7 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 				"specified hostname to join cluster cannot be resolved. This is fine" +
 					"if this is the first node of a new cluster, but problematic otherwise.")
 		} else {
-			_, err := state.list.Join(joinAddr)
+			_, err := state.list.Join(joinAddr, true)
 			if err != nil {
 				logger.WithFields(logrus.Fields{
 					"action":          "memberlist_init",
@@ -174,7 +190,7 @@ func (s *State) Hostnames() []string {
 
 	i := 0
 	for _, m := range mem {
-		if m.Name == s.list.LocalNode().Name {
+		if m.Name == s.list.LocalMember().Name {
 			continue
 		}
 		// TODO: how can we find out the actual data port as opposed to relying on
@@ -273,7 +289,7 @@ func (s *State) NodeCount() int {
 	s.listLock.RLock()
 	defer s.listLock.RUnlock()
 
-	return s.list.NumMembers()
+	return len(s.list.Members())
 }
 
 // LocalName() return local node name
@@ -281,14 +297,14 @@ func (s *State) LocalName() string {
 	s.listLock.RLock()
 	defer s.listLock.RUnlock()
 
-	return s.list.LocalNode().Name
+	return s.list.LocalMember().Name
 }
 
 func (s *State) ClusterHealthScore() int {
 	s.listLock.RLock()
 	defer s.listLock.RUnlock()
 
-	return s.list.GetHealthScore()
+	return s.list.Memberlist().GetHealthScore()
 }
 
 func (s *State) NodeHostname(nodeName string) (string, bool) {
@@ -313,7 +329,7 @@ func (s *State) NodeAddress(id string) string {
 	defer s.listLock.RUnlock()
 
 	// network interruption detection which can cause a single node to be isolated from the cluster (split brain)
-	nodeCount := s.list.NumMembers()
+	nodeCount := len(s.list.Members())
 	var joinAddr []string
 	if s.config.Join != "" {
 		joinAddr = strings.Split(s.config.Join, ",")
@@ -324,7 +340,7 @@ func (s *State) NodeAddress(id string) string {
 			"node_count": nodeCount,
 		}).Warn("detected single node split-brain, attempting to rejoin memberlist cluster")
 		// Only attempt rejoin if we're supposed to be part of a larger cluster
-		_, err := s.list.Join(joinAddr)
+		_, err := s.list.Join(joinAddr, true)
 		if err != nil {
 			s.delegate.log.WithFields(logrus.Fields{
 				"action":          "memberlist_rejoin",
@@ -333,7 +349,7 @@ func (s *State) NodeAddress(id string) string {
 		} else {
 			s.delegate.log.WithFields(logrus.Fields{
 				"action":     "memberlist_rejoin",
-				"node_count": s.list.NumMembers(),
+				"node_count": len(s.list.Members()),
 			}).Info("Successfully rejoined the memberlist cluster")
 		}
 	}
