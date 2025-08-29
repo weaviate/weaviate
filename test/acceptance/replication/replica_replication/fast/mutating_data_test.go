@@ -33,13 +33,13 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-// func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithNoAutomatedResolution() {
-// 	test(suite, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-// }
+func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithNoAutomatedResolution() {
+	test(suite, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+}
 
-// func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithDeleteOnConflict() {
-// 	test(suite, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
-// }
+func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithDeleteOnConflict() {
+	test(suite, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
+}
 
 func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithTimeBasedResolution() {
 	test(suite, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
@@ -152,6 +152,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	fmt.Println(time.Now(), "NATEE waiting for 20 seconds")
 	time.Sleep(20 * time.Second)
 	fmt.Println(time.Now(), "NATEE 20 seconds done")
+	cancel() // stop mutating to allow the verification to proceed
 
 	t.Log("Waiting for replication operation to complete")
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -167,7 +168,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	fmt.Println(time.Now(), "NATEE ready")
 
 	t.Log("Replication operation completed successfully, cancelling data mutation")
-	cancel() // stop mutating to allow the verification to proceed
+	// cancel() // stop mutating to allow the verification to proceed
 
 	t.Log("Waiting for a while to ensure all data is replicated")
 	time.Sleep(time.Minute) // Wait a bit to ensure all data is replicated
