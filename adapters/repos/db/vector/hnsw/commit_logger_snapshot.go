@@ -552,18 +552,6 @@ func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state 
 func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename string) error {
 	tmpSnapshotFileName := fmt.Sprintf("%s.tmp", filename)
 
-	// check if checkpoints with the same name already exist
-	if _, err := os.Stat(checkPointsFileName); err == nil {
-		l.logger.WithField("action", "write_snapshot").
-			WithField("path", checkPointsFileName).
-			Info("writing new snapshot with same name as last snapshot, deleting checkpoints file")
-
-		err = os.Remove(checkPointsFileName)
-		if err != nil {
-			return errors.Wrap(err, "remove existing checkpoints file")
-		}
-	}
-
 	snap, err := os.OpenFile(tmpSnapshotFileName, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return errors.Wrapf(err, "create snapshot file %q", tmpSnapshotFileName)
@@ -641,7 +629,7 @@ func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writ
 	hasher := crc32.NewIEEE()
 	hw := io.MultiWriter(&block, hasher)
 
-	maxBlockSize := blockSize - 8 // reserve 8 bytes for checksum and actual block length
+	maxBlockSize := int(l.snapshotBlockSize - 8) // reserve 8 bytes for checksum and actual block length
 
 	// write id of the first node at the start of each block,
 	// here 0 for the 1st block
@@ -1063,7 +1051,7 @@ func (l *hnswCommitLogger) readSnapshotBody(f *os.File, res *DeserializationResu
 
 	for i := 0; i < snapshotConcurrency; i++ {
 		eg.Go(func() error {
-			buf := make([]byte, blockSize)
+			buf := make([]byte, l.snapshotBlockSize)
 			var b [8]byte
 
 			for {
@@ -1075,13 +1063,13 @@ func (l *hnswCommitLogger) readSnapshotBody(f *os.File, res *DeserializationResu
 						return nil // channel closed, nothing to do
 					}
 
-					sr := io.NewSectionReader(f, seek+int64(offset), int64(blockSize))
+					sr := io.NewSectionReader(f, seek+int64(offset), l.snapshotBlockSize)
 					n, err := io.ReadFull(sr, buf)
 					if err != nil {
 						return err
 					}
-					if n != blockSize {
-						return fmt.Errorf("read %d bytes, expected %d bytes at offset %d", n, blockSize, seek+int64(offset))
+					if n != int(l.snapshotBlockSize) {
+						return fmt.Errorf("read %d bytes, expected %d bytes at offset %d", n, l.snapshotBlockSize, seek+int64(offset))
 					}
 
 					hasher := crc32.NewIEEE()
@@ -1161,7 +1149,7 @@ func (l *hnswCommitLogger) readSnapshotBody(f *os.File, res *DeserializationResu
 		})
 	}
 
-	for i := 0; i < bodySize; i += blockSize {
+	for i := 0; i < bodySize; i += int(l.snapshotBlockSize) {
 		ch <- i
 	}
 	close(ch)

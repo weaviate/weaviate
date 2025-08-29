@@ -70,6 +70,8 @@ type hnswCommitLogger struct {
 	snapshotLastCreatedAt time.Time
 	// time that last check if snapshot should be created was made
 	snapshotLastCheckedAt time.Time
+	// size of each snapshot block. non-configurable except for testing
+	snapshotBlockSize int64
 	// partitions mark commitlogs (left ones) that should not be combined with
 	// logs on the right side (newer ones).
 	// example: given logs 0001.condensed, 0002.condensed, 0003.condensed and 0004.condensed
@@ -96,6 +98,7 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 
 		snapshotMinDeltaCommitlogsNumber:         1,
 		snapshotMinDeltaCommitlogsSizePercentage: 0,
+		snapshotBlockSize:                        blockSize,
 	}
 
 	for _, o := range opts {
