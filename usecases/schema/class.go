@@ -22,8 +22,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/modelsext"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	cschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -34,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -151,6 +155,10 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, 0, errors.Wrap(err, "init sharding state")
 	}
+
+	defaultQuantization := h.config.DefaultQuantization
+	h.enableQuantization(cls, defaultQuantization)
+
 	version, err := h.schemaManager.AddClass(ctx, cls, shardState)
 	if err != nil {
 		return nil, 0, err
@@ -158,7 +166,61 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	return cls, version, err
 }
 
-func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string) error {
+func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[string]) {
+	compression := defaultQuantization.Get()
+	if !hasTargetVectors(class) || class.VectorIndexType != "" {
+		class.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+	}
+
+	for k, vectorConfig := range class.VectorConfig {
+		vectorConfig.VectorIndexConfig = setDefaultQuantization(class.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+		class.VectorConfig[k] = vectorConfig
+	}
+}
+
+func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) schemaConfig.VectorIndexConfig {
+	if len(vectorIndexType) == 0 {
+		vectorIndexType = vectorindex.DefaultVectorIndexType
+	}
+	if vectorIndexType == vectorindex.VectorIndexTypeHNSW && vectorIndexConfig.IndexType() == vectorindex.VectorIndexTypeHNSW {
+		hnswConfig := vectorIndexConfig.(hnsw.UserConfig)
+		pqEnabled := hnswConfig.PQ.Enabled
+		sqEnabled := hnswConfig.SQ.Enabled
+		rqEnabled := hnswConfig.RQ.Enabled
+		bqEnabled := hnswConfig.BQ.Enabled
+		skipDefaultQuantization := hnswConfig.SkipDefaultQuantization
+		hnswConfig.TrackDefaultQuantization = false
+		if pqEnabled || sqEnabled || rqEnabled || bqEnabled {
+			return hnswConfig
+		}
+		if skipDefaultQuantization {
+			return hnswConfig
+		}
+		switch compression {
+		case "pq":
+			hnswConfig.PQ.Enabled = true
+		case "sq":
+			hnswConfig.SQ.Enabled = true
+		case "rq-1":
+			hnswConfig.RQ.Enabled = true
+			hnswConfig.RQ.Bits = 1
+			hnswConfig.RQ.RescoreLimit = hnsw.DefaultBRQRescoreLimit
+		case "rq-8":
+			hnswConfig.RQ.Enabled = true
+			hnswConfig.RQ.Bits = 8
+			hnswConfig.RQ.RescoreLimit = hnsw.DefaultRQRescoreLimit
+		case "bq":
+			hnswConfig.BQ.Enabled = true
+		default:
+			return hnswConfig
+		}
+		hnswConfig.TrackDefaultQuantization = true
+		return hnswConfig
+	}
+	return vectorIndexConfig
+}
+
+func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string, overwriteAlias bool) error {
 	// get schema and sharding state
 	class := &models.Class{}
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
@@ -225,7 +287,27 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	for _, alias := range aliases {
-		_, err := h.schemaManager.CreateAlias(ctx, alias.Alias, class)
+		var err error
+		_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
+		if errors.Is(err, cschema.ErrAliasExists) {
+			// Overwrite if user asks to during restore
+			if overwriteAlias {
+				_, err = h.schemaManager.DeleteAlias(ctx, alias.Alias)
+				if err != nil {
+					return fmt.Errorf("failed to restore alias for class: delete alias failed: %w", err)
+				}
+				// retry again
+				_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
+				if err != nil {
+					return fmt.Errorf("failed to restore alias for class: create alias failed: %w", err)
+				}
+				return nil
+			}
+			// Schema returned alias already exists error. So let user know
+			// that there is a "flag overwrite" if she want's to overwrite alias.
+			return fmt.Errorf("failed to restore alias for class: alias already exists. You can overwrite using `overwrite_alias` param when restoring")
+		}
+
 		if err != nil {
 			return fmt.Errorf("failed to restore alias for class: %w", err)
 		}
@@ -786,7 +868,7 @@ func (h *Handler) validateVectorSettings(class *models.Class) error {
 		}
 
 		if asMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && len(asMap) > 0 {
-			parsed, err := h.parser.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, h.parser.modules.IsMultiVector(class.Vectorizer))
+			parsed, err := h.parser.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, h.parser.modules.IsMultiVector(class.Vectorizer), h.config.DefaultQuantization)
 			if err != nil {
 				return fmt.Errorf("class.VectorIndexConfig can not parse: %w", err)
 			}

@@ -78,6 +78,10 @@ func (c *collector) collectEndpoints() ([]endpoint, error) {
 				continue
 			}
 
+			if !strings.Contains(path, "group") || method != "POST" {
+				continue
+			}
+
 			var requestBodyData []byte
 			for _, param := range operation.Parameters {
 				if param.In == "body" && param.Schema != nil {
@@ -100,9 +104,12 @@ func (c *collector) collectEndpoints() ([]endpoint, error) {
 		}
 	}
 
+	// NOTE: Sorting is done to keep the endpoints order deterministic,
+	// because the default order returned by swagger apis are random
+	// which can cause trouble say if GET is called after DELETE endpoints.
 	sort.Slice(c.endpoints, func(i, j int) bool {
 		if c.endpoints[i].path == c.endpoints[j].path {
-			return c.endpoints[i].method < c.endpoints[j].method
+			return c.endpoints[i].method > c.endpoints[j].method
 		}
 		return c.endpoints[i].path < c.endpoints[j].path
 	})
@@ -180,7 +187,7 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 	switch schema.Type[0] {
 	case "string":
 		if len(schema.Enum) > 0 {
-			mockData = schema.Enum[rand.IntN(len(schema.Enum))]
+			mockData = schema.Enum[len(schema.Enum)-1] // important for authZ groups, where only OIDC is supported
 		} else if schema.Format == "uuid" {
 			mockData = uuid.New().String()
 		} else if schema.Format == "date-time" {

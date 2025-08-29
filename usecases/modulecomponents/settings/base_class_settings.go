@@ -91,6 +91,10 @@ func (s BaseClassSettings) PropertyIndexed(propName string) bool {
 	return !asBool
 }
 
+func (s BaseClassSettings) hasSourceProperties() bool {
+	return s.cfg != nil && len(s.Properties()) > 0
+}
+
 func (s BaseClassSettings) VectorizePropertyName(propName string) bool {
 	if s.cfg == nil {
 		return DefaultVectorizePropertyName
@@ -291,8 +295,24 @@ func (s BaseClassSettings) isPropertyDataTypeSupported(dt string) bool {
 	case schema.DataTypeText, schema.DataTypeString, schema.DataTypeTextArray, schema.DataTypeStringArray:
 		return true
 	default:
-		return false
+		// do nothing
 	}
+	if s.hasSourceProperties() {
+		// include additional property types
+		switch schema.DataType(dt) {
+		case schema.DataTypeObject, schema.DataTypeObjectArray:
+			return true
+		case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeIntArray, schema.DataTypeNumberArray:
+			return true
+		case schema.DataTypeDate, schema.DataTypeDateArray:
+			return true
+		case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
+			return true
+		default:
+			// do nothing
+		}
+	}
+	return false
 }
 
 func ValidateSetting[T string | int64](value T, availableValues []T) bool {

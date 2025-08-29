@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	DefaultRQEnabled      = false
-	DefaultRQBits         = 8
-	DefaultRQRescoreLimit = 20
+	DefaultRQEnabled       = false
+	DefaultRQBits          = 8
+	DefaultRQRescoreLimit  = 20
+	DefaultBRQRescoreLimit = 512
 )
 
 type RQConfig struct {
@@ -34,8 +35,8 @@ func ValidateRQConfig(cfg RQConfig) error {
 	if !cfg.Enabled {
 		return nil
 	}
-	if cfg.Bits != 8 {
-		return errors.New("RQ bits must be 8")
+	if cfg.Bits != 8 && cfg.Bits != 1 {
+		return errors.New("RQ bits must be 8 or 1")
 	}
 
 	return nil
@@ -68,6 +69,10 @@ func parseRQMap(in map[string]interface{}, rq *RQConfig) error {
 		rq.RescoreLimit = v
 	}); err != nil {
 		return err
+	}
+
+	if rq.Bits == 1 && rqConfigMap["rescoreLimit"] == nil {
+		rq.RescoreLimit = DefaultBRQRescoreLimit
 	}
 
 	return nil
