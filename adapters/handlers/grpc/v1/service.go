@@ -39,6 +39,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
+var _NUMCPU = runtime.GOMAXPROCS(0)
+
 type Service struct {
 	pb.UnimplementedWeaviateServer
 	traverser            *traverser.Traverser
@@ -68,7 +70,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
 	batchQueuesHandler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.SendWg, shutdown.StreamWg, shutdown.ShutdownFinished, batchWriteQueues, batchReadQueues, logger)
 
-	numWorkers := runtime.GOMAXPROCS(0)
+	numWorkers := _NUMCPU
 	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, numWorkers, internalQueue, batchReadQueues, batchHandler, logger)
 	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, batchWriteQueues, internalQueue, logger)
 
