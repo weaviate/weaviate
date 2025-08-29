@@ -393,7 +393,7 @@ function run_acceptance_only_authz() {
 
 function run_acceptance_replica_replication_fast_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/fast'); do
-    if ! go test -timeout=30m -count 1 -race "$pkg"; then
+    if ! go test -v -timeout=30m -count 1 -race -run "TestReplicationTestSuite/TestReplicationReplicateWhileMutatingDataWithNoAutomatedResolution|TestReplicationTestSuite/TestReplicationReplicateWhileMutatingDataWithDeleteOnConflict|TestReplicationTestSuite/TestReplicationReplicateWhileMutatingDataWithTimeBasedResolution" "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi

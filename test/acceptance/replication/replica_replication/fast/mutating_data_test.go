@@ -138,6 +138,21 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	require.Nil(t, err, "failed to start replication for tenant %s from node %s to node %s", tenantName, sourceNode, targetNode)
 	opId := *res.Payload.ID
 
+	t.Log("Waiting for replication operation to start dehydrating")
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		res, err := helper.Client(t).Replication.ReplicationDetails(
+			replication.NewReplicationDetailsParams().WithID(opId),
+			nil,
+		)
+		require.Nil(t, err, "failed to get replication operation %s", opId)
+		fmt.Println(time.Now(), "NATEE waiting for dehydrating state", res.Payload.Status.State)
+		assert.True(ct, res.Payload.Status.State == models.ReplicationReplicateDetailsReplicaStatusStateDEHYDRATING, "replication operation not yet dehydrating")
+	}, 300*time.Second, 1*time.Second, "replication operations did not start dehydrating in time")
+
+	fmt.Println(time.Now(), "NATEE waiting for 20 seconds")
+	time.Sleep(20 * time.Second)
+	fmt.Println(time.Now(), "NATEE 20 seconds done")
+
 	t.Log("Waiting for replication operation to complete")
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		res, err := helper.Client(t).Replication.ReplicationDetails(
@@ -145,8 +160,11 @@ func test(suite *ReplicationTestSuite, strategy string) {
 			nil,
 		)
 		require.Nil(t, err, "failed to get replication operation %s", opId)
+		fmt.Println(time.Now(), "NATEE waiting for ready state", res.Payload.Status.State)
 		assert.True(ct, res.Payload.Status.State == models.ReplicationReplicateDetailsReplicaStatusStateREADY, "replication operation not completed yet")
 	}, 300*time.Second, 5*time.Second, "replication operations did not complete in time")
+
+	fmt.Println(time.Now(), "NATEE ready")
 
 	t.Log("Replication operation completed successfully, cancelling data mutation")
 	cancel() // stop mutating to allow the verification to proceed
@@ -184,21 +202,22 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	// Verify that all replicas have the same number of objects
 	t.Log("Verifying object counts across replicas")
 	for node, count := range objectCountByReplica {
-		if node == sourceNode {
-			// skip the source node as it may have stop receiving updates after it was removed from the replicaset
-			continue
-		}
-		if node == targetNode {
-			// skip the target node as it is used as a baseline for comparison
-			continue
-		}
+		// if node == sourceNode {
+		// 	// skip the source node as it may have stop receiving updates after it was removed from the replicaset
+		// 	continue
+		// }
+		// if node == targetNode {
+		// 	// skip the target node as it is used as a baseline for comparison
+		// 	continue
+		// }
 
 		t.Logf("Node %s has %d objects for tenant %s", node, count, tenantName)
+		assert.Equal(t, objectCountByReplica[nodeNames[0]], count, "object count mismatch for tenant %s on node %s", tenantName, node)
 
-		// target node may have more objects given deletion requests may have not reached target node and
-		// deletions to be resolved requires async replication to be enabled
-		require.GreaterOrEqual(t, objectCountByReplica[targetNode], count,
-			"object count mismatch for tenant %s on node %s", tenantName, node)
+		// // target node may have more objects given deletion requests may have not reached target node and
+		// // deletions to be resolved requires async replication to be enabled
+		// require.GreaterOrEqual(t, objectCountByReplica[targetNode], count,
+		// 	"object count mismatch for tenant %s on node %s", tenantName, node)
 	}
 }
 
