@@ -188,6 +188,11 @@ func getCommitFiles(rootPath, id string, createdAfter int64) ([]os.DirEntry, err
 		return nil, errors.Wrap(err, "clean up tmp combining files")
 	}
 
+	files, err = removeTmpCondenseFiles(dir, files)
+	if err != nil {
+		return nil, errors.Wrap(err, "clean up tmp condensed files")
+	}
+
 	if createdAfter > 0 {
 		files, err = filterNewerCommitLogFiles(files, createdAfter)
 		if err != nil {
@@ -240,6 +245,11 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 		files, err = removeTmpCombiningFiles(dirPath, files)
 		if err != nil {
 			return "", false, errors.Wrap(err, "clean up tmp combining files")
+		}
+
+		files, err = removeTmpCondenseFiles(dirPath, files)
+		if err != nil {
+			return "", false, errors.Wrap(err, "clean up tmp condensed files")
 		}
 	}
 
@@ -297,6 +307,22 @@ func skipEmptyFiles(in []os.DirEntry) ([]os.DirEntry, error) {
 			continue
 		}
 		out[i] = entry
+		i++
+	}
+	return out[:i], nil
+}
+
+func removeTmpCondenseFiles(dirPath string, in []os.DirEntry) ([]os.DirEntry, error) {
+	out := make([]os.DirEntry, len(in))
+	i := 0
+	for _, info := range in {
+		if strings.HasSuffix(info.Name(), ".condensed.tmp") {
+			if err := os.Remove(filepath.Join(dirPath, info.Name())); err != nil {
+				return out, errors.Wrap(err, "remove tmp condensed file")
+			}
+			continue
+		}
+		out[i] = info
 		i++
 	}
 	return out[:i], nil
