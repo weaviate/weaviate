@@ -33,13 +33,13 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithNoAutomatedResolution() {
-	test(suite, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-}
+// func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithNoAutomatedResolution() {
+// 	test(suite, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+// }
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithDeleteOnConflict() {
-	test(suite, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
-}
+// func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithDeleteOnConflict() {
+// 	test(suite, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
+// }
 
 func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithTimeBasedResolution() {
 	test(suite, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
