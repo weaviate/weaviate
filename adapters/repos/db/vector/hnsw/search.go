@@ -238,8 +238,10 @@ func (h *hnsw) populateAcornCandidates(acornSlices *acornSlices, candidateNode *
 	realLen := 0
 	index := 0
 
+	candidateNode.Lock()
 	pendingNextRound = pendingNextRound[:candidateNode.connections.LenAtLayer(uint8(level))]
 	pendingNextRound = candidateNode.connections.CopyLayer(pendingNextRound, uint8(level))
+	candidateNode.Unlock()
 	hop := 1
 	maxHops := 2
 	for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
@@ -293,7 +295,9 @@ func (h *hnsw) populateAcornCandidates(acornSlices *acornSlices, candidateNode *
 			if node == nil {
 				continue
 			}
+			node.Lock()
 			iterator := node.connections.ElementIterator(uint8(level))
+			node.Unlock()
 			for iterator.Next() {
 				_, expId := iterator.Current()
 				if visitedExp.Visited(expId) {
@@ -465,10 +469,11 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				connectionsReusable = connectionsReusable[:candidateNode.connections.LenAtLayer(uint8(level))]
 			}
 			connectionsReusable = candidateNode.connections.CopyLayer(connectionsReusable, uint8(level))
+			candidateNode.Unlock()
 		} else {
+			candidateNode.Unlock()
 			connectionsReusable = h.populateAcornCandidates(&acornSlices, candidateNode, level, isMultivec, allowList, visited)
 		}
-		candidateNode.Unlock()
 
 		for _, neighborID := range connectionsReusable {
 			if ok := visited.Visited(neighborID); ok {
@@ -758,12 +763,12 @@ func (h *hnsw) setStrategy(entryPointID uint64, allowList helpers.AllowList, isM
 						counter++
 					}
 				}
-				entryPointNode.Unlock()
-				if counter/float32(h.nodes[entryPointID].connections.LenAtLayer(0)) > float32(h.acornFilterRatio) {
+				if counter/float32(entryPointNode.connections.LenAtLayer(0)) > float32(h.acornFilterRatio) {
 					strategy = RRE
 				} else {
 					strategy = ACORN
 				}
+				entryPointNode.Unlock()
 			}
 		}
 	} else {
@@ -794,7 +799,9 @@ func (h *hnsw) plantSeeds(strategy FilterStrategy, allowList helpers.AllowList, 
 			return errors.Wrap(err, "knn search: smart seeeding")
 		}
 
+		h.nodes[candidate].Lock()
 		h.nodes[candidate].connections.CopyLayer(connsSlice.Slice, 0)
+		h.nodes[candidate].Unlock()
 		for _, nn := range connsSlice.Slice {
 			if visited.Visited(nn) {
 				continue
