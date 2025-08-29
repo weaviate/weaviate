@@ -37,6 +37,7 @@ func NewScheduler(writeQueues *WriteQueues, internalQueue internalQueue, logger 
 
 func (s *Scheduler) Loop(ctx context.Context) {
 	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():

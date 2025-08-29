@@ -33,11 +33,14 @@ type QueuesHandler struct {
 	shutdownFinished chan struct{}
 }
 
+const POLLING_INTERVAL = 100 * time.Millisecond
+
 func NewQueuesHandler(shuttingDownCtx context.Context, sendWg, streamWg *sync.WaitGroup, shutdownFinished chan struct{}, writeQueues *WriteQueues, readQueues *ReadQueues, logger logrus.FieldLogger) *QueuesHandler {
 	// Poll until the batch logic starts shutting down
 	// Then wait for all BatchSend requests to finish and close all the write queues
 	// Scheduler will then drain the write queues expecting the channels to be closed
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(POLLING_INTERVAL)
+	defer ticker.Stop()
 	enterrors.GoWrapper(func() {
 		for {
 			select {
@@ -64,7 +67,8 @@ func NewQueuesHandler(shuttingDownCtx context.Context, sendWg, streamWg *sync.Wa
 }
 
 func (h *QueuesHandler) wait(ctx context.Context) error {
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(POLLING_INTERVAL)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -344,8 +348,8 @@ type WriteQueue struct {
 //   - usageRatio = 0.9 -> 4.22s
 //   - usageRatio = 1.0 -> 10s
 func (w *WriteQueue) thresholdCubicBackoff(usageRatio float32) float32 {
-	b := float32(10.0) // Adjust this value as needed, defines maximum backoff in seconds
-	return b * float32(math.Pow(float64(max(0, (usageRatio-0.6)/0.4)), 3))
+	maximumBackoffSeconds := float32(10.0) // Adjust this value as needed, defines maximum backoff in seconds
+	return maximumBackoffSeconds * float32(math.Pow(float64(max(0, (usageRatio-0.6)/0.4)), 3))
 }
 
 func (w *WriteQueue) NextBatch(batchSize int) (int32, float32) {

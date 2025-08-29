@@ -14,8 +14,7 @@ package v1
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
+	"runtime"
 	"time"
 
 	"github.com/google/uuid"
@@ -69,17 +68,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
 	batchQueuesHandler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.SendWg, shutdown.StreamWg, shutdown.ShutdownFinished, batchWriteQueues, batchReadQueues, logger)
 
-	var numWorkers int
-	numWorkersStr := os.Getenv("GRPC_BATCH_WORKERS_COUNT")
-	if numWorkersStr != "" {
-		x, err := strconv.Atoi(numWorkersStr)
-		if err == nil {
-			numWorkers = x
-		}
-	} else {
-		numWorkers = 4
-	}
-
+	numWorkers := runtime.GOMAXPROCS(0)
 	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, numWorkers, internalQueue, batchReadQueues, batchHandler, logger)
 	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, batchWriteQueues, internalQueue, logger)
 
@@ -303,7 +292,7 @@ func (s *Service) BatchSend(ctx context.Context, req *pb.BatchSendRequest) (*pb.
 func (s *Service) BatchStream(req *pb.BatchStreamRequest, stream pb.Weaviate_BatchStreamServer) error {
 	id, err := uuid.NewRandom()
 	if err != nil {
-		return err
+		return fmt.Errorf("stream ID generation failed: %w", err)
 	}
 	streamId := id.String()
 	s.batchQueuesHandler.Setup(streamId, req)
