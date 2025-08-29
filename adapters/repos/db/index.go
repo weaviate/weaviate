@@ -28,7 +28,6 @@ import (
 	"time"
 
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
-	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -76,7 +75,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 )
 
 var (
@@ -1521,28 +1519,9 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	// Start tracing span for object search
-	ctx, span := opentelemetry.StartSpan(ctx, "object_search")
-	defer span.End()
-
-	// Add search attributes
-	opentelemetry.SetAttributes(ctx,
-		attribute.Int("weaviate.search.limit", limit),
-		attribute.String("weaviate.search.tenant", tenant),
-		attribute.Int("weaviate.search.auto_cut", autoCut),
-		attribute.Int("weaviate.search.properties_count", len(properties)),
-	)
-	if filters != nil {
-		opentelemetry.SetAttributes(ctx, attribute.Bool("weaviate.search.has_filters", true))
-	}
-	if keywordRanking != nil {
-		opentelemetry.SetAttributes(ctx, attribute.String("weaviate.search.keyword_ranking_type", keywordRanking.Type))
-	}
-
 	cl := i.consistencyLevel(replProps)
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
-		opentelemetry.RecordError(ctx, err)
 		return nil, nil, err
 	}
 
@@ -1641,23 +1620,10 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	if i.anyShardHasMultipleReplicasRead(tenant, readPlan.Shards()) {
-		// Start tracing span for consistency check
-		consistencyCtx, consistencySpan := opentelemetry.StartSpan(ctx, "consistency_check")
-		defer consistencySpan.End()
-
-		opentelemetry.SetAttributes(consistencyCtx,
-			attribute.String("weaviate.consistency.level", string(cl)),
-			attribute.Int("weaviate.consistency.objects_count", len(outObjects)),
-			attribute.Int("weaviate.consistency.shards_count", len(readPlan.Shards())),
-		)
-
-		err = i.replicator.CheckConsistency(consistencyCtx, cl, outObjects)
+		err = i.replicator.CheckConsistency(ctx, cl, outObjects)
 		if err != nil {
-			opentelemetry.RecordError(consistencyCtx, err)
 			i.logger.WithField("action", "object_search").
 				Errorf("failed to check consistency of search results: %v", err)
-		} else {
-			opentelemetry.SetAttributes(consistencyCtx, attribute.Bool("weaviate.consistency.success", true))
 		}
 	}
 
@@ -1668,17 +1634,6 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, tenant string, shards []string, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	// Start tracing span for shard search
-	ctx, span := opentelemetry.StartSpan(ctx, "object_search_by_shard")
-	defer span.End()
-
-	opentelemetry.SetAttributes(ctx,
-		attribute.Int("weaviate.shard_search.limit", limit),
-		attribute.String("weaviate.shard_search.tenant", tenant),
-		attribute.Int("weaviate.shard_search.shards_count", len(shards)),
-		attribute.Int("weaviate.shard_search.properties_count", len(properties)),
-	)
-
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
@@ -1688,15 +1643,6 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		shardName := shardName
 
 		eg.Go(func() error {
-			// Start tracing span for individual shard search
-			shardCtx, shardSpan := opentelemetry.StartSpan(ctx, "shard_search")
-			defer shardSpan.End()
-
-			opentelemetry.SetAttributes(shardCtx,
-				attribute.String("weaviate.shard.name", shardName),
-				attribute.String("weaviate.shard.tenant", tenant),
-			)
-
 			var (
 				objs     []*storobj.Object
 				scores   []float32
@@ -1704,37 +1650,28 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				err      error
 			)
 
-			shard, release, err := i.getShardForDirectLocalOperation(shardCtx, tenant, shardName, localShardOperationRead)
+			shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead)
 			defer release()
 			if err != nil {
-				opentelemetry.RecordError(shardCtx, err)
 				return err
 			}
 
 			if shard != nil {
-				// Local shard search
-				opentelemetry.SetAttributes(shardCtx, attribute.Bool("weaviate.shard.local", true))
-
-				localCtx := helpers.InitSlowQueryDetails(shardCtx)
+				localCtx := helpers.InitSlowQueryDetails(ctx)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
 				if err != nil {
-					opentelemetry.RecordError(shardCtx, err)
 					return fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err)
 				}
 				nodeName = i.getSchema.NodeName()
 			} else {
-				// Remote shard search
-				opentelemetry.SetAttributes(shardCtx, attribute.Bool("weaviate.shard.remote", true))
-
 				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
 
 				objs, scores, nodeName, err = i.remote.SearchShard(
-					shardCtx, shardName, nil, nil, 0, limit, filters, keywordRanking,
+					ctx, shardName, nil, nil, 0, limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, nil, properties)
 				if err != nil {
-					opentelemetry.RecordError(shardCtx, err)
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err)
 				}
