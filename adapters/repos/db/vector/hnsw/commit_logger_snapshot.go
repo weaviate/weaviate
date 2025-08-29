@@ -62,6 +62,9 @@ func snapshotDirectory(rootPath, name string) string {
 
 // Loads state of last available snapshot. Returns nil if no snaphshot was found.
 func (l *hnswCommitLogger) LoadSnapshot() (state *DeserializationResult, createdAt int64, err error) {
+	l.snapshotLock.Lock()
+	defer l.snapshotLock.Unlock()
+
 	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "load_snapshot"})
 	defer func() { onFinish(err) }()
 
@@ -87,6 +90,9 @@ func (l *hnswCommitLogger) LoadSnapshot() (state *DeserializationResult, created
 // or from the entire commit log if there is no previous snapshot.
 // The snapshot state contains all but last commitlog (may still be in use and mutable).
 func (l *hnswCommitLogger) CreateSnapshot() (created bool, createdAt int64, err error) {
+	l.snapshotLock.Lock()
+	defer l.snapshotLock.Unlock()
+
 	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "create_snapshot"})
 	defer func() { onFinish(err) }()
 
@@ -98,6 +104,9 @@ func (l *hnswCommitLogger) CreateSnapshot() (created bool, createdAt int64, err 
 // last snapshot. It is used at startup to automatically create a snapshot
 // while loading the commit log, to avoid having to load the commit log again.
 func (l *hnswCommitLogger) CreateAndLoadSnapshot() (state *DeserializationResult, createdAt int64, err error) {
+	l.snapshotLock.Lock()
+	defer l.snapshotLock.Unlock()
+
 	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "create_and_load_snapshot"})
 	defer func() { onFinish(err) }()
 
