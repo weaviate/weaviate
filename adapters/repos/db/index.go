@@ -344,7 +344,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		vectorIndexUserConfigs:  vectorIndexUserConfigs,
 		stopwords:               sd,
 		partitioningEnabled:     shardState.PartitioningEnabled,
-		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
+		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient, router),
 		metrics:                 NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
 		centralJobQueue:         jobQueueCh,
 		shardTransferMutex:      shardTransfer{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
@@ -822,6 +822,7 @@ func (i *Index) determineObjectShardByStatus(ctx context.Context, id strfmt.UUID
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) error {
+	fmt.Println(time.Now(), "NATEE putObject", object.ID().String())
 	if err := i.validateMultiTenancy(object.Object.Tenant); err != nil {
 		return err
 	}
@@ -972,6 +973,9 @@ const (
 // The shard will be nil if the shard is not found, or if the local shard should not be used.
 // The caller should always call the release function.
 func (i *Index) getShardForDirectLocalOperation(ctx context.Context, shardName string, operation localShardOperation) (ShardLike, func(), error) {
+	// if operation == localShardOperationRead {
+	// 	fmt.Println(time.Now(), "NATEE getShardForDirectLocalOperation read called", shardName, operation)
+	// }
 	shard, release, err := i.GetShard(ctx, shardName)
 	// NOTE release should always be ok to call, even if there is an error or the shard is nil,
 	// see Index.getOptInitLocalShard for more details.
@@ -994,6 +998,7 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, shardName s
 		}
 	case localShardOperationRead:
 		replicaSet, err = i.router.GetReadReplicasLocation(i.Config.ClassName.String(), shardName)
+		// fmt.Println(time.Now(), "NATEE getShardForDirectLocalOperation read replicas location", shardName, replicaSet.NodeNames(), i.replicator.LocalNodeName(), err)
 		if err != nil {
 			return shard, release, nil
 		}
@@ -1102,6 +1107,19 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
+	objIDs := []string{}
+	if len(objects) <= 21 {
+		for _, obj := range objects {
+			objIDs = append(objIDs, obj.ID().String())
+		}
+	} else {
+		fmt.Println(time.Now(), "NATEE putObjectBatch", len(objects), "objects")
+		for i := 0; i < 21; i++ {
+			objIDs = append(objIDs, objects[i].ID().String())
+		}
+	}
+	fmt.Println(time.Now(), "NATEE putObjectBatch", objIDs)
+
 	type objsAndPos struct {
 		objects []*storobj.Object
 		pos     []int
@@ -1524,6 +1542,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 	} else {
 		exists, err = i.remote.Exists(ctx, shardName, id)
 		if err != nil {
+			// TODO
 			owner, _ := i.getSchema.ShardOwner(i.Config.ClassName.String(), shardName)
 			err = fmt.Errorf("exists remotely: shard=%q owner=%q: %w", shardName, owner, err)
 		}
@@ -1553,6 +1572,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	fmt.Println(time.Now(), "NATEE objectSearch", limit, "limit", tenant, "tenant")
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}
@@ -1691,7 +1711,9 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				err      error
 			)
 
+			// fmt.Println(time.Now(), "NATEE objectSearchByShard before getShard", shardName)
 			shard, release, err := i.getShardForDirectLocalOperation(ctx, shardName, localShardOperationRead)
+			// fmt.Println(time.Now(), "NATEE objectSearchByShard after getShard", shardName, shard, err)
 			defer release()
 			if err != nil {
 				return err
@@ -2112,6 +2134,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	deletionTime time.Time, replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
+	fmt.Println(time.Now(), "NATEE deleteObject", id.String())
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return err
 	}
@@ -2129,10 +2152,12 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	}
 
 	if i.shardHasMultipleReplicasWrite(shardName) {
+		// fmt.Println(time.Now(), "NATEE deleteObject has multiple replicas write", id.String())
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
 		cl := types.ConsistencyLevel(replProps.ConsistencyLevel)
+		// fmt.Println(time.Now(), "NATEE deleteObject replicator", id.String(), cl)
 		if err := i.replicator.DeleteObject(ctx, shardName, id, deletionTime, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate deletion: shard=%q %w", shardName, err)
 		}

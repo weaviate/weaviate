@@ -535,6 +535,7 @@ func (c *CopyOpConsumer) processRegisteredOp(ctx context.Context, op ShardReplic
 // processHydratingOp is the state handler for the HYDRATING state.
 // It copies the replica shard from the source node to the target node using file copy opetaitons and then transitions the operation to the FINALIZING state.
 func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+	fmt.Println(time.Now(), "NATEE processHydratingOp")
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing hydrating replication operation")
 
@@ -584,6 +585,7 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 // processFinalizingOp is the state handler for the FINALIZING state.
 // It updates the sharding state and then transitions the operation to the READY state.
 func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+	fmt.Println(time.Now(), "NATEE processFinalizingOp")
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing finalizing replication operation")
 
@@ -618,7 +620,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	// this time will be used to make sure async replication has propagated any writes which
 	// were received during the hydrating phase
-	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(time.Second * 5).UnixMilli()
+	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
 	overrides := newOverrides(op, asyncReplicationUpperTimeBoundUnixMillis)
 	if err := c.startAsyncReplication(ctx, op, overrides, logger); err != nil {
 		return api.ShardReplicationState(""), err
@@ -650,6 +652,29 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 				return api.ShardReplicationState(""), err
 			}
 		}
+
+		// this time will be used to make sure async replication has propagated any writes which
+		// were received between the end of the first waitForAsyncReplication and adding the replica to the shard
+		asyncReplicationUpperTimeBoundUnixMillis = time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
+		overrides = newOverrides(op, asyncReplicationUpperTimeBoundUnixMillis)
+		if err := c.startAsyncReplication(ctx, op, overrides, logger); err != nil {
+			return api.ShardReplicationState(""), err
+		}
+
+		if ctx.Err() != nil {
+			logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
+			return api.ShardReplicationState(""), ctx.Err()
+		}
+
+		if err := c.waitForAsyncReplication(ctx, op, asyncReplicationUpperTimeBoundUnixMillis, logger); err != nil {
+			logger.WithError(err).Error("failure while waiting for async replication to complete while finalizing")
+			return api.ShardReplicationState(""), err
+		}
+	}
+
+	if ctx.Err() != nil {
+		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
+		return api.ShardReplicationState(""), ctx.Err()
 	}
 
 	switch op.Op.TransferType {
@@ -671,6 +696,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 // processDehydratingOp is the state handler for the DEHYDRATING state.
 func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+	fmt.Println(time.Now(), "NATEE processDehydratingOp")
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing dehydrating replication operation")
 
