@@ -39,8 +39,9 @@ func NewQueuesHandler(shuttingDownCtx context.Context, sendWg, streamWg *sync.Wa
 	// Poll until the batch logic starts shutting down
 	// Then wait for all BatchSend requests to finish and close all the write queues
 	// Scheduler will then drain the write queues expecting the channels to be closed
-	ticker := time.NewTicker(POLLING_INTERVAL)
+
 	enterrors.GoWrapper(func() {
+		ticker := time.NewTicker(POLLING_INTERVAL)
 		defer ticker.Stop()
 		for {
 			select {
