@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
@@ -30,7 +31,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 	})
 
 	v := distancer.Normalize(vector)
-	compressed := s.Quantizer.Encode(v)
+	compressed := compressionhelpers.RQCode(s.Quantizer.Encode(v)).Bytes()
 
 	return s.addOne(ctx, id, compressed)
 }
@@ -61,34 +62,19 @@ func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float3
 // addOne adds a vector into one or more postings.
 // The number of replicas is determined by the UserConfig.Replicas setting.
 func (s *SPFresh) addOne(ctx context.Context, id uint64, vector []byte) error {
+	// TODO can this ever return 0 replicas even if a posting/centroid already exists?
 	replicas, _, err := s.selectReplicas(vector, 0)
 	if err != nil {
 		return err
 	}
 	s.VersionMap.AllocPageFor(id)
 	v := NewVector(id, s.VersionMap.Get(id), vector)
-	// if there are no postings, create a new one
+	// if there are no postings found, ensure an initial posting is created
 	if len(replicas) == 0 {
-		postingID := s.IDs.Next()
-		posting := Posting{
-			vectorSize: int(s.vectorSize),
-			data:       v,
-		}
-		// persist the new posting first
-		err = s.Store.Put(ctx, postingID, &posting)
+		replicas, err = s.ensureInitialPosting(ctx, v)
 		if err != nil {
-			return errors.Wrapf(err, "failed to persist new posting %d", postingID)
+			return err
 		}
-		s.PostingSizes.AllocPageFor(postingID)
-		s.PostingSizes.Set(postingID, 1)
-
-		// use the vector as the centroid and register it in the SPTAG
-		err = s.SPTAG.Upsert(postingID, vector)
-		if err != nil {
-			return errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
-		}
-		replicas = append(replicas, postingID)
-		// return nil
 	}
 
 	for _, replica := range replicas {
@@ -99,6 +85,32 @@ func (s *SPFresh) addOne(ctx context.Context, id uint64, vector []byte) error {
 	}
 
 	return nil
+}
+
+// ensureInitialPosting creates a new posting for Vector v if no replicas are found and ensures
+// using a critical section to avoid multiple initial postings being created concurrently.
+func (s *SPFresh) ensureInitialPosting(ctx context.Context, v Vector) ([]uint64, error) {
+	s.initialPostingLock.Lock()
+	defer s.initialPostingLock.Unlock()
+
+	// check if a posting was created concurrently
+	replicas, _, err := s.selectReplicas(v.Data(), 0)
+	if err != nil {
+		return nil, err
+	}
+	// if no replicas were found, create a new posting while holding the lock
+	if len(replicas) == 0 {
+		postingID := s.IDs.Next()
+		s.PostingSizes.AllocPageFor(postingID)
+		// use the vector as the centroid and register it in the SPTAG
+		err = s.SPTAG.Upsert(postingID, v.Data())
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
+		}
+		// return the new posting ID
+		replicas = append(replicas, postingID)
+	}
+	return replicas, nil
 }
 
 // append adds a vector to the specified posting.

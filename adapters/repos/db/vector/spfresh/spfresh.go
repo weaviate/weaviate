@@ -79,6 +79,8 @@ type SPFresh struct {
 	vectorSize          int32 // Size of the compressed vectors in bytes
 	trackDimensionsOnce sync.Once
 	distancer           distancer.Provider
+
+	initialPostingLock *sync.Mutex
 }
 
 func (s *SPFresh) Start(ctx context.Context) {

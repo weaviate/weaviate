@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -52,7 +53,7 @@ func Test_SPFresh_Add_Search(t *testing.T) {
 	storeBucketName := "bucket"
 	distancer := distancer.NewCosineDistanceProvider()
 	quantizer := compressionhelpers.NewRotationalQuantizer(vectorSize, 42, 8, distancer)
-	bytesInRqOutput := 80
+	bytesInRqOutput := quantizer.OutputDimension()
 	lsmStore, err := NewLSMStore(store, int32(bytesInRqOutput), storeBucketName)
 	require.NoError(t, err)
 	pages := uint64(512)
@@ -61,16 +62,17 @@ func Test_SPFresh_Add_Search(t *testing.T) {
 	idGenerator := common.NewUint64Counter(0)
 	sptag := NewBruteForceSPTAG(quantizer)
 	spfresh := SPFresh{
-		Logger:       logrus.NewEntry(logger),
-		UserConfig:   &userConfig,
-		SPTAG:        sptag,
-		Store:        lsmStore,
-		VersionMap:   versionMap,
-		IDs:          idGenerator,
-		PostingSizes: NewPostingSizes(pages, pageSize),
-		Quantizer:    quantizer,
-		Distancer:    distancer,
-		vectorSize:   int32(bytesInRqOutput),
+		Logger:             logrus.NewEntry(logger),
+		UserConfig:         &userConfig,
+		SPTAG:              sptag,
+		Store:              lsmStore,
+		VersionMap:         versionMap,
+		IDs:                idGenerator,
+		PostingSizes:       NewPostingSizes(pages, pageSize),
+		Quantizer:          quantizer,
+		Distancer:          distancer,
+		vectorSize:         int32(bytesInRqOutput),
+		initialPostingLock: &sync.Mutex{},
 	}
 	ctx := t.Context()
 	spfresh.Start(ctx)

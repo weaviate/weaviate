@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -25,7 +26,7 @@ import (
 func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	vector = distancer.Normalize(vector)
 
-	queryVector := s.Quantizer.Encode(vector)
+	queryVector := compressionhelpers.RQCode(s.Quantizer.Encode(vector)).Bytes()
 
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
