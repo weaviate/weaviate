@@ -19,6 +19,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -49,8 +50,11 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "read commit log to be condensed")
 	}
 
-	newLogFile, err := os.OpenFile(fmt.Sprintf("%s.condensed", fileName),
-		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	/*newLogFile, err := os.OpenFile(fmt.Sprintf("%s.condensed", fileName),
+	os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)*/
+	tmpName := fmt.Sprintf("%s.condensed.tmp", fileName)
+	newLogFile, err := os.OpenFile(tmpName,
+		os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return errors.Wrap(err, "open new commit log file for writing")
 	}
@@ -161,14 +165,28 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "close new commit log")
 	}
 
+	if err := newLogFile.Sync(); err != nil {
+		return errors.Wrap(err, "fsync new commit log")
+	}
+
 	if err := c.newLogFile.Close(); err != nil {
 		return errors.Wrap(err, "close new commit log")
+	}
+
+	if err := os.Rename(tmpName, fmt.Sprintf("%s.condensed", fileName)); err != nil {
+		return errors.Wrap(err, "atomic rename of condensed file")
+	}
+
+	dir := filepath.Dir(fileName)
+	dfd, err := os.Open(dir)
+	if err == nil {
+		_ = dfd.Sync()
+		_ = dfd.Close()
 	}
 
 	if err := os.Remove(fileName); err != nil {
 		return errors.Wrap(err, "cleanup old (uncondensed) commit log")
 	}
-
 	return nil
 }
 
