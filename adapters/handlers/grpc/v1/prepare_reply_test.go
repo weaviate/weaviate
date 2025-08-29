@@ -13,7 +13,6 @@ package v1
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"math"
 	"math/big"
 	"strings"
@@ -36,23 +35,12 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	addModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
 	UUID1 = strfmt.UUID("a4de3ca0-6975-464f-b23b-adddd83630d7")
 	UUID2 = strfmt.UUID("7e10ec81-a26d-4ac7-8264-3e3e05397ddc")
 )
-
-func newStruct(t *testing.T, values map[string]interface{}) *structpb.Struct {
-	b, err := json.Marshal(values)
-	require.Nil(t, err)
-	s := &structpb.Struct{}
-	err = protojson.Unmarshal(b, s)
-	require.Nil(t, err)
-	return s
-}
 
 func byteVector(vec []float32) []byte {
 	vector := make([]byte, len(vec)*4)
