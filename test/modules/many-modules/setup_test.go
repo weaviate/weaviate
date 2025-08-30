@@ -64,7 +64,6 @@ func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCom
 
 func createSingleNodeEnvironmentWithEnabledApiBasedModules(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
-		WithWeaviateEnv("ENABLE_API_BASED_MODULES", "true").
 		WithWeaviate().
 		Start(ctx)
 	return
@@ -79,6 +78,7 @@ func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompos
 
 func composeModules() (composeModules *docker.Compose) {
 	composeModules = docker.New().
+		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
 		WithText2VecContextionary().
 		WithText2VecTransformers().
 		WithText2VecOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).

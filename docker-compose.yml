@@ -109,7 +109,7 @@ services:
     ports:
       - "8011:8080"
   text2vec-model2vec:
-    image: semitechnologies/model2vec-inference:minishlab-potion-base-32M
+    image: semitechnologies/model2vec-inference:minishlab-potion-retrieval-32M
     ports:
       - "8012:8080"
   backup-s3:

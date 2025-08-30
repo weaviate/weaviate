@@ -34,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
-	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -47,7 +46,7 @@ type Builder struct {
 	partitioningEnabled  bool
 	nodeSelector         cluster.NodeSelector
 	schemaGetter         schema.SchemaGetter
-	schemaReader         schemaTypes.SchemaReader
+	schemaReader         schema.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
 }
 
@@ -68,7 +67,7 @@ func NewBuilder(
 	partitioningEnabled bool,
 	nodeSelector cluster.NodeSelector,
 	schemaGetter schema.SchemaGetter,
-	schemaReader schemaTypes.SchemaReader,
+	schemaReader schema.SchemaReader,
 	replicationFSMReader replicationTypes.ReplicationFSMReader,
 ) *Builder {
 	return &Builder{
@@ -109,7 +108,7 @@ func (b *Builder) Build() types.Router {
 // or no partitioning key).
 type singleTenantRouter struct {
 	collection           string
-	schemaReader         schemaTypes.SchemaReader
+	schemaReader         schema.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
 	nodeSelector         cluster.NodeSelector
 }
@@ -120,7 +119,7 @@ type singleTenantRouter struct {
 type multiTenantRouter struct {
 	collection           string
 	schemaGetter         schema.SchemaGetter
-	schemaReader         schemaTypes.SchemaReader
+	schemaReader         schema.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
 	nodeSelector         cluster.NodeSelector
 }
@@ -284,27 +283,26 @@ func (r *singleTenantRouter) getWriteReplicasLocation(collection string, tenant 
 }
 
 // targetShards returns either all shards or a single one, depending on the value of the shard parameter.
-func (r *singleTenantRouter) targetShards(collection, shard string) ([]string, error) {
-	shardingState := r.schemaReader.CopyShardingState(collection)
-	if shardingState == nil {
-		return []string{}, nil
+func (r *singleTenantRouter) targetShards(collection, shardName string) ([]string, error) {
+	shards, err := r.schemaReader.Shards(collection)
+	if err != nil {
+		return nil, err
 	}
-
-	if shard == "" {
-		return shardingState.AllPhysicalShards(), nil
+	if shardName == "" {
+		return shards, nil
 	}
 
 	found := false
-	for _, s := range shardingState.AllPhysicalShards() {
-		if s == shard {
+	for _, shard := range shards {
+		if shard == shardName {
 			found = true
 			break
 		}
 	}
 	if !found {
-		return nil, fmt.Errorf("error while trying to find shard: %s in collection: %s", shard, collection)
+		return nil, fmt.Errorf("error while trying to find shard: %s in collection: %s", shardName, collection)
 	}
-	return []string{shard}, nil
+	return []string{shardName}, nil
 }
 
 // readReplicasForShard gathers only read replicas for one shard.
@@ -360,8 +358,9 @@ func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildO
 	orderedReplicas := sort(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
 
 	plan := types.ReadRoutingPlan{
-		Shard:  params.Shard,
-		Tenant: params.Tenant,
+		LocalHostname: r.nodeSelector.LocalName(),
+		Shard:         params.Shard,
+		Tenant:        params.Tenant,
 		ReplicaSet: types.ReadReplicaSet{
 			Replicas: orderedReplicas,
 		},
@@ -611,8 +610,9 @@ func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOp
 	orderedReplicas := sort(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
 
 	return types.ReadRoutingPlan{
-		Shard:  params.Shard,
-		Tenant: params.Tenant,
+		LocalHostname: r.nodeSelector.LocalName(),
+		Shard:         params.Shard,
+		Tenant:        params.Tenant,
 		ReplicaSet: types.ReadReplicaSet{
 			Replicas: orderedReplicas,
 		},

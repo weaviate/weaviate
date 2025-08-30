@@ -18,6 +18,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+
 	logrus "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -32,9 +35,7 @@ import (
 	modulecapabilities "github.com/weaviate/weaviate/entities/modulecapabilities"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	backupusecase "github.com/weaviate/weaviate/usecases/backup"
-	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -55,22 +56,6 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	dimensionality := 1536
 	dimensionCount := 1000
 
-	mockSchema := schema.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{
-				{
-					Class:             className,
-					VectorIndexConfig: &hnsw.UserConfig{},
-					ReplicationConfig: &models.ReplicationConfig{
-						Factor: int64(replication),
-					},
-				},
-			},
-		},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
-
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{
 			"": {
@@ -81,14 +66,27 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 		},
 	}
 	shardingState.SetLocalName(nodeName)
-	mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+		{
+			Class:             className,
+			VectorIndexConfig: &hnsw.UserConfig{},
+			ReplicationConfig: &models.ReplicationConfig{
+				Factor: int64(replication),
+			},
+		},
+	}}).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardingState)
+	}).Maybe()
 
 	mockDB := db.NewMockIndexGetter(t)
 	mockIndex := db.NewMockIndexLike(t)
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
-	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
+	mockShard.EXPECT().GetStatus().Return(storagestate.StatusReady)
 	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -116,7 +114,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+	service := NewService(mockSchemaReader, mockDB, mockBackupProvider, nodeName, logger)
 
 	result, err := service.Usage(ctx)
 
@@ -148,7 +146,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	assert.Equal(t, dimensionality, dim.Dimensions)
 	assert.Equal(t, dimensionCount, dim.Count)
 
-	mockSchema.AssertExpectations(t)
+	mockSchemaReader.AssertExpectations(t)
 	mockDB.AssertExpectations(t)
 	mockIndex.AssertExpectations(t)
 	mockShard.AssertExpectations(t)
@@ -177,21 +175,6 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	dimensionality := 1536
 	dimensionCount := 1500
 
-	mockSchema := schema.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{
-				{
-					Class:              className,
-					VectorIndexConfig:  &hnsw.UserConfig{},
-					ReplicationConfig:  &models.ReplicationConfig{Factor: int64(replication)},
-					MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-				},
-			},
-		},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
-
 	shardingState := &sharding.State{
 		PartitioningEnabled: true,
 		Physical: map[string]sharding.Physical{
@@ -208,14 +191,27 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 		},
 	}
 	shardingState.SetLocalName(nodeName)
-	mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+		{
+			Class:             className,
+			VectorIndexConfig: &hnsw.UserConfig{},
+			ReplicationConfig: &models.ReplicationConfig{
+				Factor: int64(replication),
+			},
+		},
+	}}).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardingState)
+	}).Maybe()
 
 	mockDB := db.NewMockIndexGetter(t)
 	mockIndex := db.NewMockIndexLike(t)
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
-	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
+	mockShard.EXPECT().GetStatus().Return(storagestate.StatusReady)
 	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(hotObjectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(hotStorageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -248,7 +244,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+	service := NewService(mockSchemaReader, mockDB, mockBackupProvider, nodeName, logger)
 
 	result, err := service.Usage(ctx)
 
@@ -295,7 +291,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	assert.Equal(t, dimensionality, dim.Dimensions)
 	assert.Equal(t, dimensionCount, dim.Count)
 
-	mockSchema.AssertExpectations(t)
+	mockSchemaReader.AssertExpectations(t)
 	mockDB.AssertExpectations(t)
 	mockIndex.AssertExpectations(t)
 	mockShard.AssertExpectations(t)
@@ -318,12 +314,8 @@ func TestService_Usage_WithBackups(t *testing.T) {
 	class2 := "Class2"
 	class3 := "Class3"
 
-	mockSchema := schema.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{Classes: []*models.Class{}},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
-
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{}}).Maybe()
 	mockDB := db.NewMockIndexGetter(t)
 
 	mockBackupBackend := modulecapabilities.NewMockBackupBackend(t)
@@ -353,7 +345,7 @@ func TestService_Usage_WithBackups(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{mockBackupBackend})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+	service := NewService(mockSchemaReader, mockDB, mockBackupProvider, nodeName, logger)
 
 	result, err := service.Usage(ctx)
 
@@ -375,7 +367,7 @@ func TestService_Usage_WithBackups(t *testing.T) {
 	sort.Strings(expectedCollections)
 	assert.Equal(t, expectedCollections, collections)
 
-	mockSchema.AssertExpectations(t)
+	mockSchemaReader.AssertExpectations(t)
 	mockDB.AssertExpectations(t)
 	mockBackupProvider.AssertExpectations(t)
 	mockBackupBackend.AssertExpectations(t)
@@ -403,20 +395,6 @@ func TestService_Usage_WithNamedVectors(t *testing.T) {
 	imageDimensionality := 1024
 	dimensionCount := 2000
 
-	mockSchema := schema.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{
-				{
-					Class:             className,
-					VectorIndexConfig: &hnsw.UserConfig{},
-					ReplicationConfig: &models.ReplicationConfig{Factor: int64(replication)},
-				},
-			},
-		},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
-
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{
 			shardName: {
@@ -427,14 +405,28 @@ func TestService_Usage_WithNamedVectors(t *testing.T) {
 		},
 	}
 	shardingState.SetLocalName(nodeName)
-	mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+		{
+			Class:             className,
+			VectorIndexConfig: &hnsw.UserConfig{},
+			ReplicationConfig: &models.ReplicationConfig{
+				Factor: int64(replication),
+			},
+		},
+	}}).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardingState)
+	}).Maybe()
 
 	mockDB := db.NewMockIndexGetter(t)
 	mockIndex := db.NewMockIndexLike(t)
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
-	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
+	mockShard.EXPECT().GetStatus().Return(storagestate.StatusReady)
 	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -483,7 +475,7 @@ func TestService_Usage_WithNamedVectors(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+	service := NewService(mockSchemaReader, mockDB, mockBackupProvider, nodeName, logger)
 
 	result, err := service.Usage(ctx)
 
@@ -523,7 +515,7 @@ func TestService_Usage_WithNamedVectors(t *testing.T) {
 	assert.Equal(t, imageCompressionRatio, imageVector.VectorCompressionRatio)
 	assert.Len(t, imageVector.Dimensionalities, 1)
 
-	mockSchema.AssertExpectations(t)
+	mockSchemaReader.AssertExpectations(t)
 	mockDB.AssertExpectations(t)
 	mockIndex.AssertExpectations(t)
 	mockShard.AssertExpectations(t)
@@ -541,19 +533,15 @@ func TestService_Usage_EmptyCollections(t *testing.T) {
 
 	nodeName := "test-node"
 
-	mockSchema := schema.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{Classes: []*models.Class{}},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
-
 	mockDB := db.NewMockIndexGetter(t)
 
 	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{}}).Maybe()
+	service := NewService(mockSchemaReader, mockDB, mockBackupProvider, nodeName, logger)
 
 	result, err := service.Usage(ctx)
 
@@ -563,7 +551,7 @@ func TestService_Usage_EmptyCollections(t *testing.T) {
 	assert.Len(t, result.Collections, 0)
 	assert.Len(t, result.Backups, 0)
 
-	mockSchema.AssertExpectations(t)
+	mockSchemaReader.AssertExpectations(t)
 	mockDB.AssertExpectations(t)
 	mockBackupProvider.AssertExpectations(t)
 }
@@ -573,12 +561,8 @@ func TestService_Usage_BackupError(t *testing.T) {
 
 	nodeName := "test-node"
 
-	mockSchema := schema.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{Classes: []*models.Class{}},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
-
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{}}).Maybe()
 	mockDB := db.NewMockIndexGetter(t)
 
 	mockBackupBackend := modulecapabilities.NewMockBackupBackend(t)
@@ -588,14 +572,14 @@ func TestService_Usage_BackupError(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{mockBackupBackend})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+	service := NewService(mockSchemaReader, mockDB, mockBackupProvider, nodeName, logger)
 
 	_, err := service.Usage(ctx)
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, assert.AnError)
 
-	mockSchema.AssertExpectations(t)
+	mockSchemaReader.AssertExpectations(t)
 	mockDB.AssertExpectations(t)
 	mockBackupProvider.AssertExpectations(t)
 	mockBackupBackend.AssertExpectations(t)
@@ -617,20 +601,6 @@ func TestService_Usage_VectorIndexError(t *testing.T) {
 	dimensionality := 1536
 	dimensionCount := 1000
 
-	mockSchema := schema.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{
-				{
-					Class:             className,
-					VectorIndexConfig: &hnsw.UserConfig{},
-					ReplicationConfig: &models.ReplicationConfig{Factor: int64(replication)},
-				},
-			},
-		},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
-
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{
 			shardName: {
@@ -641,14 +611,28 @@ func TestService_Usage_VectorIndexError(t *testing.T) {
 		},
 	}
 	shardingState.SetLocalName(nodeName)
-	mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+		{
+			Class:             className,
+			VectorIndexConfig: &hnsw.UserConfig{},
+			ReplicationConfig: &models.ReplicationConfig{
+				Factor: int64(replication),
+			},
+		},
+	}}).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardingState)
+	}).Maybe()
 
 	mockDB := db.NewMockIndexGetter(t)
 	mockIndex := db.NewMockIndexLike(t)
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
-	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
+	mockShard.EXPECT().GetStatus().Return(storagestate.StatusReady)
 	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -674,7 +658,7 @@ func TestService_Usage_VectorIndexError(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+	service := NewService(mockSchemaReader, mockDB, mockBackupProvider, nodeName, logger)
 
 	result, err := service.Usage(ctx)
 
@@ -696,7 +680,7 @@ func TestService_Usage_VectorIndexError(t *testing.T) {
 	assert.Equal(t, compressionRatio, vector.VectorCompressionRatio)
 	assert.Len(t, vector.Dimensionalities, 1)
 
-	mockSchema.AssertExpectations(t)
+	mockSchemaReader.AssertExpectations(t)
 	mockDB.AssertExpectations(t)
 	mockIndex.AssertExpectations(t)
 	mockShard.AssertExpectations(t)
@@ -709,7 +693,6 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 
 	nodeName := "test-node"
 	className := "NilConfigClass"
-	replication := 1
 	shardName := ""
 	objectCount := 1000
 	storageSize := int64(5000000)
@@ -719,20 +702,6 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	compressionRatio := 0.75
 	dimensionality := 1536
 	dimensionCount := 1000
-
-	mockSchema := schema.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{
-				{
-					Class:             className,
-					VectorIndexConfig: nil,
-					ReplicationConfig: &models.ReplicationConfig{Factor: int64(replication)},
-				},
-			},
-		},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
 
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{
@@ -744,14 +713,25 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 		},
 	}
 	shardingState.SetLocalName(nodeName)
-	mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+		{
+			Class:             className,
+			VectorIndexConfig: nil,
+			ReplicationConfig: &models.ReplicationConfig{},
+		},
+	}}).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardingState)
+	}).Maybe()
 
 	mockDB := db.NewMockIndexGetter(t)
 	mockIndex := db.NewMockIndexLike(t)
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
-	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
+	mockShard.EXPECT().GetStatus().Return(storagestate.StatusReady)
 	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -779,7 +759,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+	service := NewService(mockSchemaReader, mockDB, mockBackupProvider, nodeName, logger)
 
 	result, err := service.Usage(ctx)
 
@@ -808,7 +788,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	assert.Equal(t, dimensionality, dim.Dimensions)
 	assert.Equal(t, dimensionCount, dim.Count)
 
-	mockSchema.AssertExpectations(t)
+	mockSchemaReader.AssertExpectations(t)
 	mockDB.AssertExpectations(t)
 	mockIndex.AssertExpectations(t)
 	mockShard.AssertExpectations(t)
@@ -844,21 +824,6 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 	dimensionality := 1536
 	dimensionCount := 2000
 
-	mockSchema := schema.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{
-				{
-					Class:              className,
-					VectorIndexConfig:  &hnsw.UserConfig{},
-					ReplicationConfig:  &models.ReplicationConfig{Factor: int64(replication)},
-					MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-				},
-			},
-		},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
-
 	shardingState := &sharding.State{
 		PartitioningEnabled: true,
 		Physical: map[string]sharding.Physical{
@@ -875,7 +840,20 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 		},
 	}
 	shardingState.SetLocalName(nodeName)
-	mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+		{
+			Class:             className,
+			VectorIndexConfig: &hnsw.UserConfig{},
+			ReplicationConfig: &models.ReplicationConfig{
+				Factor: int64(replication),
+			},
+		},
+	}}).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardingState)
+	}).Maybe()
 
 	mockDB := db.NewMockIndexGetter(t)
 	mockIndex := db.NewMockIndexLike(t)
@@ -883,7 +861,7 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 
 	// Mock hot tenant shard
 	mockHotShard := db.NewMockShardLike(t)
-	mockHotShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
+	mockHotShard.EXPECT().GetStatus().Return(storagestate.StatusReady)
 	mockHotShard.EXPECT().ObjectCountAsync(ctx).Return(int64(hotObjectCount), nil)
 	mockHotShard.EXPECT().ObjectStorageSize(ctx).Return(hotStorageSize, nil)
 	mockHotShard.EXPECT().VectorStorageSize(ctx).Return(hotVectorStorageSize, nil) // Test actual vector storage size
@@ -918,7 +896,7 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+	service := NewService(mockSchemaReader, mockDB, mockBackupProvider, nodeName, logger)
 
 	result, err := service.Usage(ctx)
 
@@ -971,7 +949,7 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 	assert.Equal(t, dimensionality, dim.Dimensions)
 	assert.Equal(t, dimensionCount, dim.Count)
 
-	mockSchema.AssertExpectations(t)
+	mockSchemaReader.AssertExpectations(t)
 	mockDB.AssertExpectations(t)
 	mockIndex.AssertExpectations(t)
 	mockHotShard.AssertExpectations(t)
@@ -1092,21 +1070,6 @@ func TestService_JitterFunctionality(t *testing.T) {
 		nodeName := "test-node"
 		className := "JitterTestClass"
 
-		// Minimal schema mock - just need one class
-		mockSchema := schema.NewMockSchemaGetter(t)
-		mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-			Objects: &models.Schema{
-				Classes: []*models.Class{
-					{
-						Class:             className,
-						VectorIndexConfig: &hnsw.UserConfig{},
-						ReplicationConfig: &models.ReplicationConfig{Factor: 1},
-					},
-				},
-			},
-		})
-		mockSchema.EXPECT().NodeName().Return(nodeName)
-
 		// Simple sharding state with two shards
 		shardingState := &sharding.State{
 			Physical: map[string]sharding.Physical{
@@ -1123,7 +1086,18 @@ func TestService_JitterFunctionality(t *testing.T) {
 			},
 		}
 		shardingState.SetLocalName(nodeName)
-		mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+			{
+				Class:             className,
+				VectorIndexConfig: &hnsw.UserConfig{},
+				ReplicationConfig: &models.ReplicationConfig{},
+			},
+		}}).Maybe()
+		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+			class := &models.Class{Class: className}
+			return readFunc(class, shardingState)
+		}).Maybe()
 
 		// Minimal DB mock
 		mockDB := db.NewMockIndexGetter(t)
@@ -1132,7 +1106,7 @@ func TestService_JitterFunctionality(t *testing.T) {
 
 		// Simple shard mock
 		mockShard := db.NewMockShardLike(t)
-		mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
+		mockShard.EXPECT().GetStatus().Return(storagestate.StatusReady)
 		mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(100), nil).Times(2)
 		mockShard.EXPECT().ObjectStorageSize(ctx).Return(int64(1000), nil).Times(2)
 		mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil).Times(2)
@@ -1163,7 +1137,7 @@ func TestService_JitterFunctionality(t *testing.T) {
 		mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
 		mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
-		service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+		service := NewService(mockSchemaReader, mockDB, mockBackupProvider, nodeName, logger)
 		service.SetJitterInterval(10 * time.Millisecond)
 
 		result, err := service.Usage(ctx)
@@ -1176,7 +1150,7 @@ func TestService_JitterFunctionality(t *testing.T) {
 		collection := result.Collections[0]
 		assert.Len(t, collection.Shards, 2, "Should process both shards with jitter")
 
-		mockSchema.AssertExpectations(t)
+		mockSchemaReader.AssertExpectations(t)
 		mockDB.AssertExpectations(t)
 		mockIndex.AssertExpectations(t)
 		mockShard.AssertExpectations(t)
@@ -1190,21 +1164,6 @@ func TestService_JitterFunctionality(t *testing.T) {
 		nodeName := "test-node"
 		className := "ZeroJitterTestClass"
 
-		// Minimal schema mock
-		mockSchema := schema.NewMockSchemaGetter(t)
-		mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-			Objects: &models.Schema{
-				Classes: []*models.Class{
-					{
-						Class:             className,
-						VectorIndexConfig: &hnsw.UserConfig{},
-						ReplicationConfig: &models.ReplicationConfig{Factor: 1},
-					},
-				},
-			},
-		})
-		mockSchema.EXPECT().NodeName().Return(nodeName)
-
 		// Simple sharding state with one shard
 		shardingState := &sharding.State{
 			Physical: map[string]sharding.Physical{
@@ -1216,7 +1175,18 @@ func TestService_JitterFunctionality(t *testing.T) {
 			},
 		}
 		shardingState.SetLocalName(nodeName)
-		mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+			{
+				Class:             className,
+				VectorIndexConfig: &hnsw.UserConfig{},
+				ReplicationConfig: &models.ReplicationConfig{},
+			},
+		}}).Maybe()
+		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+			class := &models.Class{Class: className}
+			return readFunc(class, shardingState)
+		}).Maybe()
 
 		// Minimal DB mock
 		mockDB := db.NewMockIndexGetter(t)
@@ -1225,7 +1195,7 @@ func TestService_JitterFunctionality(t *testing.T) {
 
 		// Simple shard mock
 		mockShard := db.NewMockShardLike(t)
-		mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
+		mockShard.EXPECT().GetStatus().Return(storagestate.StatusReady)
 		mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(100), nil)
 		mockShard.EXPECT().ObjectStorageSize(ctx).Return(int64(1000), nil)
 		mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -1255,7 +1225,7 @@ func TestService_JitterFunctionality(t *testing.T) {
 		mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
 		mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
-		service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+		service := NewService(mockSchemaReader, mockDB, mockBackupProvider, nodeName, logger)
 		service.SetJitterInterval(0)
 
 		result, err := service.Usage(ctx)
@@ -1268,7 +1238,7 @@ func TestService_JitterFunctionality(t *testing.T) {
 		collection := result.Collections[0]
 		assert.Len(t, collection.Shards, 1, "Should process single shard without jitter")
 
-		mockSchema.AssertExpectations(t)
+		mockSchemaReader.AssertExpectations(t)
 		mockDB.AssertExpectations(t)
 		mockIndex.AssertExpectations(t)
 		mockShard.AssertExpectations(t)
@@ -1291,26 +1261,6 @@ func TestService_Usage_HotTenantWithLoadingStatus(t *testing.T) {
 	vectorType := "hnsw"
 	compression := "standard"
 
-	mockSchema := schema.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{
-				{
-					Class:             className,
-					VectorIndexConfig: &hnsw.UserConfig{},
-					ReplicationConfig: &models.ReplicationConfig{Factor: int64(replication)},
-					VectorConfig: map[string]models.VectorConfig{
-						vectorName: {
-							VectorIndexType:   vectorType,
-							VectorIndexConfig: &hnsw.UserConfig{},
-						},
-					},
-				},
-			},
-		},
-	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
-
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{
 			shardName: {
@@ -1321,7 +1271,24 @@ func TestService_Usage_HotTenantWithLoadingStatus(t *testing.T) {
 		},
 	}
 	shardingState.SetLocalName(nodeName)
-	mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+		{
+			Class:             className,
+			VectorIndexConfig: &hnsw.UserConfig{},
+			ReplicationConfig: &models.ReplicationConfig{Factor: int64(replication)},
+			VectorConfig: map[string]models.VectorConfig{
+				vectorName: {
+					VectorIndexType:   vectorType,
+					VectorIndexConfig: &hnsw.UserConfig{},
+				},
+			},
+		},
+	}}).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardingState)
+	}).Maybe()
 
 	mockDB := db.NewMockIndexGetter(t)
 	mockIndex := db.NewMockIndexLike(t)
@@ -1329,7 +1296,7 @@ func TestService_Usage_HotTenantWithLoadingStatus(t *testing.T) {
 
 	// Mock shard that returns StatusLoading
 	mockShard := db.NewMockShardLike(t)
-	mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusLoading)
+	mockShard.EXPECT().GetStatus().Return(storagestate.StatusLoading)
 
 	// Mock the unloaded shard usage calculation
 	mockIndex.EXPECT().CalculateUnloadedObjectsMetrics(ctx, shardName).Return(types.ObjectUsage{
@@ -1347,7 +1314,7 @@ func TestService_Usage_HotTenantWithLoadingStatus(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+	service := NewService(mockSchemaReader, mockDB, mockBackupProvider, nodeName, logger)
 
 	result, err := service.Usage(ctx)
 
@@ -1374,7 +1341,7 @@ func TestService_Usage_HotTenantWithLoadingStatus(t *testing.T) {
 	assert.Equal(t, compression, vector.Compression)
 	assert.Equal(t, 1.0, vector.VectorCompressionRatio) // Default ratio for cold shards
 
-	mockSchema.AssertExpectations(t)
+	mockSchemaReader.AssertExpectations(t)
 	mockDB.AssertExpectations(t)
 	mockIndex.AssertExpectations(t)
 	mockShard.AssertExpectations(t)
@@ -1417,26 +1384,22 @@ func TestService_Usage_RQCompressionWithBits(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mockSchema := schema.NewMockSchemaGetter(t)
-			mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-				Objects: &models.Schema{
-					Classes: []*models.Class{
-						{
-							Class: className,
-							VectorIndexConfig: hnsw.UserConfig{
-								RQ: hnsw.RQConfig{
-									Enabled: true,
-									Bits:    tc.bits,
-								},
+			sch := models.Schema{
+				Classes: []*models.Class{
+					{
+						Class: className,
+						VectorIndexConfig: hnsw.UserConfig{
+							RQ: hnsw.RQConfig{
+								Enabled: true,
+								Bits:    tc.bits,
 							},
-							ReplicationConfig: &models.ReplicationConfig{
-								Factor: int64(replication),
-							},
+						},
+						ReplicationConfig: &models.ReplicationConfig{
+							Factor: int64(replication),
 						},
 					},
 				},
-			})
-			mockSchema.EXPECT().NodeName().Return(nodeName)
+			}
 
 			shardingState := &sharding.State{
 				Physical: map[string]sharding.Physical{
@@ -1448,14 +1411,19 @@ func TestService_Usage_RQCompressionWithBits(t *testing.T) {
 				},
 			}
 			shardingState.SetLocalName(nodeName)
-			mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				class := &models.Class{Class: className}
+				return readFunc(class, shardingState)
+			}).Maybe()
+			mockSchemaReader.EXPECT().ReadOnlySchema().Return(sch).Maybe()
 
 			mockDB := db.NewMockIndexGetter(t)
 			mockIndex := db.NewMockIndexLike(t)
 			mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 			mockShard := db.NewMockShardLike(t)
-			mockShard.EXPECT().GetStatusNoLoad().Return(storagestate.StatusReady)
+			mockShard.EXPECT().GetStatus().Return(storagestate.StatusReady)
 			mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 			mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 			mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
@@ -1483,7 +1451,7 @@ func TestService_Usage_RQCompressionWithBits(t *testing.T) {
 			mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
 			logger, _ := logrus.NewNullLogger()
-			service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+			service := NewService(mockSchemaReader, mockDB, mockBackupProvider, nodeName, logger)
 
 			result, err := service.Usage(ctx)
 
@@ -1509,7 +1477,7 @@ func TestService_Usage_RQCompressionWithBits(t *testing.T) {
 			assert.Equal(t, compressionRatio, vector.VectorCompressionRatio)
 			assert.Equal(t, tc.expected, vector.Bits, "Bits should match the RQ configuration")
 
-			mockSchema.AssertExpectations(t)
+			mockSchemaReader.AssertExpectations(t)
 			mockDB.AssertExpectations(t)
 			mockIndex.AssertExpectations(t)
 			mockShard.AssertExpectations(t)
@@ -1518,4 +1486,166 @@ func TestService_Usage_RQCompressionWithBits(t *testing.T) {
 			mockBackupProvider.AssertExpectations(t)
 		})
 	}
+}
+
+func TestService_Usage_NamedVectorsWithConfig(t *testing.T) {
+	ctx := context.Background()
+
+	nodeName := "test-node"
+	className := "NamedVectorConfigClass"
+	replication := 1
+	shardName := ""
+	objectCount := 2000
+	storageSize := int64(10000000)
+
+	// Named vector configurations
+	textVectorName := "text"
+	imageVectorName := "image"
+
+	// Expected values from named vector configs
+	textVectorType := "hnsw"
+	textCompression := "pq"
+
+	imageVectorType := "hnsw"
+	imageCompression := "standard"
+	sch := models.Schema{
+		Classes: []*models.Class{
+			{
+				Class: className,
+				// No legacy VectorIndexConfig - only named vectors
+				ReplicationConfig: &models.ReplicationConfig{Factor: int64(replication)},
+				VectorConfig: map[string]models.VectorConfig{
+					textVectorName: {
+						VectorIndexType: textVectorType,
+						VectorIndexConfig: func() hnsw.UserConfig {
+							config := hnsw.UserConfig{}
+							config.SetDefaults()
+							config.PQ.Enabled = true
+							return config
+						}(),
+					},
+					imageVectorName: {
+						VectorIndexType: imageVectorType,
+						VectorIndexConfig: func() hnsw.UserConfig {
+							config := hnsw.UserConfig{}
+							config.SetDefaults()
+							// PQ is disabled by default, so this should result in standard compression
+							return config
+						}(),
+					},
+				},
+			},
+		},
+	}
+
+	shardingState := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			shardName: {
+				Name:           "",
+				BelongsToNodes: []string{nodeName},
+				Status:         models.TenantActivityStatusHOT,
+			},
+		},
+	}
+	shardingState.SetLocalName(nodeName)
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardingState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardingState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(sch).Maybe()
+
+	mockDB := db.NewMockIndexGetter(t)
+	mockIndex := db.NewMockIndexLike(t)
+	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
+
+	mockShard := db.NewMockShardLike(t)
+	mockShard.EXPECT().GetStatus().Return(storagestate.StatusReady)
+	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
+	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
+	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
+
+	// Mock dimensions usage for both named vectors
+	mockShard.EXPECT().DimensionsUsage(ctx, textVectorName).Return(types.Dimensionality{}, nil)
+	mockShard.EXPECT().DimensionsUsage(ctx, imageVectorName).Return(types.Dimensionality{}, nil)
+
+	// Mock vector indexes for both named vectors
+	mockTextVectorIndex := db.NewMockVectorIndex(t)
+	mockImageVectorIndex := db.NewMockVectorIndex(t)
+
+	mockTextCompressionStats := compressionhelpers.NewMockCompressionStats(t)
+	mockTextCompressionStats.EXPECT().CompressionRatio(mock.Anything).Return(1)
+	mockTextVectorIndex.EXPECT().CompressionStats().Return(mockTextCompressionStats)
+
+	mockImageCompressionStats := compressionhelpers.NewMockCompressionStats(t)
+	mockImageCompressionStats.EXPECT().CompressionRatio(mock.Anything).Return(1)
+	mockImageVectorIndex.EXPECT().CompressionStats().Return(mockImageCompressionStats)
+
+	mockIndex.On("ForEachShard", mock.AnythingOfType("func(string, db.ShardLike) error")).Return(nil).Run(func(args mock.Arguments) {
+		f := args.Get(0).(func(string, db.ShardLike) error)
+		f(shardName, mockShard)
+	})
+
+	mockShard.On("ForEachVectorIndex", mock.AnythingOfType("func(string, db.VectorIndex) error")).Return(nil).Run(func(args mock.Arguments) {
+		f := args.Get(0).(func(string, db.VectorIndex) error)
+		f(textVectorName, mockTextVectorIndex)
+		f(imageVectorName, mockImageVectorIndex)
+	})
+
+	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
+	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
+
+	logger, _ := logrus.NewNullLogger()
+	service := NewService(mockSchemaReader, mockDB, mockBackupProvider, nodeName, logger)
+
+	result, err := service.Usage(ctx)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, nodeName, result.Node)
+	assert.Len(t, result.Collections, 1)
+
+	collection := result.Collections[0]
+	assert.Equal(t, className, collection.Name)
+	assert.Len(t, collection.Shards, 1)
+
+	shard := collection.Shards[0]
+	assert.Equal(t, shardName, shard.Name)
+	assert.Equal(t, int64(objectCount), shard.ObjectsCount)
+	assert.Equal(t, uint64(storageSize), shard.ObjectsStorageBytes)
+	assert.Len(t, shard.NamedVectors, 2)
+
+	// Find and verify text vector
+	var textVector, imageVector *types.VectorUsage
+	for _, vector := range shard.NamedVectors {
+		switch vector.Name {
+		case textVectorName:
+			textVector = vector
+		case imageVectorName:
+			imageVector = vector
+		}
+	}
+
+	// Verify text vector configuration
+	require.NotNil(t, textVector)
+	assert.Equal(t, textVectorName, textVector.Name)
+	assert.Equal(t, textVectorType, textVector.VectorIndexType)
+	t.Logf("Text vector compression: expected=%s, actual=%s", textCompression, textVector.Compression)
+
+	// Verify image vector configuration
+	require.NotNil(t, imageVector)
+	assert.Equal(t, imageVectorName, imageVector.Name)
+	assert.Equal(t, imageVectorType, imageVector.VectorIndexType)
+	assert.Equal(t, imageCompression, imageVector.Compression)
+
+	mockSchemaReader.AssertExpectations(t)
+	mockDB.AssertExpectations(t)
+	mockIndex.AssertExpectations(t)
+	mockShard.AssertExpectations(t)
+	mockTextVectorIndex.AssertExpectations(t)
+	mockTextCompressionStats.AssertExpectations(t)
+	mockImageVectorIndex.AssertExpectations(t)
+	mockImageCompressionStats.AssertExpectations(t)
+	mockBackupProvider.AssertExpectations(t)
 }

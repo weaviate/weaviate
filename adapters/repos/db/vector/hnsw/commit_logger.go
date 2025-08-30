@@ -53,6 +53,7 @@ type hnswCommitLogger struct {
 
 	allocChecker memwatch.AllocChecker
 
+	snapshotLock   sync.Mutex
 	snapshotLogger logrus.FieldLogger
 	// whether snapshots are disabled
 	snapshotDisabled bool
@@ -373,6 +374,7 @@ const (
 	AddSQ
 	AddMuvera
 	AddRQ
+	AddBRQ
 )
 
 func (t HnswCommitType) String() string {
@@ -407,6 +409,8 @@ func (t HnswCommitType) String() string {
 		return "AddMuvera"
 	case AddRQ:
 		return "AddRotationalQuantizer"
+	case AddBRQ:
+		return "AddBRQCompression"
 	}
 	return "unknown commit type"
 }
@@ -441,6 +445,13 @@ func (l *hnswCommitLogger) AddMuvera(data multivector.MuveraData) error {
 	defer l.Unlock()
 
 	return l.commitLogger.AddMuvera(data)
+}
+
+func (l *hnswCommitLogger) AddBRQCompression(data compressionhelpers.BRQData) error {
+	l.Lock()
+	defer l.Unlock()
+
+	return l.commitLogger.AddBRQCompression(data)
 }
 
 // AddNode adds an empty node

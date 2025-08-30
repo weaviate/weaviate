@@ -4,6 +4,15 @@ set -euo pipefail
 GEN_DIR=./grpc/generated
 OUT_DIR="$GEN_DIR/protocol"
 
+echo "Installing latest gRPC libs..."
+
+if command -v brew >/dev/null 2>&1; then
+    brew update && brew upgrade protobuf protolint
+fi
+
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
 echo "Generating Go protocol stubs..."
 
 rm -fr $OUT_DIR && mkdir -p $OUT_DIR && cd $GEN_DIR && protoc \

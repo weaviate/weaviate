@@ -32,7 +32,6 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	clusterRouter "github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
@@ -839,27 +838,22 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 				tenant: models.TenantActivityStatusHOT,
 			}, nil
 		}).Maybe()
-	schemaReaderMock := schemaTypes.NewMockSchemaReader(f.t)
-	schemaReaderMock.EXPECT().CopyShardingState(mock.Anything).RunAndReturn(func(class string) *sharding.State {
-		state := &sharding.State{
-			IndexID:             "idx-123",
-			Config:              config.Config{},
-			Physical:            map[string]sharding.Physical{},
-			Virtual:             nil,
-			PartitioningEnabled: f.isMultiTenant,
-		}
 
-		for shard, replicaNodes := range f.Shard2replicas {
-			physical := sharding.Physical{
-				Name:           shard,
-				BelongsToNodes: replicaNodes,
-				Status:         models.TenantActivityStatusHOT,
-			}
-			state.Physical[shard] = physical
+	schemaReaderMock := schema.NewMockSchemaReader(f.t)
+	schemaReaderMock.EXPECT().Shards(mock.Anything).RunAndReturn(func(className string) ([]string, error) {
+		shards := make([]string, 0, len(f.Shard2replicas))
+		for shard := range f.Shard2replicas {
+			shards = append(shards, shard)
 		}
-
-		return state
+		return shards, nil
 	}).Maybe()
+
+	schemaReaderMock.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		shardingState := f.createDynamicShardingState()
+		return readFunc(class, shardingState)
+	}).Maybe()
+
 	schemaReaderMock.EXPECT().ShardReplicas(mock.Anything, mock.Anything).RunAndReturn(func(class string, shard string) ([]string, error) {
 		v, ok := f.Shard2replicas[shard]
 		if !ok {
@@ -867,6 +861,7 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 		}
 		return v, nil
 	}).Maybe()
+
 	replicationFsmMock := replicationTypes.NewMockReplicationFSMReader(f.t)
 	replicationFsmMock.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(collection string, shard string, shardReplicasLocation []string) []string {
@@ -883,7 +878,28 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 			}
 			return shardReplicasLocation, []string{}
 		}).Maybe()
+
 	return clusterRouter.NewBuilder(f.CLS, f.isMultiTenant, clusterState, schemaGetterMock, schemaReaderMock, replicationFsmMock).Build()
+}
+
+func (f *fakeFactory) createDynamicShardingState() *sharding.State {
+	shardingState := &sharding.State{
+		IndexID:             "idx-123",
+		Config:              config.Config{},
+		Physical:            map[string]sharding.Physical{},
+		Virtual:             nil,
+		PartitioningEnabled: f.isMultiTenant,
+	}
+
+	for shard, replicaNodes := range f.Shard2replicas {
+		physical := sharding.Physical{
+			Name:           shard,
+			BelongsToNodes: replicaNodes,
+			Status:         models.TenantActivityStatusHOT,
+		}
+		shardingState.Physical[shard] = physical
+	}
+	return shardingState
 }
 
 func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Replicator {

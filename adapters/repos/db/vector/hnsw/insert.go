@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
@@ -36,7 +37,7 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 
 	// check if vector length is the same as existing nodes
 	if dims != len(vector) {
-		return fmt.Errorf("new node has a vector with length %v. "+
+		return errors.Wrapf(common.ErrWrongDimensions, "new node has a vector with length %v. "+
 			"Existing nodes have vectors with length %v", len(vector), dims)
 	}
 
@@ -114,7 +115,6 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 			if err == nil {
 				h.compressed.Store(true)
 				h.cache.Drop()
-				h.cache = nil
 				h.compressor.PersistCompression(h.commitLog)
 			}
 		})
@@ -254,7 +254,6 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 					})
 				h.compressed.Store(true)
 				h.cache.Drop()
-				h.cache = nil
 				h.compressor.PersistCompression(h.commitLog)
 				h.Unlock()
 			}

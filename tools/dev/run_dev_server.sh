@@ -988,7 +988,7 @@ create-s3-bucket)
       AWS_SECRET_ACCESS_KEY=aws_secret_key \
       aws --endpoint-url=http://localhost:9000 s3 mb s3://weaviate-usage
       AWS_ACCESS_KEY_ID=aws_access_key \
-      AWS_SECRET_ACCESS_KEY=aws_secret_key \      
+      AWS_SECRET_ACCESS_KEY=aws_secret_key \
       aws --endpoint-url=http://localhost:9000 s3 mb s3://weaviate-backups
       ;;
 

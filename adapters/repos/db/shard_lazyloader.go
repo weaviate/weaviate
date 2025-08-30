@@ -164,21 +164,16 @@ func (l *LazyLoadShard) NotifyReady() {
 	l.shard.NotifyReady()
 }
 
-func (l *LazyLoadShard) GetStatusNoLoad() storagestate.Status {
+func (l *LazyLoadShard) GetStatus() storagestate.Status {
 	if l.loaded {
 		return l.shard.GetStatus()
 	}
-	return storagestate.StatusLoading
+	return storagestate.StatusLazyLoading
 }
 
-func (l *LazyLoadShard) GetStatus() storagestate.Status {
+func (l *LazyLoadShard) UpdateStatus(status, reason string) error {
 	l.mustLoad()
-	return l.shard.GetStatus()
-}
-
-func (l *LazyLoadShard) UpdateStatus(status string) error {
-	l.mustLoad()
-	return l.shard.UpdateStatus(status)
+	return l.shard.UpdateStatus(status, reason)
 }
 
 func (l *LazyLoadShard) SetStatusReadonly(reason string) error {
@@ -502,9 +497,9 @@ func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector st
 	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
 }
 
-func (l *LazyLoadShard) resetDimensionsLSM() error {
+func (l *LazyLoadShard) resetDimensionsLSM(ctx context.Context) error {
 	l.mustLoad()
-	return l.shard.resetDimensionsLSM()
+	return l.shard.resetDimensionsLSM(ctx)
 }
 
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
