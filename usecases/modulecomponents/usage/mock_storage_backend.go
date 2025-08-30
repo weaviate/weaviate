@@ -232,7 +232,8 @@ func (_c *MockStorageBackend_VerifyPermissions_Call) RunAndReturn(run func(conte
 func NewMockStorageBackend(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockStorageBackend {
+},
+) *MockStorageBackend {
 	mock := &MockStorageBackend{}
 	mock.Mock.Test(t)
 
