@@ -240,6 +240,43 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 		})
 	}
 
+	t.Run("batch delete using alias", func(t *testing.T) {
+		resp, err := grpcClient.BatchObjects(ctx, &pb.BatchObjectsRequest{
+			Objects: []*pb.BatchObject{
+				{
+					Collection: booksAliasName,
+					Properties: &pb.BatchObject_Properties{
+						NonRefProperties: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"title":       structpb.NewStringValue("To be Deleted"),
+								"description": structpb.NewStringValue("object1"),
+							},
+						},
+					},
+				},
+				{
+					Collection: booksAliasName,
+					Properties: &pb.BatchObject_Properties{
+						NonRefProperties: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"title":       structpb.NewStringValue("To be Deleted"),
+								"description": structpb.NewStringValue("object2"),
+							},
+						},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		dresp, err := grpcClient.BatchDelete(ctx, &pb.BatchDeleteRequest{
+			Collection: booksAliasName,
+			Filters:    &pb.Filters{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "To be Deleted"}, Target: &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "title"}}},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, dresp)
+	})
 	t.Run("batch insert using alias", func(t *testing.T) {
 		theMartian := "67b79643-cf8b-4b22-b206-000000000001"
 		resp, err := grpcClient.BatchObjects(ctx, &pb.BatchObjectsRequest{
