@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -245,6 +246,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 			Objects: []*pb.BatchObject{
 				{
 					Collection: booksAliasName,
+					Uuid:       uuid.NewString(),
 					Properties: &pb.BatchObject_Properties{
 						NonRefProperties: &structpb.Struct{
 							Fields: map[string]*structpb.Value{
@@ -256,6 +258,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 				},
 				{
 					Collection: booksAliasName,
+					Uuid:       uuid.NewString(),
 					Properties: &pb.BatchObject_Properties{
 						NonRefProperties: &structpb.Struct{
 							Fields: map[string]*structpb.Value{
@@ -269,6 +272,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
+		require.Len(t, resp.Errors, 0)
 
 		// make sure objects exists
 		srep, err := grpcClient.Search(ctx, &pb.SearchRequest{
