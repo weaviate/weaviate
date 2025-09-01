@@ -291,6 +291,7 @@ jobs:
           "--only-module-multi2vec-jinaai",
           "--only-module-text2multivec-jinaai",
           "--only-module-multi2multivec-jinaai",
+          "--only-module-text2vec-openai",
         ]
     steps:
       - uses: actions/checkout@v4

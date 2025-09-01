@@ -140,7 +140,6 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 func (v *Client) Vectorize(ctx context.Context, input []string,
 	settings Settings,
 ) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
-	// config := v.getVectorizationConfig(cfg, "document")
 	res, rateLimits, totalTokens, err := v.vectorize(ctx, input, settings.ModelString, settings)
 	if err != nil {
 		monitoring.GetMetrics().ModuleCallError.WithLabelValues("openai", "-", "-").Inc()
@@ -151,7 +150,6 @@ func (v *Client) Vectorize(ctx context.Context, input []string,
 func (v *Client) VectorizeQuery(ctx context.Context, input []string,
 	settings Settings,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
-	// config := v.getVectorizationConfig(cfg, "query")
 	res, _, _, err := v.vectorize(ctx, input, settings.ModelString, settings)
 	if err != nil {
 		monitoring.GetMetrics().ModuleExternalError.WithLabelValues("text2vec", "openai", "-", "-").Inc()

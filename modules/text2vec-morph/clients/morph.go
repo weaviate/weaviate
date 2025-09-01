@@ -63,7 +63,7 @@ func (v *client) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.Cla
 func (v *client) getSettings(cfg moduletools.ClassConfig, action string) openai.Settings {
 	settings := ent.NewClassSettings(cfg)
 	return openai.Settings{
-		Type:                 settings.Type(),
+		Type:                 "text",
 		Model:                settings.Model(),
 		ModelVersion:         settings.Model(),
 		ResourceName:         "", // Not used by Morph
@@ -72,7 +72,7 @@ func (v *client) getSettings(cfg moduletools.ClassConfig, action string) openai.
 		IsAzure:              false, // Morph doesn't support Azure
 		IsThirdPartyProvider: true,  // Morph is always third-party
 		ApiVersion:           "",    // Not used by Morph
-		Dimensions:           settings.Dimensions(),
+		Dimensions:           nil,
 		ModelString:          settings.Model(),
 	}
 }
