@@ -270,6 +270,8 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	localNode string,
 	targetCombination *dto.TargetCombination,
 	properties []string,
+	fullReplicasSearchDebounceFactor int,
+	fullReplicasSearchDebounceMinTimeout time.Duration,
 ) ([]ReplicasSearchResult, error) {
 	remoteShardQuery := func(ctx context.Context, node, host string) (ReplicasSearchResult, error) {
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
@@ -279,7 +281,7 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 		}
 		return ReplicasSearchResult{Objects: objs, Scores: scores, Node: node}, nil
 	}
-	return ri.queryAllReplicas(ctx, log, shard, remoteShardQuery, localNode)
+	return ri.queryAllReplicas(ctx, log, shard, remoteShardQuery, localNode, fullReplicasSearchDebounceFactor, fullReplicasSearchDebounceMinTimeout)
 }
 
 func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
@@ -418,6 +420,8 @@ func (ri *RemoteIndex) queryAllReplicas(
 	shard string,
 	do func(ctx context.Context, nodeName, host string) (ReplicasSearchResult, error),
 	localNode string,
+	fullReplicasSearchDebounceFactor int,
+	fullReplicasSearchDebounceMinTimeout time.Duration,
 ) (resp []ReplicasSearchResult, err error) {
 	replicas, err := ri.stateGetter.ShardReplicas(ri.class, shard)
 	if err != nil || len(replicas) == 0 {
@@ -454,20 +458,12 @@ func (ri *RemoteIndex) queryAllReplicas(
 			mu.Unlock()
 		}()
 
-		const (
-			// TODO: delayFactor and minDelay are hardcoded values
-			delayFactor = 1.0 // factor to increase the query timeout
-			// this is a factor to increase the timeout based on the elapsed time
-			//  e.g. a factor of 1.0 means the new timeout is double the elapsed time
-			minDelay = 100 * time.Millisecond
-		)
-
 		// this is to ensure that we don't wait too long for a slow replica
 		// while other replicas already returned results.
 		// this is especially useful for the case when one of the replicas
 		// is down or too slow to respond
-		computeDelay := func(elapsed time.Duration) time.Duration {
-			return max(elapsed*(1+delayFactor), minDelay)
+		computeTimeout := func(elapsed time.Duration) time.Duration {
+			return max(elapsed*time.Duration(1+fullReplicasSearchDebounceFactor), fullReplicasSearchDebounceMinTimeout)
 		}
 
 		scheduleQueryCancellation := func(elapsed time.Duration) {
@@ -479,7 +475,7 @@ func (ri *RemoteIndex) queryAllReplicas(
 				timer.Stop()
 			}
 
-			deadline := queryStart.Add(computeDelay(elapsed))
+			deadline := queryStart.Add(computeTimeout(elapsed))
 
 			remaining := time.Until(deadline)
 			if remaining <= 0 {
@@ -516,7 +512,9 @@ func (ri *RemoteIndex) queryAllReplicas(
 
 				mu.Lock()
 				resp = append(resp, searchResult)
-				scheduleQueryCancellation(time.Since(start))
+				if fullReplicasSearchDebounceFactor > 0 {
+					scheduleQueryCancellation(time.Since(start))
+				}
 				mu.Unlock()
 			}, log)
 		}

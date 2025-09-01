@@ -194,45 +194,47 @@ func New(logger logrus.FieldLogger, config Config,
 }
 
 type Config struct {
-	RootPath                            string
-	QueryLimit                          int64
-	QueryMaximumResults                 int64
-	QueryHybridMaximumResults           int64
-	QueryNestedRefLimit                 int64
-	ResourceUsage                       config.ResourceUsage
-	MaxImportGoroutinesFactor           float64
-	MemtablesFlushDirtyAfter            int
-	MemtablesInitialSizeMB              int
-	MemtablesMaxSizeMB                  int
-	MemtablesMinActiveSeconds           int
-	MemtablesMaxActiveSeconds           int
-	MinMMapSize                         int64
-	MaxReuseWalSize                     int64
-	SegmentsCleanupIntervalSeconds      int
-	SeparateObjectsCompactions          bool
-	MaxSegmentSize                      int64
-	HNSWMaxLogSize                      int64
-	HNSWWaitForCachePrefill             bool
-	HNSWFlatSearchConcurrency           int
-	HNSWAcornFilterRatio                float64
-	VisitedListPoolMaxSize              int
-	TrackVectorDimensions               bool
-	ServerVersion                       string
-	GitHash                             string
-	AvoidMMap                           bool
-	DisableLazyLoadShards               bool
-	ForceFullReplicasSearch             bool
-	LSMEnableSegmentsChecksumValidation bool
-	Replication                         replication.GlobalConfig
-	MaximumConcurrentShardLoads         int
-	CycleManagerRoutinesFactor          int
-	IndexRangeableInMemory              bool
-	TenantActivityReadLogLevel          *configRuntime.DynamicValue[string]
-	TenantActivityWriteLogLevel         *configRuntime.DynamicValue[string]
-	QuerySlowLogEnabled                 *configRuntime.DynamicValue[bool]
-	QuerySlowLogThreshold               *configRuntime.DynamicValue[time.Duration]
-	InvertedSorterDisabled              *configRuntime.DynamicValue[bool]
-	MaintenanceModeEnabled              func() bool
+	RootPath                             string
+	QueryLimit                           int64
+	QueryMaximumResults                  int64
+	QueryHybridMaximumResults            int64
+	QueryNestedRefLimit                  int64
+	ResourceUsage                        config.ResourceUsage
+	MaxImportGoroutinesFactor            float64
+	MemtablesFlushDirtyAfter             int
+	MemtablesInitialSizeMB               int
+	MemtablesMaxSizeMB                   int
+	MemtablesMinActiveSeconds            int
+	MemtablesMaxActiveSeconds            int
+	MinMMapSize                          int64
+	MaxReuseWalSize                      int64
+	SegmentsCleanupIntervalSeconds       int
+	SeparateObjectsCompactions           bool
+	MaxSegmentSize                       int64
+	HNSWMaxLogSize                       int64
+	HNSWWaitForCachePrefill              bool
+	HNSWFlatSearchConcurrency            int
+	HNSWAcornFilterRatio                 float64
+	VisitedListPoolMaxSize               int
+	TrackVectorDimensions                bool
+	ServerVersion                        string
+	GitHash                              string
+	AvoidMMap                            bool
+	DisableLazyLoadShards                bool
+	ForceFullReplicasSearch              *configRuntime.DynamicValue[bool]
+	FullReplicasSearchDebounceFactor     *configRuntime.DynamicValue[int]
+	FullReplicasSearchDebounceMinTimeout *configRuntime.DynamicValue[time.Duration]
+	LSMEnableSegmentsChecksumValidation  bool
+	Replication                          replication.GlobalConfig
+	MaximumConcurrentShardLoads          int
+	CycleManagerRoutinesFactor           int
+	IndexRangeableInMemory               bool
+	TenantActivityReadLogLevel           *configRuntime.DynamicValue[string]
+	TenantActivityWriteLogLevel          *configRuntime.DynamicValue[string]
+	QuerySlowLogEnabled                  *configRuntime.DynamicValue[bool]
+	QuerySlowLogThreshold                *configRuntime.DynamicValue[time.Duration]
+	InvertedSorterDisabled               *configRuntime.DynamicValue[bool]
+	MaintenanceModeEnabled               func() bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

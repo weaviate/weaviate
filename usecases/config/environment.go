@@ -90,9 +90,31 @@ func FromEnv(config *Config) error {
 		config.DisableLazyLoadShards = true
 	}
 
-	if entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
-		config.ForceFullReplicasSearch = true
+	config.ForceFullReplicasSearch = runtime.NewDynamicValue(entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")))
+
+	var fullReplicasSearchDebounceFactor int = 0
+
+	if v := os.Getenv("FULL_REPLICAS_SEARCH_DEBOUNCE_FACTOR"); v != "" {
+		factor, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("parse FULL_REPLICAS_SEARCH_DEBOUNCE_FACTOR as int: %w", err)
+		} else if factor < 0 {
+			return fmt.Errorf("negative FULL_REPLICAS_SEARCH_DEBOUNCE_FACTOR factor")
+		}
+		fullReplicasSearchDebounceFactor = int(factor)
 	}
+	config.FullReplicasSearchDebounceFactor = runtime.NewDynamicValue(fullReplicasSearchDebounceFactor)
+
+	var fullReplicasSearchDebounceMinTimeout time.Duration
+
+	if v := os.Getenv("FULL_REPLICAS_SEARCH_DEBOUNCE_MIN_TIMEOUT"); v != "" {
+		timeout, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse FULL_REPLICAS_SEARCH_DEBOUNCE_MIN_TIMEOUT as time.Duration: %w", err)
+		}
+		fullReplicasSearchDebounceMinTimeout = timeout
+	}
+	config.FullReplicasSearchDebounceMinTimeout = runtime.NewDynamicValue(fullReplicasSearchDebounceMinTimeout)
 
 	// Recount all property lengths at startup to support accurate BM25 scoring
 	if entcfg.Enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {

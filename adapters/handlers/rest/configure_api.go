@@ -369,37 +369,39 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
 	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
 	repo, err := db.New(appState.Logger, db.Config{
-		ServerVersion:                       config.ServerVersion,
-		GitHash:                             build.Revision,
-		MemtablesFlushDirtyAfter:            appState.ServerConfig.Config.Persistence.MemtablesFlushDirtyAfter,
-		MemtablesInitialSizeMB:              10,
-		MemtablesMaxSizeMB:                  appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
-		MemtablesMinActiveSeconds:           appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
-		MemtablesMaxActiveSeconds:           appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
-		MinMMapSize:                         appState.ServerConfig.Config.Persistence.MinMMapSize,
-		MaxReuseWalSize:                     appState.ServerConfig.Config.Persistence.MaxReuseWalSize,
-		SegmentsCleanupIntervalSeconds:      appState.ServerConfig.Config.Persistence.LSMSegmentsCleanupIntervalSeconds,
-		SeparateObjectsCompactions:          appState.ServerConfig.Config.Persistence.LSMSeparateObjectsCompactions,
-		MaxSegmentSize:                      appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
-		CycleManagerRoutinesFactor:          appState.ServerConfig.Config.Persistence.LSMCycleManagerRoutinesFactor,
-		IndexRangeableInMemory:              appState.ServerConfig.Config.Persistence.IndexRangeableInMemory,
-		HNSWMaxLogSize:                      appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
-		HNSWWaitForCachePrefill:             appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
-		HNSWFlatSearchConcurrency:           appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
-		HNSWAcornFilterRatio:                appState.ServerConfig.Config.HNSWAcornFilterRatio,
-		VisitedListPoolMaxSize:              appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
-		RootPath:                            appState.ServerConfig.Config.Persistence.DataPath,
-		QueryLimit:                          appState.ServerConfig.Config.QueryDefaults.Limit,
-		QueryMaximumResults:                 appState.ServerConfig.Config.QueryMaximumResults,
-		QueryHybridMaximumResults:           appState.ServerConfig.Config.QueryHybridMaximumResults,
-		QueryNestedRefLimit:                 appState.ServerConfig.Config.QueryNestedCrossReferenceLimit,
-		MaxImportGoroutinesFactor:           appState.ServerConfig.Config.MaxImportGoroutinesFactor,
-		TrackVectorDimensions:               appState.ServerConfig.Config.TrackVectorDimensions,
-		ResourceUsage:                       appState.ServerConfig.Config.ResourceUsage,
-		AvoidMMap:                           appState.ServerConfig.Config.AvoidMmap,
-		DisableLazyLoadShards:               appState.ServerConfig.Config.DisableLazyLoadShards,
-		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
-		LSMEnableSegmentsChecksumValidation: appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
+		ServerVersion:                        config.ServerVersion,
+		GitHash:                              build.Revision,
+		MemtablesFlushDirtyAfter:             appState.ServerConfig.Config.Persistence.MemtablesFlushDirtyAfter,
+		MemtablesInitialSizeMB:               10,
+		MemtablesMaxSizeMB:                   appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
+		MemtablesMinActiveSeconds:            appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
+		MemtablesMaxActiveSeconds:            appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
+		MinMMapSize:                          appState.ServerConfig.Config.Persistence.MinMMapSize,
+		MaxReuseWalSize:                      appState.ServerConfig.Config.Persistence.MaxReuseWalSize,
+		SegmentsCleanupIntervalSeconds:       appState.ServerConfig.Config.Persistence.LSMSegmentsCleanupIntervalSeconds,
+		SeparateObjectsCompactions:           appState.ServerConfig.Config.Persistence.LSMSeparateObjectsCompactions,
+		MaxSegmentSize:                       appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
+		CycleManagerRoutinesFactor:           appState.ServerConfig.Config.Persistence.LSMCycleManagerRoutinesFactor,
+		IndexRangeableInMemory:               appState.ServerConfig.Config.Persistence.IndexRangeableInMemory,
+		HNSWMaxLogSize:                       appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
+		HNSWWaitForCachePrefill:              appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
+		HNSWFlatSearchConcurrency:            appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
+		HNSWAcornFilterRatio:                 appState.ServerConfig.Config.HNSWAcornFilterRatio,
+		VisitedListPoolMaxSize:               appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
+		RootPath:                             appState.ServerConfig.Config.Persistence.DataPath,
+		QueryLimit:                           appState.ServerConfig.Config.QueryDefaults.Limit,
+		QueryMaximumResults:                  appState.ServerConfig.Config.QueryMaximumResults,
+		QueryHybridMaximumResults:            appState.ServerConfig.Config.QueryHybridMaximumResults,
+		QueryNestedRefLimit:                  appState.ServerConfig.Config.QueryNestedCrossReferenceLimit,
+		MaxImportGoroutinesFactor:            appState.ServerConfig.Config.MaxImportGoroutinesFactor,
+		TrackVectorDimensions:                appState.ServerConfig.Config.TrackVectorDimensions,
+		ResourceUsage:                        appState.ServerConfig.Config.ResourceUsage,
+		AvoidMMap:                            appState.ServerConfig.Config.AvoidMmap,
+		DisableLazyLoadShards:                appState.ServerConfig.Config.DisableLazyLoadShards,
+		ForceFullReplicasSearch:              appState.ServerConfig.Config.ForceFullReplicasSearch,
+		FullReplicasSearchDebounceFactor:     appState.ServerConfig.Config.FullReplicasSearchDebounceFactor,
+		FullReplicasSearchDebounceMinTimeout: appState.ServerConfig.Config.FullReplicasSearchDebounceMinTimeout,
+		LSMEnableSegmentsChecksumValidation:  appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
 		// with factor=1 before the change was introduced. Now their setup would no
@@ -1730,6 +1732,10 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+
+		registered.ForceFullReplicasSearch = appState.ServerConfig.Config.ForceFullReplicasSearch
+		registered.FullReplicasSearchDebounceFactor = appState.ServerConfig.Config.FullReplicasSearchDebounceFactor
+		registered.FullReplicasSearchDebounceMinTimeout = appState.ServerConfig.Config.FullReplicasSearchDebounceMinTimeout
 
 		hooks := make(map[string]func() error)
 
