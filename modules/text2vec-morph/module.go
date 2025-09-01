@@ -35,14 +35,12 @@ const (
 )
 
 var batchSettings = batch.Settings{
-	TokenMultiplier:    1,
+	TokenMultiplier:    0,
 	MaxTimePerBatch:    float64(10),
-	MaxObjectsPerBatch: 2000, // https://platform.openai.com/docs/api-reference/embeddings/create
-	// cant find any info about this on the website besides this forum thread:https://community.openai.com/t/max-total-embeddings-tokens-per-request/1254699
-	// we had customers run into this error, too
-	MaxTokensPerBatch: func(cfg moduletools.ClassConfig) int { return 300000 },
-	HasTokenLimit:     true,
-	ReturnsRateLimit:  true,
+	MaxObjectsPerBatch: 5000,
+	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 300000 },
+	HasTokenLimit:      false,
+	ReturnsRateLimit:   false,
 }
 
 func New() *MorphModule {
@@ -138,7 +136,7 @@ func (m *MorphModule) VectorizeBatch(ctx context.Context, objs []*models.Object,
 	return vecs, nil, errs
 }
 
-func (m *MorphModule) MetaInfo() (map[string]interface{}, error) {
+func (m *MorphModule) MetaInfo() (map[string]any, error) {
 	return m.metaProvider.MetaInfo()
 }
 

@@ -22,8 +22,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (m *MorphModule) ClassConfigDefaults() map[string]interface{} {
-	return map[string]interface{}{
+func (m *MorphModule) ClassConfigDefaults() map[string]any {
+	return map[string]any{
 		"vectorizeClassName": ent.DefaultVectorizeClassName,
 		"baseURL":            ent.DefaultBaseURL,
 		"model":              ent.DefaultMorphModel,
@@ -32,8 +32,8 @@ func (m *MorphModule) ClassConfigDefaults() map[string]interface{} {
 
 func (m *MorphModule) PropertyConfigDefaults(
 	dt *schema.DataType,
-) map[string]interface{} {
-	return map[string]interface{}{
+) map[string]any {
+	return map[string]any{
 		"skip":                  !ent.DefaultPropertyIndexed,
 		"vectorizePropertyName": ent.DefaultVectorizePropertyName,
 	}

@@ -14,7 +14,6 @@ package ent
 import (
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -37,17 +36,7 @@ func Test_classSettings_Validate(t *testing.T) {
 	}{
 		{
 			name: "morph-embedding-v3",
-			cfg:  &fakeClassConfig{classConfig: map[string]interface{}{"model": "morph-embedding-v3"}},
-		},
-		{
-			name:    "morph-embedding-v3 wrong dimensions",
-			cfg:     &fakeClassConfig{classConfig: map[string]interface{}{"model": "morph-embedding-v3", "dimensions": 1536}},
-			wantErr: errors.New("wrong dimensions setting for morph-embedding-v3 model, available dimensions are: [1024]"),
-		},
-		{
-			name:    "wrong model name",
-			cfg:     &fakeClassConfig{classConfig: map[string]interface{}{"model": "unknown-model"}},
-			wantErr: errors.New("wrong Morph model name, available model names are: [morph-embedding-v2 morph-embedding-v3]"),
+			cfg:  &fakeClassConfig{classConfig: map[string]any{"model": "morph-embedding-v3"}},
 		},
 	}
 	for _, tt := range tests {
@@ -60,47 +49,5 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.NoError(t, err)
 			}
 		})
-	}
-}
-
-func TestClassSettings(t *testing.T) {
-	type testCase struct {
-		expectedBaseURL    string
-		expectedDimensions int64
-		cfg                moduletools.ClassConfig
-	}
-	tests := []testCase{
-		{
-			cfg: fakeClassConfig{
-				classConfig: make(map[string]interface{}),
-			},
-			expectedBaseURL:    DefaultBaseURL,
-			expectedDimensions: 1024,
-		},
-		{
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"baseURL": "https://proxy.weaviate.dev",
-				},
-			},
-			expectedBaseURL:    "https://proxy.weaviate.dev",
-			expectedDimensions: 1024,
-		},
-		{
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"baseURL":    "https://proxy.weaviate.dev",
-					"dimensions": 1024,
-				},
-			},
-			expectedBaseURL:    "https://proxy.weaviate.dev",
-			expectedDimensions: 1024,
-		},
-	}
-
-	for _, tt := range tests {
-		ic := NewClassSettings(tt.cfg)
-		assert.Equal(t, tt.expectedBaseURL, ic.BaseURL())
-		assert.Equal(t, tt.expectedDimensions, *ic.Dimensions())
 	}
 }

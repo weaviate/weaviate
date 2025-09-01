@@ -11,8 +11,8 @@
 
 package clients
 
-func (v *client) MetaInfo() (map[string]interface{}, error) {
-	return map[string]interface{}{
+func (v *client) MetaInfo() (map[string]any, error) {
+	return map[string]any{
 		"name":              "Morph Module",
 		"documentationHref": "https://docs.morphllm.com/api-reference/endpoint/embedding",
 	}, nil

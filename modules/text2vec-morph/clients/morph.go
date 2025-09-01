@@ -39,31 +39,31 @@ func New(openAIApiKey string, timeout time.Duration, logger logrus.FieldLogger) 
 func (v *client) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
-	config := v.getSettings(cfg, "document")
+	config := v.getSettings(cfg)
 	return v.client.Vectorize(ctx, input, config)
 }
 
 func (v *client) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
-	config := v.getSettings(cfg, "query")
+	config := v.getSettings(cfg)
 	return v.client.VectorizeQuery(ctx, input, config)
 }
 
 func (v *client) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
-	config := v.getSettings(cfg, "document")
+	config := v.getSettings(cfg)
 	return v.client.GetApiKeyHash(ctx, config)
 }
 
 func (v *client) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
-	config := v.getSettings(cfg, "document")
+	config := v.getSettings(cfg)
 	return v.client.GetVectorizerRateLimit(ctx, config)
 }
 
-func (v *client) getSettings(cfg moduletools.ClassConfig, action string) openai.Settings {
+func (v *client) getSettings(cfg moduletools.ClassConfig) openai.Settings {
 	settings := ent.NewClassSettings(cfg)
 	return openai.Settings{
-		Type:                 settings.Type(),
+		Type:                 "", // Not used by Morph
 		Model:                settings.Model(),
 		ModelVersion:         settings.Model(),
 		ResourceName:         "", // Not used by Morph
@@ -72,7 +72,7 @@ func (v *client) getSettings(cfg moduletools.ClassConfig, action string) openai.
 		IsAzure:              false, // Morph doesn't support Azure
 		IsThirdPartyProvider: true,  // Morph is always third-party
 		ApiVersion:           "",    // Not used by Morph
-		Dimensions:           settings.Dimensions(),
+		Dimensions:           nil,   // Not used by Morph
 		ModelString:          settings.Model(),
 	}
 }
