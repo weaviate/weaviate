@@ -54,6 +54,21 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			absentModuleConfig bool
 			withImages         bool
 		}{
+			// Amazon Nova
+			{
+				name:            "amazon.nova-micro-v1:0",
+				generativeModel: "amazon.nova-micro-v1:0",
+			},
+			{
+				name:            "amazon.nova-lite-v1:0",
+				generativeModel: "amazon.nova-lite-v1:0",
+				withImages:      true,
+			},
+			{
+				name:            "amazon.nova-pro-v1:0",
+				generativeModel: "amazon.nova-pro-v1:0",
+				withImages:      true,
+			},
 			// Amazon Titan
 			{
 				name:            "amazon.titan-text-lite-v1",
