@@ -220,8 +220,10 @@ func (h *hnsw) releaseAcornSlices(acornSlices *acornSlices) {
 	h.pools.tempVectorsUint64.Put(acornSlices.slicePendingThisRound)
 }
 
-func (h *hnsw) populateAcornCandidates(acornSlices *acornSlices, candidateNode *vertex, level int, isMultivec bool,
-	allowList helpers.AllowList, visited visited.ListSet) []uint64 {
+func (h *hnsw) populateAcornCandidates(acornSlices *acornSlices,
+	candidateNode *vertex, level int, isMultivec bool,
+	allowList helpers.AllowList, visited visited.ListSet,
+) []uint64 {
 	h.pools.visitedListsLock.RLock()
 	visitedExp := h.pools.visitedLists.Borrow()
 	h.pools.visitedListsLock.RUnlock()
@@ -693,7 +695,8 @@ func (h *hnsw) handleDeletedNode(docID uint64, operation string) {
 
 func (h *hnsw) traverseHierarchyToGetEntryPoint(ctx context.Context, entryPointDistance float32,
 	entryPointID uint64, compressorDistancer compressionhelpers.CompressorDistancer,
-	searchVec []float32, maxLayer int) (float32, uint64, error) {
+	searchVec []float32, maxLayer int,
+) (float32, uint64, error) {
 	for level := maxLayer; level >= 0; level-- {
 		eps := priorityqueue.NewMin[any](10)
 		eps.Insert(entryPointID, entryPointDistance)
@@ -778,7 +781,8 @@ func (h *hnsw) setStrategy(entryPointID uint64, allowList helpers.AllowList, isM
 }
 
 func (h *hnsw) plantSeeds(strategy FilterStrategy, allowList helpers.AllowList, isMultivec bool, ef int,
-	entryPointID uint64, compressorDistancer compressionhelpers.CompressorDistancer, searchVec []float32, eps *priorityqueue.Queue[any]) error {
+	entryPointID uint64, compressorDistancer compressionhelpers.CompressorDistancer, searchVec []float32, eps *priorityqueue.Queue[any],
+) error {
 	if allowList == nil || strategy != ACORN {
 		return nil
 	}
@@ -884,7 +888,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		return nil, nil, err
 	}
 
-	//search level zero
+	// search level zero
 	res, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)

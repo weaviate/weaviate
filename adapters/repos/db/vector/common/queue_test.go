@@ -309,7 +309,7 @@ func TestQueue_ErrorHandling(t *testing.T) {
 	}
 
 	// Should be empty again
-	item, err = q.Dequeue()
+	_, err = q.Dequeue()
 	if err == nil {
 		t.Error("Expected error after dequeuing all items")
 	}
