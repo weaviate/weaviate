@@ -177,7 +177,7 @@ func (s *Shard) cleanupPartialInit(ctx context.Context) {
 }
 
 func (s *Shard) NotifyReady() {
-	s.UpdateStatus(storagestate.StatusReady.String())
+	s.UpdateStatus(storagestate.StatusReady.String(), "notify ready")
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)
