@@ -17,7 +17,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -140,23 +142,29 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 	}
 
 	if len(joinAddr) > 0 {
-		_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
-		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"action":          "cluster_attempt_join",
-				"remote_hostname": joinAddr[0],
-			}).WithError(err).Warn(
-				"specified hostname to join cluster cannot be resolved. This is fine" +
-					"if this is the first node of a new cluster, but problematic otherwise.")
-		} else {
-			_, err := state.list.Join(joinAddr)
+		if err := backoff.Retry(func() error {
+			_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
 			if err != nil {
 				logger.WithFields(logrus.Fields{
-					"action":          "memberlist_init",
-					"remote_hostname": joinAddr,
-				}).WithError(err).Error("memberlist join not successful")
-				return nil, errors.Wrap(err, "join cluster")
+					"action":          "cluster_attempt_join",
+					"remote_hostname": joinAddr[0],
+				}).WithError(err).Warn(
+					"specified hostname to join cluster cannot be resolved. This is fine" +
+						"if this is the first node of a new cluster, but problematic otherwise.")
+				return err
+			} else {
+				_, err := state.list.Join(joinAddr)
+				if err != nil {
+					logger.WithFields(logrus.Fields{
+						"action":          "memberlist_init",
+						"remote_hostname": joinAddr,
+					}).WithError(err).Error("memberlist join not successful")
+					return errors.Wrap(err, "join cluster")
+				}
+				return nil
 			}
+		}, backoff.WithMaxRetries(backoff.NewConstantBackOff(500*time.Millisecond), 5)); err != nil {
+			return nil, err
 		}
 	}
 
@@ -291,6 +299,7 @@ func (s *State) ClusterHealthScore() int {
 	return s.list.GetHealthScore()
 }
 
+// NodeHostname return hosts address for a specific node name
 func (s *State) NodeHostname(nodeName string) (string, bool) {
 	s.listLock.RLock()
 	defer s.listLock.RUnlock()
@@ -310,7 +319,13 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 // TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
 func (s *State) NodeAddress(id string) string {
 	s.listLock.RLock()
-	defer s.listLock.RUnlock()
+	members := s.list.Members()
+	s.listLock.RUnlock()
+	for _, mem := range members {
+		if mem.Name == id {
+			return mem.Addr.String()
+		}
+	}
 
 	// network interruption detection which can cause a single node to be isolated from the cluster (split brain)
 	nodeCount := s.list.NumMembers()
@@ -318,7 +333,7 @@ func (s *State) NodeAddress(id string) string {
 	if s.config.Join != "" {
 		joinAddr = strings.Split(s.config.Join, ",")
 	}
-	if nodeCount == 1 && len(joinAddr) > 0 && s.config.RaftBootstrapExpect > 1 {
+	if s.config.RaftBootstrapExpect > 1 && nodeCount != s.config.RaftBootstrapExpect && len(joinAddr) > 0 {
 		s.delegate.log.WithFields(logrus.Fields{
 			"action":     "memberlist_rejoin",
 			"node_count": nodeCount,
@@ -338,11 +353,6 @@ func (s *State) NodeAddress(id string) string {
 		}
 	}
 
-	for _, mem := range s.list.Members() {
-		if mem.Name == id {
-			return mem.Addr.String()
-		}
-	}
 	return ""
 }
 

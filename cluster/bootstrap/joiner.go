@@ -17,10 +17,11 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	entSentry "github.com/weaviate/weaviate/entities/sentry"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	entSentry "github.com/weaviate/weaviate/entities/sentry"
 )
 
 type Joiner struct {
@@ -72,7 +73,9 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 		st := status.Convert(err)
 		lg.WithField("remoteNode", addr).WithField("status", st.Code()).Info("attempted to join and failed")
 		// Get the leader from response and if not empty try to join it
-		if leader := resp.GetLeader(); st.Code() == codes.NotFound && leader != "" {
+		// We need to handle both codes.NotFound and codes.ResourceExhausted
+		if leader := resp.GetLeader(); leader != "" && (st.Code() == codes.ResourceExhausted || st.Code() == codes.NotFound) {
+			lg.WithField("leader", leader).Info("redirecting to leader for join attempt")
 			_, err = j.peerJoiner.Join(ctx, leader, req)
 			if err == nil {
 				return leader, nil
