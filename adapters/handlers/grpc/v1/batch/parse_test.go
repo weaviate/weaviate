@@ -9,21 +9,55 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package v1
+package batch_test
 
 import (
+	"encoding/binary"
+	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
 	UUID3 = "a4de3ca0-6975-464f-b23b-adddd83630d7"
 	UUID4 = "7e10ec81-a26d-4ac7-8264-3e3e05397ddc"
 )
+
+func newStruct(t *testing.T, values map[string]interface{}) *structpb.Struct {
+	b, err := json.Marshal(values)
+	require.Nil(t, err)
+	s := &structpb.Struct{}
+	err = protojson.Unmarshal(b, s)
+	require.Nil(t, err)
+	return s
+}
+
+func byteVector(vec []float32) []byte {
+	vector := make([]byte, len(vec)*4)
+
+	for i := 0; i < len(vec); i++ {
+		binary.LittleEndian.PutUint32(vector[i*4:i*4+4], math.Float32bits(vec[i]))
+	}
+
+	return vector
+}
+
+func byteVectorMulti(mat [][]float32) []byte {
+	matrix := make([]byte, 2)
+	binary.LittleEndian.PutUint16(matrix, uint16(len(mat[0])))
+	for _, vec := range mat {
+		matrix = append(matrix, byteVector(vec)...)
+	}
+	return matrix
+}
 
 func TestGRPCBatchRequest(t *testing.T) {
 	collection := "TestClass"
@@ -117,8 +151,8 @@ func TestGRPCBatchRequest(t *testing.T) {
 			}}},
 			out: []*models.Object{{Class: collection, ID: UUID4, Properties: map[string]interface{}{
 				"ref": []interface{}{
-					map[string]interface{}{"beacon": BEACON_START + refClass1 + "/" + UUID3},
-					map[string]interface{}{"beacon": BEACON_START + refClass1 + "/" + UUID4},
+					map[string]interface{}{"beacon": batch.BEACON_START + refClass1 + "/" + UUID3},
+					map[string]interface{}{"beacon": batch.BEACON_START + refClass1 + "/" + UUID4},
 				},
 			}}},
 		},
@@ -146,8 +180,8 @@ func TestGRPCBatchRequest(t *testing.T) {
 			}}},
 			out: []*models.Object{{Class: collection, ID: UUID4, Properties: map[string]interface{}{
 				"multiRef": []interface{}{
-					map[string]interface{}{"beacon": BEACON_START + refClass2 + "/" + UUID3},
-					map[string]interface{}{"beacon": BEACON_START + refClass2 + "/" + UUID4},
+					map[string]interface{}{"beacon": batch.BEACON_START + refClass2 + "/" + UUID3},
+					map[string]interface{}{"beacon": batch.BEACON_START + refClass2 + "/" + UUID4},
 				},
 			}}},
 		},
@@ -167,12 +201,12 @@ func TestGRPCBatchRequest(t *testing.T) {
 			}}},
 			out: []*models.Object{{Class: collection, ID: UUID4, Properties: map[string]interface{}{
 				"multiRef": []interface{}{
-					map[string]interface{}{"beacon": BEACON_START + refClass2 + "/" + UUID4},
-					map[string]interface{}{"beacon": BEACON_START + refClass2 + "/" + UUID3},
+					map[string]interface{}{"beacon": batch.BEACON_START + refClass2 + "/" + UUID4},
+					map[string]interface{}{"beacon": batch.BEACON_START + refClass2 + "/" + UUID3},
 				},
 				"ref": []interface{}{
-					map[string]interface{}{"beacon": BEACON_START + refClass1 + "/" + UUID4},
-					map[string]interface{}{"beacon": BEACON_START + refClass1 + "/" + UUID3},
+					map[string]interface{}{"beacon": batch.BEACON_START + refClass1 + "/" + UUID4},
+					map[string]interface{}{"beacon": batch.BEACON_START + refClass1 + "/" + UUID3},
 				},
 				"name": "else",
 				"age":  float64(46),
@@ -437,7 +471,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, origIndex, batchErrors := BatchFromProto(&pb.BatchObjectsRequest{Objects: tt.req}, getClass)
+			out, origIndex, batchErrors := batch.BatchObjectsFromProto(&pb.BatchObjectsRequest{Objects: tt.req}, getClass)
 			if len(tt.outError) > 0 {
 				require.NotNil(t, batchErrors)
 				if len(tt.out) > 0 {

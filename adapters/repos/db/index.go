@@ -2784,14 +2784,14 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 
 func (i *Index) updateShardStatus(ctx context.Context, tenantName, shardName, targetStatus string, schemaVersion uint64) error {
 	shard, release, err := i.getShardForDirectLocalOperation(ctx, tenantName, shardName, localShardOperationWrite)
-	defer release()
 	if err != nil {
 		return err
 	}
 	if shard == nil {
 		return i.remote.UpdateShardStatus(ctx, shardName, targetStatus, schemaVersion)
 	}
-	return shard.UpdateStatus(targetStatus)
+	defer release()
+	return shard.UpdateStatus(targetStatus, "manually set by user")
 }
 
 func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
@@ -2801,7 +2801,7 @@ func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, target
 	}
 	defer release()
 
-	return shard.UpdateStatus(targetStatus)
+	return shard.UpdateStatus(targetStatus, "manually set by user")
 }
 
 func (i *Index) findUUIDs(ctx context.Context,

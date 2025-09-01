@@ -71,6 +71,9 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 	// SegmentGroup should refrain from flushing until its
 	// shard indicates otherwise
 	if sg.isReadyOnly() {
+		sg.logger.WithField("action", "lsm_compaction").
+			WithField("path", sg.dir).
+			Debug("compaction halted due to shard READONLY status")
 		return nil, 0
 	}
 
