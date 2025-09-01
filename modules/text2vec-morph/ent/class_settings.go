@@ -22,11 +22,10 @@ import (
 const (
 	DefaultMorphDocumentType     = "text"
 	DefaultMorphModel            = "morph-embedding-v3"
-	DefaultVectorizeClassName    = true
+	DefaultVectorizeClassName    = false
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	DefaultBaseURL               = "https://api.morphllm.com"
-	DefaultApiVersion            = "v1"
 	LowerCaseInput               = false
 )
 
@@ -53,13 +52,6 @@ var availableMorphModelsDimensions = map[string][]int64{
 	MorphEmbeddingV3: {MorphEmbeddingV3DefaultDimensions},
 }
 
-// Legacy models - not used for Morph
-var availableOpenAIModels = []string{}
-
-var availableApiVersions = []string{
-	"v1",
-}
-
 type classSettings struct {
 	basesettings.BaseClassSettings
 	cfg moduletools.ClassConfig
@@ -69,51 +61,21 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, false)}
 }
 
+func (cs *classSettings) BaseURL() string {
+	return cs.GetPropertyAsString("baseURL", DefaultBaseURL)
+}
+
 func (cs *classSettings) Model() string {
-	return cs.BaseClassSettings.GetPropertyAsString("model", DefaultMorphModel)
+	return cs.GetPropertyAsString("model", DefaultMorphModel)
 }
 
 func (cs *classSettings) Type() string {
-	return cs.BaseClassSettings.GetPropertyAsString("type", DefaultMorphDocumentType)
-}
-
-func (cs *classSettings) ModelVersion() string {
-	defaultVersion := PickDefaultModelVersion(cs.Model(), cs.Type())
-	return cs.BaseClassSettings.GetPropertyAsString("modelVersion", defaultVersion)
-}
-
-func (cs *classSettings) ModelStringForAction(action string) string {
-	// Morph models are simple - just return the model name
-	return cs.Model()
-}
-
-func (cs *classSettings) ResourceName() string {
-	return cs.BaseClassSettings.GetPropertyAsString("resourceName", "")
-}
-
-func (cs *classSettings) BaseURL() string {
-	return cs.BaseClassSettings.GetPropertyAsString("baseURL", DefaultBaseURL)
-}
-
-func (cs *classSettings) DeploymentID() string {
-	return cs.BaseClassSettings.GetPropertyAsString("deploymentId", "")
-}
-
-func (cs *classSettings) ApiVersion() string {
-	return cs.BaseClassSettings.GetPropertyAsString("apiVersion", DefaultApiVersion)
-}
-
-func (cs *classSettings) IsThirdPartyProvider() bool {
-	return true // Morph is always a third-party provider
-}
-
-func (cs *classSettings) IsAzure() bool {
-	return false // Morph doesn't support Azure
+	return cs.GetPropertyAsString("type", DefaultMorphDocumentType)
 }
 
 func (cs *classSettings) Dimensions() *int64 {
 	defaultValue := PickDefaultDimensions(cs.Model())
-	return cs.BaseClassSettings.GetPropertyAsInt64("dimensions", defaultValue)
+	return cs.GetPropertyAsInt64("dimensions", defaultValue)
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
@@ -139,34 +101,7 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		}
 	}
 
-	version := cs.ModelVersion()
-	if err := cs.validateModelVersion(version, model, docType); err != nil {
-		return err
-	}
-
-	if cs.IsAzure() {
-		err := cs.validateAzureConfig(cs.ResourceName(), cs.DeploymentID(), cs.ApiVersion())
-		if err != nil {
-			return err
-		}
-	}
-
 	return nil
-}
-
-func (cs *classSettings) validateModelVersion(version, model, docType string) error {
-	// Morph models don't use versions, so no validation needed
-	return nil
-}
-
-func (cs *classSettings) validateAzureConfig(resourceName, deploymentId, apiVersion string) error {
-	// Morph doesn't support Azure, so no validation needed
-	return nil
-}
-
-func PickDefaultModelVersion(model, docType string) string {
-	// Morph models don't use versions
-	return ""
 }
 
 func PickDefaultDimensions(model string) *int64 {
