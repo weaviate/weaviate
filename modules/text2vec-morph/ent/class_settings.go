@@ -12,8 +12,6 @@
 package ent
 
 import (
-	"fmt"
-
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -87,27 +85,6 @@ func (cs *classSettings) ModelVersion() string {
 func (cs *classSettings) ModelStringForAction(action string) string {
 	// Morph models are simple - just return the model name
 	return cs.Model()
-}
-
-func (v *classSettings) getModel001String(docType, model, action string) string {
-	modelBaseString := "%s-search-%s-%s-001"
-	if action == "document" {
-		if docType == "code" {
-			return fmt.Sprintf(modelBaseString, docType, model, "code")
-		}
-		return fmt.Sprintf(modelBaseString, docType, model, "doc")
-
-	} else {
-		if docType == "code" {
-			return fmt.Sprintf(modelBaseString, docType, model, "text")
-		}
-		return fmt.Sprintf(modelBaseString, docType, model, "query")
-	}
-}
-
-func (v *classSettings) getModel002String(model string) string {
-	modelBaseString := "text-embedding-%s-002"
-	return fmt.Sprintf(modelBaseString, model)
 }
 
 func (cs *classSettings) ResourceName() string {
