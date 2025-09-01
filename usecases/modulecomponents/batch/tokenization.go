@@ -21,8 +21,6 @@ import (
 
 	"github.com/weaviate/tiktoken-go"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
-	morphclients "github.com/weaviate/weaviate/modules/text2vec-morph/clients"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
@@ -60,16 +58,12 @@ func ReturnBatchTokenizer(multiplier float32, moduleName string, lowerCaseInput 
 		if multiplier > 0 {
 			var err error
 			// creating the tokenizer is quite expensive => cache for each module
-				if tke2, ok := encoderCache.Get(modelString); ok {
+			if tke2, ok := encoderCache.Get(modelString); ok {
 				tke = tke2
 			} else {
 				tke, err = tiktoken.EncodingForModel(modelString)
 				if err != nil {
-						// fallback to OpenAI legacy, or Morph embedding as secondary
-						tke, _ = tiktoken.EncodingForModel("text-embedding-ada-002")
-						if tke == nil {
-							tke, _ = tiktoken.EncodingForModel("morph-embedding-v3")
-						}
+					tke, _ = tiktoken.EncodingForModel("text-embedding-ada-002")
 				}
 				encoderCache.Set(modelString, tke)
 			}
@@ -84,14 +78,9 @@ func ReturnBatchTokenizer(multiplier float32, moduleName string, lowerCaseInput 
 			skipAll = false
 			text := objectVectorizer.Texts(ctx, objects[i], icheck)
 			texts[i] = text
-				if multiplier > 0 {
-					// try OpenAI tokenizer first, then Morph
-					tokens := clients.GetTokensCount(modelString, text, tke)
-					if tokens == 0 {
-						tokens = morphclients.GetTokensCount(modelString, text, tke)
-					}
-					tokenCounts[i] = int(float32(tokens) * multiplier)
-				}
+			if multiplier > 0 {
+				tokenCounts[i] = int(float32(GetTokensCount(modelString, text, tke)) * multiplier)
+			}
 		}
 		return texts, tokenCounts, skipAll, nil
 	}

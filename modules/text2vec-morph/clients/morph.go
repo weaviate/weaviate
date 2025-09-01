@@ -104,7 +104,7 @@ type client struct {
 
 func New(morphApiKey string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
-		morphApiKey:   morphApiKey,
+		morphApiKey: morphApiKey,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
