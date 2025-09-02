@@ -37,7 +37,10 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 		if err != nil {
 			return nil, errors.Wrap(err, "remote client vectorize")
 		}
-		vectors[i] = res.Vector
+		if len(res.Vector) == 0 {
+			return nil, errors.New("empty vector")
+		}
+		vectors[i] = res.Vector[0]
 	}
 
 	return libvectorizer.CombineVectors(vectors), nil
