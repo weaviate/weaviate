@@ -13,14 +13,18 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 const serviceConfig = `
@@ -162,7 +166,16 @@ func (cl *Client) Query(ctx context.Context, leaderRaftAddr string, req *cmd.Que
 		return nil, err
 	}
 
-	return cmd.NewClusterServiceClient(conn).Query(ctx, req)
+	resp, err := cmd.NewClusterServiceClient(conn).Query(ctx, req)
+	return resp, fromRPCError(err)
+}
+
+func fromRPCError(err error) error {
+	st, ok := status.FromError(err)
+	if ok && (st.Code() == codes.NotFound) {
+		return errors.Join(err, schemaUC.ErrNotFound)
+	}
+	return err
 }
 
 // Close the client and allocated resources
