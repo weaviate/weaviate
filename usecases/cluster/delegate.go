@@ -14,16 +14,17 @@ package cluster
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"sort"
 	"sync"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/hashicorp/memberlist"
 	"github.com/sirupsen/logrus"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // _OpCode represents the type of supported operation
@@ -36,6 +37,13 @@ const (
 	_OpCodeDisk _OpCode = 1
 	// _ProtoTTL used to decide when to update the cache
 	_ProtoTTL = time.Second * 8
+)
+
+type NodeStatus string
+
+const (
+	NodeStatusActive   NodeStatus = "active"
+	NodeStatusShutdown NodeStatus = "shutdown"
 )
 
 // spaceMsg is used to notify other nodes about current disk usage
@@ -65,7 +73,8 @@ type DiskUsage struct {
 // NodeInfo disk space
 type NodeInfo struct {
 	DiskUsage
-	LastTimeMilli int64 // last update time in milliseconds
+	LastTimeMilli int64      // last update time in milliseconds
+	Status        NodeStatus // indicates node status e.g. shutdown (gracefully leaving)
 }
 
 func (d *spaceMsg) marshal() (data []byte, err error) {
@@ -119,11 +128,19 @@ type delegate struct {
 
 	mutex    sync.Mutex
 	hostInfo NodeInfo
+
+	metadata NodeMetadata
+}
+
+type NodeMetadata struct {
+	RestPort int        `json:"rest_port"`
+	GrpcPort int        `json:"grpc_port"`
+	Status   NodeStatus `json:"status"`
 }
 
 func (d *delegate) setOwnSpace(x DiskUsage) {
 	d.mutex.Lock()
-	d.hostInfo = NodeInfo{DiskUsage: x, LastTimeMilli: time.Now().UnixMilli()}
+	d.hostInfo = NodeInfo{DiskUsage: x, LastTimeMilli: time.Now().UnixMilli(), Status: NodeStatusActive}
 	d.mutex.Unlock()
 }
 
@@ -148,7 +165,7 @@ func (d *delegate) init(diskSpace func(path string) (DiskUsage, error)) error {
 	}
 
 	d.setOwnSpace(space)
-	d.set(d.Name, NodeInfo{space, lastTime.UnixMilli()}) // cache
+	d.set(d.Name, NodeInfo{DiskUsage: space, LastTimeMilli: lastTime.UnixMilli(), Status: NodeStatusActive})
 
 	// delegate remains alive throughout the entire program.
 	enterrors.GoWrapper(func() { d.updater(_ProtoTTL, minUpdatePeriod, diskSpace) }, d.log)
@@ -209,7 +226,7 @@ func (d *delegate) MergeRemoteState(data []byte, join bool) {
 		}).WithError(err).Error("failed to unmarshal remote state")
 		return
 	}
-	info := NodeInfo{x.DiskUsage, time.Now().UnixMilli()}
+	info := NodeInfo{DiskUsage: x.DiskUsage, LastTimeMilli: time.Now().UnixMilli(), Status: NodeStatusActive}
 	d.set(x.Node, info)
 }
 
@@ -280,6 +297,36 @@ func (d *delegate) updater(period, minPeriod time.Duration, du func(path string)
 	}
 }
 
+// SetGracefulLeave sets the graceful leave state in metadata
+// This state gets broadcasted to all nodes via memberlist
+func (d *delegate) SetGracefulLeave() {
+	d.metadata.Status = NodeStatusShutdown
+}
+
+// markNodeGracefulLeaving marks a cached node as gracefully leaving
+func (d *delegate) markNodeGracefulLeaving(nodeName string) {
+	d.Lock()
+	defer d.Unlock()
+
+	if nodeInfo, exists := d.Cache[nodeName]; exists {
+		nodeInfo.Status = NodeStatusShutdown
+		d.Cache[nodeName] = nodeInfo
+		d.log.WithField("node", nodeName).Debug("marked cached node as gracefully leaving")
+	}
+}
+
+func (d *delegate) getAllCachedGraceful() []string {
+	d.Lock()
+	defer d.Unlock()
+	graceful := make([]string, 0, len(d.Cache))
+	for nodeName, nodeInfo := range d.Cache {
+		if nodeInfo.Status == NodeStatusShutdown {
+			graceful = append(graceful, nodeName)
+		}
+	}
+	return graceful
+}
+
 // events implement memberlist.EventDelegate interface
 // EventDelegate is a simpler delegate that is used only to receive
 // notifications about members joining and leaving. The methods in this
@@ -296,6 +343,21 @@ func (e events) NotifyJoin(*memberlist.Node) {}
 // NotifyLeave is invoked when a node is detected to have left.
 // The Node argument must not be modified.
 func (e events) NotifyLeave(node *memberlist.Node) {
+	// Check if this is a graceful leave before deleting from cache
+	if len(node.Meta) > 0 {
+		var meta NodeMetadata
+		if err := json.Unmarshal(node.Meta, &meta); err == nil {
+			if meta.Status == NodeStatusShutdown {
+				e.d.log.WithField("node", node.Name).Debug("node gracefully left, marking as gracefully leaving and keeping in cache")
+				// Mark this node as gracefully leaving in the cache
+				e.d.markNodeGracefulLeaving(node.Name)
+				return // Don't delete gracefully leaving nodes from cache
+			}
+		}
+	}
+
+	// Only delete from cache if it's not a graceful leave
+	e.d.log.WithField("node", node.Name).Debug("node left unexpectedly, removing from cache")
 	e.d.delete(node.Name)
 }
 
