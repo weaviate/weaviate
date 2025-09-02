@@ -44,7 +44,7 @@ import (
 
 const (
 	composerUpgradedKey = "upgraded"
-	batchSize           = 100
+	batchSize           = 500
 )
 
 var dynamicBucket = []byte("dynamic")
@@ -676,7 +676,7 @@ func (dynamic *dynamic) copyToVectorIndex(index VectorIndex) error {
 
 		err := index.AddBatch(dynamic.ctx, ids, vectors)
 		if err != nil {
-			dynamic.logger.WithField("ids", ids).WithError(err).Error("failed to add vectors")
+			dynamic.logger.WithError(err).Error("failed to add vectors")
 		}
 
 		if k == nil {

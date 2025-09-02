@@ -540,7 +540,7 @@ func TestDynamicAndStoreOperations(t *testing.T) {
 	}
 
 	go func() {
-		err = dynamic.copyToVectorIndex(&idx)
+		err := dynamic.copyToVectorIndex(&idx)
 		require.NoError(t, err)
 	}()
 
