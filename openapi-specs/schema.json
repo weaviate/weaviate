@@ -16,7 +16,6 @@
     "GroupType": {
       "type": "string",
       "enum": [
-        "db",
         "oidc"
       ],
       "description": "If the group contains OIDC or database users."

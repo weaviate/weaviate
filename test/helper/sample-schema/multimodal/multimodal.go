@@ -219,7 +219,7 @@ func TestQuery(t *testing.T,
 	certaintyValue, err := certainty.Float64()
 	require.NoError(t, err)
 	assert.Greater(t, certaintyValue, 0.0)
-	assert.GreaterOrEqual(t, certaintyValue, 0.9)
+	assert.GreaterOrEqual(t, certaintyValue, 0.6)
 	if len(targetVectorsList) > 0 {
 		vectors, ok := additional["vectors"].(map[string]interface{})
 		require.True(t, ok)

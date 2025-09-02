@@ -195,6 +195,10 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		tenant = *req.Tenant
 	}
 
+	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
+		req.Collection = class
+	}
+
 	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsData(req.Collection, tenant)...); err != nil {
 		return nil, err
 	}
