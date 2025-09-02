@@ -313,10 +313,16 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 // TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
 func (s *State) NodeAddress(id string) string {
 	s.listLock.RLock()
-	defer s.listLock.RUnlock()
+	members := s.list.Members()
+	s.listLock.RUnlock()
 
+	for _, mem := range members {
+		if mem.Name == id {
+			return mem.Addr.String()
+		}
+	}
 	// network interruption detection which can cause a single node to be isolated from the cluster (split brain)
-	nodeCount := s.list.NumMembers()
+	nodeCount := len(members)
 	var joinAddr []string
 	if s.config.Join != "" {
 		joinAddr = strings.Split(s.config.Join, ",")
@@ -335,17 +341,11 @@ func (s *State) NodeAddress(id string) string {
 			}).WithError(err).Error("memberlist rejoin not successful")
 		} else {
 			s.delegate.log.WithFields(logrus.Fields{
-				"action":     "memberlist_rejoin",
-				"node_count": s.list.NumMembers(),
+				"action": "memberlist_rejoin",
 			}).Info("Successfully rejoined the memberlist cluster")
 		}
 	}
 
-	for _, mem := range s.list.Members() {
-		if mem.Name == id {
-			return mem.Addr.String()
-		}
-	}
 	return ""
 }
 
