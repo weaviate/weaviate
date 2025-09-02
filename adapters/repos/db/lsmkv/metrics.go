@@ -35,7 +35,6 @@ type Metrics struct {
 	ActiveSegments               *prometheus.GaugeVec
 	ObjectsBucketSegments        *prometheus.GaugeVec
 	CompressedVecsBucketSegments *prometheus.GaugeVec
-	bloomFilters                 prometheus.ObserverVec
 	SegmentObjects               *prometheus.GaugeVec
 	SegmentSize                  *prometheus.GaugeVec
 	SegmentCount                 *prometheus.GaugeVec
@@ -139,10 +138,6 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"shard_name": shardName,
 		}),
 		CompressedVecsBucketSegments: promMetrics.LSMCompressedVecsBucketSegmentCount.MustCurryWith(prometheus.Labels{
-			"class_name": className,
-			"shard_name": shardName,
-		}),
-		bloomFilters: promMetrics.LSMBloomFilters.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
 		}),
@@ -273,21 +268,6 @@ func (m *Metrics) MemtableSizeSetter(path, strategy string) Setter {
 
 	return func(size uint64) {
 		curried.Set(float64(size))
-	}
-}
-
-func (m *Metrics) BloomFilterObserver(strategy, operation string) TimeObserver {
-	if m == nil {
-		return noOpTimeObserver
-	}
-
-	curried := m.bloomFilters.With(prometheus.Labels{
-		"strategy":  strategy,
-		"operation": operation,
-	})
-
-	return func(before time.Time) {
-		curried.Observe(float64(time.Since(before)) / float64(time.Millisecond))
 	}
 }
 

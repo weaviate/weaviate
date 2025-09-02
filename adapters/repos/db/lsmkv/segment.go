@@ -96,7 +96,6 @@ type segment struct {
 	useBloomFilter        bool // see bucket for more datails
 	bloomFilter           *bloom.BloomFilter
 	secondaryBloomFilters []*bloom.BloomFilter
-	bloomFilterMetrics    *bloomFilterMetrics
 
 	// the net addition this segment adds with respect to all previous segments
 	calcCountNetAdditions bool // see bucket for more datails
