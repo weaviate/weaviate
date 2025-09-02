@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -41,15 +42,27 @@ func (fixer *CorruptCommitLogFixer) Do(fileNames []string) ([]string, error) {
 	i := 0
 	for _, fileName := range fileNames {
 		if !strings.HasSuffix(fileName, ".condensed") {
-			// has no suffix, so it can never be considered corrupt
-			out[i] = fileName
-			i++
+			// Has no suffix, check that there is no condensed file properly produced
+			// before adding. If there would be a condensed file, it means a crash
+			// prevented the last step, removing the uncondensed file.
+			if !fixer.listContains(fileNames, fmt.Sprintf("%s.condensed", fileName)) {
+				out[i] = fileName
+				i++
+			}
 			continue
 		}
 
-		// this file has a suffix, check if one without the suffix exists as well
-		if !fixer.listContains(fileNames, strings.TrimSuffix(fileName, ".condensed")) {
-			// does not seem corrupt, proceed
+		// temporal files should not exist unless a crash prevented the process
+		// to complete so we should consider this a corrupt file
+		if strings.HasSuffix(fileName, ".condensed.tmp") {
+			if err := os.Remove(fileName); err != nil {
+				return out, errors.Wrapf(err, "delete temporal condensed commit log file %q", fileName)
+			}
+			continue
+		}
+
+		if strings.HasSuffix(fileName, ".condensed") {
+			// fully condensed after renamed, should never be corrupt, proceed
 			out[i] = fileName
 			i++
 			continue
