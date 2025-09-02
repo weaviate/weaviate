@@ -190,10 +190,6 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	}
 }
 
-func noOpTimeObserver(start time.Time) {
-	// do nothing
-}
-
 func noOpNsObserver(startNs int64) {
 	// do nothing
 }
