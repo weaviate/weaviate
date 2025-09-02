@@ -82,7 +82,7 @@ func TestBootstrapper(t *testing.T) {
 				// This test performs a join request to the leader, but the leader is not
 				// available. The bootstrapper should retry the join request until it is
 				// successful.
-				errLeaderElected := status.Error(codes.NotFound, "follow the leader")
+				errLeaderElected := status.Error(codes.ResourceExhausted, "follow the leader")
 				count := 0
 				m.On("Join", anything, anything, anything).
 					Run(func(args mock.Arguments) {
