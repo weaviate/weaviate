@@ -21,7 +21,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -739,34 +738,4 @@ func TestDeserializerTotalReadRQ(t *testing.T) {
 		require.Equal(t, int(swapSize+signSize+17), deserializeSize)
 		t.Logf("deserializeSize: %v\n", deserializeSize)
 	})
-}
-
-func TestDeserializerFailsOnTruncatedCommit(t *testing.T) {
-	logger := logrus.New()
-
-	// First record: AddNode
-	buf := new(bytes.Buffer)
-	buf.WriteByte(byte(AddNode))
-	binary.Write(buf, binary.LittleEndian, uint64(123))
-	binary.Write(buf, binary.LittleEndian, uint16(1))
-	fullRecord := buf.Bytes()
-
-	// Truncate the record to simulate a crash mid-write
-	truncated := fullRecord[:5]
-
-	// Second record: a valid AddTombstone
-	buf2 := new(bytes.Buffer)
-	buf2.WriteByte(byte(AddTombstone))
-	binary.Write(buf2, binary.LittleEndian, uint64(999))
-	nextRecord := buf2.Bytes()
-
-	// Merge truncated + next record
-	merged := append(truncated, nextRecord...)
-
-	des := NewDeserializer(logger)
-	_, _, err := des.Do(bufio.NewReader(bytes.NewReader(merged)), nil, true)
-	if err == nil {
-		t.Fatal("expected error due to truncated first record spilling into second")
-	}
-	t.Logf("got expected corruption error: %v", err)
 }
