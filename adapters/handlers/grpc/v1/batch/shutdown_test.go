@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func TestShutdownLogic(t *testing.T) {
@@ -43,11 +44,18 @@ func TestShutdownLogic(t *testing.T) {
 
 	howManyObjs := 5000
 	// 5000 objs will be sent five times in batches of 1000
+	// 100 of the each batch will error
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(context.Context, *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 		time.Sleep(1 * time.Second)
+		errors := make([]*pb.BatchObjectsReply_BatchError, 0, 100)
+		for i := 0; i < 100; i++ {
+			errors = append(errors, &pb.BatchObjectsReply_BatchError{
+				Error: replica.ErrReplicas.Error(),
+			})
+		}
 		return &pb.BatchObjectsReply{
 			Took:   float32(1),
-			Errors: nil,
+			Errors: errors,
 		}, nil
 	}).Times(5)
 
@@ -62,6 +70,12 @@ func TestShutdownLogic(t *testing.T) {
 			Start: &pb.BatchStreamMessage_Start{},
 		},
 	}).Return(nil).Once()
+	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamMessage) bool {
+		return msg.StreamId == StreamId &&
+			msg.GetError().Error == replica.ErrReplicas.Error() &&
+			msg.GetError().IsRetriable &&
+			msg.GetError().IsObject
+	})).Return(nil).Times(500)
 	stream.EXPECT().Send(&pb.BatchStreamMessage{
 		StreamId: StreamId,
 		Message: &pb.BatchStreamMessage_ShuttingDown_{
