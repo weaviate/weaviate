@@ -6903,7 +6903,6 @@ func init() {
       "description": "If the group contains OIDC or database users.",
       "type": "string",
       "enum": [
-        "db",
         "oidc"
       ]
     },
@@ -16039,7 +16038,6 @@ func init() {
       "description": "If the group contains OIDC or database users.",
       "type": "string",
       "enum": [
-        "db",
         "oidc"
       ]
     },
