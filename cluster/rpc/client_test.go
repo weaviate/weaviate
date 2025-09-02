@@ -104,9 +104,11 @@ func TestClient_Query_ParseError(t *testing.T) {
 	}()
 	defer s.Stop()
 
-	dialCtx := context.Background()
-	conn, err := grpc.DialContext(dialCtx, "bufnet",
-		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+	// https://pkg.go.dev/google.golang.org/grpc#WithContextDialer
+	// to know what "passthrough" means.
+	// tldr; prefix tells gRPC to use the passthrough resolver which directly uses the target as the address
+	conn, err := grpc.NewClient("passthrough:bufnet",
+		grpc.WithContextDialer(func(ctx context.Context, address string) (net.Conn, error) {
 			return lis.Dial()
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
