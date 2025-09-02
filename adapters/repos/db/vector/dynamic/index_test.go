@@ -553,6 +553,4 @@ func TestDynamicAndStoreOperations(t *testing.T) {
 	}
 
 	close(ch)
-
-	require.True(t, false)
 }
