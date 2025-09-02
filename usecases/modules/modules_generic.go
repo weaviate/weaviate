@@ -66,12 +66,12 @@ func crossClassVectorFromSearchParam[T dto.Embedding](
 	params interface{},
 	findVectorFn modulecapabilities.FindVectorFn[T],
 	getTargetVectorFn func(class *models.Class, params interface{}) ([]string, error),
-	dbConfig config.Config,
+	dbConfig *config.Config,
 ) (bool, T, string, error) {
 	if searcher, ok := mod.(modulecapabilities.Searcher[T]); ok {
 		if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
 			if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-				cfg := NewCrossClassModuleConfig()
+				cfg := NewCrossClassModuleConfig(dbConfig)
 				vector, err := searchVectorFn.VectorForParams(ctx, params, "", findVectorFn, cfg)
 				if err != nil {
 					return true, nil, "", errors.Errorf("vectorize params: %v", err)

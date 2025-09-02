@@ -80,7 +80,7 @@ func testText2VecModel2Vec(host string) func(t *testing.T) {
 				})
 				if tt.insertNonVocabularWords {
 					t.Run("query with non-vocabular words", func(t *testing.T) {
-						companies.PerformHybridSearchWithTextTest(t, host, class.Class, "no-vocabular text: **77aaee sss fb")
+						companies.PerformHybridSearchWithTextTestWithTargetVector(t, host, class.Class, "no-vocabular text: **77aaee sss fb", "")
 					})
 					t.Run("insert objects with non-vocabular words", func(t *testing.T) {
 						obj := &models.Object{

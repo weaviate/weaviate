@@ -49,7 +49,11 @@ func (v *BatchVectorizer[T]) Object(ctx context.Context, object *models.Object, 
 
 func (v *BatchVectorizer[T]) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig, cs objectsvectorizer.ClassSettings,
 ) (T, error) {
-	text := v.objectVectorizer.Texts(ctx, object, cs)
+	text, isEmpty := v.objectVectorizer.Texts(ctx, object, cs)
+	if isEmpty {
+		// don't vectorize empty strings
+		return nil, nil
+	}
 	res, _, _, err := v.client.Vectorize(ctx, []string{text}, cfg)
 	if err != nil {
 		return nil, err
@@ -64,7 +68,7 @@ func (v *BatchVectorizer[T]) object(ctx context.Context, object *models.Object, 
 func (v *BatchVectorizer[T]) ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
 ) ([]T, map[int]error) {
 	beforeTokenization := time.Now()
-	texts, tokenCounts, skipAll, err := v.tokenizerFunc(ctx, objects, skipObject, cfg, v.objectVectorizer, v.encoderCache)
+	texts, tokenCounts, skippedObjects, skipAll, err := v.tokenizerFunc(ctx, objects, skipObject, cfg, v.objectVectorizer, v.encoderCache)
 	if err != nil {
 		errs := make(map[int]error)
 		for j := range texts {
@@ -82,7 +86,7 @@ func (v *BatchVectorizer[T]) ObjectBatch(ctx context.Context, objects []*models.
 
 	monitoring.GetMetrics().ModuleExternalBatchLength.WithLabelValues("vectorizeBatch", objects[0].Class).Observe(float64(len(objects)))
 
-	return v.batchVectorizer.SubmitBatchAndWait(ctx, cfg, skipObject, tokenCounts, texts)
+	return v.batchVectorizer.SubmitBatchAndWait(ctx, cfg, skippedObjects, tokenCounts, texts)
 }
 
 func (v *BatchVectorizer[T]) Texts(ctx context.Context, inputs []string,
