@@ -11,7 +11,10 @@
 
 package mocks
 
-import "sort"
+import (
+	"sort"
+	"time"
+)
 
 type memberlist struct {
 	// nodes include the node names only
@@ -47,6 +50,27 @@ func (m memberlist) LocalName() string {
 	}
 
 	return m.nodes[0]
+}
+
+func (m memberlist) AllHostnames() []string {
+	return m.nodes
+}
+
+func (m memberlist) NodeAddress(name string) string {
+	for _, node := range m.nodes {
+		if node == name {
+			return name
+		}
+	}
+	return ""
+}
+
+func (m memberlist) Leave() error {
+	return nil
+}
+
+func (m memberlist) Shutdown(timeout time.Duration) error {
+	return nil
 }
 
 func NewMockNodeSelector(node ...string) memberlist {
