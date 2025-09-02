@@ -321,7 +321,7 @@ func (s *State) NodeAddress(id string) string {
 	if s.config.Join != "" {
 		joinAddr = strings.Split(s.config.Join, ",")
 	}
-	if nodeCount == 1 && len(joinAddr) > 0 && s.config.RaftBootstrapExpect > 1 {
+	if nodeCount < s.config.RaftBootstrapExpect && s.config.RaftBootstrapExpect > 1 && len(joinAddr) > 0 {
 		s.delegate.log.WithFields(logrus.Fields{
 			"action":     "memberlist_rejoin",
 			"node_count": nodeCount,
