@@ -392,6 +392,7 @@ func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResp
 	resp, err := s.cl.Query(ctx, leader, req)
 	if err != nil {
 		s.log.WithField("leader", leader).Errorf("query: failed to query leader: %s", err)
+		return &cmd.QueryResponse{}, err
 	}
 	return resp, err
 }
