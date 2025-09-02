@@ -81,30 +81,6 @@ var availableAWSServices = []string{
 	Sagemaker,
 }
 
-var availableBedrockModels = []string{
-	"ai21.j2-ultra-v1",
-	"ai21.j2-mid-v1",
-	"amazon.titan-text-lite-v1",
-	"amazon.titan-text-express-v1",
-	"amazon.titan-text-premier-v1:0",
-	"anthropic.claude-v2",
-	"anthropic.claude-v2:1",
-	"anthropic.claude-instant-v1",
-	"anthropic.claude-3-sonnet-20240229-v1:0",
-	"anthropic.claude-3-haiku-20240307-v1:0",
-	"cohere.command-text-v14",
-	"cohere.command-light-text-v14",
-	"cohere.command-r-v1:0",
-	"cohere.command-r-plus-v1:0",
-	"meta.llama3-8b-instruct-v1:0",
-	"meta.llama3-70b-instruct-v1:0",
-	"meta.llama2-13b-chat-v1",
-	"meta.llama2-70b-chat-v1",
-	"mistral.mistral-7b-instruct-v0:2",
-	"mistral.mixtral-8x7b-instruct-v0:1",
-	"mistral.mistral-large-2402-v1:0",
-}
-
 type classSettings struct {
 	cfg                  moduletools.ClassConfig
 	propertyValuesHelper basesettings.PropertyValuesHelper
@@ -129,10 +105,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 
 	if isBedrock(service) {
 		model := ic.Model()
-		if model != "" && !ic.validateAWSSetting(model, availableBedrockModels) {
-			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s: %s, available model names are: %v", modelProperty, model, availableBedrockModels))
+		if model == "" {
+			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be defined", modelProperty))
 		}
-
 		maxTokenCount := ic.MaxTokenCount(Bedrock, model)
 		if maxTokenCount != nil && (*maxTokenCount < 1 || *maxTokenCount > 8192) {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 1 and 8096", maxTokenCountProperty))
@@ -171,15 +146,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 }
 
 func (ic *classSettings) validatAvailableAWSSetting(value string, availableValues []string) bool {
-	for i := range availableValues {
-		if value == availableValues[i] {
-			return true
-		}
-	}
-	return false
-}
-
-func (ic *classSettings) validateAWSSetting(value string, availableValues []string) bool {
 	for i := range availableValues {
 		if value == availableValues[i] {
 			return true

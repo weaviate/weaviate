@@ -38,16 +38,11 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantErr           error
 	}{
 		{
-			name: "default settings",
+			name: "empty model",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantService:       "bedrock",
-			wantRegion:        "",
-			wantModel:         "",
-			wantMaxTokenCount: 8192,
-			wantTemperature:   0,
-			wantTopP:          1,
+			wantErr: fmt.Errorf("model has to be defined"),
 		},
 		{
 			name: "happy flow - Bedrock",
