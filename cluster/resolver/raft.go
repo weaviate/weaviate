@@ -19,6 +19,7 @@ import (
 
 	raftImpl "github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/log"
 )
 
@@ -42,7 +43,7 @@ type raft struct {
 	// keep in memory which node uses which port.
 	NodeNameToPortMap map[string]int
 
-	nodesLock        sync.Mutex
+	nodesLock        sync.RWMutex
 	notResolvedNodes map[raftImpl.ServerID]struct{}
 }
 
@@ -66,7 +67,7 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	defer a.nodesLock.Unlock()
 	if addr == "" {
 		a.notResolvedNodes[id] = struct{}{}
-		return raftImpl.ServerAddress(invalidAddr), nil
+		return "", fmt.Errorf("could not find address for server id %v", id)
 	}
 	delete(a.notResolvedNodes, id)
 
@@ -75,7 +76,13 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	if !a.IsLocalCluster {
 		return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, a.RaftPort)), nil
 	}
-	return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, a.NodeNameToPortMap[string(id)])), nil
+
+	port, exists := a.NodeNameToPortMap[string(id)]
+	if !exists {
+		return "", fmt.Errorf("could not find port mapping for server id %v in local cluster", id)
+	}
+
+	return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, port)), nil
 }
 
 // NewTCPTransport returns a new raft.NetworkTransportConfig that utilizes
@@ -98,12 +105,8 @@ func (a *raft) NewTCPTransport(
 }
 
 func (a *raft) NotResolvedNodes() map[raftImpl.ServerID]struct{} {
-	a.nodesLock.Lock()
-	defer a.nodesLock.Unlock()
+	a.nodesLock.RLock()
+	defer a.nodesLock.RUnlock()
 
-	newMap := make(map[raftImpl.ServerID]struct{})
-	for k, v := range a.notResolvedNodes {
-		newMap[k] = v
-	}
-	return newMap
+	return a.notResolvedNodes
 }
