@@ -65,7 +65,7 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	// Update the internal notResolvedNodes if the addr if empty, otherwise delete it from the map
 	if addr == "" {
 		a.notResolvedNodes.Store(id, struct{}{})
-		return raftImpl.ServerAddress(invalidAddr), nil
+		return "", fmt.Errorf("could not find address for server id %v", id)
 	}
 	a.notResolvedNodes.Delete(id)
 
@@ -74,7 +74,13 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	if !a.IsLocalCluster {
 		return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, a.RaftPort)), nil
 	}
-	return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, a.NodeNameToPortMap[string(id)])), nil
+
+	port, exists := a.NodeNameToPortMap[string(id)]
+	if !exists {
+		return "", fmt.Errorf("could not find port mapping for server id %v in local cluster", id)
+	}
+
+	return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, port)), nil
 }
 
 // NewTCPTransport returns a new raft.NetworkTransportConfig that utilizes
