@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -113,8 +114,13 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 				h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
 
 			if err == nil {
+				h.Lock()
+				defer h.Unlock()
 				h.compressed.Store(true)
-				h.cache.Drop()
+				if h.cache != nil {
+					h.cache.Drop()
+				}
+				h.cache = nil
 				h.compressor.PersistCompression(h.commitLog)
 			}
 		})
