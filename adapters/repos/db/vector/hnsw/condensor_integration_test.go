@@ -952,7 +952,6 @@ func getCondensedFileSize(t *testing.T, rootPath string) []int64 {
 }
 
 func TestCondensorCrashSafety(t *testing.T) {
-
 	t.Run("", func(t *testing.T) {
 		rootPath := t.TempDir()
 		m := newMemoryCondensor(t, rootPath, common.NewOSFS())
@@ -987,7 +986,6 @@ func TestCondensorCrashSafety(t *testing.T) {
 		secondBrokenSize := sizes[0]
 		require.Equal(t, goldenSize, secondBrokenSize)
 	})
-
 }
 
 func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string,
