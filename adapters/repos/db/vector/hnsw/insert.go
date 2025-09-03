@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -98,6 +99,11 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+
+	if err := h.allocChecker.CheckAlloc(estimateBatchMemory(vectors)); err != nil {
+		return fmt.Errorf("add batch of %d vectors: %w", len(vectors), err)
+	}
+
 	if h.multivector.Load() && !h.muvera.Load() {
 		return errors.Errorf("AddBatch called on multivector index")
 	}
@@ -494,6 +500,16 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 
 	// go h.insertHook(node.id, 0, node.connections)
 	return nil
+}
+
+func estimateBatchMemory(vecs [][]float32) int64 {
+	var sum int64
+	for _, item := range vecs {
+		// use same logic as in memwatch.EstimateObjectMemory
+		sum += int64(len(item))*4 + 30
+	}
+
+	return sum
 }
 
 func (h *hnsw) Preload(id uint64, vector []float32) {
