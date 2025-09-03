@@ -148,7 +148,7 @@ func (w *Worker) executeTaskRetryOnTransient(ctx context.Context, t Task) (err e
 		}
 
 		// any error left at this point is considered transient, retry forever
-		retryIn := simpleLinearBackoff(attempt)
+		retryIn := w.simpleLinearBackoff(attempt)
 		w.logger.
 			WithError(err).
 			WithField("attempt", attempt).
@@ -160,6 +160,6 @@ func (w *Worker) executeTaskRetryOnTransient(ctx context.Context, t Task) (err e
 	}
 }
 
-func simpleLinearBackoff(attempt int) time.Duration {
-	return min(time.Duration(attempt)*100*time.Millisecond, 3*time.Second)
+func (w *Worker) simpleLinearBackoff(attempt int) time.Duration {
+	return min(time.Duration(attempt)*w.retryInterval, 3*time.Second)
 }
