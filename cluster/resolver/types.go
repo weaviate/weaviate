@@ -19,6 +19,9 @@ type ClusterStateReader interface {
 	NodeHostname(nodeName string) (string, bool)
 	// LocalName returns the local node name
 	LocalName() string
+	// AllClusterMembers returns all cluster members discovered via memberlist with their raft addresses
+	// This is useful for bootstrap when the join config is incomplete
+	AllClusterMembers(raftPort int) map[string]string
 }
 
 type RaftConfig struct {

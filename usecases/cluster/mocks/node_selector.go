@@ -62,6 +62,10 @@ func (m memberlist) NodeAddress(name string) string {
 	return ""
 }
 
+func (m memberlist) AllClusterMembers(raftPort int) map[string]string {
+	return map[string]string{}
+}
+
 func NewMockNodeSelector(node ...string) memberlist {
 	return memberlist{nodes: node}
 }

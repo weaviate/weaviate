@@ -24,6 +24,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	entSentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // PeerJoiner is the interface we expect to be able to talk to the other peers to either Join or Notify them
@@ -77,6 +78,9 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 		case <-stop:
 			return nil
 		case <-ctx.Done():
+			// TODO we could log this here
+			// return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value.", err)
+
 			return ctx.Err()
 		case <-ticker.C:
 			if b.isStoreReady() {
@@ -95,13 +99,10 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 			var leader string
 			joiner := NewJoiner(b.peerJoiner, b.localNodeID, b.localRaftAddr, b.voter)
 			err := backoff.Retry(func() error {
-				joinNodes := ResolveRemoteNodes(b.addrResolver, serverPortMap)
-				leaderID, err := joiner.Do(ctx, lg, joinNodes)
+				leaderID, err := joiner.Do(ctx, lg, ResolveRemoteNodes(b.addrResolver, serverPortMap))
 				leader = leaderID
 				return err
 			}, backoff.WithContext(backoffConfig(hasState), ctx))
-
-			// return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value.", err)
 
 			if err != nil {
 				lg.WithFields(logrus.Fields{
@@ -161,7 +162,8 @@ func (b *Bootstrapper) notify(ctx context.Context, remoteNodes map[string]string
 }
 
 // ResolveRemoteNodes returns a list of remoteNodes addresses resolved using addrResolver. The nodes id used are
-// taken from serverPortMap keys and ports from the values
+// taken from serverPortMap keys and ports from the values. Additionally, it includes nodes discovered via memberlist
+// to handle cases where the join config is incomplete.
 func ResolveRemoteNodes(addrResolver resolver.ClusterStateReader, serverPortMap map[string]int) map[string]string {
 	candidates := make(map[string]string, len(serverPortMap))
 	for name, raftPort := range serverPortMap {
@@ -169,6 +171,15 @@ func ResolveRemoteNodes(addrResolver resolver.ClusterStateReader, serverPortMap 
 			candidates[name] = fmt.Sprintf("%s:%d", addr, raftPort)
 		}
 	}
+
+	memberlistNodes := addrResolver.AllClusterMembers(config.DefaultRaftPort)
+	for name, addr := range memberlistNodes {
+		// Only add memberlist nodes that are NOT already in the join configuration
+		if _, exists := serverPortMap[name]; !exists {
+			candidates[name] = addr
+		}
+	}
+
 	return candidates
 }
 
@@ -182,5 +193,5 @@ func backoffConfig(hasState bool) backoff.BackOff {
 	if hasState {
 		count = 5
 	}
-	return backoff.WithMaxRetries(backoff.NewConstantBackOff(500*time.Millisecond), uint64(count))
+	return backoff.WithMaxRetries(backoff.NewExponentialBackOff(), uint64(count))
 }
