@@ -98,7 +98,7 @@ func (t *fakeTask) Execute(ctx context.Context) error {
 	// Simulate transient errors first, then success
 	if atomic.LoadInt32(&t.failures) > 0 {
 		atomic.AddInt32(&t.failures, -1)
-		return enterrors.NewOutOfMemory("simulated transient OOM")
+		return enterrors.NewNotEnoughMemory("simulated transient OOM")
 	}
 	return nil
 }
