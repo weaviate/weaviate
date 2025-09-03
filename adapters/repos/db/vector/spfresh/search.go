@@ -92,7 +92,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 
 			visited.Visit(id)
 
-			dist, err := s.Quantizer.DistanceBetweenCompressedVectors(v, queryVector)
+			dist, err := s.Quantizer.DistanceBetweenCompressedVectors(v.Data(), queryVector)
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 			}

@@ -12,7 +12,6 @@
 package spfresh
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 
@@ -76,17 +75,34 @@ func Test_SPFresh_Add_Search(t *testing.T) {
 	}
 	ctx := t.Context()
 	spfresh.Start(ctx)
-	vectorID := uint64(1)
-	err = spfresh.Add(ctx, vectorID, []float32{0.9, 0.9})
-	err = spfresh.Add(ctx, vectorID+1, []float32{0.1, 0.1})
-	err = spfresh.Add(ctx, vectorID+2, []float32{0.5, 0.5})
-	require.NoError(t, err)
-	allowList := helpers.NewAllowList(vectorID, vectorID+1, vectorID+2)
-	results, dists, err := spfresh.SearchByVector(ctx, []float32{0.9, 0.9}, 3, allowList)
-	require.NoError(t, err)
-	require.Equal(t, 3, len(results))
-	require.Equal(t, vectorID, results[0])
-	require.Equal(t, vectorID+2, results[1])
-	require.Equal(t, vectorID+1, results[2])
-	fmt.Println(dists) // TODO check dists
+	type testVector struct {
+		id     uint64
+		vector []float32
+	}
+	testVectors := []testVector{
+		{id: 1, vector: []float32{0.9, 0.9}},
+		{id: 2, vector: []float32{0.1, 0.1}},
+		{id: 3, vector: []float32{0.5, 0.5}},
+	}
+	for _, testVector := range testVectors {
+		err = spfresh.Add(ctx, testVector.id, testVector.vector)
+		require.NoError(t, err)
+	}
+	ids := []uint64{}
+	for _, testVector := range testVectors {
+		ids = append(ids, testVector.id)
+	}
+	allowList := helpers.NewAllowList(ids...)
+	verifyOrderOfResults := func(searchVector []float32, expectedIds []uint64) {
+		results, _, err := spfresh.SearchByVector(ctx, searchVector, len(expectedIds), allowList)
+		require.NoError(t, err)
+		require.Equal(t, len(expectedIds), len(results))
+		for i, id := range results {
+			require.Equal(t, id, expectedIds[i], "search vector: ", searchVector, " expected ids: ", expectedIds, " results: ", results)
+		}
+	}
+	verifyOrderOfResults([]float32{0.9, 0.9}, []uint64{1, 3, 2})
+	verifyOrderOfResults([]float32{0.1, 0.1}, []uint64{2, 3, 1})
+	verifyOrderOfResults([]float32{0.5, 0.5}, []uint64{3, 1, 2})
+	verifyOrderOfResults([]float32{0.0, 0.0}, []uint64{2, 3, 1})
 }

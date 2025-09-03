@@ -31,6 +31,8 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 	})
 
 	v := distancer.Normalize(vector)
+	// TODO i need to understand how RQ should be working more, some code assumes
+	// vector is 73 bytes vs 64?
 	compressed := compressionhelpers.RQCode(s.Quantizer.Encode(v)).Bytes()
 
 	return s.addOne(ctx, id, compressed)
