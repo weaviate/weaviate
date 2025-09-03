@@ -42,6 +42,7 @@ type NodeSelector interface {
 	// NodeHostname return hosts address for a specific node name
 	NodeHostname(name string) (string, bool)
 	AllHostnames() []string
+	AllClusterMembers(raftPort int) map[string]string
 }
 
 type State struct {
@@ -113,7 +114,7 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 	cfg.Delegate = &state.delegate
 	cfg.Events = events{&state.delegate}
 	cfg.DeadNodeReclaimTime = 5 * time.Second
-	cfg.SuspicionMult = 2 // half og
+	// cfg.SuspicionMult = 2 // half og
 	if userConfig.GossipBindPort != 0 {
 		cfg.BindPort = userConfig.GossipBindPort
 	}
@@ -258,6 +259,27 @@ func (s *State) NonStorageNodes() []string {
 // free amount of disk space in descending order
 func (s *State) SortCandidates(nodes []string) []string {
 	return s.delegate.sortCandidates(nodes)
+}
+
+// AllClusterMembers returns all cluster members discovered via memberlist with their raft addresses
+// This is useful for bootstrap when the join config is incomplete
+func (s *State) AllClusterMembers(raftPort int) map[string]string {
+	if s.list == nil {
+		return map[string]string{}
+	}
+
+	members := s.list.Members()
+	result := make(map[string]string, len(members))
+
+	for _, m := range members {
+		// Skip self
+		if m.Name == s.list.LocalNode().Name {
+			continue
+		}
+		result[m.Name] = fmt.Sprintf("%s:%d", m.Addr.String(), raftPort)
+	}
+
+	return result
 }
 
 // All node names (not their hostnames!) for live members, including self.
