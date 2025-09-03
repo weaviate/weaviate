@@ -170,14 +170,6 @@ func (cl *Client) Query(ctx context.Context, leaderRaftAddr string, req *cmd.Que
 	return resp, fromRPCError(err)
 }
 
-func fromRPCError(err error) error {
-	st, ok := status.FromError(err)
-	if ok && (st.Code() == codes.NotFound) {
-		return errors.Join(err, schemaUC.ErrNotFound)
-	}
-	return err
-}
-
 // Close the client and allocated resources
 func (cl *Client) Close() {
 	if cl.leaderRpcConn == nil {
@@ -241,4 +233,16 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 	cl.leaderRaftAddr = leaderRaftAddr
 
 	return cl.leaderRpcConn, nil
+}
+
+// fromRPCError parses the error sent by rpc server
+// to identify status and chain sentinal errors accordingly.
+// This is helpful on the client side to make decision based on
+// type-full errors rather than just string-based error
+func fromRPCError(err error) error {
+	st, ok := status.FromError(err)
+	if ok && (st.Code() == codes.NotFound) {
+		return errors.Join(err, schemaUC.ErrNotFound)
+	}
+	return err
 }

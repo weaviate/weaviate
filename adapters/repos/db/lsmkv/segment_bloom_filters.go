@@ -65,7 +65,6 @@ func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool, existingFil
 			}
 		}
 	}
-	s.bloomFilterMetrics = newBloomFilterMetrics(metrics)
 	return nil
 }
 

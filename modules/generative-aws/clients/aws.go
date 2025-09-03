@@ -191,7 +191,6 @@ func (v *awsClient) getDebugInformation(debug bool, prompt string) *modulecapabi
 func (v *awsClient) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]*string) awsparams.Params {
 	settings := generativeconfig.NewClassSettings(cfg)
 
-	service := settings.Service()
 	var params awsparams.Params
 	if p, ok := options.(awsparams.Params); ok {
 		params = p
@@ -216,8 +215,12 @@ func (v *awsClient) getParameters(cfg moduletools.ClassConfig, options interface
 		params.Model = settings.Model()
 	}
 	if params.Temperature == nil {
-		temperature := settings.Temperature(service, params.Model)
+		temperature := settings.Temperature(params.Service, params.Model)
 		params.Temperature = temperature
+	}
+	if params.MaxTokens == nil {
+		maxTokens := settings.MaxTokenCount(params.Service, params.Model)
+		params.MaxTokens = maxTokens
 	}
 
 	params.Images = generativecomponents.ParseImageProperties(params.Images, params.ImageProperties, imagePropertiesArray)
@@ -284,7 +287,7 @@ func (v *awsClient) sendBedrockRequest(
 func (v *awsClient) createRequestBody(prompt string, params awsparams.Params, cfg moduletools.ClassConfig) (interface{}, error) {
 	settings := generativeconfig.NewClassSettings(cfg)
 	model := params.Model
-	service := settings.Service()
+	service := params.Service
 	if v.isAmazonTitanModel(model) {
 		return bedrockAmazonGenerateRequest{
 			InputText: prompt,
@@ -338,7 +341,7 @@ func (v *awsClient) createRequestBody(prompt string, params awsparams.Params, cf
 		})
 		return bedrockAnthropicClaude3Request{
 			AnthropicVersion: "bedrock-2023-05-31",
-			MaxTokens:        settings.MaxTokenCount(service, model),
+			MaxTokens:        params.MaxTokens,
 			Messages: []bedrockAnthropicClaude3Message{
 				{
 					Role:    "user",
@@ -354,7 +357,7 @@ func (v *awsClient) createRequestBody(prompt string, params awsparams.Params, cf
 		return bedrockAnthropicGenerateRequest{
 			Prompt:            builder.String(),
 			Temperature:       params.Temperature,
-			MaxTokensToSample: settings.MaxTokenCount(service, model),
+			MaxTokensToSample: params.MaxTokens,
 			StopSequences:     settings.StopSequences(service, model),
 			TopK:              settings.TopK(service, model),
 			TopP:              settings.TopP(service, model),
@@ -364,7 +367,7 @@ func (v *awsClient) createRequestBody(prompt string, params awsparams.Params, cf
 		return bedrockAI21GenerateRequest{
 			Prompt:        prompt,
 			Temperature:   params.Temperature,
-			MaxTokens:     settings.MaxTokenCount(service, model),
+			MaxTokens:     params.MaxTokens,
 			TopP:          settings.TopP(service, model),
 			StopSequences: settings.StopSequences(service, model),
 		}, nil
@@ -376,20 +379,20 @@ func (v *awsClient) createRequestBody(prompt string, params awsparams.Params, cf
 		return bedrockCohereRequest{
 			Prompt:      prompt,
 			Temperature: params.Temperature,
-			MaxTokens:   settings.MaxTokenCount(service, model),
+			MaxTokens:   params.MaxTokens,
 			// ReturnLikeliHood: "GENERATION", // contray to docs, this is invalid
 		}, nil
 	} else if v.isMistralAIModel(model) {
 		return bedrockMistralAIRequest{
 			Prompt:      fmt.Sprintf("<s>[INST] %s [/INST]", prompt),
 			Temperature: params.Temperature,
-			MaxTokens:   settings.MaxTokenCount(service, model),
+			MaxTokens:   params.MaxTokens,
 		}, nil
 	} else if v.isMetaModel(model) {
 		return bedrockMetaRequest{
 			Prompt:      prompt,
 			Temperature: params.Temperature,
-			MaxGenLen:   settings.MaxTokenCount(service, model),
+			MaxGenLen:   params.MaxTokens,
 		}, nil
 	}
 	return nil, fmt.Errorf("unspported model: %s", model)
