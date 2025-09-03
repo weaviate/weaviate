@@ -17,13 +17,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func (h *hnsw) init(cfg Config) error {
@@ -433,6 +433,10 @@ func (h *hnsw) PostStartup() {
 }
 
 func (h *hnsw) prefillCache() {
+	// Wait for compression setup to complete before reading compression state
+	h.trackRQOnce.Do(func() {})     // Wait for RQ compression setup if it's pending
+	h.trackMuveraOnce.Do(func() {}) // Wait for Muvera compression setup if it's pending
+
 	limit := 0
 	if h.compressed.Load() {
 		limit = int(h.compressor.GetCacheMaxSize())
