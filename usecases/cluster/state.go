@@ -272,7 +272,8 @@ func (s *State) ClusterHealthScore() int {
 }
 
 func (s *State) NodeHostname(nodeName string) (string, bool) {
-	for _, mem := range s.list.Members() {
+	members := s.list.Members()
+	for _, mem := range members {
 		if mem.Name == nodeName {
 			// TODO: how can we find out the actual data port as opposed to relying on
 			// the convention that it's 1 higher than the gossip port
@@ -280,19 +281,6 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 		}
 	}
 
-	return "", false
-}
-
-// NodeAddress is used to resolve the node name into an ip address without the port
-// TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
-func (s *State) NodeAddress(id string) string {
-	members := s.list.Members()
-
-	for _, mem := range members {
-		if mem.Name == id {
-			return mem.Addr.String()
-		}
-	}
 	// network interruption detection which can cause a single node to be isolated from the cluster (split brain)
 	nodeCount := len(members)
 	var joinAddr []string
@@ -319,7 +307,27 @@ func (s *State) NodeAddress(id string) string {
 		}
 	}
 
-	return ""
+	// redo again to get after rejoin
+	for _, mem := range s.list.Members() {
+		if mem.Name == nodeName {
+			// TODO: how can we find out the actual data port as opposed to relying on
+			// the convention that it's 1 higher than the gossip port
+			return fmt.Sprintf("%s:%d", mem.Addr.String(), mem.Port+1), true
+		}
+	}
+
+	return "", false
+}
+
+// NodeAddress is used to resolve the node name into an ip address without the port
+// TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
+func (s *State) NodeAddress(id string) string {
+	addr, ok := s.NodeHostname(id)
+	if !ok {
+		return ""
+	}
+
+	return strings.Split(addr, ":")[0] // get address without port
 }
 
 func (s *State) SchemaSyncIgnored() bool {
