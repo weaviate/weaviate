@@ -21,9 +21,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -824,6 +826,168 @@ func TestCondensorWithMUVERAInformation(t *testing.T) {
 
 		assert.Equal(t, expected, *res.EncoderMuvera)
 	})
+}
+
+func newMemoryCondensor(t *testing.T, rootPath string, fs common.FS) *MemoryCondensor {
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+	cl, err := NewCommitLogger(rootPath, "memory_condensor", logger,
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	t.Cleanup(func() {
+		cl.Shutdown(ctx)
+	})
+
+	cl.AddNode(&vertex{id: 0, level: 3})
+	cl.AddNode(&vertex{id: 1, level: 3})
+	cl.AddNode(&vertex{id: 2, level: 3})
+	cl.AddNode(&vertex{id: 3, level: 3})
+
+	// below are some pointless connection replacements, we expect that most of
+	// these will be gone after condensing, this gives us a good way of testing
+	// whether they're really gone
+	for level := 0; level <= 3; level++ {
+		cl.ReplaceLinksAtLevel(0, level, []uint64{1, 2, 3})
+		cl.ReplaceLinksAtLevel(0, level, []uint64{1, 2})
+		cl.ReplaceLinksAtLevel(0, level, []uint64{1})
+		cl.ReplaceLinksAtLevel(0, level, []uint64{2})
+		cl.ReplaceLinksAtLevel(0, level, []uint64{3})
+		cl.ReplaceLinksAtLevel(0, level, []uint64{2, 3})
+		cl.ReplaceLinksAtLevel(0, level, []uint64{1, 2, 3})
+		cl.ReplaceLinksAtLevel(1, level, []uint64{0, 2, 3})
+		cl.ReplaceLinksAtLevel(1, level, []uint64{0, 2})
+		cl.ReplaceLinksAtLevel(1, level, []uint64{0})
+		cl.ReplaceLinksAtLevel(1, level, []uint64{2})
+		cl.ReplaceLinksAtLevel(1, level, []uint64{3})
+		cl.ReplaceLinksAtLevel(1, level, []uint64{2, 3})
+		cl.ReplaceLinksAtLevel(1, level, []uint64{0, 2, 3})
+		cl.ReplaceLinksAtLevel(2, level, []uint64{0, 1, 3})
+		cl.ReplaceLinksAtLevel(2, level, []uint64{0, 1})
+		cl.ReplaceLinksAtLevel(2, level, []uint64{0})
+		cl.ReplaceLinksAtLevel(2, level, []uint64{1})
+		cl.ReplaceLinksAtLevel(2, level, []uint64{3})
+		cl.ReplaceLinksAtLevel(2, level, []uint64{1, 3})
+		cl.ReplaceLinksAtLevel(2, level, []uint64{0, 1, 3})
+		cl.ReplaceLinksAtLevel(3, level, []uint64{0, 1, 2})
+		cl.ReplaceLinksAtLevel(3, level, []uint64{0, 1})
+		cl.ReplaceLinksAtLevel(3, level, []uint64{0})
+		cl.ReplaceLinksAtLevel(3, level, []uint64{1})
+		cl.ReplaceLinksAtLevel(3, level, []uint64{2})
+		cl.ReplaceLinksAtLevel(3, level, []uint64{1, 2})
+		cl.ReplaceLinksAtLevel(3, level, []uint64{0, 1, 2})
+	}
+	cl.SetEntryPointWithMaxLayer(3, 3)
+	cl.AddTombstone(2)
+
+	var encoders []compressionhelpers.PQEncoder
+	m := 32000
+	for i := 0; i < m; i++ {
+		encoders = append(encoders,
+			compressionhelpers.NewKMeansEncoderWithCenters(
+				4,
+				2,
+				i,
+				[][]float32{{1, 2}, {3, 4}, {5, 6}, {7, 8}},
+			),
+		)
+	}
+
+	cl.AddPQCompression(compressionhelpers.PQData{
+		Ks:                  4,
+		M:                   uint16(m),
+		Dimensions:          64000,
+		EncoderType:         compressionhelpers.UseKMeansEncoder,
+		EncoderDistribution: uint8(0),
+		Encoders:            encoders,
+		UseBitsEncoding:     false,
+	})
+
+	require.Nil(t, cl.Flush())
+
+	return &MemoryCondensor{logger: logger, fs: fs}
+}
+
+type testFS struct {
+	common.FS
+	counter int
+}
+
+func (fs *testFS) OpenFile(name string, flag int, perm os.FileMode) (common.File, error) {
+	f, err := fs.FS.OpenFile(name, flag, perm)
+	if err != nil {
+		return nil, err
+	}
+	return &testFile{File: f, counter: &fs.counter}, nil
+}
+
+type testFile struct {
+	common.File
+	counter *int
+}
+
+func (fs *testFile) Write(p []byte) (n int, err error) {
+	*fs.counter++
+	if *fs.counter == 2 {
+		return 0, errors.New("fake temp error: two writes")
+	}
+	return fs.File.Write(p)
+}
+
+func getCondensedFileSize(t *testing.T, rootPath string) []int64 {
+	fs := common.NewOSFS()
+	fs = &testFS{FS: fs}
+	files, err := fs.ReadDir(commitLogDirectory(rootPath, "memory_condensor"))
+	require.Nil(t, err)
+	sizes := make([]int64, 0, len(files))
+	for _, file := range files {
+		if !strings.HasSuffix(file.Name(), ".condensed") {
+			continue
+		}
+		fileInfo, err := file.Info()
+		require.Nil(t, err)
+		sizes = append(sizes, fileInfo.Size())
+	}
+	return sizes
+}
+
+func TestCondensorCrashSafety(t *testing.T) {
+
+	t.Run("", func(t *testing.T) {
+		rootPath := t.TempDir()
+		m := newMemoryCondensor(t, rootPath, common.NewOSFS())
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "memory_condensor"))
+		require.Nil(t, err)
+		require.True(t, ok)
+		err = m.Do(commitLogFileName(rootPath, "memory_condensor", input))
+		require.Nil(t, err)
+		sizes := getCondensedFileSize(t, rootPath)
+		goldenSize := sizes[0]
+
+		rootPath = t.TempDir()
+		fs := common.NewOSFS()
+		fs = &testFS{FS: fs}
+
+		m = newMemoryCondensor(t, rootPath, fs)
+		m.bufferSize = 1 * 1024
+
+		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "memory_condensor"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = m.Do(commitLogFileName(rootPath, "memory_condensor", input))
+		require.Error(t, err)
+		sizes = getCondensedFileSize(t, rootPath)
+		brokenSize := sizes[0]
+		require.Less(t, brokenSize, goldenSize)
+
+		err = m.Do(commitLogFileName(rootPath, "memory_condensor", input))
+		require.Nil(t, err)
+		sizes = getCondensedFileSize(t, rootPath)
+		secondBrokenSize := sizes[0]
+		require.Equal(t, goldenSize, secondBrokenSize)
+	})
+
 }
 
 func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string,

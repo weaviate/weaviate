@@ -177,7 +177,7 @@ func (l *hnswCommitLogger) createAndOptionallyLoadSnapshotOnLastOne(logger logru
 		return state, "", createdAt, nil
 	}
 
-	newState, err := loadCommitLoggerState(l.logger, commitlogPaths, state, nil)
+	newState, err := loadCommitLoggerState(l.fs, l.logger, commitlogPaths, state, nil)
 	if err != nil {
 		return nil, "", 0, errors.Wrapf(err, "apply delta commitlogs")
 	}
@@ -453,9 +453,8 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 	return nil
 }
 
-func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state *DeserializationResult, metrics *Metrics) (*DeserializationResult, error) {
+func loadCommitLoggerState(fs common.FS, logger logrus.FieldLogger, fileNames []string, state *DeserializationResult, metrics *Metrics) (*DeserializationResult, error) {
 	var err error
-	fs := common.NewOSFS()
 
 	fileNames, err = NewCorruptedCommitLogFixer().Do(fileNames)
 	if err != nil {
@@ -577,7 +576,7 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 	}
 
 	// write the checkpoints to a separate file
-	err = writeCheckpoints(checkPointsFileName, checkpoints)
+	err = writeCheckpoints(checkPointsFileName, checkpoints, l.fs)
 	if err != nil {
 		return errors.Wrap(err, "write checkpoints file")
 	}
@@ -592,7 +591,7 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 }
 
 func (l *hnswCommitLogger) readSnapshot(path string) (*DeserializationResult, error) {
-	checkpoints, err := readCheckpoints(path)
+	checkpoints, err := readCheckpoints(path, l.fs)
 	if err != nil {
 		// if for any reason the checkpoints file is not found or corrupted
 		// we need to remove the snapshot file and create a new one from the commit log.
@@ -1256,8 +1255,7 @@ type Checkpoint struct {
 	Hash   uint32
 }
 
-func writeCheckpoints(fileName string, checkpoints []Checkpoint) error {
-	fs := common.NewOSFS()
+func writeCheckpoints(fileName string, checkpoints []Checkpoint, fs common.FS) error {
 	checkpointFile, err := fs.OpenFile(fileName, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return fmt.Errorf("open new checkpoint file for writing: %w", err)
@@ -1289,10 +1287,9 @@ func writeCheckpoints(fileName string, checkpoints []Checkpoint) error {
 	return checkpointFile.Sync()
 }
 
-func readCheckpoints(snapshotFileName string) (checkpoints []Checkpoint, err error) {
+func readCheckpoints(snapshotFileName string, fs common.FS) (checkpoints []Checkpoint, err error) {
 	cpfn := snapshotFileName + ".checkpoints"
 
-	fs := common.NewOSFS()
 	cpFile, err := fs.Open(cpfn)
 	if err != nil {
 		return nil, err

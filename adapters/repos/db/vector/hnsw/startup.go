@@ -21,6 +21,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -100,7 +101,8 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		return err
 	}
 
-	state, err = loadCommitLoggerState(h.logger, fileNames, state, h.metrics)
+	fs := common.NewOSFS()
+	state, err = loadCommitLoggerState(fs, h.logger, fileNames, state, h.metrics)
 	if err != nil {
 		return errors.Wrap(err, "load commit logger state")
 	}

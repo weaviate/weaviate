@@ -29,10 +29,11 @@ import (
 )
 
 type MemoryCondensor struct {
-	newLogFile *os.File
+	newLogFile common.File
 	newLog     *bufWriter
 	logger     logrus.FieldLogger
 	fs         common.FS
+	bufferSize int
 }
 
 func (c *MemoryCondensor) Do(fileName string) error {
@@ -57,9 +58,9 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "open new commit log file for writing")
 	}
 
-	c.newLogFile = newLogFile.(*os.File)
+	c.newLogFile = newLogFile
 
-	c.newLog = NewWriterSize(c.newLogFile, 1*1024*1024)
+	c.newLog = NewWriterSize(c.newLogFile, c.bufferSize)
 
 	if res.Compressed {
 		if res.CompressionPQData != nil {
@@ -383,5 +384,5 @@ func (c *MemoryCondensor) AddMuvera(data multivector.MuveraData) error {
 }
 
 func NewMemoryCondensor(logger logrus.FieldLogger) *MemoryCondensor {
-	return &MemoryCondensor{logger: logger, fs: common.NewOSFS()}
+	return &MemoryCondensor{logger: logger, fs: common.NewOSFS(), bufferSize: 1 * 1024 * 1024}
 }
