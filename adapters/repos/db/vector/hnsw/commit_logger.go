@@ -24,6 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
@@ -78,6 +79,7 @@ type hnswCommitLogger struct {
 	// (so 0001+0002 or 0003+0004, NOT 0002+0003)
 	// partitions are commitlog filenames (no path, no extension)
 	snapshotPartitions []string
+	fs                 common.FS
 }
 
 func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
@@ -96,6 +98,7 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 
 		snapshotMinDeltaCommitlogsNumber:         1,
 		snapshotMinDeltaCommitlogsSizePercentage: 0,
+		fs:                                       common.NewOSFS(),
 	}
 
 	for _, o := range opts {

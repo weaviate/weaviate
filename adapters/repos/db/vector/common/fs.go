@@ -41,6 +41,7 @@ type FS interface {
 	Create(name string) (File, error)
 	Open(name string) (File, error)
 	Rename(oldpath, newpath string) error
+	Truncate(name string, size int64) error
 }
 
 type osFS struct{}
@@ -83,4 +84,8 @@ func (fs *osFS) Open(name string) (File, error) {
 
 func (fs *osFS) Rename(oldpath, newpath string) error {
 	return os.Rename(oldpath, newpath)
+}
+
+func (fs *osFS) Truncate(name string, size int64) error {
+	return os.Truncate(name, size)
 }
