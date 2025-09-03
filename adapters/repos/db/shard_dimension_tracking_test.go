@@ -521,6 +521,17 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 			expectDimensions:  multiVecCard * dimensionsPerVector * objectCount,
 			expectSegments:    (dimensionsPerVector / 8) * objectCount,
 		},
+		{
+			name: "named_with_rq_8bit",
+			namedVectorConfig: func() enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.RQ.Enabled = true
+				cfg.RQ.Bits = 8
+				return cfg
+			},
+
+			expectDimensions: dimensionsPerVector * objectCount,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var (
