@@ -41,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -128,7 +129,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 
@@ -189,7 +190,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
 			schema:     fakeSchema,
 			shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 
@@ -326,7 +327,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 
@@ -413,7 +414,7 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil,
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 
@@ -488,7 +489,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil,
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 
@@ -548,7 +549,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 	}, shardState, inverted.ConfigFromModel(invertedConfig()),
 		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
 			shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
+		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 	return idx
