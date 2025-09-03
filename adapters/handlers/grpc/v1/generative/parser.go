@@ -244,6 +244,7 @@ func (p *Parser) aws(in *pb.GenerativeAWS) map[string]any {
 			TargetVariant:   in.GetTargetVariant(),
 			Model:           in.GetModel(),
 			Temperature:     in.Temperature,
+			MaxTokens:       p.int64ToInt(in.MaxTokens),
 			Images:          p.getStringPtrs(in.Images),
 			ImageProperties: p.getStrings(in.ImageProperties),
 		},
