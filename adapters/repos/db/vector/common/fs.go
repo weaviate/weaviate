@@ -5,8 +5,10 @@ import (
 	"os"
 )
 
-var _ File = (*os.File)(nil)
-var _ FS = (*osFS)(nil)
+var (
+	_ File = (*os.File)(nil)
+	_ FS   = (*osFS)(nil)
+)
 
 type File interface {
 	io.Reader
