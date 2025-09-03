@@ -19,6 +19,7 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	entSentry "github.com/weaviate/weaviate/entities/sentry"
@@ -91,6 +92,7 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 
 			// Always try to join an existing cluster first
 			joiner := NewJoiner(b.peerJoiner, b.localNodeID, b.localRaftAddr, b.voter)
+			// TODO: we may need retry
 			if leader, err := joiner.Do(ctx, lg, remoteNodes); err != nil {
 				lg.WithFields(logrus.Fields{
 					"action":  "bootstrap",

@@ -16,16 +16,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/replication/metrics"
-
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/fsm"
 
 	"github.com/weaviate/weaviate/cluster/bootstrap"
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -170,32 +169,21 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	// peers that we are ready to form a new cluster.
 	bootstrapCtx, bCancel := context.WithTimeout(ctx, c.config.BootstrapTimeout)
 	defer bCancel()
-	if hasState {
-		joiner := bootstrap.NewJoiner(c.rpcClient, c.config.NodeID, c.raftAddr, c.config.Voter)
-		err = backoff.Retry(func() error {
-			joinNodes := bootstrap.ResolveRemoteNodes(c.config.NodeSelector, c.config.NodeNameToPortMap)
-			_, err := joiner.Do(bootstrapCtx, c.logger, joinNodes)
-			return err
-		}, backoff.WithContext(backoff.NewConstantBackOff(1*time.Second), bootstrapCtx))
-		if err != nil {
-			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value", err)
-		}
-	} else {
-		bs := bootstrap.NewBootstrapper(
-			c.rpcClient,
-			c.config.NodeID,
-			c.raftAddr,
-			c.config.Voter,
-			c.config.NodeSelector,
-			c.Raft.Ready,
-		)
-		if err := bs.Do(
-			bootstrapCtx,
-			c.config.NodeNameToPortMap,
-			c.logger,
-			c.closeBootstrapper); err != nil {
-			return fmt.Errorf("bootstrap: %w", err)
-		}
+
+	bs := bootstrap.NewBootstrapper(
+		c.rpcClient,
+		c.config.NodeID,
+		c.raftAddr,
+		c.config.Voter,
+		c.config.NodeSelector,
+		c.Raft.Ready,
+	)
+	if err := bs.Do(
+		bootstrapCtx,
+		c.config.NodeNameToPortMap,
+		c.logger,
+		c.closeBootstrapper); err != nil {
+		return fmt.Errorf("bootstrap: %w", err)
 	}
 
 	if err := c.WaitUntilDBRestored(ctx, 10*time.Second, c.closeWaitForDB); err != nil {
