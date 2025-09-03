@@ -17,6 +17,7 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
 
@@ -60,7 +61,7 @@ func NewBootstrapper(peerJoiner PeerJoiner, raftID string, raftAddr string, vote
 }
 
 // Do iterates over a list of servers in an attempt to join this node to a cluster.
-func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg *logrus.Logger, stop chan struct{}) error {
+func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg *logrus.Logger, stop chan struct{}, hasState bool) error {
 	if entSentry.Enabled() {
 		transaction := sentry.StartTransaction(ctx, "raft.bootstrap",
 			sentry.WithOpName("init"),
@@ -91,9 +92,18 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 			}
 
 			// Always try to join an existing cluster first
+			var leader string
 			joiner := NewJoiner(b.peerJoiner, b.localNodeID, b.localRaftAddr, b.voter)
-			// TODO: we may need retry
-			if leader, err := joiner.Do(ctx, lg, remoteNodes); err != nil {
+			err := backoff.Retry(func() error {
+				joinNodes := ResolveRemoteNodes(b.addrResolver, serverPortMap)
+				leaderID, err := joiner.Do(ctx, lg, joinNodes)
+				leader = leaderID
+				return err
+			}, backoff.WithContext(backoffConfig(hasState), ctx))
+
+			// return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value.", err)
+
+			if err != nil {
 				lg.WithFields(logrus.Fields{
 					"action":  "bootstrap",
 					"servers": remoteNodes,
@@ -165,4 +175,12 @@ func ResolveRemoteNodes(addrResolver resolver.ClusterStateReader, serverPortMap 
 // jitter introduce some jitter to a given duration d + [0, 1) * jit -> [d, d+jit]
 func jitter(d time.Duration, jit time.Duration) time.Duration {
 	return d + time.Duration(float64(jit)*rand.Float64())
+}
+
+func backoffConfig(hasState bool) backoff.BackOff {
+	count := 1
+	if hasState {
+		count = 5
+	}
+	return backoff.WithMaxRetries(backoff.NewConstantBackOff(500*time.Millisecond), uint64(count))
 }
