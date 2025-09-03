@@ -78,6 +78,7 @@ message GenerativeAWS{
   optional string target_variant = 13;
   optional TextArray images = 14;
   optional TextArray image_properties = 15;
+  optional int64 max_tokens = 16;
 }
 
 message GenerativeCohere{
