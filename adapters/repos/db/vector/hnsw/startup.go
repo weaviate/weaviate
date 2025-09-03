@@ -444,7 +444,7 @@ func (h *hnsw) prefillCache() {
 		limit = int(h.cache.CopyMaxSize())
 	}
 
-	f := func() {
+	prefillCacheFunc := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 		defer cancel()
 
@@ -474,12 +474,12 @@ func (h *hnsw) prefillCache() {
 			"action":                 "hnsw_prefill_cache_sync",
 			"wait_for_cache_prefill": true,
 		}).Info("waiting for vector cache prefill to complete")
-		f()
+		prefillCacheFunc()
 	} else {
 		h.logger.WithFields(logrus.Fields{
 			"action":                 "hnsw_prefill_cache_async",
 			"wait_for_cache_prefill": false,
 		}).Info("not waiting for vector cache prefill, running in background")
-		enterrors.GoWrapper(f, h.logger)
+		enterrors.GoWrapper(prefillCacheFunc, h.logger)
 	}
 }
