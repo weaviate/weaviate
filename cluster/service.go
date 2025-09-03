@@ -182,8 +182,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		bootstrapCtx,
 		c.config.NodeNameToPortMap,
 		c.logger,
-		c.closeBootstrapper,
-		hasState); err != nil {
+		c.closeBootstrapper); err != nil {
 		return fmt.Errorf("bootstrap: %w", err)
 	}
 

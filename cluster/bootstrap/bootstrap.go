@@ -17,7 +17,6 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
 
@@ -62,7 +61,7 @@ func NewBootstrapper(peerJoiner PeerJoiner, raftID string, raftAddr string, vote
 }
 
 // Do iterates over a list of servers in an attempt to join this node to a cluster.
-func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg *logrus.Logger, stop chan struct{}, hasState bool) error {
+func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg *logrus.Logger, stop chan struct{}) error {
 	if entSentry.Enabled() {
 		transaction := sentry.StartTransaction(ctx, "raft.bootstrap",
 			sentry.WithOpName("init"),
@@ -96,15 +95,8 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 			}
 
 			// Always try to join an existing cluster first
-			var leader string
 			joiner := NewJoiner(b.peerJoiner, b.localNodeID, b.localRaftAddr, b.voter)
-			err := backoff.Retry(func() error {
-				leaderID, err := joiner.Do(ctx, lg, ResolveRemoteNodes(b.addrResolver, serverPortMap))
-				leader = leaderID
-				return err
-			}, backoff.WithContext(backoffConfig(hasState), ctx))
-
-			if err != nil {
+			if leader, err := joiner.Do(ctx, lg, remoteNodes); err != nil {
 				lg.WithFields(logrus.Fields{
 					"action":  "bootstrap",
 					"servers": remoteNodes,
@@ -186,12 +178,4 @@ func ResolveRemoteNodes(addrResolver resolver.ClusterStateReader, serverPortMap 
 // jitter introduce some jitter to a given duration d + [0, 1) * jit -> [d, d+jit]
 func jitter(d time.Duration, jit time.Duration) time.Duration {
 	return d + time.Duration(float64(jit)*rand.Float64())
-}
-
-func backoffConfig(hasState bool) backoff.BackOff {
-	count := 1
-	if hasState {
-		count = 5
-	}
-	return backoff.WithMaxRetries(backoff.NewExponentialBackOff(), uint64(count))
 }
