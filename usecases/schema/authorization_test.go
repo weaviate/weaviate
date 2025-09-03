@@ -140,13 +140,13 @@ func Test_Schema_Authorization(t *testing.T) {
 			methodName:        "DeleteAlias",
 			additionalArgs:    []interface{}{"aliasName"},
 			expectedVerb:      authorization.DELETE,
-			expectedResources: authorization.Aliases("", "aliasName"),
+			expectedResources: authorization.Aliases("class", "aliasName"),
 		},
 		{
 			methodName:        "GetAlias",
 			additionalArgs:    []interface{}{"aliasName"},
 			expectedVerb:      authorization.READ,
-			expectedResources: authorization.Aliases("", "aliasName"),
+			expectedResources: authorization.Aliases("class", "aliasName"),
 		},
 	}
 
@@ -191,7 +191,10 @@ func Test_Schema_Authorization(t *testing.T) {
 				fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{})
 				fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(models.Class{})
 				fakeSchemaManager.On("GetAliases", mock.Anything, mock.Anything, mock.Anything).Return([]*models.Alias{{}}, nil)
-				fakeSchemaManager.On("GetAlias", mock.Anything, mock.Anything).Return(&models.Alias{}, nil)
+				// NOTE: When user invoking GetAlias by name, the collection is unknown.
+				// So we get the right alias (if exists) and use the collection that alias belongs to
+				// to verify the permission
+				fakeSchemaManager.On("GetAlias", mock.Anything, mock.Anything).Return(&models.Alias{Alias: "aliasName", Class: "class"}, nil)
 
 				var args []interface{}
 				if test.methodName == "GetSchema" || test.methodName == "GetConsistentSchema" {
