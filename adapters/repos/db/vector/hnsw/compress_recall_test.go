@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
@@ -81,6 +82,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 			VectorCacheMaxObjects: 10e12,
 		}
 		index, _ := hnsw.New(hnsw.Config{
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			RootPath:              path,
 			ID:                    "recallbenchmark",
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
