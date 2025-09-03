@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestUnreachablePoints(t *testing.T) {
@@ -49,6 +50,7 @@ func TestUnreachablePoints(t *testing.T) {
 		fmt.Printf("importing into hnsw\n")
 
 		index, err := New(Config{
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "recallbenchmark",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
