@@ -153,7 +153,8 @@ func (cl *Client) Apply(ctx context.Context, leaderRaftAddr string, req *cmd.App
 		return nil, err
 	}
 
-	return cmd.NewClusterServiceClient(conn).Apply(ctx, req)
+	resp, err := cmd.NewClusterServiceClient(conn).Apply(ctx, req)
+	return resp, fromRPCError(err)
 }
 
 // Query will contact the node at leaderRaftAddr and send req to read data in the RAFT store
