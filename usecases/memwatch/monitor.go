@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -38,11 +39,6 @@ const (
 const (
 	MappingDelayInS = 2
 	mappingsEntries = 60 + MappingDelayInS
-)
-
-var (
-	ErrNotEnoughMemory   = fmt.Errorf("not enough memory")
-	ErrNotEnoughMappings = fmt.Errorf("not enough memory mappings")
 )
 
 // Monitor allows making statements about the memory ratio used by the application
@@ -101,7 +97,7 @@ func (m *Monitor) CheckAlloc(sizeInBytes int64) error {
 	defer m.mu.Unlock()
 
 	if float64(m.usedMemory+sizeInBytes)/float64(m.limit) > m.maxRatio {
-		return ErrNotEnoughMemory
+		return enterrors.NotEnoughMemory
 	}
 
 	return nil
@@ -124,7 +120,7 @@ func (m *Monitor) CheckMappingAndReserve(numberMappings int64, reservationTimeIn
 	m.reservedMappings -= clearReservedMappings(m.lastReservationsClear, now, m.reservedMappingsBuffer)
 
 	if m.usedMappings+numberMappings+m.reservedMappings > m.maxMemoryMappings {
-		return ErrNotEnoughMappings
+		return enterrors.NotEnoughMappings
 	}
 	if reservationTimeInS > 0 {
 		m.reservedMappings += numberMappings
