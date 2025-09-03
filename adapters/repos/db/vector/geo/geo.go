@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // Index wraps another index to provide geo searches. This allows us to reuse
@@ -62,6 +63,7 @@ type Config struct {
 	SnapshotCreateInterval                   time.Duration
 	SnapshotMinDeltaCommitlogsNumer          int
 	SnapshotMinDeltaCommitlogsSizePercentage int
+	AllocChecker                             memwatch.AllocChecker
 }
 
 func NewIndex(config Config,
@@ -75,6 +77,7 @@ func NewIndex(config Config,
 		DistanceProvider:      distancer.NewGeoProvider(),
 		DisableSnapshots:      config.SnapshotDisabled,
 		SnapshotOnStartup:     config.SnapshotOnStartup,
+		AllocChecker:          config.AllocChecker,
 	}, hnswent.UserConfig{
 		MaxConnections:         64,
 		EFConstruction:         128,
