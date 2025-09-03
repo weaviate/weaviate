@@ -102,7 +102,7 @@ func validateNestedPropertyTokenization(property *models.NestedProperty,
 			switch property.Tokenization {
 			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
 				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase,
-				models.PropertyTokenizationTrigram:
+				models.PropertyTokenizationTrigram, "":
 				return nil
 			case models.PropertyTokenizationGse:
 				if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
@@ -128,15 +128,9 @@ func validateNestedPropertyTokenization(property *models.NestedProperty,
 			return fmt.Errorf("property '%s': Tokenization '%s' is not allowed for data type '%s'",
 				propName, property.Tokenization, primitiveDataType)
 		default:
-			if property.Tokenization == "" {
-				return nil
-			}
 			return fmt.Errorf("property '%s': Tokenization is not allowed for data type '%s'",
 				propName, primitiveDataType)
 		}
-	}
-	if property.Tokenization == "" {
-		return nil
 	}
 	if isNested {
 		return fmt.Errorf("property '%s': Tokenization is not allowed for object/object[] data types", propName)
