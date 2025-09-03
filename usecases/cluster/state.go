@@ -114,7 +114,7 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 	cfg.Delegate = &state.delegate
 	cfg.Events = events{&state.delegate}
 	cfg.DeadNodeReclaimTime = 5 * time.Second
-	// cfg.SuspicionMult = 2 // half og
+	cfg.SuspicionMult = 2 // half og
 	if userConfig.GossipBindPort != 0 {
 		cfg.BindPort = userConfig.GossipBindPort
 	}
