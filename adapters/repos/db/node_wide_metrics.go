@@ -443,15 +443,16 @@ func calcVectorDimensionMetrics(ctx context.Context, sl ShardLike, vecName strin
 		// For bits=8: 8 bits per dimension (1 byte per dimension)
 		count, _ := sl.Dimensions(ctx, vecName)
 		bits := enthnsw.GetRQBits(vecCfg)
-		var bytes int
+		// RQ 8 Bit : DimensionMetrics{Uncompressed: bytes, Compressed: 0}
+		// RQ 1 Bit : DimensionMetrics{Uncompressed: 0, Compressed: bytes}
+		// this because of legacy vector_dimensions_sum is uncompressed and vector_segments_sum is compressed
 		if bits == 1 {
 			// bits=1: same as BQ - 1 bit per dimension, packed in uint64 blocks
-			bytes = (count + 63) / 64 * 8
-		} else {
-			// bits=8: 8 bits per dimension (1 byte per dimension)
-			bytes = count
+			return DimensionMetrics{Uncompressed: 0, Compressed: (count + 63) / 64 * 8}
 		}
-		return DimensionMetrics{Uncompressed: bytes, Compressed: 0}
+
+		// bits=8: 8 bits per dimension (1 byte per dimension)
+		return DimensionMetrics{Uncompressed: count, Compressed: 0}
 	default:
 		count, _ := sl.Dimensions(ctx, vecName)
 		return DimensionMetrics{Uncompressed: count, Compressed: 0}

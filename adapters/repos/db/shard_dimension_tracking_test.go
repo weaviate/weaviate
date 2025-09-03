@@ -405,6 +405,17 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 		expectSegments   float64
 	}{
 		{
+			name: "named_with_rq_8bit",
+			namedVectorConfig: func() enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.RQ.Enabled = true
+				cfg.RQ.Bits = 8
+				return cfg
+			},
+
+			expectDimensions: dimensionsPerVector * objectCount,
+		},
+		{
 			name:         "legacy",
 			vectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 
