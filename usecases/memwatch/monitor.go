@@ -97,7 +97,7 @@ func (m *Monitor) CheckAlloc(sizeInBytes int64) error {
 	defer m.mu.Unlock()
 
 	if float64(m.usedMemory+sizeInBytes)/float64(m.limit) > m.maxRatio {
-		return enterrors.NotEnoughMemory
+		return enterrors.ErrNotEnoughMemory
 	}
 
 	return nil
@@ -120,7 +120,7 @@ func (m *Monitor) CheckMappingAndReserve(numberMappings int64, reservationTimeIn
 	m.reservedMappings -= clearReservedMappings(m.lastReservationsClear, now, m.reservedMappingsBuffer)
 
 	if m.usedMappings+numberMappings+m.reservedMappings > m.maxMemoryMappings {
-		return enterrors.NotEnoughMappings
+		return enterrors.ErrNotEnoughMappings
 	}
 	if reservationTimeInS > 0 {
 		m.reservedMappings += numberMappings
