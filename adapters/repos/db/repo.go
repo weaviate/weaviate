@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,7 @@ import (
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -105,6 +107,8 @@ type DB struct {
 
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
+
+	asyncIndexingEnabled bool
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -173,22 +177,23 @@ func New(logger logrus.FieldLogger, config Config,
 	}
 
 	db := &DB{
-		logger:              logger,
-		config:              config,
-		indices:             map[string]*Index{},
-		remoteIndex:         remoteIndex,
-		nodeResolver:        nodeResolver,
-		remoteNode:          sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
-		replicaClient:       replicaClient,
-		promMetrics:         promMetrics,
-		shutdown:            make(chan struct{}),
-		maxNumberGoroutines: int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
-		resourceScanState:   newResourceScanState(),
-		memMonitor:          memMonitor,
-		shardLoadLimiter:    NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
-		reindexer:           NewShardReindexerV3Noop(),
-		bitmapBufPool:       roaringset.NewBitmapBufPoolNoop(),
-		bitmapBufPoolClose:  func() {},
+		logger:               logger,
+		config:               config,
+		indices:              map[string]*Index{},
+		remoteIndex:          remoteIndex,
+		nodeResolver:         nodeResolver,
+		remoteNode:           sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
+		replicaClient:        replicaClient,
+		promMetrics:          promMetrics,
+		shutdown:             make(chan struct{}),
+		maxNumberGoroutines:  int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
+		resourceScanState:    newResourceScanState(),
+		memMonitor:           memMonitor,
+		shardLoadLimiter:     NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
+		reindexer:            NewShardReindexerV3Noop(),
+		bitmapBufPool:        roaringset.NewBitmapBufPoolNoop(),
+		bitmapBufPoolClose:   func() {},
+		asyncIndexingEnabled: entcfg.Enabled(os.Getenv("ASYNC_INDEXING")),
 	}
 
 	if db.maxNumberGoroutines == 0 {
