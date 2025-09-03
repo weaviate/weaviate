@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
@@ -72,6 +73,7 @@ func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
+		AllocChecker: memwatch.NewDummyMonitor(),
 	}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	defer index.Shutdown(context.Background())
 	assert.Nil(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(len(vectors)), func(id uint64) error {

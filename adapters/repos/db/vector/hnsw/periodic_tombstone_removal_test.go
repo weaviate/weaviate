@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	testhelper "github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestPeriodicTombstoneRemoval(t *testing.T) {
@@ -42,6 +43,7 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		AllocChecker:          memwatch.NewDummyMonitor(),
 	}, ent.UserConfig{
 		CleanupIntervalSeconds: cleanupIntervalSeconds,
 		MaxConnections:         30,
