@@ -433,10 +433,6 @@ func (h *hnsw) PostStartup() {
 }
 
 func (h *hnsw) prefillCache() {
-	// Wait for compression setup to complete before reading compression state
-	h.trackRQOnce.Do(func() {})     // Wait for RQ compression setup if it's pending
-	h.trackMuveraOnce.Do(func() {}) // Wait for Muvera compression setup if it's pending
-
 	limit := 0
 	if h.compressed.Load() {
 		limit = int(h.compressor.GetCacheMaxSize())
