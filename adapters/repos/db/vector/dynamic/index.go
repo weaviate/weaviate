@@ -39,6 +39,7 @@ import (
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -129,6 +130,7 @@ type dynamic struct {
 	flatBQ                       bool
 	WriteSegmentInfoIntoFileName bool
 	WriteMetadataFilesEnabled    bool
+	allocChecker                 memwatch.AllocChecker
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -163,6 +165,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	index := &dynamic{
+		allocChecker:                 cfg.AllocChecker,
 		id:                           cfg.ID,
 		targetVector:                 cfg.TargetVector,
 		logger:                       logger,
@@ -199,6 +202,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		index.upgraded.Store(true)
 		hnsw, err := hnsw.New(
 			hnsw.Config{
+				AllocChecker:                 index.allocChecker,
 				Logger:                       index.logger,
 				RootPath:                     index.rootPath,
 				ID:                           index.id,
@@ -587,6 +591,7 @@ func (dynamic *dynamic) doUpgrade() error {
 
 	index, err := hnsw.New(
 		hnsw.Config{
+			AllocChecker:                 dynamic.allocChecker,
 			Logger:                       dynamic.logger,
 			RootPath:                     dynamic.rootPath,
 			ID:                           dynamic.id,
