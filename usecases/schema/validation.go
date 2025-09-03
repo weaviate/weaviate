@@ -13,12 +13,10 @@ package schema
 
 import (
 	"fmt"
-	"os"
-
-	entcfg "github.com/weaviate/weaviate/entities/config"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 )
 
 type validatorNestedProperty func(property *models.NestedProperty,
@@ -105,22 +103,22 @@ func validateNestedPropertyTokenization(property *models.NestedProperty,
 				models.PropertyTokenizationTrigram, "":
 				return nil
 			case models.PropertyTokenizationGse:
-				if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
+				if !tokenizer.UseGse {
 					return fmt.Errorf("property '%s': the GSE tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE' to 'true' to enable", propName)
 				}
 				return nil
 			case models.PropertyTokenizationKagomeKr:
-				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
+				if !tokenizer.KagomeKrEnabled {
 					return fmt.Errorf("property '%s': the Korean tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_KR' to 'true' to enable", propName)
 				}
 				return nil
 			case models.PropertyTokenizationKagomeJa:
-				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
+				if !tokenizer.KagomeJaEnabled {
 					return fmt.Errorf("property '%s': the Japanese tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_JA' to 'true' to enable", propName)
 				}
 				return nil
 			case models.PropertyTokenizationGseCh:
-				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE_CH")) {
+				if !tokenizer.UseGseCh {
 					return fmt.Errorf("property '%s': the Chinese tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE_CH' to 'true' to enable", propName)
 				}
 				return nil
@@ -131,6 +129,9 @@ func validateNestedPropertyTokenization(property *models.NestedProperty,
 			return fmt.Errorf("property '%s': Tokenization is not allowed for data type '%s'",
 				propName, primitiveDataType)
 		}
+	}
+	if property.Tokenization == "" {
+		return nil
 	}
 	if isNested {
 		return fmt.Errorf("property '%s': Tokenization is not allowed for object/object[] data types", propName)
