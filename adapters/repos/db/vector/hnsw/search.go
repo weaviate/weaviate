@@ -97,6 +97,9 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 	}
 
 	if h.muvera.Load() {
+		// this happens only if hnsw is empty so we need to initialize muvera encoder
+		h.initMuveraEncoder(vectors)
+
 		muvera_query := h.muveraEncoder.EncodeQuery(vectors)
 		overfetch := 2
 		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList)
@@ -155,6 +158,19 @@ func (h *hnsw) SearchByMultiVectorDistance(ctx context.Context, vector [][]float
 ) ([]uint64, []float32, error) {
 	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
 		h.SearchByMultiVector, h.logger)
+}
+
+func (h *hnsw) initMuveraEncoder(vectors [][]float32) {
+	h.trackMuveraOnce.Do(func() {
+		h.muveraEncoder.InitEncoder(len(vectors[0]))
+		h.Lock()
+		if err := h.muveraEncoder.PersistMuvera(h.commitLog); err != nil {
+			h.Unlock()
+			h.logger.WithField("action", "persist muvera").Error(err)
+			return
+		}
+		h.Unlock()
+	})
 }
 
 func (h *hnsw) shouldRescore() bool {

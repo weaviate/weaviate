@@ -204,6 +204,10 @@ func (e *MuveraEncoder) EncodeDoc(fullDoc [][]float32) []float32 {
 	return e.encode(fullDoc, true)
 }
 
+func (e *MuveraEncoder) Dimensions() int {
+	return e.config.Dimensions
+}
+
 func MuveraBytesFromFloat32(vec []float32) []byte {
 	slice := make([]byte, len(vec)*4)
 	for i := range vec {
