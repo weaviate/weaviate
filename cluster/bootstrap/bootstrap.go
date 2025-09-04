@@ -17,6 +17,7 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
 
@@ -96,12 +97,20 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 
 			// Always try to join an existing cluster first
 			joiner := NewJoiner(b.peerJoiner, b.localNodeID, b.localRaftAddr, b.voter)
-			if leader, err := joiner.Do(ctx, lg, remoteNodes); err != nil {
+			var leader string
+			err := backoff.Retry(func() error {
+				remoteNodes = ResolveRemoteNodes(b.addrResolver, serverPortMap)
+				leaderID, err := joiner.Do(ctx, lg, remoteNodes)
+				leader = leaderID
+				return err
+			}, backoff.WithContext(backoff.WithMaxRetries(backoff.NewExponentialBackOff(), 5), ctx))
+
+			if err != nil {
 				lg.WithFields(logrus.Fields{
 					"action":  "bootstrap",
 					"servers": remoteNodes,
 					"voter":   b.voter,
-				}).WithError(err).Warning("failed to join cluster")
+				}).WithError(err).Warning("failed to join cluster after retries")
 			} else {
 				lg.WithFields(logrus.Fields{
 					"action": "bootstrap",
