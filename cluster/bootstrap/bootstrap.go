@@ -102,6 +102,9 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 				remoteNodes = ResolveRemoteNodes(b.addrResolver, serverPortMap)
 				leaderID, err := joiner.Do(ctx, lg, remoteNodes)
 				leader = leaderID
+				if err != nil && len(remoteNodes) == 1 {
+					return backoff.Permanent(err)
+				}
 				return err
 			}, backoff.WithContext(backoffConfig(hasState), ctx))
 
