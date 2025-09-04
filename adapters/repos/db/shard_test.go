@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,6 +29,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	hnswindex "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -480,7 +481,7 @@ func TestShard_RepairIndex(t *testing.T) {
 			// remove some objects from the vector index
 			for i := 400; i < 600; i++ {
 				if test.multiVector {
-					err := vidx.DeleteMulti(uint64(i))
+					err := vidx.(VectorIndexMulti).DeleteMulti(uint64(i))
 					require.NoError(t, err)
 				} else {
 					err := vidx.Delete(uint64(i))
@@ -647,7 +648,7 @@ func TestShard_FillQueue(t *testing.T) {
 			// remove most of the objects from the vector index
 			for i := 100; i < amount; i++ {
 				if test.multiVector {
-					err := vidx.DeleteMulti(uint64(i))
+					err := vidx.(VectorIndexMulti).DeleteMulti(uint64(i))
 					require.NoError(t, err)
 				} else {
 					err := vidx.Delete(uint64(i))
@@ -694,10 +695,11 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 
 	amount := 10
 	shd.Index().Config.TrackVectorDimensions = true
-	shd.resetDimensionsLSM()
+	shd.resetDimensionsLSM(ctx)
 
 	t.Run("count dimensions before insert", func(t *testing.T) {
-		dims := shd.Dimensions(ctx, "")
+		dims, err := shd.Dimensions(ctx, "")
+		require.NoError(t, err)
 		require.Equal(t, 0, dims)
 	})
 
@@ -716,17 +718,19 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	})
 
 	t.Run("count dimensions", func(t *testing.T) {
-		dims := shd.Dimensions(ctx, "")
+		dims, err := shd.Dimensions(ctx, "")
+		require.NoError(t, err)
 		require.Equal(t, 3*amount, dims)
 	})
 
 	t.Run("reset dimensions lsm", func(t *testing.T) {
-		err := shd.resetDimensionsLSM()
+		err := shd.resetDimensionsLSM(ctx)
 		require.Nil(t, err)
 	})
 
 	t.Run("count dimensions after reset", func(t *testing.T) {
-		dims := shd.Dimensions(ctx, "")
+		dims, err := shd.Dimensions(ctx, "")
+		require.NoError(t, err)
 		require.Equal(t, 0, dims)
 	})
 
@@ -745,7 +749,8 @@ func TestShard_resetDimensionsLSM(t *testing.T) {
 	})
 
 	t.Run("count dimensions after reset and insert", func(t *testing.T) {
-		dims := shd.Dimensions(ctx, "")
+		dims, err := shd.Dimensions(ctx, "")
+		require.NoError(t, err)
 		require.Equal(t, 3*amount, dims)
 	})
 

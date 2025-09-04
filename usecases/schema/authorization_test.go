@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -124,6 +124,30 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedVerb:      authorization.READ,
 			expectedResources: authorization.ShardsMetadata("className", "P1"),
 		},
+		{
+			methodName:        "AddAlias",
+			additionalArgs:    []interface{}{&models.Alias{Class: "classname", Alias: "aliasName"}},
+			expectedVerb:      authorization.CREATE,
+			expectedResources: authorization.Aliases("Classname", "AliasName"),
+		},
+		{
+			methodName:        "UpdateAlias",
+			additionalArgs:    []interface{}{"aliasName", "class"},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.Aliases("class", "aliasName"),
+		},
+		{
+			methodName:        "DeleteAlias",
+			additionalArgs:    []interface{}{"aliasName"},
+			expectedVerb:      authorization.DELETE,
+			expectedResources: authorization.Aliases("class", "aliasName"),
+		},
+		{
+			methodName:        "GetAlias",
+			additionalArgs:    []interface{}{"aliasName"},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.Aliases("class", "aliasName"),
+		},
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {
@@ -137,7 +161,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			case "RegisterSchemaUpdateCallback",
 				// introduced by sync.Mutex in go 1.18
 				"UpdateMeta", "GetSchemaSkipAuth", "IndexedInverted", "RLock", "RUnlock", "Lock", "Unlock",
-				"TryLock", "RLocker", "TryRLock", "CopyShardingState", "TxManager", "RestoreClass",
+				"TryLock", "RLocker", "TryRLock", "TxManager", "RestoreClass",
 				"ShardOwner", "TenantShard", "ShardFromUUID", "LockGuard", "RLockGuard", "ShardReplicas",
 				"GetCachedClassNoAuth",
 				// internal methods to indicate readiness state
@@ -145,7 +169,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				// Cluster/nodes related endpoint
 				"JoinNode", "RemoveNode", "Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
 				// revert to schema v0 (non raft),
-				"GetConsistentSchema", "GetConsistentTenants", "GetConsistentTenant",
+				"GetConsistentSchema", "GetConsistentTenants", "GetConsistentTenant", "GetAliases",
 				// ignored because it will check if schema has collections otherwise returns nothing
 				"StoreSchemaV1":
 				// don't require auth on methods which are exported because other
@@ -166,6 +190,11 @@ func Test_Schema_Authorization(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
 				fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{})
 				fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(models.Class{})
+				fakeSchemaManager.On("GetAliases", mock.Anything, mock.Anything, mock.Anything).Return([]*models.Alias{{}}, nil)
+				// NOTE: When user invoking GetAlias by name, the collection is unknown.
+				// So we get the right alias (if exists) and use the collection that alias belongs to
+				// to verify the permission
+				fakeSchemaManager.On("GetAlias", mock.Anything, mock.Anything).Return(&models.Alias{Alias: "aliasName", Class: "class"}, nil)
 
 				var args []interface{}
 				if test.methodName == "GetSchema" || test.methodName == "GetConsistentSchema" {

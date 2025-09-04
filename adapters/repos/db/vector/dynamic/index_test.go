@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,6 +24,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.etcd.io/bbolt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -35,7 +37,6 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"go.etcd.io/bbolt"
 )
 
 var logger, _ = test.NewNullLogger()
@@ -464,6 +465,51 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	dynamic.PostStartup()
 	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 	assert.Equal(t, recall, recall2)
+}
+
+func TestDynamicIndexUnderlyingIndexDetection(t *testing.T) {
+	tests := []struct {
+		name           string
+		underlyingType common.IndexType
+		expectedString string
+		expectedType   common.IndexType
+	}{
+		{
+			name:           "dynamic index with flat underlying",
+			underlyingType: common.IndexTypeFlat,
+			expectedString: "flat",
+			expectedType:   common.IndexTypeFlat,
+		},
+		{
+			name:           "dynamic index with hnsw underlying",
+			underlyingType: common.IndexTypeHNSW,
+			expectedString: "hnsw",
+			expectedType:   common.IndexTypeHNSW,
+		},
+		{
+			name:           "dynamic index with dynamic underlying",
+			underlyingType: common.IndexTypeDynamic,
+			expectedString: "dynamic",
+			expectedType:   common.IndexTypeDynamic,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a mock that implements the UnderlyingIndex method
+			mockDynamicIndex := NewMockIndex(t)
+			mockDynamicIndex.EXPECT().UnderlyingIndex().Return(tt.underlyingType)
+
+			// Test the method directly
+			underlyingType := mockDynamicIndex.UnderlyingIndex()
+
+			// Assert the returned type
+			assert.Equal(t, tt.expectedType, underlyingType, "Should return correct underlying index type")
+
+			// Assert the string conversion
+			assert.Equal(t, tt.expectedString, underlyingType.String(), "Should convert to correct string")
+		})
+	}
 }
 
 func TestDynamicAndStoreOperations(t *testing.T) {

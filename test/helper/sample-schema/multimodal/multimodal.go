@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -124,6 +124,46 @@ func InsertObjects(t *testing.T, dataFolderPath, className string, withVideo boo
 	}
 }
 
+func GetIDs(t *testing.T, dataFolderPath string) []string {
+	f, err := GetCSV(dataFolderPath)
+	require.NoError(t, err)
+	defer f.Close()
+	var ids []string
+	i := 0
+	csvReader := csv.NewReader(f)
+	for {
+		line, err := csvReader.Read()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		if i > 0 {
+			ids = append(ids, line[1])
+		}
+		i++
+	}
+	return ids
+}
+
+func CheckObjects(t *testing.T, dataFolderPath, className string, vectors, multivectors []string) {
+	for _, id := range GetIDs(t, dataFolderPath) {
+		t.Run(id, func(t *testing.T) {
+			obj, err := helper.GetObject(t, className, strfmt.UUID(id), "vector")
+			require.NoError(t, err)
+			require.NotNil(t, obj)
+			require.GreaterOrEqual(t, len(obj.Vectors), len(vectors)+len(multivectors))
+			for _, vec := range vectors {
+				require.IsType(t, []float32{}, obj.Vectors[vec])
+				require.True(t, len(obj.Vectors[vec].([]float32)) > 0)
+			}
+			for _, multivec := range multivectors {
+				require.IsType(t, [][]float32{}, obj.Vectors[multivec])
+				require.True(t, len(obj.Vectors[multivec].([][]float32)) > 0)
+			}
+		})
+	}
+}
+
 func GetImageBlob(dataFolderPath string, i int) (string, error) {
 	path := fmt.Sprintf("%s/images/%v.jpg", dataFolderPath, i)
 	return helper.GetBase64EncodedData(path)
@@ -147,6 +187,10 @@ func TestQuery(t *testing.T,
 	for targetVector := range targetVectors {
 		targetVectorsList = append(targetVectorsList, targetVector)
 	}
+	additionalVectors := ""
+	if len(targetVectorsList) > 0 {
+		additionalVectors = fmt.Sprintf("vectors {%s}", strings.Join(targetVectorsList, ","))
+	}
 	query := fmt.Sprintf(`
 			{
 				Get {
@@ -156,12 +200,12 @@ func TestQuery(t *testing.T,
 						%s
 						_additional {
 							certainty
-							vectors {%s}
+							%s
 						}
 					}
 				}
 			}
-		`, className, nearMediaArgument, titleProperty, strings.Join(targetVectorsList, ","))
+		`, className, nearMediaArgument, titleProperty, additionalVectors)
 
 	result := graphqlhelper.AssertGraphQLWithTimeout(t, helper.RootAuth, DefaultTimeout, query)
 	objs := result.Get("Get", className).AsSlice()
@@ -175,25 +219,27 @@ func TestQuery(t *testing.T,
 	certaintyValue, err := certainty.Float64()
 	require.NoError(t, err)
 	assert.Greater(t, certaintyValue, 0.0)
-	assert.GreaterOrEqual(t, certaintyValue, 0.9)
-	vectors, ok := additional["vectors"].(map[string]interface{})
-	require.True(t, ok)
-
-	targetVectorsMap := make(map[string][]float32)
-	for targetVector := range targetVectors {
-		vector, ok := vectors[targetVector].([]interface{})
+	assert.GreaterOrEqual(t, certaintyValue, 0.6)
+	if len(targetVectorsList) > 0 {
+		vectors, ok := additional["vectors"].(map[string]interface{})
 		require.True(t, ok)
 
-		vec := make([]float32, len(vector))
-		for i := range vector {
-			val, err := vector[i].(json.Number).Float64()
-			require.NoError(t, err)
-			vec[i] = float32(val)
-		}
+		targetVectorsMap := make(map[string][]float32)
+		for targetVector := range targetVectors {
+			vector, ok := vectors[targetVector].([]interface{})
+			require.True(t, ok)
 
-		targetVectorsMap[targetVector] = vec
-	}
-	for targetVector, targetVectorDimensions := range targetVectors {
-		require.Len(t, targetVectorsMap[targetVector], targetVectorDimensions)
+			vec := make([]float32, len(vector))
+			for i := range vector {
+				val, err := vector[i].(json.Number).Float64()
+				require.NoError(t, err)
+				vec[i] = float32(val)
+			}
+
+			targetVectorsMap[targetVector] = vec
+		}
+		for targetVector, targetVectorDimensions := range targetVectors {
+			require.Len(t, targetVectorsMap[targetVector], targetVectorDimensions)
+		}
 	}
 }

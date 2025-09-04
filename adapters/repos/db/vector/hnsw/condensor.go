@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -68,6 +68,14 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			if err := c.AddSQCompression(*res.CompressionSQData); err != nil {
 				return fmt.Errorf("write sq data: %w", err)
 			}
+		} else if res.CompressionRQData != nil {
+			if err := c.AddRQCompression(*res.CompressionRQData); err != nil {
+				return fmt.Errorf("write rq data: %w", err)
+			}
+		} else if res.CompressionBRQData != nil {
+			if err := c.AddBRQCompression(*res.CompressionBRQData); err != nil {
+				return fmt.Errorf("write brq data: %w", err)
+			}
 		} else {
 			return errors.Wrap(err, "unavailable compression data")
 		}
@@ -78,7 +86,8 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		}
 	}
 
-	for _, node := range res.Nodes {
+	for i := len(res.Nodes) - 1; i >= 0; i-- {
+		node := res.Nodes[i]
 		if node == nil {
 			// nil nodes occur when we've grown, but not inserted anything yet
 			continue
@@ -93,9 +102,11 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			}
 		}
 
-		for level, links := range node.connections {
+		iter := node.connections.Iterator()
+		for iter.Next() {
+			level, links := iter.Current()
 			if res.ReplaceLinks(node.id, uint16(level)) {
-				if err := c.SetLinksAtLevel(node.id, level, links); err != nil {
+				if err := c.SetLinksAtLevel(node.id, int(level), links); err != nil {
 					return errors.Wrapf(err,
 						"write links for node %d at level %d to commit log", node.id, level)
 				}
@@ -184,6 +195,15 @@ const writeUint16Size = 2
 func writeUint16(w io.Writer, in uint16) error {
 	var b [writeUint16Size]byte
 	binary.LittleEndian.PutUint16(b[:], in)
+	_, err := w.Write(b[:])
+	return err
+}
+
+const writeFloat32Size = 4
+
+func writeFloat32(w io.Writer, in float32) error {
+	var b [writeFloat32Size]byte
+	binary.LittleEndian.PutUint32(b[:], math.Float32bits(in))
 	_, err := w.Write(b[:])
 	return err
 }
@@ -343,6 +363,35 @@ func (c *MemoryCondensor) AddSQCompression(data compressionhelpers.SQData) error
 	return err
 }
 
+func (c *MemoryCondensor) AddRQCompression(data compressionhelpers.RQData) error {
+	swapSize := 2 * data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 2
+	signSize := 4 * data.Rotation.Rounds * data.Rotation.OutputDim
+	var buf bytes.Buffer
+	buf.Grow(17 + int(swapSize) + int(signSize))
+
+	buf.WriteByte(byte(AddRQ))                                       // 1
+	binary.Write(&buf, binary.LittleEndian, data.InputDim)           // 4 input dim
+	binary.Write(&buf, binary.LittleEndian, data.Bits)               // 4 bits
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4 rotation - output dim
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4 rotation - rounds
+
+	for _, swap := range data.Rotation.Swaps {
+		for _, dim := range swap {
+			binary.Write(&buf, binary.LittleEndian, dim.I)
+			binary.Write(&buf, binary.LittleEndian, dim.J)
+		}
+	}
+
+	for _, sign := range data.Rotation.Signs {
+		for _, dim := range sign {
+			binary.Write(&buf, binary.LittleEndian, dim)
+		}
+	}
+
+	_, err := c.newLog.Write(buf.Bytes())
+	return err
+}
+
 func (c *MemoryCondensor) AddMuvera(data multivector.MuveraData) error {
 	gSize := 4 * data.Repetitions * data.KSim * data.Dimensions
 	dSize := 4 * data.Repetitions * data.DProjections * data.Dimensions
@@ -374,6 +423,39 @@ func (c *MemoryCondensor) AddMuvera(data multivector.MuveraData) error {
 				i++
 			}
 		}
+	}
+
+	_, err := c.newLog.Write(buf.Bytes())
+	return err
+}
+
+func (c *MemoryCondensor) AddBRQCompression(data compressionhelpers.BRQData) error {
+	swapSize := 2 * data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 2
+	signSize := 4 * data.Rotation.Rounds * data.Rotation.OutputDim
+	roundingSize := 4 * data.Rotation.OutputDim
+	var buf bytes.Buffer
+	buf.Grow(13 + int(swapSize) + int(signSize) + int(roundingSize))
+
+	buf.WriteByte(byte(AddBRQ))                                      // 1
+	binary.Write(&buf, binary.LittleEndian, data.InputDim)           // 4 input dim
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4 rotation - output dim
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4 rotation - rounds
+
+	for _, swap := range data.Rotation.Swaps {
+		for _, dim := range swap {
+			binary.Write(&buf, binary.LittleEndian, dim.I)
+			binary.Write(&buf, binary.LittleEndian, dim.J)
+		}
+	}
+
+	for _, sign := range data.Rotation.Signs {
+		for _, dim := range sign {
+			binary.Write(&buf, binary.LittleEndian, dim)
+		}
+	}
+
+	for _, rounding := range data.Rounding {
+		binary.Write(&buf, binary.LittleEndian, rounding)
 	}
 
 	_, err := c.newLog.Write(buf.Bytes())

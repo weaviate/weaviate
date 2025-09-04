@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,12 +13,12 @@ package modrerankervoyageai
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/reranker-voyageai/clients"
@@ -72,11 +72,6 @@ func (m *ReRankerVoyageAIModule) initAdditional(ctx context.Context, timeout tim
 
 func (m *ReRankerVoyageAIModule) MetaInfo() (map[string]interface{}, error) {
 	return m.reranker.MetaInfo()
-}
-
-func (m *ReRankerVoyageAIModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
-	return nil
 }
 
 func (m *ReRankerVoyageAIModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {

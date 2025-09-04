@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -373,6 +373,8 @@ const (
 	AddPQ
 	AddSQ
 	AddMuvera
+	AddRQ
+	AddBRQ
 )
 
 func (t HnswCommitType) String() string {
@@ -405,6 +407,10 @@ func (t HnswCommitType) String() string {
 		return "AddScalarQuantizer"
 	case AddMuvera:
 		return "AddMuvera"
+	case AddRQ:
+		return "AddRotationalQuantizer"
+	case AddBRQ:
+		return "AddBRQCompression"
 	}
 	return "unknown commit type"
 }
@@ -427,11 +433,25 @@ func (l *hnswCommitLogger) AddSQCompression(data compressionhelpers.SQData) erro
 	return l.commitLogger.AddSQCompression(data)
 }
 
+func (l *hnswCommitLogger) AddRQCompression(data compressionhelpers.RQData) error {
+	l.Lock()
+	defer l.Unlock()
+
+	return l.commitLogger.AddRQCompression(data)
+}
+
 func (l *hnswCommitLogger) AddMuvera(data multivector.MuveraData) error {
 	l.Lock()
 	defer l.Unlock()
 
 	return l.commitLogger.AddMuvera(data)
+}
+
+func (l *hnswCommitLogger) AddBRQCompression(data compressionhelpers.BRQData) error {
+	l.Lock()
+	defer l.Unlock()
+
+	return l.commitLogger.AddBRQCompression(data)
 }
 
 // AddNode adds an empty node

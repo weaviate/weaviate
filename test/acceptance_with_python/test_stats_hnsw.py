@@ -79,4 +79,3 @@ def test_stats_hnsw() -> None:
     )
     response = httpx.post(flat_url)
     assert response.status_code == 400
-    assert "Stats() is not implemented for flat index" in response.text

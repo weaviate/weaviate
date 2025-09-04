@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -30,57 +31,6 @@ import (
 
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
-
-	http.HandleFunc(
-		"/debug/async-replication/remove-target-overrides",
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			collectionName := r.URL.Query().Get("collection")
-			if collectionName == "" {
-				http.Error(w, "collection is required", http.StatusBadRequest)
-				return
-			}
-			shardNamesStr := r.URL.Query().Get("shardNames")
-			if shardNamesStr == "" {
-				http.Error(w, "shardNames is required", http.StatusBadRequest)
-				return
-			}
-			shardNames := strings.Split(shardNamesStr, ",")
-			if len(shardNames) == 0 {
-				http.Error(w, "shardNames len > 0 is required", http.StatusBadRequest)
-				return
-			}
-			timeoutStr := r.URL.Query().Get("timeout")
-			timeoutDuration := time.Hour
-			var err error
-			if timeoutStr != "" {
-				timeoutDuration, err = time.ParseDuration(timeoutStr)
-				if err != nil {
-					http.Error(w, "timeout duration has invalid format", http.StatusBadRequest)
-					return
-				}
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), timeoutDuration)
-			defer cancel()
-
-			idx := appState.DB.GetIndex(schema.ClassName(collectionName))
-			if idx == nil {
-				logger.WithField("collection", collectionName).Error("collection not found")
-				http.Error(w, "collection not found", http.StatusNotFound)
-				return
-			}
-			for _, shardName := range shardNames {
-				err = idx.IncomingRemoveAllAsyncReplicationTargetNodes(ctx, shardName)
-				if err != nil {
-					logger.WithError(err).WithField("collection", collectionName).WithField("shard", shardName).
-						Warn("debug endpoint failed to remove all async replication target nodes")
-					http.Error(w, "failed to remove all async replication target nodes", http.StatusInternalServerError)
-					return
-				}
-				logger.WithField("collection", collectionName).WithField("shard", shardName).
-					Info("debug endpoint removed all async replication target nodes")
-			}
-			w.WriteHeader(http.StatusAccepted)
-		}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")
@@ -712,7 +662,13 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		stats, err := vidx.Stats()
+		h, ok := vidx.(hnswStats)
+		if !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		stats, err := h.Stats()
 		if err != nil {
 			logger.Error(err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -761,4 +717,8 @@ func setupDebugHandlers(appState *state.State) {
 
 type MaintenanceMode struct {
 	Enabled bool `json:"enabled"`
+}
+
+type hnswStats interface {
+	Stats() (*hnsw.HnswStats, error)
 }

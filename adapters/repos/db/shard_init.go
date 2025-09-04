@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -55,11 +55,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			string(index.Config.ClassName), shardName),
 		slowQueryReporter: helpers.NewSlowQueryReporter(index.Config.QuerySlowLogEnabled,
 			index.Config.QuerySlowLogThreshold, index.logger),
-		stopDimensionTracking: make(chan struct{}),
-		replicationMap:        pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:       jobQueueCh,
-		scheduler:             scheduler,
-		indexCheckpoints:      indexCheckpoints,
+		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:  jobQueueCh,
+		scheduler:        scheduler,
+		indexCheckpoints: indexCheckpoints,
 
 		shutdownLock: new(sync.RWMutex),
 
@@ -138,8 +137,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err = s.initShardVectors(ctx, lazyLoadSegments); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
-
-	s.initDimensionTracking()
 
 	if asyncEnabled() {
 		f := func() {

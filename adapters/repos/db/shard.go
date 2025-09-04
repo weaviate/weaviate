@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,8 +20,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"go.etcd.io/bbolt"
@@ -34,6 +32,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/cluster/router/types"
+	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -76,7 +76,9 @@ type ShardLike interface {
 
 	Counter() *indexcounter.Counter
 	ObjectCount() int
-	ObjectCountAsync() int
+	ObjectCountAsync(ctx context.Context) (int64, error)
+	ObjectStorageSize(ctx context.Context) (int64, error)
+	VectorStorageSize(ctx context.Context) (int64, error)
 	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
 	PutObject(context.Context, *storobj.Object) error
@@ -139,13 +141,14 @@ type ShardLike interface {
 	abortReplication(context.Context, string) replica.SimpleResponse
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
-	// TODO tests only
-	Dimensions(ctx context.Context, targetVector string) int // dim(vector)*number vectors
+	// Dimensions returns the total number of dimensions for a given vector
+	Dimensions(ctx context.Context, targetVector string) (int, error)
+	// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
+	DimensionsUsage(ctx context.Context, targetVector string) (usagetypes.Dimensionality, error)
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
-	publishDimensionMetrics(ctx context.Context)
-	resetDimensionsLSM() error
+	resetDimensionsLSM(ctx context.Context) error
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
@@ -229,7 +232,6 @@ type Shard struct {
 	lastComparedHosts                 []string
 	lastComparedHostsMux              sync.RWMutex
 	asyncReplicationStatsByTargetNode map[string]*hashBeatHostStats
-	//
 
 	haltForTransferMux               sync.Mutex
 	haltForTransferInactivityTimeout time.Duration
@@ -240,9 +242,6 @@ type Shard struct {
 	status              ShardStatus
 	statusLock          sync.RWMutex
 	propertyIndicesLock sync.RWMutex
-
-	stopDimensionTracking        chan struct{}
-	dimensionTrackingInitialized atomic.Bool
 
 	centralJobQueue chan job // reference to queue used by all shards
 
@@ -416,13 +415,61 @@ func (s *Shard) ObjectCount() int {
 
 // ObjectCountAsync returns the eventually consistent "async" count which is
 // much cheaper to obtain
-func (s *Shard) ObjectCountAsync() int {
+func (s *Shard) ObjectCountAsync(_ context.Context) (int64, error) {
 	b := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
-		return 0
+		// we return no error, because we could have shards without the objects bucket
+		// the error is needed to satisfy the interface for lazy loaded shards possible errors
+		return 0, nil
 	}
 
-	return b.CountAsync()
+	return int64(b.CountAsync()), nil
+}
+
+func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		// we return no error, because we could have shards without the objects bucket
+		// the error is needed to satisfy the interface for lazy loaded shards possible errors
+		return 0, nil
+	}
+
+	return bucket.DiskSize() + bucket.MetadataSize(), nil
+}
+
+// VectorStorageSize calculates the total storage size of all vector indexes in the shard
+// Always use the dimensions bucket for tracking total vectors and dimensions
+// This ensures we get accurate counts regardless of cache size or shard state
+// This method is only called for active tenants, so we can always use direct vector index compression.
+func (s *Shard) VectorStorageSize(ctx context.Context) (int64, error) {
+	totalSize := int64(0)
+
+	// Iterate over all vector indexes to calculate storage size for both default and targeted vectors
+	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+		// Get dimensions and object count from the dimensions bucket for this specific target vector
+		dimensionality := calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
+			return len(v), dimLen
+		})
+
+		if dimensionality.Count == 0 || dimensionality.Dimensions == 0 {
+			return nil
+		}
+
+		// Calculate uncompressed size (float32 = 4 bytes per dimension)
+		uncompressedSize := int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
+
+		// For active tenants, always use the direct vector index compression rate
+		compressionRate := index.CompressionStats().CompressionRatio(dimensionality.Dimensions)
+
+		// Calculate total size using actual compression rate
+		totalSize += int64(float64(uncompressedSize) * compressionRate)
+
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+
+	return totalSize, nil
 }
 
 func (s *Shard) isFallbackToSearchable() bool {
@@ -447,6 +494,14 @@ func shardPath(indexPath, shardName string) string {
 
 func shardPathLSM(indexPath, shardName string) string {
 	return path.Join(indexPath, shardName, "lsm")
+}
+
+func shardPathObjectsLSM(indexPath, shardName string) string {
+	return path.Join(shardPathLSM(indexPath, shardName), helpers.ObjectsBucketLSM)
+}
+
+func shardPathDimensionsLSM(indexPath, shardName string) string {
+	return path.Join(shardPathLSM(indexPath, shardName), helpers.DimensionsBucketLSM)
 }
 
 func bucketKeyPropertyLength(length int) ([]byte, error) {

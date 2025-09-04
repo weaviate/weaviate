@@ -107,7 +107,7 @@ benchmark_results_*.json
 creds.json
 
 # VSCode
-cmd/weaviate-server/__debug_bin*
+**/__debug_bin*
 
 # python test
 .venv
@@ -126,3 +126,6 @@ exp/query/testdata/lsmroot/lsm/meta.db
 
 # weaviate backup-filesystem tests
 test/modules/backup-filesystem/bucketPath
+
+# go test coverage output files
+*.out

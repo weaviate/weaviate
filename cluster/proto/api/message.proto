@@ -54,6 +54,10 @@ message ApplyRequest {
     TYPE_DELETE_TENANT = 18;
     TYPE_TENANT_PROCESS = 19;
 
+    TYPE_CREATE_ALIAS = 40;
+    TYPE_REPLACE_ALIAS = 41;
+    TYPE_DELETE_ALIAS = 42;
+
     TYPE_UPSERT_ROLES_PERMISSIONS = 60;
     TYPE_DELETE_ROLES = 61;
     TYPE_REMOVE_PERMISSIONS = 62;
@@ -121,9 +125,13 @@ message QueryRequest {
     TYPE_GET_ROLES = 31;
     TYPE_GET_ROLES_FOR_USER = 32;
     TYPE_GET_USERS_FOR_ROLE= 33;
-
+    TYPE_GET_USERS_OR_GROUPS_WITH_ROLES = 34;
+    
     TYPE_GET_USERS = 61;
     TYPE_USER_IDENTIFIER_EXISTS = 62;
+
+    TYPE_RESOLVE_ALIAS = 100;
+    TYPE_GET_ALIASES = 101;
 
     TYPE_GET_REPLICATION_DETAILS = 200;
     TYPE_GET_REPLICATION_DETAILS_BY_COLLECTION = 201;
@@ -221,4 +229,18 @@ message SyncShardRequest {
   string collection = 1;
   string shard = 2;
   string node_id = 3;
+}
+
+message CreateAliasRequest {
+  string collection = 1;
+  string alias = 2;
+}
+
+message ReplaceAliasRequest {
+  string collection = 1;
+  string alias = 2;
+}
+
+message DeleteAliasRequest {
+  string alias = 1;
 }

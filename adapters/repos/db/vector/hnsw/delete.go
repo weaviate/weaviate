@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -613,8 +614,10 @@ func (h *hnsw) reassignNeighbor(
 	return true, nil
 }
 
-func connectionsPointTo(connections [][]uint64, needles helpers.AllowList) bool {
-	for _, atLevel := range connections {
+func connectionsPointTo(connections *packedconn.Connections, needles helpers.AllowList) bool {
+	iter := connections.Iterator()
+	for iter.Next() {
+		_, atLevel := iter.Current()
 		for _, pointer := range atLevel {
 			if needles.Contains(pointer) {
 				return true
@@ -798,7 +801,7 @@ func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
 
 func (h *hnsw) isOnlyNodeUnlocked(needle *vertex, denyList helpers.AllowList) bool {
 	for _, node := range h.nodes {
-		if node == nil || node.id == needle.id || denyList.Contains(node.id) || len(node.connections) == 0 {
+		if node == nil || node.id == needle.id || denyList.Contains(node.id) || node.connections.Layers() == 0 {
 			continue
 		}
 		return false

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,7 +16,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/rand"
 	"testing"
 	"time"
@@ -26,12 +25,18 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func Benchmark_Migration(b *testing.B) {
@@ -47,18 +52,33 @@ func Benchmark_Migration(b *testing.B) {
 				schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 				shardState: shardState,
 			}
-			repo, err := New(logger, Config{
+			mockSchemaReader := schemaUC.NewMockSchemaReader(b)
+			mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+				class := &models.Class{Class: className}
+				return readFunc(class, shardState)
+			}).Maybe()
+			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+			mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+			mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(b)
+			mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+			mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+			mockNodeSelector := cluster.NewMockNodeSelector(b)
+			mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+			mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+			repo, err := New(logger, "node1", Config{
 				RootPath:                  dirName,
 				QueryMaximumResults:       1000,
 				MaxImportGoroutinesFactor: 1,
 				TrackVectorDimensions:     true,
-			}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+			}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+				mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 			require.Nil(b, err)
 			repo.SetSchemaGetter(schemaGetter)
 			require.Nil(b, repo.WaitForStartup(testCtx()))
 			defer repo.Shutdown(context.Background())
 
-			migrator := NewMigrator(repo, logger)
+			migrator := NewMigrator(repo, logger, "node1")
 
 			class := &models.Class{
 				Class:               "Test",
@@ -71,7 +91,7 @@ func Benchmark_Migration(b *testing.B) {
 				},
 			}
 
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+			migrator.AddClass(context.Background(), class)
 
 			schemaGetter.schema = schema
 
@@ -112,18 +132,33 @@ func Test_Migration(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       1000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("set schema", func(t *testing.T) {
 		class := &models.Class{
@@ -138,7 +173,7 @@ func Test_Migration(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+			migrator.AddClass(context.Background(), class))
 
 		schemaGetter.schema = schema
 	})
@@ -158,15 +193,15 @@ func Test_Migration(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
-		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
 		require.Equal(t, 0, dimAfter, "dimensions should not have been calculated")
 	})
 
-	dimBefore := GetDimensionsFromRepo(context.Background(), repo, "Test")
+	dimBefore := getDimensionsFromRepo(context.Background(), repo, "Test")
 	require.Equal(t, 0, dimBefore, "dimensions should not have been calculated")
 	repo.config.TrackVectorDimensions = true
 	migrator.RecalculateVectorDimensions(context.TODO())
-	dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
+	dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
 	require.Equal(t, 12800, dimAfter, "dimensions should be counted now")
 }
 
@@ -180,18 +215,33 @@ func Test_DimensionTracking(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, monitoring.GetMetrics(), memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("set schema", func(t *testing.T) {
 		class := &models.Class{
@@ -205,8 +255,7 @@ func Test_DimensionTracking(t *testing.T) {
 			},
 		}
 
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+		require.Nil(t, migrator.AddClass(context.Background(), class))
 
 		schemaGetter.schema = schema
 	})
@@ -224,14 +273,14 @@ func Test_DimensionTracking(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
-		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
 		require.Equal(t, 12800, dimAfter, "dimensions should not have changed")
 		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		require.Equal(t, 6400, quantDimAfter, "quantized dimensions should not have changed")
 	})
 
 	t.Run("import objects with d=0", func(t *testing.T) {
-		dimBefore := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		dimBefore := getDimensionsFromRepo(context.Background(), repo, "Test")
 		quantDimBefore := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		for i := 100; i < 200; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
@@ -239,7 +288,7 @@ func Test_DimensionTracking(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, nil, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
-		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
 		require.Equal(t, dimBefore, dimAfter, "dimensions should not have changed")
 		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		require.Equal(t, quantDimBefore, quantDimAfter, "quantized dimensions should not have changed")
@@ -248,21 +297,23 @@ func Test_DimensionTracking(t *testing.T) {
 	t.Run("verify dimensions after initial import", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
 		idx.ForEachShard(func(name string, shard ShardLike) error {
-			assert.Equal(t, 12800, shard.Dimensions(context.Background(), ""))
+			dim, err := shard.Dimensions(context.Background(), "")
+			assert.NoError(t, err)
+			assert.Equal(t, 12800, dim)
 			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), "", 64))
 			return nil
 		})
 	})
 
 	t.Run("delete 10 objects with d=128", func(t *testing.T) {
-		dimBefore := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		dimBefore := getDimensionsFromRepo(context.Background(), repo, "Test")
 		quantDimBefore := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		for i := 0; i < 10; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			err := repo.DeleteObject(context.Background(), "Test", id, time.Now(), nil, "", 0)
 			require.Nil(t, err)
 		}
-		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
 		require.Equal(t, dimBefore, dimAfter+10*128, "dimensions should have decreased")
 		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		require.Equal(t, quantDimBefore, quantDimAfter+10*64, "dimensions should have decreased")
@@ -271,14 +322,16 @@ func Test_DimensionTracking(t *testing.T) {
 	t.Run("verify dimensions after delete", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
 		idx.ForEachShard(func(name string, shard ShardLike) error {
-			assert.Equal(t, 11520, shard.Dimensions(context.Background(), ""))
+			dim, err := shard.Dimensions(context.Background(), "")
+			assert.NoError(t, err)
+			assert.Equal(t, 11520, dim)
 			assert.Equal(t, 5760, shard.QuantizedDimensions(context.Background(), "", 64))
 			return nil
 		})
 	})
 
 	t.Run("update some of the d=128 objects with a new vector", func(t *testing.T) {
-		dimBefore := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		dimBefore := getDimensionsFromRepo(context.Background(), repo, "Test")
 		quantDimBefore := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		dim := 128
 		for i := 0; i < 50; i++ {
@@ -294,14 +347,14 @@ func Test_DimensionTracking(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
-		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
 		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		require.Equal(t, dimBefore+10*128, dimAfter, "dimensions should have been restored")
 		require.Equal(t, quantDimBefore+10*64, quantDimAfter, "dimensions should have been restored")
 	})
 
 	t.Run("update some of the d=128 objects with a nil vector", func(t *testing.T) {
-		dimBefore := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		dimBefore := getDimensionsFromRepo(context.Background(), repo, "Test")
 		quantDimBefore := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 32)
 		for i := 50; i < 100; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
@@ -311,7 +364,7 @@ func Test_DimensionTracking(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, nil, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
-		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
 		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 32)
 		require.Equal(t, dimBefore, dimAfter+50*128, "dimensions should decrease")
 		require.Equal(t, quantDimBefore, quantDimAfter+50*32, "dimensions should decrease")
@@ -320,7 +373,9 @@ func Test_DimensionTracking(t *testing.T) {
 	t.Run("verify dimensions after first set of updates", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
 		idx.ForEachShard(func(name string, shard ShardLike) error {
-			assert.Equal(t, 6400, shard.Dimensions(context.Background(), ""))
+			dim, err := shard.Dimensions(context.Background(), "")
+			assert.NoError(t, err)
+			assert.Equal(t, 6400, dim)
 			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), "", 64))
 			assert.Equal(t, 1600, shard.QuantizedDimensions(context.Background(), "", 32))
 			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), "", 0))
@@ -329,7 +384,7 @@ func Test_DimensionTracking(t *testing.T) {
 	})
 
 	t.Run("update some of the origin nil vector objects with a d=128 vector", func(t *testing.T) {
-		dimBefore := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		dimBefore := getDimensionsFromRepo(context.Background(), repo, "Test")
 		quantDimBefore := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		dim := 128
 		for i := 100; i < 150; i++ {
@@ -345,14 +400,14 @@ func Test_DimensionTracking(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
-		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
 		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		require.Equal(t, dimBefore+50*128, dimAfter, "dimensions should increase")
 		require.Equal(t, quantDimBefore+50*64, quantDimAfter, "dimensions should increase")
 	})
 
 	t.Run("update some of the nil objects with another nil vector", func(t *testing.T) {
-		dimBefore := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		dimBefore := getDimensionsFromRepo(context.Background(), repo, "Test")
 		quantDimBefore := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		for i := 150; i < 200; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
@@ -362,7 +417,7 @@ func Test_DimensionTracking(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, nil, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
-		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
 		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		require.Equal(t, dimBefore, dimAfter, "dimensions should not have changed")
 		require.Equal(t, quantDimBefore, quantDimAfter, "dimensions should not have changed")
@@ -371,7 +426,9 @@ func Test_DimensionTracking(t *testing.T) {
 	t.Run("verify dimensions after more updates", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
 		idx.ForEachShard(func(name string, shard ShardLike) error {
-			assert.Equal(t, 12800, shard.Dimensions(context.Background(), ""))
+			dim, err := shard.Dimensions(context.Background(), "")
+			assert.NoError(t, err)
+			assert.Equal(t, 12800, dim)
 			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), "", 64))
 			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), "", 32))
 			// segments = 0, will use 128/2 = 64 segments and so value should be 6400
@@ -379,32 +436,6 @@ func Test_DimensionTracking(t *testing.T) {
 			return nil
 		})
 	})
-}
-
-func publishDimensionMetricsFromRepo(ctx context.Context, repo *DB, className string) {
-	if !repo.config.TrackVectorDimensions {
-		log.Printf("Vector dimensions tracking is disabled, returning 0")
-		return
-	}
-	index := repo.GetIndex(schema.ClassName(className))
-	index.ForEachShard(func(name string, shard ShardLike) error {
-		shard.publishDimensionMetrics(ctx)
-		return nil
-	})
-}
-
-func getSingleShardNameFromRepo(repo *DB, className string) string {
-	shardName := ""
-	if !repo.config.TrackVectorDimensions {
-		log.Printf("Vector dimensions tracking is disabled, returning 0")
-		return shardName
-	}
-	index := repo.GetIndex(schema.ClassName(className))
-	index.ForEachShard(func(name string, shard ShardLike) error {
-		shardName = shard.Name()
-		return nil
-	})
-	return shardName
 }
 
 func TestTotalDimensionTrackingMetrics(t *testing.T) {
@@ -425,26 +456,26 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 	}{
 		{
 			name:         "legacy",
-			vectorConfig: enthnsw.NewDefaultUserConfig,
+			vectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 
 			expectDimensions: dimensionsPerVector * objectCount,
 		},
 		{
 			name:              "named",
-			namedVectorConfig: enthnsw.NewDefaultUserConfig,
+			namedVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 
 			expectDimensions: dimensionsPerVector * objectCount,
 		},
 		{
 			name:              "multi",
-			multiVectorConfig: enthnsw.NewDefaultUserConfig,
+			multiVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 
 			expectDimensions: multiVecCard * dimensionsPerVector * objectCount,
 		},
 		{
 			name:              "mixed",
-			vectorConfig:      enthnsw.NewDefaultUserConfig,
-			namedVectorConfig: enthnsw.NewDefaultUserConfig,
+			vectorConfig:      func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
+			namedVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 
 			expectDimensions: 2 * dimensionsPerVector * objectCount,
 		},
@@ -485,9 +516,30 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 				cfg.BQ.Enabled = true
 				return cfg
 			},
-			multiVectorConfig: enthnsw.NewDefaultUserConfig,
+			multiVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 			expectDimensions:  multiVecCard * dimensionsPerVector * objectCount,
 			expectSegments:    (dimensionsPerVector / 8) * objectCount,
+		},
+		{
+			name: "named_with_rq_8bit",
+			namedVectorConfig: func() enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.RQ.Enabled = true
+				cfg.RQ.Bits = 8
+				return cfg
+			},
+
+			expectDimensions: dimensionsPerVector * objectCount,
+		},
+		{
+			name: "named_with_rq_1bit",
+			namedVectorConfig: func() enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.RQ.Enabled = true
+				cfg.RQ.Bits = 1
+				return cfg
+			},
+			expectSegments: (dimensionsPerVector / 8) * objectCount,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -534,7 +586,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 			}
 
 			var (
-				db        = createTestDatabaseWithClass(t, class)
+				db        = createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 				shardName = getSingleShardNameFromRepo(db, class.Class)
 
 				insertData = func() {
@@ -546,7 +598,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 						err := db.PutObject(context.Background(), obj, legacyVec, namedVecs, multiVecs, nil, 0)
 						require.Nil(t, err)
 					}
-					publishDimensionMetricsFromRepo(context.Background(), db, class.Class)
+					publishVectorMetricsFromDB(t, db)
 				}
 
 				removeData = func() {
@@ -554,7 +606,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 						err := db.DeleteObject(context.Background(), class.Class, intToUUID(i), time.Now(), nil, "", 0)
 						require.NoError(t, err)
 					}
-					publishDimensionMetricsFromRepo(context.Background(), db, class.Class)
+					publishVectorMetricsFromDB(t, db)
 				}
 
 				assertTotalMetrics = func(expectDims, expectSegs float64) {
@@ -581,31 +633,111 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 	}
 }
 
-func createTestDatabaseWithClass(t *testing.T, class *models.Class) *DB {
-	metrics := monitoring.GetMetrics()
-	metrics.Registerer = monitoring.NoopRegisterer
-
-	db, err := New(logrus.New(), Config{
-		RootPath:                  t.TempDir(),
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, metrics, memwatch.NewDummyMonitor())
-	require.Nil(t, err)
-
-	db.SetSchemaGetter(&fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}},
-		shardState: singleShardState(),
-	})
-
-	require.Nil(t, db.WaitForStartup(testCtx()))
-	t.Cleanup(func() {
-		require.NoError(t, db.Shutdown(context.Background()))
-	})
-
-	return db
-}
-
 func intToUUID(i int) strfmt.UUID {
 	return strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+}
+
+func TestDimensionTrackingWithGrouping(t *testing.T) {
+	const (
+		nClasses          = 2
+		shardsPerClass    = 1 // createTestDatabaseWithClass does not support multi-tenancy
+		objectCount       = 5
+		dimPerVector      = 64
+		expectDimPerShard = objectCount * dimPerVector
+		expectTotalDim    = nClasses * shardsPerClass * expectDimPerShard
+	)
+
+	testCases := []struct {
+		name               string
+		groupingEnabled    bool
+		expectedLabels     []string // class-shard label pairs
+		expectedDimensions []int    // expectedDimensions for a label pair
+	}{
+		{
+			name:               "with_grouping_enabled",
+			groupingEnabled:    true,
+			expectedLabels:     []string{"n/a", "n/a"},
+			expectedDimensions: []int{expectTotalDim},
+		},
+		{
+			name:            "with_grouping_disabled",
+			groupingEnabled: false,
+			// Will be set dynamically
+			expectedLabels:     nil,
+			expectedDimensions: nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Setup metrics grouping (copy to avoid race condition)
+			metrics := *monitoring.GetMetrics()
+			metrics.Group = tc.groupingEnabled
+
+			// Create test class and database
+			classes := make([]*models.Class, nClasses)
+			for i := range classes {
+				classes[i] = &models.Class{
+					Class:               fmt.Sprintf("%s_%d", tc.name, i),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled:              shardsPerClass > 1,
+						AutoTenantCreation:   true,
+						AutoTenantActivation: true,
+					},
+				}
+			}
+
+			db := createTestDatabaseWithClass(t, &metrics, classes...)
+
+			// Insert test data
+			for _, class := range classes {
+				for range shardsPerClass {
+					shardName := getSingleShardNameFromRepo(db, class.Class)
+
+					for i := range objectCount {
+						obj := &models.Object{
+							Class: class.Class,
+							ID:    intToUUID(i),
+						}
+
+						if shardsPerClass > 1 {
+							obj.Tenant = shardName
+						}
+
+						vec := randVector(dimPerVector)
+						err := db.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
+						require.NoError(t, err, "put object")
+					}
+
+					// Set expected labels for non-grouping case
+					if !tc.groupingEnabled {
+						tc.expectedLabels = append(tc.expectedLabels, class.Class, shardName)
+						tc.expectedDimensions = append(tc.expectedDimensions, expectDimPerShard)
+					}
+				}
+			}
+
+			// Publish metrics
+			publishVectorMetricsFromDB(t, db)
+
+			// Check expected dimensions for each pair of labels
+			for i := 0; i < len(tc.expectedLabels); i += 2 {
+				className, shardName := tc.expectedLabels[i], tc.expectedLabels[i+1]
+
+				// Verify dimension metrics
+				dim, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(className, shardName)
+				require.NoError(t, err, "get vector_dimensions_sum metric")
+				require.Equal(t, float64(tc.expectedDimensions[0]), testutil.ToFloat64(dim),
+					"vector_dimensions_sum{class=%s,shard=%s}", className, shardName)
+
+				// Verify segment metrics (should be 0 for standard vectors)
+				segments, err := metrics.VectorSegmentsSum.GetMetricWithLabelValues(className, shardName)
+				require.NoError(t, err, "get vector_segments_sum metric")
+				require.Equal(t, float64(0), testutil.ToFloat64(segments),
+					"vector_segments_sum{class=%s,shard=%s}", className, shardName)
+			}
+		})
+	}
 }

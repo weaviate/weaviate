@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,7 +20,9 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 func TestMetadataNoWrites(t *testing.T) {
@@ -170,6 +172,32 @@ func TestCorruptFile(t *testing.T) {
 	value, err := b2.Get([]byte("key"))
 	require.NoError(t, err)
 	require.Equal(t, []byte("value"), value)
+}
+
+func TestReadObjectCountFromMetadataFile(t *testing.T) {
+	dir := t.TempDir()
+	metadataPath := filepath.Join(dir, "test.metadata")
+
+	// checksum (4) + version (1) + primary bloom len (4) + cna len (4) + cna data (8)
+	totalSize := 4 + 1 + 4 + 4 + 8
+
+	data := make([]byte, totalSize)
+	rw := byteops.NewReadWriter(data)
+
+	rw.MoveBufferPositionForward(4) // leave space for checksum
+	rw.WriteByte(0)                 // version
+	rw.WriteUint32(0)               // primary bloom filter length (0 bytes)
+	rw.WriteUint32(8)               // CNA length (8 bytes)
+	rw.WriteUint64(42)              // CNA data
+
+	// Write with checksum
+	err := writeWithChecksum(rw, metadataPath, nil)
+	require.NoError(t, err)
+
+	// Test reading the metadata file
+	count, err := ReadObjectCountFromMetadataFile(metadataPath)
+	require.NoError(t, err)
+	require.Equal(t, int64(42), count)
 }
 
 func countFileTypes(t *testing.T, path string) map[string]int {

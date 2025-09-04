@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -163,6 +163,10 @@ type PrometheusMetrics struct {
 	ModuleExternalError              *prometheus.CounterVec
 	ModuleCallError                  *prometheus.CounterVec
 	ModuleBatchError                 *prometheus.CounterVec
+
+	// Checksum metrics
+	ChecksumValidationDuration prometheus.Summary
+	ChecksumBytesRead          prometheus.Summary
 }
 
 func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOffloadMetrics {
@@ -835,6 +839,16 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "weaviate_module_batch_error_total",
 			Help: "Number of batch errors",
 		}, []string{"operation", "class_name"}),
+
+		// Checksum metrics
+		ChecksumValidationDuration: promauto.NewSummary(prometheus.SummaryOpts{
+			Name: "checksum_validation_duration_seconds",
+			Help: "Duration of checksum validation",
+		}),
+		ChecksumBytesRead: promauto.NewSummary(prometheus.SummaryOpts{
+			Name: "checksum_bytes_read",
+			Help: "Number of bytes read during checksum validation",
+		}),
 	}
 }
 

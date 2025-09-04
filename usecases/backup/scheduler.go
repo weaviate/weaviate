@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -62,12 +62,12 @@ func NewScheduler(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver),
+			logger, nodeResolver, backends),
 		restorer: newCoordinator(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver),
+			logger, nodeResolver, backends),
 	}
 	return m
 }
@@ -162,7 +162,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 // Restore loads the backup and restores classes in temporary directories on the filesystem.
 // The final backup restoration is orchestrated by the raft store.
 func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
-	req *BackupRequest,
+	req *BackupRequest, overwriteAlais bool,
 ) (_ *models.BackupRestoreResponse, err error) {
 	defer func(begin time.Time) {
 		logOperation(s.logger, "try_restore", req.ID, req.Backend, begin, err)
@@ -198,15 +198,16 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	}
 
 	rReq := Request{
-		Method:            OpRestore,
-		ID:                req.ID,
-		Backend:           req.Backend,
-		Compression:       req.Compression,
-		Classes:           meta.Classes(),
-		Bucket:            req.Bucket,
-		Path:              req.Path,
-		UserRestoreOption: req.UserRestoreOption,
-		RbacRestoreOption: req.RbacRestoreOption,
+		Method:                OpRestore,
+		ID:                    req.ID,
+		Backend:               req.Backend,
+		Compression:           req.Compression,
+		Classes:               meta.Classes(),
+		Bucket:                req.Bucket,
+		Path:                  req.Path,
+		UserRestoreOption:     req.UserRestoreOption,
+		RbacRestoreOption:     req.RbacRestoreOption,
+		RestoreOverwriteAlias: overwriteAlais,
 	}
 	err = s.restorer.Restore(ctx, store, &rReq, meta, schema)
 	if err != nil {

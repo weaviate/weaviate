@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -222,7 +222,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		})
 
 		t.Run("wait interval for next round", func(t *testing.T) {
-			time.Sleep(sg.cleanupInterval * 4 / 3)
+			time.Sleep(sg.cleanupInterval * 3 / 2)
 		})
 
 		t.Run("2nd round, no candiates due to no new segments", func(t *testing.T) {
@@ -302,7 +302,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		})
 
 		t.Run("wait interval for next round", func(t *testing.T) {
-			time.Sleep(sg.cleanupInterval * 4 / 3)
+			time.Sleep(sg.cleanupInterval * 3 / 2)
 		})
 
 		t.Run("new segments created", func(t *testing.T) {
@@ -368,7 +368,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		})
 
 		t.Run("wait interval for next round", func(t *testing.T) {
-			time.Sleep(sg.cleanupInterval * 4 / 3)
+			time.Sleep(sg.cleanupInterval * 3 / 2)
 		})
 
 		t.Run("3rd round, no candidates due to no new segments", func(t *testing.T) {
@@ -452,7 +452,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		})
 
 		t.Run("wait interval for next round", func(t *testing.T) {
-			time.Sleep(sg.cleanupInterval * 4 / 3)
+			time.Sleep(sg.cleanupInterval * 3 / 2)
 		})
 
 		t.Run("new segments created", func(t *testing.T) {
@@ -498,7 +498,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		})
 
 		t.Run("wait interval for next round", func(t *testing.T) {
-			time.Sleep(sg.cleanupInterval * 4 / 3)
+			time.Sleep(sg.cleanupInterval * 3 / 2)
 		})
 
 		t.Run("3rd round, no candidates due to no new segments", func(t *testing.T) {
@@ -525,7 +525,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		})
 
 		t.Run("wait interval for next round", func(t *testing.T) {
-			time.Sleep(sg.cleanupInterval * 4 / 3)
+			time.Sleep(sg.cleanupInterval * 3 / 2)
 		})
 
 		t.Run("4th round, new and old candidates due to sum of new sizes big enough", func(t *testing.T) {
@@ -687,7 +687,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		})
 
 		t.Run("wait interval for next round", func(t *testing.T) {
-			time.Sleep(sg.cleanupInterval * 4 / 3)
+			time.Sleep(sg.cleanupInterval * 3 / 2)
 		})
 
 		t.Run("2nd round, no candidates due to no new segments", func(t *testing.T) {
@@ -709,7 +709,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		})
 
 		t.Run("wait interval for next round", func(t *testing.T) {
-			time.Sleep(sg.cleanupInterval * 4 / 3)
+			time.Sleep(sg.cleanupInterval * 3 / 2)
 		})
 
 		t.Run("3rd round, new segments cleaned and some old ones", func(t *testing.T) {
@@ -781,7 +781,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		})
 
 		t.Run("wait interval for next round", func(t *testing.T) {
-			time.Sleep(sg.cleanupInterval * 4 / 3)
+			time.Sleep(sg.cleanupInterval * 3 / 2)
 		})
 
 		t.Run("4th round, no candidates due to no new segments", func(t *testing.T) {
@@ -802,7 +802,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		})
 
 		t.Run("wait interval for next round", func(t *testing.T) {
-			time.Sleep(sg.cleanupInterval * 4 / 3)
+			time.Sleep(sg.cleanupInterval * 3 / 2)
 		})
 
 		t.Run("5th round, new segments cleaned and some old ones", func(t *testing.T) {

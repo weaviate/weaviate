@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,8 +22,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"gopkg.in/yaml.v3"
+
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func TestParseRuntimeConfig(t *testing.T) {
@@ -337,7 +338,7 @@ replica_movement_minimum_async_wait: 10s`)
 func assertConfigKey(t *testing.T, key string) {
 	t.Helper()
 
-	re := regexp.MustCompile(`^[a-z]+(_[a-z]+)*$`)
+	re := regexp.MustCompile(`^[a-z0-9]+(_[a-z0-9]+)*$`)
 	if !re.MatchString(key) {
 		t.Fatalf("given key %v is not lower snake case. The json/yaml tag for runtime config should be all lower snake case (e.g my_key, not MY_KEY)", key)
 	}

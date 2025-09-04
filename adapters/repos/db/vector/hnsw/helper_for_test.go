@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,7 +35,9 @@ func dumpIndex(index *hnsw, labels ...string) {
 		}
 
 		fmt.Printf("  Node %d\n", node.id)
-		for level, conns := range node.connections {
+		iter := node.connections.Iterator()
+		for iter.Next() {
+			level, conns := iter.Current()
 			fmt.Printf("    Level %d: Connections: %v\n", level, conns)
 		}
 	}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,7 +27,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -262,15 +261,21 @@ type oneClassSchema struct {
 	ss  *sharding.State
 }
 
-func (s oneClassSchema) CopyShardingState(class string) *sharding.State {
-	return s.ss
+func (s oneClassSchema) Read(_ string, reader func(*models.Class, *sharding.State) error) error {
+	return reader(s.cls, s.ss)
 }
 
-func (s oneClassSchema) GetSchemaSkipAuth() schema.Schema {
-	return schema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{s.cls},
-		},
+func (s oneClassSchema) Shards(_ string) ([]string, error) {
+	return s.ss.AllPhysicalShards(), nil
+}
+
+func (s oneClassSchema) LocalShards() ([]string, error) {
+	return s.ss.AllLocalPhysicalShards(), nil
+}
+
+func (s oneClassSchema) ReadOnlySchema() models.Schema {
+	return models.Schema{
+		Classes: []*models.Class{s.cls},
 	}
 }
 

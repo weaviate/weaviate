@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -54,12 +54,6 @@ func (o *ListReplicationReader) ReadResponse(response runtime.ClientResponse, co
 		return nil, result
 	case 403:
 		result := NewListReplicationForbidden()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
-	case 404:
-		result := NewListReplicationNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -328,74 +322,6 @@ func (o *ListReplicationForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ListReplicationForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewListReplicationNotFound creates a ListReplicationNotFound with default headers values
-func NewListReplicationNotFound() *ListReplicationNotFound {
-	return &ListReplicationNotFound{}
-}
-
-/*
-ListReplicationNotFound describes a response with status code 404, with default header values.
-
-Shard replica operation not found.
-*/
-type ListReplicationNotFound struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this list replication not found response has a 2xx status code
-func (o *ListReplicationNotFound) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this list replication not found response has a 3xx status code
-func (o *ListReplicationNotFound) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this list replication not found response has a 4xx status code
-func (o *ListReplicationNotFound) IsClientError() bool {
-	return true
-}
-
-// IsServerError returns true when this list replication not found response has a 5xx status code
-func (o *ListReplicationNotFound) IsServerError() bool {
-	return false
-}
-
-// IsCode returns true when this list replication not found response a status code equal to that given
-func (o *ListReplicationNotFound) IsCode(code int) bool {
-	return code == 404
-}
-
-// Code gets the status code for the list replication not found response
-func (o *ListReplicationNotFound) Code() int {
-	return 404
-}
-
-func (o *ListReplicationNotFound) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationNotFound  %+v", 404, o.Payload)
-}
-
-func (o *ListReplicationNotFound) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/list][%d] listReplicationNotFound  %+v", 404, o.Payload)
-}
-
-func (o *ListReplicationNotFound) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *ListReplicationNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

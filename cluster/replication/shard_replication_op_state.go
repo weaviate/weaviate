@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package replication
 
 import (
 	"errors"
+	"time"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
@@ -28,7 +29,9 @@ type State struct {
 	// State is the current state of the shard replication operation
 	State api.ShardReplicationState
 	// Errors is the list of errors that occurred during this state
-	Errors []string
+	Errors []api.ReplicationDetailsError
+	// Ms is the Unix timestamp in milliseconds when the state was first entered
+	StartTimeUnixMs int64
 }
 
 // StateHistory is the history of the state changes of the shard replication operation
@@ -68,11 +71,14 @@ func NewShardReplicationStatus(state api.ShardReplicationState) ShardReplication
 }
 
 // AddError adds an error to the current state of the shard replication operation
-func (s *ShardReplicationOpStatus) AddError(error string) error {
+func (s *ShardReplicationOpStatus) AddError(error string, timeUnixMs int64) error {
 	if len(s.Current.Errors) >= MaxErrors {
 		return ErrMaxErrorsReached
 	}
-	s.Current.Errors = append(s.Current.Errors, error)
+	s.Current.Errors = append(s.Current.Errors, api.ReplicationDetailsError{
+		Message:           error,
+		ErroredTimeUnixMs: timeUnixMs,
+	})
 	return nil
 }
 
@@ -80,8 +86,9 @@ func (s *ShardReplicationOpStatus) AddError(error string) error {
 func (s *ShardReplicationOpStatus) ChangeState(nextState api.ShardReplicationState) {
 	s.History = append(s.History, s.Current)
 	s.Current = State{
-		State:  nextState,
-		Errors: []string{},
+		State:           nextState,
+		Errors:          []api.ReplicationDetailsError{},
+		StartTimeUnixMs: time.Now().UnixMilli(),
 	}
 }
 
@@ -129,8 +136,9 @@ func (s *ShardReplicationOpStatus) GetHistory() StateHistory {
 // ToAPIFormat converts the State to the API format
 func (s State) ToAPIFormat() api.ReplicationDetailsState {
 	return api.ReplicationDetailsState{
-		State:  s.State.String(),
-		Errors: s.Errors,
+		State:           s.State.String(),
+		Errors:          s.Errors,
+		StartTimeUnixMs: s.StartTimeUnixMs,
 	}
 }
 

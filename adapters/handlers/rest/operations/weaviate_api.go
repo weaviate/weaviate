@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -79,6 +79,21 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		AuthzAddPermissionsHandler: authz.AddPermissionsHandlerFunc(func(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AddPermissions has not yet been implemented")
+		}),
+		SchemaAliasesCreateHandler: schema.AliasesCreateHandlerFunc(func(params schema.AliasesCreateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.AliasesCreate has not yet been implemented")
+		}),
+		SchemaAliasesDeleteHandler: schema.AliasesDeleteHandlerFunc(func(params schema.AliasesDeleteParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.AliasesDelete has not yet been implemented")
+		}),
+		SchemaAliasesGetHandler: schema.AliasesGetHandlerFunc(func(params schema.AliasesGetParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.AliasesGet has not yet been implemented")
+		}),
+		SchemaAliasesGetAliasHandler: schema.AliasesGetAliasHandlerFunc(func(params schema.AliasesGetAliasParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.AliasesGetAlias has not yet been implemented")
+		}),
+		SchemaAliasesUpdateHandler: schema.AliasesUpdateHandlerFunc(func(params schema.AliasesUpdateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.AliasesUpdate has not yet been implemented")
 		}),
 		AuthzAssignRoleToGroupHandler: authz.AssignRoleToGroupHandlerFunc(func(params authz.AssignRoleToGroupParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AssignRoleToGroup has not yet been implemented")
@@ -155,6 +170,12 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ReplicationGetCollectionShardingStateHandler: replication.GetCollectionShardingStateHandlerFunc(func(params replication.GetCollectionShardingStateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.GetCollectionShardingState has not yet been implemented")
 		}),
+		AuthzGetGroupsHandler: authz.GetGroupsHandlerFunc(func(params authz.GetGroupsParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetGroups has not yet been implemented")
+		}),
+		AuthzGetGroupsForRoleHandler: authz.GetGroupsForRoleHandlerFunc(func(params authz.GetGroupsForRoleParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetGroupsForRole has not yet been implemented")
+		}),
 		UsersGetOwnInfoHandler: users.GetOwnInfoHandlerFunc(func(params users.GetOwnInfoParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.GetOwnInfo has not yet been implemented")
 		}),
@@ -163,6 +184,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		AuthzGetRolesHandler: authz.GetRolesHandlerFunc(func(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRoles has not yet been implemented")
+		}),
+		AuthzGetRolesForGroupHandler: authz.GetRolesForGroupHandlerFunc(func(params authz.GetRolesForGroupParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetRolesForGroup has not yet been implemented")
 		}),
 		AuthzGetRolesForUserHandler: authz.GetRolesForUserHandlerFunc(func(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRolesForUser has not yet been implemented")
@@ -402,6 +426,16 @@ type WeaviateAPI struct {
 	UsersActivateUserHandler users.ActivateUserHandler
 	// AuthzAddPermissionsHandler sets the operation handler for the add permissions operation
 	AuthzAddPermissionsHandler authz.AddPermissionsHandler
+	// SchemaAliasesCreateHandler sets the operation handler for the aliases create operation
+	SchemaAliasesCreateHandler schema.AliasesCreateHandler
+	// SchemaAliasesDeleteHandler sets the operation handler for the aliases delete operation
+	SchemaAliasesDeleteHandler schema.AliasesDeleteHandler
+	// SchemaAliasesGetHandler sets the operation handler for the aliases get operation
+	SchemaAliasesGetHandler schema.AliasesGetHandler
+	// SchemaAliasesGetAliasHandler sets the operation handler for the aliases get alias operation
+	SchemaAliasesGetAliasHandler schema.AliasesGetAliasHandler
+	// SchemaAliasesUpdateHandler sets the operation handler for the aliases update operation
+	SchemaAliasesUpdateHandler schema.AliasesUpdateHandler
 	// AuthzAssignRoleToGroupHandler sets the operation handler for the assign role to group operation
 	AuthzAssignRoleToGroupHandler authz.AssignRoleToGroupHandler
 	// AuthzAssignRoleToUserHandler sets the operation handler for the assign role to user operation
@@ -452,12 +486,18 @@ type WeaviateAPI struct {
 	ReplicationForceDeleteReplicationsHandler replication.ForceDeleteReplicationsHandler
 	// ReplicationGetCollectionShardingStateHandler sets the operation handler for the get collection sharding state operation
 	ReplicationGetCollectionShardingStateHandler replication.GetCollectionShardingStateHandler
+	// AuthzGetGroupsHandler sets the operation handler for the get groups operation
+	AuthzGetGroupsHandler authz.GetGroupsHandler
+	// AuthzGetGroupsForRoleHandler sets the operation handler for the get groups for role operation
+	AuthzGetGroupsForRoleHandler authz.GetGroupsForRoleHandler
 	// UsersGetOwnInfoHandler sets the operation handler for the get own info operation
 	UsersGetOwnInfoHandler users.GetOwnInfoHandler
 	// AuthzGetRoleHandler sets the operation handler for the get role operation
 	AuthzGetRoleHandler authz.GetRoleHandler
 	// AuthzGetRolesHandler sets the operation handler for the get roles operation
 	AuthzGetRolesHandler authz.GetRolesHandler
+	// AuthzGetRolesForGroupHandler sets the operation handler for the get roles for group operation
+	AuthzGetRolesForGroupHandler authz.GetRolesForGroupHandler
 	// AuthzGetRolesForUserHandler sets the operation handler for the get roles for user operation
 	AuthzGetRolesForUserHandler authz.GetRolesForUserHandler
 	// AuthzGetRolesForUserDeprecatedHandler sets the operation handler for the get roles for user deprecated operation
@@ -661,6 +701,21 @@ func (o *WeaviateAPI) Validate() error {
 	if o.AuthzAddPermissionsHandler == nil {
 		unregistered = append(unregistered, "authz.AddPermissionsHandler")
 	}
+	if o.SchemaAliasesCreateHandler == nil {
+		unregistered = append(unregistered, "schema.AliasesCreateHandler")
+	}
+	if o.SchemaAliasesDeleteHandler == nil {
+		unregistered = append(unregistered, "schema.AliasesDeleteHandler")
+	}
+	if o.SchemaAliasesGetHandler == nil {
+		unregistered = append(unregistered, "schema.AliasesGetHandler")
+	}
+	if o.SchemaAliasesGetAliasHandler == nil {
+		unregistered = append(unregistered, "schema.AliasesGetAliasHandler")
+	}
+	if o.SchemaAliasesUpdateHandler == nil {
+		unregistered = append(unregistered, "schema.AliasesUpdateHandler")
+	}
 	if o.AuthzAssignRoleToGroupHandler == nil {
 		unregistered = append(unregistered, "authz.AssignRoleToGroupHandler")
 	}
@@ -736,6 +791,12 @@ func (o *WeaviateAPI) Validate() error {
 	if o.ReplicationGetCollectionShardingStateHandler == nil {
 		unregistered = append(unregistered, "replication.GetCollectionShardingStateHandler")
 	}
+	if o.AuthzGetGroupsHandler == nil {
+		unregistered = append(unregistered, "authz.GetGroupsHandler")
+	}
+	if o.AuthzGetGroupsForRoleHandler == nil {
+		unregistered = append(unregistered, "authz.GetGroupsForRoleHandler")
+	}
 	if o.UsersGetOwnInfoHandler == nil {
 		unregistered = append(unregistered, "users.GetOwnInfoHandler")
 	}
@@ -744,6 +805,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.AuthzGetRolesHandler == nil {
 		unregistered = append(unregistered, "authz.GetRolesHandler")
+	}
+	if o.AuthzGetRolesForGroupHandler == nil {
+		unregistered = append(unregistered, "authz.GetRolesForGroupHandler")
 	}
 	if o.AuthzGetRolesForUserHandler == nil {
 		unregistered = append(unregistered, "authz.GetRolesForUserHandler")
@@ -1025,6 +1089,26 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
+	o.handlers["POST"]["/aliases"] = schema.NewAliasesCreate(o.context, o.SchemaAliasesCreateHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/aliases/{aliasName}"] = schema.NewAliasesDelete(o.context, o.SchemaAliasesDeleteHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/aliases"] = schema.NewAliasesGet(o.context, o.SchemaAliasesGetHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/aliases/{aliasName}"] = schema.NewAliasesGetAlias(o.context, o.SchemaAliasesGetAliasHandler)
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/aliases/{aliasName}"] = schema.NewAliasesUpdate(o.context, o.SchemaAliasesUpdateHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
 	o.handlers["POST"]["/authz/groups/{id}/assign"] = authz.NewAssignRoleToGroup(o.context, o.AuthzAssignRoleToGroupHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
@@ -1125,6 +1209,14 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
+	o.handlers["GET"]["/authz/groups/{groupType}"] = authz.NewGetGroups(o.context, o.AuthzGetGroupsHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/authz/roles/{id}/group-assignments"] = authz.NewGetGroupsForRole(o.context, o.AuthzGetGroupsForRoleHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
 	o.handlers["GET"]["/users/own-info"] = users.NewGetOwnInfo(o.context, o.UsersGetOwnInfoHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
@@ -1134,6 +1226,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/authz/roles"] = authz.NewGetRoles(o.context, o.AuthzGetRolesHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/authz/groups/{id}/roles/{groupType}"] = authz.NewGetRolesForGroup(o.context, o.AuthzGetRolesForGroupHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

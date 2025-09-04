@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
 	"github.com/stretchr/testify/mock"
 
@@ -68,7 +70,7 @@ func TestSuccessGetUser(t *testing.T) {
 			} else {
 				dynUser.On("GetUsers", test.userId).Return(map[string]*apikey.User{}, nil)
 			}
-			dynUser.On("GetRolesForUser", test.userId, models.UserTypeInputDb).Return(
+			dynUser.On("GetRolesForUserOrGroup", test.userId, authentication.AuthTypeDb, false).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
 
 			if test.addLastUsed {
@@ -126,7 +128,7 @@ func TestSuccessGetUserMultiNode(t *testing.T) {
 			schemaGetter := schema.NewMockSchemaGetter(t)
 
 			dynUser.On("GetUsers", userId).Return(map[string]*apikey.User{userId: {Id: userId, LastUsedAt: returnedTime}}, nil)
-			dynUser.On("GetRolesForUser", userId, models.UserTypeInputDb).Return(map[string][]authorization.Policy{"role": {}}, nil)
+			dynUser.On("GetRolesForUserOrGroup", userId, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
 
 			var nodes []string
 			for i := range test.nodeResponses {
@@ -214,7 +216,7 @@ func TestGetUserInternalServerError(t *testing.T) {
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(tt.GetUserReturnValue, tt.GetUserReturnErr)
 			if tt.GetUserReturnErr == nil {
-				dynUser.On("GetRolesForUser", "user", models.UserTypeInputDb).Return(nil, tt.GetRolesReturn)
+				dynUser.On("GetRolesForUserOrGroup", "user", authentication.AuthTypeDb, false).Return(nil, tt.GetRolesReturn)
 			}
 
 			h := dynUserHandler{
@@ -271,7 +273,7 @@ func TestGetUserWithNoPrincipal(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(userID)[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", userID).Return(map[string]*apikey.User{userID: {Id: userID, ApiKeyFirstLetters: "abc"}}, nil)
-	dynUser.On("GetRolesForUser", userID, models.UserTypeInputDb).Return(map[string][]authorization.Policy{"role": {}}, nil)
+	dynUser.On("GetRolesForUserOrGroup", userID, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
 
 	h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true}
 

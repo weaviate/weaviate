@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,7 +24,7 @@ import (
 func TestMaintenanceModeReplicatedIndices(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
 	// NOTE leaving shards and scaler nil for now, fill in when needed
-	indices := clusterapi.NewReplicatedIndices(nil, nil, noopAuth, func() bool { return true })
+	indices := clusterapi.NewReplicatedIndices(nil, noopAuth, func() bool { return true })
 	mux := http.NewServeMux()
 	mux.Handle("/replicas/indices/", indices.Indices())
 	server := httptest.NewServer(mux)

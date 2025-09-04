@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -95,7 +95,7 @@ func TestGraphIntegrity(t *testing.T) {
 			continue
 		}
 
-		conlen := len(node.connections[0])
+		conlen := len(node.connections.GetLayer(0))
 
 		// it is debatable how much value this test still adds. It used to check
 		// that a lot of connections are present before we had the heuristic. But

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package cluster
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"slices"
@@ -27,6 +28,8 @@ import (
 type NodeSelector interface {
 	// NodeAddress resolves node id into an ip address without the port.
 	NodeAddress(id string) string
+	// NodeGRPCPort returns the gRPC port for a specific node id.
+	NodeGRPCPort(id string) (int, error)
 	// StorageCandidates returns list of storage nodes (names)
 	// sorted by the free amount of disk space in descending orders
 	StorageCandidates() []string
@@ -44,7 +47,9 @@ type NodeSelector interface {
 }
 
 type State struct {
-	config Config
+	config        Config
+	localGrpcPort int
+
 	// that lock to serialize access to memberlist
 	listLock             sync.RWMutex
 	list                 *memberlist.Memberlist
@@ -93,20 +98,26 @@ func (ba BasicAuth) Enabled() bool {
 	return ba.Username != "" || ba.Password != ""
 }
 
-func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
+func Init(userConfig Config, grpcPort, raftBootstrapExpect int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
 	userConfig.RaftBootstrapExpect = raftBootstrapExpect
 	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
 	cfg.Name = userConfig.Hostname
 	state := State{
 		config:          userConfig,
+		localGrpcPort:   grpcPort,
 		nonStorageNodes: nonStorageNodes,
 		delegate: delegate{
 			Name:     cfg.Name,
 			dataPath: dataPath,
 			log:      logger,
+			metadata: NodeMetadata{
+				RestPort: userConfig.DataBindPort,
+				GrpcPort: grpcPort,
+			},
 		},
 	}
+
 	if err := state.delegate.init(diskSpace); err != nil {
 		logger.WithField("action", "init_state.delete_init").WithError(err).
 			Error("delegate init failed")
@@ -180,13 +191,53 @@ func (s *State) Hostnames() []string {
 		if m.Name == s.list.LocalNode().Name {
 			continue
 		}
-		// TODO: how can we find out the actual data port as opposed to relying on
-		// the convention that it's 1 higher than the gossip port
-		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), m.Port+1)
+
+		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), s.dataPort(m))
 		i++
 	}
 
 	return out[:i]
+}
+
+func nodeMetadata(m *memberlist.Node) (NodeMetadata, error) {
+	if len(m.Meta) == 0 {
+		return NodeMetadata{}, errors.New("no metadata available")
+	}
+
+	var meta NodeMetadata
+	if err := json.Unmarshal(m.Meta, &meta); err != nil {
+		return NodeMetadata{}, errors.Wrap(err, "unmarshal node metadata")
+	}
+
+	return meta, nil
+}
+
+func (s *State) dataPort(m *memberlist.Node) int {
+	meta, err := nodeMetadata(m)
+	if err != nil {
+		s.delegate.log.WithFields(logrus.Fields{
+			"action": "data_port_fallback",
+			"node":   m.Name,
+		}).WithError(err).Debug("unable to get node metadata, falling back to default data port")
+
+		return int(m.Port) + 1 // the convention that it's 1 higher than the gossip port
+	}
+
+	return meta.RestPort
+}
+
+func (s *State) grpcPort(m *memberlist.Node) int {
+	meta, err := nodeMetadata(m)
+	if err != nil {
+		s.delegate.log.WithFields(logrus.Fields{
+			"action": "grpc_port_fallback",
+			"node":   m.Name,
+		}).WithError(err).Debug("unable to get node metadata, falling back to default gRPC port")
+
+		return s.localGrpcPort // fallback to default gRPC port
+	}
+
+	return meta.GrpcPort
 }
 
 // AllHostnames for live members, including self.
@@ -202,9 +253,7 @@ func (s *State) AllHostnames() []string {
 	out := make([]string, len(mem))
 
 	for i, m := range mem {
-		// TODO: how can we find out the actual data port as opposed to relying on
-		// the convention that it's 1 higher than the gossip port
-		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), m.Port+1)
+		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), s.dataPort(m))
 	}
 
 	return out
@@ -300,9 +349,7 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeName {
-			// TODO: how can we find out the actual data port as opposed to relying on
-			// the convention that it's 1 higher than the gossip port
-			return fmt.Sprintf("%s:%d", mem.Addr.String(), mem.Port+1), true
+			return fmt.Sprintf("%s:%d", mem.Addr.String(), s.dataPort(mem)), true
 		}
 	}
 
@@ -347,6 +394,15 @@ func (s *State) NodeAddress(id string) string {
 		}
 	}
 	return ""
+}
+
+func (s *State) NodeGRPCPort(nodeID string) (int, error) {
+	for _, mem := range s.list.Members() {
+		if mem.Name == nodeID {
+			return s.grpcPort(mem), nil
+		}
+	}
+	return 0, fmt.Errorf("node not found: %s", nodeID)
 }
 
 func (s *State) SchemaSyncIgnored() bool {

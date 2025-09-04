@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -103,7 +103,7 @@ func TestAuth(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			s := &Service{
+			a := &authHandler{
 				allowAnonymousAccess: test.allowAnon,
 				authComposer: func(token string, scopes []string) (*models.Principal, error) {
 					if token == "" {
@@ -116,7 +116,7 @@ func TestAuth(t *testing.T) {
 				},
 			}
 
-			p, err := s.principalFromContext(test.buildCtx())
+			p, err := a.PrincipalFromContext(test.buildCtx())
 			if test.shouldErr {
 				require.NotNil(t, err)
 			} else {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,6 +38,8 @@ import (
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativexai "github.com/weaviate/weaviate/modules/generative-xai"
+	modmulti2multivecjinaai "github.com/weaviate/weaviate/modules/multi2multivec-jinaai"
+	modmulti2vecaws "github.com/weaviate/weaviate/modules/multi2vec-aws"
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
@@ -56,6 +58,7 @@ import (
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modmistral "github.com/weaviate/weaviate/modules/text2vec-mistral"
 	modmodel2vec "github.com/weaviate/weaviate/modules/text2vec-model2vec"
+	modmorph "github.com/weaviate/weaviate/modules/text2vec-morph"
 	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -283,6 +286,12 @@ func (d *Compose) WithMulti2VecJinaAI(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithMulti2MultivecJinaAI(apiKey string) *Compose {
+	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2multivecjinaai.Name)
+	return d
+}
+
 func (d *Compose) WithMulti2VecBind() *Compose {
 	d.withBind = true
 	d.enableModules = append(d.enableModules, Multi2VecBind)
@@ -309,6 +318,12 @@ func (d *Compose) WithText2VecOpenAI(openAIApiKey, openAIOrganization, azureApiK
 	return d
 }
 
+func (d *Compose) WithText2VecMorph(apiKey string) *Compose {
+	d.weaviateEnvs["MORPH_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmorph.Name)
+	return d
+}
+
 func (d *Compose) WithText2VecCohere(apiKey string) *Compose {
 	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modcohere.Name)
@@ -332,6 +347,14 @@ func (d *Compose) WithText2VecAWS(accessKey, secretKey, sessionToken string) *Co
 	d.weaviateEnvs["AWS_SECRET_KEY"] = secretKey
 	d.weaviateEnvs["AWS_SESSION_TOKEN"] = sessionToken
 	d.enableModules = append(d.enableModules, modaws.Name)
+	return d
+}
+
+func (d *Compose) WithMulti2VecAWS(accessKey, secretKey, sessionToken string) *Compose {
+	d.weaviateEnvs["AWS_ACCESS_KEY"] = accessKey
+	d.weaviateEnvs["AWS_SECRET_KEY"] = secretKey
+	d.weaviateEnvs["AWS_SESSION_TOKEN"] = sessionToken
+	d.enableModules = append(d.enableModules, modmulti2vecaws.Name)
 	return d
 }
 

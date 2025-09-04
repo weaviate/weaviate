@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -285,7 +285,6 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy,
 	adds additional.Properties,
-	replEnabled bool,
 	localNode string,
 	targetCombination *dto.TargetCombination,
 	properties []string,
@@ -312,7 +311,6 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy,
 	adds additional.Properties,
-	replEnabled bool,
 	targetCombination *dto.TargetCombination,
 	properties []string,
 ) ([]*storobj.Object, []float32, string, error) {
