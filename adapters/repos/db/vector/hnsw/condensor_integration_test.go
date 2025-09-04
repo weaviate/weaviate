@@ -828,7 +828,7 @@ func TestCondensorWithMUVERAInformation(t *testing.T) {
 	})
 }
 
-func newMemoryCondensor(t *testing.T, rootPath string, fs common.FS) *MemoryCondensor {
+func newMemoryCondensor(t *testing.T, rootPath string, fs common.FS) (*MemoryCondensor, string) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
@@ -905,38 +905,15 @@ func newMemoryCondensor(t *testing.T, rootPath string, fs common.FS) *MemoryCond
 
 	require.Nil(t, cl.Flush())
 
-	return &MemoryCondensor{logger: logger, fs: fs}
+	clFilename, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "memory_condensor"))
+	require.Nil(t, err)
+	require.True(t, ok)
+
+	return &MemoryCondensor{logger: logger, fs: fs}, commitLogFileName(rootPath, "memory_condensor", clFilename)
 }
 
-type testFS struct {
-	common.FS
-	counter int
-}
-
-func (fs *testFS) OpenFile(name string, flag int, perm os.FileMode) (common.File, error) {
-	f, err := fs.FS.OpenFile(name, flag, perm)
-	if err != nil {
-		return nil, err
-	}
-	return &testFile{File: f, counter: &fs.counter}, nil
-}
-
-type testFile struct {
-	common.File
-	counter *int
-}
-
-func (fs *testFile) Write(p []byte) (n int, err error) {
-	*fs.counter++
-	if *fs.counter == 2 {
-		return 0, errors.New("fake temp error: two writes")
-	}
-	return fs.File.Write(p)
-}
-
-func getCondensedFileSize(t *testing.T, rootPath string) []int64 {
+func getCondensedFileSizes(t *testing.T, rootPath string) []int64 {
 	fs := common.NewOSFS()
-	fs = &testFS{FS: fs}
 	files, err := fs.ReadDir(commitLogDirectory(rootPath, "memory_condensor"))
 	require.Nil(t, err)
 	sizes := make([]int64, 0, len(files))
@@ -952,45 +929,55 @@ func getCondensedFileSize(t *testing.T, rootPath string) []int64 {
 }
 
 func TestCondensorCrashSafety(t *testing.T) {
-	t.Run("", func(t *testing.T) {
+	t.Run("recovers partially condensed files", func(t *testing.T) {
+		// condense onces with no error to get a baseline
 		rootPath := t.TempDir()
-		m := newMemoryCondensor(t, rootPath, common.NewOSFS())
-		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "memory_condensor"))
+		m, clFilename := newMemoryCondensor(t, rootPath, common.NewOSFS())
+		err := m.Do(clFilename)
 		require.Nil(t, err)
-		require.True(t, ok)
-		err = m.Do(commitLogFileName(rootPath, "memory_condensor", input))
-		require.Nil(t, err)
-		sizes := getCondensedFileSize(t, rootPath)
-		goldenSize := sizes[0]
+		sizes := getCondensedFileSizes(t, rootPath)
+		want := sizes[0]
 
+		// create a new memory condensor with a failing file system:
+		// here we'll make writing PQ information fail so that we end
+		// up with a partial condensed file
 		rootPath = t.TempDir()
-		fs := common.NewOSFS()
-		fs = &testFS{FS: fs}
 
-		m = newMemoryCondensor(t, rootPath, fs)
+		var counter int
+		fs := common.NewTestFS()
+		fs.OnOpenFile = func(f common.File) common.File {
+			return &common.TestFile{
+				File: f,
+				OnWrite: func(b []byte) (n int, err error) {
+					counter++
+					if counter == 2 {
+						return 0, errors.New("fake temp error: two writes")
+					}
+					return f.Write(b)
+				},
+			}
+		}
+
+		m, clFilename = newMemoryCondensor(t, rootPath, fs)
 		m.bufferSize = 1 * 1024
 
-		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "memory_condensor"))
-		require.Nil(t, err)
-		require.True(t, ok)
-
-		err = m.Do(commitLogFileName(rootPath, "memory_condensor", input))
+		// condense once, disk state should be: ["001", "001.condensed"]
+		err = m.Do(clFilename)
 		require.Error(t, err)
-		sizes = getCondensedFileSize(t, rootPath)
+		sizes = getCondensedFileSizes(t, rootPath)
 		brokenSize := sizes[0]
-		require.Less(t, brokenSize, goldenSize)
+		require.Less(t, brokenSize, want)
 
-		err = m.Do(commitLogFileName(rootPath, "memory_condensor", input))
+		// condense again, this time with no FS error, disk state should be: ["001.condensed"]
+		err = m.Do(clFilename)
 		require.Nil(t, err)
-		sizes = getCondensedFileSize(t, rootPath)
-		secondBrokenSize := sizes[0]
-		require.Equal(t, goldenSize, secondBrokenSize)
+		sizes = getCondensedFileSizes(t, rootPath)
+		got := sizes[0]
+		require.Equal(t, want, got)
 	})
 }
 
-func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string,
-	fileNames []string,
-) {
+func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string, fileNames []string) {
 	control := readFromCommitLogs(t, fileNameControl)
 	actual := readFromCommitLogs(t, fileNames...)
 

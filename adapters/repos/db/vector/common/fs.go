@@ -32,14 +32,14 @@ type File interface {
 }
 
 type FS interface {
-	MkdirAll(path string, perm os.FileMode) error
+	Open(name string) (File, error)
 	OpenFile(name string, flag int, perm os.FileMode) (File, error)
+	Create(name string) (File, error)
+	MkdirAll(path string, perm os.FileMode) error
 	ReadDir(name string) ([]os.DirEntry, error)
 	Stat(name string) (os.FileInfo, error)
 	Remove(name string) error
 	RemoveAll(path string) error
-	Create(name string) (File, error)
-	Open(name string) (File, error)
 	Rename(oldpath, newpath string) error
 	Truncate(name string, size int64) error
 }
@@ -50,12 +50,20 @@ func NewOSFS() FS {
 	return &osFS{}
 }
 
-func (fs *osFS) MkdirAll(path string, perm os.FileMode) error {
-	return os.MkdirAll(path, perm)
+func (fs *osFS) Create(name string) (File, error) {
+	return os.Create(name)
+}
+
+func (fs *osFS) Open(name string) (File, error) {
+	return os.Open(name)
 }
 
 func (fs *osFS) OpenFile(name string, flag int, perm os.FileMode) (File, error) {
 	return os.OpenFile(name, flag, perm)
+}
+
+func (fs *osFS) MkdirAll(path string, perm os.FileMode) error {
+	return os.MkdirAll(path, perm)
 }
 
 func (fs *osFS) ReadDir(name string) ([]os.DirEntry, error) {
@@ -74,18 +82,93 @@ func (fs *osFS) RemoveAll(path string) error {
 	return os.RemoveAll(path)
 }
 
-func (fs *osFS) Create(name string) (File, error) {
-	return os.Create(name)
-}
-
-func (fs *osFS) Open(name string) (File, error) {
-	return os.Open(name)
-}
-
 func (fs *osFS) Rename(oldpath, newpath string) error {
 	return os.Rename(oldpath, newpath)
 }
 
 func (fs *osFS) Truncate(name string, size int64) error {
 	return os.Truncate(name, size)
+}
+
+type TestFS struct {
+	FS
+	OnOpenFile func(f File) File
+	OnOpen     func(f File) File
+}
+
+func NewTestFS() *TestFS {
+	return &TestFS{
+		FS: NewOSFS(),
+	}
+}
+
+func (fs *TestFS) Open(name string) (File, error) {
+	f, err := os.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	if fs.OnOpen == nil {
+		return f, nil
+	}
+	return fs.OnOpen(f), nil
+}
+
+func (fs *TestFS) OpenFile(name string, flag int, perm os.FileMode) (File, error) {
+	f, err := os.OpenFile(name, flag, perm)
+	if err != nil {
+		return nil, err
+	}
+	if fs.OnOpenFile == nil {
+		return f, nil
+	}
+
+	return fs.OnOpenFile(f), nil
+}
+
+func (fs *TestFS) Create(name string) (File, error) {
+	return os.Create(name)
+}
+
+func (fs *TestFS) ReadDir(name string) ([]os.DirEntry, error) {
+	return os.ReadDir(name)
+}
+
+func (fs *TestFS) Stat(name string) (os.FileInfo, error) {
+	return os.Stat(name)
+}
+
+func (fs *TestFS) Remove(name string) error {
+	return os.Remove(name)
+}
+
+func (fs *TestFS) RemoveAll(path string) error {
+	return os.RemoveAll(path)
+}
+
+func (fs *TestFS) Rename(oldpath, newpath string) error {
+	return os.Rename(oldpath, newpath)
+}
+
+func (fs *TestFS) Truncate(name string, size int64) error {
+	return os.Truncate(name, size)
+}
+
+type TestFile struct {
+	File
+	OnWrite func(b []byte) (n int, err error)
+	OnRead  func(b []byte) (n int, err error)
+}
+
+func (f *TestFile) Write(b []byte) (n int, err error) {
+	if f.OnWrite != nil {
+		return f.OnWrite(b)
+	}
+	return f.File.Write(b)
+}
+
+func (f *TestFile) Read(b []byte) (n int, err error) {
+	if f.OnRead != nil {
+		return f.OnRead(b)
+	}
+	return f.File.Read(b)
 }
