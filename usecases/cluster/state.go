@@ -335,10 +335,6 @@ func (s *State) AllClusterMembers(raftPort int) map[string]string {
 	result := make(map[string]string, len(members))
 
 	for _, m := range members {
-		// Skip self
-		if m.Name == s.list.LocalNode().Name {
-			continue
-		}
 		result[m.Name] = fmt.Sprintf("%s:%d", m.Addr.String(), raftPort)
 	}
 
