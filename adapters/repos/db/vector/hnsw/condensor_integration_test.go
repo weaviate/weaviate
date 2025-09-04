@@ -17,6 +17,7 @@ package hnsw
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -930,50 +931,54 @@ func getCondensedFileSizes(t *testing.T, rootPath string) []int64 {
 
 func TestCondensorCrashSafety(t *testing.T) {
 	t.Run("recovers partially condensed files", func(t *testing.T) {
-		// condense onces with no error to get a baseline
-		rootPath := t.TempDir()
-		m, clFilename := newMemoryCondensor(t, rootPath, common.NewOSFS())
-		err := m.Do(clFilename)
-		require.Nil(t, err)
-		sizes := getCondensedFileSizes(t, rootPath)
-		want := sizes[0]
+		for i := range 12 {
+			t.Run(fmt.Sprintf("fails on write number %d", i+1), func(t *testing.T) {
+				// condense once with no error to get a baseline
+				rootPath := t.TempDir()
+				m, clFilename := newMemoryCondensor(t, rootPath, common.NewOSFS())
+				err := m.Do(clFilename)
+				require.Nil(t, err)
+				sizes := getCondensedFileSizes(t, rootPath)
+				want := sizes[0]
 
-		// create a new memory condensor with a failing file system:
-		// here we'll make writing PQ information fail so that we end
-		// up with a partial condensed file
-		rootPath = t.TempDir()
+				// create a new memory condensor with a failing file system:
+				// here we'll make writing PQ information fail so that we end
+				// up with a partial condensed file
+				rootPath = t.TempDir()
 
-		var counter int
-		fs := common.NewTestFS()
-		fs.OnOpenFile = func(f common.File) common.File {
-			return &common.TestFile{
-				File: f,
-				OnWrite: func(b []byte) (n int, err error) {
-					counter++
-					if counter == 2 {
-						return 0, errors.New("fake temp error: two writes")
+				var counter int
+				fs := common.NewTestFS()
+				fs.OnOpenFile = func(f common.File) common.File {
+					return &common.TestFile{
+						File: f,
+						OnWrite: func(b []byte) (n int, err error) {
+							counter++
+							if counter == i+1 {
+								return 0, errors.New("fake temp error: two writes")
+							}
+							return f.Write(b)
+						},
 					}
-					return f.Write(b)
-				},
-			}
+				}
+
+				m, clFilename = newMemoryCondensor(t, rootPath, fs)
+				m.bufferSize = 64
+
+				// condense once, disk state should be: ["001", "001.condensed"]
+				err = m.Do(clFilename)
+				require.Error(t, err)
+				sizes = getCondensedFileSizes(t, rootPath)
+				brokenSize := sizes[0]
+				require.Less(t, brokenSize, want)
+
+				// condense again, this time with no FS error, disk state should be: ["001.condensed"]
+				err = m.Do(clFilename)
+				require.Nil(t, err)
+				sizes = getCondensedFileSizes(t, rootPath)
+				got := sizes[0]
+				require.Equal(t, want, got)
+			})
 		}
-
-		m, clFilename = newMemoryCondensor(t, rootPath, fs)
-		m.bufferSize = 1 * 1024
-
-		// condense once, disk state should be: ["001", "001.condensed"]
-		err = m.Do(clFilename)
-		require.Error(t, err)
-		sizes = getCondensedFileSizes(t, rootPath)
-		brokenSize := sizes[0]
-		require.Less(t, brokenSize, want)
-
-		// condense again, this time with no FS error, disk state should be: ["001.condensed"]
-		err = m.Do(clFilename)
-		require.Nil(t, err)
-		sizes = getCondensedFileSizes(t, rootPath)
-		got := sizes[0]
-		require.Equal(t, want, got)
 	})
 }
 
