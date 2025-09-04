@@ -96,7 +96,7 @@ func (c *CommitLogCombiner) partitonFileNames(fileNames, partitions []string) []
 	for ; i < len(fileNames); i++ {
 		partFileNames = append(partFileNames, fileNames[i])
 	}
-	if len(fileNames) > 0 {
+	if len(partFileNames) > 0 {
 		partitioned = append(partitioned, partFileNames)
 	}
 	return partitioned
