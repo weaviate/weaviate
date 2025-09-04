@@ -649,35 +649,37 @@ func generateShardName() string {
 }
 
 func (s State) DeepCopy() State {
-	var virtualCopy []Virtual
-
-	physicalCopy := make(map[string]Physical, len(s.Physical))
-	for name, shard := range s.Physical {
-		physicalCopy[name] = shard.DeepCopy()
-	}
-
-	if len(s.Virtual) > 0 {
-		virtualCopy = make([]Virtual, len(s.Virtual))
-	}
-	for i, virtual := range s.Virtual {
-		virtualCopy[i] = virtual.DeepCopy()
-	}
-
 	state := State{
 		localNodeName:       s.localNodeName,
 		IndexID:             s.IndexID,
 		Config:              s.Config.DeepCopy(),
-		Physical:            physicalCopy,
-		Virtual:             virtualCopy,
+		Physical:            make(map[string]Physical, len(s.Physical)),
+		Virtual:             make([]Virtual, len(s.Virtual)),
 		PartitioningEnabled: s.PartitioningEnabled,
 		ReplicationFactor:   s.ReplicationFactor,
 	}
 
-	// TODO: in case of error we return an empty sharding state temporarily. The plan is to remove this
-	// DeepCopy method in a followup PR.
-	err := state.MigrateShardingStateReplicationFactor()
-	if err != nil {
-		return State{}
+	for name, physicalShard := range s.Physical {
+		state.Physical[name] = physicalShard.DeepCopy()
+	}
+	for i, virtualShard := range s.Virtual {
+		state.Virtual[i] = virtualShard.DeepCopy()
+	}
+
+	// TODO: currently we ignore migration errors by returning an empty State with
+	// initialized but empty maps/slices. This avoids panics in callers, but hides the
+	// underlying issue and may cause misleading replica counts or missing shard info.
+	// In the future, change DeepCopy to return (State, error) so the error can be
+	// propagated to callers, who can then decide what to do with it.
+	if err := state.MigrateShardingStateReplicationFactor(); err != nil {
+		return State{
+			localNodeName: s.localNodeName,
+			IndexID:       s.IndexID,
+			Config:        s.Config.DeepCopy(),
+			Physical:      make(map[string]Physical),
+			Virtual:       make([]Virtual, 0),
+			// PartitioningEnabled and ReplicationFactor default to zero values here.
+		}
 	}
 
 	return state
