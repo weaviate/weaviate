@@ -930,22 +930,21 @@ func getCondensedFileSizes(t *testing.T, rootPath string) []int64 {
 }
 
 func TestCondensorCrashSafety(t *testing.T) {
+	// condense once with no error to get a baseline
+	rootPath := t.TempDir()
+	m, clFilename := newMemoryCondensor(t, rootPath, common.NewOSFS())
+	err := m.Do(clFilename)
+	require.Nil(t, err)
+	sizes := getCondensedFileSizes(t, rootPath)
+	want := sizes[0]
+
 	t.Run("recovers partially condensed files", func(t *testing.T) {
+		// with a 64 bytes buffer, there are about 12 writes happening in the memory condensor.
+		// change this value if the number of writes change
 		for i := range 12 {
 			t.Run(fmt.Sprintf("fails on write number %d", i+1), func(t *testing.T) {
-				// condense once with no error to get a baseline
-				rootPath := t.TempDir()
-				m, clFilename := newMemoryCondensor(t, rootPath, common.NewOSFS())
-				err := m.Do(clFilename)
-				require.Nil(t, err)
-				sizes := getCondensedFileSizes(t, rootPath)
-				want := sizes[0]
-
 				// create a new memory condensor with a failing file system:
-				// here we'll make writing PQ information fail so that we end
-				// up with a partial condensed file
 				rootPath = t.TempDir()
-
 				var counter int
 				fs := common.NewTestFS()
 				fs.OnOpenFile = func(f common.File) common.File {
@@ -954,7 +953,7 @@ func TestCondensorCrashSafety(t *testing.T) {
 						OnWrite: func(b []byte) (n int, err error) {
 							counter++
 							if counter == i+1 {
-								return 0, errors.New("fake temp error: two writes")
+								return 0, errors.Errorf("fake temp error: %d writes", counter)
 							}
 							return f.Write(b)
 						},
@@ -979,6 +978,27 @@ func TestCondensorCrashSafety(t *testing.T) {
 				require.Equal(t, want, got)
 			})
 		}
+	})
+
+	t.Run("ensure fsync is called", func(t *testing.T) {
+		rootPath = t.TempDir()
+
+		var fsyncCalled bool
+		fs := common.NewTestFS()
+		fs.OnOpenFile = func(f common.File) common.File {
+			return &common.TestFile{
+				File: f,
+				OnSync: func() error {
+					fsyncCalled = true
+					return f.Sync()
+				},
+			}
+		}
+
+		m, clFilename = newMemoryCondensor(t, rootPath, fs)
+		err = m.Do(clFilename)
+		require.NoError(t, err)
+		require.True(t, fsyncCalled)
 	})
 }
 

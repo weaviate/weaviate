@@ -157,6 +157,7 @@ type TestFile struct {
 	File
 	OnWrite func(b []byte) (n int, err error)
 	OnRead  func(b []byte) (n int, err error)
+	OnSync  func() error
 }
 
 func (f *TestFile) Write(b []byte) (n int, err error) {
@@ -171,4 +172,11 @@ func (f *TestFile) Read(b []byte) (n int, err error) {
 		return f.OnRead(b)
 	}
 	return f.File.Read(b)
+}
+
+func (f *TestFile) Sync() error {
+	if f.OnSync != nil {
+		return f.OnSync()
+	}
+	return f.File.Sync()
 }
