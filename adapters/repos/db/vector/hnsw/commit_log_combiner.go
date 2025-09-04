@@ -49,7 +49,7 @@ func (c *CommitLogCombiner) Do(partitions ...string) (bool, error) {
 	executed := false
 	for {
 		// fileNames will already be in order
-		fileNames, err := getCommitFileNames(c.rootPath, c.id, 0)
+		fileNames, err := getCommitFileNames(c.rootPath, c.id, 0, c.fs)
 		if err != nil {
 			return executed, errors.Wrap(err, "obtain files names")
 		}

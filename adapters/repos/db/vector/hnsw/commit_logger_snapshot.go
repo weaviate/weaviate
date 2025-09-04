@@ -382,7 +382,7 @@ func (l *hnswCommitLogger) getLastSnapshot() (path string, createdAt int64, err 
 }
 
 func (l *hnswCommitLogger) getDeltaCommitlogs(createdAfter int64) (paths []string, err error) {
-	files, err := getCommitFiles(l.rootPath, l.id, createdAfter)
+	files, err := getCommitFiles(l.rootPath, l.id, createdAfter, l.fs)
 	if err != nil {
 		return nil, err
 	}

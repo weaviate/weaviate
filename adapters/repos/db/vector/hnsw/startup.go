@@ -21,7 +21,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -96,13 +95,12 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 			Info("snapshots disabled, loading from commit log")
 	}
 
-	fileNames, err := getCommitFileNames(h.rootPath, h.id, stateTimestamp)
+	fileNames, err := getCommitFileNames(h.rootPath, h.id, stateTimestamp, h.fs)
 	if err != nil {
 		return err
 	}
 
-	fs := common.NewOSFS()
-	state, err = loadCommitLoggerState(fs, h.logger, fileNames, state, h.metrics)
+	state, err = loadCommitLoggerState(h.fs, h.logger, fileNames, state, h.metrics)
 	if err != nil {
 		return errors.Wrap(err, "load commit logger state")
 	}

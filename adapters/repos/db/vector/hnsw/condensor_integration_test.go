@@ -36,6 +36,8 @@ func TestCondensor(t *testing.T) {
 	rootPath := t.TempDir()
 	ctx := context.Background()
 
+	fs := common.NewOSFS()
+
 	logger, _ := test.NewNullLogger()
 	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
 		cyclemanager.NewCallbackGroupNoop())
@@ -114,7 +116,7 @@ func TestCondensor(t *testing.T) {
 	})
 
 	t.Run("condense the original and verify against the perfect one", func(t *testing.T) {
-		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"))
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -122,12 +124,12 @@ func TestCondensor(t *testing.T) {
 		require.Nil(t, err)
 
 		control, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "perfect"))
+			commitLogDirectory(rootPath, "perfect"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		actual, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "uncondensed"))
+			commitLogDirectory(rootPath, "uncondensed"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -167,6 +169,8 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
 
+	fs := common.NewOSFS()
+
 	t.Run("add data to the first log", func(t *testing.T) {
 		uncondensed1.AddLinkAtLevel(0, 0, 1)
 		uncondensed1.AddLinkAtLevel(0, 0, 2)
@@ -191,14 +195,14 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 	})
 
 	t.Run("condense both logs and verify the contents against the control", func(t *testing.T) {
-		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed1"))
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed1"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed1", input))
 		require.Nil(t, err)
 
-		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"))
+		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -206,17 +210,17 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 		require.Nil(t, err)
 
 		control, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "control"))
+			commitLogDirectory(rootPath, "control"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		condensed1, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "uncondensed1"))
+			commitLogDirectory(rootPath, "uncondensed1"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		condensed2, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "uncondensed2"))
+			commitLogDirectory(rootPath, "uncondensed2"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -261,6 +265,8 @@ func TestCondensorReplaceNodeLinks(t *testing.T) {
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
 
+	fs := common.NewOSFS()
+
 	t.Run("add data to the first log", func(t *testing.T) {
 		uncondensed1.AddNode(&vertex{id: 0, level: 1})
 		uncondensed1.AddLinkAtLevel(0, 0, 1)
@@ -290,14 +296,14 @@ func TestCondensorReplaceNodeLinks(t *testing.T) {
 	})
 
 	t.Run("condense both logs and verify the contents against the control", func(t *testing.T) {
-		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed1"))
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed1"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed1", input))
 		require.Nil(t, err)
 
-		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"))
+		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -305,17 +311,17 @@ func TestCondensorReplaceNodeLinks(t *testing.T) {
 		require.Nil(t, err)
 
 		control, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "control"))
+			commitLogDirectory(rootPath, "control"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		condensed1, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "uncondensed1"))
+			commitLogDirectory(rootPath, "uncondensed1"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		condensed2, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "uncondensed2"))
+			commitLogDirectory(rootPath, "uncondensed2"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -360,6 +366,8 @@ func TestCondensorClearLinksAtLevel(t *testing.T) {
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
 
+	fs := common.NewOSFS()
+
 	t.Run("add data to the first log", func(t *testing.T) {
 		uncondensed1.AddNode(&vertex{id: 0, level: 1})
 		uncondensed1.AddLinkAtLevel(0, 0, 1)
@@ -393,14 +401,14 @@ func TestCondensorClearLinksAtLevel(t *testing.T) {
 	})
 
 	t.Run("condense both logs and verify the contents against the control", func(t *testing.T) {
-		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed1"))
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed1"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed1", input))
 		require.Nil(t, err)
 
-		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"))
+		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -408,17 +416,17 @@ func TestCondensorClearLinksAtLevel(t *testing.T) {
 		require.Nil(t, err)
 
 		control, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "control"))
+			commitLogDirectory(rootPath, "control"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		condensed1, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "uncondensed1"))
+			commitLogDirectory(rootPath, "uncondensed1"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		condensed2, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "uncondensed2"))
+			commitLogDirectory(rootPath, "uncondensed2"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -455,6 +463,8 @@ func TestCondensorTombstones(t *testing.T) {
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
 
+	fs := common.NewOSFS()
+
 	t.Run("add tombstone data", func(t *testing.T) {
 		uncondensed1.AddNode(&vertex{id: 0, level: 1})
 		uncondensed1.AddNode(&vertex{id: 1, level: 1})
@@ -489,14 +499,14 @@ func TestCondensorTombstones(t *testing.T) {
 	})
 
 	t.Run("condense both logs and verify the contents against the control", func(t *testing.T) {
-		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed1"))
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed1"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed1", input))
 		require.Nil(t, err)
 
-		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"))
+		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -504,17 +514,17 @@ func TestCondensorTombstones(t *testing.T) {
 		require.Nil(t, err)
 
 		control, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "control"))
+			commitLogDirectory(rootPath, "control"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		condensed1, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "uncondensed1"))
+			commitLogDirectory(rootPath, "uncondensed1"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		condensed2, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "uncondensed2"))
+			commitLogDirectory(rootPath, "uncondensed2"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -551,6 +561,8 @@ func TestCondensorPhantom(t *testing.T) {
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
 
+	fs := common.NewOSFS()
+
 	t.Run("add node via replace links", func(t *testing.T) {
 		uncondensed1.ReplaceLinksAtLevel(0, 0, []uint64{1, 2, 3})
 		require.Nil(t, uncondensed1.Flush())
@@ -568,14 +580,14 @@ func TestCondensorPhantom(t *testing.T) {
 	})
 
 	t.Run("condense both logs and verify the contents against the control", func(t *testing.T) {
-		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed1"))
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed1"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed1", input))
 		require.Nil(t, err)
 
-		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"))
+		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -583,17 +595,17 @@ func TestCondensorPhantom(t *testing.T) {
 		require.Nil(t, err)
 
 		control, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "control"))
+			commitLogDirectory(rootPath, "control"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		condensed1, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "uncondensed1"))
+			commitLogDirectory(rootPath, "uncondensed1"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		condensed2, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "uncondensed2"))
+			commitLogDirectory(rootPath, "uncondensed2"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -620,6 +632,8 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
 
+	fs := common.NewOSFS()
+
 	t.Run("add data, but do not set an entrypoint", func(t *testing.T) {
 		uncondensed.AddNode(&vertex{id: 0, level: 3})
 
@@ -627,7 +641,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 	})
 
 	t.Run("condense the original and verify it doesn't overwrite the EP", func(t *testing.T) {
-		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"))
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -635,7 +649,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		require.Nil(t, err)
 
 		actual, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "uncondensed"))
+			commitLogDirectory(rootPath, "uncondensed"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -669,6 +683,8 @@ func TestCondensorWithPQInformation(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
+
+	fs := common.NewOSFS()
 
 	encoders := []compressionhelpers.PQEncoder{
 		compressionhelpers.NewKMeansEncoderWithCenters(
@@ -706,7 +722,7 @@ func TestCondensorWithPQInformation(t *testing.T) {
 	})
 
 	t.Run("condense the original and verify the PQ info is present", func(t *testing.T) {
-		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"))
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -714,7 +730,7 @@ func TestCondensorWithPQInformation(t *testing.T) {
 		require.Nil(t, err)
 
 		actual, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "uncondensed"))
+			commitLogDirectory(rootPath, "uncondensed"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -754,6 +770,8 @@ func TestCondensorWithMUVERAInformation(t *testing.T) {
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
 
+	fs := common.NewOSFS()
+
 	gaussians := [][][]float32{
 		{
 			{1, 2, 3, 4, 5}, // cluster 1
@@ -791,7 +809,7 @@ func TestCondensorWithMUVERAInformation(t *testing.T) {
 	})
 
 	t.Run("condense the original and verify the MUVERA info is present", func(t *testing.T) {
-		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"))
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -799,7 +817,7 @@ func TestCondensorWithMUVERAInformation(t *testing.T) {
 		require.Nil(t, err)
 
 		actual, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "uncondensed"))
+			commitLogDirectory(rootPath, "uncondensed"), fs)
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -906,7 +924,7 @@ func newMemoryCondensor(t *testing.T, rootPath string, fs common.FS) (*MemoryCon
 
 	require.Nil(t, cl.Flush())
 
-	clFilename, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "memory_condensor"))
+	clFilename, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "memory_condensor"), fs)
 	require.Nil(t, err)
 	require.True(t, ok)
 
