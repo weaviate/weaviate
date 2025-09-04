@@ -1365,7 +1365,6 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 	indexer := fakes.NewMockSchemaExecutor()
 	parser := fakes.NewMockParser()
 	logger, _ := logrustest.NewNullLogger()
-	mockNodeSelector := mocks.NewMockNodeSelector(nodeID)
 	ms := MockStore{
 		indexer: indexer,
 		parser:  parser,

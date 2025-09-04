@@ -194,9 +194,6 @@ func (s *State) Hostnames() []string {
 // Leave marks the node as leaving the cluster (still visible but shutting down)
 // This prevents replication factor errors while allowing clean shutdown
 func (s *State) Leave() error {
-	s.listLock.Lock()
-	defer s.listLock.Unlock()
-
 	if s.list == nil {
 		return fmt.Errorf("memberlist not initialized")
 	}
@@ -222,9 +219,6 @@ func (s *State) Leave() error {
 }
 
 func (s *State) Shutdown(timeout time.Duration) error {
-	s.listLock.Lock()
-	defer s.listLock.Unlock()
-
 	if s.list == nil {
 		return fmt.Errorf("memberlist not initialized")
 	}
@@ -387,8 +381,6 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 			"node_count": nodeCount,
 		}).Warn("detected single node split-brain, attempting to rejoin memberlist cluster")
 		// Only attempt rejoin if we're supposed to be part of a larger cluster
-		s.listLock.RLock()
-		defer s.listLock.RUnlock()
 		_, err := s.list.Join(joinAddr)
 		if err != nil {
 			s.delegate.log.WithFields(logrus.Fields{
