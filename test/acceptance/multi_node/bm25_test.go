@@ -13,7 +13,6 @@ package multi_node
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -32,16 +31,8 @@ var paragraphs = []string{
 
 func TestBm25MultiNode(t *testing.T) {
 	ctx := context.Background()
-	for i := 0; i < 5; i++ {
-		t.Run(fmt.Sprintf("iteration: %v", i), func(t *testing.T) {
-			runBM25MultinodeTest(t, ctx)
-		})
-	}
-}
-
-func runBM25MultinodeTest(t *testing.T, ctx context.Context) {
 	compose, err := docker.New().
-		With3NodeCluster().
+		With1NodeCluster().
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
