@@ -537,7 +537,6 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 				cfg := enthnsw.NewDefaultUserConfig()
 				cfg.RQ.Enabled = true
 				cfg.RQ.Bits = 1
-				cfg.BQ.Enabled = true
 				return cfg
 			},
 			expectSegments: (dimensionsPerVector / 8) * objectCount,
