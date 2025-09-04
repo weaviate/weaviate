@@ -94,6 +94,9 @@ type TestFS struct {
 	FS
 	OnOpenFile func(f File) File
 	OnOpen     func(f File) File
+	OnCreate   func(f File) File
+	OnRename   func(oldpath, newpath string) error
+	OnRemove   func(name string) error
 }
 
 func NewTestFS() *TestFS {
@@ -113,6 +116,17 @@ func (fs *TestFS) Open(name string) (File, error) {
 	return fs.OnOpen(f), nil
 }
 
+func (fs *TestFS) Create(name string) (File, error) {
+	f, err := os.Create(name)
+	if err != nil {
+		return nil, err
+	}
+	if fs.OnCreate == nil {
+		return f, nil
+	}
+	return fs.OnCreate(f), nil
+}
+
 func (fs *TestFS) OpenFile(name string, flag int, perm os.FileMode) (File, error) {
 	f, err := os.OpenFile(name, flag, perm)
 	if err != nil {
@@ -125,10 +139,6 @@ func (fs *TestFS) OpenFile(name string, flag int, perm os.FileMode) (File, error
 	return fs.OnOpenFile(f), nil
 }
 
-func (fs *TestFS) Create(name string) (File, error) {
-	return os.Create(name)
-}
-
 func (fs *TestFS) ReadDir(name string) ([]os.DirEntry, error) {
 	return os.ReadDir(name)
 }
@@ -138,6 +148,9 @@ func (fs *TestFS) Stat(name string) (os.FileInfo, error) {
 }
 
 func (fs *TestFS) Remove(name string) error {
+	if fs.OnRemove != nil {
+		return fs.OnRemove(name)
+	}
 	return os.Remove(name)
 }
 
@@ -146,6 +159,9 @@ func (fs *TestFS) RemoveAll(path string) error {
 }
 
 func (fs *TestFS) Rename(oldpath, newpath string) error {
+	if fs.OnRename != nil {
+		return fs.OnRename(oldpath, newpath)
+	}
 	return os.Rename(oldpath, newpath)
 }
 

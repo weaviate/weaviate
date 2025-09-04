@@ -12,12 +12,16 @@
 package hnsw
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"testing"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 func Test_CommitlogCombiner(t *testing.T) {
@@ -341,4 +345,175 @@ func createDummyFile(fileName string, content []byte, size int) error {
 	}
 
 	return nil
+}
+
+func TestCombinerCrashSafety(t *testing.T) {
+	createLogFiles := func(t *testing.T, rootPath, id string) {
+		commitLogFile := func(name string) string { return commitLogFileName(rootPath, id, name) }
+
+		require.NoError(t, os.MkdirAll(commitLogDirectory(rootPath, id), 0o777))
+		require.NoError(t, createDummyFile(commitLogFile("1001.condensed"), bytes.Repeat([]byte("file1\n"), 10), 800))
+		require.NoError(t, createDummyFile(commitLogFile("1002.condensed"), bytes.Repeat([]byte("file2\n"), 10), 700))
+		require.NoError(t, createDummyFile(commitLogFile("1003.condensed"), bytes.Repeat([]byte("file3\n"), 10), 600))
+		require.NoError(t, createDummyFile(commitLogFile("1004.condensed"), bytes.Repeat([]byte("file4\n"), 10), 500))
+		require.NoError(t, createDummyFile(commitLogFile("1005.condensed"), bytes.Repeat([]byte("file5\n"), 10), 400))
+		require.NoError(t, createDummyFile(commitLogFile("1006.condensed"), bytes.Repeat([]byte("file6\n"), 10), 300))
+		require.NoError(t, createDummyFile(commitLogFile("1007.condensed"), bytes.Repeat([]byte("file7\n"), 10), 200))
+		require.NoError(t, createDummyFile(commitLogFile("1008.condensed"), []byte("file8\n"), 100))
+		require.NoError(t, createDummyFile(commitLogFile("1009"), []byte("current\n"), 50))
+	}
+	assertFilesExist := func(t *testing.T, rootPath, id string, names ...string) {
+		dir, err := os.Open(commitLogDirectory(rootPath, id))
+		require.Nil(t, err)
+
+		fileNames, err := dir.Readdirnames(0)
+		require.NoError(t, err)
+		require.Len(t, fileNames, len(names))
+		require.ElementsMatch(t, names, fileNames)
+	}
+	assertFileContains := func(t *testing.T, commitLogFile string, expectedSize int, expectedContentByOffset map[int]string) {
+		contents, err := os.ReadFile(commitLogFile)
+		require.NoError(t, err)
+		require.Len(t, contents, expectedSize)
+		for off, cont := range expectedContentByOffset {
+			bcont := []byte(cont)
+			assert.Equal(t, contents[off:off+len(bcont)], bcont)
+		}
+	}
+	verifyFiles := func(t *testing.T, rootPath, id string) {
+		commitLogFile := func(name string) string { return commitLogFileName(rootPath, id, name) }
+		assertFilesExist(t, rootPath, id, "1002", "1004", "1006", "1008", "1009")
+
+		assertFileContains(t, commitLogFile("1002"), 1500, map[int]string{0: "file1\n", 800: "file2\n"})
+		assertFileContains(t, commitLogFile("1004"), 1100, map[int]string{0: "file3\n", 600: "file4\n"})
+		assertFileContains(t, commitLogFile("1006"), 700, map[int]string{0: "file5\n", 400: "file6\n"})
+		assertFileContains(t, commitLogFile("1008"), 300, map[int]string{0: "file7\n", 200: "file8\n"})
+		assertFileContains(t, commitLogFile("1009"), 50, map[int]string{0: "current\n", 42: "rrent\ncu"})
+
+		files := readDir(t, commitLogDirectory(rootPath, id))
+		require.Len(t, files, 5)
+	}
+
+	t.Run("recovers partially condensed files", func(t *testing.T) {
+		// there are about 8 writes happening in the combiner.
+		// change this value if the number of writes change
+		for i := range 8 {
+			t.Run(fmt.Sprintf("fails on write number %d", i+1), func(t *testing.T) {
+				// create a new combiner with a failing file system:
+				rootPath := t.TempDir()
+				id := "combiner_test_crash_safety"
+				createLogFiles(t, rootPath, id)
+
+				var counter int
+				fs := common.NewTestFS()
+				fs.OnCreate = func(f common.File) common.File {
+					return &common.TestFile{
+						File: f,
+						OnWrite: func(b []byte) (n int, err error) {
+							counter++
+							if counter == i+1 {
+								return 0, errors.Errorf("fake temp error: %d writes", counter)
+							}
+							return f.Write(b)
+						},
+					}
+				}
+
+				// combine once, should fail
+				cb := NewCommitLogCombiner(rootPath, id, 10_000, logger)
+				cb.fs = fs
+				_, err := cb.Do("1004", "1008")
+				require.Error(t, err)
+
+				// combine again, should work file
+				_, err = cb.Do("1004", "1008")
+				require.NoError(t, err)
+
+				verifyFiles(t, rootPath, id)
+			})
+		}
+	})
+
+	t.Run("fails to rename files", func(t *testing.T) {
+		// create a new combiner with a failing file system:
+		rootPath := t.TempDir()
+		id := "combiner_test_crash_safety"
+		createLogFiles(t, rootPath, id)
+
+		var counter int
+		fs := common.NewTestFS()
+		fs.OnRename = func(oldpath, newpath string) error {
+			counter++
+			if counter == 1 {
+				return errors.Errorf("fake temp error: cannot rename")
+			}
+			return os.Rename(oldpath, newpath)
+		}
+
+		// combine once, should fail
+		cb := NewCommitLogCombiner(rootPath, id, 10_000, logger)
+		cb.fs = fs
+		_, err := cb.Do("1004", "1008")
+		require.Error(t, err)
+
+		// combine again, should work
+		_, err = cb.Do("1004", "1008")
+		require.NoError(t, err)
+
+		verifyFiles(t, rootPath, id)
+	})
+
+	t.Run("fails to remove files", func(t *testing.T) {
+		// create a new combiner with a failing file system:
+		rootPath := t.TempDir()
+		id := "combiner_test_crash_safety"
+		createLogFiles(t, rootPath, id)
+
+		var counter int
+		fs := common.NewTestFS()
+		fs.OnRemove = func(name string) error {
+			counter++
+			if counter == 1 {
+				return errors.Errorf("fake temp error: cannot remove")
+			}
+			return os.Remove(name)
+		}
+
+		// combine once, should fail
+		cb := NewCommitLogCombiner(rootPath, id, 10_000, logger)
+		cb.fs = fs
+		_, err := cb.Do("1004", "1008")
+		require.Error(t, err)
+
+		// combine again, should work
+		_, err = cb.Do("1004", "1008")
+		require.NoError(t, err)
+
+		verifyFiles(t, rootPath, id)
+	})
+
+	t.Run("ensure it's calling fsync", func(t *testing.T) {
+		// create a new combiner with a failing file system:
+		rootPath := t.TempDir()
+		id := "combiner_test_crash_safety"
+		createLogFiles(t, rootPath, id)
+
+		var fsyncCalled bool
+		fs := common.NewTestFS()
+		fs.OnCreate = func(f common.File) common.File {
+			return &common.TestFile{
+				File: f,
+				OnSync: func() error {
+					fsyncCalled = true
+					return f.Sync()
+				},
+			}
+		}
+
+		cb := NewCommitLogCombiner(rootPath, id, 10_000, logger)
+		cb.fs = fs
+		_, err := cb.Do("1004", "1008")
+		require.NoError(t, err)
+		require.True(t, fsyncCalled, "fsync was not called")
+	})
 }
