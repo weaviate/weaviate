@@ -28,6 +28,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
@@ -518,7 +519,7 @@ func (st *Store) Close(ctx context.Context) error {
 
 	// transfer leadership: it stops accepting client requests, ensures
 	// the target server is up to date and initiates the transfer
-	if st.IsLeader() {
+	if st.IsLeader() && len(st.raft.GetConfiguration().Configuration().Servers) > 1 {
 		st.log.Info("transferring leadership to another server")
 		if err := st.raft.LeadershipTransfer().Error(); err != nil {
 			st.log.WithError(err).Error("transferring leadership")
