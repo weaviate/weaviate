@@ -1108,11 +1108,11 @@ func init() {
     },
     "/backups/{backend}": {
       "get": {
-        "description": "[Coming soon] List all backups in progress not implemented yet.",
+        "description": "List all created backups IDs, Status",
         "tags": [
           "backups"
         ],
-        "summary": "List backups in progress",
+        "summary": "List all created backups",
         "operationId": "backups.list",
         "parameters": [
           {
@@ -8417,11 +8417,11 @@ func init() {
     },
     "/backups/{backend}": {
       "get": {
-        "description": "[Coming soon] List all backups in progress not implemented yet.",
+        "description": "List all created backups IDs, Status",
         "tags": [
           "backups"
         ],
-        "summary": "List backups in progress",
+        "summary": "List all created backups",
         "operationId": "backups.list",
         "parameters": [
           {
