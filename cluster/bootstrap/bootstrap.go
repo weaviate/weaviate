@@ -88,12 +88,7 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 				return nil
 			}
 
-			remoteNodes := ResolveRemoteNodes(b.addrResolver, serverPortMap)
-			// We were not able to resolve any nodes to an address
-			if len(remoteNodes) == 0 {
-				lg.WithField("action", "bootstrap").WithField("join_list", serverPortMap).Warn("unable to resolve any node address to join")
-				continue
-			}
+			remoteNodes := make(map[string]string)
 
 			// Always try to join an existing cluster first
 			joiner := NewJoiner(b.peerJoiner, b.localNodeID, b.localRaftAddr, b.voter)
