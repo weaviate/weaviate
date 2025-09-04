@@ -650,7 +650,9 @@ func RestoreHNSWSQMultiCompressor(
 		loadId:          binary.BigEndian.Uint64,
 		logger:          logger,
 	}
-	sqVectorsCompressor.initCompressedStore()
+	if err := sqVectorsCompressor.initCompressedStore(); err != nil {
+		return nil, err
+	}
 	sqVectorsCompressor.cache = cache.NewShardedMultiByteLockCache(
 		sqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger,
 		0, allocChecker)
@@ -677,7 +679,9 @@ func NewRQCompressor(
 			loadId:          binary.BigEndian.Uint64,
 			logger:          logger,
 		}
-		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore()
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore(); err != nil {
+			return nil, err
+		}
 		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedUInt64LockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
@@ -690,7 +694,9 @@ func NewRQCompressor(
 			loadId:          binary.BigEndian.Uint64,
 			logger:          logger,
 		}
-		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore()
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
+			return nil, err
+		}
 		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedByteLockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
@@ -729,7 +735,9 @@ func RestoreRQCompressor(
 			loadId:          binary.BigEndian.Uint64,
 			logger:          logger,
 		}
-		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore()
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore(); err != nil {
+			return nil, err
+		}
 		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedUInt64LockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
@@ -745,7 +753,9 @@ func RestoreRQCompressor(
 			loadId:          binary.BigEndian.Uint64,
 			logger:          logger,
 		}
-		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore()
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
+			return nil, err
+		}
 		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedByteLockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
@@ -776,7 +786,9 @@ func NewRQMultiCompressor(
 			loadId:          binary.BigEndian.Uint64,
 			logger:          logger,
 		}
-		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore()
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore(); err != nil {
+			return nil, err
+		}
 		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedMultiUInt64LockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
@@ -789,7 +801,9 @@ func NewRQMultiCompressor(
 			loadId:          binary.BigEndian.Uint64,
 			logger:          logger,
 		}
-		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore()
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
+			return nil, err
+		}
 		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedMultiByteLockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
@@ -828,7 +842,9 @@ func RestoreRQMultiCompressor(
 			loadId:          binary.BigEndian.Uint64,
 			logger:          logger,
 		}
-		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore()
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore(); err != nil {
+			return nil, err
+		}
 		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedMultiUInt64LockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
@@ -844,7 +860,9 @@ func RestoreRQMultiCompressor(
 			loadId:          binary.BigEndian.Uint64,
 			logger:          logger,
 		}
-		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore()
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
+			return nil, err
+		}
 		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedMultiByteLockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
