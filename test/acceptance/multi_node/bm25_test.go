@@ -32,7 +32,7 @@ var paragraphs = []string{
 func TestBm25MultiNode(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
-		With1NodeCluster().
+		With3NodeCluster().
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
