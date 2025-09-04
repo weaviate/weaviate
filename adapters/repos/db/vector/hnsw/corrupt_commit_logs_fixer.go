@@ -41,7 +41,7 @@ func (fixer *CorruptCommitLogFixer) Do(fileNames []string) ([]string, error) {
 
 	i := 0
 	for _, fileName := range fileNames {
-		if !strings.HasSuffix(fileName, ".condensed") {
+		if !(strings.HasSuffix(fileName, ".condensed") || strings.HasSuffix(fileName, ".condensed.tmp")) {
 			// Has no suffix, check that there is no condensed file properly produced
 			// before adding. If there would be a condensed file, it means a crash
 			// prevented the last step, removing the uncondensed file.
