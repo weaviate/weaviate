@@ -58,6 +58,7 @@ import (
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modmistral "github.com/weaviate/weaviate/modules/text2vec-mistral"
 	modmodel2vec "github.com/weaviate/weaviate/modules/text2vec-model2vec"
+	modmorph "github.com/weaviate/weaviate/modules/text2vec-morph"
 	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -314,6 +315,12 @@ func (d *Compose) WithText2VecOpenAI(openAIApiKey, openAIOrganization, azureApiK
 	d.weaviateEnvs["OPENAI_ORGANIZATION"] = openAIOrganization
 	d.weaviateEnvs["AZURE_APIKEY"] = azureApiKey
 	d.enableModules = append(d.enableModules, modopenai.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecMorph(apiKey string) *Compose {
+	d.weaviateEnvs["MORPH_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmorph.Name)
 	return d
 }
 
