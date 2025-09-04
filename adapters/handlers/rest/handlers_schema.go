@@ -84,7 +84,6 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	class, _, err := s.manager.GetConsistentClass(ctx, principal, params.ClassName, *params.Consistency)
 	if err != nil {
