@@ -17,7 +17,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
@@ -113,7 +112,6 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 	}
 	cfg.Delegate = &state.delegate
 	cfg.Events = events{&state.delegate}
-	cfg.DeadNodeReclaimTime = 30 * time.Second
 
 	if userConfig.GossipBindPort != 0 {
 		cfg.BindPort = userConfig.GossipBindPort
