@@ -312,26 +312,72 @@ function run_acceptance_tests() {
 function run_acceptance_only_fast() {
   # needed for test/docker package during replication tests
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
-  # to make sure all tests are run and the script fails if one of them fails
-  # but after all tests ran
-  testFailed=0
-  # for now we need to run the tests sequentially, there seems to be some sort of issues with running them in parallel
-    for pkg in $(go list ./... | grep 'test/acceptance' | grep -v 'test/acceptance/stress_tests' | grep -v 'test/acceptance/replication' | grep -v 'test/acceptance/graphql_resolvers' | grep -v 'test/acceptance_lsmkv' | grep -v 'test/acceptance/authz'); do
-      if ! go test -count 1 -timeout=20m -race "$pkg"; then
-        echo "Test for $pkg failed" >&2
-        testFailed=1
-      fi
+
+  # Optional sharding: set ACCEPTANCE_FAST_GROUP=1..4 to run just one group.
+  local GROUP="${ACCEPTANCE_FAST_GROUP:-}"
+
+  # Balanced 4-way split (based on measured runtimes). We would like to group jobs in such a way that each group runs more or less for the same time to avoid tail latency.
+  local -a AOF_GROUP1=(test/acceptance/multi_node test/acceptance/actions)
+  local -a AOF_GROUP2=(test/acceptance/schema test/acceptance/cluster_api_auth test/acceptance/batch_request_endpoints test/acceptance/stress_tests)
+  local -a AOF_GROUP3=(test/acceptance/authn test/acceptance/aliases test/acceptance/maintenance_mode test/acceptance/grpc test/acceptance/vector_distances)
+  local -a AOF_GROUP4=(test/acceptance/recovery test/acceptance/snapshots test/acceptance/objects test/acceptance/nodes test/acceptance/multi_tenancy test/acceptance/classifications test/acceptance/telemetry)
+
+  run_group() {
+    local -a globs=("$@")
+    local testFailed=0
+    for g in "${globs[@]}"; do
+      for pkg in $(go list "./$g" 2>/dev/null | grep -v '\[no test files\]' || true); do
+        echo_green "Running $pkg"
+        if [[ "$pkg" == *"/stress_tests" ]]; then
+          # keep original behavior for stress_tests (no -race / no 20m timeout)
+          if ! go test -count 1 "$pkg"; then
+            echo "Test for $pkg failed" >&2
+            testFailed=1
+          fi
+        else
+          if ! go test -count 1 -timeout=20m -race "$pkg"; then
+            echo "Test for $pkg failed" >&2
+            testFailed=1
+          fi
+        fi
+      done
     done
-    if [ "$testFailed" -eq 1 ]; then
+    return $testFailed
+  }
+
+  if [[ -n "$GROUP" ]]; then
+    echo_green "acceptance-only-fast — running group $GROUP/4"
+    case "$GROUP" in
+      1) echo "Packages: ${AOF_GROUP1[*]}"; run_group "${AOF_GROUP1[@]}" || return 1 ;;
+      2) echo "Packages: ${AOF_GROUP2[*]}"; run_group "${AOF_GROUP2[@]}" || return 1 ;;
+      3) echo "Packages: ${AOF_GROUP3[*]}"; run_group "${AOF_GROUP3[@]}" || return 1 ;;
+      4) echo "Packages: ${AOF_GROUP4[*]}"; run_group "${AOF_GROUP4[@]}" || return 1 ;;
+      *) echo_red "Invalid ACCEPTANCE_FAST_GROUP=$GROUP (must be 1..4)"; return 1 ;;
+    esac
+    return 0
+  fi
+
+
+  # ===== Original behavior (no grouping) =====
+  echo "running acceptance fast only"
+  local testFailed=0
+  for pkg in $(go list ./... | grep 'test/acceptance' | grep -v 'test/acceptance/stress_tests' | grep -v 'test/acceptance/replication' | grep -v 'test/acceptance/graphql_resolvers' | grep -v 'test/acceptance_lsmkv' | grep -v 'test/acceptance/authz'); do
+    if ! go test -count 1 -timeout=20m -race "$pkg"; then
+      echo "Test for $pkg failed" >&2
+      testFailed=1
+    fi
+  done
+  if [ "$testFailed" -eq 1 ]; then
+    return 1
+  fi
+  for pkg in $(go list ./... | grep 'test/acceptance/stress_tests'); do
+    if ! go test -count 1 "$pkg"; then
+      echo "Test for $pkg failed" >&2
       return 1
     fi
-    for pkg in $(go list ./... | grep 'test/acceptance/stress_tests' ); do
-      if ! go test -count 1 "$pkg"; then
-        echo "Test for $pkg failed" >&2
-        return 1
-      fi
-    done
+  done
 }
+
 
 function run_acceptance_go_client_only_fast() {
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
