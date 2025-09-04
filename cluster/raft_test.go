@@ -171,7 +171,7 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Equal(t, "N0", getShardOwner)
 
 	// QueryShardingState
-	shardingState := &sharding.State{Physical: map[string]sharding.Physical{"T0": {BelongsToNodes: []string{"N0"}}}, ReplicationFactor: 2}
+	shardingState := &sharding.State{Physical: map[string]sharding.Physical{"T0": {BelongsToNodes: []string{"N0"}}}, Virtual: make([]sharding.Virtual, 0), ReplicationFactor: 2}
 	srv.UpdateClass(ctx, cls, shardingState)
 	getShardingState, _, err := srv.QueryShardingState(cls.Class)
 	assert.Nil(t, err)
