@@ -496,7 +496,7 @@ func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (in
 	return dimensionality.Count * dimensionality.Dimensions, err
 }
 
-func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
+func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error) {
 	l.mustLoad()
 	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
 }
