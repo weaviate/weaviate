@@ -28,6 +28,7 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/fsm"
+	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
@@ -58,6 +59,8 @@ type State struct {
 	AuthzController  authorization.Controller
 	AuthzSnapshotter fsm.Snapshotter
 	RBAC             *rbac.Manager
+
+	ReplicaCopier *copier.Copier
 
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration

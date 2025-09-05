@@ -32,6 +32,34 @@ import (
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
 
+	http.HandleFunc("/debug/copy", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		node := r.URL.Query().Get("node")
+		if node == "" {
+			http.Error(w, "node is required", http.StatusBadRequest)
+			return
+		}
+
+		collection := r.URL.Query().Get("collection")
+		if collection == "" {
+			http.Error(w, "collection is required", http.StatusBadRequest)
+			return
+		}
+
+		shard := r.URL.Query().Get("shard")
+		if shard == "" {
+			http.Error(w, "shard is required", http.StatusBadRequest)
+			return
+		}
+
+		err := appState.ReplicaCopier.CopyReplicaFiles(r.Context(), node, collection, shard, 0)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to copy replica files: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}))
+
 	http.HandleFunc("/debug/index/rebuild/inverted", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")
 		if colName == "" {
