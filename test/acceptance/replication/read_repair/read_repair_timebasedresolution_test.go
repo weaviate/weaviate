@@ -52,12 +52,14 @@ func (suite *ReplicationTestSuite) TestReadRepairTimebasedResolution() {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:           3,
 			DeletionStrategy: models.ReplicationConfigDeletionStrategyTimeBasedResolution,
+			AsyncEnabled:     boolP(false),
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:           3,
 			DeletionStrategy: models.ReplicationConfigDeletionStrategyTimeBasedResolution,
+			AsyncEnabled:     boolP(false),
 		}
 		helper.CreateClass(t, articleClass)
 	})
@@ -222,4 +224,8 @@ func (suite *ReplicationTestSuite) TestReadRepairTimebasedResolution() {
 		require.Nil(t, err)
 		require.True(t, exists)
 	})
+}
+
+func boolP(b bool) *bool {
+	return &b
 }
