@@ -808,8 +808,8 @@ func (h *Handler) validateVectorizer(vectorizer string) error {
 }
 
 func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
-	if os.Getenv("SPFRESH_ENABLED") == "true" && vectorIndexType == vectorindex.VectorIndexTypeSPFRESH {
-		return errors.New("spfresh is not enabled via SPFRESH_ENABLED=true")
+	if os.Getenv("EXPERIMENT_SPFRESH") == "true" && vectorIndexType == vectorindex.VectorIndexTypeSPFRESH {
+		return errors.New("spfresh is not enabled via EXPERIMENT_SPFRESH=true")
 	}
 	// TODO async indexing allowed for spfresh?
 	switch vectorIndexType {

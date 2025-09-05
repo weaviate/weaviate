@@ -210,8 +210,8 @@ func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 	vectorIndexConfig interface{}, isMultiVector bool,
 ) (schemaConfig.VectorIndexConfig, error) {
-	if os.Getenv("SPFRESH_ENABLED") == "true" && vectorIndexType == vectorindex.VectorIndexTypeSPFRESH {
-		return nil, errors.New("spfresh is not enabled via SPFRESH_ENABLED=true")
+	if os.Getenv("EXPERIMENT_SPFRESH") == "true" && vectorIndexType == vectorindex.VectorIndexTypeSPFRESH {
+		return nil, errors.New("spfresh is not enabled via EXPERIMENT_SPFRESH=true")
 	}
 	if vectorIndexType != vectorindex.VectorIndexTypeHNSW &&
 		vectorIndexType != vectorindex.VectorIndexTypeFLAT &&

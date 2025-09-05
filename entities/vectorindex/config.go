@@ -38,8 +38,8 @@ func ParseAndValidateConfig(input interface{}, vectorIndexType string, isMultiVe
 		vectorIndexType = DefaultVectorIndexType
 	}
 
-	if os.Getenv("SPFRESH_ENABLED") == "true" && vectorIndexType == VectorIndexTypeSPFRESH {
-		return nil, errors.New("spfresh is not enabled via SPFRESH_ENABLED=true")
+	if os.Getenv("EXPERIMENT_SPFRESH") == "true" && vectorIndexType == VectorIndexTypeSPFRESH {
+		return nil, errors.New("spfresh is not enabled via EXPERIMENT_SPFRESH=true")
 	}
 
 	switch vectorIndexType {
