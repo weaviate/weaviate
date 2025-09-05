@@ -53,33 +53,27 @@ func (c DimensionCategory) String() string {
 
 // DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
 func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (types.Dimensionality, error) {
-	dimensionality := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
-		return len(v), dimLength
-	})
+	dimensionality := s.calcTargetVectorDimensions(ctx, targetVector)
 	return dimensionality, nil
 }
 
 // Dimensions returns the total number of dimensions for a given vector
 func (s *Shard) Dimensions(ctx context.Context, targetVector string) (int, error) {
-	dimensionality := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
-		return dimLength * len(v), dimLength
-	})
-	return dimensionality.Count, nil
+	dimensionality := s.calcTargetVectorDimensions(ctx, targetVector)
+	return dimensionality.Count * dimensionality.Dimensions, nil
 }
 
 func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
-	dimensionality := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
-		return len(v), dimLength
-	})
+	dimensionality := s.calcTargetVectorDimensions(ctx, targetVector)
 	return dimensionality.Count * correctEmptySegments(segments, dimensionality.Dimensions)
 }
 
-func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) types.Dimensionality {
+func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string) types.Dimensionality {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
 		return usagetypes.Dimensionality{}
 	}
-	return calcTargetVectorDimensionsFromBucket(ctx, b, targetVector, calcEntry)
+	return calcTargetVectorDimensionsFromBucket(ctx, b, targetVector)
 }
 
 // DimensionMetrics represents the dimension tracking metrics for a vector.
@@ -167,7 +161,7 @@ func correctEmptySegments(segments int, dimensions int) int {
 }
 
 // calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
-func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) usagetypes.Dimensionality {
+func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string) usagetypes.Dimensionality {
 	var (
 		nameLen        = len(targetVector)
 		expectedKeyLen = nameLen + 4 // vector name + uint32
@@ -192,11 +186,10 @@ func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, 
 		}
 
 		dimLength := int(binary.LittleEndian.Uint32(k[nameLen:]))
-		size, dim := calcEntry(dimLength, v)
-		if dimensionality.Dimensions == 0 && dim > 0 {
-			dimensionality.Dimensions = dim
+		if dimLength > 0 && (dimensionality.Dimensions == 0 || dimensionality.Count == 0) {
+			dimensionality.Dimensions = dimLength
+			dimensionality.Count = len(v)
 		}
-		dimensionality.Count += size
 	}
 
 	return dimensionality

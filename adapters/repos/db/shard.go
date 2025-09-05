@@ -447,9 +447,7 @@ func (s *Shard) VectorStorageSize(ctx context.Context) (int64, error) {
 	// Iterate over all vector indexes to calculate storage size for both default and targeted vectors
 	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// Get dimensions and object count from the dimensions bucket for this specific target vector
-		dimensionality := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
-			return len(v), dimLen
-		})
+		dimensionality := s.calcTargetVectorDimensions(ctx, targetVector)
 
 		if dimensionality.Count == 0 || dimensionality.Dimensions == 0 {
 			return nil

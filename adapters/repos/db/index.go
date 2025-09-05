@@ -3219,10 +3219,7 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName
 	}
 	defer bucket.Shutdown(ctx)
 
-	dimensionality := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
-		return len(v), dimLen
-	})
-
+	dimensionality := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
 	return dimensionality, nil
 }
 
@@ -3254,9 +3251,7 @@ func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName 
 			return 0, err
 		}
 
-		dimensionality := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
-			return len(v), dimLen
-		})
+		dimensionality := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
 		bucket.Shutdown(ctx)
 
 		if dimensionality.Count == 0 || dimensionality.Dimensions == 0 {
