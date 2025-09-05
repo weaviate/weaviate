@@ -14,6 +14,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -162,6 +163,11 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		return err
 	}
 	c.log.WithField("hasState", hasState).Info("raft init")
+
+	// This to avoid all nodes starting up at the same time
+	// mostly for testing
+	jitterDelay := time.Duration(rand.Intn(1000)) * time.Millisecond
+	time.Sleep(jitterDelay)
 
 	// If we have a state in raft, we only want to re-join the nodes in raft_join list to ensure that we update the
 	// configuration with our current ip.
