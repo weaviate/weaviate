@@ -19,11 +19,11 @@ import (
 
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 )
 
 var errAny = errors.New("any error")
@@ -82,7 +82,7 @@ func TestBootstrapper(t *testing.T) {
 				// This test performs a join request to the leader, but the leader is not
 				// available. The bootstrapper should retry the join request until it is
 				// successful.
-				errLeaderElected := status.Error(codes.NotFound, "follow the leader")
+				errLeaderElected := status.Error(codes.ResourceExhausted, "follow the leader")
 				count := 0
 				m.On("Join", anything, anything, anything).
 					Run(func(args mock.Arguments) {
@@ -124,7 +124,7 @@ func TestBootstrapper(t *testing.T) {
 			logger, _ := logrustest.NewNullLogger()
 
 			// Do the bootstrap
-			err := b.Do(ctx, test.nodes, logger, make(chan struct{}))
+			err := b.Do(ctx, test.nodes, logger, make(chan struct{}), false)
 			cancel()
 
 			// Check all assertions
