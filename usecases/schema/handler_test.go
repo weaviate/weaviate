@@ -491,3 +491,71 @@ func TestShardsStatus_WithAlias(t *testing.T) {
 		fakeSchemaManager.AssertExpectations(t)
 	})
 }
+
+func TestGetAliases_WithNonExistentClass(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("get aliases with non-existent class filter returns empty list", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		// Mock ReadOnlyClass to return nil (class doesn't exist)
+		fakeSchemaManagerWithReader := &fakeSchemaManagerWithReader{
+			fakeSchemaManager: fakeSchemaManager,
+			classExists:       false,
+		}
+		handler.schemaReader = fakeSchemaManagerWithReader
+
+		// Call GetAliases with a class filter that doesn't exist
+		aliases, err := handler.GetAliases(ctx, nil, "", "NonExistentClass")
+
+		require.NoError(t, err)
+		assert.Empty(t, aliases, "Should return empty list when class filter doesn't exist")
+
+		// Ensure GetAliases on schemaManager is not called since we return early
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("get aliases with existing class filter calls schemaManager", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		expectedClass := &models.Class{
+			Class: "ExistingClass",
+		}
+		expectedAliases := []*models.Alias{
+			{Alias: "TestAlias", Class: "ExistingClass"},
+		}
+
+		// Mock ReadOnlyClass to return a class (class exists)
+		fakeSchemaManagerWithReader := &fakeSchemaManagerWithReader{
+			fakeSchemaManager: fakeSchemaManager,
+			classExists:       true,
+			existingClass:     expectedClass,
+		}
+		handler.schemaReader = fakeSchemaManagerWithReader
+
+		// Mock GetAliases to return aliases
+		fakeSchemaManager.On("GetAliases", ctx, "", expectedClass).Return(expectedAliases, nil)
+
+		// Call GetAliases with a class filter that exists
+		aliases, err := handler.GetAliases(ctx, nil, "", "ExistingClass")
+
+		require.NoError(t, err)
+		assert.Equal(t, expectedAliases, aliases)
+		fakeSchemaManager.AssertExpectations(t)
+	})
+}
+
+// Helper struct to mock ReadOnlyClass behavior
+type fakeSchemaManagerWithReader struct {
+	*fakeSchemaManager
+	classExists   bool
+	existingClass *models.Class
+}
+
+func (f *fakeSchemaManagerWithReader) ReadOnlyClass(name string) *models.Class {
+	if f.classExists {
+		return f.existingClass
+	}
+	return nil
+}
