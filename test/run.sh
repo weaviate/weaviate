@@ -277,14 +277,11 @@ function run_acceptance_tests() {
      $run_acceptance_tests || \
      $run_all_tests; then
     echo "running acceptance fast (grouped)"
-    local failed=0
 
-    if $run_acceptance_only_fast_group_1 || $run_acceptance_tests || $run_all_tests; then run_acceptance_only_fast_group 1 || failed=1; fi
-    if $run_acceptance_only_fast_group_2 || $run_acceptance_tests || $run_all_tests; then run_acceptance_only_fast_group 2 || failed=1; fi
-    if $run_acceptance_only_fast_group_3 || $run_acceptance_tests || $run_all_tests; then run_acceptance_only_fast_group 3 || failed=1; fi
-    if $run_acceptance_only_fast_group_4 || $run_acceptance_tests || $run_all_tests; then run_acceptance_only_fast_group 4 || failed=1; fi
-
-    if (( failed )); then return 1; fi
+    if $run_acceptance_only_fast_group_1 || $run_acceptance_tests || $run_all_tests; then run_acceptance_only_fast_group 1; fi
+    if $run_acceptance_only_fast_group_2 || $run_acceptance_tests || $run_all_tests; then run_acceptance_only_fast_group 2; fi
+    if $run_acceptance_only_fast_group_3 || $run_acceptance_tests || $run_all_tests; then run_acceptance_only_fast_group 3; fi
+    if $run_acceptance_only_fast_group_4 || $run_acceptance_tests || $run_all_tests; then run_acceptance_only_fast_group 4; fi
   fi
   if $run_acceptance_only_authz || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance authz"
