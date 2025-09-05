@@ -129,17 +129,13 @@ func newProcessRequest(objs []*pb.BatchObject, refs []*pb.BatchReference, stream
 		req.Objects = &SendObjects{
 			Values:           objs,
 			ConsistencyLevel: wq.consistencyLevel,
-			Index:            wq.objIndex,
 		}
-		wq.objIndex += int32(len(objs))
 	}
 	if len(refs) > 0 {
 		req.References = &SendReferences{
 			Values:           refs,
 			ConsistencyLevel: wq.consistencyLevel,
-			Index:            wq.refIndex,
 		}
-		wq.refIndex += int32(len(refs))
 	}
 	return req
 }

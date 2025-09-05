@@ -87,8 +87,7 @@ func (w *Worker) sendObjects(ctx context.Context, wg *sync.WaitGroup, streamId s
 			}
 			errs = append(errs, &pb.BatchStreamMessage_Error{
 				Error:       err.Error,
-				IsObject:    true,
-				Index:       req.Index + int32(err.Index),
+				Detail:      &pb.BatchStreamMessage_Error_Object{Object: req.Values[err.Index]},
 				IsRetriable: w.isReplicationError(err.Error),
 			})
 		}
@@ -120,8 +119,7 @@ func (w *Worker) sendReferences(ctx context.Context, wg *sync.WaitGroup, streamI
 			}
 			errs = append(errs, &pb.BatchStreamMessage_Error{
 				Error:       err.Error,
-				IsReference: true,
-				Index:       req.Index + int32(err.Index),
+				Detail:      &pb.BatchStreamMessage_Error_Reference{Reference: req.Values[err.Index]},
 				IsRetriable: w.isReplicationError(err.Error),
 			})
 		}

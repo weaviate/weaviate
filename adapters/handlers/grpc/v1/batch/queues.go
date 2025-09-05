@@ -135,24 +135,25 @@ func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) 
 		return nil, fmt.Errorf("grpc shutdown in progress, no more requests are permitted on this node")
 	}
 	streamId := request.GetStreamId()
-	queue, ok := h.writeQueues.GetQueue(streamId)
-	if !ok {
-		h.logger.WithField("streamId", streamId).Error("write queue not found")
-		return nil, fmt.Errorf("write queue for stream %s not found", streamId)
-	}
+	objs := make([]*writeObject, 0, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues())+1)
 	if request.GetObjects() != nil {
 		for _, obj := range request.GetObjects().GetValues() {
-			queue <- &writeObject{Object: obj}
+			objs = append(objs, &writeObject{Object: obj})
 		}
 	} else if request.GetReferences() != nil {
 		for _, ref := range request.GetReferences().GetValues() {
-			queue <- &writeObject{Reference: ref}
+			objs = append(objs, &writeObject{Reference: ref})
 		}
 	} else if request.GetStop() != nil {
-		queue <- &writeObject{Stop: true}
+		objs = append(objs, &writeObject{Stop: true})
 	} else {
 		return nil, fmt.Errorf("invalid batch send request: neither objects, references nor stop signal provided")
 	}
+	if !h.writeQueues.Exists(streamId) {
+		h.logger.WithField("streamId", streamId).Error("write queue not found")
+		return nil, fmt.Errorf("write queue for stream %s not found", streamId)
+	}
+	h.writeQueues.Write(streamId, objs)
 	batchSize, backoff := h.writeQueues.NextBatch(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues()))
 	return &pb.BatchSendReply{
 		NextBatchSize:  batchSize,
@@ -163,7 +164,7 @@ func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) 
 // Setup initializes a read queue for the given stream ID and adds it to the read queues map.
 func (h *QueuesHandler) Setup(streamId string, req *pb.BatchStreamRequest) {
 	h.readQueues.Make(streamId)
-	h.writeQueues.Make(streamId, req.ConsistencyLevel, req.GetObjectIndex(), req.GetReferenceIndex())
+	h.writeQueues.Make(streamId, req.ConsistencyLevel)
 }
 
 // Teardown closes the read queue for the given stream ID and removes it from the read queues map.
@@ -332,10 +333,6 @@ type WriteQueue struct {
 	queue            writeQueue
 	consistencyLevel *pb.ConsistencyLevel
 
-	// Indexes for the next object and reference to be sent
-	objIndex int32
-	refIndex int32
-
 	lock        sync.RWMutex // Used when concurrently re-calculating NextBatchSize in Send method
 	emaQueueLen float32      // Exponential moving average of the queue length
 	buffer      int          // Buffer size for the write queue
@@ -420,6 +417,25 @@ func (w *WriteQueues) GetQueue(streamId string) (writeQueue, bool) {
 	return queue.queue, true
 }
 
+func (w *WriteQueues) Exists(streamId string) bool {
+	w.lock.RLock()
+	defer w.lock.RUnlock()
+	_, ok := w.queues[streamId]
+	return ok
+}
+
+func (w *WriteQueues) Write(streamId string, objs []*writeObject) {
+	w.lock.RLock()
+	defer w.lock.RUnlock()
+	queue, ok := w.queues[streamId]
+	if !ok {
+		return
+	}
+	for _, obj := range objs {
+		queue.queue <- obj
+	}
+}
+
 func (w *WriteQueues) Delete(streamId string) {
 	w.lock.Lock()
 	defer w.lock.Unlock()
@@ -441,7 +457,7 @@ func (w *WriteQueues) Close() {
 	}
 }
 
-func (w *WriteQueues) Make(streamId string, consistencyLevel *pb.ConsistencyLevel, objIndex, refIndex int32) {
+func (w *WriteQueues) Make(streamId string, consistencyLevel *pb.ConsistencyLevel) {
 	w.lock.Lock()
 	defer w.lock.Unlock()
 	buffer := 10000 // Default buffer size

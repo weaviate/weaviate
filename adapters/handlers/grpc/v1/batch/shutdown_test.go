@@ -37,7 +37,7 @@ func TestShutdownLogic(t *testing.T) {
 	readQueues := batch.NewBatchReadQueues()
 	readQueues.Make(StreamId)
 	writeQueues := batch.NewBatchWriteQueues()
-	writeQueues.Make(StreamId, nil, 0, 0)
+	writeQueues.Make(StreamId, nil)
 	wq, ok := writeQueues.GetQueue(StreamId)
 	require.Equal(t, true, ok, "write queue should exist")
 	internalQueue := batch.NewBatchInternalQueue()
@@ -74,7 +74,7 @@ func TestShutdownLogic(t *testing.T) {
 		return msg.StreamId == StreamId &&
 			msg.GetError().Error == replica.ErrReplicas.Error() &&
 			msg.GetError().IsRetriable &&
-			msg.GetError().IsObject
+			msg.GetError().GetObject() != nil
 	})).Return(nil).Times(500)
 	stream.EXPECT().Send(&pb.BatchStreamMessage{
 		StreamId: StreamId,

@@ -284,8 +284,6 @@ func (x *BatchSendReply) GetBackoffSeconds() float32 {
 type BatchStreamRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	ConsistencyLevel *ConsistencyLevel      `protobuf:"varint,1,opt,name=consistency_level,json=consistencyLevel,proto3,enum=weaviate.v1.ConsistencyLevel,oneof" json:"consistency_level,omitempty"`
-	ObjectIndex      *int32                 `protobuf:"varint,2,opt,name=object_index,json=objectIndex,proto3,oneof" json:"object_index,omitempty"`
-	ReferenceIndex   *int32                 `protobuf:"varint,3,opt,name=reference_index,json=referenceIndex,proto3,oneof" json:"reference_index,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -325,20 +323,6 @@ func (x *BatchStreamRequest) GetConsistencyLevel() ConsistencyLevel {
 		return *x.ConsistencyLevel
 	}
 	return ConsistencyLevel_CONSISTENCY_LEVEL_UNSPECIFIED
-}
-
-func (x *BatchStreamRequest) GetObjectIndex() int32 {
-	if x != nil && x.ObjectIndex != nil {
-		return *x.ObjectIndex
-	}
-	return 0
-}
-
-func (x *BatchStreamRequest) GetReferenceIndex() int32 {
-	if x != nil && x.ReferenceIndex != nil {
-		return *x.ReferenceIndex
-	}
-	return 0
 }
 
 type BatchStreamMessage struct {
@@ -1033,12 +1017,14 @@ func (*BatchStreamMessage_ShuttingDown) Descriptor() ([]byte, []int) {
 }
 
 type BatchStreamMessage_Error struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Error         string                 `protobuf:"bytes,1,opt,name=error,proto3" json:"error,omitempty"`
-	Index         int32                  `protobuf:"varint,2,opt,name=index,proto3" json:"index,omitempty"`
-	IsRetriable   bool                   `protobuf:"varint,3,opt,name=is_retriable,json=isRetriable,proto3" json:"is_retriable,omitempty"`
-	IsObject      bool                   `protobuf:"varint,4,opt,name=is_object,json=isObject,proto3" json:"is_object,omitempty"`
-	IsReference   bool                   `protobuf:"varint,5,opt,name=is_reference,json=isReference,proto3" json:"is_reference,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Error       string                 `protobuf:"bytes,1,opt,name=error,proto3" json:"error,omitempty"`
+	IsRetriable bool                   `protobuf:"varint,2,opt,name=is_retriable,json=isRetriable,proto3" json:"is_retriable,omitempty"`
+	// Types that are valid to be assigned to Detail:
+	//
+	//	*BatchStreamMessage_Error_Object
+	//	*BatchStreamMessage_Error_Reference
+	Detail        isBatchStreamMessage_Error_Detail `protobuf_oneof:"detail"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1080,13 +1066,6 @@ func (x *BatchStreamMessage_Error) GetError() string {
 	return ""
 }
 
-func (x *BatchStreamMessage_Error) GetIndex() int32 {
-	if x != nil {
-		return x.Index
-	}
-	return 0
-}
-
 func (x *BatchStreamMessage_Error) GetIsRetriable() bool {
 	if x != nil {
 		return x.IsRetriable
@@ -1094,19 +1073,46 @@ func (x *BatchStreamMessage_Error) GetIsRetriable() bool {
 	return false
 }
 
-func (x *BatchStreamMessage_Error) GetIsObject() bool {
+func (x *BatchStreamMessage_Error) GetDetail() isBatchStreamMessage_Error_Detail {
 	if x != nil {
-		return x.IsObject
+		return x.Detail
 	}
-	return false
+	return nil
 }
 
-func (x *BatchStreamMessage_Error) GetIsReference() bool {
+func (x *BatchStreamMessage_Error) GetObject() *BatchObject {
 	if x != nil {
-		return x.IsReference
+		if x, ok := x.Detail.(*BatchStreamMessage_Error_Object); ok {
+			return x.Object
+		}
 	}
-	return false
+	return nil
 }
+
+func (x *BatchStreamMessage_Error) GetReference() *BatchReference {
+	if x != nil {
+		if x, ok := x.Detail.(*BatchStreamMessage_Error_Reference); ok {
+			return x.Reference
+		}
+	}
+	return nil
+}
+
+type isBatchStreamMessage_Error_Detail interface {
+	isBatchStreamMessage_Error_Detail()
+}
+
+type BatchStreamMessage_Error_Object struct {
+	Object *BatchObject `protobuf:"bytes,3,opt,name=object,proto3,oneof"`
+}
+
+type BatchStreamMessage_Error_Reference struct {
+	Reference *BatchReference `protobuf:"bytes,4,opt,name=reference,proto3,oneof"`
+}
+
+func (*BatchStreamMessage_Error_Object) isBatchStreamMessage_Error_Detail() {}
+
+func (*BatchStreamMessage_Error_Reference) isBatchStreamMessage_Error_Detail() {}
 
 type BatchObject_Properties struct {
 	state                  protoimpl.MessageState              `protogen:"open.v1"`
@@ -1473,14 +1479,10 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\amessage\"a\n" +
 	"\x0eBatchSendReply\x12&\n" +
 	"\x0fnext_batch_size\x18\x01 \x01(\x05R\rnextBatchSize\x12'\n" +
-	"\x0fbackoff_seconds\x18\x02 \x01(\x02R\x0ebackoffSeconds\"\xf6\x01\n" +
+	"\x0fbackoff_seconds\x18\x02 \x01(\x02R\x0ebackoffSeconds\"{\n" +
 	"\x12BatchStreamRequest\x12O\n" +
-	"\x11consistency_level\x18\x01 \x01(\x0e2\x1d.weaviate.v1.ConsistencyLevelH\x00R\x10consistencyLevel\x88\x01\x01\x12&\n" +
-	"\fobject_index\x18\x02 \x01(\x05H\x01R\vobjectIndex\x88\x01\x01\x12,\n" +
-	"\x0freference_index\x18\x03 \x01(\x05H\x02R\x0ereferenceIndex\x88\x01\x01B\x14\n" +
-	"\x12_consistency_levelB\x0f\n" +
-	"\r_object_indexB\x12\n" +
-	"\x10_reference_index\"\xd9\x04\n" +
+	"\x11consistency_level\x18\x01 \x01(\x0e2\x1d.weaviate.v1.ConsistencyLevelH\x00R\x10consistencyLevel\x88\x01\x01B\x14\n" +
+	"\x12_consistency_level\"\xfe\x04\n" +
 	"\x12BatchStreamMessage\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12=\n" +
 	"\x05error\x18\x02 \x01(\v2%.weaviate.v1.BatchStreamMessage.ErrorH\x00R\x05error\x12=\n" +
@@ -1492,13 +1494,13 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\x04Stop\x1a\n" +
 	"\n" +
 	"\bShutdown\x1a\x0e\n" +
-	"\fShuttingDown\x1a\x96\x01\n" +
+	"\fShuttingDown\x1a\xbb\x01\n" +
 	"\x05Error\x12\x14\n" +
-	"\x05error\x18\x01 \x01(\tR\x05error\x12\x14\n" +
-	"\x05index\x18\x02 \x01(\x05R\x05index\x12!\n" +
-	"\fis_retriable\x18\x03 \x01(\bR\visRetriable\x12\x1b\n" +
-	"\tis_object\x18\x04 \x01(\bR\bisObject\x12!\n" +
-	"\fis_reference\x18\x05 \x01(\bR\visReferenceB\t\n" +
+	"\x05error\x18\x01 \x01(\tR\x05error\x12!\n" +
+	"\fis_retriable\x18\x02 \x01(\bR\visRetriable\x122\n" +
+	"\x06object\x18\x03 \x01(\v2\x18.weaviate.v1.BatchObjectH\x00R\x06object\x12;\n" +
+	"\treference\x18\x04 \x01(\v2\x1b.weaviate.v1.BatchReferenceH\x00R\treferenceB\b\n" +
+	"\x06detailB\t\n" +
 	"\amessage\"\xa4\n" +
 	"\n" +
 	"\vBatchObject\x12\x12\n" +
@@ -1624,20 +1626,22 @@ var file_v1_batch_proto_depIdxs = []int32{
 	22, // 16: weaviate.v1.BatchReferencesReply.errors:type_name -> weaviate.v1.BatchReferencesReply.BatchError
 	6,  // 17: weaviate.v1.BatchSendRequest.Objects.values:type_name -> weaviate.v1.BatchObject
 	7,  // 18: weaviate.v1.BatchSendRequest.References.values:type_name -> weaviate.v1.BatchReference
-	25, // 19: weaviate.v1.BatchObject.Properties.non_ref_properties:type_name -> google.protobuf.Struct
-	19, // 20: weaviate.v1.BatchObject.Properties.single_target_ref_props:type_name -> weaviate.v1.BatchObject.SingleTargetRefProps
-	20, // 21: weaviate.v1.BatchObject.Properties.multi_target_ref_props:type_name -> weaviate.v1.BatchObject.MultiTargetRefProps
-	26, // 22: weaviate.v1.BatchObject.Properties.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties
-	27, // 23: weaviate.v1.BatchObject.Properties.int_array_properties:type_name -> weaviate.v1.IntArrayProperties
-	28, // 24: weaviate.v1.BatchObject.Properties.text_array_properties:type_name -> weaviate.v1.TextArrayProperties
-	29, // 25: weaviate.v1.BatchObject.Properties.boolean_array_properties:type_name -> weaviate.v1.BooleanArrayProperties
-	30, // 26: weaviate.v1.BatchObject.Properties.object_properties:type_name -> weaviate.v1.ObjectProperties
-	31, // 27: weaviate.v1.BatchObject.Properties.object_array_properties:type_name -> weaviate.v1.ObjectArrayProperties
-	28, // [28:28] is the sub-list for method output_type
-	28, // [28:28] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	6,  // 19: weaviate.v1.BatchStreamMessage.Error.object:type_name -> weaviate.v1.BatchObject
+	7,  // 20: weaviate.v1.BatchStreamMessage.Error.reference:type_name -> weaviate.v1.BatchReference
+	25, // 21: weaviate.v1.BatchObject.Properties.non_ref_properties:type_name -> google.protobuf.Struct
+	19, // 22: weaviate.v1.BatchObject.Properties.single_target_ref_props:type_name -> weaviate.v1.BatchObject.SingleTargetRefProps
+	20, // 23: weaviate.v1.BatchObject.Properties.multi_target_ref_props:type_name -> weaviate.v1.BatchObject.MultiTargetRefProps
+	26, // 24: weaviate.v1.BatchObject.Properties.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties
+	27, // 25: weaviate.v1.BatchObject.Properties.int_array_properties:type_name -> weaviate.v1.IntArrayProperties
+	28, // 26: weaviate.v1.BatchObject.Properties.text_array_properties:type_name -> weaviate.v1.TextArrayProperties
+	29, // 27: weaviate.v1.BatchObject.Properties.boolean_array_properties:type_name -> weaviate.v1.BooleanArrayProperties
+	30, // 28: weaviate.v1.BatchObject.Properties.object_properties:type_name -> weaviate.v1.ObjectProperties
+	31, // 29: weaviate.v1.BatchObject.Properties.object_array_properties:type_name -> weaviate.v1.ObjectArrayProperties
+	30, // [30:30] is the sub-list for method output_type
+	30, // [30:30] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_v1_batch_proto_init() }
@@ -1662,6 +1666,10 @@ func file_v1_batch_proto_init() {
 		(*BatchStreamMessage_ShuttingDown_)(nil),
 	}
 	file_v1_batch_proto_msgTypes[7].OneofWrappers = []any{}
+	file_v1_batch_proto_msgTypes[17].OneofWrappers = []any{
+		(*BatchStreamMessage_Error_Object)(nil),
+		(*BatchStreamMessage_Error_Reference)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

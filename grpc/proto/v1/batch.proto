@@ -43,8 +43,6 @@ message BatchSendReply {
 
 message BatchStreamRequest {
   optional ConsistencyLevel consistency_level = 1;
-  optional int32 object_index = 2;
-  optional int32 reference_index = 3;
 }
 
 message BatchStreamMessage {
@@ -52,16 +50,16 @@ message BatchStreamMessage {
   }
   message Stop {
   }
-  message Shutdown {
-  }
+  message Shutdown {}
   message ShuttingDown {
   }
   message Error {
     string error = 1;
-    int32 index = 2;
-    bool is_retriable = 3;
-    bool is_object = 4;
-    bool is_reference = 5;
+    bool is_retriable = 2;
+    oneof detail {
+      BatchObject object = 3;
+      BatchReference reference = 4;
+    }
   }
   string stream_id = 1;
   oneof message {
