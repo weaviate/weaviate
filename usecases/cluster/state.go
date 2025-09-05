@@ -43,6 +43,10 @@ type NodeSelector interface {
 	NodeHostname(name string) (string, bool)
 	AllHostnames() []string
 	AllClusterMembers(raftPort int) map[string]string
+	// Leave marks the node as leaving the cluster (still visible but shutting down)
+	Leave() error
+	// Shutdown leaves the cluster gracefully and shuts down the memberlist instance
+	Shutdown(timeout time.Duration) error
 }
 
 type State struct {
@@ -187,6 +191,41 @@ func (s *State) Hostnames() []string {
 	return out[:i]
 }
 
+// Leave marks the node as leaving the cluster (still visible but shutting down)
+// This prevents replication factor errors while allowing clean shutdown
+func (s *State) Leave() error {
+	if s.list == nil {
+		return fmt.Errorf("memberlist not initialized")
+	}
+
+	s.delegate.log.Info("marking node as gracefully leaving...")
+
+	// Set graceful leave state in metadata (this gets broadcasted to all nodes)
+	s.delegate.SetGracefulLeave()
+
+	// Force metadata update to propagate graceful leave state immediately
+	if err := s.list.UpdateNode(0); err != nil {
+		s.delegate.log.WithError(err).Warn("failed to update node metadata")
+	} else {
+		s.delegate.log.Info("successfully updated metadata with graceful leave state")
+	}
+
+	if err := s.list.Leave(5 * time.Second); err != nil {
+		return fmt.Errorf("failed to leave memberlist: %w", err)
+	}
+
+	s.delegate.log.Info("successfully marked as leaving in memberlist")
+	return nil
+}
+
+func (s *State) Shutdown(timeout time.Duration) error {
+	if s.list == nil {
+		return fmt.Errorf("memberlist not initialized")
+	}
+
+	return s.list.Shutdown()
+}
+
 // AllHostnames for live members, including self.
 func (s *State) AllHostnames() []string {
 	if s.list == nil {
@@ -205,13 +244,39 @@ func (s *State) AllHostnames() []string {
 	return out
 }
 
-// All node names (not their hostnames!) for live members, including self.
+// AllNames returns all node names including gracefully leaving ones
+// This is used for cluster state management and RF validation
 func (s *State) AllNames() []string {
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
 	for i, m := range mem {
 		out[i] = m.Name
+	}
+
+	// Check the delegate cache for gracefully leaving nodes
+	// In test contexts, the delegate might not have all methods available
+	// so we'll use a try-catch approach
+	cacheNodes := s.delegate.getAllCachedGraceful()
+
+	if len(cacheNodes) == 0 {
+		return out
+	}
+
+	// Create a map of existing names for quick lookup
+	existingNames := make(map[string]bool)
+	for _, name := range out {
+		existingNames[name] = true
+	}
+
+	// Add gracefully leaving nodes that aren't already in the list
+	for _, nodeName := range cacheNodes {
+		if !existingNames[nodeName] {
+			if s.delegate.log != nil {
+				s.delegate.log.WithField("node", nodeName).Debug("including cached node in AllNames (gracefully leaving)")
+			}
+			out = append(out, nodeName)
+		}
 	}
 
 	return out
@@ -223,18 +288,17 @@ func (s *State) storageNodes() []string {
 		return s.AllNames()
 	}
 
-	members := s.list.Members()
-	out := make([]string, len(members))
-	n := 0
-	for _, m := range members {
-		name := m.Name
+	// Use AllNames to include gracefully leaving nodes for storage operations
+	allNames := s.AllNames()
+	out := make([]string, 0, len(allNames))
+
+	for _, name := range allNames {
 		if _, ok := s.nonStorageNodes[name]; !ok {
-			out[n] = m.Name
-			n++
+			out = append(out, name)
 		}
 	}
 
-	return out[:n]
+	return out
 }
 
 // StorageCandidates returns list of storage nodes (names)
@@ -271,10 +335,6 @@ func (s *State) AllClusterMembers(raftPort int) map[string]string {
 	result := make(map[string]string, len(members))
 
 	for _, m := range members {
-		// Skip self
-		if m.Name == s.list.LocalNode().Name {
-			continue
-		}
 		result[m.Name] = fmt.Sprintf("%s:%d", m.Addr.String(), raftPort)
 	}
 
