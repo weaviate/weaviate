@@ -353,22 +353,25 @@ jobs:
           JINAAI_APIKEY: ${{ secrets.JINAAI_APIKEY }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
-    name: acceptance-tests
+    name: acceptance-${{ matrix.name }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      max-parallel: 4
       matrix:
-        test: [
-          "--acceptance-only-fast",
-          "--acceptance-only-graphql",
-          "--acceptance-only-authz",
-          "--acceptance-only-replication",
-          "--acceptance-only-async-replication",
-          "--acceptance-only-replica-replication-fast",
-          "--acceptance-only-replica-replication-slow",
-          "--acceptance-go-client-only-fast",
-          "--acceptance-only-python",
-        ]
+        include:
+          - { name: "graphql",                  test: "--acceptance-only-graphql" }
+          - { name: "authz",                    test: "--acceptance-only-authz" }
+          - { name: "replication",              test: "--acceptance-only-replication" }
+          - { name: "async-replication",        test: "--acceptance-only-async-replication" }
+          - { name: "replica-replication-fast", test: "--acceptance-only-replica-replication-fast" }
+          - { name: "replica-replication-slow", test: "--acceptance-only-replica-replication-slow" }
+          - { name: "go-client-fast",           test: "--acceptance-go-client-only-fast" }
+          - { name: "python",                   test: "--acceptance-only-python" }
+          - { name: "fast-group-1",             test: "--acceptance-only-fast-group-1" }
+          - { name: "fast-group-2",             test: "--acceptance-only-fast-group-2" }
+          - { name: "fast-group-3",             test: "--acceptance-only-fast-group-3" }
+          - { name: "fast-group-4",             test: "--acceptance-only-fast-group-4" }
     steps:
       - uses: actions/checkout@v5
       - name: Set up Go
@@ -380,12 +383,9 @@ jobs:
         uses: docker/login-action@v3
         if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
         with:
-          username: ${{secrets.DOCKER_USERNAME}}
-          password: ${{secrets.DOCKER_PASSWORD}}
-      - name: Acceptance tests
-        env:
-          WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
-          WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Run acceptance-${{ matrix.name }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests-large:
     name: acceptance-tests-large
