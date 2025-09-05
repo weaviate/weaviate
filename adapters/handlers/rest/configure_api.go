@@ -148,6 +148,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/ringbuffer"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
@@ -467,6 +468,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	setupDebugHandlers(appState)
+	setupLogRingBuffer(appState)
 	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
 	migrator := db.NewMigrator(repo, appState.Logger, appState.Cluster.LocalName())
@@ -1803,6 +1805,18 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 		return &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}}
 	}
 	return &http.Client{Transport: t}
+}
+
+func setupLogRingBuffer(appState *state.State) {
+	// Initialize a ring buffer hook to capture recent log entries for the debug API
+	// Buffer size: 1000 entries, capture all log levels
+	ringHook := ringbuffer.NewRingBufferHook(1000, logrus.TraceLevel)
+	appState.Logger.AddHook(ringHook)
+	if entcfg.EnvEnabled("DEBUG_LOGS_IN_API_ENABLED") {
+		appState.SetLogRingBuffer(ringHook)
+	}
+
+	appState.Logger.WithField("action", "startup").Debug("initialized log ring buffer for debug API")
 }
 
 func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
