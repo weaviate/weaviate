@@ -35,7 +35,7 @@ const (
 	FilterStrategySweeping = "sweeping"
 	FilterStrategyAcorn    = "acorn"
 
-	DefaultFilterStrategy = FilterStrategySweeping
+	DefaultFilterStrategy = FilterStrategyAcorn
 
 	// Fail validation if those criteria are not met
 	MinmumMaxConnections  = 4
