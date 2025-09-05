@@ -124,7 +124,7 @@ func TestBootstrapper(t *testing.T) {
 			logger, _ := logrustest.NewNullLogger()
 
 			// Do the bootstrap
-			err := b.Do(ctx, test.nodes, logger, make(chan struct{}), false)
+			err := b.Do(ctx, test.nodes, logger, make(chan struct{}))
 			cancel()
 
 			// Check all assertions
