@@ -62,6 +62,19 @@ func (st *Store) Notify(id, addr string) (err error) {
 		return nil
 	}
 
+	hasState, err := raft.HasExistingState(st.logCache, st.logStore, st.snapshotStore)
+	if err != nil {
+		return err
+	}
+	if hasState {
+		st.log.WithFields(logrus.Fields{
+			"action":   "bootstrap",
+			"hasState": true,
+		}).Debug("cluster already has configuration, skipping bootstrap")
+		st.bootstrapped.Store(true)
+		return nil
+	}
+
 	st.candidates[id] = addr
 	if len(st.candidates) < st.cfg.BootstrapExpect {
 		st.log.WithFields(logrus.Fields{

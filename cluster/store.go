@@ -215,7 +215,6 @@ type Store struct {
 	// raft log cache
 	logCache *raft.LogCache
 
-	// cluster bootstrap related attributes
 	candidates map[string]string
 	// bootstrapped is set once the node has either bootstrapped or recovered from RAFT log entries
 	bootstrapped atomic.Bool
