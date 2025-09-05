@@ -20,7 +20,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/cluster/usage/types"
-	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -71,7 +70,7 @@ func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, se
 func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string) types.Dimensionality {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
-		return usagetypes.Dimensionality{}
+		return types.Dimensionality{}
 	}
 	return calcTargetVectorDimensionsFromBucket(ctx, b, targetVector)
 }
@@ -161,11 +160,11 @@ func correctEmptySegments(segments int, dimensions int) int {
 }
 
 // calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
-func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string) usagetypes.Dimensionality {
+func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string) types.Dimensionality {
 	var (
 		nameLen        = len(targetVector)
 		expectedKeyLen = nameLen + 4 // vector name + uint32
-		dimensionality = usagetypes.Dimensionality{}
+		dimensionality = types.Dimensionality{}
 		k              []byte
 		v              []lsmkv.MapPair
 	)
