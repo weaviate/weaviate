@@ -17,13 +17,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func (h *hnsw) init(cfg Config) error {
@@ -440,7 +440,7 @@ func (h *hnsw) prefillCache() {
 		limit = int(h.cache.CopyMaxSize())
 	}
 
-	f := func() {
+	prefillCacheFunc := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 		defer cancel()
 
@@ -470,12 +470,12 @@ func (h *hnsw) prefillCache() {
 			"action":                 "hnsw_prefill_cache_sync",
 			"wait_for_cache_prefill": true,
 		}).Info("waiting for vector cache prefill to complete")
-		f()
+		prefillCacheFunc()
 	} else {
 		h.logger.WithFields(logrus.Fields{
 			"action":                 "hnsw_prefill_cache_async",
 			"wait_for_cache_prefill": false,
 		}).Info("not waiting for vector cache prefill, running in background")
-		enterrors.GoWrapper(f, h.logger)
+		enterrors.GoWrapper(prefillCacheFunc, h.logger)
 	}
 }
