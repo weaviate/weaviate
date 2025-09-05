@@ -19,5 +19,8 @@ def test_replication(
     replication_config: _ReplicationConfigCreate,
     expected: bool,
 ) -> None:
-    collection = collection_factory(replication_config=replication_config)
+    collection = collection_factory(
+        replication_config=replication_config,
+        vector_config=wvc.config.Configure.Vectors.self_provided(name="first"),
+    )
     assert collection.config.get().replication_config.async_enabled == expected

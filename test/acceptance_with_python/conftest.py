@@ -16,6 +16,7 @@ from weaviate.collections.classes.config import (
     _VectorIndexConfigCreate,
     _RerankerProvider,
 )
+from weaviate.collections.classes.config_vectors import _VectorConfigCreate
 from weaviate.collections.classes.types import Properties
 from weaviate.config import AdditionalConfig
 
@@ -34,6 +35,7 @@ class CollectionFactory(Protocol):
         vectorizer_config: Optional[
             Union[_VectorizerConfigCreate, List[_NamedVectorConfigCreate]]
         ] = None,
+        vector_config: Optional[Union[_VectorConfigCreate, List[_VectorConfigCreate]]] = None,
         inverted_index_config: Optional[_InvertedIndexConfigCreate] = None,
         multi_tenancy_config: Optional[_MultiTenancyConfigCreate] = None,
         generative_config: Optional[_GenerativeProvider] = None,
@@ -74,6 +76,7 @@ def collection_factory(request: SubRequest) -> Generator[CollectionFactory, None
         vectorizer_config: Optional[
             Union[_VectorizerConfigCreate, List[_NamedVectorConfigCreate]]
         ] = None,
+        vector_config: Optional[Union[_VectorConfigCreate, List[_VectorConfigCreate]]] = None,
         inverted_index_config: Optional[_InvertedIndexConfigCreate] = None,
         multi_tenancy_config: Optional[_MultiTenancyConfigCreate] = None,
         generative_config: Optional[_GenerativeProvider] = None,
@@ -110,6 +113,7 @@ def collection_factory(request: SubRequest) -> Generator[CollectionFactory, None
             replication_config=replication_config,
             vector_index_config=vector_index_config,
             reranker_config=reranker_config,
+            vector_config=vector_config,
         )
         return collection
 
