@@ -2336,3 +2336,82 @@ func Test_SetClassDefaults(t *testing.T) {
 		})
 	}
 }
+
+func Test_GetConsistentClass_WithAlias(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("get class via alias - alias resolves to existing class", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		className := "RealClass"
+		aliasName := "TestAlias"
+		expectedClass := &models.Class{
+			Class:             className,
+			VectorIndexType:   "hnsw",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+
+		// Mock the alias resolution and class retrieval
+		fakeSchemaManager.On("ReadOnlyClassWithVersion", mock.Anything, className, mock.Anything).Return(expectedClass, nil)
+
+		// Create a custom fakeSchemaManager with alias support
+		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
+			fakeSchemaManager: fakeSchemaManager,
+			aliasMap:          map[string]string{aliasName: className},
+		}
+		handler.schemaReader = fakeSchemaManagerWithAlias
+
+		class, _, err := handler.GetConsistentClass(ctx, nil, aliasName, false)
+		require.NoError(t, err)
+		assert.Equal(t, expectedClass, class)
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("get class via alias - alias resolves to empty (class not found via alias)", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		aliasName := "NonExistentAlias"
+
+		// Mock the class retrieval with the alias name (will be called since alias doesn't resolve)
+		fakeSchemaManager.On("ReadOnlyClassWithVersion", mock.Anything, "NonExistentAlias", mock.Anything).Return(nil, nil)
+
+		// Create a custom fakeSchemaManager with empty alias resolution
+		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
+			fakeSchemaManager: fakeSchemaManager,
+			aliasMap:          map[string]string{}, // empty map
+		}
+		handler.schemaReader = fakeSchemaManagerWithAlias
+
+		class, _, err := handler.GetConsistentClass(ctx, nil, aliasName, false)
+		require.NoError(t, err)
+		assert.Nil(t, class)
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("get class via direct name - no alias resolution needed", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		className := "RealClass"
+		expectedClass := &models.Class{
+			Class:             className,
+			VectorIndexType:   "hnsw",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+
+		// Mock the direct class retrieval
+		fakeSchemaManager.On("ReadOnlyClassWithVersion", mock.Anything, className, mock.Anything).Return(expectedClass, nil)
+
+		// Create a custom fakeSchemaManager (alias resolution returns empty for direct class names)
+		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
+			fakeSchemaManager: fakeSchemaManager,
+			aliasMap:          map[string]string{}, // empty map
+		}
+		handler.schemaReader = fakeSchemaManagerWithAlias
+
+		class, _, err := handler.GetConsistentClass(ctx, nil, className, false)
+		require.NoError(t, err)
+		assert.Equal(t, expectedClass, class)
+		fakeSchemaManager.AssertExpectations(t)
+	})
+}

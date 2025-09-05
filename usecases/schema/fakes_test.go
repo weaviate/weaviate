@@ -347,3 +347,16 @@ func (f *fakeStore) UpdateClass(cls *models.Class) error {
 	cls.InvertedIndexConfig = u.InvertedIndexConfig
 	return nil
 }
+
+// fakeSchemaManagerWithAlias wraps the fakeSchemaManager to provide alias resolution support
+type fakeSchemaManagerWithAlias struct {
+	*fakeSchemaManager
+	aliasMap map[string]string
+}
+
+func (f *fakeSchemaManagerWithAlias) ResolveAlias(alias string) string {
+	if resolvedClass, exists := f.aliasMap[alias]; exists {
+		return resolvedClass
+	}
+	return ""
+}

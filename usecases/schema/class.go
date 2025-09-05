@@ -61,7 +61,11 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 		return nil, 0, err
 	}
 
+	// Support getting class via alias name
 	name = schema.UppercaseClassName(name)
+	if rname := h.schemaReader.ResolveAlias(name); rname != "" {
+		name = rname
+	}
 
 	if consistency {
 		vclasses, err := h.schemaManager.QueryReadOnlyClasses(name)
