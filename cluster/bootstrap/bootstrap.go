@@ -17,11 +17,14 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	entSentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // PeerJoiner is the interface we expect to be able to talk to the other peers to either Join or Notify them
@@ -59,7 +62,7 @@ func NewBootstrapper(peerJoiner PeerJoiner, raftID string, raftAddr string, vote
 }
 
 // Do iterates over a list of servers in an attempt to join this node to a cluster.
-func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg *logrus.Logger, stop chan struct{}) error {
+func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg *logrus.Logger, stop chan struct{}, hasState bool) error {
 	if entSentry.Enabled() {
 		transaction := sentry.StartTransaction(ctx, "raft.bootstrap",
 			sentry.WithOpName("init"),
@@ -75,6 +78,9 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 		case <-stop:
 			return nil
 		case <-ctx.Done():
+			// TODO we could log this here
+			// return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value.", err)
+
 			return ctx.Err()
 		case <-ticker.C:
 			if b.isStoreReady() {
@@ -82,21 +88,27 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 				return nil
 			}
 
-			remoteNodes := ResolveRemoteNodes(b.addrResolver, serverPortMap)
-			// We were not able to resolve any nodes to an address
-			if len(remoteNodes) == 0 {
-				lg.WithField("action", "bootstrap").WithField("join_list", serverPortMap).Warn("unable to resolve any node address to join")
-				continue
-			}
+			remoteNodes := make(map[string]string)
 
 			// Always try to join an existing cluster first
 			joiner := NewJoiner(b.peerJoiner, b.localNodeID, b.localRaftAddr, b.voter)
-			if leader, err := joiner.Do(ctx, lg, remoteNodes); err != nil {
+			var leader string
+			err := backoff.Retry(func() error {
+				remoteNodes = ResolveRemoteNodes(b.addrResolver, serverPortMap)
+				leaderID, err := joiner.Do(ctx, lg, remoteNodes)
+				leader = leaderID
+				if err != nil && len(remoteNodes) == 1 {
+					return backoff.Permanent(err)
+				}
+				return err
+			}, backoff.WithContext(backoffConfig(hasState), ctx))
+
+			if err != nil {
 				lg.WithFields(logrus.Fields{
 					"action":  "bootstrap",
 					"servers": remoteNodes,
 					"voter":   b.voter,
-				}).WithError(err).Warning("failed to join cluster")
+				}).WithError(err).Warning("failed to join cluster after retries")
 			} else {
 				lg.WithFields(logrus.Fields{
 					"action": "bootstrap",
@@ -149,7 +161,8 @@ func (b *Bootstrapper) notify(ctx context.Context, remoteNodes map[string]string
 }
 
 // ResolveRemoteNodes returns a list of remoteNodes addresses resolved using addrResolver. The nodes id used are
-// taken from serverPortMap keys and ports from the values
+// taken from serverPortMap keys and ports from the values. Additionally, it includes nodes discovered via memberlist
+// to handle cases where the join config is incomplete.
 func ResolveRemoteNodes(addrResolver resolver.ClusterStateReader, serverPortMap map[string]int) map[string]string {
 	candidates := make(map[string]string, len(serverPortMap))
 	for name, raftPort := range serverPortMap {
@@ -157,10 +170,27 @@ func ResolveRemoteNodes(addrResolver resolver.ClusterStateReader, serverPortMap 
 			candidates[name] = fmt.Sprintf("%s:%d", addr, raftPort)
 		}
 	}
+
+	memberlistNodes := addrResolver.AllClusterMembers(config.DefaultRaftPort)
+	for name, addr := range memberlistNodes {
+		// Only add memberlist nodes that are NOT already in the join configuration
+		if _, exists := serverPortMap[name]; !exists {
+			candidates[name] = addr
+		}
+	}
+
 	return candidates
 }
 
 // jitter introduce some jitter to a given duration d + [0, 1) * jit -> [d, d+jit]
 func jitter(d time.Duration, jit time.Duration) time.Duration {
 	return d + time.Duration(float64(jit)*rand.Float64())
+}
+
+func backoffConfig(hasState bool) backoff.BackOff {
+	count := 1
+	if hasState {
+		count = 5
+	}
+	return backoff.WithMaxRetries(backoff.NewConstantBackOff(500*time.Millisecond), uint64(count))
 }
