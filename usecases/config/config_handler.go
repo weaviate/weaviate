@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	usagetypes "github.com/weaviate/weaviate/usecases/modulecomponents/usage/types"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 )
 
 // ServerVersion is deprecated. Use `build.Version`. It's there for backward compatiblility.
@@ -222,6 +223,9 @@ type Config struct {
 
 	// Usage configuration for the usage module
 	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
+
+	// OpenTelemetry configuration
+	OpenTelemetry *opentelemetry.Config `json:"opentelemetry" yaml:"opentelemetry"`
 
 	// The minimum timeout for the server to wait before it returns an error
 	MinimumInternalTimeout time.Duration `json:"minimum_internal_timeout" yaml:"minimum_internal_timeout"`
