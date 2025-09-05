@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path"
@@ -3123,51 +3122,6 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 	}, i.logger)
 
 	return nil
-}
-
-// calcTargetVectorDimensionsFromStore calculates dimensions and object count for a target vector from an LSMKV store
-func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) usagetypes.Dimensionality {
-	b := store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return usagetypes.Dimensionality{}
-	}
-	return calcTargetVectorDimensionsFromBucket(ctx, b, targetVector, calcEntry)
-}
-
-// calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
-func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) usagetypes.Dimensionality {
-	var (
-		nameLen        = len(targetVector)
-		expectedKeyLen = nameLen + 4 // vector name + uint32
-		dimensionality = usagetypes.Dimensionality{}
-		k              []byte
-		v              []lsmkv.MapPair
-	)
-
-	c := b.MapCursor()
-	defer c.Close()
-
-	if nameLen == 0 {
-		k, v = c.First(ctx)
-	} else {
-		k, v = c.Seek(ctx, []byte(targetVector))
-	}
-
-	for ; k != nil; k, v = c.Next(ctx) {
-		// for named vectors we have to additionally check if the key is prefixed with the vector name
-		if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
-			break
-		}
-
-		dimLength := int(binary.LittleEndian.Uint32(k[nameLen:]))
-		size, dim := calcEntry(dimLength, v)
-		if dimensionality.Dimensions == 0 && dim > 0 {
-			dimensionality.Dimensions = dim
-		}
-		dimensionality.Count += size
-	}
-
-	return dimensionality
 }
 
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory

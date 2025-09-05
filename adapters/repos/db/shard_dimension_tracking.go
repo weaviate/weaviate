@@ -13,10 +13,14 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
+	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/cluster/usage/types"
+	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -49,39 +53,33 @@ func (c DimensionCategory) String() string {
 
 // DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
 func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (types.Dimensionality, error) {
-	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
+	dimensionality := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
 		return len(v), dimLength
 	})
-	if err != nil {
-		return types.Dimensionality{}, err
-	}
 	return dimensionality, nil
 }
 
 // Dimensions returns the total number of dimensions for a given vector
 func (s *Shard) Dimensions(ctx context.Context, targetVector string) (int, error) {
-	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
+	dimensionality := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
 		return dimLength * len(v), dimLength
 	})
-	if err != nil {
-		return 0, err
-	}
 	return dimensionality.Count, nil
 }
 
 func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
-	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
+	dimensionality := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
 		return len(v), dimLength
 	})
-	if err != nil {
-		return 0
-	}
-
 	return dimensionality.Count * correctEmptySegments(segments, dimensionality.Dimensions)
 }
 
-func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) (types.Dimensionality, error) {
-	return calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, calcEntry), nil
+func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) types.Dimensionality {
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return usagetypes.Dimensionality{}
+	}
+	return calcTargetVectorDimensionsFromBucket(ctx, b, targetVector, calcEntry)
 }
 
 // DimensionMetrics represents the dimension tracking metrics for a vector.
@@ -166,4 +164,40 @@ func correctEmptySegments(segments int, dimensions int) int {
 		return segments
 	}
 	return common.CalculateOptimalSegments(dimensions)
+}
+
+// calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
+func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) usagetypes.Dimensionality {
+	var (
+		nameLen        = len(targetVector)
+		expectedKeyLen = nameLen + 4 // vector name + uint32
+		dimensionality = usagetypes.Dimensionality{}
+		k              []byte
+		v              []lsmkv.MapPair
+	)
+
+	c := b.MapCursor()
+	defer c.Close()
+
+	if nameLen == 0 {
+		k, v = c.First(ctx)
+	} else {
+		k, v = c.Seek(ctx, []byte(targetVector))
+	}
+
+	for ; k != nil; k, v = c.Next(ctx) {
+		// for named vectors we have to additionally check if the key is prefixed with the vector name
+		if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
+			break
+		}
+
+		dimLength := int(binary.LittleEndian.Uint32(k[nameLen:]))
+		size, dim := calcEntry(dimLength, v)
+		if dimensionality.Dimensions == 0 && dim > 0 {
+			dimensionality.Dimensions = dim
+		}
+		dimensionality.Count += size
+	}
+
+	return dimensionality
 }
