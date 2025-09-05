@@ -3311,7 +3311,7 @@ func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName 
 
 		// For inactive tenants, use vector index config for dimension tracking
 		// This is similar to the original shard dimension tracking approach
-		totalSize += int64(float64(uncompressedSize) * helpers.CompressionRatioFromConfig(config, dimensionality.Dimensions))
+		totalSize += int64(float64(uncompressedSize) / helpers.CompressionRatioFromConfig(config, dimensionality.Dimensions))
 	}
 
 	return totalSize, nil

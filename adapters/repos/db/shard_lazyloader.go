@@ -493,7 +493,7 @@ func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (in
 
 	// For unloaded shards, get dimensions from unloaded shard/tenant calculation
 	dimensionality, err := l.shardOpts.index.CalculateUnloadedDimensionsUsage(ctx, l.shardOpts.name, targetVector)
-	return dimensionality.Count, err
+	return dimensionality.Count * dimensionality.Dimensions, err
 }
 
 func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
