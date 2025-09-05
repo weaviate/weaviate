@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
@@ -112,7 +113,6 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 	}
 	cfg.Delegate = &state.delegate
 	cfg.Events = events{&state.delegate}
-
 	if userConfig.GossipBindPort != 0 {
 		cfg.BindPort = userConfig.GossipBindPort
 	}
@@ -126,7 +126,8 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 	}
 
 	if userConfig.FastFailureDetection {
-		cfg.SuspicionMult = 1
+		cfg.DeadNodeReclaimTime = 5 * time.Second
+		cfg.SuspicionMult = 2
 	}
 
 	if state.list, err = memberlist.Create(cfg); err != nil {
