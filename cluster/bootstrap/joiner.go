@@ -65,6 +65,9 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 	// cluster, let's join the leader.
 	// If no server allows us to join a cluster, return an error
 	for name, addr := range remoteNodes {
+		if name == j.localNodeID {
+			continue
+		}
 		lg.WithFields(logrus.Fields{
 			"remoteNodes": remoteNodes,
 			"node":        name,

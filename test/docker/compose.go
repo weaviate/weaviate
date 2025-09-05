@@ -613,7 +613,6 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	network, err := tescontainersnetwork.New(
 		ctx,
 		tescontainersnetwork.WithAttachable(),
-		tescontainersnetwork.WithDriver("bridge"),
 	)
 	if err != nil {
 		return nil, errors.Wrapf(err, "connecting to network")
