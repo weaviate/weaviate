@@ -21,7 +21,6 @@ import (
 
 	"github.com/weaviate/tiktoken-go"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
@@ -80,7 +79,7 @@ func ReturnBatchTokenizer(multiplier float32, moduleName string, lowerCaseInput 
 			text := objectVectorizer.Texts(ctx, objects[i], icheck)
 			texts[i] = text
 			if multiplier > 0 {
-				tokenCounts[i] = int(float32(clients.GetTokensCount(modelString, text, tke)) * multiplier)
+				tokenCounts[i] = int(float32(GetTokensCount(modelString, text, tke)) * multiplier)
 			}
 		}
 		return texts, tokenCounts, skipAll, nil

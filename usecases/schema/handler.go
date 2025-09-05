@@ -259,6 +259,11 @@ func (h *Handler) ShardsStatus(ctx context.Context,
 		return nil, err
 	}
 
+	// support get shard status via alias
+	class = schema.UppercaseClassName(class)
+	if rclass := h.schemaReader.ResolveAlias(class); rclass != "" {
+		class = rclass
+	}
 	return h.schemaReader.GetShardsStatus(class, shard)
 }
 
