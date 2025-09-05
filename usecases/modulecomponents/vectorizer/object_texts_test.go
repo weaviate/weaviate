@@ -34,13 +34,14 @@ func TestVectorizingObjects_AllPropertyTypes(t *testing.T) {
 		return time.Now()
 	}
 	tests := []struct {
-		name                    string
-		object                  *models.Object
-		vectorizableProperties  []string
-		lowerCaseInput          bool
-		titlePropertyName       string
-		wantCorpi               string
-		weantTitlePropertyValue string
+		name                   string
+		object                 *models.Object
+		vectorizableProperties []string
+		lowerCaseInput         bool
+		titlePropertyName      string
+		wantCorpi              string
+		wantTitlePropertyValue string
+		wantIsEmpty            bool
 	}{
 		{
 			name:      "empty properties",
@@ -53,7 +54,8 @@ func TestVectorizingObjects_AllPropertyTypes(t *testing.T) {
 				"nil_prop": nilAnyArray,
 			}},
 			vectorizableProperties: []string{"nil_prop"},
-			wantCorpi:              "Test Class",
+			wantCorpi:              "",
+			wantIsEmpty:            true,
 		},
 		{
 			name: "explicit nil property",
@@ -61,7 +63,8 @@ func TestVectorizingObjects_AllPropertyTypes(t *testing.T) {
 				"nil_prop": nil,
 			}},
 			vectorizableProperties: []string{"nil_prop"},
-			wantCorpi:              "Test Class",
+			wantCorpi:              "",
+			wantIsEmpty:            true,
 		},
 		{
 			name: "string property",
@@ -221,9 +224,10 @@ func TestVectorizingObjects_AllPropertyTypes(t *testing.T) {
 			cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", targetVector, nil)
 			icheck := basesettings.NewBaseClassSettings(cfg, tt.lowerCaseInput)
 			v := &ObjectVectorizer{}
-			corpi, titlePropertyValue := v.TextsWithTitleProperty(context.TODO(), tt.object, icheck, tt.titlePropertyName)
+			corpi, titlePropertyValue, isEmpty := v.TextsWithTitleProperty(context.TODO(), tt.object, icheck, tt.titlePropertyName)
 			assert.Equal(t, tt.wantCorpi, corpi)
-			assert.Equal(t, tt.weantTitlePropertyValue, titlePropertyValue)
+			assert.Equal(t, tt.wantTitlePropertyValue, titlePropertyValue)
+			assert.Equal(t, tt.wantIsEmpty, isEmpty)
 		})
 	}
 }

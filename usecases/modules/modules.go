@@ -925,7 +925,7 @@ func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 	findVectorFn modulecapabilities.FindVectorFn[[]float32],
 ) ([]float32, string, error) {
 	for _, mod := range p.GetAll() {
-		if found, vector, targetVector, err := crossClassVectorFromSearchParam(ctx, mod, param, params, findVectorFn, p.getTargetVector, p.cfg); found {
+		if found, vector, targetVector, err := crossClassVectorFromSearchParam(ctx, mod, param, params, findVectorFn, p.getTargetVector, &p.cfg); found {
 			return vector, targetVector, err
 		}
 	}
@@ -941,7 +941,7 @@ func (p *Provider) MultiCrossClassVectorFromSearchParam(ctx context.Context,
 	findVectorFn modulecapabilities.FindVectorFn[[][]float32],
 ) ([][]float32, string, error) {
 	for _, mod := range p.GetAll() {
-		if found, vector, targetVector, err := crossClassVectorFromSearchParam(ctx, mod, param, params, findVectorFn, p.getTargetVector, p.cfg); found {
+		if found, vector, targetVector, err := crossClassVectorFromSearchParam(ctx, mod, param, params, findVectorFn, p.getTargetVector, &p.cfg); found {
 			return vector, targetVector, err
 		}
 	}
