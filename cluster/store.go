@@ -18,7 +18,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -216,9 +215,7 @@ type Store struct {
 	// raft log cache
 	logCache *raft.LogCache
 
-	// cluster bootstrap related attributes
-	bootstrapMutex sync.Mutex
-	candidates     map[string]string
+	candidates map[string]string
 	// bootstrapped is set once the node has either bootstrapped or recovered from RAFT log entries
 	bootstrapped atomic.Bool
 

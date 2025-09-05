@@ -58,7 +58,6 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 	var resp *cmd.JoinPeerResponse
 	var err error
 	req := &cmd.JoinPeerRequest{Id: j.localNodeID, Address: j.localRaftAddr, Voter: j.voter}
-	lg.WithField("remoteNodes", remoteNodes).Info("attempting to join")
 
 	// For each server, try to join.
 	// If we have no error then we have a leader
@@ -66,16 +65,16 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 	// cluster, let's join the leader.
 	// If no server allows us to join a cluster, return an error
 	for name, addr := range remoteNodes {
-		if name == j.localNodeID {
-			// Skip self to avoid self-join attempts
-			continue
-		}
+		lg.WithFields(logrus.Fields{
+			"remoteNodes": remoteNodes,
+			"node":        name,
+			"address":     addr,
+		}).Info("attempting to join")
 		resp, err = j.peerJoiner.Join(ctx, addr, req)
 		if err == nil {
 			return addr, nil
 		}
 		st := status.Convert(err)
-		lg.WithField("remoteNode", addr).WithField("status", st.Code()).Info("attempted to join and failed")
 		// Get the leader from response and if not empty try to join it
 		if leader := resp.GetLeader(); st.Code() == codes.ResourceExhausted && leader != "" {
 			_, err = j.peerJoiner.Join(ctx, leader, req)
