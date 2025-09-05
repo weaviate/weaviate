@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -103,7 +104,7 @@ func TestMmapCondensor(t *testing.T) {
 	})
 
 	t.Run("condense the original and verify against the perfect one", func(t *testing.T) {
-		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"))
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"), common.NewOSFS())
 		require.Nil(t, err)
 		require.True(t, ok)
 
@@ -111,12 +112,12 @@ func TestMmapCondensor(t *testing.T) {
 		require.Nil(t, err)
 
 		control, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "perfect"))
+			commitLogDirectory(rootPath, "perfect"), common.NewOSFS())
 		require.Nil(t, err)
 		require.True(t, ok)
 
 		actual, ok, err := getCurrentCommitLogFileName(
-			commitLogDirectory(rootPath, "uncondensed"))
+			commitLogDirectory(rootPath, "uncondensed"), common.NewOSFS())
 		require.Nil(t, err)
 		require.True(t, ok)
 
