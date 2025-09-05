@@ -208,8 +208,7 @@ func TestWorkerLoop(t *testing.T) {
 		require.NotNil(t, errs.Errors, "Expected errors to be returned")
 		require.Len(t, errs.Errors, 1, "Expected one error to be returned")
 		require.Equal(t, replica.ErrReplicas.Error(), errs.Errors[0].Error, "Expected error message to match")
-		require.True(t, errs.Errors[0].IsObject, "Expected IsObject to be true for object errors")
-		require.False(t, errs.Errors[0].IsReference, "Expected IsReference to be false for object errors")
+		require.Equal(t, obj, errs.Errors[0].GetObject(), "Expected object to match")
 		require.True(t, errs.Errors[0].IsRetriable, "Expected IsRetriable to be true for this error")
 
 		// Read second error
@@ -217,8 +216,7 @@ func TestWorkerLoop(t *testing.T) {
 		require.NotNil(t, errs.Errors, "Expected errors to be returned")
 		require.Len(t, errs.Errors, 1, "Expected one error to be returned")
 		require.Equal(t, "refs error", errs.Errors[0].Error, "Expected error message to match")
-		require.False(t, errs.Errors[0].IsObject, "Expected IsObject to be false for reference errors")
-		require.True(t, errs.Errors[0].IsReference, "Expected IsReference to be true for reference errors")
+		require.Equal(t, ref, errs.Errors[0].GetReference(), "Expected reference to match")
 		require.False(t, errs.Errors[0].IsRetriable, "Expected IsRetriable to be false for this error")
 
 		// Read sentinel
