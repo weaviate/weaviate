@@ -12,12 +12,15 @@
 package vectorindex
 
 import (
+	"errors"
 	"fmt"
+	"os"
 
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 )
 
 const (
@@ -25,6 +28,7 @@ const (
 	VectorIndexTypeHNSW    = "hnsw"
 	VectorIndexTypeFLAT    = "flat"
 	VectorIndexTypeDYNAMIC = "dynamic"
+	VectorIndexTypeSPFRESH = "spfresh"
 )
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -34,6 +38,10 @@ func ParseAndValidateConfig(input interface{}, vectorIndexType string, isMultiVe
 		vectorIndexType = DefaultVectorIndexType
 	}
 
+	if os.Getenv("SPFRESH_ENABLED") == "true" && vectorIndexType == VectorIndexTypeSPFRESH {
+		return nil, errors.New("spfresh is not enabled via SPFRESH_ENABLED=true")
+	}
+
 	switch vectorIndexType {
 	case VectorIndexTypeHNSW:
 		return hnsw.ParseAndValidateConfig(input, isMultiVector)
@@ -41,6 +49,8 @@ func ParseAndValidateConfig(input interface{}, vectorIndexType string, isMultiVe
 		return flat.ParseAndValidateConfig(input)
 	case VectorIndexTypeDYNAMIC:
 		return dynamic.ParseAndValidateConfig(input, isMultiVector)
+	case VectorIndexTypeSPFRESH:
+		return spfresh.ParseAndValidateConfig(input)
 	default:
 		return nil, fmt.Errorf("invalid vector index %q. Supported types are hnsw and flat", vectorIndexType)
 	}

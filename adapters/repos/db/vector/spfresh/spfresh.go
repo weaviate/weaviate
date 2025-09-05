@@ -47,7 +47,7 @@ var (
 // operations. It uses a worker pool to process these operations concurrently.
 type SPFresh struct {
 	Logger       *logrus.Entry
-	UserConfig   *UserConfig                      // UserConfig contains user-defined settings for the rebuilder.
+	UserConfig   *UserConfig                      // Config contains settings for the rebuilder.
 	SPTAG        SPTAG                            // SPTAG provides access to the SPTAG index for centroid operations.
 	Store        *LSMStore                        // Used for managing persistence of postings.
 	VersionMap   *VersionMap                      // Provides access to vector versions.
@@ -79,11 +79,30 @@ type SPFresh struct {
 	vectorSize          int32 // Size of the compressed vectors in bytes
 	trackDimensionsOnce sync.Once
 	distancer           distancer.Provider
+
+	initialPostingLock *sync.Mutex
+}
+
+// TODO pass in args
+func New(logger *logrus.Entry, config *UserConfig, sptag SPTAG, store *LSMStore, versionMap *VersionMap, ids *common.MonotonicCounter[uint64], postingSizes *PostingSizes, quantizer *compressionhelpers.RotationalQuantizer, distancer distancer.Provider) *SPFresh {
+	return &SPFresh{
+		Logger:             logger,
+		UserConfig:         config,
+		SPTAG:              sptag,
+		Store:              store,
+		VersionMap:         versionMap,
+		IDs:                ids,
+		PostingSizes:       postingSizes,
+		Quantizer:          quantizer,
+		Distancer:          distancer,
+		postingLocks:       common.NewHashedLocks512(),
+		initialPostingLock: &sync.Mutex{},
+	}
 }
 
 func (s *SPFresh) Start(ctx context.Context) {
 	if s.UserConfig == nil {
-		panic("UserConfig must be set before starting LocalRebuilder")
+		panic("Config must be set before starting LocalRebuilder")
 	}
 	if s.Store == nil {
 		panic("Store must be set before starting LocalRebuilder")

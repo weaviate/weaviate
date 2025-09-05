@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -23,6 +24,7 @@ import (
 )
 
 func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	fmt.Println("NATEE SPFResh.SearchByVector", vector, k, allowList)
 	vector = distancer.Normalize(vector)
 
 	queryVector := s.Quantizer.Encode(vector)
@@ -80,16 +82,17 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 			}
 
 			// skip duplicates
-			if visited.Visited(id) {
+			// if visited.Visited(id) {
+			// 	continue
+			// }
+
+			// skip vectors that are not in the allow list.
+			// if the allow list is nil, allow all vectors.
+			if allowList != nil && !allowList.Contains(id) {
 				continue
 			}
 
-			// skip vectors that are not in the allow list
-			if !allowList.Contains(id) {
-				continue
-			}
-
-			visited.Visit(id)
+			// visited.Visit(id)
 
 			dist, err := s.Quantizer.DistanceBetweenCompressedVectors(v, queryVector)
 			if err != nil {
@@ -108,15 +111,15 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 			}
 		}
 	}
-
 	results := make([]uint64, 0, q.Len())
 	dists := make([]float32, 0, q.Len())
 	for q.Len() > 0 {
 		item := q.Pop()
+		fmt.Println("NATEE SPFResh.SearchByVector q.Pop", q.Len(), item.ID, item.Dist)
 		results = append(results, item.ID)
 		dists = append(dists, item.Dist)
 	}
-
+	fmt.Println("NATEE SPFResh.SearchByVector results", results, dists)
 	return results, dists, nil
 }
 
