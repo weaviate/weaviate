@@ -149,7 +149,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			TransferInactivityTimeout:                    m.db.config.TransferInactivityTimeout,
 			LSMEnableSegmentsChecksumValidation:          m.db.config.LSMEnableSegmentsChecksumValidation,
 			ReplicationFactor:                            class.ReplicationConfig.Factor,
-			AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
+			AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled != nil && *class.ReplicationConfig.AsyncEnabled,
 			DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 			ShardLoadLimiter:                             m.db.shardLoadLimiter,
 			HNSWMaxLogSize:                               m.db.config.HNSWMaxLogSize,

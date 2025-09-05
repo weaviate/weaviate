@@ -7867,8 +7867,9 @@ func init() {
       "type": "object",
       "properties": {
         "asyncEnabled": {
-          "description": "Enable asynchronous replication (default: false).",
+          "description": "Enable asynchronous replication (default: true).",
           "type": "boolean",
+          "default": true,
           "x-omitempty": false
         },
         "deletionStrategy": {
@@ -17175,8 +17176,9 @@ func init() {
       "type": "object",
       "properties": {
         "asyncEnabled": {
-          "description": "Enable asynchronous replication (default: false).",
+          "description": "Enable asynchronous replication (default: true).",
           "type": "boolean",
+          "default": true,
           "x-omitempty": false
         },
         "deletionStrategy": {

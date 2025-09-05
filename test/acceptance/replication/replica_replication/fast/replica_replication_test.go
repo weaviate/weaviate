@@ -92,14 +92,14 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 		paragraphClass.ShardingConfig = map[string]interface{}{"desiredCount": 1}
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:       1,
-			AsyncEnabled: false,
+			AsyncEnabled: boolP(false),
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ShardingConfig = map[string]interface{}{"desiredCount": 1}
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:       1,
-			AsyncEnabled: false,
+			AsyncEnabled: boolP(false),
 		}
 		helper.CreateClass(t, articleClass)
 	})
@@ -272,7 +272,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:       1,
-			AsyncEnabled: false,
+			AsyncEnabled: boolP(false),
 		}
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 			Enabled:              true,
@@ -283,7 +283,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:       1,
-			AsyncEnabled: false,
+			AsyncEnabled: boolP(false),
 		}
 		articleClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 			Enabled:              true,
@@ -700,3 +700,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 // 		}, 10*time.Second, 1*time.Second, "node3 doesn't have paragraph data")
 // 	})
 // }
+
+func boolP(b bool) *bool {
+	return &b
+}

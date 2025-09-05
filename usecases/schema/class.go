@@ -440,8 +440,12 @@ func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.Gl
 		setPropertyDefaults(prop)
 	}
 
+	truep := true
 	if class.ReplicationConfig == nil {
-		class.ReplicationConfig = &models.ReplicationConfig{Factor: int64(globalCfg.MinimumFactor)}
+		class.ReplicationConfig = &models.ReplicationConfig{Factor: int64(globalCfg.MinimumFactor), AsyncEnabled: &truep}
+	}
+	if class.ReplicationConfig.AsyncEnabled == nil {
+		class.ReplicationConfig.AsyncEnabled = &truep
 	}
 
 	if class.ReplicationConfig.Factor > 0 && class.ReplicationConfig.Factor < int64(globalCfg.MinimumFactor) {
