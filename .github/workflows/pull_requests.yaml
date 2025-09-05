@@ -358,9 +358,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      max-parallel: 4
       matrix:
         test: [
-          "--acceptance-only-fast",
+          "--acceptance-only-fast-group-1",
+          "--acceptance-only-fast-group-2",
+          "--acceptance-only-fast-group-3",
+          "--acceptance-only-fast-group-4",
           "--acceptance-only-graphql",
           "--acceptance-only-authz",
           "--acceptance-only-replication",
