@@ -61,6 +61,7 @@ func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float3
 // addOne adds a vector into one or more postings.
 // The number of replicas is determined by the UserConfig.Replicas setting.
 func (s *SPFresh) addOne(ctx context.Context, id uint64, vector []byte) error {
+	// TODO can this ever return 0 replicas even if a posting/centroid already exists?
 	replicas, _, err := s.selectReplicas(vector, 0)
 	if err != nil {
 		return err
@@ -69,6 +70,13 @@ func (s *SPFresh) addOne(ctx context.Context, id uint64, vector []byte) error {
 	s.VersionMap.AllocPageFor(id)
 
 	v := NewVector(id, s.VersionMap.Get(id), vector)
+	// if there are no postings found, ensure an initial posting is created
+	if len(replicas) == 0 {
+		replicas, err = s.ensureInitialPosting(ctx, v)
+		if err != nil {
+			return err
+		}
+	}
 
 	for _, replica := range replicas {
 		_, err = s.append(ctx, v, replica, false)
@@ -78,6 +86,32 @@ func (s *SPFresh) addOne(ctx context.Context, id uint64, vector []byte) error {
 	}
 
 	return nil
+}
+
+// ensureInitialPosting creates a new posting for Vector v if no replicas are found and ensures
+// using a critical section to avoid multiple initial postings being created concurrently.
+func (s *SPFresh) ensureInitialPosting(ctx context.Context, v Vector) ([]uint64, error) {
+	s.initialPostingLock.Lock()
+	defer s.initialPostingLock.Unlock()
+
+	// check if a posting was created concurrently
+	replicas, _, err := s.selectReplicas(v.Data(), 0)
+	if err != nil {
+		return nil, err
+	}
+	// if no replicas were found, create a new posting while holding the lock
+	if len(replicas) == 0 {
+		postingID := s.IDs.Next()
+		s.PostingSizes.AllocPageFor(postingID)
+		// use the vector as the centroid and register it in the SPTAG
+		err = s.SPTAG.Upsert(postingID, v.Data())
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
+		}
+		// return the new posting ID
+		replicas = append(replicas, postingID)
+	}
+	return replicas, nil
 }
 
 // append adds a vector to the specified posting.

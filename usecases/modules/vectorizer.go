@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -516,7 +517,9 @@ func (p *Provider) getVectorIndexConfig(class *models.Class, targetVector string
 	hnswConfig, okHnsw := vectorIndexConfig.(hnsw.UserConfig)
 	_, okFlat := vectorIndexConfig.(flat.UserConfig)
 	_, okDynamic := vectorIndexConfig.(dynamic.UserConfig)
-	if !(okHnsw || okFlat || okDynamic) {
+	// TODO why return hnsw instead of spfresh?
+	_, okSpfresh := vectorIndexConfig.(spfresh.UserConfig)
+	if !(okHnsw || okFlat || okDynamic || okSpfresh) {
 		return hnsw.UserConfig{}, fmt.Errorf(errorVectorIndexType, vectorIndexConfig)
 	}
 	return hnswConfig, nil

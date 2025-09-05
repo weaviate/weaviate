@@ -67,6 +67,42 @@ func OptionalIntFromMap(in map[string]interface{}, name string,
 	return nil
 }
 
+func OptionalFloat32FromMap(in map[string]interface{}, name string,
+	setFn func(v float32),
+) error {
+	value, ok := in[name]
+	if !ok {
+		return nil
+	}
+
+	// check for json number or float64
+	var asFloat64 float64
+	var err error
+
+	// depending on whether we get the results from disk or from the REST API,
+	// numbers may be represented slightly differently
+	switch typed := value.(type) {
+	case json.Number:
+		asFloat64, err = typed.Float64()
+	case float64:
+		asFloat64 = typed
+	case float32:
+		asFloat64 = float64(typed)
+	}
+	if err != nil {
+		// try to recover from error
+		if errors.Is(err, strconv.ErrRange) {
+			setFn(float32(math.MaxFloat32))
+			return nil
+		}
+
+		return errors.Wrapf(err, "json.Number to float64 for %q", name)
+	}
+
+	setFn(float32(asFloat64))
+	return nil
+}
+
 func OptionalBoolFromMap(in map[string]interface{}, name string,
 	setFn func(v bool),
 ) error {

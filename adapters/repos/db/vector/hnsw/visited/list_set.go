@@ -11,6 +11,8 @@
 
 package visited
 
+import "fmt"
+
 // ListSet is a reusable list with very efficient resets. Inspired by the C++
 // implementation in hnswlib it can be reset with zero memory writes in the
 // array by moving the match target instead of altering the list. Only after a
@@ -40,6 +42,7 @@ func NewList(size int) ListSet {
 // Visit sets element at node to the marker value
 func (l *ListSet) Visit(node uint64) {
 	if int(node) >= l.Len() { // resize
+		fmt.Println("NATEE ListSet.Visit resize", growth(len(l.set), int(node)+1024))
 		newset := make([]uint8, growth(len(l.set), int(node)+1024))
 		copy(newset, l.set)
 		l.set = newset
