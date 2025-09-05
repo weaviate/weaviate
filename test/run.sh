@@ -77,7 +77,7 @@ function main() {
               "--acceptance-only-python | -aop"\
               "--acceptance-go-client | -ag"\
               "--acceptance-go-client-only-fast | -agof"\
-              "--acceptance-go-client-named-vectors-single-node | -agnv"\
+              "--acceptance-go-client-named-vectors | -agnv"\
               "--acceptance-go-client-named-vectors-cluster | -agnvc"\
               "--acceptance-only-graphql | -aog"\
               "--acceptance-only-replication| -aor"\
