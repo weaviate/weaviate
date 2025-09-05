@@ -401,3 +401,93 @@ func TestSchema(t *testing.T) {
 		}
 	})
 }
+
+func TestShardsStatus_WithAlias(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("get shard status via alias - alias resolves to existing class", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		className := "RealClass"
+		aliasName := "TestAlias"
+		shardName := "shard1"
+		expectedStatus := models.ShardStatusList{
+			&models.ShardStatusGetResponse{
+				Name:   shardName,
+				Status: "READY",
+			},
+		}
+
+		// Mock the shard status retrieval with the resolved class name
+		fakeSchemaManager.On("GetShardsStatus", className, shardName).Return(expectedStatus, nil)
+
+		// Create a custom fakeSchemaManager with alias support
+		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
+			fakeSchemaManager: fakeSchemaManager,
+			aliasMap:          map[string]string{aliasName: className},
+		}
+		handler.schemaReader = fakeSchemaManagerWithAlias
+
+		status, err := handler.ShardsStatus(ctx, nil, aliasName, shardName)
+		require.NoError(t, err)
+		assert.Equal(t, expectedStatus, status)
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("get shard status via alias - alias resolves to empty (fallback to direct name)", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		aliasName := "NonExistentAlias"
+		shardName := "shard1"
+		expectedStatus := models.ShardStatusList{
+			&models.ShardStatusGetResponse{
+				Name:   shardName,
+				Status: "READY",
+			},
+		}
+
+		// Mock the shard status retrieval with the alias name (will be called since alias doesn't resolve)
+		fakeSchemaManager.On("GetShardsStatus", aliasName, shardName).Return(expectedStatus, nil)
+
+		// Create a custom fakeSchemaManager with empty alias resolution
+		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
+			fakeSchemaManager: fakeSchemaManager,
+			aliasMap:          map[string]string{}, // empty map
+		}
+		handler.schemaReader = fakeSchemaManagerWithAlias
+
+		status, err := handler.ShardsStatus(ctx, nil, aliasName, shardName)
+		require.NoError(t, err)
+		assert.Equal(t, expectedStatus, status)
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("get shard status via direct class name - no alias resolution needed", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		className := "RealClass"
+		shardName := "shard1"
+		expectedStatus := models.ShardStatusList{
+			&models.ShardStatusGetResponse{
+				Name:   shardName,
+				Status: "READY",
+			},
+		}
+
+		// Mock the direct shard status retrieval
+		fakeSchemaManager.On("GetShardsStatus", className, shardName).Return(expectedStatus, nil)
+
+		// Create a custom fakeSchemaManager (alias resolution returns empty for direct class names)
+		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
+			fakeSchemaManager: fakeSchemaManager,
+			aliasMap:          map[string]string{}, // empty map
+		}
+		handler.schemaReader = fakeSchemaManagerWithAlias
+
+		status, err := handler.ShardsStatus(ctx, nil, className, shardName)
+		require.NoError(t, err)
+		assert.Equal(t, expectedStatus, status)
+		fakeSchemaManager.AssertExpectations(t)
+	})
+}
