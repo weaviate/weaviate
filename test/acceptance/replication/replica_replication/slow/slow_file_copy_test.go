@@ -81,7 +81,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy(
 		paragraphClass.ShardingConfig = map[string]interface{}{"desiredCount": 1}
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:       1,
-			AsyncEnabled: false,
+			AsyncEnabled: boolP(true),
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
@@ -282,4 +282,8 @@ func createObjectThreadSafe(uri string, class string, properties map[string]inte
 	}
 
 	return nil
+}
+
+func boolP(b bool) *bool {
+	return &b
 }

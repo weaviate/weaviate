@@ -55,7 +55,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:           int64(clusterSize),
 			DeletionStrategy: models.ReplicationConfigDeletionStrategyTimeBasedResolution,
-			AsyncEnabled:     true,
+			AsyncEnabled:     boolP(true),
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 
@@ -117,4 +117,8 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 			require.Len(ct, resp, 0)
 		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})
+}
+
+func boolP(b bool) *bool {
+	return &b
 }
