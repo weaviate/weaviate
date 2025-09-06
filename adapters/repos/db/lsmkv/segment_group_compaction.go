@@ -555,7 +555,7 @@ func (sg *SegmentGroup) deleteOldSegmentsNonBlocking(segments ...*segment) error
 	allZero := false
 	t := time.NewTicker(100 * time.Millisecond)
 	for !allZero {
-		sg.maintenanceLock.RLock()
+		sg.segmentRefCounterLock.Lock()
 
 		allZero = true
 		for pos, seg := range segments {
@@ -567,7 +567,7 @@ func (sg *SegmentGroup) deleteOldSegmentsNonBlocking(segments ...*segment) error
 			}
 		}
 
-		sg.maintenanceLock.RUnlock()
+		sg.segmentRefCounterLock.Unlock()
 
 		<-t.C
 	}

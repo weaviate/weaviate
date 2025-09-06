@@ -50,6 +50,8 @@ type SegmentGroup struct {
 	// interacting with this lock for more details.
 	flushVsCompactLock sync.Mutex
 
+	segmentRefCounterLock sync.Mutex
+
 	strategy string
 
 	compactionCallbackCtrl cyclemanager.CycleCallbackCtrl
@@ -553,7 +555,8 @@ func (sg *SegmentGroup) add(path string) error {
 }
 
 func (sg *SegmentGroup) getAndLockSegments() (segments []Segment, release func()) {
-	sg.maintenanceLock.Lock()
+	sg.maintenanceLock.RLock()
+	sg.segmentRefCounterLock.Lock()
 
 	segments = make([]Segment, len(sg.segments))
 	copy(segments, sg.segments)
@@ -562,14 +565,17 @@ func (sg *SegmentGroup) getAndLockSegments() (segments []Segment, release func()
 		segments[i].incRef()
 	}
 
-	sg.maintenanceLock.Unlock()
+	sg.segmentRefCounterLock.Unlock()
+	sg.maintenanceLock.RUnlock()
 
 	return segments, func() {
-		sg.maintenanceLock.Lock()
+		sg.maintenanceLock.RLock()
+		sg.segmentRefCounterLock.Lock()
 		for i := range segments {
 			segments[i].decRef()
 		}
-		sg.maintenanceLock.Unlock()
+		sg.segmentRefCounterLock.Unlock()
+		sg.maintenanceLock.RUnlock()
 	}
 }
 
