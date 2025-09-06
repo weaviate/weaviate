@@ -51,6 +51,7 @@ type State struct {
 	nonStorageNodes      map[string]struct{}
 	delegate             delegate
 	maintenanceNodesLock sync.RWMutex
+	raftClient           RaftPeersServer
 }
 
 type Config struct {
@@ -112,7 +113,7 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 			Error("delegate init failed")
 	}
 	cfg.Delegate = &state.delegate
-	cfg.Events = events{&state.delegate}
+	cfg.Events = events{&state.delegate, state.raftClient, nonStorageNodes}
 	if userConfig.GossipBindPort != 0 {
 		cfg.BindPort = userConfig.GossipBindPort
 	}
@@ -406,4 +407,18 @@ func (s *State) nodeInMaintenanceMode(node string) bool {
 	defer s.maintenanceNodesLock.RUnlock()
 
 	return slices.Contains(s.config.MaintenanceNodes, node)
+}
+
+// SetRaftClient updates the RAFT client in the state
+// This should be called after the RAFT service is created and ready
+func (s *State) SetRaftClient(raftClient RaftPeersServer) {
+	s.raftClient = raftClient
+}
+
+// TODO: Remove this interface
+type RaftPeersServer interface {
+	Join(id string, addr string, voter bool) error
+	Notify(id string, addr string) error
+	Remove(id string) error
+	Leader() string
 }
