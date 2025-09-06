@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
@@ -101,16 +100,6 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 			errors = append(errors, fmt.Sprintf("leader(%s): %v", leader, err))
 		} else {
 			errors = append(errors, fmt.Sprintf("%s(%s): %v", name, addr, err))
-		}
-
-		// Add a small delay before trying the next node to allow services to start up
-		// This gives the gRPC retry policy time to work and prevents overwhelming
-		// nodes that might be starting up
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(50 * time.Millisecond):
-			// Continue to next node - minimal delay for rejoin scenarios
 		}
 	}
 

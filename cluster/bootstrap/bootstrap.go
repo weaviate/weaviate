@@ -149,14 +149,6 @@ func (b *Bootstrapper) notify(ctx context.Context, remoteNodes map[string]string
 			continue
 		}
 		successCount++
-
-		// Add a small delay between notifications to prevent overwhelming nodes
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(50 * time.Millisecond):
-			// Continue to next node
-		}
 	}
 
 	// If we successfully notified at least one node, don't fail the entire bootstrap
