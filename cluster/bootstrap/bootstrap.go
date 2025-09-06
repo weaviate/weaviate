@@ -15,13 +15,16 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	entSentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // PeerJoiner is the interface we expect to be able to talk to the other peers to either Join or Notify them
@@ -83,11 +86,6 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 			}
 
 			remoteNodes := ResolveRemoteNodes(b.addrResolver, serverPortMap)
-			// We were not able to resolve any nodes to an address
-			if len(remoteNodes) == 0 {
-				lg.WithField("action", "bootstrap").WithField("join_list", serverPortMap).Warn("unable to resolve any node address to join")
-				continue
-			}
 
 			// Always try to join an existing cluster first
 			joiner := NewJoiner(b.peerJoiner, b.localNodeID, b.localRaftAddr, b.voter)
@@ -138,18 +136,45 @@ func (b *Bootstrapper) notify(ctx context.Context, remoteNodes map[string]string
 		span.SetData("servers", remoteNodes)
 		defer span.Finish()
 	}
-	for _, addr := range remoteNodes {
+
+	var errors []string
+	var successCount int
+	for name, addr := range remoteNodes {
 		req := &cmd.NotifyPeerRequest{Id: b.localNodeID, Address: b.localRaftAddr}
 		_, err = b.peerJoiner.Notify(ctx, addr, req)
 		if err != nil {
-			return err
+			// Collect the error but don't immediately fail - continue trying other nodes
+			// This allows the cluster to bootstrap even if some nodes are temporarily unavailable
+			errors = append(errors, fmt.Sprintf("%s(%s): %v", name, addr, err))
+			continue
+		}
+		successCount++
+
+		// Add a small delay between notifications to prevent overwhelming nodes
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+			// Continue to next node
 		}
 	}
-	return
+
+	// If we successfully notified at least one node, don't fail the entire bootstrap
+	if successCount > 0 {
+		return nil
+	}
+
+	// If all notifications failed, return a joined error message
+	if len(errors) > 0 {
+		return fmt.Errorf("failed to notify any nodes: %s", strings.Join(errors, "; "))
+	}
+
+	return nil
 }
 
 // ResolveRemoteNodes returns a list of remoteNodes addresses resolved using addrResolver. The nodes id used are
-// taken from serverPortMap keys and ports from the values
+// taken from serverPortMap keys and ports from the values. Additionally, it includes nodes discovered via memberlist
+// to handle cases where the join config is incomplete.
 func ResolveRemoteNodes(addrResolver resolver.ClusterStateReader, serverPortMap map[string]int) map[string]string {
 	candidates := make(map[string]string, len(serverPortMap))
 	for name, raftPort := range serverPortMap {
@@ -157,6 +182,15 @@ func ResolveRemoteNodes(addrResolver resolver.ClusterStateReader, serverPortMap 
 			candidates[name] = fmt.Sprintf("%s:%d", addr, raftPort)
 		}
 	}
+
+	memberlistNodes := addrResolver.AllClusterMembers(config.DefaultRaftPort)
+	for name, addr := range memberlistNodes {
+		// Only add memberlist nodes that are NOT already in the join configuration
+		if _, exists := serverPortMap[name]; !exists {
+			candidates[name] = addr
+		}
+	}
+
 	return candidates
 }
 

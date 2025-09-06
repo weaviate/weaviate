@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
@@ -41,16 +42,16 @@ type NodeSelector interface {
 	// NodeHostname return hosts address for a specific node name
 	NodeHostname(name string) (string, bool)
 	AllHostnames() []string
+	AllClusterMembers(raftPort int) map[string]string
 }
 
 type State struct {
-	config Config
-	// that lock to serialize access to memberlist
-	listLock             sync.RWMutex
+	config               Config
 	list                 *memberlist.Memberlist
 	nonStorageNodes      map[string]struct{}
 	delegate             delegate
 	maintenanceNodesLock sync.RWMutex
+	raftClient           RaftPeersServer
 }
 
 type Config struct {
@@ -112,7 +113,7 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 			Error("delegate init failed")
 	}
 	cfg.Delegate = &state.delegate
-	cfg.Events = events{&state.delegate}
+	cfg.Events = events{&state.delegate, state.raftClient, nonStorageNodes}
 	if userConfig.GossipBindPort != 0 {
 		cfg.BindPort = userConfig.GossipBindPort
 	}
@@ -126,7 +127,8 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 	}
 
 	if userConfig.FastFailureDetection {
-		cfg.SuspicionMult = 1
+		cfg.DeadNodeReclaimTime = 15 * time.Second
+		cfg.SuspicionMult = 2
 	}
 
 	if state.list, err = memberlist.Create(cfg); err != nil {
@@ -169,9 +171,6 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 // Hostnames for all live members, except self. Use AllHostnames to include
 // self, prefixes the data port.
 func (s *State) Hostnames() []string {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -191,9 +190,6 @@ func (s *State) Hostnames() []string {
 
 // AllHostnames for live members, including self.
 func (s *State) AllHostnames() []string {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	if s.list == nil {
 		return []string{}
 	}
@@ -212,9 +208,6 @@ func (s *State) AllHostnames() []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) AllNames() []string {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -230,9 +223,6 @@ func (s *State) storageNodes() []string {
 	if len(s.nonStorageNodes) == 0 {
 		return s.AllNames()
 	}
-
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
 
 	members := s.list.Members()
 	out := make([]string, len(members))
@@ -271,34 +261,44 @@ func (s *State) SortCandidates(nodes []string) []string {
 	return s.delegate.sortCandidates(nodes)
 }
 
+// AllClusterMembers returns all cluster members discovered via memberlist with their raft addresses
+// This is useful for bootstrap when the join config is incomplete
+func (s *State) AllClusterMembers(raftPort int) map[string]string {
+	if s.list == nil {
+		return map[string]string{}
+	}
+
+	members := s.list.Members()
+	result := make(map[string]string, len(members))
+
+	for _, m := range members {
+		// Skip self
+		if m.Name == s.list.LocalNode().Name {
+			continue
+		}
+		result[m.Name] = fmt.Sprintf("%s:%d", m.Addr.String(), raftPort)
+	}
+
+	return result
+}
+
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) NodeCount() int {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	return s.list.NumMembers()
 }
 
 // LocalName() return local node name
 func (s *State) LocalName() string {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	return s.list.LocalNode().Name
 }
 
 func (s *State) ClusterHealthScore() int {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	return s.list.GetHealthScore()
 }
 
 func (s *State) NodeHostname(nodeName string) (string, bool) {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
-	for _, mem := range s.list.Members() {
+	members := s.list.Members()
+	for _, mem := range members {
 		if mem.Name == nodeName {
 			// TODO: how can we find out the actual data port as opposed to relying on
 			// the convention that it's 1 higher than the gossip port
@@ -306,22 +306,13 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 		}
 	}
 
-	return "", false
-}
-
-// NodeAddress is used to resolve the node name into an ip address without the port
-// TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
-func (s *State) NodeAddress(id string) string {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	// network interruption detection which can cause a single node to be isolated from the cluster (split brain)
-	nodeCount := s.list.NumMembers()
+	nodeCount := len(members)
 	var joinAddr []string
 	if s.config.Join != "" {
 		joinAddr = strings.Split(s.config.Join, ",")
 	}
-	if nodeCount == 1 && len(joinAddr) > 0 && s.config.RaftBootstrapExpect > 1 {
+	if nodeCount <= s.config.RaftBootstrapExpect && s.config.RaftBootstrapExpect > 1 && len(joinAddr) > 0 {
 		s.delegate.log.WithFields(logrus.Fields{
 			"action":     "memberlist_rejoin",
 			"node_count": nodeCount,
@@ -341,12 +332,27 @@ func (s *State) NodeAddress(id string) string {
 		}
 	}
 
+	// redo again to get after rejoin
 	for _, mem := range s.list.Members() {
-		if mem.Name == id {
-			return mem.Addr.String()
+		if mem.Name == nodeName {
+			// TODO: how can we find out the actual data port as opposed to relying on
+			// the convention that it's 1 higher than the gossip port
+			return fmt.Sprintf("%s:%d", mem.Addr.String(), mem.Port+1), true
 		}
 	}
-	return ""
+
+	return "", false
+}
+
+// NodeAddress is used to resolve the node name into an ip address without the port
+// TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
+func (s *State) NodeAddress(id string) string {
+	addr, ok := s.NodeHostname(id)
+	if !ok {
+		return ""
+	}
+
+	return strings.Split(addr, ":")[0] // get address without port
 }
 
 func (s *State) SchemaSyncIgnored() bool {
@@ -401,4 +407,18 @@ func (s *State) nodeInMaintenanceMode(node string) bool {
 	defer s.maintenanceNodesLock.RUnlock()
 
 	return slices.Contains(s.config.MaintenanceNodes, node)
+}
+
+// SetRaftClient updates the RAFT client in the state
+// This should be called after the RAFT service is created and ready
+func (s *State) SetRaftClient(raftClient RaftPeersServer) {
+	s.raftClient = raftClient
+}
+
+// TODO: Remove this interface
+type RaftPeersServer interface {
+	Join(id string, addr string, voter bool) error
+	Notify(id string, addr string) error
+	Remove(id string) error
+	Leader() string
 }
