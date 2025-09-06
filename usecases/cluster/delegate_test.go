@@ -212,10 +212,12 @@ func TestDelegateSort(t *testing.T) {
 }
 
 func TestDelegateCleanUp(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 	st := State{
 		delegate: delegate{
 			Name:     "N0",
 			dataPath: ".",
+			log:      logger,
 		},
 	}
 	diskSpace := func(path string) (DiskUsage, error) {
@@ -227,8 +229,8 @@ func TestDelegateCleanUp(t *testing.T) {
 	st.delegate.set("N1", NodeInfo{LastTimeMilli: 1})
 	st.delegate.set("N2", NodeInfo{LastTimeMilli: 2})
 	handler := events{&st.delegate, nil, nil}
-	handler.NotifyJoin(nil)
-	handler.NotifyUpdate(nil)
+	handler.NotifyJoin(&memberlist.Node{})
+	handler.NotifyUpdate(&memberlist.Node{})
 	handler.NotifyLeave(&memberlist.Node{Name: "N0"})
 	handler.NotifyLeave(&memberlist.Node{Name: "N1"})
 	handler.NotifyLeave(&memberlist.Node{Name: "N2"})
