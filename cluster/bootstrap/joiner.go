@@ -89,12 +89,6 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 
 		// Log the error but don't immediately give up
 		st := status.Convert(err)
-		lg.WithFields(logrus.Fields{
-			"node":    name,
-			"address": addr,
-			"error":   err,
-			"code":    st.Code(),
-		}).Debug("failed to join node")
 
 		// Get the leader from response and if not empty try to join it
 		if leader := resp.GetLeader(); st.Code() == codes.ResourceExhausted && leader != "" {
@@ -115,8 +109,8 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
-		case <-time.After(100 * time.Millisecond):
-			// Continue to next node
+		case <-time.After(50 * time.Millisecond):
+			// Continue to next node - minimal delay for rejoin scenarios
 		}
 	}
 
