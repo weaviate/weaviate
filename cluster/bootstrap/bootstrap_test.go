@@ -120,7 +120,7 @@ func TestBootstrapper(t *testing.T) {
 			b := NewBootstrapper(m, "RID", "ADDR", test.voter, mocks.NewMockNodeSelector(nodesSlice...), test.isReady)
 			b.retryPeriod = time.Millisecond
 			b.jitter = time.Millisecond
-			ctx, cancel := context.WithTimeout(ctx, time.Second)
+			ctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 			logger, _ := logrustest.NewNullLogger()
 
 			// Do the bootstrap
