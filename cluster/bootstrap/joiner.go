@@ -14,6 +14,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -58,6 +59,7 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 
 	var resp *cmd.JoinPeerResponse
 	var err error
+	var errors []string
 	req := &cmd.JoinPeerRequest{Id: j.localNodeID, Address: j.localRaftAddr, Voter: j.voter}
 
 	// For each server, try to join.
@@ -102,6 +104,9 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 				return leader, nil
 			}
 			lg.WithField("leader", leader).WithError(err).Info("attempted to follow to leader and failed")
+			errors = append(errors, fmt.Sprintf("leader(%s): %v", leader, err))
+		} else {
+			errors = append(errors, fmt.Sprintf("%s(%s): %v", name, addr, err))
 		}
 
 		// Add a small delay before trying the next node to allow services to start up
@@ -110,9 +115,14 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
-		case <-time.After(500 * time.Millisecond):
+		case <-time.After(100 * time.Millisecond):
 			// Continue to next node
 		}
+	}
+
+	// Return a joined error message with all failed attempts
+	if len(errors) > 0 {
+		return "", fmt.Errorf("could not join a cluster from %v: %s", remoteNodes, strings.Join(errors, "; "))
 	}
 	return "", fmt.Errorf("could not join a cluster from %v", remoteNodes)
 }
