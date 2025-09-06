@@ -114,12 +114,13 @@ func (b *Bucket) CursorInMem() *CursorReplace {
 // already persisted on disk.
 // New segments can still be created but compaction will be prevented
 // while any cursor remains active
+// TODO
 func (b *Bucket) CursorOnDisk() *CursorReplace {
 	if b.strategy != StrategyReplace {
 		panic("CursorWith(desiredSecondaryIndexCount) called on strategy other than 'replace'")
 	}
 
-	innerCursors, unlockSegmentGroup := b.disk.newCursorsWithFlushingSupport()
+	innerCursors, unlockSegmentGroup := b.disk.newCursors()
 
 	return &CursorReplace{
 		innerCursors: innerCursors,

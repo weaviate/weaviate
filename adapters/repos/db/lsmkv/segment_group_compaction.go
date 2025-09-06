@@ -555,7 +555,6 @@ func (sg *SegmentGroup) deleteOldSegmentsNonBlocking(segments ...*segment) error
 	allZero := false
 	t := time.NewTicker(100 * time.Millisecond)
 	for !allZero {
-		sg.cursorsLock.RLock()
 		sg.maintenanceLock.RLock()
 
 		allZero = true
@@ -569,7 +568,6 @@ func (sg *SegmentGroup) deleteOldSegmentsNonBlocking(segments ...*segment) error
 		}
 
 		sg.maintenanceLock.RUnlock()
-		sg.cursorsLock.RUnlock()
 
 		<-t.C
 	}

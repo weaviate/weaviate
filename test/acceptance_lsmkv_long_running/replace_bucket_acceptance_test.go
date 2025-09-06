@@ -72,7 +72,7 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 
 	defer bucket.Shutdown(ctx)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	results := make([]result, workers)
@@ -103,15 +103,19 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 		totalIngested += r.ingested
 		totalSpotChecks += r.getSpotChecks
 
+		fmt.Printf("Put\n")
 		for r.worstPutQueries.Len() > 0 {
 			tookMs := r.worstPutQueries.Pop().Dist * 1000
+			fmt.Printf("tookMs: %.2f\n", tookMs)
 			if tookMs > float32(putThreshold.Milliseconds()) {
 				putOutsideThreshold = append(putOutsideThreshold, tookMs)
 			}
 		}
 
+		fmt.Printf("Get\n")
 		for r.worstGetQueries.Len() > 0 {
 			tookMs := r.worstGetQueries.Pop().Dist * 1000
+			fmt.Printf("tookMs: %.2f\n", tookMs)
 			if tookMs > float32(getThreshold.Milliseconds()) {
 				getOutsideThreshold = append(getOutsideThreshold, tookMs)
 			}
@@ -242,6 +246,10 @@ func worker(ctx context.Context, t *testing.T, mode *mode, wg *sync.WaitGroup, w
 		// read mode
 		j := 0
 		for j < i {
+			if mode.isWrite() || ctx.Err() != nil {
+				break
+			}
+
 			before := time.Now()
 			val, err := bucket.Get([]byte(fmt.Sprintf("worker-%d-key-%d", workerID, j)))
 			if err != nil {

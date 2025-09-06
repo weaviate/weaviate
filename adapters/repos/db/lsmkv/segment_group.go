@@ -44,10 +44,6 @@ type SegmentGroup struct {
 	maintenanceLock sync.RWMutex
 	dir             string
 
-	cursorsLock      sync.RWMutex
-	activeCursors    int
-	enqueuedSegments []Segment
-
 	// flushVsCompactLock is a simple synchronization mechanism between the
 	// compaction and flush cycle. In general, those are independent, however,
 	// there are parts of it that are not. See the comments of the routines
@@ -557,40 +553,27 @@ func (sg *SegmentGroup) add(path string) error {
 }
 
 func (sg *SegmentGroup) getAndLockSegments() (segments []Segment, release func()) {
-	sg.cursorsLock.Lock()
 	sg.maintenanceLock.Lock()
 
-	segments = make([]Segment, 0, len(sg.segments)+len(sg.enqueuedSegments))
-	segments = append(segments, sg.segments...)
-	segments = append(segments, sg.enqueuedSegments...)
+	segments = make([]Segment, len(sg.segments))
+	copy(segments, sg.segments)
 
 	for i := range segments {
 		segments[i].incRef()
 	}
 
 	sg.maintenanceLock.Unlock()
-	sg.cursorsLock.Unlock()
 
 	return segments, func() {
-		sg.cursorsLock.Lock()
 		sg.maintenanceLock.Lock()
 		for i := range segments {
 			segments[i].decRef()
 		}
 		sg.maintenanceLock.Unlock()
-		sg.cursorsLock.Unlock()
 	}
 }
 
 func (sg *SegmentGroup) addInitializedSegment(segment *segment) error {
-	sg.cursorsLock.Lock()
-	defer sg.cursorsLock.Unlock()
-
-	if sg.activeCursors > 0 {
-		sg.enqueuedSegments = append(sg.enqueuedSegments, segment)
-		return nil
-	}
-
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 
@@ -824,13 +807,6 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	}
 	if err := sg.segmentCleaner.close(); err != nil {
 		return err
-	}
-
-	sg.cursorsLock.Lock()
-	defer sg.cursorsLock.Unlock()
-
-	for _, seg := range sg.enqueuedSegments {
-		seg.close()
 	}
 
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
