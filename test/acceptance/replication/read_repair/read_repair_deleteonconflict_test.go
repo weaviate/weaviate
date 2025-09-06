@@ -15,9 +15,9 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
@@ -28,21 +28,18 @@ import (
 
 func (suite *ReplicationTestSuite) TestReadRepairDeleteOnConflict() {
 	t := suite.T()
-	mainCtx := context.Background()
+	ctx := context.Background()
 
 	compose, err := docker.New().
 		With3NodeCluster().
 		WithText2VecContextionary().
-		Start(mainCtx)
+		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
+		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
-
-	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
-	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
