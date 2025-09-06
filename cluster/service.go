@@ -117,6 +117,10 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	}
 }
 
+func (c *Service) RPCServer() *Store {
+	return c.Raft.store
+}
+
 func (c *Service) onFSMCaughtUp(ctx context.Context) {
 	if !c.config.ReplicaMovementEnabled {
 		return

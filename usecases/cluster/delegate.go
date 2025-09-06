@@ -20,10 +20,10 @@ import (
 	"sync"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/hashicorp/memberlist"
 	"github.com/sirupsen/logrus"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // _OpCode represents the type of supported operation
@@ -286,20 +286,94 @@ func (d *delegate) updater(period, minPeriod time.Duration, du func(path string)
 // delegate may be called by multiple goroutines, but never concurrently.
 // This allows you to reason about ordering.
 type events struct {
-	d *delegate
+	d               *delegate
+	raft            RaftPeersServer
+	nonStorageNodes map[string]struct{}
 }
 
 // NotifyJoin is invoked when a node is detected to have joined.
 // The Node argument must not be modified.
-func (e events) NotifyJoin(*memberlist.Node) {}
+func (e events) NotifyJoin(node *memberlist.Node) {
+	e.d.log.WithField("member", node.Name).
+		Info("member joined cluster")
+
+	if e.raft == nil || e.raft.Leader() != e.d.Name {
+		return
+	}
+
+	_, voter := e.nonStorageNodes[node.Name]
+	raftAddr := fmt.Sprintf("%s:%d", node.Addr.String(), 8300) // TODO import cycle config
+
+	if err := e.raft.Join(node.Name, raftAddr, voter); err != nil {
+		e.d.log.WithFields(logrus.Fields{
+			"member":   node.Name,
+			"raftAddr": raftAddr,
+			"voter":    voter,
+			"error":    err,
+		}).Error("failed to join member to RAFT cluster")
+	} else {
+		e.d.log.WithFields(logrus.Fields{
+			"member":   node.Name,
+			"raftAddr": raftAddr,
+			"voter":    voter,
+		}).Info("successfully joined member to RAFT cluster")
+	}
+}
 
 // NotifyLeave is invoked when a node is detected to have left.
 // The Node argument must not be modified.
 func (e events) NotifyLeave(node *memberlist.Node) {
+	// delete from cache
 	e.d.delete(node.Name)
+	e.d.log.WithField("member", node.Name).
+		Info("member left cluster")
+
+	if e.raft == nil || e.raft.Leader() != e.d.Name {
+		return
+	}
+
+	if err := e.raft.Remove(node.Name); err != nil {
+		e.d.log.WithFields(logrus.Fields{
+			"member": node.Name,
+			"error":  err,
+		}).Error("failed to remove member from RAFT cluster")
+	} else {
+		e.d.log.WithFields(logrus.Fields{
+			"member": node.Name,
+		}).Info("successfully removed member from RAFT cluster")
+	}
+
 }
 
 // NotifyUpdate is invoked when a node is detected to have
 // updated, usually involving the meta data. The Node argument
 // must not be modified.
-func (e events) NotifyUpdate(*memberlist.Node) {}
+func (e events) NotifyUpdate(node *memberlist.Node) {
+	e.d.log.WithField("member", node.Name).
+		Debug("member updated")
+
+	if e.raft == nil || e.raft.Leader() != e.d.Name {
+		return
+	}
+	_, voter := e.nonStorageNodes[node.Name]
+	raftAddr := fmt.Sprintf("%s:%d", node.Addr.String(), 8300) // TODO import cycle config
+	// TODO hack for now
+	if len(e.nonStorageNodes) == 0 {
+		voter = true
+	}
+
+	if err := e.raft.Join(node.Name, raftAddr, voter); err != nil {
+		e.d.log.WithFields(logrus.Fields{
+			"member":   node.Name,
+			"raftAddr": raftAddr,
+			"voter":    voter,
+			"error":    err,
+		}).Error("failed to update member in RAFT cluster")
+	} else {
+		e.d.log.WithFields(logrus.Fields{
+			"member":   node.Name,
+			"raftAddr": raftAddr,
+			"voter":    voter,
+		}).Info("successfully updated member in RAFT cluster")
+	}
+}
