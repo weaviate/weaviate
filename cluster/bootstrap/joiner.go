@@ -14,6 +14,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
@@ -64,27 +65,53 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 	// If we have an error check for err == NOT_FOUND and leader != "" -> we contacted a non-leader node part of the
 	// cluster, let's join the leader.
 	// If no server allows us to join a cluster, return an error
+	// For each server, try to join with retry logic and backoff.
+	// The gRPC client has its own retry policy, but we add additional backoff
+	// between different nodes to allow services to start up.
 	for name, addr := range remoteNodes {
 		if name == j.localNodeID {
 			continue
 		}
+
 		lg.WithFields(logrus.Fields{
 			"remoteNodes": remoteNodes,
 			"node":        name,
 			"address":     addr,
 		}).Info("attempting to join")
+
+		// Try to join this node - gRPC client will handle retries for this specific node
 		resp, err = j.peerJoiner.Join(ctx, addr, req)
 		if err == nil {
 			return addr, nil
 		}
+
+		// Log the error but don't immediately give up
 		st := status.Convert(err)
+		lg.WithFields(logrus.Fields{
+			"node":    name,
+			"address": addr,
+			"error":   err,
+			"code":    st.Code(),
+		}).Debug("failed to join node")
+
 		// Get the leader from response and if not empty try to join it
 		if leader := resp.GetLeader(); st.Code() == codes.ResourceExhausted && leader != "" {
+			lg.WithField("leader", leader).Info("attempting to join leader")
 			_, err = j.peerJoiner.Join(ctx, leader, req)
 			if err == nil {
 				return leader, nil
 			}
 			lg.WithField("leader", leader).WithError(err).Info("attempted to follow to leader and failed")
+		}
+
+		// Add a small delay before trying the next node to allow services to start up
+		// This gives the gRPC retry policy time to work and prevents overwhelming
+		// nodes that might be starting up
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+			// Continue to next node
 		}
 	}
 	return "", fmt.Errorf("could not join a cluster from %v", remoteNodes)

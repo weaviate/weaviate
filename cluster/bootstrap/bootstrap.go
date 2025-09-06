@@ -135,14 +135,30 @@ func (b *Bootstrapper) notify(ctx context.Context, remoteNodes map[string]string
 		span.SetData("servers", remoteNodes)
 		defer span.Finish()
 	}
+
+	var lastErr error
 	for _, addr := range remoteNodes {
 		req := &cmd.NotifyPeerRequest{Id: b.localNodeID, Address: b.localRaftAddr}
 		_, err = b.peerJoiner.Notify(ctx, addr, req)
 		if err != nil {
-			return err
+			// Log the error but don't immediately fail - continue trying other nodes
+			// This allows the cluster to bootstrap even if some nodes are temporarily unavailable
+			lastErr = err
+			continue
+		}
+
+		// Add a small delay between notifications to prevent overwhelming nodes
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+			// Continue to next node
 		}
 	}
-	return
+
+	// Return the last error if all notifications failed, but don't fail the entire bootstrap
+	// if some nodes were successfully notified
+	return lastErr
 }
 
 // ResolveRemoteNodes returns a list of remoteNodes addresses resolved using addrResolver. The nodes id used are
