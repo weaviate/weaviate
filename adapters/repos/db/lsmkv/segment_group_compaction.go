@@ -477,13 +477,13 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 	leftSegment := sg.segments[old1]
 	rightSegment := sg.segments[old2]
 
-	if err := leftSegment.close(); err != nil {
-		return nil, nil, errors.Wrap(err, "close disk segment")
-	}
+	// if err := leftSegment.close(); err != nil {
+	// 	return nil, nil, errors.Wrap(err, "close disk segment")
+	// }
 
-	if err := rightSegment.close(); err != nil {
-		return nil, nil, errors.Wrap(err, "close disk segment")
-	}
+	// if err := rightSegment.close(); err != nil {
+	// 	return nil, nil, errors.Wrap(err, "close disk segment")
+	// }
 
 	if err := leftSegment.markForDeletion(); err != nil {
 		return nil, nil, errors.Wrap(err, "drop disk segment")
@@ -551,7 +551,35 @@ func (sg *SegmentGroup) deleteOldSegmentsNonBlocking(segments ...*segment) error
 	// At this point those segments are no longer used, so we can drop them
 	// without holding the maintenance lock and therefore not block readers.
 
+	// wait for all segments to be at zero references
+	allZero := false
+	t := time.NewTicker(100 * time.Millisecond)
+	for !allZero {
+		sg.cursorsLock.RLock()
+		sg.maintenanceLock.RLock()
+
+		allZero = true
+		for pos, seg := range segments {
+			if refs := seg.getRefs(); refs != 0 {
+				fmt.Printf("---- segment at pos %d still has %d refs\n", pos, refs)
+				allZero = false
+				t.Stop()
+				break
+			}
+		}
+
+		sg.maintenanceLock.RUnlock()
+		sg.cursorsLock.RUnlock()
+
+		<-t.C
+	}
+
+	// it is now safe to close and drop them
 	for pos, seg := range segments {
+		if err := seg.close(); err != nil {
+			return fmt.Errorf("close segment at pos %d: %w", pos, err)
+		}
+
 		if err := seg.dropMarked(); err != nil {
 			return fmt.Errorf("drop segment at pos %d: %w", pos, err)
 		}

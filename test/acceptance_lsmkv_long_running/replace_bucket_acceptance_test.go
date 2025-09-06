@@ -31,8 +31,8 @@ import (
 )
 
 func TestLSMKV_ReplaceBucket(t *testing.T) {
-	putThreshold := 1000 * time.Millisecond
-	getThreshold := 500 * time.Millisecond
+	putThreshold := 100 * time.Millisecond
+	getThreshold := 50 * time.Millisecond
 
 	writeDuration := time.Minute
 	readDuration := time.Minute

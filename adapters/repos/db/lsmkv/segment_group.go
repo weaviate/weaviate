@@ -557,24 +557,28 @@ func (sg *SegmentGroup) add(path string) error {
 }
 
 func (sg *SegmentGroup) getAndLockSegments() (segments []Segment, release func()) {
-	sg.cursorsLock.RLock()
-	sg.maintenanceLock.RLock()
-
-	if len(sg.enqueuedSegments) == 0 {
-		return sg.segments, func() {
-			sg.cursorsLock.RUnlock()
-			sg.maintenanceLock.RUnlock()
-		}
-	}
+	sg.cursorsLock.Lock()
+	sg.maintenanceLock.Lock()
 
 	segments = make([]Segment, 0, len(sg.segments)+len(sg.enqueuedSegments))
-
 	segments = append(segments, sg.segments...)
 	segments = append(segments, sg.enqueuedSegments...)
 
+	for i := range segments {
+		segments[i].incRef()
+	}
+
+	sg.maintenanceLock.Unlock()
+	sg.cursorsLock.Unlock()
+
 	return segments, func() {
-		sg.cursorsLock.RUnlock()
-		sg.maintenanceLock.RUnlock()
+		sg.cursorsLock.Lock()
+		sg.maintenanceLock.Lock()
+		for i := range segments {
+			segments[i].decRef()
+		}
+		sg.maintenanceLock.Unlock()
+		sg.cursorsLock.Unlock()
 	}
 }
 

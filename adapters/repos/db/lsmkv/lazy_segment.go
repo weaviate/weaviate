@@ -272,3 +272,18 @@ func (s *lazySegment) numberFromPath(str string) (int, bool) {
 	}
 	return 0, false
 }
+
+func (s *lazySegment) incRef() {
+	s.mustLoad()
+	s.segment.incRef()
+}
+
+func (s *lazySegment) decRef() {
+	s.mustLoad()
+	s.segment.decRef()
+}
+
+func (s *lazySegment) getRefs() int {
+	s.mustLoad()
+	return s.segment.getRefs()
+}
