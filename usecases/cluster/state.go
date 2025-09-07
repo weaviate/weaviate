@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
@@ -98,6 +99,7 @@ func (ba BasicAuth) Enabled() bool {
 func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
 	userConfig.RaftBootstrapExpect = raftBootstrapExpect
 	cfg := memberlist.DefaultLANConfig()
+	cfg.DeadNodeReclaimTime = 30 * time.Second
 	cfg.LogOutput = newLogParser(logger)
 	cfg.Name = userConfig.Hostname
 	state := State{
@@ -130,7 +132,6 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 	}
 
 	if userConfig.FastFailureDetection {
-		// cfg.DeadNodeReclaimTime = 15 * time.Second
 		cfg.SuspicionMult = 1
 	}
 
