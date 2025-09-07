@@ -342,7 +342,6 @@ func (e events) NotifyLeave(node *memberlist.Node) {
 			"member": node.Name,
 		}).Info("successfully removed member from RAFT cluster")
 	}
-
 }
 
 // NotifyUpdate is invoked when a node is detected to have
@@ -376,4 +375,15 @@ func (e events) NotifyUpdate(node *memberlist.Node) {
 			"voter":    voter,
 		}).Info("successfully updated member in RAFT cluster")
 	}
+}
+
+// ConflictDelegate is a used to inform a client that
+// a node has attempted to join which would result in a
+// name conflict. This happens if two clients are configured
+// with the same name but different addresses.
+func (e events) NotifyConflict(existing, other *memberlist.Node) {
+	e.d.log.WithField("member", existing.Name).
+		Info("member conflict")
+	e.NotifyLeave(existing)
+	e.NotifyJoin(other)
 }

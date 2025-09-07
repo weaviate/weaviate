@@ -114,7 +114,9 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 			Error("delegate init failed")
 	}
 	cfg.Delegate = &state.delegate
-	cfg.Events = events{&state.delegate, state.raftClient, nonStorageNodes}
+	events := events{&state.delegate, state.raftClient, nonStorageNodes}
+	cfg.Events = events
+	cfg.Conflict = events
 	if userConfig.GossipBindPort != 0 {
 		cfg.BindPort = userConfig.GossipBindPort
 	}
