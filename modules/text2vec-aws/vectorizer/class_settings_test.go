@@ -84,15 +84,29 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("region cannot be empty"),
 		},
 		{
-			name: "wrong model",
+			name: "any model name",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"service": "bedrock",
 					"region":  "us-west-1",
-					"model":   "wrong-model",
+					"model":   "any-model-name",
 				},
 			},
-			wantErr: errors.Errorf("wrong model, available models are: [amazon.titan-embed-text-v1 amazon.titan-embed-text-v2:0 cohere.embed-english-v3 cohere.embed-multilingual-v3]"),
+			wantService: "bedrock",
+			wantRegion:  "us-west-1",
+			wantModel:   "any-model-name",
+			wantErr:     nil,
+		},
+		{
+			name: "empty model",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"service": "bedrock",
+					"region":  "us-west-1",
+					"model":   "",
+				},
+			},
+			wantErr: errors.Errorf("model has to be defined"),
 		},
 		{
 			name: "all wrong",
