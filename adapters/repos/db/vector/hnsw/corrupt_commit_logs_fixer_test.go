@@ -23,7 +23,7 @@ func TestCorruptCommitLogFixer_Do(t *testing.T) {
 	t.Run("keeps normal files without condensed counterpart", func(t *testing.T) {
 		tmp := t.TempDir()
 		f1 := filepath.Join(tmp, "commit1.log")
-		require.Nil(t, os.WriteFile(f1, []byte("test"), 0644))
+		require.Nil(t, os.WriteFile(f1, []byte("test"), 0o644))
 
 		fixer := NewCorruptedCommitLogFixer()
 		files, err := fixer.Do([]string{f1})
@@ -34,7 +34,7 @@ func TestCorruptCommitLogFixer_Do(t *testing.T) {
 	t.Run("keeps .condensed files", func(t *testing.T) {
 		tmp := t.TempDir()
 		f := filepath.Join(tmp, "commit3.log.condensed")
-		require.Nil(t, os.WriteFile(f, []byte("condensed"), 0644))
+		require.Nil(t, os.WriteFile(f, []byte("condensed"), 0o644))
 
 		fixer := NewCorruptedCommitLogFixer()
 		files, err := fixer.Do([]string{f})
@@ -46,8 +46,8 @@ func TestCorruptCommitLogFixer_Do(t *testing.T) {
 		tmp := t.TempDir()
 		f := filepath.Join(tmp, "commit4.log")
 		cf := filepath.Join(tmp, "commit4.log.condensed")
-		require.Nil(t, os.WriteFile(f, []byte("uncondensed"), 0644))
-		require.Nil(t, os.WriteFile(cf, []byte("condensed"), 0644))
+		require.Nil(t, os.WriteFile(f, []byte("uncondensed"), 0o644))
+		require.Nil(t, os.WriteFile(cf, []byte("condensed"), 0o644))
 
 		fixer := NewCorruptedCommitLogFixer()
 		files, err := fixer.Do([]string{f, cf})
