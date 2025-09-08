@@ -338,6 +338,7 @@ function run_acceptance_tests() {
 }
 
 function run_acceptance_only_fast_group() {
+  # needed for test/docker package during replication tests
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
 
   # NOTE: acceptance-only-fast is split into 4 groups based on measured package runtimes
@@ -350,6 +351,8 @@ function run_acceptance_only_fast_group() {
 
   run_aof_group() {
     local -a globs=("$@")
+    # to make sure all tests are run and the script fails if one of them fails
+    # but after all tests ran
     local testFailed=0
     for g in "${globs[@]}"; do
       for pkg in $(go list "./$g" 2>/dev/null || true); do
