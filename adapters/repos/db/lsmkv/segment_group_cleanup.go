@@ -573,6 +573,7 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyE
 	}
 }
 
+// TODO: should be broken right now, needs adjustment similar to regular compaction
 func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 ) (*segment, error) {
 	oldSegment := sg.segmentAtPos(segmentIdx)
@@ -606,7 +607,7 @@ func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 		return nil, fmt.Errorf("replace segment (blocking): %w", err)
 	}
 
-	if err := sg.deleteOldSegmentsNonBlocking(oldSegment); err != nil {
+	if err := sg.deleteOldSegmentsFromDisk(oldSegment); err != nil {
 		// don't abort if the delete fails, we can still continue (albeit
 		// without freeing disk space that should have been freed). The
 		// compaction itself was successful.

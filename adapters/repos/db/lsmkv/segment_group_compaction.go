@@ -425,12 +425,21 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		return errors.Wrap(err, "create new segment")
 	}
 
-	oldL, oldR, err := sg.replaceCompactedSegmentsBlocking(old1, old2, seg)
+	// non-blocking, no effect on running app, only to make sure disk state is
+	// correct for future restarts
+	oldL, oldR, err := sg.replaceCompactedSegmentsOnDisk(old1, old2, seg)
+	if err != nil {
+		return fmt.Errorf("replace compacted segments on disk: %w", err)
+	}
+
+	// blocking, but cheap, will only replace pointers in array
+	err = sg.replaceCompactedSegmentsInMemory(old1, old2, oldL, oldR, seg)
 	if err != nil {
 		return fmt.Errorf("replace compacted segments (blocking): %w", err)
 	}
 
-	if err := sg.deleteOldSegmentsNonBlocking(oldL, oldR); err != nil {
+	// wait for ref count to reach zero, close and delete files
+	if err := sg.deleteOldSegmentsFromDisk(oldL, oldR); err != nil {
 		// don't abort if the delete fails, we can still continue (albeit
 		// without freeing disk space that should have been freed). The
 		// compaction itself was successful.
@@ -446,9 +455,54 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 
 const replaceSegmentWarnThreshold = 300 * time.Millisecond
 
-func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
+// replaceCompactedSegmentsOnDisk performs the segment switch on disk without
+// affecting the currently running app. Therefore it is non-blocking to the
+// current application. The in-memory switch has to be done separately.
+func (sg *SegmentGroup) replaceCompactedSegmentsOnDisk(
 	old1, old2 int, newSeg *segment,
 ) (*segment, *segment, error) {
+	sg.maintenanceLock.RLock()
+	leftSegment := sg.segments[old1]
+	rightSegment := sg.segments[old2]
+	sg.maintenanceLock.RUnlock()
+
+	if err := leftSegment.markForDeletion(); err != nil {
+		return nil, nil, errors.Wrap(err, "drop disk segment")
+	}
+
+	if err := rightSegment.markForDeletion(); err != nil {
+		return nil, nil, errors.Wrap(err, "drop disk segment")
+	}
+
+	// the old segments have been deleted, we can now safely remove the .tmp
+	// extension from the new segment itself and the pre-computed files which
+	// carried the name of the second old segment
+
+	newPath, err := sg.stripTmpExtension(newSeg.path, segmentID(leftSegment.getPath()), segmentID(rightSegment.getPath()))
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
+	}
+	newSeg.path = newPath
+
+	for i, pth := range newSeg.metaPaths {
+		updated, err := sg.stripTmpExtension(pth, segmentID(leftSegment.getPath()), segmentID(rightSegment.getPath()))
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
+		}
+		newSeg.metaPaths[i] = updated
+	}
+
+	err = diskio.Fsync(sg.dir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
+	}
+
+	return leftSegment.getSegment(), rightSegment.getSegment(), nil
+}
+
+func (sg *SegmentGroup) replaceCompactedSegmentsInMemory(
+	old1, old2 int, oldLeft, oldRight, newSeg *segment,
+) error {
 	// We need a maintenanceLock.Lock() to switch segments, however, we can't
 	// simply call Lock(). Due to the write-preferring nature of the RWMutex this
 	// would mean that if any RLock() holder still holds the lock, all future
@@ -473,58 +527,15 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 			Debug("compaction took more than 100ms to acquire maintenance lock")
 	}
 	defer sg.maintenanceLock.Unlock()
-
-	leftSegment := sg.segments[old1]
-	rightSegment := sg.segments[old2]
-
-	// if err := leftSegment.close(); err != nil {
-	// 	return nil, nil, errors.Wrap(err, "close disk segment")
-	// }
-
-	// if err := rightSegment.close(); err != nil {
-	// 	return nil, nil, errors.Wrap(err, "close disk segment")
-	// }
-
-	if err := leftSegment.markForDeletion(); err != nil {
-		return nil, nil, errors.Wrap(err, "drop disk segment")
-	}
-
-	if err := rightSegment.markForDeletion(); err != nil {
-		return nil, nil, errors.Wrap(err, "drop disk segment")
-	}
-
-	err := diskio.Fsync(sg.dir)
-	if err != nil {
-		return nil, nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
-	}
-
 	sg.segments[old1] = nil
 	sg.segments[old2] = nil
-
-	// the old segments have been deleted, we can now safely remove the .tmp
-	// extension from the new segment itself and the pre-computed files which
-	// carried the name of the second old segment
-
-	newPath, err := sg.stripTmpExtension(newSeg.path, segmentID(leftSegment.getPath()), segmentID(rightSegment.getPath()))
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
-	}
-	newSeg.path = newPath
-
-	for i, pth := range newSeg.metaPaths {
-		updated, err := sg.stripTmpExtension(pth, segmentID(leftSegment.getPath()), segmentID(rightSegment.getPath()))
-		if err != nil {
-			return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
-		}
-		newSeg.metaPaths[i] = updated
-	}
 
 	sg.segments[old2] = newSeg
 
 	sg.segments = append(sg.segments[:old1], sg.segments[old1+1:]...)
 
-	sg.observeReplaceCompactedDuration(start, old1, leftSegment.getSegment(), rightSegment.getSegment())
-	return leftSegment.getSegment(), rightSegment.getSegment(), nil
+	sg.observeReplaceCompactedDuration(start, old1, oldLeft.getSegment(), oldRight.getSegment())
+	return nil
 }
 
 func (sg *SegmentGroup) observeReplaceCompactedDuration(
@@ -547,7 +558,7 @@ func (sg *SegmentGroup) observeReplaceCompactedDuration(
 	}
 }
 
-func (sg *SegmentGroup) deleteOldSegmentsNonBlocking(segments ...*segment) error {
+func (sg *SegmentGroup) deleteOldSegmentsFromDisk(segments ...*segment) error {
 	// At this point those segments are no longer used, so we can drop them
 	// without holding the maintenance lock and therefore not block readers.
 
