@@ -18,17 +18,23 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	vectorCommon "github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	compressionhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/spfresh"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	spfreshent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 	"go.etcd.io/bbolt"
 )
 
@@ -222,6 +228,55 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
 		}
+		vectorIndex = vi
+	case vectorindex.VectorIndexTypeSPFRESH:
+		// TODO use targetVector?
+		// panic("NATEE spfresh")
+		spfreshUserConfig, ok := vectorIndexUserConfig.(spfreshent.UserConfig)
+		if !ok {
+			return nil, errors.Errorf("spfresh vector index: config is not spfresh.UserConfig: %T",
+				vectorIndexUserConfig)
+		}
+		distancer := distProv //distancer.NewCosineDistanceProvider()
+		// TODO how do we choose the ndim for the quantizer? or can we set this later?
+		ndim := 768
+		quantizer := compressionhelpers.NewRotationalQuantizer(ndim, 42, 8, distancer)
+		sptag := spfresh.NewBruteForceSPTAG(quantizer)
+		metrics := lsmkv.NewMetrics(s.promMetrics, s.index.Config.ClassName.String(), s.name)
+		shardCompactionCallbacks := cyclemanager.NewCallbackGroup("shard-compaction", s.index.logger, 1)
+		shardFlushCallbacks := cyclemanager.NewCallbackGroup("shard-flush", s.index.logger, 1)
+		store, err := lsmkv.New(s.path()+"/spfresh/lsm", s.path()+"/spfresh", s.index.logger, metrics, shardCompactionCallbacks, shardCompactionCallbacks, shardFlushCallbacks)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: spfresh index", s.ID())
+		}
+		bytesInRqOutput := quantizer.OutputDimension()
+		lsmStore, err := spfresh.NewLSMStore(store, int32(bytesInRqOutput), "bucket")
+		pages := uint64(512)
+		pageSize := uint64(8192)
+		versionMap := spfresh.NewVersionMap(pages, pageSize)
+		idGenerator := vectorCommon.NewUint64Counter(0)
+		vi := spfresh.New(
+			s.index.logger.WithField("component", "spfresh"),
+			&spfresh.UserConfig{
+				MaxPostingSize:            spfreshUserConfig.MaxPostingSize,
+				MinPostingSize:            spfreshUserConfig.MinPostingSize,
+				SplitWorkers:              spfreshUserConfig.SplitWorkers,
+				ReassignWorkers:           spfreshUserConfig.ReassignWorkers,
+				InternalPostingCandidates: spfreshUserConfig.InternalPostingCandidates,
+				ReassignNeighbors:         spfreshUserConfig.ReassignNeighbors,
+				Replicas:                  spfreshUserConfig.Replicas,
+				RNGFactor:                 spfreshUserConfig.RNGFactor,
+				MaxDistanceRatio:          spfreshUserConfig.MaxDistanceRatio,
+			},
+			sptag,
+			lsmStore,
+			versionMap,
+			idGenerator,
+			spfresh.NewPostingSizes(pages, pageSize),
+			quantizer,
+			distancer,
+		)
+		vi.Start(ctx)
 		vectorIndex = vi
 	default:
 		return nil, fmt.Errorf("unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\"]",

@@ -87,8 +87,9 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 					continue
 				}
 
-				// skip vectors that are not in the allow list
-				if !allowList.Contains(id) {
+				// skip vectors that are not in the allow list.
+				// if the allow list is nil, allow all vectors.
+				if allowList != nil && !allowList.Contains(id) {
 					continue
 				}
 
@@ -173,7 +174,6 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 		dists[i] = dist
 		i++
 	}
-
 	return results, dists, nil
 }
 
