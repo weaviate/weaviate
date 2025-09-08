@@ -680,7 +680,7 @@ func (l *hnswCommitLogger) combineLogs() (bool, error) {
 	// assumption that the combined file will be considerably smaller than the
 	// sum of both input files
 	threshold := l.logCombiningThreshold()
-	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger).Do(l.snapshotPartitions...)
+	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger, l.fs).Do(l.snapshotPartitions...)
 }
 
 // TODO al:snapshot handle should abort

@@ -32,13 +32,14 @@ type CommitLogCombiner struct {
 
 func NewCommitLogCombiner(rootPath, id string, threshold int64,
 	logger logrus.FieldLogger,
+	fs common.FS,
 ) *CommitLogCombiner {
 	return &CommitLogCombiner{
 		rootPath:  rootPath,
 		id:        id,
 		threshold: threshold,
 		logger:    logger,
-		fs:        common.NewOSFS(),
+		fs:        fs,
 	}
 }
 

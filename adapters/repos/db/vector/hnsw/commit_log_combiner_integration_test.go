@@ -55,7 +55,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 		})
 
 		t.Run("run combiner", func(t *testing.T) {
-			_, err := NewCommitLogCombiner(rootPath, id, threshold, logger).Do()
+			_, err := NewCommitLogCombiner(rootPath, id, threshold, logger, common.NewOSFS()).Do()
 			require.Nil(t, err)
 		})
 
@@ -137,7 +137,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 			})
 
 			t.Run("combine", func(t *testing.T) {
-				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger).Do()
+				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do()
 				require.NoError(t, err)
 			})
 
@@ -162,7 +162,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 			})
 
 			t.Run("combine", func(t *testing.T) {
-				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger).Do("1004", "1008")
+				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do("1004", "1008")
 				require.NoError(t, err)
 			})
 
@@ -187,7 +187,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 			})
 
 			t.Run("combine", func(t *testing.T) {
-				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger).Do("1003", "1006")
+				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do("1003", "1006")
 				require.NoError(t, err)
 			})
 
@@ -213,7 +213,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 			})
 
 			t.Run("combine", func(t *testing.T) {
-				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger).Do("1003")
+				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do("1003")
 				require.NoError(t, err)
 			})
 
@@ -241,7 +241,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 			})
 
 			t.Run("combine", func(t *testing.T) {
-				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger).Do("1005")
+				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do("1005")
 				require.NoError(t, err)
 			})
 
@@ -267,7 +267,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 			})
 
 			t.Run("combine", func(t *testing.T) {
-				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger).Do("1005")
+				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do("1005")
 				require.NoError(t, err)
 			})
 
@@ -295,7 +295,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 			})
 
 			t.Run("combine", func(t *testing.T) {
-				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger).Do("1001", "1002",
+				_, err := NewCommitLogCombiner(rootPath, id, int64(threshold), logger, common.NewOSFS()).Do("1001", "1002",
 					"1003", "1004", "1005", "1006", "1007", "1008", "1009", "1010")
 				require.NoError(t, err)
 			})
@@ -420,7 +420,7 @@ func TestCombinerCrashSafety(t *testing.T) {
 				}
 
 				// combine once, should fail
-				cb := NewCommitLogCombiner(rootPath, id, 10_000, logger)
+				cb := NewCommitLogCombiner(rootPath, id, 10_000, logger, common.NewOSFS())
 				cb.fs = fs
 				_, err := cb.Do("1004", "1008")
 				require.Error(t, err)
@@ -451,7 +451,7 @@ func TestCombinerCrashSafety(t *testing.T) {
 		}
 
 		// combine once, should fail
-		cb := NewCommitLogCombiner(rootPath, id, 10_000, logger)
+		cb := NewCommitLogCombiner(rootPath, id, 10_000, logger, common.NewOSFS())
 		cb.fs = fs
 		_, err := cb.Do("1004", "1008")
 		require.Error(t, err)
@@ -480,7 +480,7 @@ func TestCombinerCrashSafety(t *testing.T) {
 		}
 
 		// combine once, should fail
-		cb := NewCommitLogCombiner(rootPath, id, 10_000, logger)
+		cb := NewCommitLogCombiner(rootPath, id, 10_000, logger, common.NewOSFS())
 		cb.fs = fs
 		_, err := cb.Do("1004", "1008")
 		require.Error(t, err)
@@ -510,10 +510,81 @@ func TestCombinerCrashSafety(t *testing.T) {
 			}
 		}
 
-		cb := NewCommitLogCombiner(rootPath, id, 10_000, logger)
+		cb := NewCommitLogCombiner(rootPath, id, 10_000, logger, common.NewOSFS())
 		cb.fs = fs
 		_, err := cb.Do("1004", "1008")
 		require.NoError(t, err)
 		require.True(t, fsyncCalled, "fsync was not called")
+	})
+}
+
+func getFileNames(t *testing.T, rootPath string) []string {
+	fs := common.NewOSFS()
+	files, err := fs.ReadDir(commitLogDirectory(rootPath, "memory_condensor"))
+	require.Nil(t, err)
+	names := make([]string, 0, len(files))
+	for _, file := range files {
+		names = append(names, file.Name())
+	}
+	return names
+}
+
+func getSizes(t *testing.T, rootPath string) []int {
+	fs := common.NewOSFS()
+	files, err := fs.ReadDir(commitLogDirectory(rootPath, "memory_condensor"))
+	require.Nil(t, err)
+	sizes := make([]int, 0, len(files))
+	for _, file := range files {
+		fileInfo, err := file.Info()
+		require.Nil(t, err)
+		sizes = append(sizes, int(fileInfo.Size()))
+	}
+	return sizes
+}
+
+func TestCondensorCombiningCrashSafety(t *testing.T) {
+	rootPath := t.TempDir()
+	id := "memory_condensor"
+	commitLogDirectory := commitLogDirectory(rootPath, id)
+	err := os.MkdirAll(commitLogDirectory, 0o777)
+	require.NoError(t, err)
+
+	t.Run("recovers from condensing and combining failures", func(t *testing.T) {
+		commitLogFileNameA := commitLogFileName(rootPath, id, "100.condensed")
+		sizeA := int(300)
+		err = createDummyFile(commitLogFileNameA, []byte("file1\n"), sizeA)
+		require.NoError(t, err)
+		fileNames := getFileNames(t, rootPath)
+		require.Equal(t, "100.condensed", fileNames[0])
+
+		commitLogFileNameB := commitLogFileName(rootPath, id, "101.condensed")
+		sizeB := int(400)
+		err = createDummyFile(commitLogFileNameB, []byte("file2\n"), sizeB)
+		require.NoError(t, err)
+		fileNames = getFileNames(t, rootPath)
+		require.Equal(t, "100.condensed", fileNames[0])
+		require.Equal(t, "101.condensed", fileNames[1])
+
+		// when we are going to remove the old file, it will fail
+		fs := common.NewTestFS()
+		fs.OnRemove = func(name string) error {
+			return errors.Errorf("fake temp error: cannot remove")
+		}
+		executed, err := NewCommitLogCombiner(rootPath, id, 1000, logger, fs).Do()
+		require.False(t, executed)
+		require.ErrorContains(t, err, "fake temp error: cannot remove")
+		fileNames = getFileNames(t, rootPath)
+		require.Equal(t, []string{"100.condensed", "101", "101.condensed"}, fileNames)
+
+		// extract full commit log file names
+		fileNames, err = getCommitFileNames(rootPath, id, 1, common.NewOSFS())
+		require.NoError(t, err)
+		// make sure commit log fixer will remove "101.condensed" file
+		_, err = NewCorruptedCommitLogFixer().Do(fileNames)
+		require.NoError(t, err)
+		fixedNames := getFileNames(t, rootPath)
+		sizes := getSizes(t, rootPath)
+		require.Equal(t, fixedNames, []string{"100.condensed", "101"})
+		require.Equal(t, sizes, []int{sizeA, sizeA + sizeB})
 	})
 }
