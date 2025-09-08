@@ -16,16 +16,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/replication/metrics"
-
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/fsm"
 
 	"github.com/weaviate/weaviate/cluster/bootstrap"
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -118,6 +117,10 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	}
 }
 
+func (c *Service) RPCServer() *Store {
+	return c.Raft.store
+}
+
 func (c *Service) onFSMCaughtUp(ctx context.Context) {
 	if !c.config.ReplicaMovementEnabled {
 		return
@@ -197,7 +200,6 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 			return fmt.Errorf("bootstrap: %w", err)
 		}
 	}
-
 	if err := c.WaitUntilDBRestored(ctx, 10*time.Second, c.closeWaitForDB); err != nil {
 		return fmt.Errorf("restore database: %w", err)
 	}

@@ -18,7 +18,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -28,6 +27,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
@@ -215,9 +215,7 @@ type Store struct {
 	// raft log cache
 	logCache *raft.LogCache
 
-	// cluster bootstrap related attributes
-	bootstrapMutex sync.Mutex
-	candidates     map[string]string
+	candidates map[string]string
 	// bootstrapped is set once the node has either bootstrapped or recovered from RAFT log entries
 	bootstrapped atomic.Bool
 
@@ -518,13 +516,28 @@ func (st *Store) Close(ctx context.Context) error {
 
 	// transfer leadership: it stops accepting client requests, ensures
 	// the target server is up to date and initiates the transfer
-	if st.IsLeader() {
+	if st.IsLeader() && len(st.raft.GetConfiguration().Configuration().Servers) > 1 {
 		st.log.Info("transferring leadership to another server")
 		if err := st.raft.LeadershipTransfer().Error(); err != nil {
 			st.log.WithError(err).Error("transferring leadership")
 		} else {
 			st.log.Info("successfully transferred leadership to another server")
+
+			// Wait for leadership change
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				_, leaderID := st.raft.LeaderWithID()
+				if leaderID != "" && leaderID != raft.ServerID(st.cfg.NodeID) {
+					st.log.WithField("new_leader", leaderID).Info("leadership successfully transferred, new leader elected")
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
 		}
+	}
+
+	if err := st.raft.RemoveServer(raft.ServerID(st.cfg.NodeID), 0, 0).Error(); err != nil {
+		st.log.WithError(err).Error("remove node from cluster")
 	}
 
 	if err := st.raft.Shutdown().Error(); err != nil {
@@ -538,6 +551,14 @@ func (st *Store) Close(ctx context.Context) error {
 		// it's not that fatal if we weren't able to close
 		// the transport, that's why just warn
 		st.log.WithError(err).Warn("close raft-net")
+	}
+
+	if err := st.cfg.NodeSelector.Leave(); err != nil {
+		st.log.WithError(err).Error("leave node from cluster")
+	}
+
+	if err := st.cfg.NodeSelector.Shutdown(); err != nil {
+		st.log.WithError(err).Error("shutdown node from cluster")
 	}
 
 	st.log.Info("closing log store ...")

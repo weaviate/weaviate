@@ -337,19 +337,11 @@ func extractHostAndPath(endpointUrl string) (string, string, error) {
 }
 
 func createRequestBody(model string, texts []string, operation operationType) (interface{}, error) {
-	modelParts := strings.Split(model, ".")
-	if len(modelParts) == 0 {
-		return nil, fmt.Errorf("invalid model: %s", model)
-	}
-
-	modelProvider := modelParts[0]
-
-	switch modelProvider {
-	case "amazon":
+	if strings.Contains(model, "amazon.") {
 		return bedrockEmbeddingsRequest{
 			InputText: texts[0],
 		}, nil
-	case "cohere":
+	} else if strings.Contains(model, "cohere.") {
 		inputType := "search_document"
 		if operation == vectorizeQuery {
 			inputType = "search_query"
@@ -358,7 +350,7 @@ func createRequestBody(model string, texts []string, operation operationType) (i
 			Texts:     texts,
 			InputType: inputType,
 		}, nil
-	default:
-		return nil, fmt.Errorf("unknown model provider: %s", modelProvider)
+	} else {
+		return nil, fmt.Errorf("unknown model provider: %s", model)
 	}
 }

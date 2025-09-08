@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -56,15 +57,6 @@ func (s *Raft) Open(ctx context.Context, db schema.Indexer) error {
 func (s *Raft) Close(ctx context.Context) (err error) {
 	s.log.Info("shutting down raft sub-system ...")
 
-	// non-voter can be safely removed, as they don't partake in RAFT elections
-	if !s.store.IsVoter() {
-		s.log.Info("removing this node from cluster prior to shutdown ...")
-		if err := s.Remove(ctx, s.store.ID()); err != nil {
-			s.log.WithError(err).Error("remove this node from cluster")
-		} else {
-			s.log.Info("successfully removed this node from the cluster.")
-		}
-	}
 	return s.store.Close(ctx)
 }
 
