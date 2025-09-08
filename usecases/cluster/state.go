@@ -132,7 +132,7 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 	}
 
 	if userConfig.FastFailureDetection {
-		cfg.SuspicionMult = 1
+		cfg.SuspicionMult = 2
 	}
 
 	if state.list, err = memberlist.Create(cfg); err != nil {
