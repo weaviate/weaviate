@@ -545,6 +545,7 @@ type GenerativeAWS struct {
 	TargetVariant   *string                `protobuf:"bytes,13,opt,name=target_variant,json=targetVariant,proto3,oneof" json:"target_variant,omitempty"`
 	Images          *TextArray             `protobuf:"bytes,14,opt,name=images,proto3,oneof" json:"images,omitempty"`
 	ImageProperties *TextArray             `protobuf:"bytes,15,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+	MaxTokens       *int64                 `protobuf:"varint,16,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -640,6 +641,13 @@ func (x *GenerativeAWS) GetImageProperties() *TextArray {
 		return x.ImageProperties
 	}
 	return nil
+}
+
+func (x *GenerativeAWS) GetMaxTokens() int64 {
+	if x != nil && x.MaxTokens != nil {
+		return *x.MaxTokens
+	}
+	return 0
 }
 
 type GenerativeCohere struct {
@@ -3596,7 +3604,7 @@ const file_v1_generative_proto_rawDesc = "" +
 	"\vtemperature\x18\x03 \x01(\x01H\x02R\vtemperature\x88\x01\x01B\v\n" +
 	"\t_base_urlB\b\n" +
 	"\x06_modelB\x0e\n" +
-	"\f_temperature\"\x81\x04\n" +
+	"\f_temperature\"\xb4\x04\n" +
 	"\rGenerativeAWS\x12\x19\n" +
 	"\x05model\x18\x03 \x01(\tH\x00R\x05model\x88\x01\x01\x12%\n" +
 	"\vtemperature\x18\b \x01(\x01H\x01R\vtemperature\x88\x01\x01\x12\x1d\n" +
@@ -3607,7 +3615,9 @@ const file_v1_generative_proto_rawDesc = "" +
 	"\ftarget_model\x18\f \x01(\tH\x05R\vtargetModel\x88\x01\x01\x12*\n" +
 	"\x0etarget_variant\x18\r \x01(\tH\x06R\rtargetVariant\x88\x01\x01\x123\n" +
 	"\x06images\x18\x0e \x01(\v2\x16.weaviate.v1.TextArrayH\aR\x06images\x88\x01\x01\x12F\n" +
-	"\x10image_properties\x18\x0f \x01(\v2\x16.weaviate.v1.TextArrayH\bR\x0fimageProperties\x88\x01\x01B\b\n" +
+	"\x10image_properties\x18\x0f \x01(\v2\x16.weaviate.v1.TextArrayH\bR\x0fimageProperties\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"max_tokens\x18\x10 \x01(\x03H\tR\tmaxTokens\x88\x01\x01B\b\n" +
 	"\x06_modelB\x0e\n" +
 	"\f_temperatureB\n" +
 	"\n" +
@@ -3617,7 +3627,8 @@ const file_v1_generative_proto_rawDesc = "" +
 	"\r_target_modelB\x11\n" +
 	"\x0f_target_variantB\t\n" +
 	"\a_imagesB\x13\n" +
-	"\x11_image_properties\"\xe4\x03\n" +
+	"\x11_image_propertiesB\r\n" +
+	"\v_max_tokens\"\xe4\x03\n" +
 	"\x10GenerativeCohere\x12\x1e\n" +
 	"\bbase_url\x18\x01 \x01(\tH\x00R\abaseUrl\x88\x01\x01\x120\n" +
 	"\x11frequency_penalty\x18\x02 \x01(\x01H\x01R\x10frequencyPenalty\x88\x01\x01\x12\"\n" +

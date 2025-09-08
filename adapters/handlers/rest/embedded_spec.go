@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.31.12"
+    "version": "1.31.13"
   },
   "basePath": "/v1",
   "paths": {
@@ -1108,11 +1108,11 @@ func init() {
     },
     "/backups/{backend}": {
       "get": {
-        "description": "[Coming soon] List all backups in progress not implemented yet.",
+        "description": "List all created backups IDs, Status",
         "tags": [
           "backups"
         ],
-        "summary": "List backups in progress",
+        "summary": "List all created backups",
         "operationId": "backups.list",
         "parameters": [
           {
@@ -8324,7 +8324,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.31.12"
+    "version": "1.31.13"
   },
   "basePath": "/v1",
   "paths": {
@@ -9372,11 +9372,11 @@ func init() {
     },
     "/backups/{backend}": {
       "get": {
-        "description": "[Coming soon] List all backups in progress not implemented yet.",
+        "description": "List all created backups IDs, Status",
         "tags": [
           "backups"
         ],
-        "summary": "List backups in progress",
+        "summary": "List all created backups",
         "operationId": "backups.list",
         "parameters": [
           {
