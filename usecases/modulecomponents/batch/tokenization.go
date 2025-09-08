@@ -50,11 +50,15 @@ func (e *EncoderCache) Set(model string, tk *tiktoken.Tiktoken) {
 type TokenizerFuncType func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer, encoderCache *EncoderCache) ([]string, []int, bool, error)
 
 func ReturnBatchTokenizer(multiplier float32, moduleName string, lowerCaseInput bool) TokenizerFuncType {
+	return ReturnBatchTokenizerWithAltNames(multiplier, moduleName, nil, lowerCaseInput)
+}
+
+func ReturnBatchTokenizerWithAltNames(multiplier float32, moduleName string, altNames []string, lowerCaseInput bool) TokenizerFuncType {
 	return func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer, encoderCache *EncoderCache) ([]string, []int, bool, error) {
 		texts := make([]string, len(objects))
 		tokenCounts := make([]int, len(objects))
 		var tke *tiktoken.Tiktoken
-		icheck := settings.NewBaseClassSettings(cfg, lowerCaseInput)
+		icheck := settings.NewBaseClassSettingsWithAltNames(cfg, lowerCaseInput, moduleName, altNames, nil)
 		modelString := modelToModelString(icheck.Model(), moduleName)
 		if multiplier > 0 {
 			var err error
