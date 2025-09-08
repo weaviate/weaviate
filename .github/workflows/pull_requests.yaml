@@ -329,7 +329,7 @@ jobs:
       - name: configure aws
         if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
         id: creds-aws
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
