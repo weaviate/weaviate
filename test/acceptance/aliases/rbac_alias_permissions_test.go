@@ -16,49 +16,68 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-// Test_RBAC_AliasPermissions tests the specific bug fix where RBAC authorization
-// should happen on resolved collection names, not alias names
-func Test_RBAC_AliasPermissions(t *testing.T) {
-	ctx := context.Background()
+// composeUp sets up proper RBAC test environment
+func composeUp(t *testing.T, admins map[string]string, users map[string]string, viewers map[string]string) (*docker.DockerCompose, func()) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 
-	// Setup admin and restricted user
+	builder := docker.New().WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").WithWeaviateWithGRPC().WithRBAC().WithApiKey()
+	adminUserNames := make([]string, 0, len(admins))
+	viewerUserNames := make([]string, 0, len(viewers))
+	for userName, key := range admins {
+		builder = builder.WithUserApiKey(userName, key)
+		adminUserNames = append(adminUserNames, userName)
+	}
+	for userName, key := range viewers {
+		builder = builder.WithUserApiKey(userName, key)
+		viewerUserNames = append(viewerUserNames, userName)
+	}
+	if len(admins) > 0 {
+		builder = builder.WithRbacRoots(adminUserNames...)
+	}
+	if len(viewers) > 0 {
+		builder = builder.WithRbacViewers(viewerUserNames...)
+	}
+	for userName, key := range users {
+		builder = builder.WithUserApiKey(userName, key)
+	}
+	compose, err := builder.Start(ctx)
+	require.Nil(t, err)
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	return compose, func() {
+		helper.ResetClient()
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %v", err)
+		}
+		cancel()
+	}
+}
+
+func Test_RBAC_AliasPermissions(t *testing.T) {
 	adminKey := "admin-key"
 	adminUser := "admin-user"
 	restrictedKey := "restricted-key"
 	restrictedUser := "restricted-user"
 
-	compose, err := docker.New().
-		WithWeaviateEnv("AUTHORIZATION_ADMINLIST_ENABLED", "true").
-		WithWeaviateEnv("AUTHORIZATION_ADMINLIST_USERS", adminUser).
-		WithWeaviateEnv("AUTHENTICATION_APIKEY_ENABLED", "true").
-		WithWeaviateEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS", adminKey+","+restrictedKey).
-		WithWeaviateEnv("AUTHENTICATION_APIKEY_USERS", adminUser+","+restrictedUser).
-		WithWeaviate().
-		WithText2VecModel2Vec().
-		Start(ctx)
-	require.NoError(t, err)
+	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, map[string]string{restrictedUser: restrictedKey})
+	defer down()
 
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
+	weaviateURL := compose.GetWeaviate().URI()
 
-	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
-	helper.SetupClient(compose.GetWeaviate().URI())
-
-	// Create class as admin
 	className := "TestCollection"
 	aliasName := "TestAlias"
 
-	t.Run("setup: create class and alias", func(t *testing.T) {
+	t.Run("setup: create class and alias as admin", func(t *testing.T) {
 		// Create the test class
 		class := &models.Class{
 			Class: className,
@@ -69,40 +88,26 @@ func Test_RBAC_AliasPermissions(t *testing.T) {
 				},
 			},
 		}
-		helper.CreateClass(t, class)
+		helper.CreateClassAuth(t, class, adminKey)
 
 		// Create alias pointing to the class
 		alias := &models.Alias{
 			Class: className,
 			Alias: aliasName,
 		}
-		helper.CreateAlias(t, alias)
+		helper.CreateAliasAuth(t, alias, adminKey)
 	})
 
 	defer func() {
-		// Cleanup
-		helper.DeleteAlias(t, aliasName)
-		helper.DeleteClass(t, className)
+		// Cleanup as admin - ignore errors since resources might not exist
+		helper.DeleteAliasWithAuthz(t, aliasName, helper.CreateAuth(adminKey))
+		helper.DeleteClassAuth(t, className, adminKey)
 	}()
 
-	// Create restricted role and user with permissions only on the resolved class name
-	t.Run("setup: create restricted role with collection-specific permissions", func(t *testing.T) {
-		// Create role with READ permissions only on the resolved class name (not the alias)
-		roleName := "class-reader"
-		role := &models.Role{
-			Name: &roleName,
-			Permissions: []*models.Permission{
-				helper.NewCollectionsPermission().WithAction(authorization.READ).WithCollection(className).Permission(),
-			},
-		}
-		helper.CreateRole(t, adminKey, role)
-
-		// Assign role to restricted user
-		helper.AssignRoleToUser(t, adminKey, roleName, restrictedUser)
-
-		defer func() {
-			helper.DeleteRole(t, adminKey, roleName)
-		}()
+	t.Run("setup: assign built-in viewer role to restricted user", func(t *testing.T) {
+		// Use the built-in "viewer" role which has read permissions for schema endpoints
+		// This is the same role used in the existing rbac_viewer_test.go
+		helper.AssignRoleToUser(t, adminKey, "viewer", restrictedUser)
 	})
 
 	t.Run("admin can access class directly and via alias", func(t *testing.T) {
@@ -124,22 +129,13 @@ func Test_RBAC_AliasPermissions(t *testing.T) {
 		assert.Equal(t, className, resp.Class)
 	})
 
-	// Following two tests are the key tests to validate the patch
-	// https://github.com/weaviate/weaviate/pull/9113
-	t.Run("restricted user can access class via alias (RBAC fix verification)", func(t *testing.T) {
-		// This is the key test: before the fix, this would fail because authorization
-		// was happening on the alias name instead of the resolved class name.
-		// With the fix, authorization happens on the resolved class name, so it should succeed.
+	t.Run("restricted user can access class via alias", func(t *testing.T) {
 		resp := helper.GetClassAuth(t, aliasName, restrictedKey)
 		require.NotNil(t, resp, "User with permission on resolved class should be able to access via alias")
 		assert.Equal(t, className, resp.Class, "Should return the resolved class, not the alias")
 	})
 
-	t.Run("restricted user can access shards via alias (RBAC fix verification)", func(t *testing.T) {
-		// Test the ShardsStatus endpoint which was also fixed via HTTP client
-		// since there's no helper function for ShardsStatus with auth yet
-		weaviateURL := compose.GetWeaviate().URI()
-
+	t.Run("restricted user can access shards via alias", func(t *testing.T) {
 		req, err := http.NewRequest("GET", fmt.Sprintf("http://%s/v1/schema/%s/shards", weaviateURL, aliasName), nil)
 		require.NoError(t, err)
 		req.Header.Set("Authorization", "Bearer "+restrictedKey)
@@ -152,10 +148,8 @@ func Test_RBAC_AliasPermissions(t *testing.T) {
 		assert.Equal(t, http.StatusOK, resp.StatusCode, "User with permission on resolved class should be able to access shards via alias")
 	})
 
-	// Test the negative case: user without permissions should still be denied
 	t.Run("user without permissions should be denied access", func(t *testing.T) {
 		noPermKey := "no-perm-key"
-		weaviateURL := compose.GetWeaviate().URI()
 
 		t.Run("denied via direct class name", func(t *testing.T) {
 			req, err := http.NewRequest("GET", fmt.Sprintf("http://%s/v1/schema/%s", weaviateURL, className), nil)
