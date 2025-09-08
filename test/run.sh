@@ -340,6 +340,8 @@ function run_acceptance_tests() {
 function run_acceptance_only_fast_group() {
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
 
+  # NOTE: acceptance-only-fast is split into 4 groups based on measured package runtimes
+  # so each group finishes in roughly the same time on GitHub Actions.
   local GROUP="$1"
   local -a AOF_GROUP1=(test/acceptance/multi_node test/acceptance/actions)
   local -a AOF_GROUP2=(test/acceptance/schema test/acceptance/cluster_api_auth test/acceptance/batch_request_endpoints test/acceptance/stress_tests)
