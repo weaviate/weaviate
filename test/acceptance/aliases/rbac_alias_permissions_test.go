@@ -182,8 +182,3 @@ func Test_RBAC_AliasPermissions(t *testing.T) {
 		})
 	})
 }
-
-// Test case to verify that RBAC works correctly with alias resolution ordering
-func Test_RBAC_AliasPermissions_ComprehensiveScenarios(t *testing.T) {
-	t.Skip("Skipping comprehensive test for now - basic test covers the core fix")
-}
