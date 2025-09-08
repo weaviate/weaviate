@@ -41,7 +41,9 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	// Encode and upsert
 	for id, v := range vectors {
 		encoded := q.Encode(v)
-		err := sptag.Upsert(id, encoded)
+		err := sptag.Upsert(id, &Centroid{
+			Vector: encoded,
+		})
 		require.NoError(t, err)
 	}
 
