@@ -342,6 +342,7 @@ func (v *awsClient) createRequestBody(prompt string, params awsparams.Params, cf
 		return bedrockAnthropicClaude3Request{
 			AnthropicVersion: "bedrock-2023-05-31",
 			MaxTokens:        params.MaxTokens,
+			Temperature:      params.Temperature,
 			Messages: []bedrockAnthropicClaude3Message{
 				{
 					Role:    "user",
@@ -663,6 +664,7 @@ type bedrockAnthropicClaudeResponse struct {
 type bedrockAnthropicClaude3Request struct {
 	AnthropicVersion string                           `json:"anthropic_version,omitempty"`
 	MaxTokens        *int                             `json:"max_tokens,omitempty"`
+	Temperature      *float64                         `json:"temperature,omitempty"`
 	Messages         []bedrockAnthropicClaude3Message `json:"messages,omitempty"`
 }
 
