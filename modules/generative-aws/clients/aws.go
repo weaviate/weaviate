@@ -576,39 +576,39 @@ func (v *awsClient) getAwsSessionToken(ctx context.Context) (string, error) {
 }
 
 func (v *awsClient) isAmazonTitanModel(model string) bool {
-	return strings.HasPrefix(model, "amazon.titan")
+	return strings.Contains(model, "amazon.titan")
 }
 
 func (v *awsClient) isAmazonNovaModel(model string) bool {
-	return strings.HasPrefix(model, "amazon.nova")
+	return strings.Contains(model, "amazon.nova")
 }
 
 func (v *awsClient) isAI21Model(model string) bool {
-	return strings.HasPrefix(model, "ai21")
+	return strings.Contains(model, "ai21.")
 }
 
 func (v *awsClient) isAnthropicModel(model string) bool {
-	return strings.HasPrefix(model, "anthropic")
+	return strings.Contains(model, "anthropic.")
 }
 
 func (v *awsClient) isAnthropicClaude3Model(model string) bool {
-	return strings.HasPrefix(model, "anthropic.claude-3")
+	return strings.Contains(model, "anthropic.claude-3")
 }
 
 func (v *awsClient) isCohereModel(model string) bool {
-	return strings.HasPrefix(model, "cohere")
+	return strings.Contains(model, "cohere.")
 }
 
 func (v *awsClient) isCohereCommandRModel(model string) bool {
-	return strings.HasPrefix(model, "cohere.command-r")
+	return strings.Contains(model, "cohere.command-r")
 }
 
 func (v *awsClient) isMistralAIModel(model string) bool {
-	return strings.HasPrefix(model, "mistral")
+	return strings.Contains(model, "mistral.")
 }
 
 func (v *awsClient) isMetaModel(model string) bool {
-	return strings.HasPrefix(model, "meta")
+	return strings.Contains(model, "meta.")
 }
 
 type bedrockAmazonGenerateRequest struct {
