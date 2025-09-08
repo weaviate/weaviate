@@ -1390,7 +1390,7 @@ func parseClusterConfig() (cluster.Config, error) {
 	if err := parseInt(
 		"CLUSTER_SUSPICION_MULT",
 		func(val int) { cfg.SuspicionMult = val },
-		4,
+		0,
 	); err != nil {
 		return cfg, fmt.Errorf("parse CLUSTER_SUSPICION_MULT as int: %w", err)
 	}
