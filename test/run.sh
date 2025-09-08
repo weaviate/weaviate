@@ -352,7 +352,7 @@ function run_acceptance_only_fast_group() {
     local -a globs=("$@")
     local testFailed=0
     for g in "${globs[@]}"; do
-      for pkg in $(go list "./$g" 2>/dev/null | grep -v '\[no test files\]' || true); do
+      for pkg in $(go list "./$g" 2>/dev/null || true); do
         echo_green "Running $pkg"
         if [[ "$pkg" == *"/stress_tests" ]]; then
           if ! go test -count 1 "$pkg"; then
