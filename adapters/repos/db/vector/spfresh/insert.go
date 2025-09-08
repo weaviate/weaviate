@@ -24,13 +24,22 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 		return err
 	}
 
-	// track the dimensions of the vectors to ensure they are consistent
-	s.trackDimensionsOnce.Do(func() {
-		s.dims.Store(int32(len(vector)))
+	v := distancer.Normalize(vector)
+	var compressed []byte
+
+	// init components that require knowing the vector dimensions
+	// and compressed size
+	s.initDimensionsOnce.Do(func() {
+		s.dims = int32(len(v))
+		compressed = s.quantizer.Encode(v)
+		s.vectorSize = int32(len(compressed))
+		s.SPTAG.Init(s.dims, s.Config.Distancer)
+		s.Store.Init(s.vectorSize)
 	})
 
-	v := distancer.Normalize(vector)
-	compressed := s.Quantizer.Encode(v)
+	if compressed == nil {
+		compressed = s.quantizer.Encode(v)
+	}
 
 	return s.addOne(ctx, id, compressed)
 }
@@ -170,7 +179,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroid SearchResu
 	// however during a reassign, we want to split immediately.
 	// Also, reassign operations may cause the posting to grow beyond the max size
 	// temporarily. To avoid triggering unnecessary splits, we add a fine-tuned threshold.
-	max := s.UserConfig.MaxPostingSize
+	max := s.Config.MaxPostingSize
 	if reassigned {
 		max += reassignThreshold
 	}

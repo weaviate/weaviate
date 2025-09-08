@@ -14,6 +14,8 @@ package spfresh
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -22,23 +24,35 @@ import (
 type LSMStore struct {
 	store      *lsmkv.Store
 	bucket     *lsmkv.Bucket
-	vectorSize int
+	vectorSize atomic.Int32
 }
 
-func NewLSMStore(store *lsmkv.Store, vectorSize int32, bucketName string) (*LSMStore, error) {
-	err := store.CreateOrLoadBucket(context.TODO(), bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+func NewLSMStore(ctx context.Context, store *lsmkv.Store, bucketName string) (*LSMStore, error) {
+	err := store.CreateOrLoadBucket(ctx, bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bucketName)
 	}
 
 	return &LSMStore{
-		store:      store,
-		bucket:     store.Bucket(bucketName),
-		vectorSize: int(vectorSize),
+		store:  store,
+		bucket: store.Bucket(bucketName),
 	}, nil
 }
 
+// Init is called by the index upon receiving the first vector and
+// determining the vector size.
+// Prior to calling this method, the store will assume the index is empty.
+func (l *LSMStore) Init(size int32) {
+	l.vectorSize.Store(size)
+}
+
 func (l *LSMStore) Get(ctx context.Context, postingID uint64) (*Posting, error) {
+	vectorSize := l.vectorSize.Load()
+	if vectorSize == 0 {
+		// the store is empty
+		return nil, ErrPostingNotFound
+	}
+
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 	list, err := l.bucket.SetList(buf[:])
@@ -50,8 +64,8 @@ func (l *LSMStore) Get(ctx context.Context, postingID uint64) (*Posting, error) 
 	}
 
 	posting := Posting{
-		vectorSize: int(l.vectorSize),
-		data:       make([]byte, 0, len(list)*(8+1+l.vectorSize)),
+		vectorSize: int(vectorSize),
+		data:       make([]byte, 0, len(list)*(8+1+int(vectorSize))),
 	}
 
 	for _, v := range list {
@@ -62,6 +76,12 @@ func (l *LSMStore) Get(ctx context.Context, postingID uint64) (*Posting, error) 
 }
 
 func (l *LSMStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]*Posting, error) {
+	vectorSize := l.vectorSize.Load()
+	if vectorSize == 0 {
+		// the store is empty
+		return nil, ErrPostingNotFound
+	}
+
 	postings := make([]*Posting, 0, len(postingIDs))
 
 	for _, id := range postingIDs {
@@ -79,7 +99,7 @@ func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting *Posting) 
 	if posting == nil {
 		return errors.New("posting cannot be nil")
 	}
-	if posting.vectorSize != l.vectorSize {
+	if posting.vectorSize != int(l.vectorSize.Load()) {
 		return errors.Errorf("posting vector size %d does not match store vector size %d", posting.vectorSize, l.vectorSize)
 	}
 
@@ -111,4 +131,8 @@ func (l *LSMStore) Merge(ctx context.Context, postingID uint64, vector Vector) e
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 
 	return l.bucket.SetAdd(buf[:], [][]byte{vector})
+}
+
+func bucketName(id string) string {
+	return fmt.Sprintf("spfresh_postings_%s", id)
 }

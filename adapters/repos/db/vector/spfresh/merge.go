@@ -105,11 +105,11 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 	prevLen := newPosting.Len()
 
 	// skip if the posting is big enough
-	if prevLen >= int(s.UserConfig.MinPostingSize) {
+	if prevLen >= int(s.Config.MinPostingSize) {
 		s.Logger.
 			WithField("postingID", op.PostingID).
 			WithField("size", prevLen).
-			WithField("min", s.UserConfig.MinPostingSize).
+			WithField("min", s.Config.MinPostingSize).
 			Debug("Posting is big enough, skipping merge operation")
 
 		if prevLen == initialLen {
@@ -136,7 +136,7 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 	}
 
 	// search for the closest centroids
-	nearest, err := s.SPTAG.Search(oldCentroid.Vector, s.UserConfig.InternalPostingCandidates)
+	nearest, err := s.SPTAG.Search(oldCentroid.Vector, s.Config.InternalPostingCandidates)
 	if err != nil {
 		return errors.Wrapf(err, "failed to search for nearest centroid for posting %d", op.PostingID)
 	}
@@ -161,7 +161,7 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 	for i := 1; i < len(nearest); i++ {
 		// check if the combined size of the postings is within limits
 		count := s.PostingSizes.Get(nearest[i].ID)
-		if int(count)+prevLen > int(s.UserConfig.MaxPostingSize) || s.mergeList.contains(nearest[i].ID) {
+		if int(count)+prevLen > int(s.Config.MaxPostingSize) || s.mergeList.contains(nearest[i].ID) {
 			continue // Skip this candidate
 		}
 
@@ -232,12 +232,12 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 		smallCentroid := s.SPTAG.Get(smallID)
 		largeCentroid := s.SPTAG.Get(largeID)
 		for _, v := range smallPosting.Iter() {
-			prevDist, err := s.Quantizer.DistanceBetweenCompressedVectors(smallCentroid.Vector, v)
+			prevDist, err := s.quantizer.DistanceBetweenCompressedVectors(smallCentroid.Vector, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in small posting %d", v.ID(), smallID)
 			}
 
-			newDist, err := s.Quantizer.DistanceBetweenCompressedVectors(largeCentroid.Vector, v)
+			newDist, err := s.quantizer.DistanceBetweenCompressedVectors(largeCentroid.Vector, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in large posting %d", v.ID(), largeID)
 			}

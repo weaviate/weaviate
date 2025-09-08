@@ -16,11 +16,13 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 var _ SPTAG = (*BruteForceSPTAG)(nil)
 
 type SPTAG interface {
+	Init(dims int32, distancer distancer.Provider)
 	Get(id uint64) *Centroid
 	Exists(id uint64) bool
 	Upsert(id uint64, centroid *Centroid) error
@@ -44,11 +46,19 @@ type BruteForceSPTAG struct {
 	quantizer *compressionhelpers.RotationalQuantizer
 }
 
-func NewBruteForceSPTAG(quantizer *compressionhelpers.RotationalQuantizer) *BruteForceSPTAG {
+func NewBruteForceSPTAG() *BruteForceSPTAG {
 	return &BruteForceSPTAG{
 		Centroids: make(map[uint64]Centroid),
-		quantizer: quantizer,
 	}
+}
+
+func (s *BruteForceSPTAG) Init(dims int32, distancer distancer.Provider) {
+	s.m.Lock()
+	defer s.m.Unlock()
+
+	// TODO: seed
+	seed := uint64(42)
+	s.quantizer = compressionhelpers.NewRotationalQuantizer(int(dims), seed, 8, distancer)
 }
 
 func (s *BruteForceSPTAG) Get(id uint64) *Centroid {
@@ -82,6 +92,11 @@ func (s *BruteForceSPTAG) Delete(id uint64) error {
 func (s *BruteForceSPTAG) Search(query []byte, k int) ([]SearchResult, error) {
 	s.m.RLock()
 	defer s.m.RUnlock()
+
+	// if quantizer is null, the index is empty
+	if s.quantizer == nil {
+		return nil, nil
+	}
 
 	q := priorityqueue.NewMin[uint64](k)
 	for id, centroid := range s.Centroids {

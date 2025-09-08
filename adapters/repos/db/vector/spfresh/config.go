@@ -11,8 +11,27 @@
 
 package spfresh
 
+import (
+	"io"
+
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+)
+
+const (
+	SizeBasedPruningStrategy     = "size"     // Size pruning strategy for brute force search
+	DistanceBasedPruningStrategy = "distance" // Distance pruning strategy for brute force search
+)
+
 // UserConfig defines the configuration options for the SPFresh index.
 type UserConfig struct {
+}
+
+type Config struct {
+	Logger                    logrus.FieldLogger
+	Distancer                 distancer.Provider
+	RootPath                  string
+	ID                        string
 	MaxPostingSize            uint32  `json:"maxPostingSize,omitempty"`            // Maximum number of vectors in a posting
 	MinPostingSize            uint32  `json:"minPostingSize,omitempty"`            // Minimum number of vectors in a posting
 	SplitWorkers              int     `json:"splitWorkers,omitempty"`              // Number of concurrent workers for split operations
@@ -25,7 +44,12 @@ type UserConfig struct {
 	PruningStrategy           string  `json:"pruningStrategy,omitempty"`           // Strategy to use for pruning postings during brute force
 }
 
-const (
-	SizeBasedPruningStrategy     = "size"     // Size pruning strategy for brute force search
-	DistanceBasedPruningStrategy = "distance" // Distance pruning strategy for brute force search
-)
+func (c *Config) Validate() error {
+	if c.Logger == nil {
+		logger := logrus.New()
+		logger.Out = io.Discard
+		c.Logger = logger
+	}
+
+	return nil
+}

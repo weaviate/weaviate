@@ -27,14 +27,14 @@ import (
 func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	vector = distancer.Normalize(vector)
 
-	queryVector := s.Quantizer.Encode(vector)
+	queryVector := s.quantizer.Encode(vector)
 
 	var selected []uint64
 	var postings []*Posting
 
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
-	candidateNum := max(k, s.UserConfig.InternalPostingCandidates)
+	candidateNum := max(k, s.Config.InternalPostingCandidates)
 
 	centroids, err := s.SPTAG.Search(queryVector, candidateNum)
 	if err != nil {
@@ -43,13 +43,13 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 
 	q := NewKSmallest(k)
 
-	if s.UserConfig.PruningStrategy == SizeBasedPruningStrategy {
+	if s.Config.PruningStrategy == SizeBasedPruningStrategy {
 		// compute the max distance to filter out candidates that are too far away
-		maxDist := centroids[0].Distance * s.UserConfig.MaxDistanceRatio
+		maxDist := centroids[0].Distance * s.Config.MaxDistanceRatio
 
 		// filter out candidates that are too far away or have no posting size
-		selected = make([]uint64, 0, s.UserConfig.InternalPostingCandidates)
-		for i := 0; i < len(centroids) && len(selected) < s.UserConfig.InternalPostingCandidates; i++ {
+		selected = make([]uint64, 0, s.Config.InternalPostingCandidates)
+		for i := 0; i < len(centroids) && len(selected) < s.Config.InternalPostingCandidates; i++ {
 			if (maxDist > 0.1 && centroids[i].Distance > maxDist) || s.PostingSizes.Get(centroids[i].ID) == 0 {
 				continue
 			}
@@ -94,7 +94,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 
 				visited.Visit(id)
 
-				dist, err := s.Quantizer.DistanceBetweenCompressedVectors(v, queryVector)
+				dist, err := s.quantizer.DistanceBetweenCompressedVectors(v, queryVector)
 				if err != nil {
 					return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 				}
@@ -104,7 +104,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 
 			// if the posting size is lower than the configured minimum,
 			// enqueue a merge operation
-			if postingSize < int(s.UserConfig.MinPostingSize) {
+			if postingSize < int(s.Config.MinPostingSize) {
 				err = s.enqueueMerge(ctx, selected[i])
 				if err != nil {
 					return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selected[i])
@@ -146,7 +146,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 					continue
 				}
 
-				dist, err := s.Quantizer.DistanceBetweenCompressedVectors(v, queryVector)
+				dist, err := s.quantizer.DistanceBetweenCompressedVectors(v, queryVector)
 				if err != nil {
 					return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 				}
@@ -156,7 +156,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 
 			// if the posting size is lower than the configured minimum,
 			// enqueue a merge operation
-			if postingSize < int(s.UserConfig.MinPostingSize) {
+			if postingSize < int(s.Config.MinPostingSize) {
 				err = s.enqueueMerge(ctx, centroid.ID)
 				if err != nil {
 					return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", centroid.ID)
