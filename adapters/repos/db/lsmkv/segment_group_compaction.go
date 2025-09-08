@@ -558,11 +558,7 @@ func (sg *SegmentGroup) observeReplaceCompactedDuration(
 	}
 }
 
-func (sg *SegmentGroup) deleteOldSegmentsFromDisk(segments ...*segment) error {
-	// At this point those segments are no longer used, so we can drop them
-	// without holding the maintenance lock and therefore not block readers.
-
-	// wait for all segments to be at zero references
+func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...*segment) {
 	allZero := false
 	t := time.NewTicker(100 * time.Millisecond)
 	for !allZero {
@@ -573,15 +569,25 @@ func (sg *SegmentGroup) deleteOldSegmentsFromDisk(segments ...*segment) error {
 			if refs := seg.getRefs(); refs != 0 {
 				fmt.Printf("---- segment at pos %d still has %d refs\n", pos, refs)
 				allZero = false
-				t.Stop()
 				break
 			}
 		}
 
 		sg.segmentRefCounterLock.Unlock()
 
+		if allZero {
+			return
+		}
+
 		<-t.C
 	}
+}
+
+func (sg *SegmentGroup) deleteOldSegmentsFromDisk(segments ...*segment) error {
+	// At this point those segments are no longer used, so we can drop them
+	// without holding the maintenance lock and therefore not block readers.
+
+	sg.waitForReferenceCountToReachZero(segments...)
 
 	// it is now safe to close and drop them
 	for pos, seg := range segments {
