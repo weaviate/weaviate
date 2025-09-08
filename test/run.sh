@@ -374,10 +374,10 @@ function run_acceptance_only_fast_group() {
   }
 
   case "$GROUP" in
-    1) echo_green "acceptance-only-fast — group 1/4"; echo "Packages: ${AOF_GROUP1[*]}"; run_aof_group "${AOF_GROUP1[@]}" ;;
-    2) echo_green "acceptance-only-fast — group 2/4"; echo "Packages: ${AOF_GROUP2[*]}"; run_aof_group "${AOF_GROUP2[@]}" ;;
-    3) echo_green "acceptance-only-fast — group 3/4"; echo "Packages: ${AOF_GROUP3[*]}"; run_aof_group "${AOF_GROUP3[@]}" ;;
-    4) echo_green "acceptance-only-fast — group 4/4"; echo "Packages: ${AOF_GROUP4[*]}"; run_aof_group "${AOF_GROUP4[@]}" ;;
+    1) echo_green "acceptance-only-fast — group 1/4"; echo "Packages: ${AOF_GROUP1[*]}"; run_aof_group "${AOF_GROUP1[@]}" || return 1 ;;
+    2) echo_green "acceptance-only-fast — group 2/4"; echo "Packages: ${AOF_GROUP2[*]}"; run_aof_group "${AOF_GROUP2[@]}" || return 1 ;;
+    3) echo_green "acceptance-only-fast — group 3/4"; echo "Packages: ${AOF_GROUP3[*]}"; run_aof_group "${AOF_GROUP3[@]}" || return 1 ;;
+    4) echo_green "acceptance-only-fast — group 4/4"; echo "Packages: ${AOF_GROUP4[*]}"; run_aof_group "${AOF_GROUP4[@]}" || return 1 ;;
     *) echo_red "Invalid group: $GROUP (must be 1..4)"; return 1 ;;
   esac
 }
