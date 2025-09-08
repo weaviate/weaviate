@@ -160,6 +160,10 @@ func TestWorkerLoop(t *testing.T) {
 				Error: replica.ErrReplicas.Error(),
 				Index: 0,
 			},
+			{
+				Error: "objs error",
+				Index: 1,
+			},
 		}
 		errorsRefs := []*pb.BatchReferencesReply_BatchError{
 			{
@@ -167,14 +171,21 @@ func TestWorkerLoop(t *testing.T) {
 				Index: 0,
 			},
 		}
+		// Return one retriable error and one regular error for objects
 		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
 			Took:   float32(1),
 			Errors: errorsObj,
-		}, nil)
+		}, nil).Times(1)
+		// Verify that the retriable error is sent again and no error is returned this time
+		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
+			Took:   float32(1),
+			Errors: nil,
+		}, nil).Times(1)
+		// Return one regular error for references
 		mockBatcher.EXPECT().BatchReferences(ctx, mock.Anything).Return(&pb.BatchReferencesReply{
 			Took:   float32(1),
 			Errors: errorsRefs,
-		}, nil)
+		}, nil).Times(1)
 		var wg sync.WaitGroup
 		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, mockBatcher, logger)
 
@@ -183,7 +194,7 @@ func TestWorkerLoop(t *testing.T) {
 		internalQueue <- &batch.ProcessRequest{
 			StreamId: StreamId,
 			Objects: &batch.SendObjects{
-				Values: []*pb.BatchObject{obj, obj},
+				Values: []*pb.BatchObject{obj, obj, obj},
 			},
 		}
 		ref := &pb.BatchReference{}
@@ -207,17 +218,14 @@ func TestWorkerLoop(t *testing.T) {
 		errs := <-ch
 		require.NotNil(t, errs.Errors, "Expected errors to be returned")
 		require.Len(t, errs.Errors, 1, "Expected one error to be returned")
-		require.Equal(t, replica.ErrReplicas.Error(), errs.Errors[0].Error, "Expected error message to match")
+		require.Equal(t, "objs error", errs.Errors[0].Error, "Expected error message to match")
 		require.Equal(t, obj, errs.Errors[0].GetObject(), "Expected object to match")
-		require.True(t, errs.Errors[0].IsRetriable, "Expected IsRetriable to be true for this error")
 
 		// Read second error
 		errs = <-ch
 		require.NotNil(t, errs.Errors, "Expected errors to be returned")
 		require.Len(t, errs.Errors, 1, "Expected one error to be returned")
 		require.Equal(t, "refs error", errs.Errors[0].Error, "Expected error message to match")
-		require.Equal(t, ref, errs.Errors[0].GetReference(), "Expected reference to match")
-		require.False(t, errs.Errors[0].IsRetriable, "Expected IsRetriable to be false for this error")
 
 		// Read sentinel
 		_, ok = <-ch

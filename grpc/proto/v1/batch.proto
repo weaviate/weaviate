@@ -55,10 +55,9 @@ message BatchStreamMessage {
   }
   message Error {
     string error = 1;
-    bool is_retriable = 2;
     oneof detail {
-      BatchObject object = 3;
-      BatchReference reference = 4;
+      BatchObject object = 2;
+      BatchReference reference = 3;
     }
   }
   string stream_id = 1;

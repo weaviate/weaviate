@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func TestShutdownLogic(t *testing.T) {
@@ -50,7 +49,8 @@ func TestShutdownLogic(t *testing.T) {
 		errors := make([]*pb.BatchObjectsReply_BatchError, 0, 100)
 		for i := 0; i < 100; i++ {
 			errors = append(errors, &pb.BatchObjectsReply_BatchError{
-				Error: replica.ErrReplicas.Error(),
+				Error: "some error",
+				Index: int32(i),
 			})
 		}
 		return &pb.BatchObjectsReply{
@@ -72,8 +72,7 @@ func TestShutdownLogic(t *testing.T) {
 	}).Return(nil).Once()
 	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamMessage) bool {
 		return msg.StreamId == StreamId &&
-			msg.GetError().Error == replica.ErrReplicas.Error() &&
-			msg.GetError().IsRetriable &&
+			msg.GetError().Error == "some error" &&
 			msg.GetError().GetObject() != nil
 	})).Return(nil).Times(500)
 	stream.EXPECT().Send(&pb.BatchStreamMessage{

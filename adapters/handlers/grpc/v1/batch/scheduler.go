@@ -88,9 +88,12 @@ func (s *Scheduler) drain(streamId string, wq *WriteQueue) {
 
 func (s *Scheduler) schedule(streamId string, wq *WriteQueue) {
 	objs, refs, stop := s.pull(wq.queue, 1000)
-	req := newProcessRequest(objs, refs, streamId, stop, wq)
-	if (req.Objects != nil && len(req.Objects.Values) > 0) || (req.References != nil && len(req.References.Values) > 0) || req.Stop {
+	req := newProcessRequest(objs, refs, streamId, false, wq)
+	if (req.Objects != nil && len(req.Objects.Values) > 0) || (req.References != nil && len(req.References.Values) > 0) {
 		s.internalQueue <- req
+	}
+	if stop {
+		s.internalQueue <- newProcessRequest(nil, nil, streamId, true, wq)
 	}
 }
 

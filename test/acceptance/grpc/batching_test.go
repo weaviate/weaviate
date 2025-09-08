@@ -123,7 +123,6 @@ func TestGRPC_Batching(t *testing.T) {
 		require.NotNil(t, errMsg, "Error message should not be nil")
 		require.Equal(t, "class Article has multi-tenancy disabled, but request was with tenant", errMsg.GetError().Error)
 		require.Equal(t, objects[1].Tenant, errMsg.GetError().GetObject().Tenant, "Errored object should be the second one")
-		require.False(t, errMsg.GetError().IsRetriable, "IsRetriable should be false for this error")
 
 		list, err := helper.ListObjects(t, clsA.Class)
 		require.NoError(t, err, "ListObjects should not return an error")
@@ -165,7 +164,6 @@ func TestGRPC_Batching(t *testing.T) {
 		require.NotNil(t, errMsg, "Error message should not be nil")
 		require.Equal(t, "property hasParagraphss does not exist for class Article", errMsg.GetError().Error)
 		require.Equal(t, references[1].ToUuid, errMsg.GetError().GetReference().ToUuid, "Errored reference should be the second one")
-		require.False(t, errMsg.GetError().IsRetriable, "IsRetriable should be false for this error")
 
 		obj, err := helper.GetObject(t, clsA.Class, UUID0)
 		require.NoError(t, err, "ListObjects should not return an error")

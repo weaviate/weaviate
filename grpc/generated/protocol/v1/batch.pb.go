@@ -1017,9 +1017,8 @@ func (*BatchStreamMessage_ShuttingDown) Descriptor() ([]byte, []int) {
 }
 
 type BatchStreamMessage_Error struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	Error       string                 `protobuf:"bytes,1,opt,name=error,proto3" json:"error,omitempty"`
-	IsRetriable bool                   `protobuf:"varint,2,opt,name=is_retriable,json=isRetriable,proto3" json:"is_retriable,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Error string                 `protobuf:"bytes,1,opt,name=error,proto3" json:"error,omitempty"`
 	// Types that are valid to be assigned to Detail:
 	//
 	//	*BatchStreamMessage_Error_Object
@@ -1066,13 +1065,6 @@ func (x *BatchStreamMessage_Error) GetError() string {
 	return ""
 }
 
-func (x *BatchStreamMessage_Error) GetIsRetriable() bool {
-	if x != nil {
-		return x.IsRetriable
-	}
-	return false
-}
-
 func (x *BatchStreamMessage_Error) GetDetail() isBatchStreamMessage_Error_Detail {
 	if x != nil {
 		return x.Detail
@@ -1103,11 +1095,11 @@ type isBatchStreamMessage_Error_Detail interface {
 }
 
 type BatchStreamMessage_Error_Object struct {
-	Object *BatchObject `protobuf:"bytes,3,opt,name=object,proto3,oneof"`
+	Object *BatchObject `protobuf:"bytes,2,opt,name=object,proto3,oneof"`
 }
 
 type BatchStreamMessage_Error_Reference struct {
-	Reference *BatchReference `protobuf:"bytes,4,opt,name=reference,proto3,oneof"`
+	Reference *BatchReference `protobuf:"bytes,3,opt,name=reference,proto3,oneof"`
 }
 
 func (*BatchStreamMessage_Error_Object) isBatchStreamMessage_Error_Detail() {}
@@ -1482,7 +1474,7 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\x0fbackoff_seconds\x18\x02 \x01(\x02R\x0ebackoffSeconds\"{\n" +
 	"\x12BatchStreamRequest\x12O\n" +
 	"\x11consistency_level\x18\x01 \x01(\x0e2\x1d.weaviate.v1.ConsistencyLevelH\x00R\x10consistencyLevel\x88\x01\x01B\x14\n" +
-	"\x12_consistency_level\"\xfe\x04\n" +
+	"\x12_consistency_level\"\xdb\x04\n" +
 	"\x12BatchStreamMessage\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12=\n" +
 	"\x05error\x18\x02 \x01(\v2%.weaviate.v1.BatchStreamMessage.ErrorH\x00R\x05error\x12=\n" +
@@ -1494,12 +1486,11 @@ const file_v1_batch_proto_rawDesc = "" +
 	"\x04Stop\x1a\n" +
 	"\n" +
 	"\bShutdown\x1a\x0e\n" +
-	"\fShuttingDown\x1a\xbb\x01\n" +
+	"\fShuttingDown\x1a\x98\x01\n" +
 	"\x05Error\x12\x14\n" +
-	"\x05error\x18\x01 \x01(\tR\x05error\x12!\n" +
-	"\fis_retriable\x18\x02 \x01(\bR\visRetriable\x122\n" +
-	"\x06object\x18\x03 \x01(\v2\x18.weaviate.v1.BatchObjectH\x00R\x06object\x12;\n" +
-	"\treference\x18\x04 \x01(\v2\x1b.weaviate.v1.BatchReferenceH\x00R\treferenceB\b\n" +
+	"\x05error\x18\x01 \x01(\tR\x05error\x122\n" +
+	"\x06object\x18\x02 \x01(\v2\x18.weaviate.v1.BatchObjectH\x00R\x06object\x12;\n" +
+	"\treference\x18\x03 \x01(\v2\x1b.weaviate.v1.BatchReferenceH\x00R\treferenceB\b\n" +
 	"\x06detailB\t\n" +
 	"\amessage\"\xa4\n" +
 	"\n" +
