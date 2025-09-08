@@ -25,7 +25,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/modules/text2vec-google/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 )
 
@@ -45,17 +45,17 @@ func TestClient(t *testing.T) {
 			},
 			logger: nullLogger(),
 		}
-		expected := &ent.VectorizationResult{
-			Texts:      []string{"This is my text"},
-			Vectors:    [][]float32{{0.1, 0.2, 0.3}},
+		expected := &modulecomponents.VectorizationResult[[]float32]{
+			Text:       []string{"This is my text"},
+			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		res, err := c.Vectorize(context.Background(), []string{"This is my text"},
-			ent.VectorizationConfig{
+		res, err := c.vectorize(context.Background(), []string{"This is my text"}, retrievalDocument, "",
+			settings{
 				ApiEndpoint: "endpoint",
 				ProjectID:   "project",
 				Model:       "model",
-			}, "")
+			})
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -76,7 +76,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{}, "")
+		_, err := c.vectorize(ctx, []string{"This is my text"}, retrievalDocument, "", settings{})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -97,8 +97,7 @@ func TestClient(t *testing.T) {
 			},
 			logger: nullLogger(),
 		}
-		_, err := c.Vectorize(context.Background(), []string{"This is my text"},
-			ent.VectorizationConfig{}, "")
+		_, err := c.vectorize(context.Background(), []string{"This is my text"}, retrievalDocument, "", settings{})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "connection to Google failed with status: 500 error: nope, not gonna happen")
@@ -119,12 +118,12 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Palm-Api-Key", []string{"some-key"})
 
-		expected := &ent.VectorizationResult{
-			Texts:      []string{"This is my text"},
-			Vectors:    [][]float32{{0.1, 0.2, 0.3}},
+		expected := &modulecomponents.VectorizationResult[[]float32]{
+			Text:       []string{"This is my text"},
+			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{}, "")
+		res, err := c.vectorize(ctxWithValue, []string{"This is my text"}, retrievalDocument, "", settings{})
 
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -145,7 +144,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{}, "")
+		_, err := c.vectorize(ctx, []string{"This is my text"}, retrievalDocument, "", settings{})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "Google API Key: no api key found "+
@@ -166,7 +165,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Palm-Api-Key", []string{""})
 
-		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{}, "")
+		_, err := c.vectorize(ctxWithValue, []string{"This is my text"}, retrievalDocument, "", settings{})
 
 		require.NotNil(t, err)
 		assert.Equal(t, "Google API Key: no api key found "+

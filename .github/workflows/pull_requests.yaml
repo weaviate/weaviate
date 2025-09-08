@@ -143,7 +143,6 @@ jobs:
           "--only-module-backup-gcs",
           "--only-module-backup-s3",
           "--only-module-offload-s3",
-          "--only-module-img2vec-neural",
           "--only-module-many-modules",
           "--only-module-many-generative",
           "--only-module-ref2vec-centroid",
@@ -208,7 +207,8 @@ jobs:
           "--only-module-qna-transformers",
           "--only-module-sum-transformers",
           "--only-module-multi2vec-clip",
-          "--only-module-reranker-transformers"
+          "--only-module-reranker-transformers",
+          "--only-module-img2vec-neural",
         ]
     steps:
       - uses: actions/checkout@v4

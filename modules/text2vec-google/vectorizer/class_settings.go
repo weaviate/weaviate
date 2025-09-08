@@ -35,6 +35,7 @@ const (
 	DefaultVectorizeClassName    = false
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
+	LowerCaseInput               = false
 	DefaultApiEndpoint           = "us-central1-aiplatform.googleapis.com"
 	DefaultModel                 = "gemini-embedding-001"
 	DefaultAIStudioEndpoint      = "generativelanguage.googleapis.com"
@@ -91,7 +92,7 @@ type classSettings struct {
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{
 		cfg:               cfg,
-		BaseClassSettings: *basesettings.NewBaseClassSettingsWithAltNames(cfg, false, "text2vec-google", []string{"text2vec-palm"}, []string{modelIDProperty}),
+		BaseClassSettings: *basesettings.NewBaseClassSettingsWithAltNames(cfg, LowerCaseInput, "text2vec-google", []string{"text2vec-palm"}, []string{modelIDProperty}),
 	}
 }
 
