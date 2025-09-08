@@ -254,10 +254,10 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 	t.Run("GetConsistentClass - authorization uses resolved class name, not alias", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
-		
+
 		// Mock class retrieval
 		fakeSchemaManager.On("ReadOnlyClassWithVersion", mock.Anything, resolvedClassName, mock.Anything).Return(&models.Class{Class: resolvedClassName}, nil)
-		
+
 		// Create custom schema manager with alias resolution
 		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
 			fakeSchemaManager: fakeSchemaManager,
@@ -275,14 +275,14 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 		assert.Equal(t, authorization.READ, authCall.Verb)
 		assert.Equal(t, authorization.CollectionsMetadata(resolvedClassName), authCall.Resources,
 			"Authorization should use resolved class name '%s', not alias '%s'", resolvedClassName, aliasName)
-		
+
 		fakeSchemaManager.AssertExpectations(t)
 	})
 
 	t.Run("ShardsStatus - authorization uses resolved class name, not alias", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
-		
+
 		// Mock shard status retrieval
 		expectedStatus := models.ShardStatusList{
 			&models.ShardStatusGetResponse{
@@ -291,7 +291,7 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 			},
 		}
 		fakeSchemaManager.On("GetShardsStatus", resolvedClassName, shardName).Return(expectedStatus, nil)
-		
+
 		// Create custom schema manager with alias resolution
 		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
 			fakeSchemaManager: fakeSchemaManager,
@@ -309,19 +309,19 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 		assert.Equal(t, authorization.READ, authCall.Verb)
 		assert.Equal(t, authorization.ShardsMetadata(resolvedClassName, shardName), authCall.Resources,
 			"Authorization should use resolved class name '%s', not alias '%s'", resolvedClassName, aliasName)
-		
+
 		fakeSchemaManager.AssertExpectations(t)
 	})
 
 	t.Run("GetConsistentClass - authorization uses original class name when no alias resolution", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
-		
+
 		className := "DirectClassName"
-		
+
 		// Mock class retrieval
 		fakeSchemaManager.On("ReadOnlyClassWithVersion", mock.Anything, className, mock.Anything).Return(&models.Class{Class: className}, nil)
-		
+
 		// Create custom schema manager without alias resolution
 		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
 			fakeSchemaManager: fakeSchemaManager,
@@ -339,16 +339,16 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 		assert.Equal(t, authorization.READ, authCall.Verb)
 		assert.Equal(t, authorization.CollectionsMetadata(className), authCall.Resources,
 			"Authorization should use class name '%s' when no alias resolution", className)
-		
+
 		fakeSchemaManager.AssertExpectations(t)
 	})
 
 	t.Run("ShardsStatus - authorization uses original class name when no alias resolution", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
-		
+
 		className := "DirectClassName"
-		
+
 		// Mock shard status retrieval
 		expectedStatus := models.ShardStatusList{
 			&models.ShardStatusGetResponse{
@@ -357,7 +357,7 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 			},
 		}
 		fakeSchemaManager.On("GetShardsStatus", className, shardName).Return(expectedStatus, nil)
-		
+
 		// Create custom schema manager without alias resolution
 		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
 			fakeSchemaManager: fakeSchemaManager,
@@ -375,7 +375,7 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 		assert.Equal(t, authorization.READ, authCall.Verb)
 		assert.Equal(t, authorization.ShardsMetadata(className, shardName), authCall.Resources,
 			"Authorization should use class name '%s' when no alias resolution", className)
-		
+
 		fakeSchemaManager.AssertExpectations(t)
 	})
 }
