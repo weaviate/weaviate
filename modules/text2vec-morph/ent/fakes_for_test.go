@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package clients
+package ent
 
 import (
 	"github.com/weaviate/weaviate/entities/schema"
@@ -17,33 +17,33 @@ import (
 )
 
 type fakeClassConfig struct {
-	classConfig           map[string]interface{}
+	classConfig           map[string]any
 	vectorizePropertyName bool
 	skippedProperty       string
 	excludedProperty      string
 }
 
-func (f fakeClassConfig) Class() map[string]interface{} {
+func (f fakeClassConfig) Class() map[string]any {
 	return f.classConfig
 }
 
-func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]any {
 	return f.classConfig
 }
 
-func (f fakeClassConfig) Property(propName string) map[string]interface{} {
+func (f fakeClassConfig) Property(propName string) map[string]any {
 	if propName == f.skippedProperty {
-		return map[string]interface{}{
+		return map[string]any{
 			"skip": true,
 		}
 	}
 	if propName == f.excludedProperty {
-		return map[string]interface{}{
+		return map[string]any{
 			"vectorizePropertyName": false,
 		}
 	}
 	if f.vectorizePropertyName {
-		return map[string]interface{}{
+		return map[string]any{
 			"vectorizePropertyName": true,
 		}
 	}

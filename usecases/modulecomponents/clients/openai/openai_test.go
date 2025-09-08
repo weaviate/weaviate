@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package clients
+package openai
 
 import (
 	"context"
@@ -27,12 +27,11 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
 )
 
 func TestBuildUrlFn(t *testing.T) {
 	t.Run("buildUrlFn returns default OpenAI Client", func(t *testing.T) {
-		config := ent.VectorizationConfig{
+		config := Settings{
 			Type:         "",
 			Model:        "",
 			ModelVersion: "",
@@ -47,7 +46,7 @@ func TestBuildUrlFn(t *testing.T) {
 		assert.Equal(t, "https://api.openai.com/v1/embeddings", url)
 	})
 	t.Run("buildUrlFn returns Azure Client", func(t *testing.T) {
-		config := ent.VectorizationConfig{
+		config := Settings{
 			Type:         "",
 			Model:        "",
 			ModelVersion: "",
@@ -63,7 +62,7 @@ func TestBuildUrlFn(t *testing.T) {
 	})
 
 	t.Run("buildUrlFn returns Azure Client with custom API Version", func(t *testing.T) {
-		config := ent.VectorizationConfig{
+		config := Settings{
 			Type:         "",
 			Model:        "",
 			ModelVersion: "",
@@ -79,7 +78,7 @@ func TestBuildUrlFn(t *testing.T) {
 	})
 
 	t.Run("buildUrlFn returns Azure client with BaseUrl set", func(t *testing.T) {
-		config := ent.VectorizationConfig{
+		config := Settings{
 			Type:         "",
 			Model:        "",
 			ModelVersion: "",
@@ -95,7 +94,7 @@ func TestBuildUrlFn(t *testing.T) {
 	})
 
 	t.Run("buildUrlFn loads from BaseURL", func(t *testing.T) {
-		config := ent.VectorizationConfig{
+		config := Settings{
 			Type:         "",
 			Model:        "",
 			ModelVersion: "",
@@ -127,7 +126,8 @@ func TestClient(t *testing.T) {
 			Dimensions: 3,
 			Errors:     []error{nil},
 		}
-		res, rl, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
+		settings := Settings{Model: "ada", Type: "text"}
+		res, rl, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, settings)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -154,7 +154,8 @@ func TestClient(t *testing.T) {
 			Dimensions: 3,
 			Errors:     []error{nil},
 		}
-		res, rl, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
+		settings := Settings{Model: "ada", Type: "text"}
+		res, rl, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, settings)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -181,7 +182,8 @@ func TestClient(t *testing.T) {
 			Dimensions: 3,
 			Errors:     []error{nil},
 		}
-		res, rl, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
+		settings := Settings{Model: "ada", Type: "text"}
+		res, rl, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, settings)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -204,7 +206,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, _, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{})
+		_, _, _, err := c.Vectorize(ctx, []string{"This is my text"}, Settings{})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -221,8 +223,7 @@ func TestClient(t *testing.T) {
 			return server.URL, nil
 		}
 
-		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
-			fakeClassConfig{})
+		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, Settings{})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "connection to: OpenAI API failed with status: 500 error: nope, not gonna happen")
@@ -240,8 +241,7 @@ func TestClient(t *testing.T) {
 			return server.URL, nil
 		}
 
-		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
-			fakeClassConfig{})
+		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, Settings{})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "connection to: OpenAI API failed with status: 500 request-id: some-request-id error: nope, not gonna happen")
@@ -264,8 +264,8 @@ func TestClient(t *testing.T) {
 			Dimensions: 3,
 			Errors:     []error{nil},
 		}
-		res, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
-			fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
+		settings := Settings{Model: "ada", Type: "text"}
+		res, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, settings)
 
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -282,7 +282,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, _, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{})
+		_, _, _, err := c.Vectorize(ctx, []string{"This is my text"}, Settings{})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "API Key: no api key found "+
@@ -301,8 +301,8 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Api-Key", []string{""})
 
-		_, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
-			fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
+		settings := Settings{Model: "ada", Type: "text"}
+		_, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, settings)
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "API Key: no api key found "+
@@ -313,11 +313,7 @@ func TestClient(t *testing.T) {
 	t.Run("when X-OpenAI-BaseURL header is passed", func(t *testing.T) {
 		c := New("", "", "", 0, nullLogger())
 
-		config := ent.VectorizationConfig{
-			Type:    "text",
-			Model:   "ada",
-			BaseURL: "http://default-url.com",
-		}
+		config := Settings{Model: "ada", Type: "text", BaseURL: "http://default-url.com"}
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Baseurl", []string{"http://base-url-passed-in-header.com"})
@@ -334,10 +330,7 @@ func TestClient(t *testing.T) {
 	t.Run("when X-Azure-* headers are passed", func(t *testing.T) {
 		c := New("", "", "", 0, nullLogger())
 
-		config := ent.VectorizationConfig{
-			IsAzure:    true,
-			ApiVersion: "",
-		}
+		config := Settings{IsAzure: true, ApiVersion: ""}
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Azure-Deployment-Id", []string{"spoofDeployment"})
@@ -355,7 +348,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Ratelimit-RequestPM-Embedding", []string{"50"})
 
-		rl := c.GetVectorizerRateLimit(ctxWithValue, fakeClassConfig{})
+		rl := c.GetVectorizerRateLimit(ctxWithValue, Settings{})
 		assert.Equal(t, 50, rl.LimitRequests)
 		assert.Equal(t, 50, rl.RemainingRequests)
 	})
@@ -365,7 +358,7 @@ func TestClient(t *testing.T) {
 
 		ctxWithValue := context.WithValue(context.Background(), "X-Openai-Ratelimit-TokenPM-Embedding", []string{"60"})
 
-		rl := c.GetVectorizerRateLimit(ctxWithValue, fakeClassConfig{})
+		rl := c.GetVectorizerRateLimit(ctxWithValue, Settings{})
 		assert.Equal(t, 60, rl.LimitTokens)
 		assert.Equal(t, 60, rl.RemainingTokens)
 	})
@@ -383,11 +376,11 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	if f.serverError != nil {
-		embeddingError := map[string]interface{}{
+		embeddingError := map[string]any{
 			"message": f.serverError.Error(),
 			"type":    "invalid_request_error",
 		}
-		embedding := map[string]interface{}{
+		embedding := map[string]any{
 			"error": embeddingError,
 		}
 		outBytes, err := json.Marshal(embedding)
@@ -405,21 +398,21 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	require.Nil(f.t, err)
 	defer r.Body.Close()
 
-	var b map[string]interface{}
+	var b map[string]any
 	require.Nil(f.t, json.Unmarshal(bodyBytes, &b))
 
-	textInputArray := b["input"].([]interface{})
+	textInputArray := b["input"].([]any)
 	textInput := textInputArray[0].(string)
 	assert.Greater(f.t, len(textInput), 0)
 
-	embeddingData := map[string]interface{}{
+	embeddingData := map[string]any{
 		"object":    textInput,
 		"index":     0,
 		"embedding": []float32{0.1, 0.2, 0.3},
 	}
-	embedding := map[string]interface{}{
+	embedding := map[string]any{
 		"object": "list",
-		"data":   []interface{}{embeddingData},
+		"data":   []any{embeddingData},
 	}
 
 	outBytes, err := json.Marshal(embedding)
@@ -515,9 +508,9 @@ func TestGetApiKeyHeaderAndValue(t *testing.T) {
 
 func TestGetApiKeyHash(t *testing.T) {
 	c := New("super-secret", "", "", 0, nullLogger())
-	hash := c.GetApiKeyHash(context.Background(), fakeClassConfig{})
+	hash := c.GetApiKeyHash(context.Background(), Settings{})
 	assert.NotEqual(t, [32]byte{}, hash)
-	assert.Equal(t, hash, c.GetApiKeyHash(context.Background(), fakeClassConfig{}))
+	assert.Equal(t, hash, c.GetApiKeyHash(context.Background(), Settings{}))
 }
 
 func TestGetErrorFormat(t *testing.T) {

@@ -170,7 +170,11 @@ func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_Mul
 		for j, uid := range refMulti.Uuids {
 			beacons[j] = map[string]interface{}{"beacon": BEACON_START + refMulti.TargetCollection + "/" + uid}
 		}
-		props[propName] = beacons
+		if props[propName] == nil {
+			props[propName] = beacons
+		} else {
+			props[propName] = append(props[propName].([]interface{}), beacons...)
+		}
 	}
 	return nil
 }

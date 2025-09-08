@@ -454,3 +454,83 @@ func TestDeleteTenants(t *testing.T) {
 		})
 	}
 }
+
+func TestGetConsistentTenants_WithAlias(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("get tenants via alias - alias resolves to existing class", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		className := "RealClass"
+		aliasName := "TestAlias"
+		expectedTenants := []*models.Tenant{
+			{Name: "tenant1"},
+			{Name: "tenant2"},
+		}
+
+		// Mock the tenant retrieval with the resolved class name
+		fakeSchemaManager.On("QueryTenants", className, mock.Anything).Return(expectedTenants, uint64(0), nil)
+
+		// Create a custom fakeSchemaManager with alias support
+		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
+			fakeSchemaManager: fakeSchemaManager,
+			aliasMap:          map[string]string{aliasName: className},
+		}
+		handler.schemaReader = fakeSchemaManagerWithAlias
+
+		tenants, err := handler.GetConsistentTenants(ctx, nil, aliasName, true, nil)
+		require.NoError(t, err)
+		assert.Equal(t, expectedTenants, tenants)
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("get tenants via alias - alias resolves to empty (fallback to direct name)", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		aliasName := "NonExistentAlias"
+		expectedTenants := []*models.Tenant{
+			{Name: "tenant1"},
+		}
+
+		// Mock the tenant retrieval with the alias name (will be called since alias doesn't resolve)
+		fakeSchemaManager.On("QueryTenants", aliasName, mock.Anything).Return(expectedTenants, uint64(0), nil)
+
+		// Create a custom fakeSchemaManager with empty alias resolution
+		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
+			fakeSchemaManager: fakeSchemaManager,
+			aliasMap:          map[string]string{}, // empty map
+		}
+		handler.schemaReader = fakeSchemaManagerWithAlias
+
+		tenants, err := handler.GetConsistentTenants(ctx, nil, aliasName, true, nil)
+		require.NoError(t, err)
+		assert.Equal(t, expectedTenants, tenants)
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("get tenants via direct class name - no alias resolution needed", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		className := "RealClass"
+		expectedTenants := []*models.Tenant{
+			{Name: "tenant1"},
+			{Name: "tenant2"},
+		}
+
+		// Mock the direct tenant retrieval
+		fakeSchemaManager.On("QueryTenants", className, mock.Anything).Return(expectedTenants, uint64(0), nil)
+
+		// Create a custom fakeSchemaManager (alias resolution returns empty for direct class names)
+		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
+			fakeSchemaManager: fakeSchemaManager,
+			aliasMap:          map[string]string{}, // empty map
+		}
+		handler.schemaReader = fakeSchemaManagerWithAlias
+
+		tenants, err := handler.GetConsistentTenants(ctx, nil, className, true, nil)
+		require.NoError(t, err)
+		assert.Equal(t, expectedTenants, tenants)
+		fakeSchemaManager.AssertExpectations(t)
+	})
+}

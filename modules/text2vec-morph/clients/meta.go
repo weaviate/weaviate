@@ -11,19 +11,9 @@
 
 package clients
 
-import (
-	"strings"
-
-	"github.com/weaviate/tiktoken-go"
-)
-
-func GetTokensCount(model string, input string, tke *tiktoken.Tiktoken) int {
-	tokensPerMessage := 3
-	if strings.HasPrefix(model, "gpt-3.5-turbo") {
-		tokensPerMessage = 4
-	}
-
-	tokensCount := tokensPerMessage
-	tokensCount += len(tke.Encode(input, nil, nil))
-	return tokensCount
+func (v *client) MetaInfo() (map[string]any, error) {
+	return map[string]any{
+		"name":              "Morph Module",
+		"documentationHref": "https://docs.morphllm.com/api-reference/endpoint/embedding",
+	}, nil
 }
