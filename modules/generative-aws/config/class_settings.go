@@ -303,25 +303,25 @@ func isBedrock(service string) bool {
 }
 
 func isAmazonModel(model string) bool {
-	return strings.HasPrefix(model, "amazon")
+	return strings.Contains(model, "amazon.")
 }
 
 func isAI21Model(model string) bool {
-	return strings.HasPrefix(model, "ai21")
+	return strings.Contains(model, "ai21.")
 }
 
 func isAnthropicModel(model string) bool {
-	return strings.HasPrefix(model, "anthropic")
+	return strings.Contains(model, "anthropic.")
 }
 
 func isCohereModel(model string) bool {
-	return strings.HasPrefix(model, "cohere")
+	return strings.Contains(model, "cohere.")
 }
 
 func isMistralAIModel(model string) bool {
-	return strings.HasPrefix(model, "mistral")
+	return strings.Contains(model, "mistral.")
 }
 
 func isMetaModel(model string) bool {
-	return strings.HasPrefix(model, "meta")
+	return strings.Contains(model, "meta.")
 }

@@ -28,6 +28,10 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 	if className != "" {
 		name := schema.UppercaseClassName(className)
 		class = h.schemaReader.ReadOnlyClass(name)
+		if class == nil {
+			// Optional class Filter not found. So return empty aliases list
+			return []*models.Alias{}, nil
+		}
 	}
 	aliases, err := h.schemaManager.GetAliases(ctx, alias, class)
 	if err != nil {
