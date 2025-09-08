@@ -1387,7 +1387,13 @@ func parseClusterConfig() (cluster.Config, error) {
 		},
 	}
 
-	cfg.FastFailureDetection = entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION"))
+	if err := parseInt(
+		"CLUSTER_SUSPICION_MULT",
+		func(val int) { cfg.SuspicionMult = val },
+		4,
+	); err != nil {
+		return cfg, fmt.Errorf("parse CLUSTER_SUSPICION_MULT as int: %w", err)
+	}
 
 	// MAINTENANCE_NODES is experimental and subject to removal/change. It is an optional, comma
 	// separated list of hostnames that are in maintenance mode. In maintenance mode, the node will
