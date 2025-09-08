@@ -182,12 +182,8 @@ func (c *Client) sendBedrockRequest(ctx context.Context,
 	maxRetries int,
 	settings Settings,
 ) ([][]float32, [][]float32, error) {
-	modelProvider, err := c.modelProvider(settings.Model)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed parse model provider: %w", err)
-	}
-	switch modelProvider {
-	case "amazon":
+	model := settings.Model
+	if strings.Contains(model, "amazon.") {
 		var textEmbeddings, imageEmbeddings [][]float32
 		for i := range texts {
 			embeddings, err := c.invokeAmazonModel(ctx, texts[i], "", awsKey, awsSecret, awsSessionToken, maxRetries, settings)
@@ -204,8 +200,9 @@ func (c *Client) sendBedrockRequest(ctx context.Context,
 			imageEmbeddings = append(imageEmbeddings, embeddings)
 		}
 		return textEmbeddings, imageEmbeddings, nil
-	case "cohere":
+	} else if strings.Contains(model, "cohere.") {
 		var textEmbeddings, imageEmbeddings [][]float32
+		var err error
 		if len(texts) > 0 {
 			textEmbeddings, err = c.invokeCohereModel(ctx, texts, nil, awsKey, awsSecret, awsSessionToken, maxRetries, settings)
 			if err != nil {
@@ -219,8 +216,8 @@ func (c *Client) sendBedrockRequest(ctx context.Context,
 			}
 		}
 		return textEmbeddings, imageEmbeddings, nil
-	default:
-		return nil, nil, fmt.Errorf("unknown model provider: %s", modelProvider)
+	} else {
+		return nil, nil, fmt.Errorf("unknown model provider: %s", model)
 	}
 }
 
@@ -326,14 +323,6 @@ func (c *Client) invokeModel(ctx context.Context,
 		}
 	}
 	return result, nil
-}
-
-func (c *Client) modelProvider(model string) (string, error) {
-	modelParts := strings.Split(model, ".")
-	if len(modelParts) == 0 {
-		return "", fmt.Errorf("invalid model: %s", model)
-	}
-	return modelParts[0], nil
 }
 
 func (c *Client) parseBedrockCohereResponse(bodyBytes []byte) ([][]float32, error) {
