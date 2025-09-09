@@ -233,7 +233,12 @@ func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {
 	usage.Version = b.policyVersion
 	usage.CollectingTime = collectionTime
 
-	return b.storage.UploadUsageData(ctx, usage)
+	// Create a fresh context for the upload operation
+	// to prevent context cancellation from usage collection affecting the upload
+	uploadCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	return b.storage.UploadUsageData(uploadCtx, usage)
 }
 
 func (b *BaseModule) collectUsageData(ctx context.Context) (*types.Report, error) {

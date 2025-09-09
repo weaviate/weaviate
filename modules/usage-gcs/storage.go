@@ -134,7 +134,6 @@ func (g *GCSStorage) UploadUsageData(ctx context.Context, usage *types.Report) e
 	}
 
 	if _, err := writer.Write(data); err != nil {
-		writer.Close()
 		return fmt.Errorf("failed to write to GCS: %w", err)
 	}
 
