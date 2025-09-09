@@ -9,9 +9,6 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build manual
-// +build manual
-
 package main
 
 import (
@@ -36,6 +33,11 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 
 	writeDuration := time.Minute
 	readDuration := time.Minute
+
+	// avoid perfect synchronization with the write/read mode switch, otherwise
+	// the cursor will only ever co-occur with one of the modes
+	cursorStartInterval := 40 * time.Second
+	cursorMaxDuration := 20 * time.Second
 
 	trackWorstQueries := 10
 	workers := 3
@@ -84,6 +86,10 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 		wg.Add(1)
 		go worker(ctx, t, mode, &wg, workerID, bucket, logger, putThreshold, getThreshold, trackWorstQueries, results)
 	}
+
+	wg.Add(1)
+	// every minute start one cursor that will run for at most 30s
+	go cursorWorker(ctx, t, &wg, 0, bucket, logger, cursorStartInterval, cursorMaxDuration)
 
 	modeCtx, cancelMode := context.WithCancel(context.Background())
 	go mode.alternate(modeCtx)
@@ -290,5 +296,40 @@ func trackWorstQuery(heap *priorityqueue.Queue[float32], i int, took time.Durati
 	} else if heap.Top().Dist < float32(took.Seconds()) {
 		heap.Pop()
 		heap.Insert(uint64(i), float32(took.Seconds()))
+	}
+}
+
+func cursorWorker(ctx context.Context, t *testing.T, wg *sync.WaitGroup, workerID int,
+	bucket *lsmkv.Bucket, logger logrus.FieldLogger, startInterval, maxDuration time.Duration,
+) {
+	defer wg.Done()
+
+	ticker := time.NewTicker(startInterval)
+
+	for {
+		select {
+
+		case <-ctx.Done():
+			ticker.Stop()
+			return
+
+		case <-ticker.C:
+			cursorCtx, cancel := context.WithTimeout(ctx, maxDuration)
+			defer cancel()
+
+			c := bucket.Cursor()
+			keys := 0
+			bytesRead := 0
+			for k, v := c.First(); k != nil; k, v = c.Next() {
+				if cursorCtx.Err() != nil {
+					break
+				}
+
+				keys++
+				bytesRead += len(k) + len(v)
+			}
+			c.Close()
+			logger.WithField("cursor_worker_id", workerID).WithField("keys", keys).WithField("bytes_read", bytesRead).Infof("cursor completed")
+		}
 	}
 }
