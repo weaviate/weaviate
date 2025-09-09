@@ -40,6 +40,7 @@ const (
 	snapshotConcurrency   = 8 // number of goroutines handling snapshot's checkpoints reading
 	snapshotDirSuffix     = ".hnsw.snapshot.d"
 	snapshotCheckInterval = 10 * time.Minute
+	maxExpectedConns      = 4096 * 4
 )
 
 const (
@@ -1484,6 +1485,9 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 							connCountAtLevel := uint64(binary.LittleEndian.Uint32(b[:4]))
 
 							if connCountAtLevel > 0 {
+								if connCountAtLevel > maxExpectedConns {
+									return fmt.Errorf("node %d has too many connections: %v", node.id, connCountAtLevel)
+								}
 								for c := uint64(0); c < connCountAtLevel; c++ {
 									n, err = io.ReadFull(r, b[:8]) // connection at level
 									if err != nil {
