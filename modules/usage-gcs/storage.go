@@ -18,9 +18,7 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/googleapis/gax-go/v2"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 	storageapi "google.golang.org/api/storage/v1"
 
@@ -43,15 +41,6 @@ func NewGCSStorage(ctx context.Context, logger logrus.FieldLogger, metrics *comm
 
 	if baseStorage.IsLocalhostEnvironment() {
 		options = append(options, option.WithoutAuthentication())
-	} else {
-		scopes := []string{
-			"https://www.googleapis.com/auth/devstorage.read_write",
-		}
-		creds, err := google.FindDefaultCredentials(ctx, scopes...)
-		if err != nil {
-			return nil, errors.Wrap(err, "find default credentials")
-		}
-		options = append(options, option.WithCredentials(creds))
 	}
 
 	client, err := storage.NewClient(ctx, options...)
