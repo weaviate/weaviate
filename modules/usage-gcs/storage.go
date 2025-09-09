@@ -12,12 +12,11 @@
 package usagegcs
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
 
-	"cloud.google.com/go/storage"
-	"github.com/googleapis/gax-go/v2"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/api/option"
 	storageapi "google.golang.org/api/storage/v1"
@@ -29,7 +28,7 @@ import (
 // GCSStorage implements the StorageBackend interface for GCS
 type GCSStorage struct {
 	*common.BaseStorage
-	storageClient *storage.Client
+	storageService *storageapi.Service
 }
 
 // NewGCSStorage creates a new GCS storage backend
@@ -43,29 +42,20 @@ func NewGCSStorage(ctx context.Context, logger logrus.FieldLogger, metrics *comm
 		options = append(options, option.WithoutAuthentication())
 	}
 
-	client, err := storage.NewClient(ctx, options...)
+	client, err := storageapi.NewService(ctx, options...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GCP storage client: %w", err)
 	}
 
-	// Configure retry policy
-	client.SetRetry(storage.WithBackoff(gax.Backoff{
-		Initial:    2 * time.Second,
-		Max:        60 * time.Second,
-		Multiplier: 3,
-	}),
-		storage.WithPolicy(storage.RetryAlways),
-	)
-
 	return &GCSStorage{
-		BaseStorage:   baseStorage,
-		storageClient: client,
+		BaseStorage:    baseStorage,
+		storageService: client,
 	}, nil
 }
 
 // VerifyPermissions checks if the backend can access the storage location
 func (g *GCSStorage) VerifyPermissions(ctx context.Context) error {
-	if g.storageClient == nil {
+	if g.storageService == nil {
 		return fmt.Errorf("storage client is not initialized")
 	}
 
@@ -87,13 +77,8 @@ func (g *GCSStorage) VerifyPermissions(ctx context.Context) error {
 	defer cancel()
 
 	// GCS-specific permission check using IAM
-	storageService, err := storageapi.NewService(timeoutCtx)
-	if err != nil {
-		return fmt.Errorf("failed to create storage API client: %w", err)
-	}
-
 	permissions := []string{"storage.objects.create"}
-	_, err = storageService.Buckets.TestIamPermissions(g.BucketName, permissions).Context(timeoutCtx).Do()
+	_, err := g.storageService.Buckets.TestIamPermissions(g.BucketName, permissions).Context(timeoutCtx).Do()
 	if err != nil {
 		return fmt.Errorf("IAM permission check failed for bucket %s: %w", g.BucketName, err)
 	}
@@ -106,7 +91,7 @@ func (g *GCSStorage) VerifyPermissions(ctx context.Context) error {
 
 // UploadUsageData uploads the usage data to the storage backend
 func (g *GCSStorage) UploadUsageData(ctx context.Context, usage *types.Report) error {
-	if g.storageClient == nil {
+	if g.storageService == nil {
 		return fmt.Errorf("storage client is not initialized")
 	}
 
@@ -115,19 +100,17 @@ func (g *GCSStorage) UploadUsageData(ctx context.Context, usage *types.Report) e
 		return err
 	}
 
-	obj := g.storageClient.Bucket(g.BucketName).Object(g.ConstructObjectKey(usage.CollectingTime))
-	writer := obj.NewWriter(ctx)
-	writer.ContentType = "application/json"
-	writer.Metadata = map[string]string{
-		"version": usage.Version,
-	}
+	objectName := g.ConstructObjectKey(usage.CollectingTime)
 
-	if _, err := writer.Write(data); err != nil {
-		return fmt.Errorf("failed to write to GCS: %w", err)
-	}
-
-	if err := writer.Close(); err != nil {
-		return fmt.Errorf("failed to close GCS writer: %w", err)
+	_, err = g.storageService.Objects.Insert(g.BucketName, &storageapi.Object{
+		Name:        objectName,
+		ContentType: "application/json",
+		Metadata: map[string]string{
+			"version": usage.Version,
+		},
+	}).Media(bytes.NewReader(data)).Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("failed to upload to GCS: %w", err)
 	}
 
 	g.RecordUploadMetrics(len(data))
@@ -136,9 +119,8 @@ func (g *GCSStorage) UploadUsageData(ctx context.Context, usage *types.Report) e
 
 // Close cleans up resources
 func (g *GCSStorage) Close() error {
-	if g.storageClient != nil {
-		return g.storageClient.Close()
-	}
+	// storageapi.Service doesn't have a Close method
+	// The HTTP client will be cleaned up by Go's garbage collector
 	return nil
 }
 
