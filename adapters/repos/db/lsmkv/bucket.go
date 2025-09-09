@@ -700,19 +700,31 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 // Put is limited to ReplaceStrategy, use [Bucket.SetAdd] for Set or
 // [Bucket.MapSet] and [Bucket.MapSetMulti].
 func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) error {
-	start := time.Now()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
+
+	return active.put(key, value, opts...)
+}
+
+// getActiveMemtableForWrite returns the active memtable and uses reference
+// counting to avoid holding a lock during the entire duration of the write.
+//
+// It is safe to switch the memtable from active to flushing while a writer
+// is ongoing, because the actual flush only happens once the writer count
+// has dropped to zero. Essentially the switch just switches pointers, but we
+// will always work on the same pointer for the duration of the write.
+func (b *Bucket) getActiveMemtableForWrite() (active *Memtable, release func()) {
 	b.flushLock.RLock()
-
-	took := time.Since(start)
-	if time.Since(start) > 100*time.Millisecond {
-		b.logger.WithField("duration", took).
-			WithField("action", "lsm_bucket_put_acquire_flush_lock").
-			Warnf("Waited more than 100ms to obtain a flush lock during put")
-	}
-
 	defer b.flushLock.RUnlock()
 
-	return b.active.put(key, value, opts...)
+	active = b.active
+	active.writerCount.Add(1)
+
+	release = func() {
+		active.writerCount.Add(-1)
+	}
+
+	return active, release
 }
 
 // SetAdd adds one or more Set-Entries to a Set for the given key. SetAdd is
@@ -1415,6 +1427,16 @@ func (b *Bucket) FlushAndSwitch() error {
 		return nil
 	}
 
+	// Before we can start the actual flush, we need to make sure that all
+	// ongoing writers have finished their write, otherwise we could lose the
+	// write.
+	//
+	// The writer count is guaranteed to eventually reach zero, because we
+	// switched the active memtable already, new writers will go into the
+	// currently active memtable, and existing writers will eventually finish
+	// their work
+	b.waitForZeroWriters(b.flushing)
+
 	if b.flushing.strategy == StrategyInverted {
 		b.flushing.averagePropLength, b.flushing.propLengthCount = b.disk.GetAveragePropertyLength()
 	}
@@ -1496,6 +1518,20 @@ func (b *Bucket) atomicallySwitchMemtable() (bool, error) {
 	b.flushing = flushing
 
 	return true, nil
+}
+
+func (b *Bucket) waitForZeroWriters(mt *Memtable) {
+	// TODO: this can be improved
+	i := 0
+	for {
+		writers := mt.writerCount.Load()
+		if writers == 0 {
+			return
+		}
+		fmt.Printf("==== waiting for %d writers to finish round(%d)\n", writers, i)
+		i++
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func (b *Bucket) initAndPrecomputeNewSegment(segmentPath string) (*segment, error) {

@@ -17,6 +17,7 @@ import (
 	"math"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -60,7 +61,11 @@ type Memtable struct {
 	propLengthCount              uint64
 	writeSegmentInfoIntoFileName bool
 
-	refCount int
+	// we're only tracking the refcount for writers. Readers get a consistent
+	// view of all memtables & segments, they don't need ref-counting. However,
+	// writers do because if we have an ongoing write, we cannot start flushing
+	// the memtable.
+	writerCount atomic.Int64
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
