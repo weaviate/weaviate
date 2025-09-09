@@ -59,6 +59,8 @@ type Memtable struct {
 	averagePropLength            float64
 	propLengthCount              uint64
 	writeSegmentInfoIntoFileName bool
+
+	refCount int
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,

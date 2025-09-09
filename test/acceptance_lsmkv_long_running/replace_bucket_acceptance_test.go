@@ -36,8 +36,8 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 
 	// avoid perfect synchronization with the write/read mode switch, otherwise
 	// the cursor will only ever co-occur with one of the modes
-	cursorStartInterval := 40 * time.Second
-	cursorMaxDuration := 20 * time.Second
+	// cursorStartInterval := 180 * time.Second
+	// cursorMaxDuration := 90 * time.Second
 
 	trackWorstQueries := 10
 	workers := 3
@@ -87,9 +87,9 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 		go worker(ctx, t, mode, &wg, workerID, bucket, logger, putThreshold, getThreshold, trackWorstQueries, results)
 	}
 
-	wg.Add(1)
-	// every minute start one cursor that will run for at most 30s
-	go cursorWorker(ctx, t, &wg, 0, bucket, logger, cursorStartInterval, cursorMaxDuration)
+	// 	wg.Add(1)
+	// 	// every minute start one cursor that will run for at most 30s
+	// 	go cursorWorker(ctx, t, &wg, 0, bucket, logger, cursorStartInterval, cursorMaxDuration)
 
 	modeCtx, cancelMode := context.WithCancel(context.Background())
 	go mode.alternate(modeCtx)

@@ -601,6 +601,7 @@ func (sg *SegmentGroup) get(key []byte) ([]byte, error) {
 	return sg.getWithUpperSegmentBoundary(key, segments)
 }
 
+// TODO: rename: this is a generic way to supply segments, the fact that there is a limit is arbitray
 // not thread-safe on its own, as the assumption is that this is called from a
 // lockholder, e.g. within .get()
 func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, segments []Segment) ([]byte, error) {

@@ -430,21 +430,35 @@ func (b *Bucket) SetMemtableThreshold(size uint64) {
 // secondary indexes, use [Bucket.GetBySecondary] to retrieve an object using
 // its secondary key
 func (b *Bucket) Get(key []byte) ([]byte, error) {
+	return b.get(key)
+}
+
+func (b *Bucket) getConsistentView() (active, flushing *Memtable, diskSegments []Segment, release func()) {
 	beforeFlushLock := time.Now()
 	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
 	if time.Since(beforeFlushLock) > 100*time.Millisecond {
 		b.logger.WithField("duration", time.Since(beforeFlushLock)).
 			WithField("action", "lsm_bucket_get_acquire_flush_lock").
 			Debugf("Waited more than 100ms to obtain a flush lock during get")
 	}
-	defer b.flushLock.RUnlock()
 
-	return b.get(key)
+	diskSegments, releaseDiskSegments := b.disk.getAndLockSegments()
+
+	release = func() {
+		releaseDiskSegments()
+	}
+
+	return b.active, b.flushing, diskSegments, release
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
+	active, flushing, diskSegments, release := b.getConsistentView()
+	defer release()
+
 	beforeMemtable := time.Now()
-	v, err := b.active.get(key)
+	v, err := active.get(key)
 	if time.Since(beforeMemtable) > 100*time.Millisecond {
 		b.logger.WithField("duration", time.Since(beforeMemtable)).
 			WithField("action", "lsm_bucket_get_active_memtable").
@@ -467,7 +481,7 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 
 	if b.flushing != nil {
 		beforeFlushMemtable := time.Now()
-		v, err := b.flushing.get(key)
+		v, err := flushing.get(key)
 		if time.Since(beforeFlushMemtable) > 100*time.Millisecond {
 			b.logger.WithField("duration", time.Since(beforeFlushMemtable)).
 				WithField("action", "lsm_bucket_get_flushing_memtable").
@@ -489,7 +503,7 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 		}
 	}
 
-	return b.disk.get(key)
+	return b.disk.getWithUpperSegmentBoundary(key, diskSegments)
 }
 
 func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
@@ -686,7 +700,16 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 // Put is limited to ReplaceStrategy, use [Bucket.SetAdd] for Set or
 // [Bucket.MapSet] and [Bucket.MapSetMulti].
 func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) error {
+	start := time.Now()
 	b.flushLock.RLock()
+
+	took := time.Since(start)
+	if time.Since(start) > 100*time.Millisecond {
+		b.logger.WithField("duration", took).
+			WithField("action", "lsm_bucket_put_acquire_flush_lock").
+			Warnf("Waited more than 100ms to obtain a flush lock during put")
+	}
+
 	defer b.flushLock.RUnlock()
 
 	return b.active.put(key, value, opts...)
