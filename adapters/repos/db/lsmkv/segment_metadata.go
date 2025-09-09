@@ -240,9 +240,8 @@ func (s *segment) initBloomFiltersFromData(primary []byte, secondary [][]byte) e
 		s.secondaryBloomFilters[i] = new(bloom.BloomFilter)
 		_, err := s.secondaryBloomFilters[i].ReadFrom(bytes.NewReader(secondary[i]))
 		if err != nil {
-			return fmt.Errorf("read bloom filter: %w", err)
+			return fmt.Errorf("read secondary bloom filter %d with byte length %d: %w", i, len(secondary[i]), err)
 		}
-
 	}
 	return nil
 }
