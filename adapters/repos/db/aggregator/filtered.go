@@ -170,7 +170,7 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 		propertyNames = append(propertyNames, k)
 	}
 
-	err = docid.ScanObjectsLSM(fa.store, ids, scan, propertyNames)
+	err = docid.ScanObjectsLSM(fa.store, ids, scan, propertyNames, fa.logger)
 	if err != nil {
 		return nil, errors.Wrap(err, "properties view tx")
 	}
