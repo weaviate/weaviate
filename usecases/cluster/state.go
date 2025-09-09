@@ -108,7 +108,7 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 		},
 	}
 	if err := state.delegate.init(diskSpace); err != nil {
-		logger.WithField("action", "init_state.delete_init").WithError(err).
+		logger.WithField("action", "init_state.delegate_init").WithError(err).
 			Error("delegate init failed")
 	}
 	cfg.Delegate = &state.delegate
@@ -135,7 +135,7 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 			"hostname":  userConfig.Hostname,
 			"bind_port": userConfig.GossipBindPort,
 		}).WithError(err).Error("memberlist not created")
-		return nil, errors.Wrap(err, "create member list")
+		return nil, errors.Wrap(err, "create memberlist")
 	}
 	var joinAddr []string
 	if userConfig.Join != "" {
