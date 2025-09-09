@@ -105,6 +105,7 @@ func checkShardingState(s *sharding.State) error {
 		return nil
 	}
 
+	// Non-partitioned mode: both Physical and Virtual must be (non-nil and) non-empty;
 	if len(s.Physical) == 0 {
 		return fmt.Errorf("invalid sharding state: physical shards unavailable")
 	}
