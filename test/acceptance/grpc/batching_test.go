@@ -14,7 +14,9 @@ package test
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -273,14 +275,16 @@ func TestGRPC_BatchingCluster(t *testing.T) {
 		require.NotNil(t, end, "End message should not be nil")
 
 		// Validate the number of articles created
-		listA, err := helper.ListObjects(t, clsA.Class)
-		require.NoError(t, err, "ListObjects should not return an error")
-		require.Len(t, listA.Objects, 1, "Number of articles created should match the number sent")
-		require.NotNil(t, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], "hasParagraphs should not be nil")
-		require.Len(t, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], 2, "Article should have 2 paragraphs")
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			listA, err := helper.ListObjects(t, clsA.Class)
+			require.NoError(t, err, "ListObjects should not return an error")
+			require.Len(ct, listA.Objects, 1, "Number of articles created should match the number sent")
+			require.NotNil(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], "hasParagraphs should not be nil")
+			require.Len(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], 2, "Article should have 2 paragraphs")
 
-		listP, err := helper.ListObjects(t, clsP.Class)
-		require.NoError(t, err, "ListObjects should not return an error")
-		require.Len(t, listP.Objects, 2, "Number of paragraphs created should match the number sent")
+			listP, err := helper.ListObjects(t, clsP.Class)
+			require.NoError(ct, err, "ListObjects should not return an error")
+			require.Len(ct, listP.Objects, 2, "Number of paragraphs created should match the number sent")
+		}, 30*time.Second, 3*time.Second, "Objects not replicated within time")
 	})
 }
