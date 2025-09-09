@@ -178,7 +178,7 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 			}
 		}
 		return nil
-	}, logger)
+	})
 
 	return eg.Wait()
 }
