@@ -1,5 +1,3 @@
-//go:build tools
-
 //                           _       _
 // __      _____  __ ___   ___  __ _| |_ ___
 // \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
@@ -10,6 +8,8 @@
 //
 //  CONTACT: hello@weaviate.io
 //
+
+//go:build tools
 
 package main
 
