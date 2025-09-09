@@ -413,10 +413,6 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	className := i.Config.ClassName.String()
 
 	err := i.schemaReader.Read(className, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
-		}
-
 		for shardName, physical := range state.Physical {
 			if state.IsLocalShard(shardName) {
 				localShards = append(localShards, shardInfo{
