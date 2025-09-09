@@ -479,7 +479,7 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 		panic(fmt.Sprintf("unsupported error in bucket.Get: %v\n", err))
 	}
 
-	if b.flushing != nil {
+	if flushing != nil {
 		beforeFlushMemtable := time.Now()
 		v, err := flushing.get(key)
 		if time.Since(beforeFlushMemtable) > 100*time.Millisecond {
