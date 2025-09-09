@@ -37,3 +37,13 @@ func errPayloadFromSingleErr(err error) *models.ErrorResponse {
 		Message: fmt.Sprintf("%s", err),
 	}}}
 }
+
+func errCheckClassAndPermission(class string) *models.ErrorResponse {
+	return &models.ErrorResponse{
+		Error: []*models.ErrorResponseErrorItems0{
+			{
+				Message: fmt.Sprintf("collection %s not found or collection alias is used for operations that are not allowed", class),
+			},
+		},
+	}
+}
