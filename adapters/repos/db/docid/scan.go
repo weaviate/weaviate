@@ -16,6 +16,7 @@ import (
 	"math"
 	"runtime"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -94,6 +95,8 @@ func (os *objectScannerLSM) scan() error {
 	eg := enterrors.NewErrorGroupWrapper(os.logger)
 	concurrency := 2 * runtime.GOMAXPROCS(0)
 	stride := int(math.Ceil(max(float64(len(os.pointers))/float64(concurrency), 1)))
+	contScanning := atomic.Bool{}
+	contScanning.Store(true)
 	for i := 0; i < concurrency; i++ {
 		start := i * stride
 		end := min(start+stride, len(os.pointers))
@@ -131,12 +134,15 @@ func (os *objectScannerLSM) scan() error {
 				// when analysing the results
 				lock.Lock()
 				continueScan, err := os.scanFn(&properties, id)
+				if !continueScan {
+					contScanning.Store(false)
+				}
 				lock.Unlock()
 				if err != nil {
 					return errors.Wrapf(err, "scan")
 				}
 
-				if !continueScan {
+				if !contScanning.Load() {
 					break
 				}
 			}
@@ -146,5 +152,5 @@ func (os *objectScannerLSM) scan() error {
 		eg.Go(f)
 	}
 
-	return nil
+	return eg.Wait()
 }
