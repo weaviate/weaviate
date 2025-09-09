@@ -857,13 +857,21 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		return nil, err
 	}
 
+	// precompute all segment strategies to avoid repeated calls
+	segmentStrategies := make([]segmentindex.Strategy, len(segmentsDisk))
+
 	for i := range disk {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 
+		segmentStrategy := segmentsDisk[i].getStrategy()
+
+		segmentStrategies[i] = segmentStrategy
+
 		propLengths := make(map[uint64]uint32)
-		if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
+
+		if segmentStrategy == segmentindex.StrategyInverted {
 			sgm := segmentsDisk[i].getSegment()
 			propLengths, err = sgm.GetPropertyLengths()
 			if err != nil {
@@ -875,7 +883,7 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		for j, v := range disk[i] {
 			// Inverted segments have a slightly different internal format
 			// and separate property lengths that need to be read.
-			if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
+			if segmentStrategies[i] == segmentindex.StrategyInverted {
 				if err := segmentDecoded[j].FromBytesInverted(v.value, false); err != nil {
 					return nil, err
 				}
@@ -1553,12 +1561,21 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 		return nil, err
 	}
 
+	// precompute all segment strategies to avoid repeated calls
+	segmentStrategies := make([]segmentindex.Strategy, len(segmentsDisk))
+
 	for i := range disk {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+
+		segmentStrategy := segmentsDisk[i].getStrategy()
+
+		segmentStrategies[i] = segmentStrategy
+
 		propLengths := make(map[uint64]uint32)
-		if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
+
+		if segmentStrategy == segmentindex.StrategyInverted {
 			sgm := segmentsDisk[i].getSegment()
 
 			propLengths, err = sgm.GetPropertyLengths()
@@ -1569,7 +1586,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 
 		segmentDecoded := make([]terms.DocPointerWithScore, len(disk[i]))
 		for j, v := range disk[i] {
-			if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
+			if segmentStrategies[i] == segmentindex.StrategyInverted {
 				docId := binary.BigEndian.Uint64(v.value[:8])
 				propLen := propLengths[docId]
 				if err := segmentDecoded[j].FromBytesInverted(v.value, propBoost, float32(propLen)); err != nil {
