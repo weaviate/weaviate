@@ -14,6 +14,7 @@ package spfresh
 import (
 	"sync"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -23,11 +24,16 @@ var _ SPTAG = (*BruteForceSPTAG)(nil)
 
 type SPTAG interface {
 	Init(dims int32, distancer distancer.Provider)
+	// Get returns the centroid for the given ID or nil if not found.
+	// The centroid may have been marked as deleted.
 	Get(id uint64) *Centroid
 	Exists(id uint64) bool
 	Upsert(id uint64, centroid *Centroid) error
-	Delete(id uint64) error
+	IsEmpty() bool
+	IsMarkedAsDeleted(id uint64) bool
+	MarkAsDeleted(id uint64) error
 	Search(query []byte, k int) ([]SearchResult, error)
+	Quantizer() *compressionhelpers.RotationalQuantizer
 }
 
 type SearchResult struct {
@@ -41,14 +47,16 @@ type Centroid struct {
 }
 
 type BruteForceSPTAG struct {
-	m         sync.RWMutex
-	Centroids map[uint64]Centroid
-	quantizer *compressionhelpers.RotationalQuantizer
+	m          sync.RWMutex
+	centroids  map[uint64]Centroid
+	tombstones map[uint64]struct{}
+	quantizer  *compressionhelpers.RotationalQuantizer
 }
 
 func NewBruteForceSPTAG() *BruteForceSPTAG {
 	return &BruteForceSPTAG{
-		Centroids: make(map[uint64]Centroid),
+		centroids:  make(map[uint64]Centroid),
+		tombstones: make(map[uint64]struct{}),
 	}
 }
 
@@ -65,7 +73,7 @@ func (s *BruteForceSPTAG) Get(id uint64) *Centroid {
 	s.m.RLock()
 	defer s.m.RUnlock()
 
-	centroid, exists := s.Centroids[id]
+	centroid, exists := s.centroids[id]
 	if !exists {
 		return nil
 	}
@@ -77,16 +85,43 @@ func (s *BruteForceSPTAG) Upsert(id uint64, centroid *Centroid) error {
 	s.m.Lock()
 	defer s.m.Unlock()
 
-	s.Centroids[id] = *centroid
+	if _, deleted := s.tombstones[id]; deleted {
+		return nil
+	}
+
+	s.centroids[id] = *centroid
 	return nil
 }
 
-func (s *BruteForceSPTAG) Delete(id uint64) error {
+func (s *BruteForceSPTAG) MarkAsDeleted(id uint64) error {
 	s.m.Lock()
 	defer s.m.Unlock()
 
-	delete(s.Centroids, id)
+	if _, deleted := s.tombstones[id]; deleted {
+		return errors.New("centroid already marked as deleted")
+	}
+
+	s.tombstones[id] = struct{}{}
 	return nil
+}
+
+func (s *BruteForceSPTAG) IsMarkedAsDeleted(id uint64) bool {
+	s.m.RLock()
+	defer s.m.RUnlock()
+
+	_, deleted := s.tombstones[id]
+	return deleted
+}
+
+func (s *BruteForceSPTAG) Quantizer() *compressionhelpers.RotationalQuantizer {
+	return s.quantizer
+}
+
+func (s *BruteForceSPTAG) IsEmpty() bool {
+	s.m.RLock()
+	defer s.m.RUnlock()
+
+	return len(s.centroids) == 0
 }
 
 func (s *BruteForceSPTAG) Search(query []byte, k int) ([]SearchResult, error) {
@@ -99,7 +134,11 @@ func (s *BruteForceSPTAG) Search(query []byte, k int) ([]SearchResult, error) {
 	}
 
 	q := priorityqueue.NewMin[uint64](k)
-	for id, centroid := range s.Centroids {
+	for id, centroid := range s.centroids {
+		if _, deleted := s.tombstones[id]; deleted {
+			continue
+		}
+
 		dist, err := s.quantizer.DistanceBetweenCompressedVectors(query, centroid.Vector)
 		if err != nil {
 			return nil, err
@@ -124,6 +163,9 @@ func (s *BruteForceSPTAG) Exists(id uint64) bool {
 	s.m.RLock()
 	defer s.m.RUnlock()
 
-	_, exists := s.Centroids[id]
+	if _, deleted := s.tombstones[id]; deleted {
+		return false
+	}
+	_, exists := s.centroids[id]
 	return exists
 }

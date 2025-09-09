@@ -19,9 +19,6 @@ const (
 	flatDefaultInitCapacity = 1000       // Default initial capacity for buffers
 	flatMaxReusableCapacity = 10_000_000 // Maximum reusable capacity for flat buffers
 	flatMinimumGrowthDelta  = 2000       // Minimum growth delta for flat buffers
-	pagedDefaultPageSize    = 512        // Default page size for paged buffers
-	pagedDefaultInitPages   = 10         // Default initial number of pages for paged buffers
-	pagedMinimumGrowthDelta = 10         // Minimum growth delta for paged buffers
 )
 
 // FlatArray is an array that stores elements in a contiguous slice.

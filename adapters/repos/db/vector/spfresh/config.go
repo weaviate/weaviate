@@ -32,6 +32,7 @@ type Config struct {
 	Distancer                 distancer.Provider
 	RootPath                  string
 	ID                        string
+	TargetVector              string
 	MaxPostingSize            uint32  `json:"maxPostingSize,omitempty"`            // Maximum number of vectors in a posting
 	MinPostingSize            uint32  `json:"minPostingSize,omitempty"`            // Minimum number of vectors in a posting
 	SplitWorkers              int     `json:"splitWorkers,omitempty"`              // Number of concurrent workers for split operations
@@ -52,4 +53,21 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+func DefaultConfig() *Config {
+	return &Config{
+		Logger:                    logrus.New(),
+		Distancer:                 distancer.NewL2SquaredProvider(),
+		MaxPostingSize:            144,
+		MinPostingSize:            10,
+		SplitWorkers:              16,
+		ReassignWorkers:           64,
+		InternalPostingCandidates: 64,
+		ReassignNeighbors:         64,
+		Replicas:                  8,
+		RNGFactor:                 1.0,
+		MaxDistanceRatio:          10000,
+		PruningStrategy:           SizeBasedPruningStrategy,
+	}
 }

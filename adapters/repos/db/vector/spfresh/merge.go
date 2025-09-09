@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 )
@@ -26,10 +27,16 @@ func (s *SPFresh) enqueueMerge(ctx context.Context, postingID uint64) error {
 		return nil // Not started yet
 	}
 
+	if err := s.ctx.Err(); err != nil {
+		return err
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// Check if the operation is already in progress
 	if !s.mergeList.tryAdd(postingID) {
-		s.Logger.WithField("postingID", postingID).
-			Debug("Merge operation already enqueued, skipping")
 		return nil
 	}
 
@@ -38,6 +45,8 @@ func (s *SPFresh) enqueueMerge(ctx context.Context, postingID uint64) error {
 	case s.mergeCh <- mergeOperation{PostingID: postingID}:
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-s.ctx.Done():
+		return s.ctx.Err()
 	}
 
 	return nil
@@ -67,6 +76,8 @@ func (s *SPFresh) mergeWorker() {
 
 func (s *SPFresh) doMerge(op mergeOperation) error {
 	defer s.mergeList.done(op.PostingID)
+
+	fmt.Println("Merging posting ", op.PostingID)
 
 	var markedAsDone bool
 	s.postingLocks.Lock(op.PostingID)
@@ -117,14 +128,13 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 			return nil
 		}
 
-		// update the size of the posting
-		s.PostingSizes.Set(op.PostingID, uint32(prevLen))
-
 		// persist the gc'ed posting
 		err = s.Store.Put(s.ctx, op.PostingID, newPosting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put filtered posting %d", op.PostingID)
 		}
+		// update the size of the posting after successful Persist
+		s.PostingSizes.Set(op.PostingID, uint32(prevLen))
 
 		return nil
 	}
@@ -145,14 +155,13 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 		s.Logger.WithField("postingID", op.PostingID).
 			Debug("No candidates found for merge operation, skipping")
 
-		// update the size of the posting
-		s.PostingSizes.Set(op.PostingID, uint32(prevLen))
-
 		// persist the gc'ed posting
 		err = s.Store.Put(s.ctx, op.PostingID, newPosting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put filtered posting %d", op.PostingID)
 		}
+		// update the size of the posting after successful Persist
+		s.PostingSizes.Set(op.PostingID, uint32(prevLen))
 
 		return nil
 	}
@@ -205,17 +214,19 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 			smallPosting = candidate
 		}
 
-		err = s.SPTAG.Delete(smallID)
+		// mark the small posting as deleted in the SPTAG
+		err = s.SPTAG.MarkAsDeleted(smallID)
 		if err != nil {
 			return errors.Wrapf(err, "failed to delete centroid for posting %d", smallID)
 		}
 
+		// persist the merged posting first
 		err = s.Store.Put(s.ctx, largeID, newPosting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put merged posting %d after merge operation", op.PostingID)
 		}
 
-		// set the small posting size to 0 and update the large posting size
+		// set the small posting size to 0 and update the large posting size only after successful persist
 		s.PostingSizes.Set(smallID, 0)
 		s.PostingSizes.Set(largeID, uint32(newPosting.Len()))
 
@@ -232,12 +243,12 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 		smallCentroid := s.SPTAG.Get(smallID)
 		largeCentroid := s.SPTAG.Get(largeID)
 		for _, v := range smallPosting.Iter() {
-			prevDist, err := s.quantizer.DistanceBetweenCompressedVectors(smallCentroid.Vector, v)
+			prevDist, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(smallCentroid.Vector, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in small posting %d", v.ID(), smallID)
 			}
 
-			newDist, err := s.quantizer.DistanceBetweenCompressedVectors(largeCentroid.Vector, v)
+			newDist, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(largeCentroid.Vector, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in large posting %d", v.ID(), largeID)
 			}

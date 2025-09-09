@@ -14,14 +14,11 @@ package spfresh
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"math"
 	"sync"
 
 	"github.com/pkg/errors"
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -54,7 +51,6 @@ type SPFresh struct {
 	initDimensionsOnce sync.Once
 	dims               int32 // Number of dimensions of expected vectors
 	vectorSize         int32 // Size of the compressed vectors in bytes
-	quantizer          *compressionhelpers.RotationalQuantizer
 
 	// Internal components
 	SPTAG        SPTAG                            // SPTAG provides access to the SPTAG index for centroid operations.
@@ -79,22 +75,22 @@ type SPFresh struct {
 
 	postingLocks *common.HashedLocks // Locks to prevent concurrent modifications to the same posting.
 
-	initialPostingLock *sync.Mutex
+	initialPostingLock sync.Mutex
 }
 
-func New(cfg Config, store *lsmkv.Store) (*SPFresh, error) {
+func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
-	postingStore, err := NewLSMStore(context.Background(), store, bucketName(cfg.ID))
+	postingStore, err := NewLSMStore(store, bucketName(cfg.ID))
 	if err != nil {
 		return nil, err
 	}
 
 	s := SPFresh{
 		Logger: cfg.Logger.WithField("component", "SPFresh"),
-		Config: &cfg,
+		Config: cfg,
 		SPTAG:  NewBruteForceSPTAG(),
 		Store:  postingStore,
 		IDs:    common.NewUint64Counter(0),
@@ -113,9 +109,9 @@ func New(cfg Config, store *lsmkv.Store) (*SPFresh, error) {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
 	s.postingLocks = common.NewHashedLocks32k()
-	s.splitCh = make(chan splitOperation, s.Config.SplitWorkers*100)          // TODO: fine-tune buffer size
-	s.mergeCh = make(chan mergeOperation, 1024)                               // TODO: fine-tune buffer size
-	s.reassignCh = make(chan reassignOperation, s.Config.ReassignWorkers*100) // TODO: fine-tune buffer size
+	s.splitCh = make(chan splitOperation, s.Config.SplitWorkers*100)              // TODO: fine-tune buffer size
+	s.mergeCh = make(chan mergeOperation, 1024)                                   // TODO: fine-tune buffer size
+	s.reassignCh = make(chan reassignOperation, s.Config.ReassignWorkers*500_000) // TODO: fine-tune buffer size
 	s.splitList = newDeduplicator()
 	s.mergeList = newDeduplicator()
 	s.visitedPool = visited.NewPool(1, 512, -1)
@@ -219,13 +215,6 @@ func (s *SPFresh) Iterate(fn func(id uint64) bool) {
 	s.Logger.Warn("Iterate is not implemented for SPFresh index")
 }
 
-func (s *SPFresh) getBucketName() string {
-	if s.targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, s.targetVector)
-	}
-	return helpers.VectorsBucketLSM
-}
-
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 	for i := range slice {
 		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(vector[i*4:]))
@@ -234,58 +223,74 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 }
 
 func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
-	distFunc := func(id uint64) (float32, error) {
-		var buf [8]byte
-		binary.BigEndian.PutUint64(buf[:], id)
-		vec, err := s.Store.store.Bucket(s.getBucketName()).Get(buf[:])
-		if err != nil {
-			return 0, err
-		}
+	// var bucketName string
+	// if s.Config.TargetVector != "" {
+	// 	bucketName = fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, s.Config.TargetVector)
+	// } else {
+	// 	bucketName = helpers.VectorsBucketLSM
+	// }
 
-		dist, err := s.distancer.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
-		if err != nil {
-			return 0, err
-		}
-		return dist, nil
-	}
+	// distFunc := func(id uint64) (float32, error) {
+	// 	var buf [8]byte
+	// 	binary.BigEndian.PutUint64(buf[:], id)
+	// 	// vec, err := s.Store.store.Bucket(bucketName).Get(buf[:])
+	// 	// if err != nil {
+	// 	// 	return 0, err
+	// 	// }
 
-	return common.QueryVectorDistancer{DistanceFunc: distFunc}
+	// 	// dist, err := s.Config.Distancer.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+	// 	// if err != nil {
+	// 	// 	return 0, err
+	// 	// }
+	// 	return dist, nil
+	// }
+
+	// return common.QueryVectorDistancer{DistanceFunc: distFunc}
+	return common.QueryVectorDistancer{}
 }
 
 func (s *SPFresh) CompressionStats() compressionhelpers.CompressionStats {
-	return s.quantizer.Stats()
+	return s.SPTAG.Quantizer().Stats()
 }
 
 // deduplicator is a simple structure to prevent duplicate values
 type deduplicator struct {
-	m *xsync.Map[uint64, struct{}]
+	mu sync.RWMutex
+	m  map[uint64]struct{}
 }
 
 func newDeduplicator() *deduplicator {
 	return &deduplicator{
-		m: xsync.NewMap[uint64, struct{}](),
+		m: make(map[uint64]struct{}),
 	}
 }
 
 // tryAdd attempts to add an ID to the deduplicator.
 // Returns true if the ID was added, false if it already exists.
 func (d *deduplicator) tryAdd(id uint64) bool {
-	_, exists := d.m.Compute(id, func(oldValue struct{}, loaded bool) (newValue struct{}, op xsync.ComputeOp) {
-		if loaded {
-			return oldValue, xsync.CancelOp
-		}
-		return struct{}{}, xsync.UpdateOp
-	})
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	_, exists := d.m[id]
+	if !exists {
+		d.m[id] = struct{}{}
+	}
 	return !exists
 }
 
 // done marks an ID as processed, removing it from the deduplicator.
 func (d *deduplicator) done(id uint64) {
-	d.m.Delete(id)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	delete(d.m, id)
 }
 
 // contains checks if an ID is already in the deduplicator.
 func (d *deduplicator) contains(id uint64) bool {
-	_, exists := d.m.Load(id)
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	_, exists := d.m[id]
 	return exists
 }

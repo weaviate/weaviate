@@ -16,7 +16,6 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
@@ -24,21 +23,20 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 		return err
 	}
 
-	v := distancer.Normalize(vector)
 	var compressed []byte
 
 	// init components that require knowing the vector dimensions
 	// and compressed size
 	s.initDimensionsOnce.Do(func() {
-		s.dims = int32(len(v))
-		compressed = s.quantizer.Encode(v)
-		s.vectorSize = int32(len(compressed))
+		s.dims = int32(len(vector))
 		s.SPTAG.Init(s.dims, s.Config.Distancer)
+		compressed = s.SPTAG.Quantizer().Encode(vector)
+		s.vectorSize = int32(len(compressed))
 		s.Store.Init(s.vectorSize)
 	})
 
 	if compressed == nil {
-		compressed = s.quantizer.Encode(v)
+		compressed = s.SPTAG.Quantizer().Encode(vector)
 	}
 
 	return s.addOne(ctx, id, compressed)
@@ -108,6 +106,7 @@ func (s *SPFresh) ensureInitialPosting(v Vector) ([]SearchResult, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	// if no replicas were found, create a new posting while holding the lock
 	if len(replicas) == 0 {
 		postingID := s.IDs.Next()
@@ -125,7 +124,10 @@ func (s *SPFresh) ensureInitialPosting(v Vector) ([]SearchResult, error) {
 			// distance is zero since we are using the vector as the centroid
 			Distance: 0,
 		})
+
+		fmt.Println("initial posting created")
 	}
+
 	return replicas, nil
 }
 
@@ -136,7 +138,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroid SearchResu
 
 	// check if the posting still exists
 	if !s.SPTAG.Exists(centroid.ID) {
-		// the vector might have been deleted concurrently,
+		// the posting might have been deleted concurrently,
 		// might happen if we are reassigning
 		if s.VersionMap.Get(vector.ID()) == vector.Version() {
 			err := s.enqueueReassign(ctx, centroid.ID, vector)
@@ -156,8 +158,8 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroid SearchResu
 		s.postingLocks.Unlock(centroid.ID)
 		return false, err
 	}
-	// increment the size of the posting
-	s.PostingSizes.Inc(centroid.ID, 1)
+	// Update the radius of the associated centroid
+	// Note: only update PostingSizes after the centroid update succeeded
 
 	// Update the radius of the associated centroid
 	prev := s.SPTAG.Get(centroid.ID)
@@ -166,8 +168,12 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroid SearchResu
 		Radius: max(prev.Radius, centroid.Distance),
 	})
 	if err != nil {
+		s.postingLocks.Unlock(centroid.ID)
 		return false, err
 	}
+
+	// increment the size of the posting after successful Store.Merge and SPTAG.Upsert
+	s.PostingSizes.Inc(centroid.ID, 1)
 
 	s.postingLocks.Unlock(centroid.ID)
 
@@ -185,7 +191,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroid SearchResu
 	}
 	if count > max {
 		if reassigned {
-			err = s.doSplit(centroid.ID)
+			err = s.doSplit(centroid.ID, false)
 		} else {
 			err = s.enqueueSplit(ctx, centroid.ID)
 		}
@@ -198,11 +204,11 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroid SearchResu
 }
 
 func (s *SPFresh) ValidateBeforeInsert(vector []float32) error {
-	if s.dims.Load() == 0 {
+	if s.dims == 0 {
 		return nil
 	}
 
-	if dims := int(s.dims.Load()); len(vector) != dims {
+	if dims := int(s.dims); len(vector) != dims {
 		return fmt.Errorf("new node has a vector with length %v. "+
 			"Existing nodes have vectors with length %v", len(vector), dims)
 	}

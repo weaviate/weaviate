@@ -20,14 +20,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
 func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	vector = distancer.Normalize(vector)
-
-	queryVector := s.quantizer.Encode(vector)
+	queryVector := s.SPTAG.Quantizer().Encode(vector)
 
 	var selected []uint64
 	var postings []*Posting
@@ -88,13 +85,13 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 				}
 
 				// skip vectors that are not in the allow list
-				if !allowList.Contains(id) {
+				if allowList != nil && !allowList.Contains(id) {
 					continue
 				}
 
 				visited.Visit(id)
 
-				dist, err := s.quantizer.DistanceBetweenCompressedVectors(v, queryVector)
+				dist, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(v.Data(), queryVector)
 				if err != nil {
 					return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 				}
@@ -146,7 +143,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 					continue
 				}
 
-				dist, err := s.quantizer.DistanceBetweenCompressedVectors(v, queryVector)
+				dist, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(v, queryVector)
 				if err != nil {
 					return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 				}

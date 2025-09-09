@@ -22,7 +22,8 @@ import (
 func TestBruteForceSPTAG_Search(t *testing.T) {
 	dim := 512
 	q := compressionhelpers.NewRotationalQuantizer(dim, 42, 8, distancer.NewCosineDistanceProvider())
-	sptag := NewBruteForceSPTAG(q)
+	sptag := NewBruteForceSPTAG()
+	sptag.Init(int32(dim), distancer.NewCosineDistanceProvider())
 
 	// Seed vectors
 	vectors := map[uint64][]float32{
@@ -32,7 +33,7 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	}
 
 	// Populate with some deterministic values for reproducibility
-	for i := 0; i < dim; i++ {
+	for i := range dim {
 		vectors[1][i] = float32(i)
 		vectors[2][i] = float32(i + 1)
 		vectors[3][i] = float32(2*i + 5)
@@ -63,7 +64,7 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	require.NotZero(t, results[0].Distance)
 
 	// Delete vector 2 and search again
-	err = sptag.Delete(2)
+	err = sptag.MarkAsDeleted(2)
 	require.NoError(t, err)
 
 	results, err = sptag.Search(encodedQuery, 2)
@@ -82,7 +83,7 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	// Get existing vector
 	existingVector := sptag.Get(1)
 	require.NotNil(t, existingVector)
-	require.Equal(t, q.Encode(vectors[1]), existingVector)
+	require.Equal(t, q.Encode(vectors[1]), existingVector.Vector)
 	require.True(t, sptag.Exists(1))
 
 	// Get non-existing vector

@@ -27,11 +27,21 @@ func (s *SPFresh) enqueueReassign(ctx context.Context, postingID uint64, vector 
 		return nil // Not started yet
 	}
 
+	if err := s.ctx.Err(); err != nil {
+		return err
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// Enqueue the operation to the channel
 	select {
 	case s.reassignCh <- reassignOperation{PostingID: postingID, Vector: vector}:
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-s.ctx.Done():
+		return s.ctx.Err()
 	}
 
 	return nil
@@ -63,7 +73,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	// check if the vector is still valid
 	version := s.VersionMap.Get(op.Vector.ID())
 	if version.Deleted() || version.Version() > op.Vector.Version().Version() {
-		s.Logger.WithField("vectorID", op.Vector.ID).
+		s.Logger.WithField("vectorID", op.Vector.ID()).
 			Debug("Vector is deleted or has a newer version, skipping reassign operation")
 		return nil
 	}
@@ -75,7 +85,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 		return errors.Wrap(err, "failed to select replicas")
 	}
 	if !needsReassign {
-		s.Logger.WithField("vectorID", op.Vector.ID).
+		s.Logger.WithField("vectorID", op.Vector.ID()).
 			Debug("Vector is already assigned to the best posting, skipping reassign operation")
 		return nil
 	}
@@ -90,18 +100,16 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	// append the vector to each replica
 	for _, replica := range replicas {
 		ok, err := s.append(s.ctx, op.Vector, replica, true)
-		if !ok {
-			s.Logger.WithField("vectorID", op.Vector.ID()).
-				WithField("replicaID", replica.ID).
-				Debug("Posting no longer exists, reassigning")
-			continue // Skip if the vector already exists in the replica
-		}
 		if err != nil {
 			return err
 		}
+		if !ok {
+			// s.Logger.WithField("vectorID", op.Vector.ID()).
+			// 	WithField("postingID", replica.ID).
+			// 	Debug("Posting no longer exists, reassigning")
+			continue // Skip if the vector already exists in the replica
+		}
 	}
-
-	// TODO: WHAT ABOUT THE OLD POSTING?
 
 	return nil
 }
@@ -120,7 +128,7 @@ LOOP:
 
 		// determine if the candidate is too close to a pre-existing replica
 		for j := range replicas {
-			dist, err := s.quantizer.DistanceBetweenCompressedVectors(s.SPTAG.Get(results[i].ID).Vector, s.SPTAG.Get(replicas[j].ID).Vector)
+			dist, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(s.SPTAG.Get(results[i].ID).Vector, s.SPTAG.Get(replicas[j].ID).Vector)
 			if err != nil {
 				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", results[i].ID, replicas[j].ID)
 			}
