@@ -13,6 +13,7 @@ package traverser
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -24,29 +25,37 @@ func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, gr
 	groupsOrdered := []string{}
 	groups := map[string][]search.Result{}
 
+RESULTS_LOOP:
 	for _, result := range sr {
 		prop_i := result.Object().Properties
 		prop := prop_i.(map[string]interface{})
-		val, ok := prop[groupBy.Property].(string)
+		rawValue := prop[groupBy.Property]
 
-		if !ok {
+		values, err := extractGroupByValues(rawValue)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract groupBy values for property %s: %w", groupBy.Property, err)
+		}
+
+		if len(values) == 0 {
 			continue
 		}
 
-		current, groupExists := groups[val]
-		if len(current) >= groupBy.ObjectsPerGroup {
-			continue
-		}
+		for _, val := range values {
+			current, groupExists := groups[val]
+			if len(current) >= groupBy.ObjectsPerGroup {
+				continue
+			}
 
-		if !groupExists && len(groups) >= groupBy.Groups {
-			continue
-		}
+			if !groupExists && len(groups) >= groupBy.Groups {
+				continue RESULTS_LOOP
+			}
 
-		groups[val] = append(current, result)
+			groups[val] = append(current, result)
 
-		if !groupExists {
-			// this group doesn't exist add it to the ordered list
-			groupsOrdered = append(groupsOrdered, val)
+			if !groupExists {
+				// this group doesn't exist add it to the ordered list
+				groupsOrdered = append(groupsOrdered, val)
+			}
 		}
 	}
 
@@ -93,4 +102,36 @@ func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, gr
 	}
 
 	return out, nil
+}
+
+// extractGroupByValues extracts string values from various property types for grouping.
+// It handles:
+// - string: returns as single-element slice
+// - []string: returns all elements
+// - []interface{}: converts each element to string if possible
+// - other types: returns empty slice (skips grouping)
+func extractGroupByValues(rawValue interface{}) ([]string, error) {
+	if rawValue == nil {
+		return []string{}, nil
+	}
+
+	switch v := rawValue.(type) {
+	case string:
+		return []string{v}, nil
+	case []string:
+		return v, nil
+	case []interface{}:
+		result := make([]string, 0, len(v))
+		for i, item := range v {
+			if str, ok := item.(string); ok {
+				result = append(result, str)
+			} else {
+				return nil, fmt.Errorf("array element at index %d is not a string: %T", i, item)
+			}
+		}
+		return result, nil
+	default:
+		// Skip non-string/non-array properties for grouping
+		return []string{}, nil
+	}
 }
