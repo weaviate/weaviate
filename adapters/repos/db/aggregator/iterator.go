@@ -13,6 +13,7 @@ package aggregator
 
 import (
 	"bytes"
+	"context"
 	"runtime"
 
 	"github.com/sirupsen/logrus"
@@ -97,7 +98,7 @@ func (c RoaringCursor) Close() {
 	c.cursor.Close()
 }
 
-func iteratorConcurrently(b *lsmkv.Bucket, newCursor func() Cursor, aggregateFunc func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error, logger logrus.FieldLogger) error {
+func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func() Cursor, aggregateFunc func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error, logger logrus.FieldLogger) error {
 	// we're looking at the whole object, so this is neither a Set, nor a Map, but
 	// a Replace strategy
 
@@ -133,6 +134,9 @@ func iteratorConcurrently(b *lsmkv.Bucket, newCursor func() Cursor, aggregateFun
 			if err != nil {
 				return err
 			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 		}
 		return nil
 	})
@@ -151,6 +155,9 @@ func iteratorConcurrently(b *lsmkv.Bucket, newCursor func() Cursor, aggregateFun
 				if err != nil {
 					return err
 				}
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 			}
 			return nil
 		})
@@ -165,6 +172,9 @@ func iteratorConcurrently(b *lsmkv.Bucket, newCursor func() Cursor, aggregateFun
 			err := aggregateFunc(k, v, vv, bi)
 			if err != nil {
 				return err
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
 			}
 		}
 		return nil
