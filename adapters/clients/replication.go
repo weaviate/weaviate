@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -38,12 +39,18 @@ import (
 
 // ReplicationClient is to coordinate operations among replicas
 
-type replicationClient retryClient
+type replicationClient struct {
+	retryClient
+	nodeSelector cluster.NodeSelector
+}
 
-func NewReplicationClient(httpClient *http.Client) replica.Client {
+func NewReplicationClient(httpClient *http.Client, nodeSelector cluster.NodeSelector) replica.Client {
 	return &replicationClient{
-		client:  httpClient,
-		retryer: newRetryer(),
+		retryClient: retryClient{
+			client:  httpClient,
+			retryer: newRetryer(),
+		},
+		nodeSelector: nodeSelector,
 	}
 }
 
@@ -394,7 +401,7 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,
 	req *http.Request, body []byte, decode func([]byte) error, numRetries int,
 ) (err error) {
-	return (*retryClient)(c).doWithCustomMarshaller(timeout, req, body, decode, successCode, numRetries)
+	return c.doWithCustomMarshaller(timeout, req, body, decode, successCode, numRetries)
 }
 
 // backOff return a new random duration in the interval [d, 3d].

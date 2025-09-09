@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
@@ -601,7 +602,7 @@ func TestExpBackOff(t *testing.T) {
 }
 
 func newReplicationClient(httpClient *http.Client) *replicationClient {
-	c := NewReplicationClient(httpClient).(*replicationClient)
+	c := NewReplicationClient(httpClient, mocks.NewMockNodeSelector()).(*replicationClient)
 	c.minBackOff = time.Millisecond * 1
 	c.maxBackOff = time.Millisecond * 8
 	c.timeoutUnit = time.Millisecond * 20

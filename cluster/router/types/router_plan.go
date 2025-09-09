@@ -43,6 +43,8 @@ type RoutingPlan struct {
 	IntConsistencyLevel int
 	ReplicasHostAddrs   []string
 	AdditionalHostAddrs []string
+
+	NodeHostnameGetter func(nodeName string) (string, bool)
 }
 
 func (r RoutingPlan) LogFields() logrus.Fields {

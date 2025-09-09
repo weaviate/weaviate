@@ -106,11 +106,12 @@ func (r *Router) routingPlanFromReplicas(
 	replicas []string,
 ) (types.RoutingPlan, error) {
 	routingPlan := types.RoutingPlan{
-		Collection:        params.Collection,
-		Shard:             params.Shard,
-		Replicas:          make([]string, 0, len(replicas)),
-		ConsistencyLevel:  params.ConsistencyLevel,
-		ReplicasHostAddrs: make([]string, 0, len(replicas)),
+		Collection:         params.Collection,
+		Shard:              params.Shard,
+		Replicas:           make([]string, 0, len(replicas)),
+		ConsistencyLevel:   params.ConsistencyLevel,
+		ReplicasHostAddrs:  make([]string, 0, len(replicas)),
+		NodeHostnameGetter: r.NodeHostname,
 	}
 
 	// If there was no local replica first specified, put the local node as direct candidate. If the local node is part of the replica set
