@@ -47,7 +47,10 @@ message WeaviateHealthCheckRequest {
   string service = 1;
 }
 message WeaviateHealthCheckResponse {
+  // keep compatibility with google health check
   // protolint:disable ENUM_FIELD_NAMES_PREFIX
+  // protolint:disable ENUM_FIELD_NAMES_ZERO_VALUE_END_WITH
+
   enum ServingStatus {
     UNKNOWN = 0;
     SERVING = 1;
