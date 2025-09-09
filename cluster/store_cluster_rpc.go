@@ -16,6 +16,7 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/types"
 )
 
@@ -60,9 +61,6 @@ func (st *Store) Notify(id, addr string) (err error) {
 	if !st.cfg.Voter || st.cfg.BootstrapExpect == 0 || st.bootstrapped.Load() || st.Leader() != "" {
 		return nil
 	}
-
-	st.bootstrapMutex.Lock()
-	defer st.bootstrapMutex.Unlock()
 
 	st.candidates[id] = addr
 	if len(st.candidates) < st.cfg.BootstrapExpect {
