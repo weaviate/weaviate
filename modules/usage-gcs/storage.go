@@ -120,7 +120,8 @@ func (g *GCSStorage) UploadUsageData(ctx context.Context, usage *types.Report) e
 // Close cleans up resources
 func (g *GCSStorage) Close() error {
 	// storageapi.Service doesn't have a Close method
-	// The HTTP client will be cleaned up by Go's garbage collector
+	// requests are handled by the HTTP client
+	// see https://github.com/googleapis/google-cloud-go/blob/storage/v1.56.1/storage/storage.go#L154-L161
 	return nil
 }
 
