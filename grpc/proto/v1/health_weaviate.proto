@@ -30,8 +30,8 @@
 // This is a copy of the google health check file with changed namespace. This enables our clients to use the health
 // check without having to import google's proto files which might have dependency conflicts.
 //
-// This file should NOT be used to start our own health check server in Weaviate itself, but only for clients to generate
-// their protobufs and grpc code from it.
+// This file should NOT be used to start our own health check server in Weaviate itself, but only for clients to
+// generate their protobufs and grpc code from it.
 //
 // See: https://github.com/weaviate/weaviate-python-client/issues/1807 and
 //      https://github.com/weaviate/weaviate-python-client/issues/1786
@@ -47,6 +47,7 @@ message WeaviateHealthCheckRequest {
   string service = 1;
 }
 message WeaviateHealthCheckResponse {
+  // protolint:disable ENUM_FIELD_NAMES_PREFIX,ENUM_FIELD_NAMES_ZERO_VALUE_END_WITH
   enum ServingStatus {
     UNKNOWN = 0;
     SERVING = 1;
