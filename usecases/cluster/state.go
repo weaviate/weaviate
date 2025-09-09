@@ -45,8 +45,8 @@ type NodeSelector interface {
 
 type State struct {
 	config Config
-	// that lock to serialize access to memberlist
-	listLock             sync.RWMutex
+	// memberlist methods are thread safe
+	// see https://github.com/hashicorp/memberlist/blob/master/memberlist.go#L502-L503
 	list                 *memberlist.Memberlist
 	nonStorageNodes      map[string]struct{}
 	delegate             delegate
@@ -169,9 +169,6 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 // Hostnames for all live members, except self. Use AllHostnames to include
 // self, prefixes the data port.
 func (s *State) Hostnames() []string {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -191,9 +188,6 @@ func (s *State) Hostnames() []string {
 
 // AllHostnames for live members, including self.
 func (s *State) AllHostnames() []string {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	if s.list == nil {
 		return []string{}
 	}
@@ -212,9 +206,6 @@ func (s *State) AllHostnames() []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) AllNames() []string {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -230,9 +221,6 @@ func (s *State) storageNodes() []string {
 	if len(s.nonStorageNodes) == 0 {
 		return s.AllNames()
 	}
-
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
 
 	members := s.list.Members()
 	out := make([]string, len(members))
@@ -273,31 +261,19 @@ func (s *State) SortCandidates(nodes []string) []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) NodeCount() int {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	return s.list.NumMembers()
 }
 
 // LocalName() return local node name
 func (s *State) LocalName() string {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	return s.list.LocalNode().Name
 }
 
 func (s *State) ClusterHealthScore() int {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	return s.list.GetHealthScore()
 }
 
 func (s *State) NodeHostname(nodeName string) (string, bool) {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeName {
 			// TODO: how can we find out the actual data port as opposed to relying on
@@ -312,9 +288,6 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 // NodeAddress is used to resolve the node name into an ip address without the port
 // TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
 func (s *State) NodeAddress(id string) string {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	// network interruption detection which can cause a single node to be isolated from the cluster (split brain)
 	nodeCount := s.list.NumMembers()
 	var joinAddr []string
