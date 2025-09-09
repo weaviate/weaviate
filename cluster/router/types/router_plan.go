@@ -35,9 +35,10 @@ func (r RoutingPlanBuildOptions) Validate() error {
 }
 
 type RoutingPlan struct {
-	Collection string
-	Shard      string
-	Replicas   []string
+	Collection         string
+	Shard              string
+	Replicas           []string
+	AdditionalReplicas []string
 
 	ConsistencyLevel    ConsistencyLevel
 	IntConsistencyLevel int
@@ -52,6 +53,7 @@ func (r RoutingPlan) LogFields() logrus.Fields {
 		"collection":            r.Collection,
 		"shard":                 r.Shard,
 		"replicas":              r.Replicas,
+		"additional_replicas":   r.AdditionalReplicas,
 		"consistency_level":     r.ConsistencyLevel,
 		"replicas_host_addrs":   r.ReplicasHostAddrs,
 		"additional_host_addrs": r.AdditionalHostAddrs,

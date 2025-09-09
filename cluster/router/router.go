@@ -96,6 +96,7 @@ func (r *Router) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (ty
 		if replicaAddr, ok := r.clusterStateReader.NodeHostname(replica); ok {
 			routingPlan.AdditionalHostAddrs = append(routingPlan.AdditionalHostAddrs, replicaAddr)
 		}
+		routingPlan.AdditionalReplicas = append(routingPlan.AdditionalReplicas, replica)
 	}
 
 	return routingPlan, nil

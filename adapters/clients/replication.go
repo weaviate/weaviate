@@ -208,13 +208,18 @@ func (c *replicationClient) PutObjects(ctx context.Context, host, index,
 	if err != nil {
 		return resp, fmt.Errorf("encode request: %w", err)
 	}
-	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard, requestID, "", nil, schemaVersion)
-	if err != nil {
-		return resp, fmt.Errorf("create http request: %w", err)
+
+	maker := func(hostResolver hostResolver) (*http.Request, error) {
+		hostAddr, _ := hostResolver(host)
+		req, err := newHttpReplicaRequest(ctx, http.MethodPost, hostAddr, index, shard, requestID, "", nil, schemaVersion)
+		if err != nil {
+			return nil, fmt.Errorf("create http request: %w", err)
+		}
+		clusterapi.IndicesPayloads.ObjectList.SetContentTypeHeaderReq(req)
+		return req, nil
 	}
 
-	clusterapi.IndicesPayloads.ObjectList.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
+	err = c.doResolve(ctx, c.timeoutUnit*90, maker, body, &resp, 9)
 	return resp, err
 }
 
@@ -344,6 +349,10 @@ func (c *replicationClient) Abort(ctx context.Context, host, index, shard, reque
 	return resp, err
 }
 
+type hostResolver func(string) (string, bool)
+
+type requestMaker func(hostResolver hostResolver) (*http.Request, error)
+
 func newHttpReplicaRequest(ctx context.Context, method, host, index, shard, requestId, suffix string, body io.Reader, schemaVersion uint64) (*http.Request, error) {
 	path := fmt.Sprintf("/replicas/indices/%s/shards/%s/objects", index, shard)
 	if suffix != "" {
@@ -377,6 +386,36 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 	defer cancel()
 	req = req.WithContext(ctx)
 	try := func(ctx context.Context) (bool, error) {
+		if body != nil {
+			req.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		res, err := c.client.Do(req)
+		if err != nil {
+			return false, fmt.Errorf("connect: %w", err)
+		}
+		defer res.Body.Close()
+
+		if code := res.StatusCode; code != http.StatusOK {
+			b, _ := io.ReadAll(res.Body)
+			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
+		}
+		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
+			return false, fmt.Errorf("decode response: %w", err)
+		}
+		return false, nil
+	}
+	return c.retry(ctx, numRetries, try)
+}
+
+func (c *replicationClient) doResolve(ctx context.Context, timeout time.Duration, reqMaker requestMaker, body []byte, resp interface{}, numRetries int) (err error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	try := func(ctx context.Context) (bool, error) {
+		req, err := reqMaker(c.nodeSelector.NodeHostname)
+		if err != nil {
+			return true, fmt.Errorf("create http request: %w", err)
+		}
+		req = req.WithContext(ctx)
 		if body != nil {
 			req.Body = io.NopCloser(bytes.NewReader(body))
 		}

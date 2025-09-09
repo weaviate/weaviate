@@ -204,7 +204,7 @@ func TestReplicationPutObjects(t *testing.T) {
 	ts := fs.server(t)
 	defer ts.Close()
 
-	client := newReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client(), "Node1", fs.host)
 	t.Run("EncodeRequest", func(t *testing.T) {
 		objs := []*storobj.Object{{}}
 		_, err := client.PutObjects(ctx, "Node1", "C1", "S1", "RID", objs, 123)
@@ -218,7 +218,7 @@ func TestReplicationPutObjects(t *testing.T) {
 	}
 
 	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.PutObjects(ctx, "", "C1", "S1", "", objects, 123)
+		_, err := client.PutObjects(ctx, "Node2", "C1", "S1", "", objects, 123)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
@@ -601,8 +601,8 @@ func TestExpBackOff(t *testing.T) {
 	}
 }
 
-func newReplicationClient(httpClient *http.Client) *replicationClient {
-	c := NewReplicationClient(httpClient, mocks.NewMockNodeSelector()).(*replicationClient)
+func newReplicationClient(httpClient *http.Client, nodes ...string) *replicationClient {
+	c := NewReplicationClient(httpClient, mocks.NewMockNodeSelector(nodes...)).(*replicationClient)
 	c.minBackOff = time.Millisecond * 1
 	c.maxBackOff = time.Millisecond * 8
 	c.timeoutUnit = time.Millisecond * 20
