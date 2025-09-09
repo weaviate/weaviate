@@ -338,51 +338,136 @@ function run_acceptance_tests() {
   fi
 }
 
-function run_acceptance_only_fast_group() {
-  # needed for test/docker package during replication tests
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+# get_fast_acceptance_packages returns a list of fast acceptance test packages.
+# It excludes slow test categories (replication, graphql, authz, etc.) but includes stress tests.
+# The returned paths are normalized to "test/acceptance/..." format.
+function get_fast_acceptance_packages() {
+  # fast acceptance tests minus slow acceptance tests
+  go list ./... \
+    | grep 'test/acceptance' \
+    | grep -v 'test/acceptance/replication' \
+    | grep -v 'test/acceptance/graphql_resolvers' \
+    | grep -v 'test/acceptance_lsmkv' \
+    | grep -v 'test/acceptance/authz' \
+    | sed 's|.*/test/acceptance/|test/acceptance/|'
+}
 
-  # NOTE: acceptance-only-fast is split into 4 groups based on measured package runtimes
-  # so each group finishes in roughly the same time on GitHub Actions.
-  local GROUP="$1"
-  local -a AOF_GROUP1=(test/acceptance/multi_node test/acceptance/actions)
-  local -a AOF_GROUP2=(test/acceptance/schema test/acceptance/cluster_api_auth test/acceptance/batch_request_endpoints test/acceptance/stress_tests)
-  local -a AOF_GROUP3=(test/acceptance/authn test/acceptance/aliases test/acceptance/maintenance_mode test/acceptance/grpc test/acceptance/vector_distances)
-  local -a AOF_GROUP4=(test/acceptance/recovery test/acceptance/snapshots test/acceptance/objects test/acceptance/nodes test/acceptance/multi_tenancy test/acceptance/classifications test/acceptance/telemetry)
+# run_aof_group runs a group of acceptance test packages with appropriate test flags.
+# Parameters:
+#   $1: group_name - display name for the group (e.g., "1", "2")
+#   $@: package_paths - list of package paths to run
+# Stress tests automatically get different flags (no timeout, no race detector).
+# Returns 1 if any test fails, 0 if all succeed.
+function run_aof_group() {
+  local group_name="$1"
+  shift
+  local -a package_paths=("$@")
 
-  run_aof_group() {
-    local -a globs=("$@")
-    # to make sure all tests are run and the script fails if one of them fails
-    # but after all tests ran
-    local testFailed=0
-    for g in "${globs[@]}"; do
-      for pkg in $(go list "./$g" 2>/dev/null || true); do
-        echo_green "Running $pkg"
-        if [[ "$pkg" == *"/stress_tests" ]]; then
-          if ! go test -count 1 "$pkg"; then
-            echo "Test for $pkg failed" >&2
-            testFailed=1
-          fi
-        else
-          if ! go test -count 1 -timeout=20m -race "$pkg"; then
-            echo "Test for $pkg failed" >&2
-            testFailed=1
-          fi
+  echo "Group $group_name packages: ${package_paths[*]}"
+
+  local testFailed=0
+  for path in "${package_paths[@]}"; do
+    for pkg in $(go list "./$path" 2>/dev/null || true); do
+      echo_green "Running $pkg"
+
+      # Stress tests need different test configuration (no timeout, no race detector)
+      if [[ "$pkg" == "test/acceptance/stress_tests" ]]; then
+        if ! go test -count 1 "$pkg"; then
+          echo "Test for $pkg failed" >&2
+          testFailed=1
         fi
-      done
+      else
+        if ! go test -count 1 -timeout=20m -race "$pkg"; then
+          echo "Test for $pkg failed" >&2
+          testFailed=1
+        fi
+      fi
     done
-    return $testFailed
-  }
+  done
 
-  case "$GROUP" in
-    1) echo_green "acceptance-only-fast — group 1/4"; echo "Packages: ${AOF_GROUP1[*]}"; run_aof_group "${AOF_GROUP1[@]}" || return 1 ;;
-    2) echo_green "acceptance-only-fast — group 2/4"; echo "Packages: ${AOF_GROUP2[*]}"; run_aof_group "${AOF_GROUP2[@]}" || return 1 ;;
-    3) echo_green "acceptance-only-fast — group 3/4"; echo "Packages: ${AOF_GROUP3[*]}"; run_aof_group "${AOF_GROUP3[@]}" || return 1 ;;
-    4) echo_green "acceptance-only-fast — group 4/4"; echo "Packages: ${AOF_GROUP4[*]}"; run_aof_group "${AOF_GROUP4[@]}" || return 1 ;;
-    *) echo_red "Invalid group: $GROUP (must be 1..4)"; return 1 ;;
+  [[ $testFailed -eq 1 ]] && return 1
+  return 0
+}
+
+# get_aof_group returns the package list for the specified group number (1-3).
+function get_aof_group() {
+  case "$1" in
+    1) echo "test/acceptance/multi_node test/acceptance/actions" ;;
+    2) echo "test/acceptance/schema test/acceptance/cluster_api_auth test/acceptance/batch_request_endpoints" ;;
+    3) echo "test/acceptance/authn test/acceptance/aliases test/acceptance/maintenance_mode test/acceptance/grpc test/acceptance/vector_distances" ;;
+    *) echo "" ;;
   esac
 }
 
+# get_other_packages returns fast acceptance packages not included in groups 1-3.
+# These packages form group 4 and include any newly added tests automatically.
+# Returns normalized package paths, one per line.
+function get_other_packages() {
+  local -a AOF_GROUP1=()
+  local -a AOF_GROUP2=()
+  local -a AOF_GROUP3=()
+
+  read -ra AOF_GROUP1 <<< "$(get_aof_group 1)"
+  read -ra AOF_GROUP2 <<< "$(get_aof_group 2)"
+  read -ra AOF_GROUP3 <<< "$(get_aof_group 3)"
+
+  # All fast acceptance test packages, excluding those in groups 1-3
+  local -a other_fast_packages=()
+  while IFS= read -r pkg; do
+    [[ -n $pkg ]] && other_fast_packages+=("$pkg")
+  done < <(
+    get_fast_acceptance_packages | grep -F -x -v -f <(printf '%s\n' "${AOF_GROUP1[@]}" "${AOF_GROUP2[@]}" "${AOF_GROUP3[@]}")
+  )
+
+  printf '%s\n' "${other_fast_packages[@]}"
+}
+
+# run_acceptance_only_fast_group runs a specific group of fast acceptance tests.
+# Parameters:
+#   $1: GROUP - group number to run (1-4)
+# Groups 1-3 contain explicitly assigned packages for load balancing.
+# Group 4 automatically contains all other fast acceptance packages.
+# Sets TEST_WEAVIATE_IMAGE environment variable for test execution.
+function run_acceptance_only_fast_group() {
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  local GROUP="$1"
+
+  local -a AOF_GROUP1=()
+  local -a AOF_GROUP2=()
+  local -a AOF_GROUP3=()
+
+  read -ra AOF_GROUP1 <<< "$(get_aof_group 1)"
+  read -ra AOF_GROUP2 <<< "$(get_aof_group 2)"
+  read -ra AOF_GROUP3 <<< "$(get_aof_group 3)"
+
+  case "$GROUP" in
+    1)
+      echo_green "acceptance-only-fast — group 1/4"
+      run_aof_group "1" "${AOF_GROUP1[@]}"
+      ;;
+    2)
+      echo_green "acceptance-only-fast — group 2/4"
+      run_aof_group "2" "${AOF_GROUP2[@]}"
+      ;;
+    3)
+      echo_green "acceptance-only-fast — group 3/4"
+      run_aof_group "3" "${AOF_GROUP3[@]}"
+      ;;
+    4)
+      echo_green "acceptance-only-fast — group 4/4 (others from fast set)"
+
+      local -a other_fast_packages=()
+      while IFS= read -r pkg; do
+        [[ -n $pkg ]] && other_fast_packages+=("$pkg")
+      done < <(get_other_packages)
+
+      [[ ${#other_fast_packages[@]} -eq 0 ]] && { echo "Nothing to run for group 4."; return 0; }
+
+      run_aof_group "4" "${other_fast_packages[@]}"
+      ;;
+    *) echo_red "Invalid group: $GROUP (must be 1..4)"; return 1 ;;
+  esac
+}
 
 function run_acceptance_go_client_only_fast() {
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
