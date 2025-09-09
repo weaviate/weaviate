@@ -111,6 +111,7 @@ func checkShardingState(s *sharding.State) error {
 	return nil
 }
 
+// Read performs a read operation `reader` on the specified class and sharding state
 func (rs SchemaReader) Read(class string, reader func(*models.Class, *sharding.State) error) error {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("Read"))
 	defer t.ObserveDuration()
