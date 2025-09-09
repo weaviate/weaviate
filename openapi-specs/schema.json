@@ -8184,8 +8184,8 @@
         }
       },
       "get": {
-        "summary": "List backups in progress",
-        "description": "[Coming soon] List all backups in progress not implemented yet.",
+        "summary": "List all created backups",
+        "description": "List all created backups IDs, Status",
         "operationId": "backups.list",
         "x-serviceIds": [
           "weaviate.local.backup"
