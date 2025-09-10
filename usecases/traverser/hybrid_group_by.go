@@ -62,7 +62,31 @@ RESULTS_LOOP:
 	out := make(search.Results, 0, len(sr))
 	for i, groupValue := range groupsOrdered {
 		groupMembers := groups[groupValue]
-		first := groupMembers[0]
+		
+		// Create a copy of the first result to avoid modifying the original
+		original := groupMembers[0]
+		first := search.Result{
+			ID:                   original.ID,
+			DocID:                original.DocID,
+			ClassName:            original.ClassName,
+			Score:                original.Score,
+			SecondarySortValue:   original.SecondarySortValue,
+			ExplainScore:         original.ExplainScore,
+			Dist:                 original.Dist,
+			Vector:               original.Vector,
+			Vectors:              original.Vectors,
+			Beacon:               original.Beacon,
+			Certainty:            original.Certainty,
+			Schema:               original.Schema,
+			Created:              original.Created,
+			Updated:              original.Updated,
+			VectorWeights:        original.VectorWeights,
+			IsConsistent:         original.IsConsistent,
+			Tenant:               original.Tenant,
+			Dims:                 original.Dims,
+			// Create a new AdditionalProperties map instead of sharing
+			AdditionalProperties: models.AdditionalProperties{},
+		}
 
 		hits := make([]map[string]interface{}, len(groupMembers))
 
@@ -93,9 +117,6 @@ RESULTS_LOOP:
 		}
 
 		// add group
-		if first.AdditionalProperties == nil {
-			first.AdditionalProperties = models.AdditionalProperties{}
-		}
 		first.AdditionalProperties["group"] = group
 
 		out = append(out, first)
