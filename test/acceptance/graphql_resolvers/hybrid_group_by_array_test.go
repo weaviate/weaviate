@@ -12,6 +12,8 @@
 package test
 
 import (
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -99,7 +101,8 @@ func hybridSearchGroupByArrayTests(t *testing.T) {
 		for _, obj := range objects {
 			helper.CreateObject(t, obj)
 		}
-		helper.AssertEventuallyEqual(t, len(objects), func() interface{} {
+		exp := json.Number(fmt.Sprintf("%d", len(objects)))
+		helper.AssertEventuallyEqual(t, exp, func() interface{} {
 			return graphqlhelper.AssertGraphQL(t, helper.RootAuth, `{ Aggregate { `+className+` { meta { count } } } }`).
 				Get("Aggregate", className).AsSlice()[0].(map[string]interface{})["meta"].(map[string]interface{})["count"]
 		})
@@ -167,8 +170,8 @@ func hybridSearchGroupByArrayTests(t *testing.T) {
 		// Check that "red" group has 2 objects (Red Sports Car and Red Fire Truck)
 		if redGroup, exists := groupsByValue["red"]; exists {
 			redGroupData := redGroup.(map[string]interface{})
-			count := int(redGroupData["count"].(float64))
-			assert.Equal(t, 2, count, "red group should have 2 objects")
+			count := redGroupData["count"].(json.Number)
+			assert.Equal(t, json.Number("2"), count, "red group should have 2 objects")
 
 			hits := redGroupData["hits"].([]interface{})
 			assert.Len(t, hits, 2, "red group should have 2 hits")
@@ -177,8 +180,8 @@ func hybridSearchGroupByArrayTests(t *testing.T) {
 		// Check that "vehicle" group has 3 objects (all except green garden tool)
 		if vehicleGroup, exists := groupsByValue["vehicle"]; exists {
 			vehicleGroupData := vehicleGroup.(map[string]interface{})
-			count := int(vehicleGroupData["count"].(float64))
-			assert.Equal(t, 3, count, "vehicle group should have 3 objects")
+			count := vehicleGroupData["count"].(json.Number)
+			assert.Equal(t, json.Number("3"), count, "vehicle group should have 3 objects")
 		}
 	})
 
@@ -231,8 +234,8 @@ func hybridSearchGroupByArrayTests(t *testing.T) {
 		// Check that "automotive" group has 2 objects (Red Sports Car and Red Fire Truck)
 		if automotiveGroup, exists := groupsByValue["automotive"]; exists {
 			automotiveGroupData := automotiveGroup.(map[string]interface{})
-			count := int(automotiveGroupData["count"].(float64))
-			assert.Equal(t, 2, count, "automotive group should have 2 objects")
+			count := automotiveGroupData["count"].(json.Number)
+			assert.Equal(t, json.Number("2"), count, "automotive group should have 2 objects")
 		}
 	})
 
@@ -280,8 +283,8 @@ func hybridSearchGroupByArrayTests(t *testing.T) {
 		}
 
 		require.NotNil(t, redGroupData, "red group should exist")
-		count := int(redGroupData["count"].(float64))
-		assert.Equal(t, 1, count, "red group should have only 1 object due to objectsPerGroup limit")
+		count := redGroupData["count"].(json.Number)
+		assert.Equal(t, json.Number("1"), count, "red group should have only 1 object due to objectsPerGroup limit")
 
 		hits := redGroupData["hits"].([]interface{})
 		assert.Len(t, hits, 1, "red group should have only 1 hit due to objectsPerGroup limit")
