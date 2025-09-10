@@ -236,7 +236,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 	level := routingPlan.IntConsistencyLevel
-	hosts := routingPlan.ReplicasHostAddrs
+	hosts := routingPlan.Replicas
 	replyCh := make(chan _Result[T], level)
 	f := func() {
 		hostRetryQueue := make(chan hostRetry, len(hosts))
