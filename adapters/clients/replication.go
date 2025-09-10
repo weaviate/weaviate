@@ -60,7 +60,7 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	additional additional.Properties, numRetries int,
 ) (replica.Replica, error) {
 	resp := replica.Replica{}
-	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", id.String(), nil, 0)
+	req, err := newHttpReplicaRequest(ctx, http.MethodGet, c.host(host), index, shard, "", id.String(), nil, 0)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
