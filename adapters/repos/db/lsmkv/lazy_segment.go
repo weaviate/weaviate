@@ -87,6 +87,9 @@ func (s *lazySegment) setPath(path string) {
 }
 
 func (s *lazySegment) getStrategy() segmentindex.Strategy {
+	if s.isLoaded() {
+		return s.segment.getStrategy()
+	}
 	strategy, found := s.numberFromPath("s")
 	if found {
 		return segmentindex.Strategy(strategy)
@@ -101,6 +104,9 @@ func (s *lazySegment) getSecondaryIndexCount() uint16 {
 }
 
 func (s *lazySegment) getLevel() uint16 {
+	if s.isLoaded() {
+		return s.segment.getLevel()
+	}
 	level, found := s.numberFromPath("l")
 	if found {
 		return uint16(level)
