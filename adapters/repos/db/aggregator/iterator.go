@@ -22,6 +22,8 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
+const contextCheckInterval = 50 // check context every 50 iterations, every iteration adds too much overhead
+
 type Cursor interface {
 	First() (k, v []byte, vv [][]byte, bi *sroar.Bitmap)
 	Next() (k, v []byte, vv [][]byte, bi *sroar.Bitmap)
@@ -129,12 +131,14 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 		c := newCursor()
 		defer c.Close()
 
+		count := 0
 		for k, v, vv, bi := c.First(); k != nil && bytes.Compare(k, seeds[0]) < 0; k, v, vv, bi = c.Next() {
 			err := aggregateFunc(k, v, vv, bi)
 			if err != nil {
 				return err
 			}
-			if ctx.Err() != nil {
+			count++
+			if count%contextCheckInterval == 0 && ctx.Err() != nil {
 				return ctx.Err()
 			}
 		}
@@ -150,12 +154,14 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 			c := newCursor()
 			defer c.Close()
 
+			count := 0
 			for k, v, vv, bi := c.Seek(start); k != nil && bytes.Compare(k, end) < 0; k, v, vv, bi = c.Next() {
 				err := aggregateFunc(k, v, vv, bi)
 				if err != nil {
 					return err
 				}
-				if ctx.Err() != nil {
+				count++
+				if count%contextCheckInterval == 0 && ctx.Err() != nil {
 					return ctx.Err()
 				}
 			}
@@ -168,14 +174,17 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 		c := newCursor()
 		defer c.Close()
 
+		count := 0
 		for k, v, vv, bi := c.Seek(seeds[len(seeds)-1]); k != nil; k, v, vv, bi = c.Next() {
 			err := aggregateFunc(k, v, vv, bi)
 			if err != nil {
 				return err
 			}
-			if ctx.Err() != nil {
+			count++
+			if count%contextCheckInterval == 0 && ctx.Err() != nil {
 				return ctx.Err()
 			}
+
 		}
 		return nil
 	})
