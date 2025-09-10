@@ -522,7 +522,22 @@ func (st *Store) Close(ctx context.Context) error {
 			st.log.WithError(err).Error("transferring leadership")
 		} else {
 			st.log.Info("successfully transferred leadership to another server")
+
+			// Wait for leadership change
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				_, leaderID := st.raft.LeaderWithID()
+				if leaderID != "" && leaderID != raft.ServerID(st.cfg.NodeID) {
+					st.log.WithField("new_leader", leaderID).Info("leadership successfully transferred, new leader elected")
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
 		}
+	}
+
+	if err := st.raft.RemoveServer(raft.ServerID(st.cfg.NodeID), 0, 0).Error(); err != nil {
+		st.log.WithError(err).Error("remove node from cluster")
 	}
 
 	if err := st.raft.Shutdown().Error(); err != nil {
@@ -536,6 +551,14 @@ func (st *Store) Close(ctx context.Context) error {
 		// it's not that fatal if we weren't able to close
 		// the transport, that's why just warn
 		st.log.WithError(err).Warn("close raft-net")
+	}
+
+	if err := st.cfg.NodeSelector.Leave(); err != nil {
+		st.log.WithError(err).Error("leave node from cluster")
+	}
+
+	if err := st.cfg.NodeSelector.Shutdown(); err != nil {
+		st.log.WithError(err).Error("shutdown node from cluster")
 	}
 
 	st.log.Info("closing log store ...")
