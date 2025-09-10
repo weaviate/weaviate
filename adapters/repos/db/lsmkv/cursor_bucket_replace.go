@@ -43,6 +43,7 @@ type cursorStateReplace struct {
 // .Close() methods or otherwise the lock will never be released
 func (b *Bucket) Cursor() *CursorReplace {
 	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
 
 	if b.strategy != StrategyReplace {
 		panic("Cursor() called on strategy other than 'replace'")
@@ -65,7 +66,6 @@ func (b *Bucket) Cursor() *CursorReplace {
 		innerCursors: innerCursors,
 		unlock: func() {
 			unlockSegmentGroup()
-			b.flushLock.RUnlock()
 		},
 	}
 }
