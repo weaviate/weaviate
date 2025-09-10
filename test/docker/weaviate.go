@@ -82,7 +82,7 @@ func startWeaviate(ctx context.Context,
 		"QUERY_DEFAULTS_LIMIT":      "20",
 		"PERSISTENCE_DATA_PATH":     "./data",
 		"DEFAULT_VECTORIZER_MODULE": "none",
-		"CLUSTER_SUSPICION_MULT":    "1",
+		"FAST_FAILURE_DETECTION":    "true",
 		"DISABLE_TELEMETRY":         "true",
 	}
 	if len(enableModules) > 0 {
