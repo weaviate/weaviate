@@ -689,7 +689,7 @@ func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	return out, nil
 }
 
-func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []*segment, func(), error) {
+func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte) ([][]value, []*segment, func(), error) {
 	segments, release := sg.getAndLockSegments()
 
 	out := make([][]value, len(segments))
@@ -698,6 +698,10 @@ func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []*segm
 	i := 0
 	// start with first and do not exit
 	for _, segment := range segments {
+		if ctx.Err() != nil {
+			release()
+			return nil, nil, func() {}, ctx.Err()
+		}
 		v, err := segment.getCollection(key)
 		if err != nil {
 			if !errors.Is(err, lsmkv.NotFound) {

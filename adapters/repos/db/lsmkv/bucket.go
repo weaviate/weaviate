@@ -830,7 +830,7 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 
 	segments := [][]MapPair{}
 	// before := time.Now()
-	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(key)
+	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(ctx, key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
@@ -1525,7 +1525,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	}
 
 	segments := [][]terms.DocPointerWithScore{}
-	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(key)
+	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(ctx, key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
