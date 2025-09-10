@@ -360,7 +360,10 @@ jobs:
       fail-fast: false
       matrix:
         test: [
-          "--acceptance-only-fast",
+          "--acceptance-only-fast-group-1",
+          "--acceptance-only-fast-group-2",
+          "--acceptance-only-fast-group-3",
+          "--acceptance-only-fast-group-4",
           "--acceptance-only-graphql",
           "--acceptance-only-authz",
           "--acceptance-only-replication",
