@@ -26,7 +26,11 @@ import (
 )
 
 type lazySegment struct {
-	path        string
+	path string
+
+	strategy *segmentindex.Strategy
+	level    *uint16
+
 	logger      logrus.FieldLogger
 	metrics     *Metrics
 	existsLower existsOnLowerSegmentsFn
@@ -43,13 +47,27 @@ func newLazySegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		metrics.LazySegmentInit.Inc()
 	}
 
-	return &lazySegment{
+	lazySegment := &lazySegment{
 		path:        path,
 		logger:      logger,
 		metrics:     metrics,
 		existsLower: existsLower,
 		cfg:         cfg,
-	}, nil
+	}
+
+	val, ok := numberFromPath(path, "s")
+	if ok {
+		strategy := segmentindex.Strategy(val)
+		lazySegment.strategy = &strategy
+	}
+
+	val, ok = numberFromPath(path, "l")
+	if ok {
+		level := uint16(val)
+		lazySegment.level = &level
+	}
+
+	return lazySegment, nil
 }
 
 func (s *lazySegment) load() error {
@@ -87,9 +105,8 @@ func (s *lazySegment) setPath(path string) {
 }
 
 func (s *lazySegment) getStrategy() segmentindex.Strategy {
-	strategy, found := s.numberFromPath("s")
-	if found {
-		return segmentindex.Strategy(strategy)
+	if s.strategy != nil {
+		return *s.strategy
 	}
 	s.mustLoad()
 	return s.segment.getStrategy()
@@ -101,11 +118,9 @@ func (s *lazySegment) getSecondaryIndexCount() uint16 {
 }
 
 func (s *lazySegment) getLevel() uint16 {
-	level, found := s.numberFromPath("l")
-	if found {
-		return uint16(level)
+	if s.level != nil {
+		return *s.level
 	}
-
 	s.mustLoad()
 	return s.segment.getLevel()
 }
@@ -260,10 +275,10 @@ func (s *lazySegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLay
 	return s.segment.roaringSetMergeWith(key, input, bitmapBufPool)
 }
 
-func (s *lazySegment) numberFromPath(str string) (int, bool) {
+func numberFromPath(path, str string) (int, bool) {
 	template := fmt.Sprintf(`\.%s(\d+)\.`, str)
 	re := regexp.MustCompile(template)
-	match := re.FindStringSubmatch(s.path)
+	match := re.FindStringSubmatch(path)
 	if len(match) > 1 {
 		num, err := strconv.Atoi(match[1])
 		if err == nil {
