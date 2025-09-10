@@ -25,7 +25,6 @@ func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, gr
 	groupsOrdered := []string{}
 	groups := map[string][]search.Result{}
 
-RESULTS_LOOP:
 	for _, result := range sr {
 		prop_i := result.Object().Properties
 		prop := prop_i.(map[string]interface{})
@@ -40,14 +39,21 @@ RESULTS_LOOP:
 			continue
 		}
 
+		// Process all values for this result, but stop if we hit the groups limit
+		skipResult := false
 		for _, val := range values {
+			if skipResult {
+				break
+			}
+
 			current, groupExists := groups[val]
 			if len(current) >= groupBy.ObjectsPerGroup {
 				continue
 			}
 
 			if !groupExists && len(groups) >= groupBy.Groups {
-				continue RESULTS_LOOP
+				skipResult = true
+				break
 			}
 
 			groups[val] = append(current, result)
