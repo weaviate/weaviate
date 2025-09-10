@@ -24,7 +24,12 @@ import (
 	"os"
 	"path"
 	"sync"
+	"testing"
 	"time"
+
+	"github.com/stretchr/testify/mock"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -37,7 +42,6 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
@@ -54,37 +58,86 @@ type node struct {
 	hostname      string
 }
 
-func (n *node) init(dirName string, shardStateRaw []byte,
-	allNodes *[]*node,
+func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingState *sharding.State,
 ) {
+	var err error
 	localDir := path.Join(dirName, n.name)
 	logger, _ := test.NewNullLogger()
-
-	var names []string
-	for _, node := range *allNodes {
-		names = append(names, node.name)
-	}
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return(n.name).Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).RunAndReturn(func(nodeName string) (string, bool) {
+		for _, node := range *allNodes {
+			if node.name == nodeName {
+				if node.hostname == "" {
+					return "", false
+				}
+				return node.hostname, true
+			}
+		}
+		return "", false
+	}).Maybe()
 	nodeResolver := &nodeResolver{
-		NodeSelector: mocks.NewMockNodeSelector(names...),
+		NodeSelector: mockNodeSelector,
 		nodes:        allNodes,
 		local:        n.name,
 	}
 
 	os.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1s")
+	shardStateRaw, err := json.Marshal(shardingState)
+	if err != nil {
+		panic(fmt.Sprintf("Error marshalling sharding state: %v", err))
+	}
 	shardState, err := sharding.StateFromJSON(shardStateRaw, nodeResolver)
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("Error unmarshalling sharding state: %v", err))
 	}
 
 	client := clients.NewRemoteIndex(&http.Client{})
 	nodesClient := clients.NewRemoteNode(&http.Client{})
 	replicaClient := clients.NewReplicationClient(&http.Client{})
-	n.repo, err = db.New(logger, db.Config{
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().
+		ShardReplicas(mock.Anything, mock.Anything).
+		RunAndReturn(func(class string, shard string) ([]string, error) {
+			phys, ok := shardState.Physical[shard]
+			if !ok {
+				return nil, fmt.Errorf("shard %q not found for class %q", shard, class)
+			}
+			return phys.BelongsToNodes, nil
+		}).Maybe()
+	mockSchemaReader.EXPECT().ShardOwner(mock.Anything, mock.Anything).RunAndReturn(func(class string, shard string) (string, error) {
+		x, ok := shardState.Physical[shard]
+		if !ok {
+			return "", fmt.Errorf("shard %q not found for class %q", shard, class)
+		}
+		if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
+			return "", fmt.Errorf("owner node not found for shard %q and class %q", shard, class)
+		}
+		return shardState.Physical[shard].BelongsToNodes[0], nil
+	}).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(class string, shard string, replicas []string) []string {
+			return replicas
+		}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(class string, shard string, replicas []string) ([]string, []string) {
+			return replicas, []string{}
+		}).Maybe()
+
+	n.repo, err = db.New(logger, n.name, db.Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  localDir,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, client, nodeResolver, nodesClient, replicaClient, nil, memwatch.NewDummyMonitor())
+	}, client, nodeResolver, nodesClient, replicaClient, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	if err != nil {
 		panic(err)
 	}
@@ -109,7 +162,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	n.scheduler = ubak.NewScheduler(
 		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, n.schemaManager, logger)
 
-	n.migrator = db.NewMigrator(n.repo, logger)
+	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 
 	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider(logger, config.Config{})),
 		n.repo, clusterapi.NewNoopAuthHandler(), func() bool { return false }, logger)

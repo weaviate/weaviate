@@ -123,6 +123,15 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 		return nil
 	}
 
+	// check if rq bits is immutable
+	if h.rqConfig.Enabled && parsed.RQ.Enabled {
+		if parsed.RQ.Bits != h.rqConfig.Bits {
+			callback()
+			return errors.Errorf("rq bits is immutable: attempted change from \"%v\" to \"%v\"",
+				h.rqConfig.Bits, parsed.RQ.Bits)
+		}
+	}
+
 	h.pqConfig = parsed.PQ
 	h.sqConfig = parsed.SQ
 	h.bqConfig = parsed.BQ

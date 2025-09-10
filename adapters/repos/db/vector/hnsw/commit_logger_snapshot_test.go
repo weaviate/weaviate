@@ -948,6 +948,7 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 		require.Nil(t, restoredState.CompressionPQData)
 		require.Nil(t, restoredState.CompressionSQData)
 		require.Nil(t, restoredState.CompressionRQData)
+		require.Nil(t, restoredState.CompressionBRQData)
 		require.Nil(t, restoredState.EncoderMuvera)
 	})
 
@@ -982,6 +983,7 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 		require.Nil(t, restoredState.CompressionPQData)
 		require.Nil(t, restoredState.CompressionSQData)
 		require.Nil(t, restoredState.CompressionRQData)
+		require.Nil(t, restoredState.CompressionBRQData)
 		require.Nil(t, restoredState.EncoderMuvera)
 	})
 
@@ -1195,6 +1197,65 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 		require.Equal(t, len(state.EncoderMuvera.S), len(restoredState.EncoderMuvera.S))
 		require.Equal(t, state.EncoderMuvera.Gaussians[0][0][0], restoredState.EncoderMuvera.Gaussians[0][0][0])
 		require.Equal(t, state.EncoderMuvera.S[0][0][0], restoredState.EncoderMuvera.S[0][0][0])
+	})
+
+	t.Run("v2 metadata - with BRQ compression", func(t *testing.T) {
+		// Create state with BRQ compression
+		state := &DeserializationResult{
+			Entrypoint: 212,
+			Level:      5,
+			Compressed: true,
+			Nodes:      make([]*vertex, 250),
+			CompressionBRQData: &compressionhelpers.BRQData{
+				InputDim: 8,
+				Rotation: compressionhelpers.FastRotation{
+					OutputDim: 8,
+					Rounds:    1,
+					Swaps: [][]compressionhelpers.Swap{
+						{
+							{I: 0, J: 1},
+							{I: 2, J: 3},
+							{I: 4, J: 5},
+							{I: 6, J: 7},
+						},
+					},
+					Signs: [][]float32{
+						{1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0},
+					},
+				},
+				Rounding: []float32{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8},
+			},
+		}
+
+		dir := t.TempDir()
+		id := "test"
+		cl := createTestCommitLoggerForSnapshots(t, dir, id)
+
+		// Write snapshot to a temporary file
+		snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+		err := cl.writeSnapshot(state, snapshotPath)
+		require.NoError(t, err)
+
+		// Read snapshot back
+		restoredState, err := cl.readSnapshot(snapshotPath)
+		require.NoError(t, err)
+
+		// Verify all fields match
+		require.Equal(t, state.Compressed, true)
+		require.Equal(t, state.Entrypoint, restoredState.Entrypoint)
+		require.Equal(t, state.Level, restoredState.Level)
+		require.Equal(t, state.Compressed, restoredState.Compressed)
+		require.Equal(t, len(state.Nodes), len(restoredState.Nodes))
+		require.NotNil(t, restoredState.CompressionBRQData)
+		require.Equal(t, state.CompressionBRQData.InputDim, restoredState.CompressionBRQData.InputDim)
+		require.Equal(t, state.CompressionBRQData.Rotation.OutputDim, restoredState.CompressionBRQData.Rotation.OutputDim)
+		require.Equal(t, state.CompressionBRQData.Rotation.Rounds, restoredState.CompressionBRQData.Rotation.Rounds)
+		require.Equal(t, len(state.CompressionBRQData.Rotation.Swaps), len(restoredState.CompressionBRQData.Rotation.Swaps))
+		require.Equal(t, len(state.CompressionBRQData.Rotation.Signs), len(restoredState.CompressionBRQData.Rotation.Signs))
+		require.Equal(t, state.CompressionBRQData.Rotation.Swaps[0][0].I, restoredState.CompressionBRQData.Rotation.Swaps[0][0].I)
+		require.Equal(t, state.CompressionBRQData.Rotation.Swaps[0][0].J, restoredState.CompressionBRQData.Rotation.Swaps[0][0].J)
+		require.Equal(t, state.CompressionBRQData.Rotation.Signs[0][0], restoredState.CompressionBRQData.Rotation.Signs[0][0])
+		require.Equal(t, state.CompressionBRQData.Rounding[0], restoredState.CompressionBRQData.Rounding[0])
 	})
 
 	t.Run("v2 metadata - with Muvera encoding and SQ compression", func(t *testing.T) {

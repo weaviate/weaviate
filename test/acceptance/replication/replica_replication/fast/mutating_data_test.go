@@ -152,10 +152,14 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	cancel() // stop mutating to allow the verification to proceed
 
 	t.Log("Waiting for a while to ensure all data is replicated")
-	time.Sleep(time.Minute) // Wait a bit to ensure all data is replicated
 
 	// Verify that shards all have consistent data
 	t.Log("Verifying data consistency of tenant")
+
+	t.Log("Replication operation completed successfully, cancelling data mutation")
+	cancel() // stop mutating to allow the verification to proceed
+
+	t.Log("Waiting for replicas to converge on object count")
 
 	verbose := verbosity.OutputVerbose
 	ns, err = helper.Client(t).Nodes.NodesGetClass(
@@ -169,37 +173,28 @@ func test(suite *ReplicationTestSuite, strategy string) {
 		nodeToAddress[node.Name] = suite.compose.GetWeaviateNode(idx + 1).URI()
 	}
 
-	objectCountByReplica := make(map[string]int64)
-	for node, address := range nodeToAddress {
-		helper.SetupClient(address)
-		res, err := helper.Client(t).Graphql.GraphqlPost(graphql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{
-			Query: fmt.Sprintf(`{ Aggregate { %s(tenant: "%s") { meta { count } } } }`, cls.Class, tenantName),
-		}), nil)
-		require.Nil(t, err, "failed to get object count for tenant %s on node %s", tenantName, node)
-		val, err := res.Payload.Data["Aggregate"].(map[string]any)["Paragraph"].([]any)[0].(map[string]any)["meta"].(map[string]any)["count"].(json.Number).Int64()
-		require.Nil(t, err, "failed to parse object count for tenant %s on node %s", tenantName, node)
-		objectCountByReplica[node] = val
-	}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		consistent := true
+		var expected int64 = -1
 
-	// Verify that all replicas have the same number of objects
-	t.Log("Verifying object counts across replicas")
-	for node, count := range objectCountByReplica {
-		if node == sourceNode {
-			// skip the source node as it may have stop receiving updates after it was removed from the replicaset
-			continue
-		}
-		if node == targetNode {
-			// skip the target node as it is used as a baseline for comparison
-			continue
+		for node, address := range nodeToAddress {
+			helper.SetupClient(address)
+			res, err := helper.Client(t).Graphql.GraphqlPost(graphql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{
+				Query: fmt.Sprintf(`{ Aggregate { %s(tenant: "%s") { meta { count } } } }`, cls.Class, tenantName),
+			}), nil)
+			require.Nil(ct, err, "failed to get object count for tenant %s on node %s", tenantName, node)
+			val, err := res.Payload.Data["Aggregate"].(map[string]any)["Paragraph"].([]any)[0].(map[string]any)["meta"].(map[string]any)["count"].(json.Number).Int64()
+			require.Nil(ct, err, "failed to parse object count for tenant %s on node %s", tenantName, node)
+			if expected == -1 {
+				expected = val
+			}
+			if val != expected {
+				consistent = false
+			}
 		}
 
-		t.Logf("Node %s has %d objects for tenant %s", node, count, tenantName)
-
-		// target node may have more objects given deletion requests may have not reached target node and
-		// deletions to be resolved requires async replication to be enabled
-		require.GreaterOrEqual(t, objectCountByReplica[targetNode], count,
-			"object count mismatch for tenant %s on node %s", tenantName, node)
-	}
+		require.True(ct, consistent, "replicas did not converge on object count")
+	}, 2*time.Minute, 5*time.Second, "replication operations for class %s did not converge in time", cls.Class)
 }
 
 func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, className string, tenantName string, wait int) {

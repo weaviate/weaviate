@@ -88,6 +88,8 @@ const (
 	Filters_OPERATOR_IS_NULL            Filters_Operator = 11
 	Filters_OPERATOR_CONTAINS_ANY       Filters_Operator = 12
 	Filters_OPERATOR_CONTAINS_ALL       Filters_Operator = 13
+	Filters_OPERATOR_CONTAINS_NONE      Filters_Operator = 14
+	Filters_OPERATOR_NOT                Filters_Operator = 15
 )
 
 // Enum value maps for Filters_Operator.
@@ -107,6 +109,8 @@ var (
 		11: "OPERATOR_IS_NULL",
 		12: "OPERATOR_CONTAINS_ANY",
 		13: "OPERATOR_CONTAINS_ALL",
+		14: "OPERATOR_CONTAINS_NONE",
+		15: "OPERATOR_NOT",
 	}
 	Filters_Operator_value = map[string]int32{
 		"OPERATOR_UNSPECIFIED":        0,
@@ -123,6 +127,8 @@ var (
 		"OPERATOR_IS_NULL":            11,
 		"OPERATOR_CONTAINS_ANY":       12,
 		"OPERATOR_CONTAINS_ALL":       13,
+		"OPERATOR_CONTAINS_NONE":      14,
+		"OPERATOR_NOT":                15,
 	}
 )
 
@@ -204,8 +210,11 @@ func (Vectors_VectorType) EnumDescriptor() ([]byte, []int) {
 
 type NumberArrayProperties struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// will be removed in the future, use vector_bytes
+	// go client 5.4.1 depends on this field. Only remove after go client is deprecated
+	//
 	// Deprecated: Marked as deprecated in v1/base.proto.
-	Values        []float64 `protobuf:"fixed64,1,rep,packed,name=values,proto3" json:"values,omitempty"` // will be removed in the future, use vector_bytes
+	Values        []float64 `protobuf:"fixed64,1,rep,packed,name=values,proto3" json:"values,omitempty"`
 	PropName      string    `protobuf:"bytes,2,opt,name=prop_name,json=propName,proto3" json:"prop_name,omitempty"`
 	ValuesBytes   []byte    `protobuf:"bytes,3,opt,name=values_bytes,json=valuesBytes,proto3" json:"values_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1471,7 +1480,7 @@ const file_v1_base_proto_rawDesc = "" +
 	"\vNumberArray\x12\x16\n" +
 	"\x06values\x18\x01 \x03(\x01R\x06values\"&\n" +
 	"\fBooleanArray\x12\x16\n" +
-	"\x06values\x18\x01 \x03(\bR\x06values\"\x99\b\n" +
+	"\x06values\x18\x01 \x03(\bR\x06values\"\xc7\b\n" +
 	"\aFilters\x129\n" +
 	"\boperator\x18\x01 \x01(\x0e2\x1d.weaviate.v1.Filters.OperatorR\boperator\x12\x12\n" +
 	"\x02on\x18\x02 \x03(\tB\x02\x18\x01R\x02on\x12.\n" +
@@ -1487,7 +1496,7 @@ const file_v1_base_proto_rawDesc = "" +
 	"\x13value_boolean_array\x18\v \x01(\v2\x19.weaviate.v1.BooleanArrayH\x00R\x11valueBooleanArray\x12H\n" +
 	"\x12value_number_array\x18\f \x01(\v2\x18.weaviate.v1.NumberArrayH\x00R\x10valueNumberArray\x12@\n" +
 	"\tvalue_geo\x18\r \x01(\v2!.weaviate.v1.GeoCoordinatesFilterH\x00R\bvalueGeo\x121\n" +
-	"\x06target\x18\x14 \x01(\v2\x19.weaviate.v1.FilterTargetR\x06target\"\xe3\x02\n" +
+	"\x06target\x18\x14 \x01(\v2\x19.weaviate.v1.FilterTargetR\x06target\"\x91\x03\n" +
 	"\bOperator\x12\x18\n" +
 	"\x14OPERATOR_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eOPERATOR_EQUAL\x10\x01\x12\x16\n" +
@@ -1503,7 +1512,9 @@ const file_v1_base_proto_rawDesc = "" +
 	"\x12\x14\n" +
 	"\x10OPERATOR_IS_NULL\x10\v\x12\x19\n" +
 	"\x15OPERATOR_CONTAINS_ANY\x10\f\x12\x19\n" +
-	"\x15OPERATOR_CONTAINS_ALL\x10\rB\f\n" +
+	"\x15OPERATOR_CONTAINS_ALL\x10\r\x12\x1a\n" +
+	"\x16OPERATOR_CONTAINS_NONE\x10\x0e\x12\x10\n" +
+	"\fOPERATOR_NOT\x10\x0fB\f\n" +
 	"\n" +
 	"test_value\"`\n" +
 	"\x1bFilterReferenceSingleTarget\x12\x0e\n" +
