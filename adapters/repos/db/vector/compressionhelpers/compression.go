@@ -254,10 +254,8 @@ func (compressor *quantizedVectorsCompressor[T]) NewBag() CompressionDistanceBag
 func (compressor *quantizedVectorsCompressor[T]) initCompressedStore() error {
 	err := compressor.compressedStore.CreateOrLoadBucket(context.Background(), helpers.VectorsCompressedBucketLSM)
 	if err != nil {
-		compressor.logger.WithFields(logrus.Fields{
-			"action": "initCompressedStore",
-			"error":  err,
-		}).Error("Create or load bucket (compressed vectors store)")
+		compressor.logger.WithField("action", "initCompressedStore").
+			WithError(err).Error("Create or load bucket (compressed vectors store)")
 		return errors.Wrapf(err, "Create or load bucket (compressed vectors store)")
 	}
 	return nil
