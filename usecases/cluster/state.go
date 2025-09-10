@@ -12,6 +12,7 @@
 package cluster
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"slices"
@@ -19,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -149,23 +151,31 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 	}
 
 	if len(joinAddr) > 0 {
-		_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
-		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"action":          "cluster_attempt_join",
-				"remote_hostname": joinAddr[0],
-			}).WithError(err).Warn(
-				"specified hostname to join cluster cannot be resolved. This is fine" +
-					"if this is the first node of a new cluster, but problematic otherwise.")
-		} else {
-			_, err := state.list.Join(joinAddr)
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		err = backoff.Retry(func() error {
+			_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
 			if err != nil {
 				logger.WithFields(logrus.Fields{
-					"action":          "memberlist_init",
-					"remote_hostname": joinAddr,
-				}).WithError(err).Error("memberlist join not successful")
-				return nil, errors.Wrap(err, "join cluster")
+					"action":          "cluster_attempt_join",
+					"remote_hostname": joinAddr[0],
+				}).WithError(err).Warn(
+					"specified hostname to join cluster cannot be resolved. This is fine" +
+						"if this is the first node of a new cluster, but problematic otherwise.")
+			} else {
+				_, err := state.list.Join(joinAddr)
+				if err != nil {
+					logger.WithFields(logrus.Fields{
+						"action":          "memberlist_init",
+						"remote_hostname": joinAddr,
+					}).WithError(err).Error("memberlist join not successful")
+					return errors.Wrap(err, "join cluster")
+				}
 			}
+			return nil
+		}, backoff.WithContext(backoff.NewConstantBackOff(1*time.Second), ctx))
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -303,41 +313,6 @@ func (s *State) ClusterHealthScore() int {
 func (s *State) NodeHostname(nodeName string) (string, bool) {
 	members := s.list.Members()
 	for _, mem := range members {
-		if mem.Name == nodeName {
-			// TODO: how can we find out the actual data port as opposed to relying on
-			// the convention that it's 1 higher than the gossip port
-			return fmt.Sprintf("%s:%d", mem.Addr.String(), mem.Port+1), true
-		}
-	}
-
-	// network interruption detection which can cause a single node to be isolated from the cluster (split brain)
-	nodeCount := len(s.list.Members())
-	var joinAddr []string
-	if s.config.Join != "" {
-		joinAddr = strings.Split(s.config.Join, ",")
-	}
-	if nodeCount <= s.config.RaftBootstrapExpect && s.config.RaftBootstrapExpect > 1 && len(joinAddr) > 0 {
-		s.delegate.log.WithFields(logrus.Fields{
-			"action":     "memberlist_rejoin",
-			"node_count": nodeCount,
-		}).Warn("detected single node split-brain, attempting to rejoin memberlist cluster")
-		// Only attempt rejoin if we're supposed to be part of a larger cluster
-		_, err := s.list.Join(joinAddr)
-		if err != nil {
-			s.delegate.log.WithFields(logrus.Fields{
-				"action":          "memberlist_rejoin",
-				"remote_hostname": joinAddr,
-			}).WithError(err).Error("memberlist rejoin not successful")
-		} else {
-			s.delegate.log.WithFields(logrus.Fields{
-				"action":     "memberlist_rejoin",
-				"node_count": s.list.NumMembers(),
-			}).Info("Successfully rejoined the memberlist cluster")
-		}
-	}
-
-	// redo again to get after rejoin
-	for _, mem := range s.list.Members() {
 		if mem.Name == nodeName {
 			// TODO: how can we find out the actual data port as opposed to relying on
 			// the convention that it's 1 higher than the gossip port
