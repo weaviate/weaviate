@@ -15,7 +15,6 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -175,13 +174,13 @@ func TestSchemaReader_WithShardingStateCheck(t *testing.T) {
 
 			// THEN
 			if tt.expectedError != "" {
-				assert.Error(t, err)
-				assert.Contains(t, err.Error(), tt.expectedError)
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.expectedError)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 
-			assert.Equal(t, tt.readerCalled, readerCalled)
+			require.Equal(t, tt.readerCalled, readerCalled)
 		})
 	}
 }
