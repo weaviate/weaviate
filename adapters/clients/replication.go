@@ -26,12 +26,12 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -41,10 +41,10 @@ import (
 
 type replicationClient struct {
 	retryClient
-	nodeSelector cluster.NodeSelector
+	nodeSelector resolver.ClusterStateReader
 }
 
-func NewReplicationClient(httpClient *http.Client, nodeSelector cluster.NodeSelector) replica.Client {
+func NewReplicationClient(httpClient *http.Client, nodeSelector resolver.ClusterStateReader) replica.Client {
 	return &replicationClient{
 		retryClient: retryClient{
 			client:  httpClient,
@@ -329,23 +329,31 @@ func (c *replicationClient) FindUUIDs(ctx context.Context, hostName, indexName,
 
 // Commit asks a host to commit and stores the response in the value pointed to by resp
 func (c *replicationClient) Commit(ctx context.Context, host, index, shard string, requestID string, resp interface{}) error {
-	req, err := newHttpReplicaCMD(host, "commit", index, shard, requestID, nil)
-	if err != nil {
-		return fmt.Errorf("create http request: %w", err)
+	maker := func(hostResolver hostResolver) (*http.Request, error) {
+		hostAddr, _ := hostResolver(host)
+		req, err := newHttpReplicaCMD(hostAddr, "commit", index, shard, requestID, nil)
+		if err != nil {
+			return nil, fmt.Errorf("create http request: %w", err)
+		}
+		return req, nil
 	}
 
-	return c.do(c.timeoutUnit*90, req, nil, resp, 9)
+	return c.doResolve(ctx, c.timeoutUnit*90, maker, nil, resp, 9)
 }
 
 func (c *replicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (
 	resp replica.SimpleResponse, err error,
 ) {
-	req, err := newHttpReplicaCMD(host, "abort", index, shard, requestID, nil)
-	if err != nil {
-		return resp, fmt.Errorf("create http request: %w", err)
+	maker := func(hostResolver hostResolver) (*http.Request, error) {
+		hostAddr, _ := hostResolver(host)
+		req, err := newHttpReplicaCMD(hostAddr, "abort", index, shard, requestID, nil)
+		if err != nil {
+			return nil, fmt.Errorf("create http request: %w", err)
+		}
+		return req, nil
 	}
 
-	err = c.do(c.timeoutUnit*5, req, nil, &resp, 9)
+	err = c.doResolve(ctx, c.timeoutUnit*5, maker, nil, &resp, 9)
 	return resp, err
 }
 
