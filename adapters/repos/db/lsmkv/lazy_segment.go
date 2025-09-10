@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/weaviate/sroar"
 
@@ -26,8 +27,8 @@ import (
 )
 
 var (
-	levelRegEx    = regexp.MustCompile(fmt.Sprintf(`\.%s(\d+)\.`, "l"))
-	strategyRegEx = regexp.MustCompile(fmt.Sprintf(`\.%s(\d+)\.`, "s"))
+	levelRegEx    = regexp.MustCompile(`\.l(\d+)\.`)
+	strategyRegEx = regexp.MustCompile(`\.s(\d+)\.`)
 )
 
 type lazySegment struct {
@@ -37,8 +38,8 @@ type lazySegment struct {
 	existsLower existsOnLowerSegmentsFn
 	cfg         segmentConfig
 
-	level    *uint16
-	strategy *segmentindex.Strategy
+	level    atomic.Pointer[uint16]
+	strategy atomic.Pointer[segmentindex.Strategy]
 
 	segment *segment
 	mux     sync.Mutex
@@ -95,14 +96,15 @@ func (s *lazySegment) setPath(path string) {
 }
 
 func (s *lazySegment) getStrategy() segmentindex.Strategy {
-	if s.strategy != nil {
-		return *s.strategy
+	ptr := s.strategy.Load()
+	if ptr != nil {
+		return *ptr
 	}
 
 	strategy, found := s.numberFromPath(strategyRegEx)
 	if found {
 		strtg := segmentindex.Strategy(strategy)
-		s.strategy = &strtg
+		s.strategy.Store(&strtg)
 		return strtg
 	}
 	s.mustLoad()
@@ -115,14 +117,15 @@ func (s *lazySegment) getSecondaryIndexCount() uint16 {
 }
 
 func (s *lazySegment) getLevel() uint16 {
-	if s.level != nil {
-		return *s.level
+	ptr := s.level.Load()
+	if ptr != nil {
+		return *ptr
 	}
 
 	level, found := s.numberFromPath(levelRegEx)
 	if found {
 		lvl := uint16(level)
-		s.level = &lvl
+		s.level.Store(&lvl)
 		return lvl
 	}
 
