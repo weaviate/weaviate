@@ -116,3 +116,9 @@ func (a *raft) AllClusterMembers(raftPort int) map[string]string {
 	// Delegate to the underlying ClusterStateReader
 	return a.ClusterStateReader.AllClusterMembers(raftPort)
 }
+
+// AllClusterMembers returns all cluster members discovered via memberlist with their raft addresses
+func (a *raft) AllClusterMembers(raftPort int) map[string]string {
+	// Delegate to the underlying ClusterStateReader
+	return a.ClusterStateReader.AllClusterMembers(raftPort)
+}

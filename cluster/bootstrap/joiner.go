@@ -88,10 +88,8 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 
 		// Log the error but don't immediately give up
 		st := status.Convert(err)
-
 		// Get the leader from response and if not empty try to join it
 		if leader := resp.GetLeader(); st.Code() == codes.ResourceExhausted && leader != "" {
-			lg.WithField("leader", leader).Info("attempting to join leader")
 			_, err = j.peerJoiner.Join(ctx, leader, req)
 			if err == nil {
 				return leader, nil
