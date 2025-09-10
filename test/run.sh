@@ -427,7 +427,6 @@ function get_other_packages() {
 #   $1: GROUP - group number to run (1-4)
 # Groups 1-3 contain explicitly assigned packages for load balancing.
 # Group 4 automatically contains all other fast acceptance packages.
-# Sets TEST_WEAVIATE_IMAGE environment variable for test execution.
 function run_acceptance_only_fast_group() {
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
   local GROUP="$1"
