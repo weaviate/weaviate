@@ -22,7 +22,7 @@ func TestStore(t *testing.T) {
 	ctx := t.Context()
 	t.Run("get", func(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
-		s, err := NewLSMStore(store, "test_bucket")
+		s, err := NewLSMStore(store, "test_bucket", true)
 		require.NoError(t, err)
 		s.Init(10)
 
@@ -32,10 +32,10 @@ func TestStore(t *testing.T) {
 		require.Nil(t, p)
 
 		// create a posting
-		posting := Posting{
+		posting := CompressedPosting{
 			vectorSize: 10,
 		}
-		posting.AddVector(NewVector(1, 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}))
+		posting.AddVector(NewCompressedVector(1, 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}))
 		err = s.Put(ctx, 1, &posting)
 		require.NoError(t, err)
 
@@ -52,7 +52,7 @@ func TestStore(t *testing.T) {
 
 	t.Run("multi-get", func(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
-		s, err := NewLSMStore(store, "test_bucket")
+		s, err := NewLSMStore(store, "test_bucket", true)
 		require.NoError(t, err)
 		s.Init(10)
 
@@ -65,13 +65,13 @@ func TestStore(t *testing.T) {
 		ps, err = s.MultiGet(ctx, []uint64{1, 2, 3})
 		require.ErrorIs(t, err, ErrPostingNotFound)
 
-		var postings []*Posting
+		var postings []*CompressedPosting
 		// create a few postings
 		for i := range 5 {
-			posting := Posting{
+			posting := CompressedPosting{
 				vectorSize: 10,
 			}
-			posting.AddVector(NewVector(uint64(i), 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}))
+			posting.AddVector(NewCompressedVector(uint64(i), 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}))
 			postings = append(postings, &posting)
 			err = s.Put(ctx, uint64(i), &posting)
 			require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestStore(t *testing.T) {
 
 	t.Run("put", func(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
-		s, err := NewLSMStore(store, "test_bucket")
+		s, err := NewLSMStore(store, "test_bucket", true)
 		require.NoError(t, err)
 		s.Init(10)
 
@@ -96,12 +96,8 @@ func TestStore(t *testing.T) {
 		err = s.Put(ctx, 1, nil)
 		require.Error(t, err)
 
-		// invalid posting vector size
-		err = s.Put(ctx, 1, &Posting{vectorSize: 5})
-		require.Error(t, err)
-
 		// empty posting
-		err = s.Put(ctx, 1, &Posting{vectorSize: 10})
+		err = s.Put(ctx, 1, &CompressedPosting{vectorSize: 10})
 		require.NoError(t, err)
 	})
 }

@@ -145,10 +145,11 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 			WithError(err).
 			Debug("Cannot split posting: contains identical vectors, keeping only one vector")
 
-		err = s.Store.Put(s.ctx, postingID, &Posting{
-			vectorSize: filtered.vectorSize,
-			data:       filtered.GetAt(0),
-		})
+		pp := &CompressedPosting{
+			vectorSize: int(s.vectorSize),
+		}
+		pp.AddVector(filtered.GetAt(0))
+		err = s.Store.Put(s.ctx, postingID, pp)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put single vector posting %d after split operation", postingID)
 		}
@@ -165,7 +166,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		// we can reuse the existing posting
 		if !postingReused {
 			existingCentroid := s.SPTAG.Get(postingID)
-			dist, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(existingCentroid.Vector, result[i].Centroid)
+			dist, err := existingCentroid.Vector.DistanceWithRaw(s.distancer, result[i].Centroid)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for split operation on posting %d", postingID)
 			}
@@ -175,7 +176,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 					Debug("Reusing existing posting for split operation")
 				postingReused = true
 				newPostingIDs[i] = postingID
-				err = s.Store.Put(s.ctx, postingID, &result[i].Posting)
+				err = s.Store.Put(s.ctx, postingID, result[i].Posting)
 				if err != nil {
 					return errors.Wrapf(err, "failed to put reused posting %d after split operation", postingID)
 				}
@@ -189,7 +190,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		// otherwise, we need to create a new posting for the new centroid
 		newPostingID := s.IDs.Next()
 		newPostingIDs[i] = newPostingID
-		err = s.Store.Put(s.ctx, newPostingID, &result[i].Posting)
+		err = s.Store.Put(s.ctx, newPostingID, result[i].Posting)
 		if err != nil {
 			return errors.Wrapf(err, "failed to put new posting %d after split operation", newPostingID)
 		}
@@ -199,7 +200,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 
 		// add the new centroid to the SPTAG index
 		err = s.SPTAG.Upsert(newPostingID, &Centroid{
-			Vector: result[i].Centroid,
+			Vector: NewAnonymousCompressedVector(result[i].Centroid),
 		})
 		if err != nil {
 			return errors.Wrapf(err, "failed to upsert new centroid %d after split operation", newPostingID)
@@ -240,12 +241,12 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 // splitPosting takes a posting and returns two groups.
 // If the clustering fails because of the content of the posting,
 // it returns ErrIdenticalVectors.
-func (s *SPFresh) splitPosting(posting *Posting) ([]SplitResult, error) {
+func (s *SPFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 	enc := compressionhelpers.NewKMeansEncoder(2, int(s.dims), 0)
 
-	data := make([][]float32, 0, posting.Len())
-	for _, v := range posting.Iter() {
-		data = append(data, s.SPTAG.Quantizer().Restore(v.Data()))
+	var data [][]float32
+	if cp, ok := posting.(*CompressedPosting); ok {
+		data = cp.Uncompress(s.SPTAG.Quantizer())
 	}
 
 	err := enc.Fit(data)
@@ -257,27 +258,26 @@ func (s *SPFresh) splitPosting(posting *Posting) ([]SplitResult, error) {
 	for i := range results {
 		results[i] = SplitResult{
 			Centroid: s.SPTAG.Quantizer().Encode(enc.Centroid(byte(i))),
-			Posting: Posting{
+			Posting: &CompressedPosting{
 				vectorSize: int(s.vectorSize),
-				data:       make([]byte, 0, len(posting.data)),
 			},
 		}
 	}
 
-	for _, v := range posting.Iter() {
+	for i, v := range data {
 		// compute the distance to each centroid
-		dA, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(v, results[0].Centroid)
+		dA, err := s.distancer.DistanceBetweenVectors(v, enc.Centroid(byte(0)))
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to compute distance for vector %d to centroid 0", v.ID())
+			return nil, errors.Wrapf(err, "failed to compute distance to centroid 0")
 		}
-		dB, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(v, results[1].Centroid)
+		dB, err := s.distancer.DistanceBetweenVectors(v, enc.Centroid(byte(1)))
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to compute distance for vector %d to centroid 1", v.ID())
+			return nil, errors.Wrapf(err, "failed to compute distance to centroid 1")
 		}
 		if dA < dB {
-			results[0].Posting.data = append(results[0].Posting.data, v...)
+			results[0].Posting.AddVector(posting.GetAt(i))
 		} else {
-			results[1].Posting.data = append(results[1].Posting.data, v...)
+			results[1].Posting.AddVector(posting.GetAt(i))
 		}
 	}
 
@@ -305,17 +305,16 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 		// test each vector
 		for _, v := range newPostings[i].Posting.Iter() {
 			vid := v.ID()
-			data := v.Data()
 			_, exists := reassignedVectors[vid]
 			if !exists && !v.Version().Deleted() && s.VersionMap.Get(vid) == v.Version() {
 				// compute distance from v to its new centroid
-				newDist, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(s.SPTAG.Get(newPostingIDs[i]).Vector, data)
+				newDist, err := s.SPTAG.Get(newPostingIDs[i]).Vector.Distance(s.distancer, v)
 				if err != nil {
 					return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[i])
 				}
 
 				// compute distance from v to the old centroid
-				oldDist, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(oldCentroid.Vector, data)
+				oldDist, err := oldCentroid.Vector.Distance(s.distancer, v)
 				if err != nil {
 					return errors.Wrapf(err, "failed to compute distance for vector %d in old posting %d", vid, oldPostingID)
 				}
@@ -371,28 +370,27 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 		for _, v := range p.Iter() {
 			vid := v.ID()
 			version := v.Version()
-			data := v.Data()
 			_, exists := reassignedVectors[vid]
 			if exists || version.Deleted() || s.VersionMap.Get(vid) != version {
 				continue
 			}
 
-			distNeighbor, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(s.SPTAG.Get(neighbor.ID).Vector, data)
+			distNeighbor, err := s.SPTAG.Get(neighbor.ID).Vector.Distance(s.distancer, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in neighbor posting %d", vid, neighbor.ID)
 			}
 
-			distOld, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(oldCentroid.Vector, data)
+			distOld, err := oldCentroid.Vector.Distance(s.distancer, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in old posting %d", vid, oldPostingID)
 			}
 
-			distA0, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(s.SPTAG.Get(newPostingIDs[0]).Vector, data)
+			distA0, err := s.SPTAG.Get(newPostingIDs[0]).Vector.Distance(s.distancer, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[0])
 			}
 
-			distA1, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(s.SPTAG.Get(newPostingIDs[1]).Vector, data)
+			distA1, err := s.SPTAG.Get(newPostingIDs[1]).Vector.Distance(s.distancer, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in new posting %d", vid, newPostingIDs[1])
 			}

@@ -17,7 +17,10 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 const (
@@ -25,10 +28,19 @@ const (
 	tombstoneMask = 0x80 // 1000 0000, masks out the highest bit
 )
 
-type Vector []byte
+type Vector interface {
+	ID() uint64
+	Version() VectorVersion
+	Distance(distancer *Distancer, other Vector) (float32, error)
+	DistanceWithRaw(distancer *Distancer, other []byte) (float32, error)
+}
 
-func NewVector(id uint64, version VectorVersion, data []byte) Vector {
-	v := make(Vector, 8+1+len(data))
+var _ Vector = CompressedVector(nil)
+
+type CompressedVector []byte
+
+func NewCompressedVector(id uint64, version VectorVersion, data []byte) CompressedVector {
+	v := make(CompressedVector, 8+1+len(data))
 	binary.LittleEndian.PutUint64(v[:8], id)
 	v[8] = byte(version)
 	copy(v[9:], data)
@@ -36,33 +48,66 @@ func NewVector(id uint64, version VectorVersion, data []byte) Vector {
 	return v
 }
 
-func (v Vector) ID() uint64 {
+func NewAnonymousCompressedVector(data []byte) CompressedVector {
+	v := make(CompressedVector, 8+1+len(data))
+	// id and version are zero
+	copy(v[9:], data)
+
+	return v
+}
+
+func (v CompressedVector) ID() uint64 {
 	return binary.LittleEndian.Uint64(v[:8])
 }
 
-func (v Vector) Version() VectorVersion {
+func (v CompressedVector) Version() VectorVersion {
 	return VectorVersion(v[8])
 }
 
-func (v Vector) Data() []byte {
+func (v CompressedVector) Data() []byte {
 	return v[8+1:]
 }
 
+func (v CompressedVector) Distance(distancer *Distancer, other Vector) (float32, error) {
+	c, ok := other.(CompressedVector)
+	if !ok {
+		return 0, errors.New("other vector is not a CompressedVector")
+	}
+
+	return distancer.DistanceBetweenCompressedVectors(v.Data(), c.Data())
+}
+
+func (v CompressedVector) DistanceWithRaw(distancer *Distancer, other []byte) (float32, error) {
+	return distancer.DistanceBetweenCompressedVectors(v.Data(), other)
+}
+
+type Posting interface {
+	AddVector(v Vector)
+	GarbageCollect(versionMap *VersionMap) Posting
+	Len() int
+	Iter() iter.Seq2[int, Vector]
+	GetAt(i int) Vector
+	Clone() Posting
+}
+
+var _ Posting = (*CompressedPosting)(nil)
+
 // A Posting is a collection of vectors associated with the same centroid.
-type Posting struct {
+type CompressedPosting struct {
 	// total size in bytes of each vector
 	vectorSize int
 	data       []byte
 }
 
-func (p *Posting) AddVector(v Vector) {
-	p.data = append(p.data, v...)
+func (p *CompressedPosting) AddVector(v Vector) {
+	c := v.(CompressedVector)
+	p.data = append(p.data, c...)
 }
 
 // GarbageCollect filters out vectors that are marked as deleted in the version map
 // and return the filtered posting.
 // This method doesn't allocate a new slice, the filtering is done in-place.
-func (p *Posting) GarbageCollect(versionMap *VersionMap) *Posting {
+func (p *CompressedPosting) GarbageCollect(versionMap *VersionMap) Posting {
 	var i int
 	step := 8 + 1 + p.vectorSize
 	for i < len(p.data) {
@@ -81,7 +126,7 @@ func (p *Posting) GarbageCollect(versionMap *VersionMap) *Posting {
 	return p
 }
 
-func (p *Posting) Len() int {
+func (p *CompressedPosting) Len() int {
 	step := int(8 + 1 + p.vectorSize)
 	var j int
 	for i := 0; i < len(p.data); i += step {
@@ -91,12 +136,12 @@ func (p *Posting) Len() int {
 	return j
 }
 
-func (p *Posting) Iter() iter.Seq2[int, Vector] {
+func (p *CompressedPosting) Iter() iter.Seq2[int, Vector] {
 	step := 8 + 1 + p.vectorSize
 	return func(yield func(int, Vector) bool) {
 		var j int
 		for i := 0; i < len(p.data); i += step {
-			if !yield(j, p.data[i:i+step]) {
+			if !yield(j, CompressedVector(p.data[i:i+step])) {
 				break
 			}
 			j++
@@ -104,10 +149,28 @@ func (p *Posting) Iter() iter.Seq2[int, Vector] {
 	}
 }
 
-func (p *Posting) GetAt(i int) Vector {
+func (p *CompressedPosting) GetAt(i int) Vector {
 	step := int(8 + 1 + p.vectorSize)
 	idx := i * step
-	return p.data[idx : idx+step]
+	return CompressedVector(p.data[idx : idx+step])
+}
+
+func (p *CompressedPosting) Clone() Posting {
+	return &CompressedPosting{
+		vectorSize: p.vectorSize,
+		data:       append([]byte(nil), p.data...),
+	}
+}
+
+func (p *CompressedPosting) Uncompress(quantizer *compressionhelpers.RotationalQuantizer) [][]float32 {
+	step := 8 + 1 + p.vectorSize
+	l := p.Len()
+	data := make([][]float32, 0, l)
+	for i := 0; i < len(p.data); i += step {
+		data = append(data, quantizer.Restore(p.data[i+9:i+step]))
+	}
+
+	return data
 }
 
 // A VectorVersion is a 1-byte value structured as follows:
@@ -239,4 +302,17 @@ func (v *PostingSizes) AllocPageFor(id ...uint64) {
 		v.sizes.AllocPageFor(id)
 	}
 	v.m.Unlock()
+}
+
+type Distancer struct {
+	quantizer *compressionhelpers.RotationalQuantizer
+	distancer distancer.Provider
+}
+
+func (d *Distancer) DistanceBetweenCompressedVectors(a, b []byte) (float32, error) {
+	return d.quantizer.DistanceBetweenCompressedVectors(a, b)
+}
+
+func (d *Distancer) DistanceBetweenVectors(a, b []float32) (float32, error) {
+	return d.distancer.SingleDist(a, b)
 }

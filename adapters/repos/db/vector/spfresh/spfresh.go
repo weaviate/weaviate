@@ -72,6 +72,7 @@ type SPFresh struct {
 	mergeList *deduplicator // Prevents duplicate merge operations
 
 	visitedPool *visited.Pool
+	distancer   *Distancer
 
 	postingLocks *common.HashedLocks // Locks to prevent concurrent modifications to the same posting.
 
@@ -83,7 +84,7 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 		return nil, err
 	}
 
-	postingStore, err := NewLSMStore(store, bucketName(cfg.ID))
+	postingStore, err := NewLSMStore(store, bucketName(cfg.ID), true)
 	if err != nil {
 		return nil, err
 	}

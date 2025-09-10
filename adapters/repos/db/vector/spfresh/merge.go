@@ -202,7 +202,7 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 			if _, exists := vectorSet[v.ID()]; exists {
 				continue // Skip duplicate vectors
 			}
-			newPosting.data = append(newPosting.data, v...)
+			newPosting.AddVector(v)
 			candidateLen++
 		}
 
@@ -243,12 +243,12 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 		smallCentroid := s.SPTAG.Get(smallID)
 		largeCentroid := s.SPTAG.Get(largeID)
 		for _, v := range smallPosting.Iter() {
-			prevDist, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(smallCentroid.Vector, v)
+			prevDist, err := smallCentroid.Vector.Distance(s.distancer, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in small posting %d", v.ID(), smallID)
 			}
 
-			newDist, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(largeCentroid.Vector, v)
+			newDist, err := largeCentroid.Vector.Distance(s.distancer, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in large posting %d", v.ID(), largeID)
 			}

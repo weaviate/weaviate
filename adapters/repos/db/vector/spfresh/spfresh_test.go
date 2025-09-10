@@ -24,15 +24,15 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 func TestSPFreshRecall(t *testing.T) {
 	cfg := DefaultConfig()
 	l := logrus.New()
-	l.SetLevel(logrus.InfoLevel)
+	l.SetLevel(logrus.DebugLevel)
 	cfg.Logger = l
 
 	logger, _ := test.NewNullLogger()
 
-	vectors_size := 10_000
-	queries_size := 10
+	vectors_size := 100_000
+	queries_size := 1000
 	dimensions := 64
-	k := 100
+	k := 1000
 
 	before := time.Now()
 	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
@@ -48,16 +48,18 @@ func TestSPFreshRecall(t *testing.T) {
 	require.NoError(t, err)
 	defer index.Shutdown(t.Context())
 
+	var count int
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(id uint64) {
-		if id%1000 == 0 {
-			fmt.Printf("indexing vector %d/%d\n", id, vectors_size)
+		count++
+		if count%1000 == 0 {
+			fmt.Printf("indexing vector %d/%d\n", count, vectors_size)
 		}
 		err := index.Add(t.Context(), id, vectors[id])
 		require.NoError(t, err)
 	})
 
 	fmt.Println("--------------------------- indexing done, starting queries after 1 minute")
-	time.Sleep(2 * time.Minute)
+	time.Sleep(5 * time.Minute)
 
 	// do some warmup queries to trigger merge operations
 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
@@ -65,8 +67,8 @@ func TestSPFreshRecall(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	fmt.Println("--------------------------- warmup done, starting timed queries after 1 minute")
-	time.Sleep(1 * time.Minute)
+	fmt.Println("--------------------------- warmup done, starting timed queries after 10 seconds")
+	time.Sleep(30 * time.Second)
 	var mu sync.Mutex
 	var relevant uint64
 	var retrieved int

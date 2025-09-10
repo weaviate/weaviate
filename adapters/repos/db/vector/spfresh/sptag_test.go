@@ -43,7 +43,7 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	for id, v := range vectors {
 		encoded := q.Encode(v)
 		err := sptag.Upsert(id, &Centroid{
-			Vector: encoded,
+			Vector: NewAnonymousCompressedVector(encoded),
 		})
 		require.NoError(t, err)
 	}
@@ -55,7 +55,7 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	}
 	encodedQuery := q.Encode(query)
 
-	results, err := sptag.Search(encodedQuery, 2)
+	results, err := sptag.Search(NewAnonymousCompressedVector(encodedQuery), 2)
 	require.NoError(t, err)
 	require.True(t, len(results) >= 1)
 
@@ -67,7 +67,7 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	err = sptag.MarkAsDeleted(2)
 	require.NoError(t, err)
 
-	results, err = sptag.Search(encodedQuery, 2)
+	results, err = sptag.Search(NewAnonymousCompressedVector(encodedQuery), 2)
 	require.NoError(t, err)
 	require.NotContains(t, results, uint64(2))
 
@@ -76,14 +76,14 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	require.Equal(t, results[1].ID, uint64(1))
 
 	// Test with an empty search
-	results, err = sptag.Search(encodedQuery, 0)
+	results, err = sptag.Search(NewAnonymousCompressedVector(encodedQuery), 0)
 	require.NoError(t, err)
 	require.Empty(t, results)
 
 	// Get existing vector
 	existingVector := sptag.Get(1)
 	require.NotNil(t, existingVector)
-	require.Equal(t, q.Encode(vectors[1]), existingVector.Vector)
+	require.Equal(t, q.Encode(vectors[1]), existingVector.Vector.(CompressedVector).Data())
 	require.True(t, sptag.Exists(1))
 
 	// Get non-existing vector

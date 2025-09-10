@@ -114,7 +114,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	return nil
 }
 
-func (s *SPFresh) selectReplicas(query []byte, unless uint64) ([]SearchResult, bool, error) {
+func (s *SPFresh) selectReplicas(query Vector, unless uint64) ([]SearchResult, bool, error) {
 	results, err := s.SPTAG.Search(query, s.Config.InternalPostingCandidates)
 	if err != nil {
 		return nil, false, errors.Wrap(err, "failed to search for nearest neighbors")
@@ -125,12 +125,13 @@ func (s *SPFresh) selectReplicas(query []byte, unless uint64) ([]SearchResult, b
 LOOP:
 	for i := 0; i < len(results) && len(replicas) < s.Config.Replicas; i++ {
 		candidate := results[i]
+		candidateCentroid := s.SPTAG.Get(candidate.ID)
 
 		// determine if the candidate is too close to a pre-existing replica
 		for j := range replicas {
-			dist, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(s.SPTAG.Get(results[i].ID).Vector, s.SPTAG.Get(replicas[j].ID).Vector)
+			dist, err := candidateCentroid.Vector.Distance(s.distancer, s.SPTAG.Get(replicas[j].ID).Vector)
 			if err != nil {
-				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", results[i].ID, replicas[j].ID)
+				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", candidate.ID, replicas[j].ID)
 			}
 
 			if s.Config.RNGFactor*dist <= candidate.Distance {

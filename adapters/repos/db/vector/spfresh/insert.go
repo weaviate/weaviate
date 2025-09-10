@@ -18,30 +18,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	var compressed []byte
-
-	// init components that require knowing the vector dimensions
-	// and compressed size
-	s.initDimensionsOnce.Do(func() {
-		s.dims = int32(len(vector))
-		s.SPTAG.Init(s.dims, s.Config.Distancer)
-		compressed = s.SPTAG.Quantizer().Encode(vector)
-		s.vectorSize = int32(len(compressed))
-		s.Store.Init(s.vectorSize)
-	})
-
-	if compressed == nil {
-		compressed = s.SPTAG.Quantizer().Encode(vector)
-	}
-
-	return s.addOne(ctx, id, compressed)
-}
-
 func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	if len(ids) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
@@ -65,18 +41,41 @@ func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float3
 	return nil
 }
 
-// addOne adds a vector into one or more postings.
-// The number of replicas is determined by the UserConfig.Replicas setting.
-func (s *SPFresh) addOne(ctx context.Context, id uint64, vector []byte) error {
-	// TODO can this ever return 0 replicas even if a posting/centroid already exists?
-	replicas, _, err := s.selectReplicas(vector, 0)
-	if err != nil {
+func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
+	if err := ctx.Err(); err != nil {
 		return err
+	}
+
+	var compressed []byte
+
+	// init components that require knowing the vector dimensions
+	// and compressed size
+	s.initDimensionsOnce.Do(func() {
+		s.dims = int32(len(vector))
+		s.SPTAG.Init(s.dims, s.Config.Distancer)
+		compressed = s.SPTAG.Quantizer().Encode(vector)
+		s.distancer = &Distancer{
+			quantizer: s.SPTAG.Quantizer(),
+			distancer: s.Config.Distancer,
+		}
+		s.vectorSize = int32(len(compressed))
+		s.Store.Init(s.vectorSize)
+	})
+
+	if compressed == nil {
+		compressed = s.SPTAG.Quantizer().Encode(vector)
 	}
 
 	s.VersionMap.AllocPageFor(id)
 
-	v := NewVector(id, s.VersionMap.Get(id), vector)
+	v := NewCompressedVector(id, s.VersionMap.Get(id), compressed)
+
+	// TODO can this ever return 0 replicas even if a posting/centroid already exists?
+	replicas, _, err := s.selectReplicas(v, 0)
+	if err != nil {
+		return err
+	}
+
 	// if there are no postings found, ensure an initial posting is created
 	if len(replicas) == 0 {
 		replicas, err = s.ensureInitialPosting(v)
@@ -102,7 +101,7 @@ func (s *SPFresh) ensureInitialPosting(v Vector) ([]SearchResult, error) {
 	defer s.initialPostingLock.Unlock()
 
 	// check if a posting was created concurrently
-	replicas, _, err := s.selectReplicas(v.Data(), 0)
+	replicas, _, err := s.selectReplicas(v, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +112,7 @@ func (s *SPFresh) ensureInitialPosting(v Vector) ([]SearchResult, error) {
 		s.PostingSizes.AllocPageFor(postingID)
 		// use the vector as the centroid and register it in the SPTAG
 		err = s.SPTAG.Upsert(postingID, &Centroid{
-			Vector: v.Data(),
+			Vector: v,
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)

@@ -24,10 +24,10 @@ import (
 )
 
 func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	queryVector := s.SPTAG.Quantizer().Encode(vector)
+	queryVector := NewAnonymousCompressedVector(s.SPTAG.Quantizer().Encode(vector))
 
 	var selected []uint64
-	var postings []*Posting
+	var postings []Posting
 
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
@@ -91,7 +91,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 
 				visited.Visit(id)
 
-				dist, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(v.Data(), queryVector)
+				dist, err := v.Distance(s.distancer, queryVector)
 				if err != nil {
 					return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 				}
@@ -143,7 +143,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 					continue
 				}
 
-				dist, err := s.SPTAG.Quantizer().DistanceBetweenCompressedVectors(v, queryVector)
+				dist, err := v.Distance(s.distancer, queryVector)
 				if err != nil {
 					return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 				}

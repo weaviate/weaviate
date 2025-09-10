@@ -149,14 +149,15 @@ func bucketName(id string) string {
 
 type LSMStore struct {
 	m          sync.RWMutex
-	store      map[uint64]*Posting
+	store      map[uint64]Posting
+	compressed bool
 	vectorSize atomic.Int32
 }
 
-func NewLSMStore(store *lsmkv.Store, bucketName string) (*LSMStore, error) {
-
+func NewLSMStore(store *lsmkv.Store, bucketName string, compressed bool) (*LSMStore, error) {
 	return &LSMStore{
-		store: make(map[uint64]*Posting),
+		store:      make(map[uint64]Posting),
+		compressed: compressed,
 	}, nil
 }
 
@@ -167,7 +168,7 @@ func (l *LSMStore) Init(size int32) {
 	l.vectorSize.Store(size)
 }
 
-func (l *LSMStore) Get(ctx context.Context, postingID uint64) (*Posting, error) {
+func (l *LSMStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
 	l.m.RLock()
 	defer l.m.RUnlock()
 
@@ -182,20 +183,17 @@ func (l *LSMStore) Get(ctx context.Context, postingID uint64) (*Posting, error) 
 		return nil, errors.WithStack(ErrPostingNotFound)
 	}
 
-	return &Posting{
-		vectorSize: posting.vectorSize,
-		data:       append([]byte(nil), posting.data...),
-	}, nil
+	return posting.Clone(), nil
 }
 
-func (l *LSMStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]*Posting, error) {
+func (l *LSMStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting, error) {
 	vectorSize := l.vectorSize.Load()
 	if vectorSize == 0 {
 		// the store is empty
 		return nil, errors.WithStack(ErrPostingNotFound)
 	}
 
-	postings := make([]*Posting, 0, len(postingIDs))
+	postings := make([]Posting, 0, len(postingIDs))
 
 	for _, id := range postingIDs {
 		posting, err := l.Get(ctx, id)
@@ -208,21 +206,15 @@ func (l *LSMStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]*Postin
 	return postings, nil
 }
 
-func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting *Posting) error {
+func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting Posting) error {
 	l.m.Lock()
 	defer l.m.Unlock()
 
 	if posting == nil {
 		return errors.New("posting cannot be nil")
 	}
-	if posting.vectorSize != int(l.vectorSize.Load()) {
-		return errors.Errorf("posting vector size %d does not match store vector size %d", posting.vectorSize, l.vectorSize.Load())
-	}
 
-	l.store[postingID] = &Posting{
-		vectorSize: posting.vectorSize,
-		data:       append([]byte(nil), posting.data...),
-	}
+	l.store[postingID] = posting.Clone()
 
 	return nil
 }
@@ -233,13 +225,13 @@ func (l *LSMStore) Merge(ctx context.Context, postingID uint64, vector Vector) e
 
 	p, ok := l.store[postingID]
 	if !ok {
-		p = &Posting{
+		p = &CompressedPosting{
 			vectorSize: int(l.vectorSize.Load()),
 		}
 		l.store[postingID] = p
 	}
 
-	p.data = append(p.data, vector...)
+	p.AddVector(vector)
 
 	return nil
 }

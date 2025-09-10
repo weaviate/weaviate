@@ -32,7 +32,7 @@ type SPTAG interface {
 	IsEmpty() bool
 	IsMarkedAsDeleted(id uint64) bool
 	MarkAsDeleted(id uint64) error
-	Search(query []byte, k int) ([]SearchResult, error)
+	Search(query Vector, k int) ([]SearchResult, error)
 	Quantizer() *compressionhelpers.RotationalQuantizer
 }
 
@@ -42,7 +42,7 @@ type SearchResult struct {
 }
 
 type Centroid struct {
-	Vector []byte
+	Vector Vector
 	Radius float32
 }
 
@@ -51,6 +51,7 @@ type BruteForceSPTAG struct {
 	centroids  map[uint64]Centroid
 	tombstones map[uint64]struct{}
 	quantizer  *compressionhelpers.RotationalQuantizer
+	distancer  *Distancer
 }
 
 func NewBruteForceSPTAG() *BruteForceSPTAG {
@@ -67,6 +68,10 @@ func (s *BruteForceSPTAG) Init(dims int32, distancer distancer.Provider) {
 	// TODO: seed
 	seed := uint64(42)
 	s.quantizer = compressionhelpers.NewRotationalQuantizer(int(dims), seed, 8, distancer)
+	s.distancer = &Distancer{
+		quantizer: s.quantizer,
+		distancer: distancer,
+	}
 }
 
 func (s *BruteForceSPTAG) Get(id uint64) *Centroid {
@@ -124,7 +129,7 @@ func (s *BruteForceSPTAG) IsEmpty() bool {
 	return len(s.centroids) == 0
 }
 
-func (s *BruteForceSPTAG) Search(query []byte, k int) ([]SearchResult, error) {
+func (s *BruteForceSPTAG) Search(query Vector, k int) ([]SearchResult, error) {
 	s.m.RLock()
 	defer s.m.RUnlock()
 
@@ -139,7 +144,7 @@ func (s *BruteForceSPTAG) Search(query []byte, k int) ([]SearchResult, error) {
 			continue
 		}
 
-		dist, err := s.quantizer.DistanceBetweenCompressedVectors(query, centroid.Vector)
+		dist, err := centroid.Vector.Distance(s.distancer, query)
 		if err != nil {
 			return nil, err
 		}
