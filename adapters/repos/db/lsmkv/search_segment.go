@@ -19,6 +19,7 @@ import (
 	"strconv"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
@@ -67,6 +68,7 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 				"filterCardinality": filterCardinality,
 				"limit":             limit,
 			}).Warnf("DoBlockMaxWand: search timed out, returning partial results")
+			helpers.AnnotateSlowQueryLog(ctx, "keyword_search_4_iterations", iterations)
 			return topKHeap, fmt.Errorf("DoBlockMaxWand: search timed out, returning partial results")
 		}
 
@@ -94,6 +96,7 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			}
 		}
 		if firstNonExhausted == -1 || pivotID == math.MaxUint64 {
+			helpers.AnnotateSlowQueryLog(ctx, "keyword_search_4_iterations", iterations)
 			return topKHeap, nil
 		}
 
@@ -319,15 +322,18 @@ func DoBlockMaxAnd(ctx context.Context, limit int, resultsByTerm Terms, averageP
 	}
 }
 
-func DoWand(limit int, results *terms.Terms, averagePropLength float64, additionalExplanations bool,
+func DoWand(ctx context.Context, limit int, results *terms.Terms, averagePropLength float64, additionalExplanations bool,
 	minimumOrTokensMatch int,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
 	worstDist := float64(-10000) // tf score can be negative
 	sort.Sort(results)
+	iterations := 0
 	for {
+		iterations++
 
 		if results.CompletelyExhausted() || results.Pivot(worstDist) {
+			helpers.AnnotateSlowQueryLog(ctx, "keyword_search_4_iterations", iterations)
 			return topKHeap
 		}
 

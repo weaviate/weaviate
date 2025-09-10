@@ -14,6 +14,7 @@ package terms
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"sort"
 
@@ -161,7 +162,7 @@ func (s *SortedDocPointerWithScoreMerger) Do(ctx context.Context, segments [][]D
 	i := 0
 	for {
 		if i%100 == 0 && ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("SortedDocPointerWithScoreMerger do: %w", ctx.Err())
 		}
 
 		match, ok := s.findSegmentWithLowestKey()
