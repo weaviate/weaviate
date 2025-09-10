@@ -122,7 +122,7 @@ jobs:
       matrix:
         include:
           - name: "with vectors"
-            test: "--integration-vector-package-only",
+            test: "--integration-vector-package-only"
           - name: "without vector"
             test: "--integration-without-vector-package"
     steps:
