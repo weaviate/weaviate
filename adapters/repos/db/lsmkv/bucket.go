@@ -47,7 +47,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-const FlushAfterDirtyDefault = 60 * time.Second
+const (
+	FlushAfterDirtyDefault = 60 * time.Second
+	contextCheckInterval   = 50 // check context every 50 iterations, every iteration adds too much overhead
+)
 
 type BucketCreator interface {
 	NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
@@ -1146,8 +1149,8 @@ func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previo
 	// TODO: this uses regular get, given that this may be called quite commonly,
 	// we might consider building a pure Exists(), which skips reading the value
 	// and only checks for tombstones, etc.
-	for _, key := range stats.upsertKeys {
-		if ctx.Err() != nil {
+	for i, key := range stats.upsertKeys {
+		if i%contextCheckInterval == 0 && ctx.Err() != nil {
 			return 0, ctx.Err()
 		}
 		if !b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
@@ -1155,8 +1158,8 @@ func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previo
 		}
 	}
 
-	for _, key := range stats.tombstonedKeys {
-		if ctx.Err() != nil {
+	for i, key := range stats.tombstonedKeys {
+		if i%contextCheckInterval == 0 && ctx.Err() != nil {
 			return 0, ctx.Err()
 		}
 		if b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
