@@ -25,12 +25,20 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 )
 
+var (
+	levelRegEx    = regexp.MustCompile(fmt.Sprintf(`\.%s(\d+)\.`, "l"))
+	strategyRegEx = regexp.MustCompile(fmt.Sprintf(`\.%s(\d+)\.`, "s"))
+)
+
 type lazySegment struct {
 	path        string
 	logger      logrus.FieldLogger
 	metrics     *Metrics
 	existsLower existsOnLowerSegmentsFn
 	cfg         segmentConfig
+
+	level    *uint16
+	strategy *segmentindex.Strategy
 
 	segment *segment
 	mux     sync.Mutex
@@ -87,9 +95,15 @@ func (s *lazySegment) setPath(path string) {
 }
 
 func (s *lazySegment) getStrategy() segmentindex.Strategy {
-	strategy, found := s.numberFromPath("s")
+	if s.strategy != nil {
+		return *s.strategy
+	}
+
+	strategy, found := s.numberFromPath(strategyRegEx)
 	if found {
-		return segmentindex.Strategy(strategy)
+		strtg := segmentindex.Strategy(strategy)
+		s.strategy = &strtg
+		return strtg
 	}
 	s.mustLoad()
 	return s.segment.getStrategy()
@@ -101,9 +115,15 @@ func (s *lazySegment) getSecondaryIndexCount() uint16 {
 }
 
 func (s *lazySegment) getLevel() uint16 {
-	level, found := s.numberFromPath("l")
+	if s.level != nil {
+		return *s.level
+	}
+
+	level, found := s.numberFromPath(levelRegEx)
 	if found {
-		return uint16(level)
+		lvl := uint16(level)
+		s.level = &lvl
+		return lvl
 	}
 
 	s.mustLoad()
@@ -260,9 +280,7 @@ func (s *lazySegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLay
 	return s.segment.roaringSetMergeWith(key, input, bitmapBufPool)
 }
 
-func (s *lazySegment) numberFromPath(str string) (int, bool) {
-	template := fmt.Sprintf(`\.%s(\d+)\.`, str)
-	re := regexp.MustCompile(template)
+func (s *lazySegment) numberFromPath(re *regexp.Regexp) (int, bool) {
 	match := re.FindStringSubmatch(s.path)
 	if len(match) > 1 {
 		num, err := strconv.Atoi(match[1])
