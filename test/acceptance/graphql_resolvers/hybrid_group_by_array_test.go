@@ -24,7 +24,7 @@ import (
 
 func hybridSearchGroupByArrayTests(t *testing.T) {
 	className := "HybridGroupByArrayTest"
-	
+
 	// Setup schema with array properties
 	t.Run("create schema", func(t *testing.T) {
 		class := &models.Class{
@@ -169,7 +169,7 @@ func hybridSearchGroupByArrayTests(t *testing.T) {
 			redGroupData := redGroup.(map[string]interface{})
 			count := int(redGroupData["count"].(float64))
 			assert.Equal(t, 2, count, "red group should have 2 objects")
-			
+
 			hits := redGroupData["hits"].([]interface{})
 			assert.Len(t, hits, 2, "red group should have 2 hits")
 		}
@@ -282,7 +282,7 @@ func hybridSearchGroupByArrayTests(t *testing.T) {
 		require.NotNil(t, redGroupData, "red group should exist")
 		count := int(redGroupData["count"].(float64))
 		assert.Equal(t, 1, count, "red group should have only 1 object due to objectsPerGroup limit")
-		
+
 		hits := redGroupData["hits"].([]interface{})
 		assert.Len(t, hits, 1, "red group should have only 1 hit due to objectsPerGroup limit")
 	})
