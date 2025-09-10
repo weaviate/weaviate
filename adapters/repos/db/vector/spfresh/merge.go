@@ -13,7 +13,6 @@ package spfresh
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/pkg/errors"
 )
@@ -77,7 +76,7 @@ func (s *SPFresh) mergeWorker() {
 func (s *SPFresh) doMerge(op mergeOperation) error {
 	defer s.mergeList.done(op.PostingID)
 
-	fmt.Println("Merging posting ", op.PostingID)
+	s.Logger.WithField("postingID", op.PostingID).Info("Merging posting")
 
 	var markedAsDone bool
 	s.postingLocks.Lock(op.PostingID)

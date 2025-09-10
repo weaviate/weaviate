@@ -46,6 +46,8 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 		return err
 	}
 
+	// vector = distancer.Normalize(vector)
+
 	var compressed []byte
 
 	// init components that require knowing the vector dimensions
@@ -68,7 +70,9 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 
 	s.VersionMap.AllocPageFor(id)
 
-	v := NewCompressedVector(id, s.VersionMap.Get(id), compressed)
+	version, _ := s.VersionMap.Increment(0, id)
+
+	v := NewCompressedVector(id, version, compressed)
 
 	// TODO can this ever return 0 replicas even if a posting/centroid already exists?
 	replicas, _, err := s.selectReplicas(v, 0)
@@ -106,25 +110,27 @@ func (s *SPFresh) ensureInitialPosting(v Vector) ([]SearchResult, error) {
 		return nil, err
 	}
 
-	// if no replicas were found, create a new posting while holding the lock
+	// if no replicas were found, create new postings while holding the lock
 	if len(replicas) == 0 {
-		postingID := s.IDs.Next()
-		s.PostingSizes.AllocPageFor(postingID)
-		// use the vector as the centroid and register it in the SPTAG
-		err = s.SPTAG.Upsert(postingID, &Centroid{
-			Vector: v,
-		})
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
+		for range s.Config.Replicas {
+			postingID := s.IDs.Next()
+			s.PostingSizes.AllocPageFor(postingID)
+			// use the vector as the centroid and register it in the SPTAG
+			err = s.SPTAG.Upsert(postingID, &Centroid{
+				Vector: v,
+			})
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
+			}
+			// return the new posting ID
+			replicas = append(replicas, SearchResult{
+				ID: postingID,
+				// distance is zero since we are using the vector as the centroid
+				Distance: 0,
+			})
 		}
-		// return the new posting ID
-		replicas = append(replicas, SearchResult{
-			ID: postingID,
-			// distance is zero since we are using the vector as the centroid
-			Distance: 0,
-		})
 
-		fmt.Println("initial posting created")
+		fmt.Println("initial postings created")
 	}
 
 	return replicas, nil

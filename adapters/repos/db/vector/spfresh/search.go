@@ -13,12 +13,13 @@ package spfresh
 
 import (
 	"context"
+	"fmt"
 	"iter"
 	"math"
-	"sort"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -38,11 +39,19 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 		return nil, nil, err
 	}
 
-	q := NewKSmallest(k)
+	// q := NewKSmallest(k)
+	q := priorityqueue.NewMax[any](1)
+
+	fmt.Println("---------------------------------------------------")
+	fmt.Printf("found %d centroids with %d candidateNum\n", len(centroids), candidateNum)
+	sCount, sDeleted := s.SPTAG.(*BruteForceSPTAG).Len()
+	fmt.Printf("SPTAG stats: %d centroids, %d deleted\n", sCount, sDeleted)
 
 	if s.Config.PruningStrategy == SizeBasedPruningStrategy {
 		// compute the max distance to filter out candidates that are too far away
 		maxDist := centroids[0].Distance * s.Config.MaxDistanceRatio
+
+		fmt.Println("maxDist:", maxDist)
 
 		// filter out candidates that are too far away or have no posting size
 		selected = make([]uint64, 0, s.Config.InternalPostingCandidates)
@@ -54,6 +63,8 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 			selected = append(selected, centroids[i].ID)
 		}
 
+		fmt.Printf("selected %d/%d candidates based on size pruning\n", len(selected), len(centroids))
+
 		// read all the selected postings
 		postings, err = s.Store.MultiGet(ctx, selected)
 		if err != nil {
@@ -63,6 +74,8 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 		visited := s.visitedPool.Borrow()
 		defer s.visitedPool.Return(visited)
 
+		totalVectors := 0
+		cleanedPostingVectorsCount := 0
 		for i, p := range postings {
 			if p == nil { // posting nil if not found
 				continue
@@ -70,11 +83,12 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 
 			// keep track of the posting size
 			postingSize := p.Len()
+			totalVectors += postingSize
 
 			for _, v := range p.Iter() {
 				id := v.ID()
 				// skip deleted vectors
-				if s.VersionMap.IsDeleted(id) {
+				if s.VersionMap.IsDeleted(id) || s.VersionMap.Get(id).Version() > v.Version().Version() {
 					postingSize--
 					continue
 				}
@@ -97,7 +111,13 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 				}
 
 				q.Insert(id, dist)
+
+				if q.Len() > k {
+					q.Pop()
+				}
 			}
+
+			cleanedPostingVectorsCount += postingSize
 
 			// if the posting size is lower than the configured minimum,
 			// enqueue a merge operation
@@ -108,70 +128,21 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 				}
 			}
 		}
-	} else {
-		sort.Slice(centroids, func(i, j int) bool {
-			return centroids[i].Distance-s.SPTAG.Get(centroids[i].ID).Radius < centroids[j].Distance-s.SPTAG.Get(centroids[j].ID).Radius
-		})
 
-		q := NewKSmallest(k)
-
-		for _, centroid := range centroids {
-			if centroid.Distance-s.SPTAG.Get(centroid.ID).Radius > q.Max() {
-				// if the distance is larger than the max distance in the k smallest,
-				// we can stop searching
-				break
-			}
-
-			p, err := s.Store.Get(ctx, centroid.ID)
-			if err != nil {
-				return nil, nil, err
-			}
-
-			// keep track of the posting size
-			postingSize := p.Len()
-
-			for _, v := range p.Iter() {
-				id := v.ID()
-				// skip deleted vectors
-				if s.VersionMap.IsDeleted(id) {
-					postingSize--
-					continue
-				}
-
-				// skip vectors that are not in the allow list
-				if !allowList.Contains(id) {
-					continue
-				}
-
-				dist, err := v.Distance(s.distancer, queryVector)
-				if err != nil {
-					return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
-				}
-
-				q.Insert(id, dist)
-			}
-
-			// if the posting size is lower than the configured minimum,
-			// enqueue a merge operation
-			if postingSize < int(s.Config.MinPostingSize) {
-				err = s.enqueueMerge(ctx, centroid.ID)
-				if err != nil {
-					return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", centroid.ID)
-				}
-			}
-		}
+		fmt.Printf("total vectors in all selected postings: %d, after cleaning: %d\n", totalVectors, cleanedPostingVectorsCount)
 	}
 
-	results := make([]uint64, k)
-	dists := make([]float32, k)
-	i := 0
-	for id, dist := range q.Iter() {
-		results[i] = id
-		dists[i] = dist
-		i++
+	dists := make([]float32, q.Len())
+	ids := make([]uint64, q.Len())
+	i := len(ids) - 1
+	for q.Len() > 0 {
+		element := q.Pop()
+		ids[i] = element.ID
+		dists[i] = element.Dist
+		i--
 	}
 
-	return results, dists, nil
+	return ids, dists, nil
 }
 
 func (s *SPFresh) SearchByVectorDistance(

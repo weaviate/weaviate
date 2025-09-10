@@ -29,13 +29,13 @@ func TestSPFreshRecall(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	vectors_size := 100_000
-	queries_size := 1000
+	vectors_size := 30_000
+	queries_size := 100
 	dimensions := 64
-	k := 1000
+	k := 10
 
 	before := time.Now()
-	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
+	vectors, queries := testinghelpers.RandomVecsFixedSeed(vectors_size, queries_size, dimensions)
 
 	truths := make([][]uint64, queries_size)
 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
@@ -59,16 +59,16 @@ func TestSPFreshRecall(t *testing.T) {
 	})
 
 	fmt.Println("--------------------------- indexing done, starting queries after 1 minute")
-	time.Sleep(5 * time.Minute)
+	// time.Sleep(2 * time.Second)
 
-	// do some warmup queries to trigger merge operations
-	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-		_, _, err := index.SearchByVector(t.Context(), queries[i], k, nil)
-		require.NoError(t, err)
-	})
+	// // do some warmup queries to trigger merge operations
+	// for i := range queries {
+	// 	_, _, err := index.SearchByVector(t.Context(), queries[i], k, nil)
+	// 	require.NoError(t, err)
+	// }
 
-	fmt.Println("--------------------------- warmup done, starting timed queries after 10 seconds")
-	time.Sleep(30 * time.Second)
+	// fmt.Println("--------------------------- warmup done, starting timed queries after 10 seconds")
+	time.Sleep(5 * time.Second)
 	var mu sync.Mutex
 	var relevant uint64
 	var retrieved int

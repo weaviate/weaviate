@@ -59,14 +59,14 @@ func DefaultConfig() *Config {
 	return &Config{
 		Logger:                    logrus.New(),
 		Distancer:                 distancer.NewL2SquaredProvider(),
-		MaxPostingSize:            1024,
+		MaxPostingSize:            128,
 		MinPostingSize:            10,
 		SplitWorkers:              64,
 		ReassignWorkers:           128,
 		InternalPostingCandidates: 64,
 		ReassignNeighbors:         64,
 		Replicas:                  8,
-		RNGFactor:                 1.0,
+		RNGFactor:                 3,
 		MaxDistanceRatio:          10_000,
 		PruningStrategy:           SizeBasedPruningStrategy,
 	}

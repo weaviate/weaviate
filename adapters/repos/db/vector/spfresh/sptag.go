@@ -91,7 +91,7 @@ func (s *BruteForceSPTAG) Upsert(id uint64, centroid *Centroid) error {
 	defer s.m.Unlock()
 
 	if _, deleted := s.tombstones[id]; deleted {
-		return nil
+		return errors.New("cannot upsert a centroid that is marked as deleted")
 	}
 
 	s.centroids[id] = *centroid
@@ -129,6 +129,23 @@ func (s *BruteForceSPTAG) IsEmpty() bool {
 	return len(s.centroids) == 0
 }
 
+func (s *BruteForceSPTAG) Len() (int, int) {
+	s.m.RLock()
+	defer s.m.RUnlock()
+
+	var count int
+	var deleted int
+	for id := range s.centroids {
+		count++
+		if _, del := s.tombstones[id]; del {
+			deleted++
+			continue
+		}
+	}
+
+	return count, deleted
+}
+
 func (s *BruteForceSPTAG) Search(query Vector, k int) ([]SearchResult, error) {
 	s.m.RLock()
 	defer s.m.RUnlock()
@@ -138,7 +155,7 @@ func (s *BruteForceSPTAG) Search(query Vector, k int) ([]SearchResult, error) {
 		return nil, nil
 	}
 
-	q := priorityqueue.NewMin[uint64](k)
+	q := priorityqueue.NewMax[uint64](k)
 	for id, centroid := range s.centroids {
 		if _, deleted := s.tombstones[id]; deleted {
 			continue
@@ -155,10 +172,12 @@ func (s *BruteForceSPTAG) Search(query Vector, k int) ([]SearchResult, error) {
 		}
 	}
 
-	results := make([]SearchResult, 0, q.Len())
+	results := make([]SearchResult, q.Len())
+	i := len(results) - 1
 	for q.Len() > 0 {
-		item := q.Pop()
-		results = append(results, SearchResult{ID: item.ID, Distance: item.Dist})
+		element := q.Pop()
+		results[i] = SearchResult{ID: element.ID, Distance: element.Dist}
+		i--
 	}
 
 	return results, nil

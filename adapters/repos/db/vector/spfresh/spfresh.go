@@ -84,7 +84,7 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 		return nil, err
 	}
 
-	postingStore, err := NewLSMStore(store, bucketName(cfg.ID), true)
+	postingStore, err := NewLSMStore(store, bucketName(cfg.ID))
 	if err != nil {
 		return nil, err
 	}

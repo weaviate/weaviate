@@ -206,12 +206,12 @@ func (v *VersionMap) Get(id uint64) VectorVersion {
 	return ve
 }
 
-func (v *VersionMap) Increment(id uint64) (VectorVersion, bool) {
+func (v *VersionMap) Increment(previousVersion VectorVersion, id uint64) (VectorVersion, bool) {
 	v.locks.Lock(id)
 	defer v.locks.Unlock(id)
 
 	ve := v.versions.Get(id)
-	if ve.Deleted() {
+	if ve.Deleted() || ve != previousVersion {
 		return 0, false
 	}
 
