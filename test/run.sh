@@ -12,6 +12,7 @@ function main() {
   run_acceptance_only_fast_group_4=false
   run_acceptance_only_authz=false
   run_acceptance_only_python=false
+  run_acceptance_go_client=false
   run_acceptance_go_client_only_fast_group_1=false
   run_acceptance_go_client_only_fast_group_2=false
   run_acceptance_graphql_tests=false
@@ -35,7 +36,6 @@ function main() {
   run_module_except_backup_tests=false
   run_module_except_offload_tests=false
   run_cleanup=false
-  run_acceptance_go_client_only_fast=false
   run_acceptance_go_client_named_vectors_single_node=false
   run_acceptance_go_client_named_vectors_cluster=false
   run_acceptance_lsmkv=false
@@ -326,13 +326,13 @@ function run_acceptance_tests() {
     run_acceptance_only_tests
   fi
   if $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client || $run_acceptance_tests || $run_all_tests; then
-    echo "running acceptance go client only fast group 1"
-      run_acceptance_go_client_only_fast_group 1
-    fi
-    if $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client || $run_acceptance_tests || $run_all_tests; then
-    echo "running acceptance go client only fast group 2"
-      run_acceptance_go_client_only_fast_group 2
-    fi
+  echo "running acceptance go client only fast group 1"
+    run_acceptance_go_client_only_fast_group 1
+  fi
+  if $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client || $run_acceptance_tests || $run_all_tests; then
+  echo "running acceptance go client only fast group 2"
+    run_acceptance_go_client_only_fast_group 2
+  fi
   if $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance go client named vectors for single node"
     run_acceptance_go_client_named_vectors_single_node "$@"
