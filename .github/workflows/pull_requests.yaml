@@ -382,7 +382,7 @@ jobs:
           JINAAI_APIKEY: ${{ secrets.JINAAI_APIKEY }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
-    name: acceptance
+    name: acceptance (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
