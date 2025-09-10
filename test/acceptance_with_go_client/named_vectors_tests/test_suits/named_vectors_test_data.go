@@ -322,7 +322,7 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 
 		ids := acceptance_with_go_client.GetIds(t, resp, className)
 		assert.Contains(ct, ids, id)
-	}, 5*time.Second, 1*time.Millisecond)
+	}, 5*time.Second, 500*time.Millisecond)
 
 	return acceptance_with_go_client.GetVectors(t, resp, className, withCertainty, targetVectors...)
 }
