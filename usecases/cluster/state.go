@@ -68,9 +68,9 @@ type Config struct {
 	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
 	AdvertiseAddr           string     `json:"advertiseAddr" yaml:"advertiseAddr"`
 	AdvertisePort           int        `json:"advertisePort" yaml:"advertisePort"`
-	// SuspicionMult mostly for testing purpose, it will make memberlist sensitive and detect
+	// FastFailureDetection mostly for testing purpose, it will make memberlist sensitive and detect
 	// failures (down nodes) faster.
-	SuspicionMult int `json:"suspicionMult" yaml:"suspicionMult"`
+	FastFailureDetection bool `json:"fastFailureDetection" yaml:"fastFailureDetection"`
 	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
 	Localhost bool `json:"localhost" yaml:"localhost"`
 	// MaintenanceNodes is experimental. You should not use this directly, but should use the
@@ -133,8 +133,8 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 		cfg.AdvertisePort = userConfig.AdvertisePort
 	}
 
-	if userConfig.SuspicionMult > 0 {
-		cfg.SuspicionMult = userConfig.SuspicionMult
+	if userConfig.FastFailureDetection {
+		cfg.SuspicionMult = 2
 	}
 
 	if state.list, err = memberlist.Create(cfg); err != nil {
