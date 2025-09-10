@@ -32,6 +32,8 @@ type Params struct {
 	TopP             *float64
 	Images           []*string
 	ImageProperties  []string
+	ReasoningEffort  *string
+	Verbosity        *string
 }
 
 func extract(field *ast.ObjectField) interface{} {
@@ -70,6 +72,10 @@ func extract(field *ast.ObjectField) interface{} {
 				out.Images = gqlparser.GetValueAsStringPtrArray(f)
 			case "imageProperties":
 				out.ImageProperties = gqlparser.GetValueAsStringArray(f)
+			case "reasoningEffort":
+				out.ReasoningEffort = gqlparser.GetValueAsString(f)
+			case "verbosity":
+				out.Verbosity = gqlparser.GetValueAsString(f)
 			default:
 				// do nothing
 			}
