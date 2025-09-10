@@ -359,7 +359,7 @@ func TestReplicationAbort(t *testing.T) {
 	fs := newFakeReplicationServer(t, http.MethodPost, path, 0)
 	ts := fs.server(t)
 	defer ts.Close()
-	client := newReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client(), fs.host)
 
 	t.Run("ConnectionError", func(t *testing.T) {
 		client := newReplicationClient(ts.Client())
@@ -397,7 +397,7 @@ func TestReplicationCommit(t *testing.T) {
 	ts := fs.server(t)
 	defer ts.Close()
 	resp := replica.SimpleResponse{}
-	client := newReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client(), fs.host)
 
 	t.Run("ConnectionError", func(t *testing.T) {
 		err := client.Commit(ctx, "", "C1", "S1", "", &resp)
