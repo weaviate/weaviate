@@ -68,7 +68,7 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 				"filterCardinality": filterCardinality,
 				"limit":             limit,
 			}).Warnf("DoBlockMaxWand: search timed out, returning partial results")
-			helpers.AnnotateSlowQueryLog(ctx, "keyword_search_4_iterations", iterations)
+			helpers.AnnotateSlowQueryLog(ctx, "kwd_4_iters", iterations)
 			return topKHeap, fmt.Errorf("DoBlockMaxWand: search timed out, returning partial results")
 		}
 
@@ -96,7 +96,7 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			}
 		}
 		if firstNonExhausted == -1 || pivotID == math.MaxUint64 {
-			helpers.AnnotateSlowQueryLog(ctx, "keyword_search_4_iterations", iterations)
+			helpers.AnnotateSlowQueryLog(ctx, "kwd_4_iters", iterations)
 			return topKHeap, nil
 		}
 
@@ -333,7 +333,7 @@ func DoWand(ctx context.Context, limit int, results *terms.Terms, averagePropLen
 		iterations++
 
 		if results.CompletelyExhausted() || results.Pivot(worstDist) {
-			helpers.AnnotateSlowQueryLog(ctx, "keyword_search_4_iterations", iterations)
+			helpers.AnnotateSlowQueryLog(ctx, "kwd_4_iters", iterations)
 			return topKHeap
 		}
 
