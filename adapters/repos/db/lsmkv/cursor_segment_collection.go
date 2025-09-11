@@ -27,7 +27,7 @@ func (s *segment) newCollectionCursor() *segmentCursorCollection {
 }
 
 func (sg *SegmentGroup) newCollectionCursors() ([]innerCursorCollection, func()) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 
 	out := make([]innerCursorCollection, len(segments))
 

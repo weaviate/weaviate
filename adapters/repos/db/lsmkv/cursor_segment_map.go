@@ -31,7 +31,7 @@ func (s *segment) newMapCursor() *segmentCursorMap {
 }
 
 func (sg *SegmentGroup) newMapCursors() ([]innerCursorMap, func()) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 
 	out := make([]innerCursorMap, len(segments))
 

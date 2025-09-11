@@ -22,7 +22,7 @@ func (s *segment) newRoaringSetCursor() *roaringset.SegmentCursor {
 }
 
 func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset.InnerCursor, func()) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 
 	out := make([]roaringset.InnerCursor, len(segments))
 

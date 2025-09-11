@@ -197,7 +197,7 @@ func (c *segmentCleanerCommon) findCandidate() (int, int, int, onCompletedFunc, 
 }
 
 func (c *segmentCleanerCommon) getSegmentIdsAndSizes() ([]int64, []int64, error) {
-	segments, release := c.sg.getAndLockSegments()
+	segments, release := c.sg.getConsistentViewOfSegments()
 	defer release()
 
 	var ids []int64
@@ -551,7 +551,7 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyE
 		}
 
 		segAtPos := func() *segment {
-			segments, release := sg.getAndLockSegments()
+			segments, release := sg.getConsistentViewOfSegments()
 			defer release()
 
 			if i >= startIdx && i <= lastIdx {

@@ -444,7 +444,7 @@ func (b *Bucket) getConsistentView() (active, flushing *Memtable, diskSegments [
 			Debugf("Waited more than 100ms to obtain a flush lock during get")
 	}
 
-	diskSegments, releaseDiskSegments := b.disk.getAndLockSegments()
+	diskSegments, releaseDiskSegments := b.disk.getConsistentViewOfSegments()
 
 	release = func() {
 		releaseDiskSegments()
@@ -503,7 +503,7 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 		}
 	}
 
-	return b.disk.getWithUpperSegmentBoundary(key, diskSegments)
+	return b.disk.getWithSegmentList(key, diskSegments)
 }
 
 func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
@@ -1714,7 +1714,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	// BlockMax is ran outside this function, so, the lock is returned to the caller.
 	// Panics at this level are caught and the lock is released in the defer function.
 	// The lock is released after the blockmax search is done, and panics are also handled.
-	segmentsDisk, release := b.disk.getAndLockSegments()
+	segmentsDisk, release := b.disk.getConsistentViewOfSegments()
 
 	output := make([][]*SegmentBlockMax, len(segmentsDisk)+2)
 	idfs := make([]float64, len(query))

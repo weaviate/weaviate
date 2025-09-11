@@ -600,7 +600,7 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 		return strings.Replace(src, bucketDir, newBucketDir, 1)
 	}
 
-	segments, release := bucket.disk.getAndLockSegments()
+	segments, release := bucket.disk.getConsistentViewOfSegments()
 	defer release()
 
 	bucket.disk.dir = newBucketDir

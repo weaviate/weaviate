@@ -521,7 +521,7 @@ func (sg *SegmentGroup) makeExistsOn(segments []Segment) existsOnLowerSegmentsFn
 			return false, nil
 		}
 
-		v, err := sg.getWithUpperSegmentBoundary(key, segments)
+		v, err := sg.getWithSegmentList(key, segments)
 		if err != nil {
 			return false, fmt.Errorf("check exists on segments: %w", err)
 		}
@@ -554,7 +554,7 @@ func (sg *SegmentGroup) add(path string) error {
 	return nil
 }
 
-func (sg *SegmentGroup) getAndLockSegments() (segments []Segment, release func()) {
+func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {
 	sg.maintenanceLock.RLock()
 	sg.segmentRefCounterLock.Lock()
 
@@ -579,7 +579,7 @@ func (sg *SegmentGroup) getAndLockSegments() (segments []Segment, release func()
 	}
 }
 
-func (sg *SegmentGroup) addInitializedSegment(segment *segment) error {
+func (sg *SegmentGroup) addInitializedSegment(segment Segment) error {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 
@@ -589,7 +589,7 @@ func (sg *SegmentGroup) addInitializedSegment(segment *segment) error {
 
 func (sg *SegmentGroup) get(key []byte) ([]byte, error) {
 	beforeMaintenanceLock := time.Now()
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
 
 	if time.Since(beforeMaintenanceLock) > 100*time.Millisecond {
@@ -598,13 +598,12 @@ func (sg *SegmentGroup) get(key []byte) ([]byte, error) {
 			Debug("waited over 100ms to obtain maintenance lock in segment group get()")
 	}
 
-	return sg.getWithUpperSegmentBoundary(key, segments)
+	return sg.getWithSegmentList(key, segments)
 }
 
-// TODO: rename: this is a generic way to supply segments, the fact that there is a limit is arbitray
 // not thread-safe on its own, as the assumption is that this is called from a
 // lockholder, e.g. within .get()
-func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, segments []Segment) ([]byte, error) {
+func (sg *SegmentGroup) getWithSegmentList(key []byte, segments []Segment) ([]byte, error) {
 	// assumes "replace" strategy
 
 	// start with latest and exit as soon as something is found, thus making sure
@@ -638,7 +637,7 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, segments []Segme
 }
 
 func (sg *SegmentGroup) getErrDeleted(key []byte) ([]byte, error) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
 
 	return sg.getWithUpperSegmentBoundaryErrDeleted(key, segments)
@@ -670,7 +669,7 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundaryErrDeleted(key []byte, segmen
 }
 
 func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
 
 	// assumes "replace" strategy
@@ -698,7 +697,7 @@ func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []b
 }
 
 func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
 
 	var out []value
@@ -725,7 +724,7 @@ func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
 }
 
 func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []Segment, func(), error) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 
 	out := make([][]value, len(segments))
 	outSegments := make([]Segment, len(segments))
@@ -755,7 +754,7 @@ func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []Segme
 }
 
 func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, release func(), err error) {
-	segments, sgRelease := sg.getAndLockSegments()
+	segments, sgRelease := sg.getConsistentViewOfSegments()
 	defer sgRelease()
 
 	ln := len(segments)
@@ -797,7 +796,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, 
 }
 
 func (sg *SegmentGroup) count() int {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
 
 	count := 0
@@ -926,14 +925,14 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 }
 
 func (sg *SegmentGroup) Len() int {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
 
 	return len(segments)
 }
 
 func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
 
 	if len(segments) == 0 {

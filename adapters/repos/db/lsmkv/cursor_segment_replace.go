@@ -87,7 +87,7 @@ func (s *segment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
 }
 
 func (sg *SegmentGroup) newCursors() ([]innerCursorReplace, func()) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 
 	out := make([]innerCursorReplace, len(segments))
 
@@ -99,7 +99,7 @@ func (sg *SegmentGroup) newCursors() ([]innerCursorReplace, func()) {
 }
 
 func (sg *SegmentGroup) newCursorsWithSecondaryIndex(pos int) ([]innerCursorReplace, func()) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 	out := make([]innerCursorReplace, 0, len(segments))
 
 	for _, segment := range segments {
