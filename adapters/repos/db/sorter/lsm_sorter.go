@@ -78,8 +78,11 @@ func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([
 		is := NewInvertedSorter(s.store, s.dataTypesHelper)
 		return is.SortDocIDs(ctx, limit, sort, nil)
 	}
-
-	helper, err := s.createHelper(sort, validateLimit(limit, s.bucket.Count()))
+	count, err := s.bucket.Count(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("count object: %w", err)
+	}
+	helper, err := s.createHelper(sort, validateLimit(limit, count))
 	if err != nil {
 		return nil, err
 	}
