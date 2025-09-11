@@ -77,7 +77,8 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 
 	port, exists := a.NodeNameToPortMap[string(id)]
 	if !exists {
-		return "", fmt.Errorf("could not find port mapping for server id %v in local cluster", id)
+		// if does not exist, use the default raft port
+		port = a.RaftPort
 	}
 
 	return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, port)), nil
