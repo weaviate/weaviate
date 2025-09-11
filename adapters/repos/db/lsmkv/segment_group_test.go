@@ -173,6 +173,99 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentAddition(t *testing.
 	require.Equal(t, expected, v, "k==v on new view after segment addition")
 }
 
+func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
+	t.Parallel()
+	logger, _ := test.NewNullLogger()
+
+	// initial two segments: segA (key1 -> {1}), segB (key2 -> {2})
+	segA := newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
+		"key1": bitmapFromSlice([]uint64{1}),
+	})
+	segB := newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
+		"key2": bitmapFromSlice([]uint64{2}),
+	})
+	sg := &SegmentGroup{
+		segments: []Segment{segA, segB},
+		logger:   logger,
+	}
+
+	// control: take a consistent view before any switch
+	segments, release := sg.getConsistentViewOfSegments()
+	defer release()
+
+	// On the original view, key1 should be {1} (from segA), key2 should be {2} (from segB)
+	v, _, err := sg.roaringSetGetWithSegments([]byte("key1"), segments)
+	require.NoError(t, err)
+	expected := roaringset.BitmapLayers{
+		{
+			Additions: bitmapFromSlice([]uint64{1}),
+		},
+	}
+	require.Equal(t, expected, v, "key1 on initial state")
+
+	v, _, err = sg.roaringSetGetWithSegments([]byte("key2"), segments)
+	require.NoError(t, err)
+	expected = roaringset.BitmapLayers{
+		{
+			Additions: bitmapFromSlice([]uint64{2}),
+		},
+	}
+	require.Equal(t, expected, v, "key2 on initial state")
+
+	// prepare compacted segment that merges segA and segB
+	segAB := newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
+		"key1": bitmapFromSlice([]uint64{1}),
+		"key2": bitmapFromSlice([]uint64{2}),
+	})
+
+	// perform in-memory switch (like compaction)
+	newSegmentReplacer(sg, 0, 1, segAB).switchInMemory(segA, segB)
+	require.Equal(t, []Segment{segAB}, sg.segments, "segment list should contain only the compacted segment")
+
+	// prove that the old consistent view is still valid (reads must not be affected)
+	v, _, err = sg.roaringSetGetWithSegments([]byte("key1"), segments)
+	require.NoError(t, err)
+	expected = roaringset.BitmapLayers{
+		{
+			Additions: bitmapFromSlice([]uint64{1}),
+		},
+	}
+	require.Equal(t, expected, v, "key1 on original view after compaction")
+
+	v, _, err = sg.roaringSetGetWithSegments([]byte("key2"), segments)
+	require.NoError(t, err)
+	expected = roaringset.BitmapLayers{
+		{
+			Additions: bitmapFromSlice([]uint64{2}),
+		},
+	}
+	require.Equal(t, expected, v, "key2 on original view after compaction")
+	require.Equal(t, 0, segAB.getCounter, "new segment should not have received call")
+
+	// prove that a new consistent view sees the (compacted) latest state
+	segments, release = sg.getConsistentViewOfSegments()
+	defer release()
+
+	v, _, err = sg.roaringSetGetWithSegments([]byte("key1"), segments)
+	require.NoError(t, err)
+	expected = roaringset.BitmapLayers{
+		{
+			Additions: bitmapFromSlice([]uint64{1}),
+		},
+	}
+	require.Equal(t, expected, v, "key1 on new view after compaction")
+
+	v, _, err = sg.roaringSetGetWithSegments([]byte("key2"), segments)
+	require.NoError(t, err)
+	expected = roaringset.BitmapLayers{
+		{
+			Additions: bitmapFromSlice([]uint64{2}),
+		},
+	}
+	require.Equal(t, expected, v, "key2 on new view after compaction")
+	require.Greater(t, segAB.getCounter, 0, "new segment should have received calls")
+}
+
 func newFakeReplaceSegment(kv map[string][]byte) *fakeSegment {
 	return &fakeSegment{segmentType: StrategyReplace, replaceStore: kv}
 }
@@ -334,6 +427,7 @@ func (f *fakeSegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 }
 
 func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (roaringset.BitmapLayer, func(), error) {
+	f.getCounter++
 	if f.segmentType != StrategyRoaringSet {
 		return roaringset.BitmapLayer{}, nil, fmt.Errorf("not a roaring set segment")
 	}
@@ -349,6 +443,7 @@ func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapB
 }
 
 func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool) error {
+	f.getCounter++
 	layer, _, err := f.roaringSetGet(key, bitmapBufPool)
 	if err != nil {
 		if errors.Is(err, lsmkv.NotFound) {
