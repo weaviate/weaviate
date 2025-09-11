@@ -536,7 +536,7 @@ func (st *Store) Close(ctx context.Context) error {
 		}
 	}
 
-	if err := st.raft.RemoveServer(raft.ServerID(st.cfg.NodeID), 0, 0).Error(); err != nil {
+	if err := st.Remove(st.cfg.NodeID); err != nil {
 		st.log.WithError(err).Error("remove node from cluster")
 	}
 
