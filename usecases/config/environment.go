@@ -992,7 +992,7 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 	if err := parsePositiveInt(
 		"RAFT_TIMEOUTS_MULTIPLIER",
 		func(val int) { cfg.TimeoutsMultiplier = val },
-		1, // raft default
+		3, // raft default
 	); err != nil {
 		return cfg, err
 	}
