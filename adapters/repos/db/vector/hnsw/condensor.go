@@ -50,7 +50,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	}
 
 	newLogFile, err := os.OpenFile(fmt.Sprintf("%s.condensed", fileName),
-		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+		os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return errors.Wrap(err, "open new commit log file for writing")
 	}
@@ -155,6 +155,10 @@ func (c *MemoryCondensor) Do(fileName string) error {
 
 	if err := c.newLog.Flush(); err != nil {
 		return errors.Wrap(err, "close new commit log")
+	}
+
+	if err := newLogFile.Sync(); err != nil {
+		return errors.Wrap(err, "fsync new commit log")
 	}
 
 	if err := c.newLogFile.Close(); err != nil {
