@@ -8,14 +8,12 @@ option java_outer_classname = "WeaviateProtoTenants";
 
 enum TenantActivityStatus {
   TENANT_ACTIVITY_STATUS_UNSPECIFIED = 0;
-  TENANT_ACTIVITY_STATUS_HOT = 1;
-  TENANT_ACTIVITY_STATUS_COLD = 2;
-  // Originally TENANT_ACTIVITY_STATUS_WARM = 3;
-  reserved 3; 
-  TENANT_ACTIVITY_STATUS_FROZEN = 4;
-  TENANT_ACTIVITY_STATUS_UNFREEZING = 5;
-  TENANT_ACTIVITY_STATUS_FREEZING = 6;
-  // not used yet - added to let the clients already add code to handle this in the future
+  reserved 1; // Originally TENANT_ACTIVITY_STATUS_HOT
+  reserved 2; // Originally TENANT_ACTIVITY_STATUS_COLD
+  reserved 3; // Originally TENANT_ACTIVITY_STATUS_WARM
+  reserved 4; // Originally TENANT_ACTIVITY_STATUS_FROZEN
+  reserved 5; // Originally TENANT_ACTIVITY_STATUS_UNFREEZING
+  reserved 6; // Originally TENANT_ACTIVITY_STATUS_FREEZING
   TENANT_ACTIVITY_STATUS_ACTIVE = 7;
   TENANT_ACTIVITY_STATUS_INACTIVE = 8;
   TENANT_ACTIVITY_STATUS_OFFLOADED = 9;
