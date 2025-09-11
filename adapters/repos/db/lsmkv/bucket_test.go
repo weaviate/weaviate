@@ -661,3 +661,70 @@ func TestBucketRecovery(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []byte("world1"), get)
 }
+
+func TestNetCountComputationAtInit(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	ctx := context.Background()
+	dirName := t.TempDir()
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true),
+	)
+	require.NoError(t, err)
+
+	// create separate segments for each entry
+	require.NoError(t, b.Put([]byte("hello1"), []byte("world1")))
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Put([]byte("hello2"), []byte("world2")))
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Put([]byte("hello3"), []byte("world3")))
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Put([]byte("hello4"), []byte("world4")))
+	require.NoError(t, b.FlushMemtable())
+
+	count, err := b.Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 4, count)
+
+	fileTypes := getFileTypeCount(t, dirName)
+	require.Equal(t, 4, fileTypes[".db"])
+	require.Equal(t, 0, fileTypes[".wal"])
+	require.Equal(t, 4, fileTypes[".cna"])
+
+	// Create a single segment with all deletions - shutdown so the cna files are not writen right away, but at startup
+	require.NoError(t, b.Delete([]byte("hello1")))
+	require.NoError(t, b.Delete([]byte("hello2")))
+	require.NoError(t, b.Delete([]byte("hello3")))
+	require.NoError(t, b.Delete([]byte("hello4")))
+	require.NoError(t, b.Shutdown(ctx))
+
+	fileTypes = getFileTypeCount(t, dirName)
+	require.Equal(t, 5, fileTypes[".db"])
+	require.Equal(t, 0, fileTypes[".wal"])
+	require.Equal(t, 4, fileTypes[".cna"]) // cna file for new segment not yet computed
+
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true),
+	)
+	require.NoError(t, err)
+
+	fileTypes = getFileTypeCount(t, dirName)
+	require.Equal(t, 5, fileTypes[".db"])
+	require.Equal(t, 0, fileTypes[".wal"])
+	require.Equal(t, 5, fileTypes[".cna"]) // now computed after startup
+
+	count, err = b.Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 0, count)
+}
+
+func getFileTypeCount(t *testing.T, path string) map[string]int {
+	t.Helper()
+	fileTypes := map[string]int{}
+	entries, err := os.ReadDir(path)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		fileTypes[filepath.Ext(entry.Name())] += 1
+	}
+	return fileTypes
+}
