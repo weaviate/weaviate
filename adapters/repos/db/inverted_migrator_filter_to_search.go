@@ -44,7 +44,7 @@ func newFilterableToSearchableMigrator(migrator *Migrator) *filterableToSearchab
 		logger:       migrator.logger,
 		files:        newFilterableToSearchableMigrationFiles(migrator.db.config.RootPath),
 		schemaGetter: migrator.db.schemaGetter,
-		indexes:      migrator.db.indices,
+		indexes:      migrator.db.Indices(),
 	}
 }
 

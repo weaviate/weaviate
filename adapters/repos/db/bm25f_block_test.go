@@ -307,7 +307,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 			EqualFloats(t, float32(0.50612706), autocutscores[1], 5)
 		})
 
-		for _, index := range repo.indices {
+		for _, index := range repo.Indices() {
 			index.ForEachShard(func(name string, shard ShardLike) error {
 				err := shard.Store().FlushMemtables(context.Background())
 				require.Nil(t, err)
@@ -379,7 +379,7 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 			EqualFloats(t, float32(0.6178051), scores[1], 5)
 		})
 
-		for _, index := range repo.indices {
+		for _, index := range repo.Indices() {
 			index.ForEachShard(func(name string, shard ShardLike) error {
 				err := shard.Store().FlushMemtables(context.Background())
 				require.Nil(t, err)
@@ -499,7 +499,7 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 			require.True(t, len(res) == 0)
 		})
 
-		for _, index := range repo.indices {
+		for _, index := range repo.Indices() {
 			index.ForEachShard(func(name string, shard ShardLike) error {
 				err := shard.Store().FlushMemtables(context.Background())
 				require.Nil(t, err)
@@ -587,7 +587,7 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 			assert.Equal(t, filteredScores[0], unfilteredScores[0])
 		})
 
-		for _, index := range repo.indices {
+		for _, index := range repo.Indices() {
 			index.ForEachShard(func(name string, shard ShardLike) error {
 				err := shard.Store().FlushMemtables(context.Background())
 				require.Nil(t, err)
@@ -668,7 +668,7 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 			EqualFloats(t, float32(1.7730504), scores[1], 2)
 		})
 
-		for _, index := range repo.indices {
+		for _, index := range repo.Indices() {
 			index.ForEachShard(func(name string, shard ShardLike) error {
 				err := shard.Store().FlushMemtables(context.Background())
 				require.Nil(t, err)
@@ -772,7 +772,7 @@ func TestBM25FCompareBlock(t *testing.T) {
 			}
 		})
 
-		for _, index := range repo.indices {
+		for _, index := range repo.Indices() {
 			index.ForEachShard(func(name string, shard ShardLike) error {
 				err := shard.Store().FlushMemtables(context.Background())
 				require.Nil(t, err)
@@ -885,7 +885,7 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 			}
 		})
 
-		for _, index := range repo.indices {
+		for _, index := range repo.Indices() {
 			index.ForEachShard(func(name string, shard ShardLike) error {
 				err := shard.Store().FlushMemtables(context.Background())
 				require.Nil(t, err)
@@ -982,7 +982,7 @@ func TestBM25F_SortMultiPropBlock(t *testing.T) {
 			require.True(t, strings.Contains(explanationString, "BM25F_banana_propLength:1"))
 		})
 
-		for _, index := range repo.indices {
+		for _, index := range repo.Indices() {
 			index.ForEachShard(func(name string, shard ShardLike) error {
 				err := shard.Store().FlushMemtables(context.Background())
 				require.Nil(t, err)
@@ -1069,7 +1069,7 @@ func TestBM25FWithFiltersMemtable(t *testing.T) {
 			}
 		})
 
-		for _, index := range repo.indices {
+		for _, index := range repo.Indices() {
 			index.ForEachShard(func(name string, shard ShardLike) error {
 				err := shard.Store().FlushMemtables(context.Background())
 				require.Nil(t, err)
