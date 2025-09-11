@@ -102,7 +102,7 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 				replica := replica
 				g := func() {
 					defer wg.Done()
-					replicaCtx, _ := context.WithTimeout(ctx, 10*time.Second)
+					replicaCtx, _ := context.WithTimeout(ctx, 20*time.Second)
 					err := op(replicaCtx, replica, c.TxID)
 					resChan <- _Result[string]{replica, err}
 				}
@@ -141,7 +141,7 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 			fs := logrus.Fields{"op": "broadcast", "active": len(actives), "total": len(replicas)}
 			c.log.WithFields(fs).Error("abort")
 			for _, node := range replicas {
-				replicaCtx, _ := context.WithTimeout(ctx, 10*time.Second)
+				replicaCtx, _ := context.WithTimeout(ctx, 20*time.Second)
 				c.Abort(replicaCtx, node, c.Class, c.Shard, c.TxID)
 			}
 		}
@@ -193,7 +193,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	level := routingPlan.IntConsistencyLevel
 
 	numReplicas := len(routingPlan.ReplicasHostAddrs)
-	timeoutDuration := time.Duration(numReplicas*10) * time.Second
+	timeoutDuration := time.Duration(numReplicas*20) * time.Second
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
 	ctxWithTimeout, _ := context.WithTimeout(context.Background(), timeoutDuration)
 	c.log.WithFields(logrus.Fields{
