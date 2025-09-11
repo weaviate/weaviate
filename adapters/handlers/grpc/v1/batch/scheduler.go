@@ -88,9 +88,12 @@ func (s *Scheduler) drain(streamId string, wq *WriteQueue) {
 
 func (s *Scheduler) schedule(streamId string, wq *WriteQueue) {
 	objs, refs, stop := s.pull(wq.queue, 1000)
-	req := newProcessRequest(objs, refs, streamId, stop, wq)
-	if (req.Objects != nil && len(req.Objects.Values) > 0) || (req.References != nil && len(req.References.Values) > 0) || req.Stop {
+	req := newProcessRequest(objs, refs, streamId, false, wq)
+	if (req.Objects != nil && len(req.Objects.Values) > 0) || (req.References != nil && len(req.References.Values) > 0) {
 		s.internalQueue <- req
+	}
+	if stop {
+		s.internalQueue <- newProcessRequest(nil, nil, streamId, true, wq)
 	}
 }
 
@@ -129,17 +132,13 @@ func newProcessRequest(objs []*pb.BatchObject, refs []*pb.BatchReference, stream
 		req.Objects = &SendObjects{
 			Values:           objs,
 			ConsistencyLevel: wq.consistencyLevel,
-			Index:            wq.objIndex,
 		}
-		wq.objIndex += int32(len(objs))
 	}
 	if len(refs) > 0 {
 		req.References = &SendReferences{
 			Values:           refs,
 			ConsistencyLevel: wq.consistencyLevel,
-			Index:            wq.refIndex,
 		}
-		wq.refIndex += int32(len(refs))
 	}
 	return req
 }
