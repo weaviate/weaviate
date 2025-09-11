@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.31.13"
+    "version": "1.31.14"
   },
   "basePath": "/v1",
   "paths": {
@@ -5426,6 +5426,11 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "completedAt": {
+          "description": "Timestamp when the backup process completed (successfully or with failure)",
+          "type": "string",
+          "format": "date-time"
+        },
         "error": {
           "description": "error message if creation failed",
           "type": "string"
@@ -5437,6 +5442,11 @@ func init() {
         "path": {
           "description": "destination path of backup files proper to selected backend",
           "type": "string"
+        },
+        "startedAt": {
+          "description": "Timestamp when the backup process started",
+          "type": "string",
+          "format": "date-time"
         },
         "status": {
           "description": "phase of backup creation process",
@@ -5466,9 +5476,19 @@ func init() {
               "type": "string"
             }
           },
+          "completedAt": {
+            "description": "Timestamp when the backup process completed (successfully or with failure)",
+            "type": "string",
+            "format": "date-time"
+          },
           "id": {
             "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
             "type": "string"
+          },
+          "startedAt": {
+            "description": "Timestamp when the backup process started",
+            "type": "string",
+            "format": "date-time"
           },
           "status": {
             "description": "status of backup process",
@@ -8324,7 +8344,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.31.13"
+    "version": "1.31.14"
   },
   "basePath": "/v1",
   "paths": {
@@ -13812,6 +13832,11 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "completedAt": {
+          "description": "Timestamp when the backup process completed (successfully or with failure)",
+          "type": "string",
+          "format": "date-time"
+        },
         "error": {
           "description": "error message if creation failed",
           "type": "string"
@@ -13823,6 +13848,11 @@ func init() {
         "path": {
           "description": "destination path of backup files proper to selected backend",
           "type": "string"
+        },
+        "startedAt": {
+          "description": "Timestamp when the backup process started",
+          "type": "string",
+          "format": "date-time"
         },
         "status": {
           "description": "phase of backup creation process",
@@ -13856,9 +13886,19 @@ func init() {
             "type": "string"
           }
         },
+        "completedAt": {
+          "description": "Timestamp when the backup process completed (successfully or with failure)",
+          "type": "string",
+          "format": "date-time"
+        },
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
+        },
+        "startedAt": {
+          "description": "Timestamp when the backup process started",
+          "type": "string",
+          "format": "date-time"
         },
         "status": {
           "description": "status of backup process",

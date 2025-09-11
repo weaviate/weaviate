@@ -142,6 +142,13 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 						params.TopP = grpchelper.ToPtr(0.9)
 						params.PresencePenalty = grpchelper.ToPtr(0.9)
 						params.FrequencyPenalty = grpchelper.ToPtr(0.9)
+						if tt.generativeModel == "gpt-5-mini" {
+							params.Verbosity = pb.GenerativeOpenAI_VERBOSITY_LOW.Enum()
+							params.ReasoningEffort = pb.GenerativeOpenAI_REASONING_EFFORT_MINIMAL.Enum()
+						} else {
+							params.Verbosity = pb.GenerativeOpenAI_VERBOSITY_MEDIUM.Enum()
+							params.ReasoningEffort = pb.GenerativeOpenAI_REASONING_EFFORT_LOW.Enum()
+						}
 					}
 					if strings.HasPrefix(tt.generativeModel, "gpt-4o") {
 						// increase the max tokens
