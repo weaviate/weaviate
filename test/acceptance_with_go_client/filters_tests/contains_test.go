@@ -1044,6 +1044,5 @@ func testContainsMovies(host string) func(t *testing.T) {
 				})
 			}
 		})
-
 	}
 }
