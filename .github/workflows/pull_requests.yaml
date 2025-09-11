@@ -605,7 +605,7 @@ jobs:
         run: ./ci/generate_docker_report.sh
   Push-Docker-Fast:
     if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }} # no PRs from fork
-    name: push-docker-fast (${{ matrix.arch }})
+    name: push docker fast (${{ matrix.arch }})
     timeout-minutes: 30
     strategy:
       matrix:
