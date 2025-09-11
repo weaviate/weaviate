@@ -1496,6 +1496,16 @@
             "FAILED",
             "CANCELED"
           ]
+        },
+        "startedAt": {
+          "description": "Timestamp when the backup process started",
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "description": "Timestamp when the backup process completed (successfully or with failure)",
+          "type": "string",
+          "format": "date-time"
         }
       }
     },
@@ -1723,6 +1733,16 @@
               "FAILED",
               "CANCELED"
             ]
+          },
+          "startedAt": {
+            "description": "Timestamp when the backup process started",
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "description": "Timestamp when the backup process completed (successfully or with failure)",
+            "type": "string",
+            "format": "date-time"
           }
         }
       }
