@@ -146,6 +146,11 @@ func (s *lazySegment) close() error {
 	return s.segment.close()
 }
 
+func (s *lazySegment) dropMarked() error {
+	s.mustLoad()
+	return s.segment.dropMarked()
+}
+
 func (s *lazySegment) get(key []byte) ([]byte, error) {
 	s.mustLoad()
 	return s.segment.get(key)

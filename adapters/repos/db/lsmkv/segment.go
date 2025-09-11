@@ -47,9 +47,11 @@ type Segment interface {
 	setSize(size int64)
 	incRef()
 	decRef()
+	getRefs() int
 
 	PayloadSize() int
 	close() error
+	dropMarked() error
 	get(key []byte) ([]byte, error)
 	getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
 	getCollection(key []byte) ([]value, error)

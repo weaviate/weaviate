@@ -99,11 +99,19 @@ func (f *fakeSegment) decRef() {
 	f.refs--
 }
 
+func (f *fakeSegment) getRefs() int {
+	return f.refs
+}
+
 func (f *fakeSegment) PayloadSize() int {
 	panic("not implemented") // TODO: Implement
 }
 
 func (f *fakeSegment) close() error {
+	panic("not implemented") // TODO: Implement
+}
+
+func (f *fakeSegment) dropMarked() error {
 	panic("not implemented") // TODO: Implement
 }
 
