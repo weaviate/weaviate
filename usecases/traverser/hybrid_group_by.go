@@ -71,7 +71,17 @@ func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, gr
 
 		// Use the first result but create a new AdditionalProperties to avoid sharing
 		first := groupMembers[0]
-		first.AdditionalProperties = models.AdditionalProperties{}
+		
+		// Always create a new AdditionalProperties map to avoid sharing references
+		originalAdditional := first.AdditionalProperties
+		first.AdditionalProperties = make(models.AdditionalProperties)
+		
+		// Copy existing additional properties if any
+		if originalAdditional != nil {
+			for k, v := range originalAdditional {
+				first.AdditionalProperties[k] = v
+			}
+		}
 
 		hits := make([]map[string]interface{}, len(groupMembers))
 
