@@ -118,8 +118,6 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 		}
 		return nil
 	}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	eg, newContext := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
 
 	// There are three scenarios:
