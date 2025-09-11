@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   Buf-Checks:
-    name: buf-checks
+    name: buf checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -31,7 +31,7 @@ jobs:
           input: "cluster/proto"
           against: "https://github.com/${GITHUB_REPOSITORY}.git#branch=${{ github.event.pull_request.base.ref }},subdir=cluster/proto"
   Run-Swagger:
-    name: run-swagger
+    name: swagger
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -54,7 +54,7 @@ jobs:
             exit 0
           fi
   Vulnerability-Scanning:
-    name: vulnerability-scanning
+    name: orca vulnerability scan
     runs-on: ubuntu-latest
     env:
       PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
@@ -79,7 +79,7 @@ jobs:
         with:
           sarif_file: results/image.sarif
   SAST-Scanning:
-    name: sast-scanning
+    name: orca sast scan
     runs-on: ubuntu-latest
     env:
       PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
@@ -98,7 +98,7 @@ jobs:
             # scanning the entire repository
             "."
   Unit-Tests:
-    name: unit-tests
+    name: unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -115,7 +115,7 @@ jobs:
           name: coverage-report-unit
           path: coverage-unit.txt
   Integration-Tests:
-    name: integration-tests (${{ matrix.name }})
+    name: integration tests (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -186,7 +186,7 @@ jobs:
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Modules-On-Demand-Tests-Check:
-    name: modules-on-demand-tests-check
+    name: modules on demand
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     outputs:
@@ -209,7 +209,7 @@ jobs:
             echo "run_pipeline=false" >> $GITHUB_OUTPUT
           fi
   Modules-Acceptance-Tests-large:
-    name: modules-large (${{ matrix.name }})
+    name: modules large (${{ matrix.name }})
     runs-on: DB-ubuntu-24.04-4-cores
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
@@ -247,7 +247,7 @@ jobs:
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-light:
-    name: modules-light (${{ matrix.name }})
+    name: modules light (${{ matrix.name }})
     runs-on: ubuntu-latest
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
@@ -287,7 +287,7 @@ jobs:
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-api:
-    name: modules-api (${{ matrix.name }})
+    name: modules api (${{ matrix.name }})
     runs-on: ubuntu-latest
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork }}  # no PRs from fork
@@ -389,13 +389,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: "fast-1"
+          - name: "fast-group-1"
             test: "--acceptance-only-fast-group-1"
-          - name: "fast-2"
+          - name: "fast-group-2"
             test: "--acceptance-only-fast-group-2"
-          - name: "fast-3"
+          - name: "fast-group-3"
             test: "--acceptance-only-fast-group-3"
-          - name: "fast-4"
+          - name: "fast-group-4"
             test: "--acceptance-only-fast-group-4"
           - name: "graphql"
             test: "--acceptance-only-graphql"
@@ -409,9 +409,9 @@ jobs:
             test: "--acceptance-only-replica-replication-fast"
           - name: "replica-slow"
             test: "--acceptance-only-replica-replication-slow"
-          - name: "go-client-1"
+          - name: "go-client-group-1"
             test: "--acceptance-go-client-only-fast-group-1"
-          - name: "go-client-2"
+          - name: "go-client-group-2"
             test: "--acceptance-go-client-only-fast-group-2"
           - name: "python"
             test: "--acceptance-only-python"
@@ -434,7 +434,7 @@ jobs:
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests-large:
-    name: acceptance-large (${{ matrix.name }})
+    name: acceptance large (${{ matrix.name }})
     runs-on: DB-ubuntu-24.04-4-cores
     strategy:
       fail-fast: false
