@@ -80,9 +80,18 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) *grpc.Se
 
 	interceptors = append(interceptors, makeIPInterceptor())
 
-	if len(interceptors) > 0 {
-		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
+	interceptors = append(interceptors,
+		makeMaintenanceModeUnaryInterceptor(state.Logger, state.Cluster.MaintenanceModeEnabledForLocalhost),
+	)
+
+	streamInterceptors := []grpc.StreamServerInterceptor{
+		makeMaintenanceModeStreamInterceptor(state.Logger, state.Cluster.MaintenanceModeEnabledForLocalhost),
 	}
+
+	o = append(o,
+		grpc.ChainUnaryInterceptor(interceptors...),
+		grpc.ChainStreamInterceptor(streamInterceptors...),
+	)
 
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
@@ -200,6 +209,26 @@ func convertIP6ToIP4Loopback(ip string) string {
 		return "127.0.0.1" // Convert IPv6 loopback to IPv4
 	}
 	return ip
+}
+
+func makeMaintenanceModeUnaryInterceptor(logger logrus.FieldLogger, maintenanceModeEnabled func() bool) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		if maintenanceModeEnabled() {
+			logger.Warn("Received request in maintenance mode", "method", info.FullMethod)
+			return nil, status.Error(codes.Unavailable, "service is in maintenance mode")
+		}
+		return handler(ctx, req)
+	}
+}
+
+func makeMaintenanceModeStreamInterceptor(logger logrus.FieldLogger, maintenanceModeEnabled func() bool) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if maintenanceModeEnabled() {
+			logger.Warn("Received streaming request in maintenance mode", "method", info.FullMethod)
+			return status.Error(codes.Unavailable, "service is in maintenance mode")
+		}
+		return handler(srv, ss)
+	}
 }
 
 func StartAndListen(s *grpc.Server, state *state.State) error {
