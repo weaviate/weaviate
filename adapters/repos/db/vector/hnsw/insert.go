@@ -20,10 +20,19 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+)
+
+const (
+	// bytesPerFloat32 represents the number of bytes used by a float32 value.
+	bytesPerFloat32 = 4
+
+	// overheadPerVector represents the estimated overhead in bytes per vector (e.g., slice header, etc.).
+	overheadPerVector = 30
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
@@ -480,15 +489,11 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	return nil
 }
 
-func (h *hnsw) generateLevel() uint8 {
-	return uint8(math.Floor(-math.Log(max(h.randFunc(), 1e-19)) * h.levelNormalizer))
-}
-
 func estimateBatchMemory(vecs [][]float32) int64 {
 	var sum int64
 	for _, item := range vecs {
 		// use same logic as in memwatch.EstimateObjectMemory
-		sum += int64(len(item))*4 + 30
+		sum += int64(len(item))*bytesPerFloat32 + overheadPerVector
 	}
 
 	return sum
