@@ -1212,6 +1212,23 @@ func Test_Validation_PropertyNames(t *testing.T) {
 				})
 			}
 		})
+
+		t.Run("Add class without async replication given", func(t *testing.T) {
+			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			class := &models.Class{
+				Vectorizer:        "none",
+				Class:             "ValidName",
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			}
+
+			fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
+			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+			classCreated, _, err := handler.AddClass(context.Background(), nil, class)
+			require.NoError(t, err)
+			require.True(t, *classCreated.ReplicationConfig.AsyncEnabled)
+
+			fakeSchemaManager.AssertExpectations(t)
+		})
 	})
 }
 

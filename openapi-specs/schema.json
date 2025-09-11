@@ -741,9 +741,10 @@
           "type": "integer"
         },
         "asyncEnabled": {
-          "description": "Enable asynchronous replication (default: false).",
+          "description": "Enable asynchronous replication (default: true).",
           "type": "boolean",
-          "x-omitempty": false
+          "x-omitempty": false,
+          "default": true
         },
         "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects.",

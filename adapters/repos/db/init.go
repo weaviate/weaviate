@@ -122,7 +122,7 @@ func (db *DB) init(ctx context.Context) error {
 				TransferInactivityTimeout:                    db.config.TransferInactivityTimeout,
 				LSMEnableSegmentsChecksumValidation:          db.config.LSMEnableSegmentsChecksumValidation,
 				ReplicationFactor:                            class.ReplicationConfig.Factor,
-				AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
+				AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled != nil && *class.ReplicationConfig.AsyncEnabled,
 				DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 				ShardLoadLimiter:                             db.shardLoadLimiter,
 				HNSWMaxLogSize:                               db.config.HNSWMaxLogSize,
