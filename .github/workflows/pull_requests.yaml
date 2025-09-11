@@ -504,7 +504,7 @@ jobs:
           files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit.txt
           verbose: true
   Compile-and-upload-binaries:
-    name: compile-and-upload-binaries
+    name: compile and upload binaries
     runs-on: DB-ubuntu-24.04-4-cores
     steps:
       - uses: actions/checkout@v5
@@ -548,7 +548,7 @@ jobs:
 
 
   Acceptance-Tests-windows:
-    name: acceptance-tests-windows
+    name: acceptance (windows)
     needs: Compile-and-upload-binaries
     runs-on: windows-latest
     env:
@@ -605,7 +605,7 @@ jobs:
         run: ./ci/generate_docker_report.sh
   Push-Docker-Fast:
     if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }} # no PRs from fork
-    name: push-docker-fast
+    name: push-docker-fast (${{ matrix.arch }})
     timeout-minutes: 30
     strategy:
       matrix:
@@ -640,7 +640,7 @@ jobs:
           echo "semver-tags-${{ matrix.arch }}=${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}" >> $GITHUB_OUTPUT
   Generate-Docker-Report:
     needs: [Push-Docker-Fast]
-    name: generate-docker-report
+    name: docker report
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
