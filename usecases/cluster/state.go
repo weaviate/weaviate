@@ -45,6 +45,10 @@ type NodeSelector interface {
 	NodeHostname(name string) (string, bool)
 	AllHostnames() []string
 	AllClusterMembers(raftPort int) map[string]string
+	// Leave marks the node as leaving the cluster (still visible but shutting down)
+	Leave() error
+	// Shutdown leaves the cluster gracefully and shuts down the memberlist instance
+	Shutdown() error
 }
 
 type State struct {
@@ -344,6 +348,29 @@ func (s *State) SkipSchemaRepair() bool {
 
 func (s *State) NodeInfo(node string) (NodeInfo, bool) {
 	return s.delegate.get(node)
+}
+
+func (s *State) Leave() error {
+	if s.list == nil {
+		return fmt.Errorf("memberlist not initialized")
+	}
+
+	s.delegate.log.Info("marking node as gracefully leaving...")
+
+	if err := s.list.Leave(5 * time.Second); err != nil {
+		return fmt.Errorf("failed to leave memberlist: %w", err)
+	}
+
+	s.delegate.log.Info("successfully marked as leaving in memberlist")
+	return nil
+}
+
+func (s *State) Shutdown() error {
+	if s.list == nil {
+		return fmt.Errorf("memberlist not initialized")
+	}
+
+	return s.list.Shutdown()
 }
 
 // MaintenanceModeEnabledForLocalhost is experimental, may be removed/changed. It returns true if this node is in

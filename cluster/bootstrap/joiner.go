@@ -88,7 +88,6 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 
 		// Log the error but don't immediately give up
 		st := status.Convert(err)
-
 		// Get the leader from response and if not empty try to join it
 		if leader := resp.GetLeader(); st.Code() == rpc.NotLeaderRPCCode && leader != "" {
 			_, err = j.peerJoiner.Join(ctx, leader, req)
