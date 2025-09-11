@@ -543,7 +543,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		return copier.NewFileReplicationServiceClient(clientConn, authConfig), nil
 	}
 
-	replicaCopier := copier.New(remoteClientFactory, remoteIndexClient, appState.Cluster,
+	appState.ReplicaCopier = copier.New(remoteClientFactory, remoteIndexClient, appState.Cluster,
 		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers, dataPath, appState.DB, nodeName, appState.Logger)
 
 	rConfig := rCluster.Config{
@@ -578,7 +578,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		AuthzController:                 appState.AuthzController,
 		RBAC:                            appState.RBAC,
 		DynamicUserController:           appState.APIKey.Dynamic,
-		ReplicaCopier:                   replicaCopier,
+		ReplicaCopier:                   appState.ReplicaCopier,
 		AuthNConfig:                     appState.ServerConfig.Config.Authentication,
 		ReplicationEngineMaxWorkers:     appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
 		DistributedTasks:                appState.ServerConfig.Config.DistributedTasks,
