@@ -424,7 +424,7 @@ func (c *replicationClient) doResolve(ctx context.Context, timeout time.Duration
 	try := func(ctx context.Context) (bool, error) {
 		req, err := reqMaker()
 		if err != nil {
-			return true, fmt.Errorf("create http request: %w", err)
+			return false, fmt.Errorf("create http request: %w", err)
 		}
 		req = req.WithContext(ctx)
 		if body != nil {
@@ -432,7 +432,7 @@ func (c *replicationClient) doResolve(ctx context.Context, timeout time.Duration
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			return false, fmt.Errorf("connect: %w", err)
+			return true, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
