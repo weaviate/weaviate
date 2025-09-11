@@ -27,6 +27,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 )
 
+const (
+	// bytesPerFloat32 represents the number of bytes used by a float32 value.
+	bytesPerFloat32 = 4
+
+	// overheadPerVector represents the estimated overhead in bytes per vector (e.g., slice header, etc.).
+	overheadPerVector = 30
+)
+
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 	dims := int(atomic.LoadInt32(&h.dims))
 
@@ -506,7 +514,7 @@ func estimateBatchMemory(vecs [][]float32) int64 {
 	var sum int64
 	for _, item := range vecs {
 		// use same logic as in memwatch.EstimateObjectMemory
-		sum += int64(len(item))*4 + 30
+		sum += int64(len(item))*bytesPerFloat32 + overheadPerVector
 	}
 
 	return sum
