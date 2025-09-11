@@ -43,7 +43,6 @@ type Metrics struct {
 	// Read Repair Metrics
 	readRepairCount   prometheus.Counter
 	readRepairFailure prometheus.Counter
-	readRepairSuccess prometheus.Counter
 
 	// Histograms
 	writeDuration      prometheus.Histogram
@@ -107,11 +106,6 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) (*Metrics, error) {
 	}
 	m.readRepairFailure, err = newCounter(prom.Registerer,
 		"replication_read_repair_failure", "Count of read repairs failed")
-	if err != nil {
-		return nil, err
-	}
-	m.readRepairSuccess, err = newCounter(prom.Registerer,
-		"replication_read_repair_success", "Count of read repairs succeeded")
 	if err != nil {
 		return nil, err
 	}
@@ -223,12 +217,6 @@ func (m *Metrics) IncReadRepairCount() {
 func (m *Metrics) IncReadRepairFailure() {
 	if m.monitoring {
 		m.readRepairFailure.Inc()
-	}
-}
-
-func (m *Metrics) IncReadRepairSuccess() {
-	if m.monitoring {
-		m.readRepairSuccess.Inc()
 	}
 }
 

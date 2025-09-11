@@ -64,8 +64,6 @@ func (r *repairer) repairOne(ctx context.Context,
 	defer func(start time.Time) {
 		if err != nil {
 			r.metrics.IncReadRepairFailure()
-		} else {
-			r.metrics.IncReadRepairSuccess()
 		}
 		r.metrics.ObserveReadRepairDuration(time.Since(start))
 	}(time.Now())
@@ -216,8 +214,6 @@ func (r *repairer) repairExist(ctx context.Context,
 	defer func(start time.Time) {
 		if err != nil {
 			r.metrics.IncReadRepairFailure()
-		} else {
-			r.metrics.IncReadRepairSuccess()
 		}
 		r.metrics.ObserveReadRepairDuration(time.Since(start))
 	}(time.Now())
@@ -360,8 +356,6 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 	defer func(start time.Time) {
 		if err != nil {
 			r.metrics.IncReadRepairFailure()
-		} else {
-			r.metrics.IncReadRepairSuccess()
 		}
 		r.metrics.ObserveReadRepairDuration(time.Since(start))
 	}(time.Now())
