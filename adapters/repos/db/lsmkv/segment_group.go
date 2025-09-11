@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -314,7 +315,14 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		segmentsAlreadyRecoveredFromCompaction[newRightSegmentFileName] = struct{}{}
 	}
 
+	// segments need to be initialised in order of their timestamp to ensure that net additions are calculated correctly
+	fileList := make([]string, 0, len(files))
 	for entry := range files {
+		fileList = append(fileList, entry)
+	}
+	slices.Sort(fileList)
+
+	for _, entry := range fileList {
 		if filepath.Ext(entry) == DeleteMarkerSuffix {
 			// marked for deletion, but never actually deleted. Delete now.
 			if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
