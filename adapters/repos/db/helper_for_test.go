@@ -323,6 +323,32 @@ func createRandomObjects(r *rand.Rand, className string, numObj int, vectorDim i
 	return obj
 }
 
+func createRandomMultiVectorObjects(r *rand.Rand, className string, numObj int, numTokens int, vectorDim int) []*storobj.Object {
+	obj := make([]*storobj.Object, numObj)
+
+	for i := 0; i < numObj; i++ {
+		obj[i] = &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:    strfmt.UUID(uuid.NewString()),
+				Class: className,
+			},
+			MultiVectors: make(map[string][][]float32),
+		}
+
+		for t := 0; t < numTokens; t++ {
+			obj[i].MultiVectors["default"] = make([][]float32, vectorDim)
+			for d := 0; d < vectorDim; d++ {
+				obj[i].MultiVectors["default"][d] = make([]float32, vectorDim)
+				for d2 := 0; d2 < vectorDim; d2++ {
+					obj[i].MultiVectors["default"][d][d2] = r.Float32()
+				}
+			}
+		}
+	}
+	return obj
+}
+
 func invertedConfig() *models.InvertedIndexConfig {
 	return &models.InvertedIndexConfig{
 		CleanupIntervalSeconds: 60,

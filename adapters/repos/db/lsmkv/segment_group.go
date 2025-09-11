@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -312,7 +313,14 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		segmentsAlreadyRecoveredFromCompaction[newRightSegmentFileName] = struct{}{}
 	}
 
+	// segments need to be initialised in order of their timestamp to ensure that net additions are calculated correctly
+	fileList := make([]string, 0, len(files))
 	for entry := range files {
+		fileList = append(fileList, entry)
+	}
+	slices.Sort(fileList)
+
+	for _, entry := range fileList {
 		if filepath.Ext(entry) == DeleteMarkerSuffix {
 			// marked for deletion, but never actually deleted. Delete now.
 			if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
@@ -723,7 +731,7 @@ func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	return out, nil
 }
 
-func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []Segment, func(), error) {
+func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte) ([][]value, []Segment, func(), error) {
 	segments, release := sg.getConsistentViewOfSegments()
 
 	out := make([][]value, len(segments))
@@ -732,6 +740,10 @@ func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []Segme
 	i := 0
 	// start with first and do not exit
 	for _, segment := range segments {
+		if ctx.Err() != nil {
+			release()
+			return nil, nil, func() {}, ctx.Err()
+		}
 		v, err := segment.getCollection(key)
 		if err != nil {
 			if !errors.Is(err, lsmkv.NotFound) {
