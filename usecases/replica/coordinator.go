@@ -159,13 +159,12 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 	f := func() { // tells active replicas to commit
 		wg := sync.WaitGroup{}
 		for res := range broadcastCh {
-			wg.Add(1)
 			if res.Err != nil {
 				replyCh <- _Result[T]{Err: res.Err}
-				wg.Done()
 				continue
 			}
 			replica := res.Value
+			wg.Add(1)
 			g := func() {
 				defer wg.Done()
 				resp, err := op(ctx, replica, c.TxID)
