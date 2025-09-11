@@ -116,10 +116,10 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	}
 	end := time.Since(start)
 	if filterDocIds != nil {
-		helpers.AnnotateSlowQueryLog(ctx, "keyword_search_filter_size", filterDocIds.Len())
+		helpers.AnnotateSlowQueryLog(ctx, "kwd_filter_size", filterDocIds.Len())
 	}
-	helpers.AnnotateSlowQueryLog(ctx, "keyword_search_method", method)
-	helpers.AnnotateSlowQueryLog(ctx, "keyword_search_total_time", end)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_method", method)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_time", end)
 
 	if err != nil {
 		return nil, nil, errors.Wrap(err, method)
@@ -273,12 +273,12 @@ func (b *BM25Searcher) wand(
 			if minimumOrTokensMatchByTokenization < minimumOrTokensMatch {
 				minimumOrTokensMatch = minimumOrTokensMatchByTokenization
 			}
-			helpers.AnnotateSlowQueryLog(ctx, "keyword_search_2_num_query_terms_"+tokenization, len(queryTerms))
+			helpers.AnnotateSlowQueryLog(ctx, "kwd_2_terms_"+tokenization, len(queryTerms))
 		}
 	}
 
 	tokenizationTime := time.Since(start)
-	helpers.AnnotateSlowQueryLog(ctx, "keyword_search_1_tokenization_time", tokenizationTime)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_1_tok_time", tokenizationTime)
 	start = time.Now()
 	results := make([]*terms.Term, len(allRequests))
 
@@ -345,12 +345,12 @@ func (b *BM25Searcher) wand(
 	}
 
 	termSearchTime := time.Since(start)
-	helpers.AnnotateSlowQueryLog(ctx, "keyword_search_3_term_build_time", termSearchTime)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_3_term_time", termSearchTime)
 	start = time.Now()
 	topKHeap := lsmkv.DoWand(ctx, limit, combinedTerms, averagePropLength, params.AdditionalExplanations, minimumOrTokensMatch)
 
 	wandTime := time.Since(start)
-	helpers.AnnotateSlowQueryLog(ctx, "keyword_search_4_wand_time", wandTime)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_4_wand_time", wandTime)
 
 	if ctx.Err() != nil {
 		return nil, nil, fmt.Errorf("after DoWand: %w", ctx.Err())
@@ -360,8 +360,8 @@ func (b *BM25Searcher) wand(
 	objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, allQueryTerms, additional)
 
 	fetchTime := time.Since(start)
-	helpers.AnnotateSlowQueryLog(ctx, "keyword_search_5_combine_and_get_objects_time", fetchTime)
-	helpers.AnnotateSlowQueryLog(ctx, "keyword_search_6_result_count", len(objects))
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_5_objects_time", fetchTime)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_6_res_count", len(objects))
 	return objects, scores, err
 }
 

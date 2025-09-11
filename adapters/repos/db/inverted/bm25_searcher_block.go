@@ -92,7 +92,7 @@ func (b *BM25Searcher) wandBlock(
 	}()
 
 	tokenizationTime := time.Since(start)
-	helpers.AnnotateSlowQueryLog(ctx, "keyword_search_1_tokenization_time", tokenizationTime)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_1_tok_time", tokenizationTime)
 	start = time.Now()
 
 	for _, tokenization := range helpers.Tokenizations {
@@ -156,7 +156,7 @@ func (b *BM25Searcher) wandBlock(
 					}
 				}
 			}
-			helpers.AnnotateSlowQueryLog(ctx, "keyword_search_2_num_query_terms_"+tokenization, len(queryTerms))
+			helpers.AnnotateSlowQueryLog(ctx, "kwd_2_terms_"+tokenization, len(queryTerms))
 		}
 	}
 
@@ -198,7 +198,7 @@ func (b *BM25Searcher) wandBlock(
 
 	termSearchTime := time.Since(start)
 	start = time.Now()
-	helpers.AnnotateSlowQueryLog(ctx, "keyword_search_3_term_build_time", termSearchTime)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_3_term_time", termSearchTime)
 
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
@@ -255,13 +255,13 @@ func (b *BM25Searcher) wandBlock(
 
 	blockSearchTime := time.Since(start)
 	start = time.Now()
-	helpers.AnnotateSlowQueryLog(ctx, "keyword_search_4_bmw_time", blockSearchTime)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_4_bmw_time", blockSearchTime)
 
 	objects, scores := b.combineResults(allIds, allScores, allExplanation, termCounts, additional, limit)
 
 	combineTime := time.Since(start)
-	helpers.AnnotateSlowQueryLog(ctx, "keyword_search_5_combine_and_get_objects_time", combineTime)
-	helpers.AnnotateSlowQueryLog(ctx, "keyword_search_6_result_count", len(objects))
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_5_objects_time", combineTime)
+	helpers.AnnotateSlowQueryLog(ctx, "kwd_6_res_count", len(objects))
 
 	return objects, scores, false, nil
 }
