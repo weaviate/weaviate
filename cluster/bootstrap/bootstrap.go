@@ -19,6 +19,7 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	entSentry "github.com/weaviate/weaviate/entities/sentry"
@@ -68,6 +69,19 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 		ctx = transaction.Context()
 		defer transaction.Finish()
 	}
+
+	// random startup jitter to prevent race condition
+	// this prevents all nodes from trying to join each other simultaneously
+	startupJitter := time.Duration(rand.Intn(1000)) * time.Millisecond
+	select {
+	case <-time.After(startupJitter):
+		// Continue with bootstrap
+	case <-stop:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	ticker := time.NewTicker(jitter(b.retryPeriod, b.jitter))
 	defer ticker.Stop()
 	for {

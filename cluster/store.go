@@ -13,7 +13,6 @@ package cluster
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -22,27 +21,24 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
-
-	"github.com/weaviate/weaviate/cluster/dynusers"
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-
-	"github.com/prometheus/client_golang/prometheus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -672,14 +668,6 @@ func (st *Store) LeaderWithID() (raft.ServerAddress, raft.ServerID) {
 		return "", ""
 	}
 	return st.raft.LeaderWithID()
-}
-
-func (st *Store) assertFuture(fut raft.IndexFuture) error {
-	if err := fut.Error(); err != nil && errors.Is(err, raft.ErrNotLeader) {
-		return types.ErrNotLeader
-	} else {
-		return err
-	}
 }
 
 func (st *Store) raftConfig() *raft.Config {

@@ -98,13 +98,21 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	// peers that we are ready to form a new cluster.
 	bootstrapCtx, bCancel := context.WithTimeout(ctx, c.config.BootstrapTimeout)
 	defer bCancel()
+
 	if hasState {
 		joiner := bootstrap.NewJoiner(c.rpcClient, c.config.NodeID, c.raftAddr, c.config.Voter)
+
+		bf := backoff.NewExponentialBackOff()
+		bf.InitialInterval = 100 * time.Millisecond
+		bf.RandomizationFactor = 0.5
+		bf.Multiplier = 2.0
+		bf.MaxElapsedTime = c.config.BootstrapTimeout
+
 		err = backoff.Retry(func() error {
 			joinNodes := bootstrap.ResolveRemoteNodes(nodeToAddressResolver, c.config.NodeNameToPortMap)
 			_, err := joiner.Do(bootstrapCtx, c.logger, joinNodes)
 			return err
-		}, backoff.WithContext(backoff.NewConstantBackOff(1*time.Second), bootstrapCtx))
+		}, backoff.WithContext(bf, bootstrapCtx))
 		if err != nil {
 			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value.", err)
 		}

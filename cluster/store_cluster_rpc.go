@@ -13,9 +13,11 @@ package cluster
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/types"
 )
 
@@ -32,10 +34,50 @@ func (st *Store) Join(id, addr string, voter bool) error {
 
 	rID, rAddr := raft.ServerID(id), raft.ServerAddress(addr)
 
-	if !voter {
-		return st.assertFuture(st.raft.AddNonvoter(rID, rAddr, 0, 0))
+	// Get current cluster configuration
+	configFuture := st.raft.GetConfiguration()
+	if err := configFuture.Error(); err != nil {
+		return err
 	}
-	return st.assertFuture(st.raft.AddVoter(rID, rAddr, 0, 0))
+
+	// See if it's already in the configuration. It's harmless to re-add it
+	// but we want to avoid doing that if possible to prevent useless Raft
+	// log entries. If the address is the same but the ID changed, remove the
+	// old server before adding the new one.
+	// never remove ourselves during join operations
+	// This prevents the "removed ourself, shutting down" issue
+	for _, server := range configFuture.Configuration().Servers {
+		// Exit with no-op if this is being called on an existing server and both the ID and address match
+		if server.Address == rAddr && server.ID == rID || server.ID == raft.ServerID(st.cfg.NodeID) {
+			continue
+		}
+
+		// If the address or ID matches an existing server, remove the old one first
+		if server.Address == rAddr || server.ID == rID {
+			future := st.raft.RemoveServer(server.ID, 0, 0)
+			if err := future.Error(); err != nil {
+				if server.Address == rAddr {
+					return fmt.Errorf("error removing server with duplicate address %q: %w", server.Address, err)
+				} else {
+					return fmt.Errorf("error removing server with duplicate ID %q: %w", server.ID, err)
+				}
+			}
+		}
+	}
+
+	if !voter {
+		addFuture := st.raft.AddNonvoter(rID, rAddr, 0, 0)
+		if err := addFuture.Error(); err != nil {
+			return err
+		}
+	} else {
+		addFuture := st.raft.AddVoter(rID, rAddr, 0, 0)
+		if err := addFuture.Error(); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Remove removes this peer from the cluster
@@ -46,7 +88,7 @@ func (st *Store) Remove(id string) error {
 	if st.raft.State() != raft.Leader {
 		return types.ErrNotLeader
 	}
-	return st.assertFuture(st.raft.RemoveServer(raft.ServerID(id), 0, 0))
+	return st.raft.RemoveServer(raft.ServerID(id), 0, 0).Error()
 }
 
 // Notify signals this Store that a node is ready for bootstrapping at the specified address.
