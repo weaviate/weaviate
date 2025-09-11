@@ -195,7 +195,8 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 
 				objectStorageSize, err := shard.ObjectStorageSize(ctx)
 				require.NoError(t, err)
-				objectCount := shard.ObjectCount()
+				objectCount, err := shard.ObjectCount(ctx)
+				require.NoError(t, err)
 
 				// Verify object count
 				assert.Equal(t, tt.expectedObjectCount, objectCount, "Object count should match expected")
@@ -215,7 +216,8 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 
 				objectStorageSize, err := shard.ObjectStorageSize(ctx)
 				require.NoError(t, err)
-				objectCount := shard.ObjectCount()
+				objectCount, err := shard.ObjectCount(ctx)
+				require.NoError(t, err)
 
 				assert.Equal(t, tt.expectedObjectCount, objectCount, "Empty shard should have 0 objects")
 				assert.Equal(t, tt.expectedStorageSizeMin, objectStorageSize, "Empty shard should have 0 storage size")
@@ -343,7 +345,8 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 
 	activeObjectStorageSize, err := activeShard.ObjectStorageSize(ctx)
 	require.NoError(t, err)
-	activeObjectCount := activeShard.ObjectCount()
+	activeObjectCount, err := activeShard.ObjectCount(ctx)
+	require.NoError(t, err)
 	assert.Greater(t, activeObjectStorageSize, int64(0), "Active shard calculation should have object storage size > 0")
 
 	// Test that active calculations are correct
