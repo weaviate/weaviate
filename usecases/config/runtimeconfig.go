@@ -38,6 +38,10 @@ type WeaviateRuntimeConfig struct {
 	QuerySlowLogThreshold          *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
 	InvertedSorterDisabled         *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
+	ForceFullReplicasSearch              *runtime.DynamicValue[bool]          `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
+	FullReplicasSearchDebounceFactor     *runtime.DynamicValue[int]           `json:"full_replicas_search_debounce_factor" yaml:"full_replicas_search_debounce_factor"`
+	FullReplicasSearchDebounceMinTimeout *runtime.DynamicValue[time.Duration] `json:"full_replicas_search_debounce_min_timeout" yaml:"full_replicas_search_debounce_min_timeout"`
+
 	// Experimental configs. Will be removed in the future.
 	OIDCIssuer            *runtime.DynamicValue[string]   `json:"exp_oidc_issuer" yaml:"exp_oidc_issuer"`
 	OIDCClientID          *runtime.DynamicValue[string]   `json:"exp_oidc_client_id" yaml:"exp_oidc_client_id"`
