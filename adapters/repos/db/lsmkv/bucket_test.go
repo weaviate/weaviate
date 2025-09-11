@@ -691,7 +691,7 @@ func TestNetCountComputationAtInit(t *testing.T) {
 	require.Equal(t, 0, fileTypes[".wal"])
 	require.Equal(t, 4, fileTypes[".cna"])
 
-	// Create a single segment with all deletions - shutdown so the cna files are not writen right away, but at startup
+	// Create a single segment with all deletions - shutdown so the cna files are not written right away, but at startup
 	require.NoError(t, b.Delete([]byte("hello1")))
 	require.NoError(t, b.Delete([]byte("hello2")))
 	require.NoError(t, b.Delete([]byte("hello3")))
