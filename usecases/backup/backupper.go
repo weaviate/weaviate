@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -69,30 +68,6 @@ func (b *backupper) Backup(ctx context.Context,
 	return &backup.CreateMeta{
 		Path:   store.HomeDir(overrideBucket, overridePath),
 		Status: backup.Started,
-	}, nil
-}
-
-// Status returns status of a backup
-// If the backup is still active the status is immediately returned
-// If not it fetches the metadata file to get the status
-func (b *backupper) Status(ctx context.Context, backend, bakID string,
-) (*models.BackupCreateStatusResponse, error) {
-	st, err := b.OnStatus(ctx, &StatusRequest{OpCreate, bakID, backend, "", ""}) // retrieved from store
-	if err != nil {
-		if errors.Is(err, errMetaNotFound) {
-			err = backup.NewErrNotFound(err)
-		} else {
-			err = backup.NewErrUnprocessable(err)
-		}
-		return nil, err
-	}
-	// check if backup is still active
-	status := string(st.Status)
-	return &models.BackupCreateStatusResponse{
-		ID:      bakID,
-		Path:    st.Path,
-		Status:  &status,
-		Backend: backend,
 	}, nil
 }
 

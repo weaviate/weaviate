@@ -68,7 +68,11 @@ func (ua *unfilteredAggregator) addMetaCount(ctx context.Context,
 		return errors.Errorf("objects bucket is nil")
 	}
 
-	out.Groups[0].Count = b.Count()
+	count, err := b.Count(ctx)
+	if err != nil {
+		return fmt.Errorf("count objects: %w", err)
+	}
+	out.Groups[0].Count = count
 
 	return nil
 }
