@@ -848,7 +848,7 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 
 	segments := [][]MapPair{}
 	// before := time.Now()
-	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(key)
+	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(ctx, key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
@@ -1559,7 +1559,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	}
 
 	segments := [][]terms.DocPointerWithScore{}
-	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(key)
+	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(ctx, key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
@@ -1573,7 +1573,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 
 	for i := range disk {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("docPointerWithScoreList: %w", ctx.Err())
 		}
 		propLengths := make(map[uint64]uint32)
 		if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
@@ -1754,6 +1754,11 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		flushing.currentBlockImpact = float32(idfs[i])
 
 		idfCounts[queryTerm] = n
+	}
+
+	if ctx.Err() != nil {
+		release()
+		return nil, nil, func() {}, fmt.Errorf("after memtable terms: %w", ctx.Err())
 	}
 
 	for j := len(segmentsDisk) - 1; j >= 0; j-- {
