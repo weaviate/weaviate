@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -19,7 +21,9 @@ import (
 // will not affect you.
 // 2. Having a consistent view does not block the addition of new segments,
 // those can happen concurrently.
-func TestSegmentGroup_ConsistentViewAcrossSegmentAddition(t *testing.T) {
+func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentAddition(t *testing.T) {
+	t.Parallel()
+
 	// initial segment
 	segmentData := map[string][]byte{
 		"key1": []byte("value1"),
@@ -54,7 +58,9 @@ func TestSegmentGroup_ConsistentViewAcrossSegmentAddition(t *testing.T) {
 	require.Equal(t, []byte("value2"), v, "k==v on initial state")
 }
 
-func TestSegmentGroup_ConsistentViewAcrossSegmentReplace(t *testing.T) {
+func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
+	t.Parallel()
+
 	logger, _ := test.NewNullLogger()
 	// initial segment
 	segA := newFakeReplaceSegment(map[string][]byte{
@@ -115,13 +121,70 @@ func TestSegmentGroup_ConsistentViewAcrossSegmentReplace(t *testing.T) {
 	require.Equal(t, 2, segAB.getCounter, "new segment should have received call")
 }
 
+func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentAddition(t *testing.T) {
+	t.Parallel()
+
+	// initial segment
+	segmentData := map[string]*sroar.Bitmap{
+		"key1": bitmapFromSlice([]uint64{1}),
+	}
+	sg := &SegmentGroup{
+		segments: []Segment{newFakeRoaringSetSegment(segmentData)},
+	}
+
+	// control before segment changes
+	segments, release := sg.getConsistentViewOfSegments()
+	defer release()
+	v, _, err := sg.roaringSetGetWithSegments([]byte("key1"), segments)
+	require.NoError(t, err)
+	expected := roaringset.BitmapLayers{
+		{
+			Additions: bitmapFromSlice([]uint64{1}),
+		},
+	}
+	require.Equal(t, expected, v, "k==v on initial state")
+
+	// append new segment
+	segment2Data := map[string]*sroar.Bitmap{
+		"key1": bitmapFromSlice([]uint64{2}),
+	}
+	sg.addInitializedSegment(newFakeRoaringSetSegment(segment2Data))
+
+	// prove that our consistent view still shows the old value
+	v, _, err = sg.roaringSetGetWithSegments([]byte("key1"), segments)
+	require.NoError(t, err)
+	expected = roaringset.BitmapLayers{
+		{
+			Additions: bitmapFromSlice([]uint64{1}),
+		},
+	}
+	require.Equal(t, expected, v, "k==v after segment addition on old view")
+
+	// prove that new readers will see the most recent view
+	segments, release = sg.getConsistentViewOfSegments()
+	defer release()
+	v, _, err = sg.roaringSetGetWithSegments([]byte("key1"), segments)
+	require.NoError(t, err)
+	expected = roaringset.BitmapLayers{
+		{
+			Additions: bitmapFromSlice([]uint64{1, 2}),
+		},
+	}
+	require.Equal(t, expected, v, "k==v on new view after segment addition")
+}
+
 func newFakeReplaceSegment(kv map[string][]byte) *fakeSegment {
 	return &fakeSegment{segmentType: StrategyReplace, replaceStore: kv}
+}
+
+func newFakeRoaringSetSegment(kv map[string]*sroar.Bitmap) *fakeSegment {
+	return &fakeSegment{segmentType: StrategyRoaringSet, roaringStore: kv}
 }
 
 type fakeSegment struct {
 	segmentType  string
 	replaceStore map[string][]byte
+	roaringStore map[string]*sroar.Bitmap
 	refs         int
 	path         string
 	getCounter   int
@@ -271,9 +334,39 @@ func (f *fakeSegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 }
 
 func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (roaringset.BitmapLayer, func(), error) {
-	panic("not implemented") // TODO: Implement
+	if f.segmentType != StrategyRoaringSet {
+		return roaringset.BitmapLayer{}, nil, fmt.Errorf("not a roaring set segment")
+	}
+
+	keyStr := string(key)
+	if val, ok := f.roaringStore[keyStr]; ok {
+		return roaringset.BitmapLayer{
+			Additions: val,
+		}, func() {}, nil
+	}
+
+	return roaringset.BitmapLayer{}, nil, lsmkv.NotFound
 }
 
 func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool) error {
-	panic("not implemented") // TODO: Implement
+	layer, _, err := f.roaringSetGet(key, bitmapBufPool)
+	if err != nil {
+		if errors.Is(err, lsmkv.NotFound) {
+			return nil
+		}
+	}
+
+	input.Additions.
+		AndNotConc(layer.Deletions, concurrency.SROAR_MERGE).
+		OrConc(layer.Additions, concurrency.SROAR_MERGE)
+
+	return nil
+}
+
+func bitmapFromSlice(input []uint64) *sroar.Bitmap {
+	bm := sroar.NewBitmap()
+	for _, v := range input {
+		bm.Set(v)
+	}
+	return bm
 }

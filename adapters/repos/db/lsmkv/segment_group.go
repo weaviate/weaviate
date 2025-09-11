@@ -753,10 +753,7 @@ func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []Segme
 	return out[:i], outSegments[:i], release, nil
 }
 
-func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, release func(), err error) {
-	segments, sgRelease := sg.getConsistentViewOfSegments()
-	defer sgRelease()
-
+func (sg *SegmentGroup) roaringSetGetWithSegments(key []byte, segments []Segment) (out roaringset.BitmapLayers, release func(), err error) {
 	ln := len(segments)
 	if ln == 0 {
 		return nil, noopRelease, nil
@@ -793,6 +790,13 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, 
 	}
 
 	return out, release, nil
+}
+
+func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, release func(), err error) {
+	segments, sgRelease := sg.getConsistentViewOfSegments()
+	defer sgRelease()
+
+	return sg.roaringSetGetWithSegments(key, segments)
 }
 
 func (sg *SegmentGroup) count() int {
