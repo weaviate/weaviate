@@ -521,7 +521,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	}
 
 	if ctx.Err() != nil {
-		return termResult, fmt.Errorf("after DocPointerWithScoreList: %w", ctx.Err())
+		return termResult, fmt.Errorf("after docPointerWithScoreList: %w", ctx.Err())
 	}
 
 	if filterDocIds != nil {

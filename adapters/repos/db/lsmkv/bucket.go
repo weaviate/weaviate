@@ -1539,7 +1539,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 
 	for i := range disk {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("DocPointerWithScoreList: %w", ctx.Err())
+			return nil, fmt.Errorf("docPointerWithScoreList: %w", ctx.Err())
 		}
 		propLengths := make(map[uint64]uint32)
 		if segmentsDisk[i].strategy == segmentindex.StrategyInverted {

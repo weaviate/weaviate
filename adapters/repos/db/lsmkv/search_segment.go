@@ -67,9 +67,9 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 				"terms":             terms,
 				"filterCardinality": filterCardinality,
 				"limit":             limit,
-			}).Warnf("DoBlockMaxWand: search timed out, returning partial results")
+			}).Warnf("doBlockMaxWand: search timed out, returning partial results")
 			helpers.AnnotateSlowQueryLog(ctx, "kwd_4_iters", iterations)
-			return topKHeap, fmt.Errorf("DoBlockMaxWand: search timed out, returning partial results")
+			return topKHeap, fmt.Errorf("doBlockMaxWand: search timed out, returning partial results")
 		}
 
 		cumScore := float64(0)
