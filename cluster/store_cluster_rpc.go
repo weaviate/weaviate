@@ -50,8 +50,9 @@ func (st *Store) Remove(id string) error {
 	return st.assertFuture(st.raft.RemoveServer(raft.ServerID(id), 0, 0))
 }
 
-// Notify signals this Store that a node is ready for bootstrapping at the specified address.
-// Bootstrapping will be initiated once the number of known nodes reaches the expected level,
+// Notify is called by other nodes to register themselves as candidates for bootstrap.
+// This node will build a list of candidates and once bootstrap expect is reached it will
+// bootstrap the cluster with all the candidates that have notified this node,
 // which includes this node.
 func (st *Store) Notify(id, addr string) (err error) {
 	if !st.open.Load() {
@@ -59,6 +60,19 @@ func (st *Store) Notify(id, addr string) (err error) {
 	}
 	// peer is not voter or already bootstrapped or belong to an existing cluster
 	if !st.cfg.Voter || st.cfg.BootstrapExpect == 0 || st.bootstrapped.Load() || st.Leader() != "" {
+		return nil
+	}
+
+	hasState, err := raft.HasExistingState(st.logCache, st.logStore, st.snapshotStore)
+	if err != nil {
+		return err
+	}
+	if hasState {
+		st.log.WithFields(logrus.Fields{
+			"action":   "bootstrap",
+			"hasState": true,
+		}).Debug("cluster already has configuration, skipping bootstrap")
+		st.bootstrapped.Store(true)
 		return nil
 	}
 

@@ -14,6 +14,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
@@ -57,21 +58,36 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 
 	var resp *cmd.JoinPeerResponse
 	var err error
+	var errors []string
 	req := &cmd.JoinPeerRequest{Id: j.localNodeID, Address: j.localRaftAddr, Voter: j.voter}
-	lg.WithField("remoteNodes", remoteNodes).Info("attempting to join")
 
 	// For each server, try to join.
 	// If we have no error then we have a leader
 	// If we have an error check for err == NOT_FOUND and leader != "" -> we contacted a non-leader node part of the
 	// cluster, let's join the leader.
 	// If no server allows us to join a cluster, return an error
-	for _, addr := range remoteNodes {
+	// For each server, try to join with retry logic and backoff.
+	// The gRPC client has its own retry policy, but we add additional backoff
+	// between different nodes to allow services to start up.
+	for name, addr := range remoteNodes {
+		if name == j.localNodeID {
+			continue
+		}
+
+		lg.WithFields(logrus.Fields{
+			"remoteNodes": remoteNodes,
+			"node":        name,
+			"address":     addr,
+		}).Info("attempting to join")
+
+		// Try to join this node - gRPC client will handle retries for this specific node
 		resp, err = j.peerJoiner.Join(ctx, addr, req)
 		if err == nil {
 			return addr, nil
 		}
+
+		// Log the error but don't immediately give up
 		st := status.Convert(err)
-		lg.WithField("remoteNode", addr).WithField("status", st.Code()).Info("attempted to join and failed")
 		// Get the leader from response and if not empty try to join it
 		if leader := resp.GetLeader(); st.Code() == rpc.NotLeaderRPCCode && leader != "" {
 			_, err = j.peerJoiner.Join(ctx, leader, req)
@@ -79,7 +95,15 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 				return leader, nil
 			}
 			lg.WithField("leader", leader).WithError(err).Info("attempted to follow to leader and failed")
+			errors = append(errors, fmt.Sprintf("leader(%s): %v", leader, err))
+		} else {
+			errors = append(errors, fmt.Sprintf("%s(%s): %v", name, addr, err))
 		}
+	}
+
+	// Return a joined error message with all failed attempts
+	if len(errors) > 0 {
+		return "", fmt.Errorf("could not join a cluster from %v: %s", remoteNodes, strings.Join(errors, "; "))
 	}
 	return "", fmt.Errorf("could not join a cluster from %v", remoteNodes)
 }

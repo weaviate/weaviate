@@ -65,7 +65,7 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	// Update the internal notResolvedNodes if the addr if empty, otherwise delete it from the map
 	if addr == "" {
 		a.notResolvedNodes.Store(id, struct{}{})
-		return raftImpl.ServerAddress(invalidAddr), nil
+		return "", fmt.Errorf("could not find address for server id %v", id)
 	}
 	a.notResolvedNodes.Delete(id)
 
@@ -74,7 +74,14 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	if !a.IsLocalCluster {
 		return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, a.RaftPort)), nil
 	}
-	return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, a.NodeNameToPortMap[string(id)])), nil
+
+	port, exists := a.NodeNameToPortMap[string(id)]
+	if !exists {
+		// if does not exist, use the default raft port
+		port = a.RaftPort
+	}
+
+	return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, port)), nil
 }
 
 // NewTCPTransport returns a new raft.NetworkTransportConfig that utilizes
@@ -89,8 +96,8 @@ func (a *raft) NewTCPTransport(
 ) (*raftImpl.NetworkTransport, error) {
 	cfg := &raftImpl.NetworkTransportConfig{
 		ServerAddressProvider: a,
-		MaxPool:               raftTcpMaxPool,
-		Timeout:               raftTcpTimeout,
+		MaxPool:               maxPool,
+		Timeout:               timeout,
 		Logger:                log.NewHCLogrusLogger("raft-net", logger),
 	}
 	return raftImpl.NewTCPTransportWithConfig(bindAddr, advertise, cfg)
@@ -103,4 +110,10 @@ func (a *raft) NotResolvedNodes() map[raftImpl.ServerID]struct{} {
 		return true
 	})
 	return notResolvedNodes
+}
+
+// AllClusterMembers returns all cluster members discovered via memberlist with their raft addresses
+func (a *raft) AllClusterMembers(raftPort int) map[string]string {
+	// Delegate to the underlying ClusterStateReader
+	return a.ClusterStateReader.AllClusterMembers(raftPort)
 }
