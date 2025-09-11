@@ -30,6 +30,7 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"go.etcd.io/bbolt"
 )
 
@@ -72,6 +73,7 @@ func TestBackup_Integration(t *testing.T) {
 	})
 
 	config := Config{
+		AllocChecker:     memwatch.NewDummyMonitor(),
 		RootPath:         dirName,
 		ID:               indexID,
 		Logger:           logger,

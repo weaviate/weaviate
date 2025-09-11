@@ -37,6 +37,7 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 var logger, _ = test.NewNullLogger()
@@ -74,6 +75,7 @@ func TestDynamic(t *testing.T) {
 		VectorCacheMaxObjects: 1_000_000,
 	}
 	dynamic, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              rootPath,
 		ID:                    "nil-vector-test",
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
@@ -139,6 +141,7 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 
 	distancer := distancer.NewL2SquaredProvider()
 	_, err = New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              rootPath,
 		ID:                    "nil-vector-test",
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
@@ -202,6 +205,7 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		dynamic, err := New(Config{
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			TargetVector:          "target_" + strconv.Itoa(i),
 			RootPath:              rootPath,
 			ID:                    "nil-vector-test_" + strconv.Itoa(i),
@@ -287,6 +291,7 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 	}
 
 	dynamic, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              rootPath,
 		ID:                    "foo",
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
@@ -386,6 +391,7 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	}
 
 	config := Config{
+		AllocChecker: memwatch.NewDummyMonitor(),
 		TargetVector: "",
 		RootPath:     rootPath,
 		ID:           "vector-test_0",

@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // The !race build tag makes sure that this test is EXCLUDED from running with
@@ -84,6 +85,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 	t.Run("set up an index with the specified commit logger", func(t *testing.T) {
 		idx, err := New(Config{
+			AllocChecker: memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: func() (CommitLogger, error) {
 				return original, nil
 			},
@@ -220,6 +222,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 	t.Run("create a new one from the disk files", func(t *testing.T) {
 		idx, err := New(Config{
+			AllocChecker:          memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: MakeNoopCommitLogger, // no longer need a real one
 			ID:                    "too_many_links_test",
 			RootPath:              rootPath,
