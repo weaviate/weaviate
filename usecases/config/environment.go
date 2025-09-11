@@ -472,6 +472,30 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := parseInt(
+		"HNSW_GEO_INDEX_MAX_CONNECTIONS",
+		func(val int) { config.HNSWGeoIndexMaxConnections = val },
+		DefaultHNSWGeoIndexMaxConnections,
+	); err != nil {
+		return err
+	}
+
+	if err := parseInt(
+		"HNSW_GEO_INDEX_EF_CONSTRUCTION",
+		func(val int) { config.HNSWGeoIndexEFConstruction = val },
+		DefaultHNSWGeoIndexEFConstruction,
+	); err != nil {
+		return err
+	}
+
+	if err := parseInt(
+		"HNSW_GEO_INDEX_EF",
+		func(val int) { config.HNSWGeoIndexEF = val },
+		DefaultHNSWGeoIndexEF,
+	); err != nil {
+		return err
+	}
+
 	clusterCfg, err := parseClusterConfig()
 	if err != nil {
 		return err

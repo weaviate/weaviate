@@ -151,6 +151,9 @@ type Config struct {
 	HNSWVisitedListPoolMaxSize          int                      `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
 	HNSWFlatSearchConcurrency           int                      `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
 	HNSWAcornFilterRatio                float64                  `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
+	HNSWGeoIndexMaxConnections          int                      `json:"hnsw_geo_index_max_connections" yaml:"hnsw_geo_index_max_connections"`
+	HNSWGeoIndexEFConstruction          int                      `json:"hnsw_geo_index_ef_construction" yaml:"hnsw_geo_index_ef_construction"`
+	HNSWGeoIndexEF                      int                      `json:"hnsw_geo_index_ef" yaml:"hnsw_geo_index_ef"`
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
 	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
@@ -445,6 +448,12 @@ const DefaultHNSWFlatSearchConcurrency = 1 // 1 for backward compatibility
 const (
 	DefaultPersistenceMinMMapSize     = 8192 // 8kb by default
 	DefaultPersistenceMaxReuseWalSize = 4096 // 4kb by default
+)
+
+const (
+	DefaultHNSWGeoIndexMaxConnections = 64
+	DefaultHNSWGeoIndexEFConstruction = 128
+	DefaultHNSWGeoIndexEF             = 800
 )
 
 func (p Persistence) Validate() error {
