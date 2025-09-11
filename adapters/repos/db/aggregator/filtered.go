@@ -159,11 +159,11 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 		return nil, errors.Wrap(err, "prepare aggregators for props")
 	}
 
-	scan := func(properties *models.PropertySchema, docID uint64) (bool, error) {
+	scan := func(properties *models.PropertySchema, docID uint64) error {
 		if err := fa.AnalyzeObject(ctx, properties, propAggs); err != nil {
-			return false, errors.Wrapf(err, "analyze object %d", docID)
+			return errors.Wrapf(err, "analyze object %d", docID)
 		}
-		return true, nil
+		return nil
 	}
 	propertyNames := make([]string, 0, len(propAggs))
 	for k := range propAggs {

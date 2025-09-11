@@ -12,6 +12,7 @@
 package docid
 
 import (
+	"context"
 	"encoding/binary"
 	"math"
 	"runtime"
@@ -29,9 +30,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
+const contextCheckInterval = 50 // check context every 50 iterations, every iteration adds too much overhead
+
 // ObjectScanFn is called once per object, if false or an error is returned,
 // the scanning will stop
-type ObjectScanFn func(prop *models.PropertySchema, docID uint64) (bool, error)
+type ObjectScanFn func(prop *models.PropertySchema, docID uint64) error
 
 // ScanObjectsLSM calls the provided scanFn on each object for the
 // specified pointer. If a pointer does not resolve to an object-id, the item
@@ -92,7 +95,10 @@ func (os *objectScannerLSM) scan() error {
 	}
 
 	lock := sync.Mutex{}
-	eg := enterrors.NewErrorGroupWrapper(os.logger)
+	// the context of the user request is checked in the scanFn function
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	eg, newContext := enterrors.NewErrorGroupWithContextWrapper(os.logger, ctx)
 	concurrency := 2 * runtime.GOMAXPROCS(0)
 	stride := int(math.Ceil(max(float64(len(os.pointers))/float64(concurrency), 1)))
 	contScanning := atomic.Bool{}
@@ -110,7 +116,10 @@ func (os *objectScannerLSM) scan() error {
 			// The typed properties are needed for extraction from json
 			var properties models.PropertySchema
 
-			for _, id := range os.pointers[start:end] {
+			for j, id := range os.pointers[start:end] {
+				if j%contextCheckInterval == 0 && newContext.Err() != nil {
+					return newContext.Err()
+				}
 				binary.LittleEndian.PutUint64(docIDBytes, id)
 				res, err := os.objectsBucket.GetBySecondary(0, docIDBytes)
 				if err != nil {
@@ -133,18 +142,11 @@ func (os *objectScannerLSM) scan() error {
 				// majority of time is spend reading the objects => do the analyses sequentially to not cause races
 				// when analysing the results
 				lock.Lock()
-				continueScan, err := os.scanFn(&properties, id)
-				if !continueScan {
-					contScanning.Store(false)
-				}
-				lock.Unlock()
-				if err != nil {
+				if err := os.scanFn(&properties, id); err != nil {
+					lock.Unlock()
 					return errors.Wrapf(err, "scan")
 				}
-
-				if !contScanning.Load() {
-					break
-				}
+				lock.Unlock()
 			}
 			return nil
 		}

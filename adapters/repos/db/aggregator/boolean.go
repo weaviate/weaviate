@@ -31,8 +31,6 @@ type boolAggregator struct {
 }
 
 func (a *boolAggregator) AddBoolRow(value []byte, count uint64) error {
-	a.Lock()
-	defer a.Unlock()
 	var valueParsed bool
 
 	if err := binary.Read(bytes.NewReader(value), binary.LittleEndian,
@@ -44,6 +42,9 @@ func (a *boolAggregator) AddBoolRow(value []byte, count uint64) error {
 		// skip
 		return nil
 	}
+
+	a.Lock()
+	defer a.Unlock()
 
 	if valueParsed {
 		a.countTrue += count

@@ -118,8 +118,9 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 		}
 		return nil
 	}
-
-	eg := enterrors.NewErrorGroupWrapper(logger)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	eg, newContext := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
 
 	// There are three scenarios:
 	// 1. Read from beginning to first checkpoint
@@ -138,8 +139,8 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 				return err
 			}
 			count++
-			if count%contextCheckInterval == 0 && ctx.Err() != nil {
-				return ctx.Err()
+			if count%contextCheckInterval == 0 && newContext.Err() != nil {
+				return newContext.Err()
 			}
 		}
 		return nil
@@ -161,8 +162,8 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 					return err
 				}
 				count++
-				if count%contextCheckInterval == 0 && ctx.Err() != nil {
-					return ctx.Err()
+				if count%contextCheckInterval == 0 && newContext.Err() != nil {
+					return newContext.Err()
 				}
 			}
 			return nil
@@ -181,8 +182,8 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 				return err
 			}
 			count++
-			if count%contextCheckInterval == 0 && ctx.Err() != nil {
-				return ctx.Err()
+			if count%contextCheckInterval == 0 && newContext.Err() != nil {
+				return newContext.Err()
 			}
 
 		}

@@ -64,8 +64,8 @@ func (g *grouper) Do(ctx context.Context) ([]group, error) {
 }
 
 func (g *grouper) groupAll(ctx context.Context) ([]group, error) {
-	err := ScanAllLSM(ctx, g.store, func(prop *models.PropertySchema, docID uint64) (bool, error) {
-		return true, g.addElementById(prop, docID)
+	err := ScanAllLSM(ctx, g.store, func(prop *models.PropertySchema, docID uint64) error {
+		return g.addElementById(prop, docID)
 	}, &storobj.PropertyExtraction{
 		PropertyPaths: [][]string{{g.params.GroupBy.Property.String()}},
 	})
@@ -83,8 +83,8 @@ func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 	}
 
 	if err := docid.ScanObjectsLSM(g.store, ids,
-		func(prop *models.PropertySchema, docID uint64) (bool, error) {
-			return true, g.addElementById(prop, docID)
+		func(prop *models.PropertySchema, docID uint64) error {
+			return g.addElementById(prop, docID)
 		}, []string{g.params.GroupBy.Property.String()}, g.logger); err != nil {
 		return nil, err
 	}
@@ -120,7 +120,7 @@ func (g *grouper) fetchDocIDs(ctx context.Context) (ids []uint64, err error) {
 		ids = allowList.Slice()
 	}
 
-	return
+	return ids, err
 }
 
 func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList, modules *modules.Provider) ([]uint64, error) {
@@ -299,8 +299,7 @@ func ScanAllLSM(ctx context.Context, store *lsmkv.Store, scan docid.ObjectScanFn
 
 			// scanAll has no abort, so we can ignore the first arg
 			properties := elem.Properties()
-			_, err = scan(&properties, elem.DocID)
-			if err != nil {
+			if err := scan(&properties, elem.DocID); err != nil {
 				return err
 			}
 		}
