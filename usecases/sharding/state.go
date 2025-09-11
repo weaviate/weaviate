@@ -193,6 +193,9 @@ func (s *State) DeleteReplicaFromShard(shard string, replica string) error {
 }
 
 func (s *State) NumberOfReplicas(shard string) (int64, error) {
+	if len(s.Physical) == 0 {
+		return 0, fmt.Errorf("empty shards: could not find shard %s", shard)
+	}
 	phys, ok := s.Physical[shard]
 	if !ok {
 		return 0, fmt.Errorf("could not find shard %s", shard)
