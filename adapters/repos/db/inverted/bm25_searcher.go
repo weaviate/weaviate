@@ -117,8 +117,12 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
 	return b.propLenTracker.(*JsonShardMetaData)
 }
 
-func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params searchparams.KeywordRanking) (bool, float64, map[string][]string, map[string][]string, map[string][]int, map[string]float32, float64, error) {
-	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
+func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *models.Class, params searchparams.KeywordRanking) (bool, float64, map[string][]string, map[string][]string, map[string][]int, map[string]float32, float64, error) {
+	count, err := b.store.Bucket(helpers.ObjectsBucketLSM).Count(ctx)
+	if err != nil {
+		return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("count objects: %w", err)
+	}
+	N := float64(count)
 
 	// This flag checks whether all buckets are of the inverted strategy,
 	// and thus, compatible with BlockMaxWAND, or if there are other strategies present,
@@ -226,7 +230,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 func (b *BM25Searcher) wand(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-	_, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(class, params)
+	_, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(ctx, class, params)
 	if err != nil {
 		return nil, nil, err
 	}

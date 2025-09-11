@@ -46,7 +46,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-const FlushAfterDirtyDefault = 60 * time.Second
+const (
+	FlushAfterDirtyDefault = 60 * time.Second
+	contextCheckInterval   = 50 // check context every 50 iterations, every iteration adds too much overhead
+)
 
 type BucketCreator interface {
 	NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
@@ -1093,7 +1096,7 @@ func (b *Bucket) setNewActiveMemtable() error {
 	return nil
 }
 
-func (b *Bucket) Count() int {
+func (b *Bucket) Count(ctx context.Context) (int, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -1103,13 +1106,22 @@ func (b *Bucket) Count() int {
 
 	memtableCount := 0
 	if b.flushing == nil {
-		// only consider active
-		memtableCount += b.memtableNetCount(b.active.countStats(), nil)
+		count, err := b.memtableNetCount(ctx, b.active.countStats(), nil)
+		if err != nil {
+			return 0, err
+		}
+		memtableCount += count
 	} else {
 		flushingCountStats := b.flushing.countStats()
 		activeCountStats := b.active.countStats()
-		deltaActive := b.memtableNetCount(activeCountStats, flushingCountStats)
-		deltaFlushing := b.memtableNetCount(flushingCountStats, nil)
+		deltaActive, err := b.memtableNetCount(ctx, activeCountStats, flushingCountStats)
+		if err != nil {
+			return 0, err
+		}
+		deltaFlushing, err := b.memtableNetCount(ctx, flushingCountStats, nil)
+		if err != nil {
+			return 0, err
+		}
 
 		memtableCount = deltaActive + deltaFlushing
 	}
@@ -1119,7 +1131,7 @@ func (b *Bucket) Count() int {
 	if b.monitorCount {
 		b.metrics.ObjectCount(memtableCount + diskCount)
 	}
-	return memtableCount + diskCount
+	return memtableCount + diskCount, nil
 }
 
 // CountAsync ignores the current memtable, that makes it async because it only
@@ -1130,25 +1142,31 @@ func (b *Bucket) CountAsync() int {
 	return b.disk.count()
 }
 
-func (b *Bucket) memtableNetCount(stats *countStats, previousMemtable *countStats) int {
+func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previousMemtable *countStats) (int, error) {
 	netCount := 0
 
 	// TODO: this uses regular get, given that this may be called quite commonly,
 	// we might consider building a pure Exists(), which skips reading the value
 	// and only checks for tombstones, etc.
-	for _, key := range stats.upsertKeys {
+	for i, key := range stats.upsertKeys {
+		if i%contextCheckInterval == 0 && ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
 		if !b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
 			netCount++
 		}
 	}
 
-	for _, key := range stats.tombstonedKeys {
+	for i, key := range stats.tombstonedKeys {
+		if i%contextCheckInterval == 0 && ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
 		if b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
 			netCount--
 		}
 	}
 
-	return netCount
+	return netCount, nil
 }
 
 func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byte) bool {
