@@ -95,8 +95,8 @@ func (a *raft) NewTCPTransport(
 ) (*raftImpl.NetworkTransport, error) {
 	cfg := &raftImpl.NetworkTransportConfig{
 		ServerAddressProvider: a,
-		MaxPool:               raftTcpMaxPool,
-		Timeout:               raftTcpTimeout,
+		MaxPool:               maxPool,
+		Timeout:               timeout,
 		Logger:                log.NewHCLogrusLogger("raft-net", logger),
 	}
 	return raftImpl.NewTCPTransportWithConfig(bindAddr, advertise, cfg)

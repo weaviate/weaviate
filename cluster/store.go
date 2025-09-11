@@ -54,7 +54,7 @@ const (
 
 	// tcpTimeout is used to apply I/O deadlines. For InstallSnapshot, we multiply
 	// the timeout by (SnapshotSize / TimeoutScale).
-	tcpTimeout = 10 * time.Second
+	tcpTimeout = 30 * time.Second
 
 	raftDBName = "raft.db"
 
