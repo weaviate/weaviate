@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -53,6 +54,67 @@ func TestSegmentGroup_ConsistentViewAcrossSegmentAddition(t *testing.T) {
 	require.Equal(t, []byte("value2"), v, "k==v on initial state")
 }
 
+func TestSegmentGroup_ConsistentViewAcrossSegmentReplace(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	// initial segment
+	segA := newFakeReplaceSegment(map[string][]byte{
+		"key1": []byte("value1"),
+	})
+	segB := newFakeReplaceSegment(map[string][]byte{
+		"key2": []byte("value2"),
+	})
+	sg := &SegmentGroup{
+		segments: []Segment{segA, segB},
+		logger:   logger,
+	}
+
+	// control before segment changes
+	segments, release := sg.getConsistentViewOfSegments()
+	defer release()
+
+	v, err := sg.getWithSegmentList([]byte("key1"), segments)
+	require.NoError(t, err)
+	require.Equal(t, []byte("value1"), v, "k==v on initial state")
+	require.Equal(t, 1, segA.getCounter)
+	v, err = sg.getWithSegmentList([]byte("key2"), segments)
+	require.NoError(t, err)
+	require.Equal(t, []byte("value2"), v, "k==v on initial state")
+	require.Equal(t, 2, segB.getCounter)
+
+	// prep compacted segment
+	segAB := newFakeReplaceSegment(map[string][]byte{
+		"key1": []byte("value1"),
+		"key2": []byte("value2"),
+	})
+
+	newSegmentReplacer(sg, 0, 1, segAB).switchInMemory(segA, segB)
+	require.Equal(t, []Segment{segAB}, sg.segments)
+
+	// prove that our consistent view still works
+	v, err = sg.getWithSegmentList([]byte("key1"), segments)
+	require.NoError(t, err)
+	require.Equal(t, []byte("value1"), v, "k==v on original view after compaction")
+	require.Equal(t, 2, segA.getCounter)
+	v, err = sg.getWithSegmentList([]byte("key2"), segments)
+	require.NoError(t, err)
+	require.Equal(t, []byte("value2"), v, "k==v on original view after compaction")
+	require.Equal(t, 4, segB.getCounter)
+
+	// prove that a new view also works
+	segments, release = sg.getConsistentViewOfSegments()
+	defer release()
+	v, err = sg.getWithSegmentList([]byte("key1"), segments)
+	require.NoError(t, err)
+	require.Equal(t, []byte("value1"), v, "k==v on new view after compaction")
+	require.Equal(t, 2, segA.getCounter, "old segment should not have received call")
+	require.Equal(t, 1, segAB.getCounter, "new segment should have received call")
+	v, err = sg.getWithSegmentList([]byte("key2"), segments)
+	require.NoError(t, err)
+	require.Equal(t, []byte("value2"), v, "k==v on new view after compaction")
+	require.Equal(t, 4, segB.getCounter, "old segment should not have received call")
+	require.Equal(t, 2, segAB.getCounter, "new segment should have received call")
+}
+
 func newFakeReplaceSegment(kv map[string][]byte) *fakeSegment {
 	return &fakeSegment{segmentType: StrategyReplace, replaceStore: kv}
 }
@@ -61,14 +123,16 @@ type fakeSegment struct {
 	segmentType  string
 	replaceStore map[string][]byte
 	refs         int
+	path         string
+	getCounter   int
 }
 
 func (f *fakeSegment) getPath() string {
-	panic("not implemented") // TODO: Implement
+	return f.path
 }
 
 func (f *fakeSegment) setPath(path string) {
-	panic("not implemented") // TODO: Implement
+	f.path = path
 }
 
 func (f *fakeSegment) getStrategy() segmentindex.Strategy {
@@ -116,6 +180,8 @@ func (f *fakeSegment) dropMarked() error {
 }
 
 func (f *fakeSegment) get(key []byte) ([]byte, error) {
+	f.getCounter++
+
 	keyStr := string(key)
 	if f.segmentType != StrategyReplace {
 		return nil, fmt.Errorf("not a replace segment")
