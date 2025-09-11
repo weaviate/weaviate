@@ -29,6 +29,7 @@ func TestSegmentGroup_ConsistentViewAcrossSegmentAddition(t *testing.T) {
 
 	// control before segment changes
 	segments, release := sg.getConsistentViewOfSegments()
+	defer release()
 	v, err := sg.getWithSegmentList([]byte("key1"), segments)
 	require.NoError(t, err)
 	require.Equal(t, []byte("value1"), v, "k==v on initial state")
@@ -44,9 +45,9 @@ func TestSegmentGroup_ConsistentViewAcrossSegmentAddition(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []byte("value1"), v, "k==v on changed state")
 
-	// release and prove that new callers will see the most recent view
-	release()
+	// prove that new readers will see the most recent view
 	segments, release = sg.getConsistentViewOfSegments()
+	defer release()
 	v, err = sg.getWithSegmentList([]byte("key1"), segments)
 	require.NoError(t, err)
 	require.Equal(t, []byte("value2"), v, "k==v on initial state")
