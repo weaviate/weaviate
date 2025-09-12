@@ -462,7 +462,7 @@ jobs:
         env:
           MATRIX_TEST: ${{ matrix.name }}
         run: |
-          if [[ "$MATRIX_TEST" == "lsmkv" ]]; then
+          if [[ "$MATRIX_TEST" == *"lsmkv"* ]]; then
             echo "retry_max_attempts=2" >> $GITHUB_ENV
           else
             echo "retry_max_attempts=1" >> $GITHUB_ENV
