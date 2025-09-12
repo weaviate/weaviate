@@ -152,7 +152,7 @@ jobs:
           PR_TITLE: "${{ github.event.pull_request.title }}"
 
       - name: Generate Report
-        if: success() && steps.should-run.outputs.should_run == 'true' && matrix.name == 'production'
+        if: success() && steps.should-run.outputs.should_run == 'true'
         env:
           PREVIEW_TAG: "${{ steps.push.outputs.PREVIEW_TAG }}"
           PREVIEW_SEMVER_TAG: "${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}"
