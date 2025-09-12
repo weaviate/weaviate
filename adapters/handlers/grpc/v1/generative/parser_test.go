@@ -689,6 +689,8 @@ func Test_RequestParser(t *testing.T) {
 									TopP:             makeFloat64Ptr(0.5),
 									FrequencyPenalty: makeFloat64Ptr(0.5),
 									PresencePenalty:  makeFloat64Ptr(0.5),
+									ReasoningEffort:  pb.GenerativeOpenAI_REASONING_EFFORT_HIGH.Enum(),
+									Verbosity:        pb.GenerativeOpenAI_VERBOSITY_LOW.Enum(),
 									Stop: &pb.TextArray{
 										Values: []string{"stop"},
 									},
@@ -714,6 +716,8 @@ func Test_RequestParser(t *testing.T) {
 						TopP:             makeFloat64Ptr(0.5),
 						FrequencyPenalty: makeFloat64Ptr(0.5),
 						PresencePenalty:  makeFloat64Ptr(0.5),
+						ReasoningEffort:  makeStrPtr("high"),
+						Verbosity:        makeStrPtr("low"),
 						Stop:             []string{"stop"},
 					},
 				},
