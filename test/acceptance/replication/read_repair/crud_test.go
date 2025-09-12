@@ -325,7 +325,7 @@ func (suite *ReplicationTestSuite) TestEventualReplicaCRUD() {
 		}
 	}()
 
-	_, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
 	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
@@ -375,9 +375,9 @@ func (suite *ReplicationTestSuite) TestEventualReplicaCRUD() {
 		helper.UpdateClass(t, pc)
 	})
 
-	// t.Run("StopNode-3", func(t *testing.T) {
-	// 	common.StopNodeAt(ctx, t, compose, 3)
-	// })
+	t.Run("StopNode-3", func(t *testing.T) {
+		common.StopNodeAt(ctx, t, compose, 3)
+	})
 
 	t.Run("assert all previous data replicated to node 2", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
@@ -388,9 +388,9 @@ func (suite *ReplicationTestSuite) TestEventualReplicaCRUD() {
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
-	// t.Run("RestartNode-3", func(t *testing.T) {
-	// 	common.StartNodeAt(ctx, t, compose, 3)
-	// })
+	t.Run("RestartNode-3", func(t *testing.T) {
+		common.StartNodeAt(ctx, t, compose, 3)
+	})
 
 	t.Run("assert all previous data replicated to node 3", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
@@ -453,10 +453,6 @@ func (suite *ReplicationTestSuite) TestEventualReplicaCRUD() {
 			t.Run("OnNode-1", func(t *testing.T) {
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 					_, err := common.GetObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node1")
-					parsed, ok := err.(*objects.ObjectsClassGetInternalServerError)
-					if ok {
-						t.Log(parsed.Payload.Error[0].Message)
-					}
 					require.Equal(collect, &objects.ObjectsClassGetNotFound{}, err)
 				}, 5*time.Second, 100*time.Millisecond)
 			})
