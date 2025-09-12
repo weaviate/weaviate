@@ -183,6 +183,10 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_DELETE_CLASS:
 		f = func() {
+			existingClass := st.SchemaReader().ClassEqual(cmd.Class)
+			if existingClass != "" {
+				cmd.Class = existingClass
+			}
 			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, !catchingUp)
 		}
 
