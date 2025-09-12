@@ -44,8 +44,7 @@ type Metrics struct {
 	shardStatusUpdateDurationsSeconds *prometheus.HistogramVec
 
 	// async replication metrics
-	asyncReplicationGoroutinesRunning      prometheus.Gauge
-	asyncReplicationGoroutinesFailureCount prometheus.Counter
+	asyncReplicationGoroutinesRunning prometheus.Gauge
 
 	asyncReplicationHashTreeInitRunning      prometheus.Gauge
 	asyncReplicationHashTreeInitFailureCount prometheus.Counter
@@ -173,13 +172,6 @@ func NewMetrics(
 	m.asyncReplicationGoroutinesRunning, err = newGauge(prom.Registerer,
 		"async_replication_goroutines_running",
 		"Number of currently running async replication goroutines")
-	if err != nil {
-		return nil, err
-	}
-
-	m.asyncReplicationGoroutinesFailureCount, err = newCounter(prom.Registerer,
-		"async_replication_goroutines_failure_count",
-		"Count of async replication goroutines initialization failures")
 	if err != nil {
 		return nil, err
 	}
