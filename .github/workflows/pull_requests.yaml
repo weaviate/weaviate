@@ -59,14 +59,12 @@ jobs:
       - name: Check matrix condition
         id: should-run
         run: |
-          # Check if this matrix entry should run based on trigger type
-          if [[ "${{ github.event_name }}" == "push" ]] && [[ "${{ matrix.name }}" == "production" ]]; then
-            echo "should_run=true" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.event_name }}" == "pull_request" ]] && [[ "${{ matrix.name }}" == pr-* ]]; then
-            echo "should_run=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_run=false" >> $GITHUB_OUTPUT
+          should_run=false
+          if [[ ("${{ github.event_name }}" == "push" && "${{ matrix.name }}" == "production") ||
+                ("${{ github.event_name }}" == "pull_request" && "${{ matrix.name }}" == pr-*) ]]; then
+            should_run=true
           fi
+          echo "should_run=$should_run" >> $GITHUB_OUTPUT
       - uses: actions/checkout@v5
         if: steps.should-run.outputs.should_run == 'true'
 
