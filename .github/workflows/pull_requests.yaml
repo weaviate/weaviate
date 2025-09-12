@@ -56,7 +56,7 @@ jobs:
       preview-tag: ${{ steps.push.outputs.PREVIEW_TAG }}
       preview-semver-tag: ${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}
     steps:
-      - name: Check matrix condition
+      - name: Check build trigger conditions
         id: should-run
         run: |
           should_run=false
