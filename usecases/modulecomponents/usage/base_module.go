@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -31,7 +32,6 @@ const (
 	// DefaultShardJitterInterval short for shard-level operations and can be configurable later on
 	DefaultShardJitterInterval = 100 * time.Millisecond
 	DefaultRuntimeLoadInterval = 2 * time.Minute
-	DefaultPolicyVersion       = "2025-06-01"
 )
 
 // BaseModule contains the common logic for usage collection modules
@@ -93,8 +93,9 @@ func (b *BaseModule) InitializeCommon(ctx context.Context, config *config.Config
 	if b.config.Usage.PolicyVersion != nil {
 		b.policyVersion = b.config.Usage.PolicyVersion.Get()
 	}
+
 	if b.policyVersion == "" {
-		b.policyVersion = DefaultPolicyVersion
+		b.policyVersion = build.Version
 	}
 
 	if b.config.Usage.ScrapeInterval != nil {

@@ -15,8 +15,8 @@ import "github.com/weaviate/weaviate/entities/models"
 
 // Report represents the usage metrics report from the metrics endpoint
 type Report struct {
-	// The version of usage policy, date based versioning
-	// e.g. 2025-06-01
+	// The version of usage policy, current weaviate version
+	// e.g. 1.32.0, otherwise it will default to a date based versioning
 	Version string `json:"version,omitempty"`
 
 	// The name of the node

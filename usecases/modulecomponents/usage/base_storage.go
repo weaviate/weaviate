@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -162,7 +163,7 @@ func ParseCommonUsageConfig(config *config.Config) error {
 	}
 	config.Usage.ScrapeInterval = runtime.NewDynamicValue(scrapeInterval)
 
-	policyVersion := DefaultPolicyVersion
+	policyVersion := build.Version
 	if v := os.Getenv("USAGE_POLICY_VERSION"); v != "" {
 		policyVersion = v
 	} else if config.Usage.PolicyVersion != nil {
