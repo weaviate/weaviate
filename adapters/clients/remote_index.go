@@ -553,16 +553,15 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (int64, error) {
+	req, err := setupRequest(ctx, http.MethodGet, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s/queuesize", indexName, shardName),
+		"", nil)
+	if err != nil {
+		return 0, errors.Wrap(err, "open http request")
+	}
 	var size int64
-
+	clusterapi.IndicesPayloads.GetShardQueueSizeParams.SetContentTypeHeaderReq(req)
 	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodGet, hostName,
-			fmt.Sprintf("/indices/%s/shards/%s/queuesize", indexName, shardName),
-			"", nil)
-		if err != nil {
-			return false, errors.Wrap(err, "open http request")
-		}
-		clusterapi.IndicesPayloads.GetShardQueueSizeParams.SetContentTypeHeaderReq(req)
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
@@ -595,13 +594,13 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (string, error) {
-	var status string
 	req, err := setupRequest(ctx, http.MethodGet, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName),
 		"", nil)
 	if err != nil {
 		return "", errors.Wrap(err, "open http request")
 	}
+	var status string
 	clusterapi.IndicesPayloads.GetShardStatusParams.SetContentTypeHeaderReq(req)
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
@@ -641,15 +640,16 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 		return errors.Wrap(err, "marshal request payload")
 	}
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
-	req, err := setupRequest(ctx, http.MethodPost, hostName,
-		fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName),
-		url.Values{replica.SchemaVersionKey: value}.Encode(),
-		bytes.NewReader(paramsBytes))
-	if err != nil {
-		return fmt.Errorf("create http request: %w", err)
-	}
-	clusterapi.IndicesPayloads.UpdateShardStatusParams.SetContentTypeHeaderReq(req)
+
 	try := func(ctx context.Context) (bool, error) {
+		req, err := setupRequest(ctx, http.MethodPost, hostName,
+			fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName),
+			url.Values{replica.SchemaVersionKey: value}.Encode(),
+			bytes.NewReader(paramsBytes))
+		if err != nil {
+			return false, fmt.Errorf("create http request: %w", err)
+		}
+		clusterapi.IndicesPayloads.UpdateShardStatusParams.SetContentTypeHeaderReq(req)
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
@@ -671,14 +671,15 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 	shardName, fileName string, payload io.ReadSeekCloser,
 ) error {
 	defer payload.Close()
-	req, err := setupRequest(ctx, http.MethodPost, hostName,
-		fmt.Sprintf("/indices/%s/shards/%s/files/%s", indexName, shardName, fileName),
-		"", payload)
-	if err != nil {
-		return fmt.Errorf("create http request: %w", err)
-	}
-	clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
+
 	try := func(ctx context.Context) (bool, error) {
+		req, err := setupRequest(ctx, http.MethodPost, hostName,
+			fmt.Sprintf("/indices/%s/shards/%s/files/%s", indexName, shardName, fileName),
+			"", payload)
+		if err != nil {
+			return false, fmt.Errorf("create http request: %w", err)
+		}
+		clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
@@ -729,13 +730,13 @@ func (c *RemoteIndex) CreateShard(ctx context.Context,
 func (c *RemoteIndex) ReInitShard(ctx context.Context,
 	hostName, indexName, shardName string,
 ) error {
+	req, err := setupRequest(ctx, http.MethodPut, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s:reinit", indexName, shardName),
+		"", nil)
+	if err != nil {
+		return fmt.Errorf("create http request: %w", err)
+	}
 	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodPut, hostName,
-			fmt.Sprintf("/indices/%s/shards/%s:reinit", indexName, shardName),
-			"", nil)
-		if err != nil {
-			return false, fmt.Errorf("create http request: %w", err)
-		}
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
@@ -760,13 +761,14 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	req, err := setupRequest(ctx, http.MethodPut, hostName,
-		fmt.Sprintf("/replicas/indices/%s/replication-factor:increase", indexName),
-		"", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("create http request: %w", err)
-	}
 	try := func(ctx context.Context) (bool, error) {
+		req, err := setupRequest(ctx, http.MethodPut, hostName,
+			fmt.Sprintf("/replicas/indices/%s/replication-factor:increase", indexName),
+			"", bytes.NewReader(body))
+		if err != nil {
+			return false, fmt.Errorf("create http request: %w", err)
+		}
+
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
@@ -789,15 +791,15 @@ func (c *RemoteIndex) PauseFileActivity(ctx context.Context,
 	hostName, indexName, shardName string, schemaVersion uint64,
 ) error {
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
+	req, err := setupRequest(ctx, http.MethodPost, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s/background:pause", indexName, shardName),
+		url.Values{replica.SchemaVersionKey: value}.Encode(),
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("create http request: %w", err)
+	}
 	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodPost, hostName,
-			fmt.Sprintf("/indices/%s/shards/%s/background:pause", indexName, shardName),
-			url.Values{replica.SchemaVersionKey: value}.Encode(),
-			nil,
-		)
-		if err != nil {
-			return false, fmt.Errorf("create http request: %w", err)
-		}
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
@@ -817,13 +819,14 @@ func (c *RemoteIndex) PauseFileActivity(ctx context.Context,
 func (c *RemoteIndex) ResumeFileActivity(ctx context.Context,
 	hostName, indexName, shardName string,
 ) error {
+	req, err := setupRequest(ctx, http.MethodPost, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s/background:resume", indexName, shardName),
+		"", nil)
+	if err != nil {
+		return fmt.Errorf("create http request: %w", err)
+	}
+
 	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodPost, hostName,
-			fmt.Sprintf("/indices/%s/shards/%s/background:resume", indexName, shardName),
-			"", nil)
-		if err != nil {
-			return false, fmt.Errorf("create http request: %w", err)
-		}
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
@@ -845,15 +848,16 @@ func (c *RemoteIndex) ResumeFileActivity(ctx context.Context,
 func (c *RemoteIndex) ListFiles(ctx context.Context,
 	hostName, indexName, shardName string,
 ) ([]string, error) {
+	req, err := setupRequest(ctx, http.MethodPost, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s/background:list", indexName, shardName),
+		"", nil)
+	if err != nil {
+		return []string{}, fmt.Errorf("create http request: %w", err)
+	}
+
 	var relativeFilePaths []string
+	clusterapi.IndicesPayloads.ShardFilesResults.SetContentTypeHeaderReq(req)
 	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodPost, hostName,
-			fmt.Sprintf("/indices/%s/shards/%s/background:list", indexName, shardName),
-			"", nil)
-		if err != nil {
-			return false, fmt.Errorf("create http request: %w", err)
-		}
-		clusterapi.IndicesPayloads.ShardFilesResults.SetContentTypeHeaderReq(req)
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
@@ -883,15 +887,17 @@ func (c *RemoteIndex) ListFiles(ctx context.Context,
 func (c *RemoteIndex) GetFileMetadata(ctx context.Context, hostName, indexName,
 	shardName, relativeFilePath string,
 ) (file.FileMetadata, error) {
+	req, err := setupRequest(ctx, http.MethodGet, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s/files:metadata/%s", indexName, shardName, relativeFilePath),
+		"", nil)
+	if err != nil {
+		return file.FileMetadata{}, fmt.Errorf("create http request: %w", err)
+	}
+	clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
+
 	var md file.FileMetadata
+
 	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodGet, hostName,
-			fmt.Sprintf("/indices/%s/shards/%s/files:metadata/%s", indexName, shardName, relativeFilePath),
-			"", nil)
-		if err != nil {
-			return false, fmt.Errorf("create http request: %w", err)
-		}
-		clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
@@ -925,15 +931,15 @@ func (c *RemoteIndex) GetFileMetadata(ctx context.Context, hostName, indexName,
 func (c *RemoteIndex) GetFile(ctx context.Context, hostName, indexName,
 	shardName, relativeFilePath string,
 ) (io.ReadCloser, error) {
+	req, err := setupRequest(ctx, http.MethodGet, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s/files/%s", indexName, shardName, relativeFilePath),
+		"", nil)
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+	clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
 	var file io.ReadCloser
 	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodGet, hostName,
-			fmt.Sprintf("/indices/%s/shards/%s/files/%s", indexName, shardName, relativeFilePath),
-			"", nil)
-		if err != nil {
-			return false, fmt.Errorf("create http request: %w", err)
-		}
-		clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
