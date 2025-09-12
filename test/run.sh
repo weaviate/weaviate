@@ -1,6 +1,10 @@
 #!/bin/bash
+set -euo pipefail
 
-set -eou pipefail
+# Make sure we use BuildKit for caching Docker layers (needed for RUN --mount)
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+export BUILDKIT_PROGRESS=plain
 
 function main() {
   # This script runs all non-benchmark tests if no CMD switch is given and the respective tests otherwise.
@@ -606,6 +610,7 @@ function run_acceptance_go_client_named_vectors_cluster() {
 }
 
 function run_acceptance_graphql_tests() {
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
   for pkg in $(go list ./... | grep 'test/acceptance/graphql_resolvers'); do
     if ! go test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
