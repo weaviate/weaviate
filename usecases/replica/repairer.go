@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
 
@@ -47,6 +48,7 @@ type repairer struct {
 	class               string
 	getDeletionStrategy func() string
 	client              FinderClient // needed to commit and abort operation
+	metrics             *Metrics
 	logger              logrus.FieldLogger
 }
 
@@ -57,6 +59,15 @@ func (r *repairer) repairOne(ctx context.Context,
 	votes []ObjTuple,
 	contentIdx int,
 ) (_ *storobj.Object, err error) {
+	r.metrics.IncReadRepairCount()
+
+	defer func(start time.Time) {
+		if err != nil {
+			r.metrics.IncReadRepairFailure()
+		}
+		r.metrics.ObserveReadRepairDuration(time.Since(start))
+	}(time.Now())
+
 	var (
 		deleted          bool
 		deletionTime     int64
@@ -198,6 +209,15 @@ func (r *repairer) repairExist(ctx context.Context,
 	id strfmt.UUID,
 	votes []BoolTuple,
 ) (_ bool, err error) {
+	r.metrics.IncReadRepairCount()
+
+	defer func(start time.Time) {
+		if err != nil {
+			r.metrics.IncReadRepairFailure()
+		}
+		r.metrics.ObserveReadRepairDuration(time.Since(start))
+	}(time.Now())
+
 	var (
 		deleted          bool
 		deletionTime     int64
@@ -330,7 +350,16 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 	ids []strfmt.UUID,
 	votes []Vote,
 	contentIdx int,
-) ([]*storobj.Object, error) {
+) (_ []*storobj.Object, err error) {
+	r.metrics.IncReadRepairCount()
+
+	defer func(start time.Time) {
+		if err != nil {
+			r.metrics.IncReadRepairFailure()
+		}
+		r.metrics.ObserveReadRepairDuration(time.Since(start))
+	}(time.Now())
+
 	var (
 		result            = make([]*storobj.Object, len(ids)) // final result
 		lastTimes         = make([]iTuple, len(ids))          // most recent times
