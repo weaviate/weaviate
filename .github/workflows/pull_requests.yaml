@@ -370,7 +370,8 @@ jobs:
           "--acceptance-only-async-replication",
           "--acceptance-only-replica-replication-fast",
           "--acceptance-only-replica-replication-slow",
-          "--acceptance-go-client-only-fast",
+          "--acceptance-go-client-only-fast-group-1",
+          "--acceptance-go-client-only-fast-group-2",
           "--acceptance-only-python",
         ]
     steps:
