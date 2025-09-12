@@ -15,7 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand/v2"
+	"math/rand"
 	"slices"
 	"strings"
 	"time"
