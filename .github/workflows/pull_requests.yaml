@@ -49,10 +49,6 @@ jobs:
     env:
       PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
     outputs:
-      build-status: ${{ steps.build.outcome }}
-      vuln-scan-status: ${{ steps.vuln-scan.outcome }}
-      sast-scan-status: ${{ steps.sast-scan.outcome }}
-      push-status: ${{ steps.push.outcome }}
       preview-tag: ${{ steps.push.outputs.PREVIEW_TAG }}
       preview-semver-tag: ${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}
     steps:
