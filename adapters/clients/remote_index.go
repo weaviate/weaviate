@@ -459,7 +459,7 @@ func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal request payload")
 	}
-	req, err := setupRequest(ctx, http.MethodPost, c.host(hostName),
+	req, err := setupRequest(ctx, http.MethodPost, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/objects/_find", indexName, shardName),
 		"", bytes.NewReader(paramsBytes))
 	if err != nil {
@@ -505,7 +505,7 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 		err := errors.Wrap(err, "marshal payload")
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
-	req, err := setupRequest(ctx, http.MethodDelete, c.host(hostName),
+	req, err := setupRequest(ctx, http.MethodDelete, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName),
 		url.Values{replica.SchemaVersionKey: value}.Encode(),
 		bytes.NewReader(marshalled))
@@ -556,7 +556,7 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 	var size int64
 
 	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodGet, c.host(hostName),
+		req, err := setupRequest(ctx, http.MethodGet, hostName,
 			fmt.Sprintf("/indices/%s/shards/%s/queuesize", indexName, shardName),
 			"", nil)
 		if err != nil {
@@ -596,15 +596,14 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (string, error) {
 	var status string
-
+	req, err := setupRequest(ctx, http.MethodGet, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName),
+		"", nil)
+	if err != nil {
+		return "", errors.Wrap(err, "open http request")
+	}
+	clusterapi.IndicesPayloads.GetShardStatusParams.SetContentTypeHeaderReq(req)
 	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodGet, c.host(hostName),
-			fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName),
-			"", nil)
-		if err != nil {
-			return false, errors.Wrap(err, "open http request")
-		}
-		clusterapi.IndicesPayloads.GetShardStatusParams.SetContentTypeHeaderReq(req)
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
@@ -642,17 +641,15 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 		return errors.Wrap(err, "marshal request payload")
 	}
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
-
+	req, err := setupRequest(ctx, http.MethodPost, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName),
+		url.Values{replica.SchemaVersionKey: value}.Encode(),
+		bytes.NewReader(paramsBytes))
+	if err != nil {
+		return fmt.Errorf("create http request: %w", err)
+	}
+	clusterapi.IndicesPayloads.UpdateShardStatusParams.SetContentTypeHeaderReq(req)
 	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodPost, c.host(hostName),
-			fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName),
-			url.Values{replica.SchemaVersionKey: value}.Encode(),
-			bytes.NewReader(paramsBytes))
-		if err != nil {
-			return false, fmt.Errorf("create http request: %w", err)
-		}
-		clusterapi.IndicesPayloads.UpdateShardStatusParams.SetContentTypeHeaderReq(req)
-
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
@@ -674,15 +671,14 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 	shardName, fileName string, payload io.ReadSeekCloser,
 ) error {
 	defer payload.Close()
-
+	req, err := setupRequest(ctx, http.MethodPost, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s/files/%s", indexName, shardName, fileName),
+		"", payload)
+	if err != nil {
+		return fmt.Errorf("create http request: %w", err)
+	}
+	clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
 	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodPost, c.host(hostName),
-			fmt.Sprintf("/indices/%s/shards/%s/files/%s", indexName, shardName, fileName),
-			"", payload)
-		if err != nil {
-			return false, fmt.Errorf("create http request: %w", err)
-		}
-		clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
@@ -707,13 +703,13 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 func (c *RemoteIndex) CreateShard(ctx context.Context,
 	hostName, indexName, shardName string,
 ) error {
+	req, err := setupRequest(ctx, http.MethodPost, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s", indexName, shardName),
+		"", nil)
+	if err != nil {
+		return fmt.Errorf("create http request: %w", err)
+	}
 	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodPost, c.host(hostName),
-			fmt.Sprintf("/indices/%s/shards/%s", indexName, shardName),
-			"", nil)
-		if err != nil {
-			return false, fmt.Errorf("create http request: %w", err)
-		}
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
@@ -734,7 +730,7 @@ func (c *RemoteIndex) ReInitShard(ctx context.Context,
 	hostName, indexName, shardName string,
 ) error {
 	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodPut, c.host(hostName),
+		req, err := setupRequest(ctx, http.MethodPut, hostName,
 			fmt.Sprintf("/indices/%s/shards/%s:reinit", indexName, shardName),
 			"", nil)
 		if err != nil {
@@ -764,14 +760,13 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	req, err := setupRequest(ctx, http.MethodPut, hostName,
+		fmt.Sprintf("/replicas/indices/%s/replication-factor:increase", indexName),
+		"", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create http request: %w", err)
+	}
 	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodPut, hostName,
-			fmt.Sprintf("/replicas/indices/%s/replication-factor:increase", indexName),
-			"", bytes.NewReader(body))
-		if err != nil {
-			return false, fmt.Errorf("create http request: %w", err)
-		}
-
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)

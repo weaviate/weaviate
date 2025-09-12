@@ -290,8 +290,8 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	targetCombination *dto.TargetCombination,
 	properties []string,
 ) ([]ReplicasSearchResult, error) {
-	remoteShardQuery := func(node, host string) (ReplicasSearchResult, error) {
-		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
+	remoteShardQuery := func(node string) (ReplicasSearchResult, error) {
+		objs, scores, err := ri.client.SearchShard(ctx, node, ri.class, shard,
 			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
 		if err != nil {
 			return ReplicasSearchResult{}, err
@@ -363,12 +363,12 @@ func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,
 		return nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	_, ok := ri.nodeResolver.NodeHostname(owner)
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
 		return nil, fmt.Errorf("resolve node name %q to host", owner)
 	}
 
-	return ri.client.FindUUIDs(ctx, owner, ri.class, shardName, filters)
+	return ri.client.FindUUIDs(ctx, host, ri.class, shardName, filters)
 }
 
 func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
@@ -380,13 +380,13 @@ func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
-	_, ok := ri.nodeResolver.NodeHostname(owner)
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
 		err := fmt.Errorf("resolve node name %q to host", owner)
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
-	return ri.client.DeleteObjectBatch(ctx, owner, ri.class, shardName, uuids, deletionTime, dryRun, schemaVersion)
+	return ri.client.DeleteObjectBatch(ctx, host, ri.class, shardName, uuids, deletionTime, dryRun, schemaVersion)
 }
 
 func (ri *RemoteIndex) GetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
@@ -395,12 +395,12 @@ func (ri *RemoteIndex) GetShardQueueSize(ctx context.Context, shardName string) 
 		return 0, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	_, ok := ri.nodeResolver.NodeHostname(owner)
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
 		return 0, fmt.Errorf("resolve node name %q to host", owner)
 	}
 
-	return ri.client.GetShardQueueSize(ctx, owner, ri.class, shardName)
+	return ri.client.GetShardQueueSize(ctx, host, ri.class, shardName)
 }
 
 func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName string) (string, error) {
@@ -409,12 +409,12 @@ func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName string) (st
 		return "", fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	_, ok := ri.nodeResolver.NodeHostname(owner)
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
 		return "", fmt.Errorf("resolve node name %q to host", owner)
 	}
 
-	return ri.client.GetShardStatus(ctx, owner, ri.class, shardName)
+	return ri.client.GetShardStatus(ctx, host, ri.class, shardName)
 }
 
 func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
@@ -423,19 +423,19 @@ func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetS
 		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	_, ok := ri.nodeResolver.NodeHostname(owner)
+	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
 		return fmt.Errorf("resolve node name %q to host", owner)
 	}
 
-	return ri.client.UpdateShardStatus(ctx, owner, ri.class, shardName, targetStatus, schemaVersion)
+	return ri.client.UpdateShardStatus(ctx, host, ri.class, shardName, targetStatus, schemaVersion)
 }
 
 func (ri *RemoteIndex) queryAllReplicas(
 	ctx context.Context,
 	log logrus.FieldLogger,
 	shard string,
-	do func(nodeName, host string) (ReplicasSearchResult, error),
+	do func(nodeName string) (ReplicasSearchResult, error),
 	localNode string,
 ) (resp []ReplicasSearchResult, err error) {
 	replicas, err := ri.stateGetter.ShardReplicas(ri.class, shard)
@@ -448,7 +448,7 @@ func (ri *RemoteIndex) queryAllReplicas(
 		if !ok || host == "" {
 			return ReplicasSearchResult{}, fmt.Errorf("unable to resolve node name %q to host", replica)
 		}
-		return do(replica, host)
+		return do(replica)
 	}
 
 	var queriesSent atomic.Int64

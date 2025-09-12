@@ -359,14 +359,7 @@ func (c *replicationClient) FindUUIDs(ctx context.Context, hostName, indexName,
 // Commit asks a host to commit and stores the response in the value pointed to by resp
 func (c *replicationClient) Commit(ctx context.Context, host, index, shard string, requestID string, resp interface{}) error {
 	maker := func() (*http.Request, error) {
-		hostAddr, ok := c.nodeSelector.NodeHostname(host)
-		if !ok {
-			return nil, errors.Errorf("unknown host %q", host)
-		}
-		if hostAddr == "" {
-			return nil, errors.Errorf("empty host address for host %q", host)
-		}
-		req, err := newHttpReplicaCMD(hostAddr, "commit", index, shard, requestID, nil)
+		req, err := newHttpReplicaCMD(c.host(host), "commit", index, shard, requestID, nil)
 		if err != nil {
 			return nil, fmt.Errorf("create http request: %w", err)
 		}
