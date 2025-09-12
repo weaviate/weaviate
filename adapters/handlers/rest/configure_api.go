@@ -1671,8 +1671,8 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 120 * time.Second,
+			Timeout:   120 * time.Second,
+			KeepAlive: 120 * time.Second, // TODO: all coordinator timeouts should not cross this timeout so make it constant
 		}).DialContext,
 		MaxIdleConnsPerHost:   100,
 		MaxIdleConns:          100,
