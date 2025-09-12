@@ -3240,11 +3240,14 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName
 		return usagetypes.Dimensionality{Count: 0, Dimensions: 0}, nil
 	}
 
-	// TODO aliszka:dimensions determine bucket's strategy
-	strategy := DefaultDimensionsBucketStrategy
+	bucketPath := shardPathDimensionsLSM(i.path(), tenantName)
+	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, DimensionsBucketPrioritizedStrategies)
+	if err != nil {
+		return usagetypes.Dimensionality{}, fmt.Errorf("determine dimensions bucket strategy: %w", err)
+	}
 
 	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
-		shardPathDimensionsLSM(i.path(), tenantName),
+		bucketPath,
 		i.path(),
 		i.logger,
 		nil,
@@ -3282,12 +3285,15 @@ func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName 
 	// For each target vector, calculate storage size using dimensions bucket and config-based compression
 	for targetVector, config := range i.GetVectorIndexConfigs() {
 		err := func() error {
-			// TODO aliszka:dimensions determine bucket's strategy
-			strategy := DefaultDimensionsBucketStrategy
+			bucketPath := shardPathDimensionsLSM(i.path(), tenantName)
+			strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, DimensionsBucketPrioritizedStrategies)
+			if err != nil {
+				return fmt.Errorf("determine dimensions bucket strategy: %w", err)
+			}
 
 			// Get dimensions and object count from the dimensions bucket
 			bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
-				shardPathDimensionsLSM(i.path(), tenantName),
+				bucketPath,
 				i.path(),
 				i.logger,
 				nil,
