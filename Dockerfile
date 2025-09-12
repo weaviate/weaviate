@@ -18,6 +18,8 @@ RUN --mount=type=cache,id=gomod,target=/go/pkg/mod,sharing=locked go mod downloa
 ###############################################################################
 # This image builds the weaviate server
 FROM build_base AS server_builder
+RUN mkdir -p /runtime/go-ego
+
 ARG TARGETARCH
 ARG GIT_BRANCH="unknown"
 ARG GIT_REVISION="unknown"
@@ -26,11 +28,7 @@ ARG BUILD_DATE="unknown"
 ARG EXTRA_BUILD_ARGS=""
 ARG CGO_ENABLED=1
 ENV CGO_ENABLED=$CGO_ENABLED
-
-RUN mkdir -p /runtime/go-ego
-
 COPY . .
-
 RUN --mount=type=cache,id=gomod,target=/go/pkg/mod,sharing=locked \
     --mount=type=cache,id=gobuild-${TARGETARCH},target=/root/.cache/go-build,sharing=locked \
     GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
