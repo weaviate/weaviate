@@ -79,8 +79,8 @@ jobs:
           load: true
           tags: ${{ matrix.image-tag }}
           platforms: ${{ matrix.platforms }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max # Cache Docker build to GHA
+          cache-from: type=gha,scope=weaviate-${{ matrix.arch || 'multi' }}
+          cache-to: type=gha,scope=weaviate-${{ matrix.arch || 'multi' }},mode=max
           build-args: |
             CGO_ENABLED=0
 

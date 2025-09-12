@@ -88,6 +88,25 @@ function release() {
     fi
   fi
 
+  # --- BuildKit cache via GitHub Actions (type=gha) ---
+  # We set an explicit cache *scope* so Docker layer caches are reusable without
+  # clobbering each other. Note: GitHub lets a job read caches only from the current
+  # ref, its base branch, and the default branch.
+  # We also make the scope *per-architecture* (weaviate-amd64 / weaviate-arm64) since
+  # amd64 and arm64 layers aren’t interchangeable; mixing them hurts cache hits.
+  # For multi-arch builds we use "weaviate-multi".
+  #
+  # The flags below wire this up:
+  #   --cache-from=type=gha,scope=<scope>            # import existing cache
+  #   --cache-to=type=gha,scope=<scope>,mode=max     # export all layers (mode=max)
+  # Result: intermediate layers are cached per-arch and reused across refs that can
+  # read each other’s caches (current ref, its base, default branch).
+  cache_scope="weaviate-multi"
+  if [ -n "$arch" ]; then
+    cache_scope="weaviate-$arch"
+  fi
+  echo "Using BuildKit cache scope: ${cache_scope}"
+
   args=("--build-arg=GIT_REVISION=$git_revision"
         "--build-arg=GIT_BRANCH=$git_branch"
         "--build-arg=BUILD_USER=$build_user"
@@ -95,7 +114,9 @@ function release() {
         "--build-arg=CGO_ENABLED=0" # Force-disable CGO for cross-compilation - Fixes segmentation faults on arm64 (https://docs.docker.com/docker-hub/image-library/trusted-content/#alpine-images)
         "--platform=$build_platform"
         "--target=weaviate"
-        "--push")
+        "--push"
+        "--cache-from=type=gha,scope=${cache_scope}"
+        "--cache-to=type=gha,scope=${cache_scope},mode=max")
 
   if [ -n "$tag_exact" ]; then
     # exact tag on main
