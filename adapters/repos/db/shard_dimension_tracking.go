@@ -40,7 +40,11 @@ const (
 	DimensionCategoryRQ
 )
 
-const DefaultDimensionsBucketStrategy = lsmkv.StrategyRoaringSet
+// since v1.34 StrategyRoaringSet will be default strategy for dimensions bucket
+var DimensionsBucketPrioritizedStrategies = []string{
+	lsmkv.StrategyMapCollection,
+	lsmkv.StrategyRoaringSet,
+}
 
 func (c DimensionCategory) String() string {
 	switch c {
