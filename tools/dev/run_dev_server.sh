@@ -720,7 +720,6 @@ case $CONFIG in
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./${PERSISTENCE_DATA_PATH}-weaviate-0" \
-      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-s3,offload-s3" \
       BACKUP_S3_BUCKET="weaviate-backups" \
@@ -748,7 +747,6 @@ case $CONFIG in
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./${PERSISTENCE_DATA_PATH}-weaviate-1" \
-      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-1" \
       BACKUP_S3_BUCKET="weaviate-backups" \
       BACKUP_S3_USE_SSL="false" \
       BACKUP_S3_ENDPOINT="localhost:9000" \
@@ -782,7 +780,6 @@ case $CONFIG in
         CONTEXTIONARY_URL=localhost:9999 \
         AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
         PERSISTENCE_DATA_PATH="./${PERSISTENCE_DATA_PATH}-weaviate-2" \
-        BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-2" \
         BACKUP_S3_BUCKET="weaviate-backups" \
         BACKUP_S3_USE_SSL="false" \
         BACKUP_S3_ENDPOINT="localhost:9000" \
