@@ -26,8 +26,8 @@ func TestQueryReplica(t *testing.T) {
 		canceledCtx, cancledFunc = context.WithCancel(ctx)
 	)
 	cancledFunc()
-	doIf := func(targetNode string) func(node, host string) (interface{}, error) {
-		return func(node, host string) (interface{}, error) {
+	doIf := func(targetNode string) func(node string) (interface{}, error) {
+		return func(node string) (interface{}, error) {
 			if node != targetNode {
 				return nil, errAny
 			}

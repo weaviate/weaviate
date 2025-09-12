@@ -274,7 +274,7 @@ func (f *Finder) NodeObject(ctx context.Context,
 	if !ok || host == "" {
 		return nil, fmt.Errorf("cannot resolve node name: %s", nodeName)
 	}
-	r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 9)
+	r, err := f.client.FullRead(ctx, nodeName, f.class, shard, id, props, adds, 9)
 	return r.Object, err
 }
 
