@@ -26,19 +26,23 @@ type retryClient struct {
 	*retryer
 }
 
-func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
-	req *http.Request, data []byte, decode func([]byte) error, success func(code int) bool, numRetries int,
+func (c *retryClient) doWithCustomMarshaller(ctx context.Context, timeout time.Duration,
+	reqMaker requestMaker, data []byte, decode func([]byte) error, success func(code int) bool, numRetries int,
 ) (err error) {
-	ctx, cancel := context.WithTimeout(req.Context(), timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	req = req.WithContext(ctx)
 	try := func(ctx context.Context) (b bool, e error) {
+		req, err := reqMaker()
+		if err != nil {
+			return false, fmt.Errorf("create http request: %w", err)
+		}
+		req = req.WithContext(ctx)
 		if data != nil {
 			req.Body = io.NopCloser(bytes.NewReader(data))
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			return false, fmt.Errorf("connect: %w", err)
+			return true, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -60,17 +64,21 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 	return c.retry(ctx, numRetries, try)
 }
 
-func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, success func(code int) bool) (code int, err error) {
-	ctx, cancel := context.WithTimeout(req.Context(), timeout)
+func (c *retryClient) do(ctx context.Context, timeout time.Duration, reqMaker requestMaker, body []byte, resp interface{}, success func(code int) bool) (code int, err error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	req = req.WithContext(ctx)
 	try := func(ctx context.Context) (bool, error) {
+		req, err := reqMaker()
+		if err != nil {
+			return false, fmt.Errorf("create http request: %w", err)
+		}
+		req = req.WithContext(ctx)
 		if body != nil {
 			req.Body = io.NopCloser(bytes.NewReader(body))
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			return false, fmt.Errorf("connect: %w", err)
+			return true, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -78,10 +86,8 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 			b, _ := io.ReadAll(res.Body)
 			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
 		}
-		if resp != nil {
-			if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
-				return false, fmt.Errorf("decode response: %w", err)
-			}
+		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
+			return false, fmt.Errorf("decode response: %w", err)
 		}
 		return false, nil
 	}
