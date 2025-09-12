@@ -402,6 +402,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}
 	}
 
+	// shuffle the replicas to randomize the order in which we look for differences
 	if len(replicasHostAddrs) > 1 {
 		// Use the global rand package which is thread-safe
 		rand.Shuffle(len(replicasHostAddrs), func(i, j int) {
