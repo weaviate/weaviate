@@ -610,6 +610,7 @@ function run_acceptance_go_client_named_vectors_cluster() {
 }
 
 function run_acceptance_graphql_tests() {
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
   for pkg in $(go list ./... | grep 'test/acceptance/graphql_resolvers'); do
     if ! go test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
