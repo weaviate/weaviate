@@ -127,7 +127,7 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	}
 	maker := func() (*http.Request, error) {
 		req, err := newHttpReplicaRequest(
-			ctx, http.MethodPost, c.host(host), index, shard,
+			ctx, http.MethodPost, host, index, shard,
 			"", fmt.Sprintf("hashtree/%d", level), bytes.NewReader(body), 0)
 		if err != nil {
 			return nil, fmt.Errorf("create http request: %w", err)

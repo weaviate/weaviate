@@ -331,7 +331,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
 
-	collectDiffForTargetNode := func(targetNode string) (*ShardDifferenceReader, error) {
+	collectDiffForTargetNode := func(targetNodeAddress, targetNodeName string) (*ShardDifferenceReader, error) {
 		ctx, cancel := context.WithTimeout(ctx, diffTimeoutPerNode)
 		defer cancel()
 
@@ -344,12 +344,12 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		for l := 0; l <= ht.Height(); l++ {
 			_, err := ht.Level(l, diff, digests)
 			if err != nil {
-				return nil, fmt.Errorf("%q: %w", targetNode, err)
+				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
 
-			levelDigests, err := f.client.HashTreeLevel(ctx, targetNode, f.class, shardName, l, diff)
+			levelDigests, err := f.client.HashTreeLevel(ctx, targetNodeAddress, f.class, shardName, l, diff)
 			if err != nil {
-				return nil, fmt.Errorf("%q: %w", targetNode, err)
+				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
 			if len(levelDigests) == 0 {
 				// no differences were found
@@ -365,15 +365,15 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 		if diff.SetCount() == 0 {
 			return &ShardDifferenceReader{
-				TargetNodeName: targetNode,
-				// TargetNodeAddress: targetNodeAddress,
+				TargetNodeName:    targetNodeName,
+				TargetNodeAddress: targetNodeAddress,
 			}, ErrNoDiffFound
 		}
 
 		return &ShardDifferenceReader{
-			TargetNodeName: targetNode,
-			// TargetNodeAddress: targetNodeAddress,
-			RangeReader: ht.NewRangeReader(diff),
+			TargetNodeName:    targetNodeName,
+			TargetNodeAddress: targetNodeAddress,
+			RangeReader:       ht.NewRangeReader(diff),
 		}, nil
 	}
 
@@ -393,26 +393,32 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	}
 
 	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas))
+	replicasHostAddrs := make([]string, 0, len(routingPlan.ReplicasHostAddrs))
 	for _, replica := range targetNodesToUse {
-		_, ok := f.router.NodeHostname(replica)
+		replicaNodeNames = append(replicaNodeNames, replica)
+		replicaHostAddr, ok := f.router.NodeHostname(replica)
 		if ok {
-			replicaNodeNames = append(replicaNodeNames, replica)
+			replicasHostAddrs = append(replicasHostAddrs, replicaHostAddr)
 		}
 	}
 
-	if len(replicaNodeNames) > 1 {
+	if len(replicasHostAddrs) > 1 {
 		// Use the global rand package which is thread-safe
-		rand.Shuffle(len(replicaNodeNames), func(i, j int) {
+		rand.Shuffle(len(replicasHostAddrs), func(i, j int) {
 			replicaNodeNames[i], replicaNodeNames[j] = replicaNodeNames[j], replicaNodeNames[i]
+			replicasHostAddrs[i], replicasHostAddrs[j] = replicasHostAddrs[j], replicasHostAddrs[i]
 		})
 	}
 
-	for _, targetNode := range replicaNodeNames {
-		if targetNode == localNodeName {
+	localHostAddr, _ := f.router.NodeHostname(localNodeName)
+
+	for i, targetNodeAddress := range replicasHostAddrs {
+		targetNodeName := replicaNodeNames[i]
+		if targetNodeAddress == localHostAddr {
 			continue
 		}
 
-		diffReader, err := collectDiffForTargetNode(targetNode)
+		diffReader, err := collectDiffForTargetNode(targetNodeAddress, targetNodeName)
 		if err != nil {
 			if !errors.Is(err, ErrNoDiffFound) {
 				ec.Add(err)
