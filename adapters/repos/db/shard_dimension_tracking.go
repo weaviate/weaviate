@@ -39,7 +39,11 @@ const (
 	DimensionCategoryBQ
 )
 
-const DefaultDimensionsBucketStrategy = lsmkv.StrategyRoaringSet
+// since v1.34 StrategyRoaringSet will be default strategy for dimensions bucket
+var DimensionsBucketPrioritizedStrategies = []string{
+	lsmkv.StrategyMapCollection,
+	lsmkv.StrategyRoaringSet,
+}
 
 func (s *Shard) Dimensions(ctx context.Context, targetVector string) int {
 	sum, _ := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
