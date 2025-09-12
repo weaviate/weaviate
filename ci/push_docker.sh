@@ -28,7 +28,8 @@ function release() {
     docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
   fi
 
-  docker buildx create --use
+  # Reuse existing builder if exists
+  docker buildx inspect >/dev/null 2>&1 || docker buildx create --use
 
   # nightly tag was added to be pushed on merges to main branch, latest tag is used to get latest released version
   tag_latest="${DOCKER_REPO}:latest"

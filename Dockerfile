@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.6
 # Dockerfile for development purposes.
 # Read docs/development.md for more information
 # vi: ft=dockerfile
@@ -11,7 +12,9 @@ ENV GO111MODULE=on
 # Populate the module cache based on the go.{mod,sum} files.
 COPY go.mod .
 COPY go.sum .
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
 
 ###############################################################################
 # This image builds the weaviate server
@@ -23,10 +26,12 @@ ARG BUILD_USER="unknown"
 ARG BUILD_DATE="unknown"
 ARG EXTRA_BUILD_ARGS=""
 ARG CGO_ENABLED=1
-# Allow disabling CGO when compiling for arm64
 ENV CGO_ENABLED=$CGO_ENABLED
 COPY . .
-RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
       -ldflags '-w -extldflags "-static" \
       -X github.com/weaviate/weaviate/usecases/build.Branch='"$GIT_BRANCH"' \
       -X github.com/weaviate/weaviate/usecases/build.Revision='"$GIT_REVISION"' \
@@ -46,8 +51,8 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 FROM alpine AS weaviate
 ENTRYPOINT ["/bin/weaviate"]
 COPY --from=server_builder /weaviate-server /bin/weaviate
-RUN mkdir -p /go/pkg/mod/github.com/go-ego
 COPY --from=server_builder /go/pkg/mod/github.com/go-ego /go/pkg/mod/github.com/go-ego
-RUN apk add --no-cache --upgrade bc ca-certificates openssl
-RUN mkdir ./modules
+RUN apk add --no-cache --upgrade bc ca-certificates openssl \
+    && mkdir -p /go/pkg/mod/github.com/go-ego \
+    && mkdir ./modules
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]

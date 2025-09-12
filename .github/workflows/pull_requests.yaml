@@ -30,7 +30,8 @@ jobs:
             runner: ubuntu-latest
             push-args: ""
             image-tag: "weaviate:${{ github.sha }}"
-            platforms: "linux/amd64,linux/arm64"
+            build_platform_for_scan: "linux/amd64" # a single arch is sufficient for the scan, just load one
+            platforms: "linux/amd64,linux/arm64" # both amd64 and arm64 for Docker push
           # PR builds (per architecture)
           - name: "pr-amd64"
             condition: ${{ !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && github.head_ref != '' }}
@@ -76,9 +77,9 @@ jobs:
         with:
           context: .
           push: false
-          load: true
           tags: ${{ matrix.image-tag }}
-          platforms: ${{ matrix.platforms }}
+          platforms: ${{ matrix.build_platform_for_scan || matrix.platforms }}
+          load: ${{ matrix.name == 'production' || matrix.arch == 'amd64' }} # load just one arch for the scan
           cache-from: type=gha,scope=weaviate-${{ matrix.arch || 'multi' }}
           cache-to: type=gha,scope=weaviate-${{ matrix.arch || 'multi' }},mode=max
           build-args: |
