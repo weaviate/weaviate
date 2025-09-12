@@ -39,6 +39,13 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -X github.com/weaviate/weaviate/usecases/build.BuildDate='"$BUILD_DATE"'' \
       -o /weaviate-server ./cmd/weaviate-server
 
+RUN --mount=type=cache,target=/go/pkg/mod \
+    mkdir -p /runtime/go-ego && \
+    if [ -d /go/pkg/mod/github.com/go-ego ]; then \
+      cp -a /go/pkg/mod/github.com/go-ego/* /runtime/go-ego/; \
+    fi
+
+
 ###############################################################################
 
 # This creates an image that can be used to fake an api for telemetry acceptance test purposes
@@ -51,8 +58,6 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 FROM alpine AS weaviate
 ENTRYPOINT ["/bin/weaviate"]
 COPY --from=server_builder /weaviate-server /bin/weaviate
-RUN mkdir -p /go/pkg/mod/github.com/go-ego
-COPY --from=server_builder /go/pkg/mod/github.com/go-ego /go/pkg/mod/github.com/go-ego
-RUN apk add --no-cache --upgrade bc ca-certificates openssl
-RUN mkdir ./modules
+COPY --from=server_builder /runtime/go-ego/ /go/pkg/mod/github.com/go-ego/
+RUN apk add --no-cache --upgrade bc ca-certificates openssl && mkdir ./modules
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]
