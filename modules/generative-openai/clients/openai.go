@@ -248,6 +248,12 @@ func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{},
 			params.MaxTokens = &maxTokens
 		}
 	}
+	if params.ReasoningEffort == nil {
+		params.ReasoningEffort = settings.ReasoningEffort()
+	}
+	if params.Verbosity == nil {
+		params.Verbosity = settings.Verbosity()
+	}
 
 	params.Images = generative.ParseImageProperties(params.Images, params.ImageProperties, imagePropertiesArray)
 
@@ -365,6 +371,8 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params) (gener
 			Stop:                params.Stop,
 			Temperature:         params.Temperature,
 			TopP:                params.TopP,
+			ReasoningEffort:     params.ReasoningEffort,
+			Verbosity:           params.Verbosity,
 		}
 		if !config.IsAzure(params.IsAzure, params.ResourceName, params.DeploymentID) {
 			// model is mandatory for OpenAI calls, but obsolete for Azure calls
@@ -469,6 +477,8 @@ type generateInput struct {
 	Stop                []string  `json:"stop,omitempty"`
 	Temperature         *float64  `json:"temperature,omitempty"`
 	TopP                *float64  `json:"top_p,omitempty"`
+	ReasoningEffort     *string   `json:"reasoning_effort,omitempty"`
+	Verbosity           *string   `json:"verbosity,omitempty"`
 }
 
 type responseMessage struct {
