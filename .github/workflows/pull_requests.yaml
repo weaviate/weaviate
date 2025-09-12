@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   Build-Scan-and-Push:
-    name: build, scan, and push docker (${{ matrix.name }})
+    name: docker pipeline (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
     if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
     timeout-minutes: 45
