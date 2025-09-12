@@ -92,6 +92,9 @@ func CreateGRPCServer(state *state.State, shutdown *batch.Shutdown, options ...g
 
 	interceptors = append(interceptors, makeIPInterceptor())
 
+	// Add OpenTelemetry tracing interceptors
+	interceptors = append(interceptors, monitoring.GRPCTracingInterceptor())
+
 	if len(interceptors) > 0 {
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
 	}

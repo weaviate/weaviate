@@ -52,6 +52,9 @@ if [[ "$*" == *--prometheus* ]]; then
   ADDITIONAL_SERVICES+=('prometheus')
   ADDITIONAL_SERVICES+=('grafana')
 fi
+if [[ "$*" == *--tempo* ]]; then
+  ADDITIONAL_SERVICES+=('tempo')
+fi
 if [[ "$*" == *--s3* ]]; then
   ADDITIONAL_SERVICES+=('backup-s3')
 fi
@@ -118,6 +121,11 @@ fi
 if [[ "$*" == *--azure* ]]; then
   echo "You have specified the --azure option. Starting up"
   echo "the text2vec-contextionary model container with backup-azure module"
+fi
+
+if [[ "$*" == *--tempo* ]]; then
+  echo "You have specified the --tempo option. Starting up"
+  echo "Tempo for distributed tracing with OpenTelemetry"
 fi
 
 echo "You can now run the dev version with: ./tools/dev/run_dev_server.sh or ./tools/dev/run_dev_server_no_network.sh"
