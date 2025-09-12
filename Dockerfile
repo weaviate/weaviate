@@ -12,10 +12,8 @@ ENV GOMODCACHE=/go/pkg/mod
 ENV GO111MODULE=on
 RUN apk add --no-cache bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
-COPY go.mod .
-COPY go.sum .
-RUN --mount=type=cache,id=gomod,target=/go/pkg/mod,sharing=locked \
-    go mod download
+COPY go.mod go.sum ./
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod,sharing=locked go mod download
 
 ###############################################################################
 # This image builds the weaviate server
@@ -28,6 +26,9 @@ ARG BUILD_DATE="unknown"
 ARG EXTRA_BUILD_ARGS=""
 ARG CGO_ENABLED=1
 ENV CGO_ENABLED=$CGO_ENABLED
+
+RUN mkdir -p /runtime/go-ego
+
 COPY . .
 
 RUN --mount=type=cache,id=gomod,target=/go/pkg/mod,sharing=locked \
@@ -40,8 +41,7 @@ RUN --mount=type=cache,id=gomod,target=/go/pkg/mod,sharing=locked \
       -X github.com/weaviate/weaviate/usecases/build.BuildDate='"$BUILD_DATE"'' \
       -o /weaviate-server ./cmd/weaviate-server
 
-RUN mkdir -p /runtime/go-ego && \
-    if [ -d /go/pkg/mod/github.com/go-ego ]; then \
+RUN if [ -d /go/pkg/mod/github.com/go-ego ]; then \
       cp -a /go/pkg/mod/github.com/go-ego/* /runtime/go-ego/; \
     fi
 
