@@ -183,10 +183,16 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_DELETE_CLASS:
 		f = func() {
-			existingClass := st.SchemaReader().ClassEqual(cmd.Class)
-			if existingClass != "" {
-				cmd.Class = existingClass
+			// During RAFT log replay (schemaOnly=true), apply case-insensitive handling
+			// to prevent silent failures due to case mismatches in log entries
+			if schemaOnly {
+				existingClass := st.SchemaReader().ClassEqual(cmd.Class)
+				if existingClass != "" {
+					cmd.Class = existingClass
+				}
 			}
+			// For regular operations (schemaOnly=false), maintain strict case-sensitivity
+			// to preserve GraphQL naming conventions and test expectations
 			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, !catchingUp)
 		}
 
