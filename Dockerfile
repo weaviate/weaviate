@@ -51,8 +51,7 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 FROM alpine AS weaviate
 ENTRYPOINT ["/bin/weaviate"]
 COPY --from=server_builder /weaviate-server /bin/weaviate
+RUN mkdir -p /go/pkg/mod/github.com/go-ego
 COPY --from=server_builder /go/pkg/mod/github.com/go-ego /go/pkg/mod/github.com/go-ego
-RUN apk add --no-cache --upgrade bc ca-certificates openssl \
-    && mkdir -p /go/pkg/mod/github.com/go-ego \
-    && mkdir ./modules
+RUN apk add --no-cache --upgrade bc ca-certificates openssl && mkdir ./modules
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]
