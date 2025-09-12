@@ -57,16 +57,20 @@ func (c *Config) Validate() error {
 
 func DefaultConfig() *Config {
 	return &Config{
-		Logger:                    logrus.New(),
-		Distancer:                 distancer.NewL2SquaredProvider(),
-		MaxPostingSize:            128,
-		MinPostingSize:            10,
+		Logger:    logrus.New(),
+		Distancer: distancer.NewL2SquaredProvider(),
+		// TODO: make the MaxPostingSize dynamic and dependent on the
+		// vector size and compression method
+		MaxPostingSize: 128,
+		MinPostingSize: 10,
+		// TODO: create unbounded channels to avoid having to create
+		// too many workers.
 		SplitWorkers:              64,
 		ReassignWorkers:           128,
 		InternalPostingCandidates: 64,
 		ReassignNeighbors:         64,
 		Replicas:                  8,
-		RNGFactor:                 3,
+		RNGFactor:                 10.0,
 		MaxDistanceRatio:          10_000,
 		PruningStrategy:           SizeBasedPruningStrategy,
 	}

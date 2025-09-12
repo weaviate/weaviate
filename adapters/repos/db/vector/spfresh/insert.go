@@ -46,8 +46,6 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 		return err
 	}
 
-	// vector = distancer.Normalize(vector)
-
 	var compressed []byte
 
 	// init components that require knowing the vector dimensions
@@ -110,27 +108,23 @@ func (s *SPFresh) ensureInitialPosting(v Vector) ([]SearchResult, error) {
 		return nil, err
 	}
 
-	// if no replicas were found, create new postings while holding the lock
+	// if no replicas were found, create a new posting while holding the lock
 	if len(replicas) == 0 {
-		for range s.Config.Replicas {
-			postingID := s.IDs.Next()
-			s.PostingSizes.AllocPageFor(postingID)
-			// use the vector as the centroid and register it in the SPTAG
-			err = s.SPTAG.Upsert(postingID, &Centroid{
-				Vector: v,
-			})
-			if err != nil {
-				return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
-			}
-			// return the new posting ID
-			replicas = append(replicas, SearchResult{
-				ID: postingID,
-				// distance is zero since we are using the vector as the centroid
-				Distance: 0,
-			})
+		postingID := s.IDs.Next()
+		s.PostingSizes.AllocPageFor(postingID)
+		// use the vector as the centroid and register it in the SPTAG
+		err = s.SPTAG.Upsert(postingID, &Centroid{
+			Vector: v,
+		})
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
 		}
-
-		fmt.Println("initial postings created")
+		// return the new posting ID
+		replicas = append(replicas, SearchResult{
+			ID: postingID,
+			// distance is zero since we are using the vector as the centroid
+			Distance: 0,
+		})
 	}
 
 	return replicas, nil

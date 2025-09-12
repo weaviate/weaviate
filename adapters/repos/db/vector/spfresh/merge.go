@@ -76,7 +76,7 @@ func (s *SPFresh) mergeWorker() {
 func (s *SPFresh) doMerge(op mergeOperation) error {
 	defer s.mergeList.done(op.PostingID)
 
-	s.Logger.WithField("postingID", op.PostingID).Info("Merging posting")
+	s.Logger.WithField("postingID", op.PostingID).Debug("Merging posting")
 
 	var markedAsDone bool
 	s.postingLocks.Lock(op.PostingID)

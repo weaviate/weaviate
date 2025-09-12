@@ -13,7 +13,6 @@ package spfresh
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/pkg/errors"
 )
@@ -71,11 +70,13 @@ func (s *SPFresh) reassignWorker() {
 }
 
 func (s *SPFresh) doReassign(op reassignOperation) error {
+	s.Logger.WithField("vectorID", op.Vector.ID()).Debug("Processing reassign operation")
+
 	// check if the vector is still valid
 	version := s.VersionMap.Get(op.Vector.ID())
 	if version.Deleted() || version.Version() > op.Vector.Version().Version() {
-		// s.Logger.WithField("vectorID", op.Vector.ID()).
-		// 	Debug("Vector is deleted or has a newer version, skipping reassign operation")
+		s.Logger.WithField("vectorID", op.Vector.ID()).
+			Debug("Vector is already assigned to the best posting, skipping reassign operation")
 		return nil
 	}
 
@@ -93,19 +94,20 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	// check again if the version is still valid
 	version = s.VersionMap.Get(op.Vector.ID())
 	if version.Deleted() || version.Version() > op.Vector.Version().Version() {
-		// s.Logger.WithField("vectorID", op.Vector.ID()).
-		// 	Debug("Vector is deleted or has a newer version, skipping reassign operation")
 		return nil
 	}
 
-	// TODO: increment the vector version????
+	// increment the vector version. this will invalidate all the existing copies
+	// of the vector in other postings.
 	version, ok := s.VersionMap.Increment(version, op.Vector.ID())
 	if !ok {
-		// s.Logger.WithField("vectorID", op.Vector.ID()).
-		// 	Debug("Vector is deleted or has a newer version, skipping reassign operation")
+		// Increment fails if a concurrent Increment happened (similar to a CAS operation)
+		s.Logger.WithField("vectorID", op.Vector.ID()).
+			Debug("Vector version increment failed, skipping reassign operation")
 		return nil
 	}
 
+	// create a new vector with the updated version
 	newVector := NewCompressedVector(op.Vector.ID(), version, op.Vector.(CompressedVector).Data())
 
 	// append the vector to each replica
@@ -122,9 +124,6 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 			return err
 		}
 		if !ok {
-			// s.Logger.WithField("vectorID", op.Vector.ID()).
-			// 	WithField("postingID", replica.ID).
-			// 	Debug("Posting no longer exists, reassigning")
 			continue // Skip if the vector already exists in the replica
 		}
 	}
@@ -138,35 +137,36 @@ func (s *SPFresh) selectReplicas(query Vector, unless uint64) ([]SearchResult, b
 		return nil, false, errors.Wrap(err, "failed to search for nearest neighbors")
 	}
 
-	if len(results) == 0 {
-		count, deleted := s.SPTAG.(*BruteForceSPTAG).Len()
-		fmt.Printf("Results is empty. SPTAG has %d centroids and %d deleted\n", count, deleted)
-	}
-
 	replicas := make([]SearchResult, 0, s.Config.Replicas)
 
-	// LOOP:
 	for i := 0; i < len(results) && len(replicas) < s.Config.Replicas; i++ {
 		candidate := results[i]
-		// candidateCentroid := s.SPTAG.Get(candidate.ID)
 
-		// // determine if the candidate is too close to a pre-existing replica
-		// for j := range replicas {
-		// 	dist, err := candidateCentroid.Vector.Distance(s.distancer, s.SPTAG.Get(replicas[j].ID).Vector)
-		// 	if err != nil {
-		// 		return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", candidate.ID, replicas[j].ID)
-		// 	}
+		// Commenting out RNG logic for now as it seems to hurt recall
+		// with the current testing setup.
+		// Will re-enable once we have a test with a larger dataset.
 
-		// 	if s.Config.RNGFactor*dist <= candidate.Distance {
-		// 		// fmt.Println("skipping candidate", candidate.ID, "because it's too close to", replicas[j].ID, "dist:", dist, "candidateDist:", candidate.Distance)
-		// 		continue LOOP
-		// 	} else {
-		// 		// panic(fmt.Sprintf("not skipping candidate %d because RNGFactor*dist %f > candidateDist %f", candidate.ID, s.Config.RNGFactor*dist, candidate.Distance))
-		// 	}
-		// }
+		qDist := candidate.Distance
+		candidateCentroid := s.SPTAG.Get(candidate.ID)
 
-		// if unless is specified, abort the RNG selection if one of the replicas
-		// is the unless posting ID (i.e. the vector is already assigned to this posting)
+		tooClose := false
+		for j := range replicas {
+			other := s.SPTAG.Get(replicas[j].ID)
+			pairDist, err := candidateCentroid.Vector.Distance(s.distancer, other.Vector)
+			if err != nil {
+				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", candidate.ID, replicas[j].ID)
+			}
+
+			if s.Config.RNGFactor*pairDist <= qDist {
+				tooClose = true
+				break
+			}
+		}
+		if tooClose {
+			continue
+		}
+
+		// abort if candidate already assigned to `unless`
 		if unless != 0 && candidate.ID == unless {
 			return nil, false, nil
 		}

@@ -26,7 +26,7 @@ type LSMStore struct {
 	store      *lsmkv.Store
 	bucket     *lsmkv.Bucket
 	vectorSize atomic.Int32
-	locks      *common.ShardedRWLocks
+	locks      *common.HashedLocks
 }
 
 func NewLSMStore(store *lsmkv.Store, bucketName string) (*LSMStore, error) {
@@ -38,7 +38,7 @@ func NewLSMStore(store *lsmkv.Store, bucketName string) (*LSMStore, error) {
 	return &LSMStore{
 		store:  store,
 		bucket: store.Bucket(bucketName),
-		locks:  common.NewShardedRWLocks(512),
+		locks:  common.NewHashedLocks32k(),
 	}, nil
 }
 
@@ -106,9 +106,6 @@ func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting Posting) e
 		return errors.New("posting cannot be nil")
 	}
 
-	l.locks.Lock(postingID)
-	defer l.locks.Unlock(postingID)
-
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 
@@ -116,6 +113,9 @@ func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting Posting) e
 	for i, v := range posting.Iter() {
 		set[i] = v.(CompressedVector)
 	}
+
+	l.locks.Lock(postingID)
+	defer l.locks.Unlock(postingID)
 
 	list, err := l.bucket.SetList(buf[:])
 	if err != nil {
@@ -144,91 +144,3 @@ func (l *LSMStore) Merge(ctx context.Context, postingID uint64, vector Vector) e
 func bucketName(id string) string {
 	return fmt.Sprintf("spfresh_postings_%s", id)
 }
-
-// type LSMStore struct {
-// 	m          sync.RWMutex
-// 	store      *common.PagedArray[Posting]
-// 	compressed bool
-// 	vectorSize atomic.Int32
-// }
-
-// func NewLSMStore(store *lsmkv.Store, bucketName string, compressed bool) (*LSMStore, error) {
-// 	return &LSMStore{
-// 		store:      common.NewPagedArray[Posting](1024, 1024*1024),
-// 		compressed: compressed,
-// 	}, nil
-// }
-
-// // Init is called by the index upon receiving the first vector and
-// // determining the vector size.
-// // Prior to calling this method, the store will assume the index is empty.
-// func (l *LSMStore) Init(size int32) {
-// 	l.vectorSize.Store(size)
-// }
-
-// func (l *LSMStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
-// 	vectorSize := l.vectorSize.Load()
-// 	if vectorSize == 0 {
-// 		// the store is empty
-// 		return nil, errors.WithStack(ErrPostingNotFound)
-// 	}
-
-// 	posting := l.store.Get(postingID)
-// 	if posting == nil {
-// 		return nil, errors.WithStack(ErrPostingNotFound)
-// 	}
-
-// 	return posting.Clone(), nil
-// }
-
-// func (l *LSMStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting, error) {
-// 	vectorSize := l.vectorSize.Load()
-// 	if vectorSize == 0 {
-// 		// the store is empty
-// 		return nil, errors.WithStack(ErrPostingNotFound)
-// 	}
-
-// 	postings := make([]Posting, 0, len(postingIDs))
-
-// 	for _, id := range postingIDs {
-// 		posting, err := l.Get(ctx, id)
-// 		if err != nil {
-// 			return nil, errors.Wrapf(err, "failed to get posting %d", id)
-// 		}
-// 		postings = append(postings, posting)
-// 	}
-
-// 	return postings, nil
-// }
-
-// func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting Posting) error {
-// 	if posting == nil {
-// 		return errors.New("posting cannot be nil")
-// 	}
-
-// 	l.m.Lock()
-// 	l.store.AllocPageFor(postingID)
-// 	l.m.Unlock()
-
-// 	l.store.Set(postingID, posting.Clone())
-
-// 	return nil
-// }
-
-// func (l *LSMStore) Merge(ctx context.Context, postingID uint64, vector Vector) error {
-// 	l.m.Lock()
-// 	l.store.AllocPageFor(postingID)
-// 	l.m.Unlock()
-
-// 	p := l.store.Get(postingID)
-// 	if p == nil {
-// 		p = &CompressedPosting{
-// 			vectorSize: int(l.vectorSize.Load()),
-// 		}
-// 		l.store.Set(postingID, p)
-// 	}
-
-// 	p.AddVector(vector)
-
-// 	return nil
-// }

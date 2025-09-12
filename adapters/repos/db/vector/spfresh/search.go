@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"iter"
 	"math"
+	"sort"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -51,8 +52,6 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 		// compute the max distance to filter out candidates that are too far away
 		maxDist := centroids[0].Distance * s.Config.MaxDistanceRatio
 
-		fmt.Println("maxDist:", maxDist)
-
 		// filter out candidates that are too far away or have no posting size
 		selected = make([]uint64, 0, s.Config.InternalPostingCandidates)
 		for i := 0; i < len(centroids) && len(selected) < s.Config.InternalPostingCandidates; i++ {
@@ -64,81 +63,91 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 		}
 
 		fmt.Printf("selected %d/%d candidates based on size pruning\n", len(selected), len(centroids))
+	} else {
+		sort.Slice(centroids, func(i, j int) bool {
+			return centroids[i].Distance-s.SPTAG.Get(centroids[i].ID).Radius < centroids[j].Distance-s.SPTAG.Get(centroids[j].ID).Radius
+		})
+	}
 
-		// read all the selected postings
-		postings, err = s.Store.MultiGet(ctx, selected)
-		if err != nil {
-			return nil, nil, err
+	// read all the selected postings
+	postings, err = s.Store.MultiGet(ctx, selected)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	visited := s.visitedPool.Borrow()
+	defer s.visitedPool.Return(visited)
+
+	totalVectors := 0
+	cleanedPostingVectorsCount := 0
+	for i, p := range postings {
+		if p == nil { // posting nil if not found
+			continue
 		}
 
-		visited := s.visitedPool.Borrow()
-		defer s.visitedPool.Return(visited)
+		if s.Config.PruningStrategy == DistanceBasedPruningStrategy && centroids[i].Distance-s.SPTAG.Get(centroids[i].ID).Radius > q.Top().Dist {
+			// if the distance is larger than the max distance in the k smallest,
+			// we can stop searching
+			break
+		}
 
-		totalVectors := 0
-		cleanedPostingVectorsCount := 0
-		for i, p := range postings {
-			if p == nil { // posting nil if not found
+		// keep track of the posting size
+		postingSize := p.Len()
+		totalVectors += postingSize
+
+		for _, v := range p.Iter() {
+			id := v.ID()
+			// skip deleted vectors
+			if s.VersionMap.IsDeleted(id) {
+				postingSize--
 				continue
 			}
 
-			// keep track of the posting size
-			postingSize := p.Len()
-			totalVectors += postingSize
-
-			for _, v := range p.Iter() {
-				id := v.ID()
-				// skip deleted vectors
-				if s.VersionMap.IsDeleted(id) || s.VersionMap.Get(id).Version() > v.Version().Version() {
-					postingSize--
-					continue
-				}
-
-				// skip duplicates
-				if visited.Visited(id) {
-					continue
-				}
-
-				// skip vectors that are not in the allow list
-				if allowList != nil && !allowList.Contains(id) {
-					continue
-				}
-
-				visited.Visit(id)
-
-				dist, err := v.Distance(s.distancer, queryVector)
-				if err != nil {
-					return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
-				}
-
-				q.Insert(id, dist)
-
-				if q.Len() > k {
-					q.Pop()
-				}
+			// skip duplicates
+			if visited.Visited(id) {
+				continue
 			}
 
-			cleanedPostingVectorsCount += postingSize
+			// skip vectors that are not in the allow list
+			if allowList != nil && !allowList.Contains(id) {
+				continue
+			}
 
-			// if the posting size is lower than the configured minimum,
-			// enqueue a merge operation
-			if postingSize < int(s.Config.MinPostingSize) {
-				err = s.enqueueMerge(ctx, selected[i])
-				if err != nil {
-					return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selected[i])
-				}
+			visited.Visit(id)
+
+			dist, err := v.Distance(s.distancer, queryVector)
+			if err != nil {
+				return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
+			}
+
+			q.Insert(id, dist)
+
+			if q.Len() > k {
+				q.Pop()
 			}
 		}
 
-		fmt.Printf("total vectors in all selected postings: %d, after cleaning: %d\n", totalVectors, cleanedPostingVectorsCount)
+		cleanedPostingVectorsCount += postingSize
+
+		// if the posting size is lower than the configured minimum,
+		// enqueue a merge operation
+		if postingSize < int(s.Config.MinPostingSize) {
+			err = s.enqueueMerge(ctx, selected[i])
+			if err != nil {
+				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selected[i])
+			}
+		}
 	}
 
-	dists := make([]float32, q.Len())
-	ids := make([]uint64, q.Len())
-	i := len(ids) - 1
+	fmt.Printf("total vectors in all selected postings: %d, after cleaning: %d\n", totalVectors, cleanedPostingVectorsCount)
+
+	ids := make([]uint64, k)
+	dists := make([]float32, k)
+	i := len(dists) - 1
 	for q.Len() > 0 {
-		element := q.Pop()
-		ids[i] = element.ID
-		dists[i] = element.Dist
+		item := q.Pop()
+		ids[i] = item.ID
+		dists[i] = item.Dist
 		i--
 	}
 

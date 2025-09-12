@@ -264,20 +264,20 @@ func (s *SPFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 		}
 	}
 
-	for i, v := range data {
+	for _, v := range posting.Iter() {
 		// compute the distance to each centroid
-		dA, err := s.distancer.DistanceBetweenVectors(v, enc.Centroid(byte(0)))
+		dA, err := v.DistanceWithRaw(s.distancer, results[0].Centroid)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to compute distance to centroid 0")
 		}
-		dB, err := s.distancer.DistanceBetweenVectors(v, enc.Centroid(byte(1)))
+		dB, err := v.DistanceWithRaw(s.distancer, results[1].Centroid)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to compute distance to centroid 1")
 		}
 		if dA < dB {
-			results[0].Posting.AddVector(posting.GetAt(i))
+			results[0].Posting.AddVector(v)
 		} else {
-			results[1].Posting.AddVector(posting.GetAt(i))
+			results[1].Posting.AddVector(v)
 		}
 	}
 

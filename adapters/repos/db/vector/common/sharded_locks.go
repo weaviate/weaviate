@@ -202,7 +202,7 @@ func (sl *ShardedRWLocks) RLocked(id uint64, callback func()) {
 // The lock pool size must be a power of two to enable efficient masking. Use 32k shards for maximum distribution or 512 for lower memory use.
 type HashedLocks struct {
 	// sharded locks
-	shards []sync.Mutex
+	shards []sync.RWMutex
 	// number of locks
 	count uint64
 	prime uint64
@@ -211,7 +211,7 @@ type HashedLocks struct {
 // NewHashedLocks512 creates a HashedLocks instance with 512 shards.
 func NewHashedLocks512() *HashedLocks {
 	return &HashedLocks{
-		shards: make([]sync.Mutex, 512), // 512 shards for optimal distribution
+		shards: make([]sync.RWMutex, 512), // 512 shards for optimal distribution
 		count:  512,
 		prime:  1009, // sweet spot prime for 512 shards
 	}
@@ -220,7 +220,7 @@ func NewHashedLocks512() *HashedLocks {
 // NewHashedLocks32k creates a HashedLocks instance with 32k shards.
 func NewHashedLocks32k() *HashedLocks {
 	return &HashedLocks{
-		shards: make([]sync.Mutex, 32768), // 32k shards for optimal distribution
+		shards: make([]sync.RWMutex, 32768), // 32k shards for optimal distribution
 		count:  32768,
 		prime:  99991, // sweet spot prime for 32k shards
 	}
@@ -243,4 +243,12 @@ func (h *HashedLocks) Lock(id uint64) {
 
 func (h *HashedLocks) Unlock(id uint64) {
 	h.shards[h.Hash(id)].Unlock()
+}
+
+func (h *HashedLocks) RLock(id uint64) {
+	h.shards[h.Hash(id)].RLock()
+}
+
+func (h *HashedLocks) RUnlock(id uint64) {
+	h.shards[h.Hash(id)].RUnlock()
 }

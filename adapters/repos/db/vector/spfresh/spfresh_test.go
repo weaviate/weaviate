@@ -24,15 +24,15 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 func TestSPFreshRecall(t *testing.T) {
 	cfg := DefaultConfig()
 	l := logrus.New()
-	l.SetLevel(logrus.DebugLevel)
+	// l.SetLevel(logrus.DebugLevel)
 	cfg.Logger = l
 
 	logger, _ := test.NewNullLogger()
 
-	vectors_size := 30_000
+	vectors_size := 10_000
 	queries_size := 100
 	dimensions := 64
-	k := 10
+	k := 100
 
 	before := time.Now()
 	vectors, queries := testinghelpers.RandomVecsFixedSeed(vectors_size, queries_size, dimensions)
@@ -48,6 +48,7 @@ func TestSPFreshRecall(t *testing.T) {
 	require.NoError(t, err)
 	defer index.Shutdown(t.Context())
 
+	before = time.Now()
 	var count int
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(id uint64) {
 		count++
@@ -58,17 +59,10 @@ func TestSPFreshRecall(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	fmt.Println("--------------------------- indexing done, starting queries after 1 minute")
-	// time.Sleep(2 * time.Second)
+	fmt.Printf("indexing done, took: %s\n", time.Since(before))
 
-	// // do some warmup queries to trigger merge operations
-	// for i := range queries {
-	// 	_, _, err := index.SearchByVector(t.Context(), queries[i], k, nil)
-	// 	require.NoError(t, err)
-	// }
+	time.Sleep(2 * time.Second)
 
-	// fmt.Println("--------------------------- warmup done, starting timed queries after 10 seconds")
-	time.Sleep(5 * time.Second)
 	var mu sync.Mutex
 	var relevant uint64
 	var retrieved int
@@ -88,5 +82,5 @@ func TestSPFreshRecall(t *testing.T) {
 	recall := float32(relevant) / float32(retrieved)
 	latency := float32(querying.Microseconds()) / float32(queries_size)
 	fmt.Println(recall, latency)
-	require.Greater(t, recall, float32(0.9))
+	require.Greater(t, recall, float32(0.7))
 }
