@@ -69,7 +69,7 @@ jobs:
         if: steps.should-run.outputs.should_run == 'true'
         uses: docker/setup-buildx-action@v3
 
-      # Step 1: Build Docker image
+      # Step 1: Build Docker image (with cross-arch caching and selective load)
       - name: Build and cache Docker image
         id: build
         if: steps.should-run.outputs.should_run == 'true'
@@ -78,10 +78,19 @@ jobs:
           context: .
           push: false
           tags: ${{ matrix.image-tag }}
-          platforms: ${{ matrix.build_platform_for_scan || matrix.platforms }}
-          load: ${{ matrix.name == 'production' || matrix.arch == 'amd64' }} # load just one arch for the scan
-          cache-from: type=gha,scope=weaviate-${{ matrix.arch || 'multi' }}
-          cache-to: type=gha,scope=weaviate-${{ matrix.arch || 'multi' }},mode=max
+          platforms: ${{ matrix.build_platform_for_scan || matrix.platforms }} # Single-arch for scan, multi-arch for prod
+          # Load the result into the local Docker engine only if we're building EXACTLY one platform
+          # AND (it's the production matrix or the amd64 PR build). Avoids slow emulation on arm64.
+          load: ${{ !contains((matrix.build_platform_for_scan || matrix.platforms), ',') && (matrix.name == 'production' || matrix.arch == 'amd64') }}
+          # Use both arch caches as "read" sources so BuildKit can reuse whatever matches.
+          cache-from: | # read from both caches
+            type=gha,scope=weaviate-amd64
+            type=gha,scope=weaviate-arm64
+          # Write back only to this job's cache scope to keep per-arch caches clean.
+          # ignore-error=true prevents the build from failing if the cache export flakes.
+          cache-to: |
+            type=gha,scope=weaviate-${{ matrix.arch || 'multi' }},mode=max,ignore-error=true
+          # Keep CGO off speeds up builds and improves cache hits.
           build-args: |
             CGO_ENABLED=0
 
