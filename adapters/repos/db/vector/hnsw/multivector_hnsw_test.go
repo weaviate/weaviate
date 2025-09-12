@@ -22,11 +22,13 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 var multiVectors = [][][]float32{
@@ -434,6 +436,7 @@ func TestMuveraHnsw(t *testing.T) {
 			MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
 				return multiVectors[id], nil
 			},
+			AllocChecker: memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			VectorCacheMaxObjects: 1e12,
 			MaxConnections:        maxConnections,
