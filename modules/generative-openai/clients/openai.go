@@ -248,6 +248,12 @@ func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{},
 			params.MaxTokens = &maxTokens
 		}
 	}
+	if params.ReasoningEffort == nil {
+		params.ReasoningEffort = settings.ReasoningEffort()
+	}
+	if params.Verbosity == nil {
+		params.ReasoningEffort = settings.Verbosity()
+	}
 
 	params.Images = generative.ParseImageProperties(params.Images, params.ImageProperties, imagePropertiesArray)
 
