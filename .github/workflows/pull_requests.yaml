@@ -14,6 +14,150 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  Build-Scan-and-Push:
+    name: build, scan, and push docker (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    needs: [ Unit-Tests, Run-Swagger, Integration-Tests ]
+    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Production builds (tags, main, stable branches)
+          - name: "production"
+            condition: ${{ startsWith(github.ref, 'refs/tags') || startsWith(github.head_ref, 'build') || github.head_ref == '' }}
+            arch: "multi"
+            runner: ubuntu-latest
+            push-args: ""
+            image-tag: "weaviate:${{ github.sha }}"
+            platforms: "linux/amd64,linux/arm64"
+          # PR builds (per architecture)
+          - name: "pr-amd64"
+            condition: ${{ !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && github.head_ref != '' }}
+            arch: "amd64"
+            runner: ubuntu-latest
+            push-args: "--amd64-only"
+            image-tag: "weaviate:${{ github.sha }}"
+            platforms: "linux/amd64"
+          - name: "pr-arm64"
+            condition: ${{ !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && github.head_ref != '' }}
+            arch: "arm64"
+            runner: ubuntu-24.04-arm
+            push-args: "--arm64-only"
+            image-tag: "weaviate:${{ github.sha }}"
+            platforms: "linux/arm64"
+    env:
+      PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
+    outputs:
+      build-status: ${{ steps.build.outcome }}
+      vuln-scan-status: ${{ steps.vuln-scan.outcome }}
+      sast-scan-status: ${{ steps.sast-scan.outcome }}
+      push-status: ${{ steps.push.outcome }}
+      preview-tag: ${{ steps.push.outputs.PREVIEW_TAG }}
+      preview-semver-tag: ${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}
+    steps:
+      - name: Check matrix condition
+        id: should-run
+        run: |
+          # Check if this matrix entry should run based on trigger type
+          if [[ "${{ github.event_name }}" == "push" ]] && [[ "${{ matrix.name }}" == "production" ]]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event_name }}" == "pull_request" ]] && [[ "${{ matrix.name }}" == pr-* ]]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+      - uses: actions/checkout@v5
+        if: steps.should-run.outputs.should_run == 'true'
+
+      - name: Set up Docker Buildx
+        if: steps.should-run.outputs.should_run == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      # Step 1: Build Docker image
+      - name: Build and cache Docker image
+        id: build
+        if: steps.should-run.outputs.should_run == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ${{ matrix.image-tag }}
+          platforms: ${{ matrix.platforms }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max # Cache Docker build to GHA
+          build-args: |
+            CGO_ENABLED=0
+
+      # Step 2: Vulnerability scanning
+      - name: Run Orca Container Image Scan
+        id: vuln-scan
+        if: steps.should-run.outputs.should_run == 'true' && (matrix.name == 'production' || matrix.arch == 'amd64')
+        uses: orcasecurity/shiftleft-container-image-action@v1
+        continue-on-error: true
+        with:
+          api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
+          project_key: ${{ env.PROJECT_KEY }}
+          image: ${{ matrix.image-tag }}
+          console_output: "table"
+          format: "sarif"
+          output: "results/"
+
+      - name: Upload SARIF file
+        if: steps.should-run.outputs.should_run == 'true' && (matrix.name == 'production' || matrix.arch == 'amd64') && always() && steps.vuln-scan.outputs.exit_code != 1
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results/image.sarif
+
+      # Step 3: SAST scanning
+      - name: Run Orca SAST Scan
+        id: sast-scan
+        if: steps.should-run.outputs.should_run == 'true' && (matrix.name == 'production' || matrix.arch == 'amd64')
+        uses: orcasecurity/shiftleft-sast-action@v1
+        continue-on-error: true
+        with:
+          api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
+          project_key: ${{ env.PROJECT_KEY }}
+          fetch-depth: 0
+          path: "."
+
+      # Step 4: Security gate - fail if either scan failed (production only)
+      - name: Check security scan results
+        if: steps.should-run.outputs.should_run == 'true' && matrix.name == 'production'
+        run: |
+          if [[ "${{ steps.vuln-scan.outcome }}" == "failure" ]]; then
+            echo "::error::Vulnerability scan failed - blocking push"
+            exit 1
+          fi
+          if [[ "${{ steps.sast-scan.outcome }}" == "failure" ]]; then
+            echo "::error::SAST scan failed - blocking push"
+            exit 1
+          fi
+          echo "All security scans passed - proceeding with push"
+
+      # Step 5: Docker Hub login and push
+      - name: Login to Docker Hub
+        if: success() && steps.should-run.outputs.should_run == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Push container
+        id: push
+        if: steps.build.outcome == 'success' && steps.should-run.outputs.should_run == 'true'
+        run: ./ci/push_docker.sh ${{ matrix.push-args }}
+        env:
+          PR_TITLE: "${{ github.event.pull_request.title }}"
+
+      - name: Generate Report
+        if: success() && steps.should-run.outputs.should_run == 'true' && matrix.name == 'production'
+        env:
+          PREVIEW_TAG: "${{ steps.push.outputs.PREVIEW_TAG }}"
+          PREVIEW_SEMVER_TAG: "${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}"
+        run: ./ci/generate_docker_report.sh
   Buf-Checks:
     name: buf checks
     runs-on: ubuntu-latest
@@ -53,50 +197,6 @@ jobs:
           else
             exit 0
           fi
-  Vulnerability-Scanning:
-    name: orca vulnerability scan
-    runs-on: ubuntu-latest
-    env:
-      PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
-    steps:
-      - uses: actions/checkout@v5
-      - name: Run locally Docker build
-        run: docker build -t weaviate:${{ github.sha }} .
-      - name: Run Orca Container Image Scan
-        id: orcasecurity_container_image_scan
-        uses: orcasecurity/shiftleft-container-image-action@v1
-        with:
-          api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
-          project_key: ${{ env.PROJECT_KEY }}
-          image: 'weaviate:${{ github.sha }}'
-          console_output: "table"
-          format: "sarif"
-          output: "results/"
-      - name: Upload SARIF file
-        uses: github/codeql-action/upload-sarif@v3
-        if: ${{ always() && steps.orcasecurity_container_image_scan.outputs.exit_code != 1 }}
-        with:
-          sarif_file: results/image.sarif
-  SAST-Scanning:
-    name: orca sast scan
-    runs-on: ubuntu-latest
-    env:
-      PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
-    steps:
-      - uses: actions/checkout@v5
-      - name: Run Orca SAST Scan
-        id: orcasecurity_container_sast_action
-        uses: orcasecurity/shiftleft-sast-action@v1
-        with:
-          api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
-          project_key: ${{ env.PROJECT_KEY }}
-          # diff scans against the entire git history, so should only scan changes in this PR
-          fetch-depth: 0
-          path:
-            # scanning the entire repository
-            "."
   Unit-Tests:
     name: unit tests
     runs-on: ubuntu-latest
@@ -545,8 +645,6 @@ jobs:
         with:
           name: binaries-linux-arm64
           path: dist/weaviate_linux_arm64
-
-
   Acceptance-Tests-windows:
     name: acceptance (windows)
     needs: Compile-and-upload-binaries
@@ -579,86 +677,3 @@ jobs:
       - name: run acceptance tests
         shell: bash
         run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer
-
-  Push-Docker:
-    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && (startsWith(github.ref, 'refs/tags') || startsWith(github.head_ref, 'build') || github.head_ref == '') }} # no PRs from fork
-    needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, SAST-Scanning, Integration-Tests]
-    name: push-docker
-    timeout-minutes: 30
-    runs-on: DB-ubuntu-24.04-8-cores
-    steps:
-      - uses: actions/checkout@v5
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{secrets.DOCKER_USERNAME}}
-          password: ${{secrets.DOCKER_PASSWORD}}
-      - name: Push container
-        id: push-container
-        run: ./ci/push_docker.sh
-        env:
-          PR_TITLE: "${{ github.event.pull_request.title }}"
-      - name: Generate Report
-        env:
-          PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
-          PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
-        run: ./ci/generate_docker_report.sh
-  Push-Docker-Fast:
-    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }} # no PRs from fork
-    name: push docker fast (${{ matrix.arch }})
-    timeout-minutes: 30
-    strategy:
-      matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-latest
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
-    outputs:
-      preview-tags-amd64: ${{ steps.set-outputs.outputs.preview-tags-amd64 }}
-      semver-tags-amd64: ${{ steps.set-outputs.outputs.semver-tags-amd64 }}
-      preview-tags-arm64: ${{ steps.set-outputs.outputs.preview-tags-arm64 }}
-      semver-tags-arm64: ${{ steps.set-outputs.outputs.semver-tags-arm64 }}
-    steps:
-      - uses: actions/checkout@v5
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{secrets.DOCKER_USERNAME}}
-          password: ${{secrets.DOCKER_PASSWORD}}
-      - name: Push container
-        id: push-container
-        run: ./ci/push_docker.sh --${{ matrix.arch }}-only
-        env:
-          PR_TITLE: "${{ github.event.pull_request.title }}"
-      - name: Set architecture-specific outputs
-        id: set-outputs
-        run: |
-          # Unique output names per architecture
-          echo "preview-tags-${{ matrix.arch }}=${{ steps.push-container.outputs.PREVIEW_TAG }}" >> $GITHUB_OUTPUT
-          echo "semver-tags-${{ matrix.arch }}=${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}" >> $GITHUB_OUTPUT
-  Generate-Docker-Report:
-    needs: [Push-Docker-Fast]
-    name: docker report
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - name: Combine tags
-        run: |
-          # Collect all architecture-specific outputs
-          ALL_PREVIEW_TAGS="${{ needs.Push-Docker-Fast.outputs.preview-tags-amd64 }}"
-          ALL_PREVIEW_TAGS+="\n${{ needs.Push-Docker-Fast.outputs.preview-tags-arm64 }}"
-          
-          ALL_SEMVER_TAGS="${{ needs.Push-Docker-Fast.outputs.semver-tags-amd64 }}"
-          ALL_SEMVER_TAGS+="\n${{ needs.Push-Docker-Fast.outputs.semver-tags-arm64 }}"
-
-          # Write to environment variables
-          echo "PREVIEW_TAG<<EOF" >> $GITHUB_ENV
-          echo -e "$ALL_PREVIEW_TAGS" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-          
-          echo "PREVIEW_SEMVER_TAG<<EOF" >> $GITHUB_ENV
-          echo -e "$ALL_SEMVER_TAGS" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-      - run: ./ci/generate_docker_report.sh
