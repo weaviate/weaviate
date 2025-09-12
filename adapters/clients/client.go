@@ -86,8 +86,10 @@ func (c *retryClient) do(ctx context.Context, timeout time.Duration, reqMaker re
 			b, _ := io.ReadAll(res.Body)
 			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
 		}
-		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
-			return false, fmt.Errorf("decode response: %w", err)
+		if resp != nil {
+			if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
+				return false, fmt.Errorf("decode response: %w", err)
+			}
 		}
 		return false, nil
 	}
