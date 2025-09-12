@@ -112,17 +112,17 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) (*Metrics, error) {
 
 	// Histograms
 	m.writeDuration, err = newHistogram(prom.Registerer,
-		"replication_coordinator_writes_duration", "Duration of write operations to replicas", writeDurationBuckets)
+		"replication_coordinator_writes_duration_seconds", "Duration in seconds of write operations to replicas", writeDurationBuckets)
 	if err != nil {
 		return nil, err
 	}
 	m.readDuration, err = newHistogram(prom.Registerer,
-		"replication_coordinator_reads_duration", "Duration of read operations from replicas", readDurationBuckets)
+		"replication_coordinator_reads_duration_seconds", "Duration in seconds of read operations from replicas", readDurationBuckets)
 	if err != nil {
 		return nil, err
 	}
 	m.readRepairDuration, err = newHistogram(prom.Registerer,
-		"replication_read_repair_duration", "Duration of read repair operations", readRepairDurationBuckets)
+		"replication_read_repair_duration_seconds", "Duration in seconds of read repair operations", readRepairDurationBuckets)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +159,10 @@ func newHistogram(reg prometheus.Registerer, name, help string, buckets []float6
 	if err := reg.Register(h); err != nil {
 		var e prometheus.AlreadyRegisteredError
 		if errors.As(err, &e) {
-			return e.ExistingCollector.(prometheus.Histogram), nil
+			if histogram, ok := e.ExistingCollector.(prometheus.Histogram); ok {
+				return histogram, nil
+			}
+			return nil, fmt.Errorf("metric %s already registered but not as a Histogram", name)
 		}
 		return nil, err
 	}

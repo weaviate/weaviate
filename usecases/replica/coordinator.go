@@ -210,7 +210,9 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
+
 	level := routingPlan.IntConsistencyLevel
+
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
 	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 20*time.Second)
 	c.log.WithFields(logrus.Fields{
@@ -219,7 +221,14 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		"level":    level,
 	}).Debug("context.WithTimeout")
 
-	callback := func(start time.Time) func(successful int) {
+	// create callback for metrics
+	// the use of an immediately invoked function expression (IIFE) captures the start time
+	// and returns the actual callback function.
+	// The returned function is then called by commitAll once it knows how many
+	// replicas have successfully committed
+	callback := func() func(successful int) {
+		start := time.Now()
+
 		return func(successful int) {
 			numReplicas := len(routingPlan.Replicas)
 
@@ -233,7 +242,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 
 			c.metrics.ObserveWriteDuration(time.Since(start))
 		}
-	}(time.Now())
+	}()
 
 	nodeCh := c.broadcast(ctxWithTimeout, routingPlan.ReplicasHostAddrs, ask, level)
 
@@ -246,6 +255,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
 		c.commitAll(context.Background(), additionalHostsBroadcast, com, nil)
 	}
+
 	return commitCh, level, nil
 }
 

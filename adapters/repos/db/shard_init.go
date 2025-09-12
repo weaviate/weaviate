@@ -46,13 +46,17 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		"index":  index.ID(),
 	}).Debugf("initializing shard %q", shardName)
 
+	metrics, err := NewMetrics(index.logger, promMetrics, string(index.Config.ClassName), shardName)
+	if err != nil {
+		return nil, fmt.Errorf("init shard %q metrics: %w", shardName, err)
+	}
+
 	s := &Shard{
 		index:       index,
 		class:       class,
 		name:        shardName,
 		promMetrics: promMetrics,
-		metrics: NewMetrics(index.logger, promMetrics,
-			string(index.Config.ClassName), shardName),
+		metrics:     metrics,
 		slowQueryReporter: helpers.NewSlowQueryReporter(index.Config.QuerySlowLogEnabled,
 			index.Config.QuerySlowLogThreshold, index.logger),
 		stopDimensionTracking: make(chan struct{}),

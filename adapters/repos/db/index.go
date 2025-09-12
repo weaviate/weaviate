@@ -273,6 +273,11 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{}
 	}
 
+	metrics, err := NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a")
+	if err != nil {
+		return nil, fmt.Errorf("create metrics for index %q: %w", cfg.ClassName.String(), err)
+	}
+
 	index := &Index{
 		Config:                  cfg,
 		globalreplicationConfig: globalReplicationConfig,
@@ -285,7 +290,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		stopwords:               sd,
 		partitioningEnabled:     shardState.PartitioningEnabled,
 		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
-		metrics:                 NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
+		metrics:                 metrics,
 		centralJobQueue:         jobQueueCh,
 		shardTransferMutex:      shardTransfer{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
 		scheduler:               scheduler,
