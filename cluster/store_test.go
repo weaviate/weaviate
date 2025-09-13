@@ -52,13 +52,16 @@ func TestStoreApply(t *testing.T) {
 	}
 
 	cls := &models.Class{Class: "C1", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
-	ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
-		Name:           "T1",
-		BelongsToNodes: []string{"THIS"},
-	}, "T2": {
-		Name:           "T2",
-		BelongsToNodes: []string{"THIS"},
-	}}}
+	ss := &sharding.State{
+		Physical: map[string]sharding.Physical{"T1": {
+			Name:           "T1",
+			BelongsToNodes: []string{"THIS"},
+		}, "T2": {
+			Name:           "T2",
+			BelongsToNodes: []string{"THIS"},
+		}},
+		PartitioningEnabled: true, // multi-tenant collection
+	}
 
 	tests := []struct {
 		name     string
@@ -413,7 +416,7 @@ func TestStoreApply(t *testing.T) {
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{
 						Class: cls, State: &sharding.State{
-							Physical: map[string]sharding.Physical{"T1": {}},
+							Physical: map[string]sharding.Physical{"T1": {}}, PartitioningEnabled: true,
 						},
 					}, nil),
 				})
@@ -474,7 +477,7 @@ func TestStoreApply(t *testing.T) {
 					Name:           "T1",
 					BelongsToNodes: []string{"Node-1"},
 					Status:         models.TenantActivityStatusHOT,
-				}}}
+				}}, PartitioningEnabled: true}
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
@@ -510,7 +513,7 @@ func TestStoreApply(t *testing.T) {
 					Name:           "T1",
 					BelongsToNodes: []string{"Node-1"},
 					Status:         models.TenantActivityStatusHOT,
-				}}}
+				}}, PartitioningEnabled: true}
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
@@ -555,7 +558,7 @@ func TestStoreApply(t *testing.T) {
 					Name:           "T3",
 					BelongsToNodes: []string{"NODE-2"},
 					Status:         models.TenantActivityStatusHOT,
-				}}}
+				}}, PartitioningEnabled: true}
 				m.indexer.On("AddClass", mock.Anything).Return(nil)
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
@@ -612,7 +615,7 @@ func TestStoreApply(t *testing.T) {
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{
 						Class: cls, State: &sharding.State{
-							Physical: map[string]sharding.Physical{"T1": {}},
+							Physical: map[string]sharding.Physical{"T1": {}}, PartitioningEnabled: true,
 						},
 					}, nil),
 				})
@@ -639,7 +642,7 @@ func TestStoreApply(t *testing.T) {
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{
 						Class: cls, State: &sharding.State{
-							Physical: map[string]sharding.Physical{"T1": {}},
+							Physical: map[string]sharding.Physical{"T1": {}}, PartitioningEnabled: true,
 						},
 					}, nil),
 				})
@@ -755,6 +758,7 @@ func TestStoreApply(t *testing.T) {
 						Name:           "T2",
 						BelongsToNodes: []string{"Node-1"},
 					}},
+					PartitioningEnabled: true,
 					// ReplicationFactor will be migrated to 1 as the default minimum
 				}
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
@@ -792,6 +796,7 @@ func TestStoreApply(t *testing.T) {
 						Name:           "T2",
 						BelongsToNodes: []string{"Node-1", "Node-2", "Node-3"},
 					}},
+					PartitioningEnabled: true,
 					// ReplicationFactor will be migrated to 1 as the default minimum
 				}
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
@@ -829,7 +834,8 @@ func TestStoreApply(t *testing.T) {
 						Name:           "T2",
 						BelongsToNodes: []string{"Node-1", "Node-2"},
 					}},
-					ReplicationFactor: 2,
+					PartitioningEnabled: true,
+					ReplicationFactor:   2,
 				}
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -866,7 +872,8 @@ func TestStoreApply(t *testing.T) {
 						Name:           "T2",
 						BelongsToNodes: []string{"Node-1", "Node-2", "Node-3", "Node-4"},
 					}},
-					ReplicationFactor: 3,
+					PartitioningEnabled: true,
+					ReplicationFactor:   3,
 				}
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -994,6 +1001,7 @@ func TestStoreApply(t *testing.T) {
 								Status:         models.TenantActivityStatusHOT,
 							},
 						},
+						PartitioningEnabled: true,
 						// ReplicationFactor intentionally not set (uninitialized)
 					},
 				},
@@ -1046,7 +1054,8 @@ func TestStoreApply(t *testing.T) {
 								Status:         models.TenantActivityStatusHOT,
 							},
 						},
-						ReplicationFactor: 0,
+						PartitioningEnabled: true,
+						ReplicationFactor:   0,
 					},
 				},
 				nil)},
@@ -1142,7 +1151,8 @@ func TestStoreApply(t *testing.T) {
 								Status:         models.TenantActivityStatusHOT,
 							},
 						},
-						ReplicationFactor: 5,
+						PartitioningEnabled: true,
+						ReplicationFactor:   5,
 					},
 				},
 				nil)},
@@ -1187,6 +1197,7 @@ func TestStoreApply(t *testing.T) {
 								Status:         models.TenantActivityStatusHOT,
 							},
 						},
+						PartitioningEnabled: true,
 						// ReplicationFactor intentionally not set (uninitialized)
 					},
 				},

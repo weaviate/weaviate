@@ -226,12 +226,28 @@ func TestSchemaReaderClass(t *testing.T) {
 	err = sc.Read("C", func(c *models.Class, s *sharding.State) error { return nil })
 	assert.ErrorIs(t, err, ErrClassNotFound)
 
-	// Add Simple class
+	// Add Single Tenant Class (PartitioningEnabled: false (default))
 	cls1 := &models.Class{Class: "C"}
-	ss1 := &sharding.State{Physical: map[string]sharding.Physical{
-		"S1": {Status: "A"},
-		"S2": {Status: "A", BelongsToNodes: nodes},
-	}}
+	ss1 := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			"S1": {Status: "A"},
+			"S2": {Status: "A", BelongsToNodes: nodes},
+		},
+		Virtual: []sharding.Virtual{
+			{
+				Name:               "V1",
+				Upper:              1000,
+				OwnsPercentage:     1.0,
+				AssignedToPhysical: "S1",
+			},
+			{
+				Name:               "V2",
+				Upper:              2000,
+				OwnsPercentage:     1.0,
+				AssignedToPhysical: "S2",
+			},
+		},
+	}
 
 	sc.schema.addClass(cls1, ss1, 1)
 	assert.Equal(t, sc.ReadOnlyClass("C"), cls1)
@@ -252,7 +268,7 @@ func TestSchemaReaderClass(t *testing.T) {
 	_, err = sc.GetShardsStatus("C", "")
 	assert.Nil(t, err)
 
-	// Add MT Class
+	// Add Multi Tenant Class (PartitioningEnabled: true)
 	cls2 := &models.Class{Class: "D", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
 	ss2 := &sharding.State{
 		PartitioningEnabled: true,

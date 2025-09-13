@@ -171,9 +171,6 @@ func (db *DB) Shards(ctx context.Context, class string) ([]string, error) {
 	var shardCount int
 
 	err := db.schemaReader.Read(class, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %s", class)
-		}
 		shardCount = len(state.Physical)
 		if shardCount == 0 {
 			nodes = []string{}
@@ -312,9 +309,6 @@ func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
 func (i *Index) marshalShardingState() ([]byte, error) {
 	var jsonBytes []byte
 	err := i.schemaReader.Read(i.Config.ClassName.String(), func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %s", i.Config.ClassName.String())
-		}
 		bytes, jsonErr := state.JSON()
 		if jsonErr != nil {
 			return jsonErr

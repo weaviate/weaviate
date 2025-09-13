@@ -96,12 +96,6 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 		var localShardNames map[string]bool
 
 		err := m.schemaReader.Read(collection.Class, func(_ *models.Class, state *sharding.State) error {
-			if state == nil {
-				// this could happen in case the between getting the schema and getting the shard state the collection got deleted
-				// in the meantime, usually in automated tests or scripts
-				return nil
-			}
-
 			uniqueShardCount = len(state.Physical)
 			localShards = make([]shardInfo, 0, len(state.Physical))
 			localShardNames = make(map[string]bool)

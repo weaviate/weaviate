@@ -253,9 +253,6 @@ func getShardReplicationDetails(i *Index, shardName string) (int64, int64) {
 	class := i.Config.ClassName.String()
 	err := i.schemaReader.Read(class, func(class *models.Class, state *sharding.State) error {
 		var err error
-		if state == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %s", class.Class)
-		}
 		replicationFactor = state.ReplicationFactor
 		numberOfReplicas, err = state.NumberOfReplicas(shardName)
 		if err != nil {
