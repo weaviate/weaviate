@@ -21,9 +21,9 @@ import (
 
 const (
 	TrucAt    = 64
-	MaxLevels = 18  // 12 // or 12+1500
-	rescore   = 300 // 150
-	size      = 1_000_000
+	MaxLevels = 12  // 18
+	rescore   = 150 // 300
+	size      = 100_000
 )
 
 type heapPool struct {
