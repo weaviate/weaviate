@@ -527,10 +527,11 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 
 	replacementBucket.dir = newReplacementBucketDir
 
-	err = replacementBucket.setNewActiveMemtable()
+	mt, err := replacementBucket.createNewActiveMemtable()
 	if err != nil {
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
+	replacementBucket.active = mt
 
 	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
 	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
@@ -578,10 +579,11 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 
 	currBucket.dir = newBucketDir
 
-	err := currBucket.setNewActiveMemtable()
+	mt, err := currBucket.createNewActiveMemtable()
 	if err != nil {
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
+	currBucket.active = mt
 
 	s.bucketsByName[newBucketName] = currBucket
 	delete(s.bucketsByName, bucketName)

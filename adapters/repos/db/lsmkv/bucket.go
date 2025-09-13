@@ -262,7 +262,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	b.disk = sg
 
 	if b.active == nil {
-		err = b.setNewActiveMemtable()
+		b.active, err = b.createNewActiveMemtable()
 		if err != nil {
 			return nil, err
 		}
@@ -1112,24 +1112,21 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 	return b.active.setTombstoneWith(key, deletionTime, opts...)
 }
 
-// meant to be called from situations where a lock is already held, does not
-// lock on its own
-func (b *Bucket) setNewActiveMemtable() error {
+func (b *Bucket) createNewActiveMemtable() (*Memtable, error) {
 	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
 
 	cl, err := newLazyCommitLogger(path, b.strategy)
 	if err != nil {
-		return errors.Wrap(err, "init commit logger")
+		return nil, errors.Wrap(err, "init commit logger")
 	}
 
 	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl,
 		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config, b.writeSegmentInfoIntoFileName, b.allocChecker)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	b.active = mt
-	return nil
+	return mt, nil
 }
 
 func (b *Bucket) Count(ctx context.Context) (int, error) {
@@ -1431,7 +1428,7 @@ func (b *Bucket) FlushAndSwitch() error {
 		WithField("path", bucketPath).
 		Trace("start flush and switch")
 
-	switched, err := b.atomicallySwitchMemtable()
+	switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
 	if err != nil {
 		b.logger.WithField("action", "lsm_memtable_flush_start").
 			WithField("path", bucketPath).
@@ -1519,7 +1516,11 @@ func (b *Bucket) FlushAndSwitch() error {
 	return nil
 }
 
-func (b *Bucket) atomicallySwitchMemtable() (bool, error) {
+// atomicallySwitchMemtable creates a new memtable and switches the active
+// memtable to flushing while holding the flush lock. This makes the change atomic.
+// This method is agnostic of how a new memtable is constructed, the caller can
+// dependency-inject a function to do so.
+func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (*Memtable, error)) (bool, error) {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 
@@ -1529,10 +1530,11 @@ func (b *Bucket) atomicallySwitchMemtable() (bool, error) {
 
 	flushing := b.active
 
-	err := b.setNewActiveMemtable()
+	mt, err := createNewActiveMemtable()
 	if err != nil {
 		return false, fmt.Errorf("switch active memtable: %w", err)
 	}
+	b.active = mt
 	b.flushing = flushing
 
 	return true, nil
@@ -1564,7 +1566,7 @@ func (b *Bucket) initAndPrecomputeNewSegment(segmentPath string) (*segment, erro
 	return segment, nil
 }
 
-func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg *segment) error {
+func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 
