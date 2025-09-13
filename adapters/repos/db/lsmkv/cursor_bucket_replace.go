@@ -33,6 +33,13 @@ type innerCursorReplace interface {
 	seek([]byte) ([]byte, []byte, error)
 }
 
+type innerCursorReplaceAllKeys interface {
+	innerCursorReplace
+
+	firstWithAllKeys() (segmentReplaceNode, error)
+	nextWithAllKeys() (segmentReplaceNode, error)
+}
+
 type cursorStateReplace struct {
 	key   []byte
 	value []byte
@@ -41,8 +48,10 @@ type cursorStateReplace struct {
 
 // Cursor holds a RLock for the flushing state. It needs to be closed using the
 // .Close() methods or otherwise the lock will never be released
+// TODO: update comment
 func (b *Bucket) Cursor() *CursorReplace {
 	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
 
 	if b.strategy != StrategyReplace {
 		panic("Cursor() called on strategy other than 'replace'")
@@ -65,7 +74,6 @@ func (b *Bucket) Cursor() *CursorReplace {
 		innerCursors: innerCursors,
 		unlock: func() {
 			unlockSegmentGroup()
-			b.flushLock.RUnlock()
 		},
 	}
 }
@@ -114,12 +122,13 @@ func (b *Bucket) CursorInMem() *CursorReplace {
 // already persisted on disk.
 // New segments can still be created but compaction will be prevented
 // while any cursor remains active
+// TODO
 func (b *Bucket) CursorOnDisk() *CursorReplace {
 	if b.strategy != StrategyReplace {
 		panic("CursorWith(desiredSecondaryIndexCount) called on strategy other than 'replace'")
 	}
 
-	innerCursors, unlockSegmentGroup := b.disk.newCursorsWithFlushingSupport()
+	innerCursors, unlockSegmentGroup := b.disk.newCursors()
 
 	return &CursorReplace{
 		innerCursors: innerCursors,

@@ -169,6 +169,11 @@ func (s *lazySegment) close() error {
 	return s.segment.close()
 }
 
+func (s *lazySegment) dropMarked() error {
+	s.mustLoad()
+	return s.segment.dropMarked()
+}
+
 func (s *lazySegment) get(key []byte) ([]byte, error) {
 	s.mustLoad()
 	return s.segment.get(key)
@@ -221,7 +226,7 @@ func (s *lazySegment) newCollectionCursorReusable() *segmentCursorCollectionReus
 	return s.segment.newCollectionCursorReusable()
 }
 
-func (s *lazySegment) newCursor() *segmentCursorReplace {
+func (s *lazySegment) newCursor() innerCursorReplaceAllKeys {
 	s.mustLoad()
 	return s.segment.newCursor()
 }
@@ -292,4 +297,19 @@ func (s *lazySegment) numberFromPath(re *regexp.Regexp) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+func (s *lazySegment) incRef() {
+	s.mustLoad()
+	s.segment.incRef()
+}
+
+func (s *lazySegment) decRef() {
+	s.mustLoad()
+	s.segment.decRef()
+}
+
+func (s *lazySegment) getRefs() int {
+	s.mustLoad()
+	return s.segment.getRefs()
 }

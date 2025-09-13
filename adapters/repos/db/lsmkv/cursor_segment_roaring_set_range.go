@@ -19,7 +19,7 @@ import (
 )
 
 func (sg *SegmentGroup) newRoaringSetRangeReaders() ([]roaringsetrange.InnerReader, func()) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 
 	readers := make([]roaringsetrange.InnerReader, len(segments))
 	for i, segment := range segments {

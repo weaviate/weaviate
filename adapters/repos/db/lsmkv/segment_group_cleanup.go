@@ -197,7 +197,7 @@ func (c *segmentCleanerCommon) findCandidate() (int, int, int, onCompletedFunc, 
 }
 
 func (c *segmentCleanerCommon) getSegmentIdsAndSizes() ([]int64, []int64, error) {
-	segments, release := c.sg.getAndLockSegments()
+	segments, release := c.sg.getConsistentViewOfSegments()
 	defer release()
 
 	var ids []int64
@@ -551,7 +551,7 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyE
 		}
 
 		segAtPos := func() *segment {
-			segments, release := sg.getAndLockSegments()
+			segments, release := sg.getConsistentViewOfSegments()
 			defer release()
 
 			if i >= startIdx && i <= lastIdx {
@@ -573,6 +573,7 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyE
 	}
 }
 
+// TODO: should be broken right now, needs adjustment similar to regular compaction
 func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 ) (*segment, error) {
 	oldSegment := sg.segmentAtPos(segmentIdx)
@@ -606,7 +607,7 @@ func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 		return nil, fmt.Errorf("replace segment (blocking): %w", err)
 	}
 
-	if err := sg.deleteOldSegmentsNonBlocking(oldSegment); err != nil {
+	if err := sg.deleteOldSegmentsFromDisk(oldSegment); err != nil {
 		// don't abort if the delete fails, we can still continue (albeit
 		// without freeing disk space that should have been freed). The
 		// compaction itself was successful.

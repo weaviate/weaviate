@@ -262,7 +262,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	b.disk = sg
 
 	if b.active == nil {
-		err = b.setNewActiveMemtable()
+		b.active, err = b.createNewActiveMemtable()
 		if err != nil {
 			return nil, err
 		}
@@ -433,21 +433,35 @@ func (b *Bucket) SetMemtableThreshold(size uint64) {
 // secondary indexes, use [Bucket.GetBySecondary] to retrieve an object using
 // its secondary key
 func (b *Bucket) Get(key []byte) ([]byte, error) {
+	return b.get(key)
+}
+
+func (b *Bucket) getConsistentView() (active, flushing *Memtable, diskSegments []Segment, release func()) {
 	beforeFlushLock := time.Now()
 	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
 	if time.Since(beforeFlushLock) > 100*time.Millisecond {
 		b.logger.WithField("duration", time.Since(beforeFlushLock)).
 			WithField("action", "lsm_bucket_get_acquire_flush_lock").
 			Debugf("Waited more than 100ms to obtain a flush lock during get")
 	}
-	defer b.flushLock.RUnlock()
 
-	return b.get(key)
+	diskSegments, releaseDiskSegments := b.disk.getConsistentViewOfSegments()
+
+	release = func() {
+		releaseDiskSegments()
+	}
+
+	return b.active, b.flushing, diskSegments, release
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
+	active, flushing, diskSegments, release := b.getConsistentView()
+	defer release()
+
 	beforeMemtable := time.Now()
-	v, err := b.active.get(key)
+	v, err := active.get(key)
 	if time.Since(beforeMemtable) > 100*time.Millisecond {
 		b.logger.WithField("duration", time.Since(beforeMemtable)).
 			WithField("action", "lsm_bucket_get_active_memtable").
@@ -468,9 +482,9 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 		panic(fmt.Sprintf("unsupported error in bucket.Get: %v\n", err))
 	}
 
-	if b.flushing != nil {
+	if flushing != nil {
 		beforeFlushMemtable := time.Now()
-		v, err := b.flushing.get(key)
+		v, err := flushing.get(key)
 		if time.Since(beforeFlushMemtable) > 100*time.Millisecond {
 			b.logger.WithField("duration", time.Since(beforeFlushMemtable)).
 				WithField("action", "lsm_bucket_get_flushing_memtable").
@@ -492,7 +506,7 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 		}
 	}
 
-	return b.disk.get(key)
+	return b.disk.getWithSegmentList(key, diskSegments)
 }
 
 func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
@@ -689,10 +703,31 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 // Put is limited to ReplaceStrategy, use [Bucket.SetAdd] for Set or
 // [Bucket.MapSet] and [Bucket.MapSetMulti].
 func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) error {
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
+
+	return active.put(key, value, opts...)
+}
+
+// getActiveMemtableForWrite returns the active memtable and uses reference
+// counting to avoid holding a lock during the entire duration of the write.
+//
+// It is safe to switch the memtable from active to flushing while a writer
+// is ongoing, because the actual flush only happens once the writer count
+// has dropped to zero. Essentially the switch just switches pointers, but we
+// will always work on the same pointer for the duration of the write.
+func (b *Bucket) getActiveMemtableForWrite() (active *Memtable, release func()) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	return b.active.put(key, value, opts...)
+	active = b.active
+	active.writerCount.Add(1)
+
+	release = func() {
+		active.writerCount.Add(-1)
+	}
+
+	return active, release
 }
 
 // SetAdd adds one or more Set-Entries to a Set for the given key. SetAdd is
@@ -1077,24 +1112,21 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 	return b.active.setTombstoneWith(key, deletionTime, opts...)
 }
 
-// meant to be called from situations where a lock is already held, does not
-// lock on its own
-func (b *Bucket) setNewActiveMemtable() error {
+func (b *Bucket) createNewActiveMemtable() (*Memtable, error) {
 	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
 
 	cl, err := newLazyCommitLogger(path, b.strategy)
 	if err != nil {
-		return errors.Wrap(err, "init commit logger")
+		return nil, errors.Wrap(err, "init commit logger")
 	}
 
 	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl,
 		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config, b.writeSegmentInfoIntoFileName, b.allocChecker)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	b.active = mt
-	return nil
+	return mt, nil
 }
 
 func (b *Bucket) Count(ctx context.Context) (int, error) {
@@ -1396,7 +1428,7 @@ func (b *Bucket) FlushAndSwitch() error {
 		WithField("path", bucketPath).
 		Trace("start flush and switch")
 
-	switched, err := b.atomicallySwitchMemtable()
+	switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
 	if err != nil {
 		b.logger.WithField("action", "lsm_memtable_flush_start").
 			WithField("path", bucketPath).
@@ -1409,6 +1441,16 @@ func (b *Bucket) FlushAndSwitch() error {
 			Trace("flush and switch not needed")
 		return nil
 	}
+
+	// Before we can start the actual flush, we need to make sure that all
+	// ongoing writers have finished their write, otherwise we could lose the
+	// write.
+	//
+	// The writer count is guaranteed to eventually reach zero, because we
+	// switched the active memtable already, new writers will go into the
+	// currently active memtable, and existing writers will eventually finish
+	// their work
+	b.waitForZeroWriters(b.flushing)
 
 	if b.flushing.strategy == StrategyInverted {
 		b.flushing.averagePropLength, b.flushing.propLengthCount = b.disk.GetAveragePropertyLength()
@@ -1474,7 +1516,11 @@ func (b *Bucket) FlushAndSwitch() error {
 	return nil
 }
 
-func (b *Bucket) atomicallySwitchMemtable() (bool, error) {
+// atomicallySwitchMemtable creates a new memtable and switches the active
+// memtable to flushing while holding the flush lock. This makes the change atomic.
+// This method is agnostic of how a new memtable is constructed, the caller can
+// dependency-inject a function to do so.
+func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (*Memtable, error)) (bool, error) {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 
@@ -1484,13 +1530,28 @@ func (b *Bucket) atomicallySwitchMemtable() (bool, error) {
 
 	flushing := b.active
 
-	err := b.setNewActiveMemtable()
+	mt, err := createNewActiveMemtable()
 	if err != nil {
 		return false, fmt.Errorf("switch active memtable: %w", err)
 	}
+	b.active = mt
 	b.flushing = flushing
 
 	return true, nil
+}
+
+func (b *Bucket) waitForZeroWriters(mt *Memtable) {
+	// TODO: this can be improved
+	// TODO: warn/alert if it takes too long
+	i := 0
+	for {
+		writers := mt.writerCount.Load()
+		if writers == 0 {
+			return
+		}
+		i++
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func (b *Bucket) initAndPrecomputeNewSegment(segmentPath string) (*segment, error) {
@@ -1505,7 +1566,7 @@ func (b *Bucket) initAndPrecomputeNewSegment(segmentPath string) (*segment, erro
 	return segment, nil
 }
 
-func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg *segment) error {
+func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 
@@ -1673,7 +1734,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	// BlockMax is ran outside this function, so, the lock is returned to the caller.
 	// Panics at this level are caught and the lock is released in the defer function.
 	// The lock is released after the blockmax search is done, and panics are also handled.
-	segmentsDisk, release := b.disk.getAndLockSegments()
+	segmentsDisk, release := b.disk.getConsistentViewOfSegments()
 
 	output := make([][]*SegmentBlockMax, len(segmentsDisk)+2)
 	idfs := make([]float64, len(query))

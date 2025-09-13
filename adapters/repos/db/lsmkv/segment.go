@@ -45,9 +45,13 @@ type Segment interface {
 	getLevel() uint16
 	getSize() int64
 	setSize(size int64)
+	incRef()
+	decRef()
+	getRefs() int
 
 	PayloadSize() int
 	close() error
+	dropMarked() error
 	get(key []byte) ([]byte, error)
 	getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
 	getCollection(key []byte) ([]value, error)
@@ -58,7 +62,7 @@ type Segment interface {
 	MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error)
 	newCollectionCursor() *segmentCursorCollection
 	newCollectionCursorReusable() *segmentCursorCollectionReusable
-	newCursor() *segmentCursorReplace
+	newCursor() innerCursorReplaceAllKeys
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	newMapCursor() *segmentCursorMap
 	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
@@ -105,6 +109,7 @@ type segment struct {
 	invertedData   *segmentInvertedData
 
 	observeMetaWrite diskio.MeteredWriterCallback // used for precomputing meta (cna + bloom)
+	refCount         int
 }
 
 type diskIndex interface {
@@ -663,4 +668,24 @@ func (c *readObserverCache) GetOrCreate(key string, metrics *Metrics) BytesReadO
 	observer := metrics.ReadObserver(key)
 	c.Store(key, observer)
 	return observer
+}
+
+// TODO: locking?
+func (s *segment) incRef() {
+	// fmt.Printf("%s: INCREF %p %d -> %d\n", s.getPath(), s, s.refCount, s.refCount+1)
+	s.refCount++
+}
+
+// TODO: locking?
+func (s *segment) decRef() {
+	// fmt.Printf("%s: DECREF %p %d -> %d\n", s.getPath(), s, s.refCount, s.refCount-1)
+	if s.refCount <= 0 {
+		panic("refCount already zero")
+	}
+	s.refCount--
+}
+
+// TODO: locking?
+func (s *segment) getRefs() int {
+	return s.refCount
 }

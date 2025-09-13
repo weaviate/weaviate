@@ -728,3 +728,278 @@ func getFileTypeCount(t *testing.T, path string) map[string]int {
 	}
 	return fileTypes
 }
+
+// TestBucketReplaceStrategyConsistentView verifies that a Bucket using the
+// "replace" strategy provides snapshot isolation via consistent views. The
+// test follows this timeline:
+//
+//  1. Initial state: disk has key1, active memtable has key2. Reads return
+//     both correctly.
+//
+//  2. First view: sees active=key2, flushing=nil, disk=key1.
+//
+//  3. Memtable switch: bucket switches to a new active with key3, moving key2
+//     to flushing.
+//     - Old view remains unchanged.
+//     - New view sees active=key3, flushing=key2, disk=key1.
+//
+// 4. Flush: flushing (key2) is written to disk and removed.
+//   - Old and second views remain stable.
+//   - Writers progress without blocking readers.
+//
+// 5. Final view: sees active=key3, flushing=nil, disk containing key1 and key2.
+//
+// In summary, readers always see a consistent snapshot, while concurrent
+// writes and flushes can proceed without disturbing existing views.
+func TestBucketReplaceStrategyConsistentView(t *testing.T) {
+	t.Parallel()
+
+	diskSegments := &SegmentGroup{
+		segments: []Segment{
+			newFakeReplaceSegment(map[string][]byte{
+				"key1": []byte("value1"),
+			}),
+		},
+	}
+
+	initialMemtable := newTestMemtableReplace(map[string][]byte{
+		"key2": []byte("value2"),
+	})
+
+	b := Bucket{
+		active: initialMemtable,
+		disk:   diskSegments,
+	}
+
+	// validate initial data before making any changes
+	value, err := b.Get([]byte("key1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("value1"), value)
+	value, err = b.Get([]byte("key2"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("value2"), value)
+
+	// open a consistent view
+	active, flushing, disk, release := b.getConsistentView()
+	defer release()
+
+	// controls before making changes
+	validateOriginalView := func(active, flushing *Memtable, disk []Segment) {
+		// active
+		v, err := active.key.get([]byte("key2"))
+		require.NoError(t, err)
+		require.Equal(t, []byte("value2"), v)
+
+		// flushing
+		require.Nil(t, flushing)
+
+		// disk
+		v, err = b.disk.getWithSegmentList([]byte("key1"), disk)
+		require.NoError(t, err)
+		require.Equal(t, []byte("value1"), v)
+	}
+	validateOriginalView(active, flushing, disk)
+
+	// prove that we can switch memtables despite having an open consistent view
+	switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+		return newTestMemtableReplace(map[string][]byte{
+			"key3": []byte("value3"),
+		}), nil
+	})
+	require.NoError(t, err)
+	require.True(t, switched)
+
+	// prove that the open view still sees the same data
+	validateOriginalView(active, flushing, disk)
+
+	// prove that a new view sees the new state
+	active2, flushing2, disk2, release2 := b.getConsistentView()
+	defer release2()
+	validateSecondView := func(active, flushing *Memtable, disk []Segment) {
+		require.NotNil(t, active)
+		v, err := active.key.get([]byte("key3"))
+		require.NoError(t, err)
+		require.Equal(t, []byte("value3"), v)
+
+		require.NotNil(t, flushing)
+		v, err = flushing.key.get([]byte("key2"))
+		require.NoError(t, err)
+		require.Equal(t, []byte("value2"), v)
+
+		v, err = b.disk.getWithSegmentList([]byte("key1"), disk)
+		require.NoError(t, err)
+		require.Equal(t, []byte("value1"), v)
+	}
+	validateSecondView(active2, flushing2, disk2)
+
+	// prove that we can flush the flushing mt into a disk segment without
+	// affecting our two open views
+	seg := flushReplaceTestMemtableIntoTestSegment(b.flushing)
+	b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+	validateOriginalView(active, flushing, disk)
+	validateSecondView(active2, flushing2, disk2)
+
+	// finally, validate that a new view sees the final state
+	active3, flushing3, disk3, release3 := b.getConsistentView()
+	defer release3()
+
+	require.NotNil(t, active3)
+	v, err := active3.key.get([]byte("key3"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("value3"), v)
+
+	require.Nil(t, flushing3)
+
+	// both key1 and key2 are now on disk
+	v, err = b.disk.getWithSegmentList([]byte("key1"), disk3)
+	require.NoError(t, err)
+	require.Equal(t, []byte("value1"), v)
+	v, err = b.disk.getWithSegmentList([]byte("key2"), disk3)
+	require.NoError(t, err)
+	require.Equal(t, []byte("value2"), v)
+}
+
+// TestBucketReplaceStrategyWriteVsFlush verifies that writes remain consistent
+// when overlapping with a flush-and-switch cycle. The timeline:
+//
+// 1. Initial state: active memtable has key1.
+// 2. First write: key2 is added to the active memtable.
+// 3. Concurrent flush-and-switch:
+//   - Active memtable is moved to flushing, new empty active is installed.
+//   - Writer still holds a reference to the old active while flushing proceeds.
+//
+// 4. Second write: key3 is written through the still-held reference.
+// 5. Flush completes: flushing memtable (with key1, key2, key3) is persisted to disk.
+// 6. Validation: a consistent view confirms all keys (key1, key2, key3) are present.
+//
+// In summary, the test proves that writers holding references can continue writing
+// safely during a flush, and all writes are eventually preserved on disk.
+func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
+	t.Parallel()
+
+	b := Bucket{
+		active: newTestMemtableReplace(map[string][]byte{
+			"key1": []byte("value1"),
+		}),
+		disk: &SegmentGroup{segments: []Segment{}},
+	}
+
+	active, freeRefs := b.getActiveMemtableForWrite()
+
+	// perform first write in initial state
+	active.put([]byte("key2"), []byte("value2"), nil)
+
+	// simulate a FlushAndSwitch() in a separate goroutine
+	switchComplete := make(chan struct{})
+	flushComplete := make(chan struct{})
+	go func() {
+		// switch memtable into flushing and add new. This also proves that we can
+		// switch memtables despite having an active writer.
+		switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+			return newTestMemtableReplace(nil), nil
+		})
+		require.NoError(t, err)
+		require.True(t, switched)
+		close(switchComplete)
+
+		b.waitForZeroWriters(b.flushing)
+		seg := flushReplaceTestMemtableIntoTestSegment(b.flushing)
+		b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+		close(flushComplete)
+	}()
+
+	<-switchComplete
+
+	// perform another write post-switch
+	active.put([]byte("key3"), []byte("value3"), nil)
+
+	freeRefs() // this unblocks the actual flush
+	<-flushComplete
+
+	// validate that all writes are present on disk
+	_, _, disk, release := b.getConsistentView()
+	defer release()
+
+	expected := map[string][]byte{
+		"key1": []byte("value1"),
+		"key2": []byte("value2"),
+		"key3": []byte("value3"),
+	}
+
+	for k, expectedV := range expected {
+		v, err := b.disk.getWithSegmentList([]byte(k), disk)
+		require.NoError(t, err)
+		require.Equal(t, expectedV, v)
+	}
+}
+
+func newTestMemtableReplace(initialData map[string][]byte) *Memtable {
+	m := &Memtable{
+		strategy:  StrategyReplace,
+		key:       &binarySearchTree{},
+		commitlog: newDummyCommitLogger(),
+		metrics:   newMemtableMetrics(nil, "", ""),
+	}
+
+	for k, v := range initialData {
+		m.key.insert([]byte(k), v, nil)
+		m.size += uint64(len(k) + len(v))
+	}
+
+	return m
+}
+
+func flushReplaceTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
+	allEntries := m.key.flattenInOrder()
+	data := map[string][]byte{}
+	for _, e := range allEntries {
+		data[string(e.key)] = e.value
+	}
+	return newFakeReplaceSegment(data)
+}
+
+func newDummyCommitLogger() memtableCommitLogger {
+	return &dummyCommitLogger{}
+}
+
+type dummyCommitLogger struct{}
+
+func (d *dummyCommitLogger) writeEntry(commitType CommitType, nodeBytes []byte) error {
+	return nil
+}
+
+func (d *dummyCommitLogger) put(node segmentReplaceNode) error {
+	return nil
+}
+
+func (d *dummyCommitLogger) append(node segmentCollectionNode) error {
+	return nil
+}
+
+func (d *dummyCommitLogger) add(node *roaringset.SegmentNodeList) error {
+	return nil
+}
+
+func (d *dummyCommitLogger) walPath() string {
+	return "dummy"
+}
+
+func (d *dummyCommitLogger) size() int64 {
+	return 0
+}
+
+func (d *dummyCommitLogger) flushBuffers() error {
+	return nil
+}
+
+func (d *dummyCommitLogger) close() error {
+	return nil
+}
+
+func (d *dummyCommitLogger) delete() error {
+	return nil
+}
+
+func (d *dummyCommitLogger) sync() error {
+	return nil
+}
