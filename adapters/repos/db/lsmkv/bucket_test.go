@@ -733,14 +733,15 @@ func getFileTypeCount(t *testing.T, path string) map[string]int {
 // "replace" strategy provides snapshot isolation via consistent views. The
 // test follows this timeline:
 //
-//  1. Initial state: disk has key1, active memtable has key2. Reads return both
-//     correctly.
-//  2. First view: sees active=key2, flushing=nil, disk=key1.
-//  3. Memtable switch: bucket switches to a new active with key3, moving key2
+//  1. Initial state: disk has key1, active memtable has key2. Reads return
+//     both correctly.
 //
-// to flushing.
-//   - Old view remains unchanged.
-//   - New view sees active=key3, flushing=key2, disk=key1.
+//  2. First view: sees active=key2, flushing=nil, disk=key1.
+//
+//  3. Memtable switch: bucket switches to a new active with key3, moving key2
+//     to flushing.
+//     - Old view remains unchanged.
+//     - New view sees active=key3, flushing=key2, disk=key1.
 //
 // 4. Flush: flushing (key2) is written to disk and removed.
 //   - Old and second views remain stable.
