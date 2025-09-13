@@ -18,11 +18,11 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -102,7 +102,8 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 				replica := replica
 				g := func() {
 					defer wg.Done()
-					err := op(ctx, replica, c.TxID)
+					replicaCtx, _ := context.WithTimeout(ctx, 20*time.Second)
+					err := op(replicaCtx, replica, c.TxID)
 					resChan <- _Result[string]{replica, err}
 				}
 				enterrors.GoWrapper(g, c.log)
@@ -140,7 +141,10 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 			fs := logrus.Fields{"op": "broadcast", "active": len(actives), "total": len(replicas)}
 			c.log.WithFields(fs).Error("abort")
 			for _, node := range replicas {
-				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
+				// Use background context for cleanup operations to ensure they complete
+				// even if the original request context has expired
+				abortCtx, _ := context.WithTimeout(context.Background(), 20*time.Second)
+				c.Abort(abortCtx, node, c.Class, c.Shard, c.TxID)
 			}
 		}
 	}
@@ -159,7 +163,6 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 		wg := sync.WaitGroup{}
 		for replica := range replicaCh {
 			wg.Add(1)
-			replica := replica
 			g := func() {
 				defer wg.Done()
 				resp, err := op(ctx, replica, c.TxID)
@@ -190,22 +193,20 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 	level := routingPlan.IntConsistencyLevel
+
+	numReplicas := len(routingPlan.ReplicasHostAddrs)
+	timeoutDuration := time.Duration(numReplicas*20) * time.Second
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 20*time.Second)
-	c.log.WithFields(logrus.Fields{
-		"action":   "coordinator_push",
-		"duration": 20 * time.Second,
-		"level":    level,
-	}).Debug("context.WithTimeout")
+	ctxWithTimeout, _ := context.WithTimeout(ctx, timeoutDuration)
 	nodeCh := c.broadcast(ctxWithTimeout, routingPlan.ReplicasHostAddrs, ask, level)
-	commitCh := c.commitAll(context.Background(), nodeCh, com)
+	commitCh := c.commitAll(ctxWithTimeout, nodeCh, com)
 
 	// if there are additional hosts, we do a "best effort" write to them
 	// where we don't wait for a response because they are not part of the
 	// replicas used to reach level consistency
 	if len(routingPlan.AdditionalHostAddrs) > 0 {
 		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
-		c.commitAll(context.Background(), additionalHostsBroadcast, com)
+		c.commitAll(context.Background(), additionalHostsBroadcast, com) // TODO: double check this
 	}
 	return commitCh, level, nil
 }
@@ -272,9 +273,10 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					return
 				}
 				// this host failed op on the first try, put it on the retry queue
+				retryCtx, _ := context.WithTimeout(ctx, timeout)
 				hostRetryQueue <- hostRetry{
 					hosts[hostIndex],
-					backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
+					backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), retryCtx),
 				}
 
 				// let's fallback to the backups in the retry queue
