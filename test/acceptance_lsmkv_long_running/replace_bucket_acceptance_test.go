@@ -226,11 +226,7 @@ func worker(ctx context.Context, t *testing.T, mode *mode, wg *sync.WaitGroup, w
 
 	i := 0
 	totalAsserted := 0
-	for {
-		if ctx.Err() != nil {
-			break
-		}
-
+	for ctx.Err() == nil {
 		if mode.isWrite() {
 			before := time.Now()
 			bucket.Put([]byte(fmt.Sprintf("worker-%d-key-%d", workerID, i)), []byte(fmt.Sprintf("value-%d", i)))

@@ -1542,13 +1542,13 @@ func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (*Memta
 
 func (b *Bucket) waitForZeroWriters(mt *Memtable) {
 	// TODO: this can be improved
+	// TODO: warn/alert if it takes too long
 	i := 0
 	for {
 		writers := mt.writerCount.Load()
 		if writers == 0 {
 			return
 		}
-		fmt.Printf("==== waiting for %d writers to finish round(%d)\n", writers, i)
 		i++
 		time.Sleep(100 * time.Millisecond)
 	}

@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package lsmkv
 
 import (
@@ -434,8 +445,7 @@ func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapB
 		return roaringset.BitmapLayer{}, nil, fmt.Errorf("not a roaring set segment")
 	}
 
-	keyStr := string(key)
-	if val, ok := f.roaringStore[keyStr]; ok {
+	if val, ok := f.roaringStore[string(key)]; ok {
 		return roaringset.BitmapLayer{
 			Additions: val,
 		}, func() {}, nil

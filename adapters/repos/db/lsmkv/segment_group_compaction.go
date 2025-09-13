@@ -400,7 +400,6 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 
 	// TODO: This could be done async, e.g. append to a queue
 	//
-	// wait for ref count to reach zero, close and delete files
 	if err := sg.deleteOldSegmentsFromDisk(oldL, oldR); err != nil {
 		// don't abort if the delete fails, we can still continue (albeit
 		// without freeing disk space that should have been freed). The
@@ -451,15 +450,15 @@ func (sg *SegmentGroup) preinitializeNewSegment(old1, old2 int, newPathTmp strin
 }
 
 func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
+	// TODO: warn/alert if waiting too long
 	allZero := false
 	t := time.NewTicker(100 * time.Millisecond)
 	for !allZero {
 		sg.segmentRefCounterLock.Lock()
 
 		allZero = true
-		for pos, seg := range segments {
+		for _, seg := range segments {
 			if refs := seg.getRefs(); refs != 0 {
-				fmt.Printf("---- segment at pos %d still has %d refs\n", pos, refs)
 				allZero = false
 				break
 			}
@@ -476,9 +475,9 @@ func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
 }
 
 func (sg *SegmentGroup) deleteOldSegmentsFromDisk(segments ...Segment) error {
+	// wait for ref count to reach zero, close and delete files
 	// At this point those segments are no longer used, so we can drop them
 	// without holding the maintenance lock and therefore not block readers.
-
 	sg.waitForReferenceCountToReachZero(segments...)
 
 	// it is now safe to close and drop them
