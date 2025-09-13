@@ -859,6 +859,80 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	require.Equal(t, []byte("value2"), v)
 }
 
+// TestBucketReplaceStrategyWriteVsFlush verifies that writes remain consistent
+// when overlapping with a flush-and-switch cycle. The timeline:
+//
+// 1. Initial state: active memtable has key1.
+// 2. First write: key2 is added to the active memtable.
+// 3. Concurrent flush-and-switch:
+//   - Active memtable is moved to flushing, new empty active is installed.
+//   - Writer still holds a reference to the old active while flushing proceeds.
+//
+// 4. Second write: key3 is written through the still-held reference.
+// 5. Flush completes: flushing memtable (with key1, key2, key3) is persisted to disk.
+// 6. Validation: a consistent view confirms all keys (key1, key2, key3) are present.
+//
+// In summary, the test proves that writers holding references can continue writing
+// safely during a flush, and all writes are eventually preserved on disk.
+func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
+	t.Parallel()
+
+	b := Bucket{
+		active: newTestMemtableReplace(map[string][]byte{
+			"key1": []byte("value1"),
+		}),
+		disk: &SegmentGroup{segments: []Segment{}},
+	}
+
+	active, freeRefs := b.getActiveMemtableForWrite()
+
+	// perform first write in initial state
+	active.put([]byte("key2"), []byte("value2"), nil)
+
+	// simulate a FlushAndSwitch() in a separate goroutine
+	switchComplete := make(chan struct{})
+	flushComplete := make(chan struct{})
+	go func() {
+		// switch memtable into flushing and add new. This also proves that we can
+		// switch memtables despite having an active writer.
+		switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+			return newTestMemtableReplace(nil), nil
+		})
+		require.NoError(t, err)
+		require.True(t, switched)
+		close(switchComplete)
+
+		b.waitForZeroWriters(b.flushing)
+		seg := flushReplaceTestMemtableIntoTestSegment(b.flushing)
+		b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+		close(flushComplete)
+	}()
+
+	<-switchComplete
+
+	// perform another write post-switch
+	active.put([]byte("key3"), []byte("value3"), nil)
+
+	freeRefs() // this unblocks the actual flush
+	<-flushComplete
+
+	// validate that all writes are present on disk
+	_, _, disk, release := b.getConsistentView()
+	defer release()
+
+	expected := map[string][]byte{
+		"key1": []byte("value1"),
+		"key2": []byte("value2"),
+		"key3": []byte("value3"),
+	}
+
+	for k, expectedV := range expected {
+		v, err := b.disk.getWithSegmentList([]byte(k), disk)
+		require.NoError(t, err)
+		require.Equal(t, expectedV, v)
+	}
+}
+
 func newTestMemtableReplace(initialData map[string][]byte) *Memtable {
 	m := &Memtable{
 		strategy:  StrategyReplace,
