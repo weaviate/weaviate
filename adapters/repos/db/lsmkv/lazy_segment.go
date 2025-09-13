@@ -226,7 +226,7 @@ func (s *lazySegment) newCollectionCursorReusable() *segmentCursorCollectionReus
 	return s.segment.newCollectionCursorReusable()
 }
 
-func (s *lazySegment) newCursor() *segmentCursorReplace {
+func (s *lazySegment) newCursor() innerCursorReplaceAllKeys {
 	s.mustLoad()
 	return s.segment.newCursor()
 }

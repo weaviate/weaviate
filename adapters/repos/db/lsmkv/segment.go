@@ -62,7 +62,7 @@ type Segment interface {
 	MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error)
 	newCollectionCursor() *segmentCursorCollection
 	newCollectionCursorReusable() *segmentCursorCollectionReusable
-	newCursor() *segmentCursorReplace
+	newCursor() innerCursorReplaceAllKeys
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	newMapCursor() *segmentCursorMap
 	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)

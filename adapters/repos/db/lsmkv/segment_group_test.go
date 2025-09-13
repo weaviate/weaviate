@@ -1,7 +1,9 @@
 package lsmkv
 
 import (
+	"bytes"
 	"fmt"
+	"sort"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -386,8 +388,8 @@ func (f *fakeSegment) newCollectionCursorReusable() *segmentCursorCollectionReus
 	panic("not implemented") // TODO: Implement
 }
 
-func (f *fakeSegment) newCursor() *segmentCursorReplace {
-	panic("not implemented") // TODO: Implement
+func (f *fakeSegment) newCursor() innerCursorReplaceAllKeys {
+	return newFakeSegmentCursorReplace(f.replaceStore)
 }
 
 func (f *fakeSegment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
@@ -456,6 +458,69 @@ func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLay
 		OrConc(layer.Additions, concurrency.SROAR_MERGE)
 
 	return nil
+}
+
+type fakeSegmentCursorReplace struct {
+	keys   [][]byte
+	values [][]byte
+	pos    int
+}
+
+func newFakeSegmentCursorReplace(kv map[string][]byte) *fakeSegmentCursorReplace {
+	type kvPair struct {
+		key   []byte
+		value []byte
+	}
+
+	pairs := make([]kvPair, 0, len(kv))
+	for k, v := range kv {
+		pairs = append(pairs, kvPair{key: []byte(k), value: v})
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		return bytes.Compare(pairs[i].key, pairs[j].key) < 0
+	})
+
+	c := &fakeSegmentCursorReplace{
+		keys:   make([][]byte, 0, len(kv)),
+		values: make([][]byte, 0, len(kv)),
+	}
+
+	for _, p := range pairs {
+		c.keys = append(c.keys, p.key)
+		c.values = append(c.values, p.value)
+	}
+
+	return c
+}
+
+func (c *fakeSegmentCursorReplace) first() ([]byte, []byte, error) {
+	c.pos = 0
+	if len(c.keys) == 0 {
+		return nil, nil, lsmkv.NotFound
+	}
+
+	return c.keys[c.pos], c.values[c.pos], nil
+}
+
+func (c *fakeSegmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
+	panic("not implemented")
+}
+
+func (c *fakeSegmentCursorReplace) next() ([]byte, []byte, error) {
+	c.pos++
+	if c.pos >= len(c.keys) {
+		return nil, nil, lsmkv.NotFound
+	}
+
+	return c.keys[c.pos], c.values[c.pos], nil
+}
+
+func (c *fakeSegmentCursorReplace) firstWithAllKeys() (segmentReplaceNode, error) {
+	panic("not implemented")
+}
+
+func (c *fakeSegmentCursorReplace) nextWithAllKeys() (segmentReplaceNode, error) {
+	panic("not implemented")
 }
 
 func bitmapFromSlice(input []uint64) *sroar.Bitmap {

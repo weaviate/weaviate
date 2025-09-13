@@ -33,6 +33,13 @@ type innerCursorReplace interface {
 	seek([]byte) ([]byte, []byte, error)
 }
 
+type innerCursorReplaceAllKeys interface {
+	innerCursorReplace
+
+	firstWithAllKeys() (segmentReplaceNode, error)
+	nextWithAllKeys() (segmentReplaceNode, error)
+}
+
 type cursorStateReplace struct {
 	key   []byte
 	value []byte
@@ -41,6 +48,7 @@ type cursorStateReplace struct {
 
 // Cursor holds a RLock for the flushing state. It needs to be closed using the
 // .Close() methods or otherwise the lock will never be released
+// TODO: update comment
 func (b *Bucket) Cursor() *CursorReplace {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()

@@ -27,7 +27,7 @@ type segmentCursorReplace struct {
 	reusableBORW  byteops.ReadWriter
 }
 
-func (s *segment) newCursor() *segmentCursorReplace {
+func (s *segment) newCursor() innerCursorReplaceAllKeys {
 	cursor := &segmentCursorReplace{
 		segment: s,
 		index:   s.index,
