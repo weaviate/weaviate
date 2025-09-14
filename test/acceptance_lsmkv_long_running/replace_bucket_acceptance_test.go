@@ -109,19 +109,19 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 		totalIngested += r.ingested
 		totalSpotChecks += r.getSpotChecks
 
-		fmt.Printf("Put\n")
+		t.Logf("Put")
 		for r.worstPutQueries.Len() > 0 {
 			tookMs := r.worstPutQueries.Pop().Dist * 1000
-			fmt.Printf("tookMs: %.2f\n", tookMs)
+			t.Logf("tookMs: %.2f", tookMs)
 			if tookMs > float32(putThreshold.Milliseconds()) {
 				putOutsideThreshold = append(putOutsideThreshold, tookMs)
 			}
 		}
 
-		fmt.Printf("Get\n")
+		t.Logf("Get")
 		for r.worstGetQueries.Len() > 0 {
 			tookMs := r.worstGetQueries.Pop().Dist * 1000
-			fmt.Printf("tookMs: %.2f\n", tookMs)
+			t.Logf("tookMs: %.2f", tookMs)
 			if tookMs > float32(getThreshold.Milliseconds()) {
 				getOutsideThreshold = append(getOutsideThreshold, tookMs)
 			}
