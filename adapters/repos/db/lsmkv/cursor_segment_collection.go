@@ -20,7 +20,7 @@ type segmentCursorCollection struct {
 	nextOffset uint64
 }
 
-func (s *segment) newCollectionCursor() *segmentCursorCollection {
+func (s *segment) newCollectionCursor() innerCursorCollection {
 	return &segmentCursorCollection{
 		segment: s,
 	}

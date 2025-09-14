@@ -494,8 +494,19 @@ func (f *fakeSegment) MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error
 	panic("not implemented") // TODO: Implement
 }
 
-func (f *fakeSegment) newCollectionCursor() *segmentCursorCollection {
-	panic("not implemented") // TODO: Implement
+func (f *fakeSegment) newCollectionCursor() innerCursorCollection {
+	// Build a stable, sorted key list for deterministic iteration.
+	keys := make([]string, 0, len(f.collectionStore))
+	for k := range f.collectionStore {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	return &fakeCollectionCursor{
+		keys:  keys,
+		store: f.collectionStore,
+		idx:   -1, // before first
+	}
 }
 
 func (f *fakeSegment) newCollectionCursorReusable() *segmentCursorCollectionReusable {
@@ -705,5 +716,39 @@ func (c *fakeRoaringSetCursor) Next() ([]byte, roaringset.BitmapLayer, error) {
 }
 
 func (c *fakeRoaringSetCursor) Seek(seek []byte) ([]byte, roaringset.BitmapLayer, error) {
+	panic("not implemented")
+}
+
+type fakeCollectionCursor struct {
+	keys  []string
+	store map[string][]value
+	idx   int // -1 before first element
+}
+
+func (c *fakeCollectionCursor) first() ([]byte, []value, error) {
+	if len(c.keys) == 0 {
+		c.idx = -1
+		return nil, nil, lsmkv.NotFound
+	}
+	c.idx = 0
+	k := c.keys[c.idx]
+	return []byte(k), c.store[k], nil
+}
+
+func (c *fakeCollectionCursor) next() ([]byte, []value, error) {
+	// If iteration hasn't started, first() semantics.
+	if c.idx < 0 {
+		return c.first()
+	}
+
+	c.idx++
+	if c.idx >= len(c.keys) {
+		return nil, nil, lsmkv.NotFound
+	}
+	k := c.keys[c.idx]
+	return []byte(k), c.store[k], nil
+}
+
+func (c *fakeCollectionCursor) seek(target []byte) ([]byte, []value, error) {
 	panic("not implemented")
 }

@@ -216,7 +216,7 @@ func (s *lazySegment) MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error
 	return s.segment.MergeTombstones(other)
 }
 
-func (s *lazySegment) newCollectionCursor() *segmentCursorCollection {
+func (s *lazySegment) newCollectionCursor() innerCursorCollection {
 	s.mustLoad()
 	return s.segment.newCollectionCursor()
 }

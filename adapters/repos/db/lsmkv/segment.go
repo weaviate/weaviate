@@ -60,7 +60,7 @@ type Segment interface {
 	isLoaded() bool
 	markForDeletion() error
 	MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error)
-	newCollectionCursor() *segmentCursorCollection
+	newCollectionCursor() innerCursorCollection
 	newCollectionCursorReusable() *segmentCursorCollectionReusable
 	newCursor() innerCursorReplaceAllKeys
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
