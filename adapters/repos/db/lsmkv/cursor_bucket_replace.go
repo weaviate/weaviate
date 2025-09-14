@@ -89,11 +89,8 @@ func (b *Bucket) Cursor() *CursorReplace {
 // not yet persisted on disk.
 // Segment creation and compaction will be blocked until the cursor is closed
 func (b *Bucket) CursorInMem() *CursorReplace {
+	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 	b.flushLock.RLock()
-
-	if b.strategy != StrategyReplace {
-		panic("CursorInMemWith() called on strategy other than 'replace'")
-	}
 
 	var innerCursors []innerCursorReplace
 
@@ -131,9 +128,7 @@ func (b *Bucket) CursorInMem() *CursorReplace {
 // while any cursor remains active
 // TODO
 func (b *Bucket) CursorOnDisk() *CursorReplace {
-	if b.strategy != StrategyReplace {
-		panic("CursorWith(desiredSecondaryIndexCount) called on strategy other than 'replace'")
-	}
+	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 
 	innerCursors, unlockSegmentGroup := b.disk.newCursors()
 

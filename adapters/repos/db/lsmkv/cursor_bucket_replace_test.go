@@ -66,7 +66,9 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 	}
 
 	cursor := b.Cursor()
-	validateOriginalCursorView := func(t *testing.T, c *CursorReplace) {
+	diskCursor := b.CursorOnDisk()
+	validateOriginalCursorView := func(t *testing.T, c, cd *CursorReplace) {
+		// regular cursor
 		expected := map[string]string{
 			"key1": "value1",
 			"key2": "value2",
@@ -81,8 +83,17 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 		}
 
 		require.Equal(t, expected, actual)
+
+		// disk-only cursor (does not see key3)
+		delete(expected, "key3")
+		actual = map[string]string{}
+		for k, v := cd.First(); k != nil; k, v = cd.Next() {
+			// the string transformation also creates a copy, so we can be sure there
+			// is no accidental memory reuse
+			actual[string(k)] = string(v)
+		}
 	}
-	validateOriginalCursorView(t, cursor)
+	validateOriginalCursorView(t, cursor, diskCursor)
 
 	// switch memtables while the cursor is open
 	switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
@@ -92,19 +103,19 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 	require.True(t, switched)
 
 	// check that cursor is not affected
-	validateOriginalCursorView(t, cursor)
+	validateOriginalCursorView(t, cursor, diskCursor)
 
 	// write something to the new memtable
 	require.NoError(t, b.Put([]byte("key4"), []byte("value4")))
 
 	// check that the cursor still has a consistent view (it should miss the new
 	// write)
-	validateOriginalCursorView(t, cursor)
+	validateOriginalCursorView(t, cursor, diskCursor)
 
 	// flush the memtable to disk and validate again
 	seg := flushReplaceTestMemtableIntoTestSegment(b.flushing)
 	b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
-	validateOriginalCursorView(t, cursor)
+	validateOriginalCursorView(t, cursor, diskCursor)
 
 	// finally compact all disk segments while the cursor is still open
 	// initial state: A, B, C
@@ -123,13 +134,16 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 	newSegmentReplacer(b.disk, 0, 1, segABC).switchInMemory(b.disk.segments[0], b.disk.segments[1])
 
 	// final validation
-	validateOriginalCursorView(t, cursor)
+	validateOriginalCursorView(t, cursor, diskCursor)
 	cursor.Close()
+	diskCursor.Close()
 
 	// now open a new cursor and validate it sees everything (including the new
 	// write
 	cursor2 := b.Cursor()
 	defer cursor2.Close()
+	diskCursor2 := b.CursorOnDisk()
+	defer diskCursor2.Close()
 
 	expected := map[string]string{
 		"key1": "value1",
@@ -140,6 +154,16 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 
 	actual := map[string]string{}
 	for k, v := cursor2.First(); k != nil; k, v = cursor2.Next() {
+		// the string transformation also creates a copy, so we can be sure there
+		// is no accidental memory reuse
+		actual[string(k)] = string(v)
+	}
+	require.Equal(t, expected, actual)
+
+	// disk cursor (does not see key4)
+	delete(expected, "key4")
+	actual = map[string]string{}
+	for k, v := diskCursor2.First(); k != nil; k, v = diskCursor2.Next() {
 		// the string transformation also creates a copy, so we can be sure there
 		// is no accidental memory reuse
 		actual[string(k)] = string(v)
