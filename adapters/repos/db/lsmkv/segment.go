@@ -66,7 +66,7 @@ type Segment interface {
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	newMapCursor() *segmentCursorMap
 	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
-	newRoaringSetCursor() *roaringset.SegmentCursor
+	newRoaringSetCursor() roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor
 	newRoaringSetRangeReader() *roaringsetrange.SegmentReader
 	quantileKeys(q int) [][]byte

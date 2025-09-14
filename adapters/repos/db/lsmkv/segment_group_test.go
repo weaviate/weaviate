@@ -415,8 +415,11 @@ func (f *fakeSegment) newNodeReader(offset nodeOffset, operation string) (*nodeR
 	panic("not implemented") // TODO: Implement
 }
 
-func (f *fakeSegment) newRoaringSetCursor() *roaringset.SegmentCursor {
-	panic("not implemented") // TODO: Implement
+func (f *fakeSegment) newRoaringSetCursor() roaringset.SegmentCursor {
+	if f.segmentType != StrategyRoaringSet {
+		panic("not a roaring set segment")
+	}
+	return newFakeRoaringSetCursor(f.roaringStore)
 }
 
 func (f *fakeSegment) newRoaringSetRangeCursor() roaringsetrange.SegmentCursor {
@@ -539,4 +542,65 @@ func bitmapFromSlice(input []uint64) *sroar.Bitmap {
 		bm.Set(v)
 	}
 	return bm
+}
+
+type fakeRoaringSetCursor struct {
+	keys   [][]byte
+	layer  []roaringset.BitmapLayer // 1:1 with keys
+	pos    int
+	closed bool
+}
+
+func newFakeRoaringSetCursor(store map[string]*sroar.Bitmap) *fakeRoaringSetCursor {
+	type kv struct {
+		k []byte
+		v *sroar.Bitmap
+	}
+	pairs := make([]kv, 0, len(store))
+	for k, v := range store {
+		pairs = append(pairs, kv{k: []byte(k), v: v})
+	}
+	sort.Slice(pairs, func(i, j int) bool { return bytes.Compare(pairs[i].k, pairs[j].k) < 0 })
+
+	c := &fakeRoaringSetCursor{
+		keys:  make([][]byte, 0, len(pairs)),
+		layer: make([]roaringset.BitmapLayer, 0, len(pairs)),
+	}
+	for _, p := range pairs {
+		c.keys = append(c.keys, append([]byte(nil), p.k...)) // copy for safety
+		// additions-only layer; clone so tests can safely Flatten/Or/AndNot
+		c.layer = append(c.layer, roaringset.BitmapLayer{
+			Additions: p.v.Clone(),
+		})
+	}
+	c.pos = -1
+	return c
+}
+
+func (c *fakeRoaringSetCursor) Close() { c.closed = true }
+
+func (c *fakeRoaringSetCursor) First() ([]byte, roaringset.BitmapLayer, error) {
+	if c.closed {
+		return nil, roaringset.BitmapLayer{}, lsmkv.NotFound
+	}
+	if len(c.keys) == 0 {
+		return nil, roaringset.BitmapLayer{}, lsmkv.NotFound
+	}
+	c.pos = 0
+	return c.keys[c.pos], c.layer[c.pos], nil
+}
+
+func (c *fakeRoaringSetCursor) Next() ([]byte, roaringset.BitmapLayer, error) {
+	if c.closed {
+		return nil, roaringset.BitmapLayer{}, lsmkv.NotFound
+	}
+	c.pos++
+	if c.pos < 0 || c.pos >= len(c.keys) {
+		return nil, roaringset.BitmapLayer{}, lsmkv.NotFound
+	}
+	return c.keys[c.pos], c.layer[c.pos], nil
+}
+
+func (c *fakeRoaringSetCursor) Seek(seek []byte) ([]byte, roaringset.BitmapLayer, error) {
+	panic("not implemented")
 }

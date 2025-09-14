@@ -246,7 +246,7 @@ func (s *lazySegment) newNodeReader(offset nodeOffset, operation string) (*nodeR
 	return s.segment.newNodeReader(offset, operation)
 }
 
-func (s *lazySegment) newRoaringSetCursor() *roaringset.SegmentCursor {
+func (s *lazySegment) newRoaringSetCursor() roaringset.SegmentCursor {
 	s.mustLoad()
 	return s.segment.newRoaringSetCursor()
 }

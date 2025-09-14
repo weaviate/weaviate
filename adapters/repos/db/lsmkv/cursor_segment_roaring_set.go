@@ -16,7 +16,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-func (s *segment) newRoaringSetCursor() *roaringset.SegmentCursor {
+func (s *segment) newRoaringSetCursor() roaringset.SegmentCursor {
 	return roaringset.NewSegmentCursor(s.contents[s.dataStartPos:s.dataEndPos],
 		&roaringSetSeeker{s.index})
 }

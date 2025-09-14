@@ -23,10 +23,10 @@ func (b *Bucket) RoaringSetAddOne(key []byte, value uint64) error {
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
-	return b.active.roaringSetAddOne(key, value)
+	return active.roaringSetAddOne(key, value)
 }
 
 func (b *Bucket) RoaringSetRemoveOne(key []byte, value uint64) error {
@@ -34,10 +34,10 @@ func (b *Bucket) RoaringSetRemoveOne(key []byte, value uint64) error {
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
-	return b.active.roaringSetRemoveOne(key, value)
+	return active.roaringSetRemoveOne(key, value)
 }
 
 func (b *Bucket) RoaringSetAddList(key []byte, values []uint64) error {
@@ -45,10 +45,10 @@ func (b *Bucket) RoaringSetAddList(key []byte, values []uint64) error {
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
-	return b.active.roaringSetAddList(key, values)
+	return active.roaringSetAddList(key, values)
 }
 
 func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
@@ -56,10 +56,10 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
-	return b.active.roaringSetAddBitmap(key, bm)
+	return active.roaringSetAddBitmap(key, bm)
 }
 
 func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), err error) {

@@ -1030,6 +1030,72 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 	release()
 }
 
+// TestBucketRoaringSetStrategyWriteVsFlush verifies that writers can keep
+// updating a RoaringSet while a flush-and-switch is in progress, and that all
+// writes are preserved once the flush completes.
+//
+// Timeline:
+//
+//  1. Initial active has key1 -> {1}.
+//  2. First write adds {2} to key1 via the active memtable reference.
+//  3. Concurrent flush-and-switch moves the active to flushing and installs a
+//     new empty active.
+//  4. Second write adds {3} to key1 through the still-held active reference.
+//  5. Flush persists key1 -> {1,2,3} to disk.
+//  6. Validation: a consistent view observes {1,2,3} for key1 on disk.
+func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
+	t.Parallel()
+
+	b := Bucket{
+		active: newTestMemtableRoaringSet(map[string][]uint64{
+			"key1": {1},
+		}),
+		disk:     &SegmentGroup{segments: []Segment{}},
+		strategy: StrategyRoaringSet,
+	}
+
+	active, freeRefs := b.getActiveMemtableForWrite()
+	require.NoError(t, active.roaringSetAddBitmap([]byte("key1"), bitmapFromSlice([]uint64{2})))
+
+	// Simulate a FlushAndSwitch() running concurrently
+	switchComplete := make(chan struct{})
+	flushComplete := make(chan struct{})
+	go func() {
+		// Switch active -> flushing, new empty active installed
+		switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+			return newTestMemtableRoaringSet(nil), nil
+		})
+		require.NoError(t, err)
+		require.True(t, switched)
+		close(switchComplete)
+
+		b.waitForZeroWriters(b.flushing)
+
+		seg := flushRoaringSetTestMemtableIntoTestSegment(b.flushing)
+		b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+		close(flushComplete)
+	}()
+
+	// Ensure the switch has happened (we still hold a writer ref to the old active)
+	<-switchComplete
+
+	// Second write after switch: still writing through the old active reference
+	require.NoError(t, active.roaringSetAddBitmap([]byte("key1"), bitmapFromSlice([]uint64{3})))
+
+	// Release writer refs to allow the flush to proceed
+	freeRefs()
+	<-flushComplete
+
+	// Validate: key1 has {1,2,3} on disk
+	view := b.getConsistentView()
+	defer view.Release()
+
+	bm, release, err := b.disk.roaringSetGetWithSegments([]byte("key1"), view.Disk)
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{1, 2, 3}, bm.Flatten(true).ToArray())
+	release()
+}
+
 func newTestMemtableReplace(initialData map[string][]byte) *Memtable {
 	m := &Memtable{
 		strategy:  StrategyReplace,
