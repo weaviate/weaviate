@@ -61,10 +61,11 @@ type Memtable struct {
 	propLengthCount              uint64
 	writeSegmentInfoIntoFileName bool
 
-	// we're only tracking the refcount for writers. Readers get a consistent
-	// view of all memtables & segments, they don't need ref-counting. However,
-	// writers do because if we have an ongoing write, we cannot start flushing
-	// the memtable.
+	// We're only tracking the refcount for writers. Readers get a consistent
+	// view of all memtables & segments, so they don't need ref-counting.
+	// Writers do, because if we have an ongoing write, we cannot start flushing
+	// the memtable. This prevents the memtable from being flushed while writers
+	// are active, ensuring data consistency during concurrent operations.
 	writerCount atomic.Int64
 }
 
