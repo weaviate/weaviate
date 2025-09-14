@@ -656,6 +656,10 @@ func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
 
+	return sg.getCollectionWithSegments(key, segments)
+}
+
+func (sg *SegmentGroup) getCollectionWithSegments(key []byte, segments []Segment) ([]value, error) {
 	var out []value
 
 	// start with first and do not exit

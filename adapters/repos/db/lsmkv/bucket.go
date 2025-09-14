@@ -664,19 +664,23 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 // SetList is specific to the Set Strategy, for Map use [Bucket.MapList], and
 // for Replace use [Bucket.Get].
 func (b *Bucket) SetList(key []byte) ([][]byte, error) {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	view := b.getConsistentView()
+	defer view.Release()
 
+	return b.setListFromConsistentView(view, key)
+}
+
+func (b *Bucket) setListFromConsistentView(view BucketConsistentView, key []byte) ([][]byte, error) {
 	var out []value
 
-	v, err := b.disk.getCollection(key)
+	v, err := b.disk.getCollectionWithSegments(key, view.Disk)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
 	out = v
 
-	if b.flushing != nil {
-		v, err = b.flushing.getCollection(key)
+	if view.Flushing != nil {
+		v, err = view.Flushing.getCollection(key)
 		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
@@ -684,7 +688,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 
 	}
 
-	v, err = b.active.getCollection(key)
+	v, err = view.Active.getCollection(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}

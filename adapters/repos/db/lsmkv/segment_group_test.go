@@ -287,13 +287,26 @@ func newFakeRoaringSetSegment(kv map[string]*sroar.Bitmap) *fakeSegment {
 	return &fakeSegment{segmentType: StrategyRoaringSet, roaringStore: kv}
 }
 
+func newFakeSetSegment(kv map[string][][]byte) *fakeSegment {
+	store := make(map[string][]value, len(kv))
+	for k, v := range kv {
+		values := make([]value, 0, len(v))
+		for _, single := range v {
+			values = append(values, value{value: single})
+		}
+		store[k] = values
+	}
+	return &fakeSegment{segmentType: StrategySetCollection, collectionStore: store}
+}
+
 type fakeSegment struct {
-	segmentType  string
-	replaceStore map[string][]byte
-	roaringStore map[string]*sroar.Bitmap
-	refs         int
-	path         string
-	getCounter   int
+	segmentType     string
+	replaceStore    map[string][]byte
+	roaringStore    map[string]*sroar.Bitmap
+	collectionStore map[string][]value
+	refs            int
+	path            string
+	getCounter      int
 }
 
 func (f *fakeSegment) getPath() string {
@@ -368,7 +381,18 @@ func (f *fakeSegment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byt
 }
 
 func (f *fakeSegment) getCollection(key []byte) ([]value, error) {
-	panic("not implemented") // TODO: Implement
+	f.getCounter++
+
+	keyStr := string(key)
+	if f.segmentType != StrategySetCollection && f.segmentType != StrategyMapCollection {
+		return nil, fmt.Errorf("not a collection segment")
+	}
+
+	if val, ok := f.collectionStore[keyStr]; ok {
+		return val, nil
+	}
+
+	return nil, lsmkv.NotFound
 }
 
 func (f *fakeSegment) getInvertedData() *segmentInvertedData {

@@ -1096,6 +1096,114 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 	release()
 }
 
+func TestBucketSetStrategyConsistentView(t *testing.T) {
+	t.Parallel()
+
+	diskSegments := &SegmentGroup{
+		segments: []Segment{
+			newFakeSetSegment(map[string][][]byte{
+				"key1": {[]byte("d1")},
+			}),
+		},
+	}
+
+	initialMemtable := newTestMemtableSet(map[string][][]byte{
+		"key2": {[]byte("a2")},
+	})
+
+	b := Bucket{
+		active:   initialMemtable,
+		disk:     diskSegments,
+		strategy: StrategySetCollection,
+	}
+
+	// Sanity via Bucket API
+	got, err := b.SetList([]byte("key1"))
+	require.NoError(t, err)
+	require.ElementsMatch(t, [][]byte{[]byte("d1")}, got)
+
+	got, err = b.SetList([]byte("key2"))
+	require.NoError(t, err)
+	require.ElementsMatch(t, [][]byte{[]byte("a2")}, got)
+
+	// View #1 (pre-switch): active=key2, flushing=nil, disk=key1
+	view1 := b.getConsistentView()
+	defer view1.Release()
+
+	validateView1 := func(v BucketConsistentView) {
+		expected := map[string][][]byte{
+			"key1": {[]byte("d1")},
+			"key2": {[]byte("a2")},
+		}
+
+		for k, expectedV := range expected {
+			value, err := b.setListFromConsistentView(v, []byte(k))
+			require.NoError(t, err)
+			require.ElementsMatch(t, expectedV, value)
+		}
+	}
+	validateView1(view1)
+
+	// Switch: move active->flushing (key2), new active with key3 -> {"a3"}
+	switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+		return newTestMemtableSet(map[string][][]byte{
+			"key3": {[]byte("a3")},
+		}), nil
+	})
+	require.NoError(t, err)
+	require.True(t, switched)
+
+	// view1 remains unchanged
+	validateView1(view1)
+
+	// View #2 (post-switch): active=key3, flushing=key2, disk=key1
+	view2 := b.getConsistentView()
+	defer view2.Release()
+
+	validateView2 := func(v BucketConsistentView) {
+		expected := map[string][][]byte{
+			"key1": {[]byte("d1")},
+			"key2": {[]byte("a2")},
+			"key3": {[]byte("a3")},
+		}
+
+		for k, expectedV := range expected {
+			value, err := b.setListFromConsistentView(v, []byte(k))
+			require.NoError(t, err)
+			require.ElementsMatch(t, expectedV, value)
+		}
+	}
+	validateView2(view2)
+
+	// Flush flushing (key2) -> disk; both views stay stable
+	seg := flushSetTestMemtableIntoTestSegment(b.flushing)
+	b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+	validateView1(view1)
+	validateView2(view2)
+
+	// Final view: active=key3, flushing=nil, disk has key1 & key2
+	view3 := b.getConsistentView()
+	defer view3.Release()
+
+	// active: key3 -> {"a3"}
+	a3, err := b.setListFromConsistentView(view3, []byte("key3"))
+	require.NoError(t, err)
+	require.ElementsMatch(t, [][]byte{[]byte("a3")}, a3)
+
+	require.Nil(t, view3.Flushing)
+
+	// disk: key1 -> {"d1"}, key2 -> {"a2"}
+	raw1, err := b.disk.getCollectionWithSegments([]byte("key1"), view3.Disk)
+	require.NoError(t, err)
+	v := newSetDecoder().Do(raw1)
+	require.ElementsMatch(t, [][]byte{[]byte("d1")}, v)
+
+	raw2, err := b.disk.getCollectionWithSegments([]byte("key2"), view3.Disk)
+	require.NoError(t, err)
+	v = newSetDecoder().Do(raw2)
+	require.ElementsMatch(t, [][]byte{[]byte("a2")}, v)
+}
+
 func newTestMemtableReplace(initialData map[string][]byte) *Memtable {
 	m := &Memtable{
 		strategy:  StrategyReplace,
@@ -1128,6 +1236,21 @@ func newTestMemtableRoaringSet(initialData map[string][]uint64) *Memtable {
 	return m
 }
 
+func newTestMemtableSet(initialData map[string][][]byte) *Memtable {
+	m := &Memtable{
+		strategy:  StrategySetCollection,
+		keyMulti:  &binarySearchTreeMulti{},
+		commitlog: newDummyCommitLogger(),
+		metrics:   newMemtableMetrics(nil, "", ""),
+	}
+
+	for k, v := range initialData {
+		m.append([]byte(k), newSetEncoder().Do(v))
+	}
+
+	return m
+}
+
 func flushReplaceTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
 	allEntries := m.key.flattenInOrder()
 	data := map[string][]byte{}
@@ -1145,6 +1268,16 @@ func flushRoaringSetTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
 		data[string(e.Key)] = e.Value.Additions.Clone()
 	}
 	return newFakeRoaringSetSegment(data)
+}
+
+func flushSetTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
+	allEntries := m.keyMulti.flattenInOrder()
+	data := map[string][][]byte{}
+	for _, e := range allEntries {
+		values := newSetDecoder().Do(e.values)
+		data[string(e.key)] = values
+	}
+	return newFakeSetSegment(data)
 }
 
 func newDummyCommitLogger() memtableCommitLogger {
