@@ -20,12 +20,10 @@ import (
 )
 
 const (
-	TrucAt     = 64
-	MaxLevels  = 12  // 18
-	rescore    = 150 // 300
-	size       = 1_000_000
-	MaxBuckets = TrucAt * MaxLevels
-	BlockSize  = 100_000
+	TrucAt    = 64
+	MaxLevels = 8 // 18
+	rescore   = 350
+	size      = 1_000_000
 )
 
 type heapPool struct {
@@ -39,6 +37,20 @@ func (p *heapPool) Get() *[]uint64 {
 }
 
 func (p *heapPool) Put(slice *[]uint64) {
+	p.pool.Put(slice)
+}
+
+type heapPool2 struct {
+	pool *sync.Pool
+}
+
+func (p *heapPool2) Get() *[]int {
+	slice := p.pool.Get().(*[]int)
+	*slice = (*slice)[:0]
+	return slice
+}
+
+func (p *heapPool2) Put(slice *[]int) {
 	p.pool.Put(slice)
 }
 
@@ -68,6 +80,7 @@ type RegionalIVF struct {
 
 	bencoder compressionhelpers.BinaryQuantizer
 	pool     *heapPool
+	pool2    *heapPool2
 
 	rate float64
 
@@ -107,7 +120,15 @@ func New(cfg Config) (*RegionalIVF, error) {
 		pool: &heapPool{
 			pool: &sync.Pool{
 				New: func() interface{} {
-					slice := make([]uint64, MaxBuckets*BlockSize)
+					slice := make([]uint64, 0, 1_000_000)
+					return &slice
+				},
+			},
+		},
+		pool2: &heapPool2{
+			pool: &sync.Pool{
+				New: func() interface{} {
+					slice := make([]int, 0, 1_000_000)
 					return &slice
 				},
 			},
@@ -193,105 +214,101 @@ func (r *RegionalIVF) SearchByVector(ctx context.Context, searchVector []float32
 	searchCode := r.bencoder.Encode(searchVector[:MaxLevels*64])
 	total := float64(size)
 
-	// Get two buffers from pool for ping-pong
-	heap1 := r.pool.Get()
-	defer r.pool.Put(heap1)
-	heap2 := r.pool.Get()
-	defer r.pool.Put(heap2)
-
-	// Ensure adequate capacity
-	requiredSize := MaxBuckets * BlockSize
-	if cap(*heap1) < requiredSize {
-		*heap1 = make([]uint64, requiredSize)
-	} else {
-		*heap1 = (*heap1)[:requiredSize]
+	islice := r.pool2.Get()
+	defer r.pool2.Put(islice)
+	*islice = (*islice)[:size]
+	sums := *islice
+	for i := 0; i < len(sums); i++ {
+		sums[i] = 0
 	}
-	if cap(*heap2) < requiredSize {
-		*heap2 = make([]uint64, requiredSize)
-	} else {
-		*heap2 = (*heap2)[:requiredSize]
+	ids := r.initList
+	buckets := make([]int, 1)
+	buckets[0] = size
+	islice = r.pool2.Get()
+	defer r.pool2.Put(islice)
+	*islice = (*islice)[:65]
+	newBuckets := *islice
+	for i := 0; i < 65; i++ {
+		newBuckets[i] = 0
 	}
 
-	// Current and next heap references
-	currentHeap := *heap1
-	nextHeap := *heap2
-
-	// Bucket size tracking
-	currentSizes := make([]int, MaxBuckets)
-	nextSizes := make([]int, MaxBuckets)
-
-	// Initialize: copy initList to bucket 0
-	copy(currentHeap[0:len(r.initList)], r.initList)
-	currentSizes[0] = len(r.initList)
-	maxDist := 0
-
-	for i := 0; i < MaxLevels; i++ {
-		part := int(total * math.Pow(r.rate, float64(i)))
-
-		// Clear next level bucket sizes
-		for j := 0; j <= maxDist+64 && j < MaxBuckets; j++ {
-			nextSizes[j] = 0
+	for level := 0; level < MaxLevels; level++ {
+		part := int(total * math.Pow(r.rate, float64(level)))
+		threshold := 0
+		soFar := buckets[threshold]
+		for soFar < part {
+			threshold++
+			soFar += buckets[threshold]
 		}
-		newMaxDist := 0
+		islice := r.pool2.Get()
+		defer r.pool2.Put(islice)
+		*islice = (*islice)[:soFar]
+		newSums := *islice
+		slice := r.pool.Get()
+		defer r.pool.Put(slice)
+		*slice = (*slice)[:soFar]
+		newIds := *slice
+		for i := 0; i < soFar; i++ {
+			newSums[i] = 0
+		}
+		i := 0
+		searchCodeAtLevel := searchCode[level]
+		codesAtLevel := r.codes[level]
+		for vectorIndex := 0; vectorIndex < len(sums); vectorIndex++ {
+			currentSum := sums[vectorIndex]
 
-		soFar := 0
-		for j := 0; soFar < part && j <= maxDist; j++ {
-			bucketSize := currentSizes[j]
-			soFar += bucketSize
-			bucketStart := j * BlockSize
-
-			// Process all elements in bucket j
-			for idx := 0; idx < bucketSize; idx++ {
-				curr := currentHeap[bucketStart+idx]
-				distance := float32(bits.OnesCount64(r.codes[i][curr] ^ searchCode[i]))
-				correctedDistance := j + int(distance)
-
-				// Safety check - this should never trigger with MaxBuckets = 768
-				if correctedDistance >= MaxBuckets {
-					continue // Skip this element - should not happen
-				}
-
-				// Add to next level
-				targetStart := correctedDistance * BlockSize
-				targetSize := nextSizes[correctedDistance]
-
-				if targetSize < BlockSize {
-					nextHeap[targetStart+targetSize] = curr
-					nextSizes[correctedDistance]++
-
-					if correctedDistance > newMaxDist {
-						newMaxDist = correctedDistance
-					}
-				}
-				// If targetSize >= BlockSize, we lose this element (shouldn't happen with BlockSize = 100000)
+			// newly evicted
+			if currentSum > threshold {
+				continue
 			}
+
+			idAtVectorIndex := ids[vectorIndex]
+			distance := float32(bits.OnesCount64(codesAtLevel[idAtVectorIndex] ^ searchCodeAtLevel))
+			correctedDistance := currentSum + int(distance)
+			newBuckets[correctedDistance]++
+			newSums[i] = correctedDistance
+			newIds[i] = idAtVectorIndex
+			i++
 		}
 
 		// Swap for next iteration
-		currentHeap, nextHeap = nextHeap, currentHeap
-		currentSizes, nextSizes = nextSizes, currentSizes
-		maxDist = newMaxDist
+		buckets = newBuckets
+		islice = r.pool2.Get()
+		defer r.pool2.Put(islice)
+		*islice = (*islice)[:len(newBuckets)+64]
+		newBuckets = *islice
+		for i := 0; i < len(newBuckets); i++ {
+			newBuckets[i] = 0
+		}
+		sums, ids = newSums, newIds
+	}
+
+	part := int(total * math.Pow(r.rate, float64(MaxLevels)))
+	threshold := 0
+	soFar := buckets[threshold]
+	for soFar < part {
+		threshold++
+		soFar += buckets[threshold]
 	}
 
 	// Final scoring
 	heap := priorityqueue.NewMax[any](k)
-	for j := 0; j <= maxDist; j++ {
-		bucketSize := currentSizes[j]
-		bucketStart := j * BlockSize
+	for vectorIndex := 0; vectorIndex < len(sums); vectorIndex++ {
+		currentSum := sums[vectorIndex]
+		if currentSum > threshold {
+			continue
+		}
 
-		for idx := 0; idx < bucketSize; idx++ {
-			curr := currentHeap[bucketStart+idx]
-			distance, _ := r.distancerProvider.SingleDist(r.vectors[curr], searchVector)
-			heap.Insert(curr, distance)
-			if heap.Len() > k {
-				heap.Pop()
-			}
+		distance, _ := r.distancerProvider.SingleDist(r.vectors[ids[vectorIndex]], searchVector)
+		heap.Insert(ids[vectorIndex], distance)
+		if heap.Len() > k {
+			heap.Pop()
 		}
 	}
 
 	// Extract results
 	dists := make([]float32, k)
-	ids := make([]uint64, k)
+	ids = make([]uint64, k)
 
 	for i := k - 1; i >= 0; i-- {
 		elem := heap.Pop()
