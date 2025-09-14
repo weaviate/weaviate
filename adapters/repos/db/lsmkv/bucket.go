@@ -1541,16 +1541,35 @@ func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (*Memta
 }
 
 func (b *Bucket) waitForZeroWriters(mt *Memtable) {
-	// TODO: this can be improved
-	// TODO: warn/alert if it takes too long
-	i := 0
+	const (
+		tickerInterval = 100 * time.Millisecond
+		warnThreshold  = 1 * time.Second
+		warnInterval   = 1 * time.Second
+	)
+
+	start := time.Now()
+	var lastWarn time.Time
+	t := time.NewTicker(tickerInterval)
 	for {
 		writers := mt.writerCount.Load()
 		if writers == 0 {
 			return
 		}
-		i++
-		time.Sleep(100 * time.Millisecond)
+
+		now := time.Now()
+		if sinceStart := now.Sub(start); sinceStart >= warnThreshold {
+			if lastWarn.IsZero() || now.Sub(lastWarn) >= warnInterval {
+				b.logger.WithFields(logrus.Fields{
+					"action":     "lsm_flush_wait_writers_refcount",
+					"path":       b.dir,
+					"refcount":   writers,
+					"total_wait": sinceStart,
+				}).Warnf("still delaying flush to wait for writers to finish (waited %.2fs so far)", sinceStart.Seconds())
+				lastWarn = now
+			}
+		}
+
+		<-t.C
 	}
 }
 

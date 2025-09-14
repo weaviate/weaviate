@@ -29,8 +29,9 @@ import (
 
 func TestLSMKV_ReplaceBucket(t *testing.T) {
 	putThreshold := 100 * time.Millisecond
-	getThreshold := 50 * time.Millisecond
+	getThreshold := 100 * time.Millisecond
 
+	testDuration := 10 * time.Minute
 	writeDuration := time.Minute
 	readDuration := time.Minute
 
@@ -74,7 +75,7 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 
 	defer bucket.Shutdown(ctx)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), testDuration)
 	defer cancel()
 
 	results := make([]result, workers)

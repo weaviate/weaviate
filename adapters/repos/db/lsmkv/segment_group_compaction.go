@@ -398,8 +398,19 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		return false, fmt.Errorf("replace compacted segments (blocking): %w", err)
 	}
 
-	// TODO: This could be done async, e.g. append to a queue
+	// NOTE: The delete logic will wait for the ref count to reach zero, to
+	// ensure we are not deleting any segments that are still being referenced,
+	// e.g. from cursor or other "slow" readers.
 	//
+	// The whole compaction cycle is single-threaded, so waiting for a delete,
+	// also means we are essentially delaying the next compaction. That is not
+	// ideal and also not strictly necessary. We could extract the delete logic
+	// into a simple job queue that runs in a separate goroutine.
+	//
+	// However, https://github.com/weaviate/weaviate/pull/9104, where
+	// ref-counting is introduced, is already a significant change at the point
+	// of writing this comment. Thus, to minimize futher risks, we keep the
+	// existing logic for now.
 	if err := sg.deleteOldSegmentsFromDisk(oldL, oldR); err != nil {
 		// don't abort if the delete fails, we can still continue (albeit
 		// without freeing disk space that should have been freed). The
@@ -450,16 +461,25 @@ func (sg *SegmentGroup) preinitializeNewSegment(old1, old2 int, newPathTmp strin
 }
 
 func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
-	// TODO: warn/alert if waiting too long
-	allZero := false
-	t := time.NewTicker(100 * time.Millisecond)
-	for !allZero {
+	const (
+		tickerInterval = 100 * time.Millisecond
+		warnThreshold  = 10 * time.Second
+		warnInterval   = 10 * time.Second
+	)
+
+	start := time.Now()
+	var lastWarn time.Time
+	t := time.NewTicker(tickerInterval)
+	for {
 		sg.segmentRefCounterLock.Lock()
 
-		allZero = true
-		for _, seg := range segments {
+		allZero := true
+		var pos, count int
+		for i, seg := range segments {
 			if refs := seg.getRefs(); refs != 0 {
 				allZero = false
+				pos = i
+				count = refs
 				break
 			}
 		}
@@ -468,6 +488,20 @@ func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
 
 		if allZero {
 			return
+		}
+
+		now := time.Now()
+		if sinceStart := now.Sub(start); sinceStart >= warnThreshold {
+			if lastWarn.IsZero() || now.Sub(lastWarn) >= warnInterval {
+				sg.logger.WithFields(logrus.Fields{
+					"action":           "lsm_compaction_wait_refcount",
+					"path":             sg.dir,
+					"segment_position": pos,
+					"refcount":         count,
+					"total_wait":       sinceStart,
+				}).Warnf("still waiting for segments to reach refcount=0 (waited %.2fs so far)", sinceStart.Seconds())
+				lastWarn = now
+			}
 		}
 
 		<-t.C
