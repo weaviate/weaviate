@@ -1541,7 +1541,7 @@ func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (*Memta
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 
-	if b.active.size == 0 {
+	if b.active.Size() == 0 {
 		return false, nil
 	}
 
