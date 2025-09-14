@@ -436,7 +436,18 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	return b.get(key)
 }
 
-func (b *Bucket) getConsistentView() (active, flushing *Memtable, diskSegments []Segment, release func()) {
+type BucketConsistentView struct {
+	Active   *Memtable
+	Flushing *Memtable
+	Disk     []Segment
+	release  func()
+}
+
+func (cv *BucketConsistentView) Release() {
+	cv.release()
+}
+
+func (b *Bucket) getConsistentView() BucketConsistentView {
 	beforeFlushLock := time.Now()
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -448,20 +459,20 @@ func (b *Bucket) getConsistentView() (active, flushing *Memtable, diskSegments [
 	}
 
 	diskSegments, releaseDiskSegments := b.disk.getConsistentViewOfSegments()
-
-	release = func() {
-		releaseDiskSegments()
+	return BucketConsistentView{
+		Active:   b.active,
+		Flushing: b.flushing,
+		Disk:     diskSegments,
+		release:  releaseDiskSegments,
 	}
-
-	return b.active, b.flushing, diskSegments, release
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
-	active, flushing, diskSegments, release := b.getConsistentView()
-	defer release()
+	view := b.getConsistentView()
+	defer view.release()
 
 	beforeMemtable := time.Now()
-	v, err := active.get(key)
+	v, err := view.Active.get(key)
 	if time.Since(beforeMemtable) > 100*time.Millisecond {
 		b.logger.WithField("duration", time.Since(beforeMemtable)).
 			WithField("action", "lsm_bucket_get_active_memtable").
@@ -482,9 +493,9 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 		panic(fmt.Sprintf("unsupported error in bucket.Get: %v\n", err))
 	}
 
-	if flushing != nil {
+	if view.Flushing != nil {
 		beforeFlushMemtable := time.Now()
-		v, err := flushing.get(key)
+		v, err := view.Flushing.get(key)
 		if time.Since(beforeFlushMemtable) > 100*time.Millisecond {
 			b.logger.WithField("duration", time.Since(beforeFlushMemtable)).
 				WithField("action", "lsm_bucket_get_flushing_memtable").
@@ -506,9 +517,10 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 		}
 	}
 
-	return b.disk.getWithSegmentList(key, diskSegments)
+	return b.disk.getWithSegmentList(key, view.Disk)
 }
 
+// TODO: use consistent view
 func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -588,6 +600,7 @@ func (b *Bucket) GetBySecondaryWithBuffer(pos int, key []byte, buf []byte) ([]by
 // Similar to [Bucket.Get], GetBySecondary is limited to ReplaceStrategy. No
 // equivalent exists for Set and Map, as those do not support secondary
 // indexes.
+// TODO: use consistent view
 func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()

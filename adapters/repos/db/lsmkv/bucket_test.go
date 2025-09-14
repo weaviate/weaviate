@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -780,25 +781,25 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	require.Equal(t, []byte("value2"), value)
 
 	// open a consistent view
-	active, flushing, disk, release := b.getConsistentView()
-	defer release()
+	view := b.getConsistentView()
+	defer view.Release()
 
 	// controls before making changes
-	validateOriginalView := func(active, flushing *Memtable, disk []Segment) {
+	validateOriginalView := func(view BucketConsistentView) {
 		// active
-		v, err := active.key.get([]byte("key2"))
+		v, err := view.Active.key.get([]byte("key2"))
 		require.NoError(t, err)
 		require.Equal(t, []byte("value2"), v)
 
 		// flushing
-		require.Nil(t, flushing)
+		require.Nil(t, view.Flushing)
 
 		// disk
-		v, err = b.disk.getWithSegmentList([]byte("key1"), disk)
+		v, err = b.disk.getWithSegmentList([]byte("key1"), view.Disk)
 		require.NoError(t, err)
 		require.Equal(t, []byte("value1"), v)
 	}
-	validateOriginalView(active, flushing, disk)
+	validateOriginalView(view)
 
 	// prove that we can switch memtables despite having an open consistent view
 	switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
@@ -810,51 +811,51 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	require.True(t, switched)
 
 	// prove that the open view still sees the same data
-	validateOriginalView(active, flushing, disk)
+	validateOriginalView(view)
 
 	// prove that a new view sees the new state
-	active2, flushing2, disk2, release2 := b.getConsistentView()
-	defer release2()
-	validateSecondView := func(active, flushing *Memtable, disk []Segment) {
-		require.NotNil(t, active)
-		v, err := active.key.get([]byte("key3"))
+	view2 := b.getConsistentView()
+	defer view2.Release()
+	validateSecondView := func(view BucketConsistentView) {
+		require.NotNil(t, view.Active)
+		v, err := view.Active.key.get([]byte("key3"))
 		require.NoError(t, err)
 		require.Equal(t, []byte("value3"), v)
 
-		require.NotNil(t, flushing)
-		v, err = flushing.key.get([]byte("key2"))
+		require.NotNil(t, view.Flushing)
+		v, err = view.Flushing.key.get([]byte("key2"))
 		require.NoError(t, err)
 		require.Equal(t, []byte("value2"), v)
 
-		v, err = b.disk.getWithSegmentList([]byte("key1"), disk)
+		v, err = b.disk.getWithSegmentList([]byte("key1"), view.Disk)
 		require.NoError(t, err)
 		require.Equal(t, []byte("value1"), v)
 	}
-	validateSecondView(active2, flushing2, disk2)
+	validateSecondView(view2)
 
 	// prove that we can flush the flushing mt into a disk segment without
 	// affecting our two open views
 	seg := flushReplaceTestMemtableIntoTestSegment(b.flushing)
 	b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
-	validateOriginalView(active, flushing, disk)
-	validateSecondView(active2, flushing2, disk2)
+	validateOriginalView(view)
+	validateSecondView(view2)
 
 	// finally, validate that a new view sees the final state
-	active3, flushing3, disk3, release3 := b.getConsistentView()
-	defer release3()
+	view3 := b.getConsistentView()
+	defer view3.Release()
 
-	require.NotNil(t, active3)
-	v, err := active3.key.get([]byte("key3"))
+	require.NotNil(t, view3.Active)
+	v, err := view3.Active.key.get([]byte("key3"))
 	require.NoError(t, err)
 	require.Equal(t, []byte("value3"), v)
 
-	require.Nil(t, flushing3)
+	require.Nil(t, view3.Flushing)
 
 	// both key1 and key2 are now on disk
-	v, err = b.disk.getWithSegmentList([]byte("key1"), disk3)
+	v, err = b.disk.getWithSegmentList([]byte("key1"), view3.Disk)
 	require.NoError(t, err)
 	require.Equal(t, []byte("value1"), v)
-	v, err = b.disk.getWithSegmentList([]byte("key2"), disk3)
+	v, err = b.disk.getWithSegmentList([]byte("key2"), view3.Disk)
 	require.NoError(t, err)
 	require.Equal(t, []byte("value2"), v)
 }
@@ -917,8 +918,8 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 	<-flushComplete
 
 	// validate that all writes are present on disk
-	_, _, disk, release := b.getConsistentView()
-	defer release()
+	view := b.getConsistentView()
+	defer view.Release()
 
 	expected := map[string][]byte{
 		"key1": []byte("value1"),
@@ -927,10 +928,106 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 	}
 
 	for k, expectedV := range expected {
-		v, err := b.disk.getWithSegmentList([]byte(k), disk)
+		v, err := b.disk.getWithSegmentList([]byte(k), view.Disk)
 		require.NoError(t, err)
 		require.Equal(t, expectedV, v)
 	}
+}
+
+// TestBucketRoaringSetStrategyConsistentView behaves like
+// [TestBucketReplaceStrategyConsistentView], but for the "RoaringSet"
+// strategy. See other test for detailed comments.
+func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
+	t.Parallel()
+
+	diskSegments := &SegmentGroup{
+		segments: []Segment{
+			newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
+				"key1": bitmapFromSlice([]uint64{1}),
+			}),
+		},
+	}
+
+	initialMemtable := newTestMemtableRoaringSet(map[string][]uint64{
+		"key1": {2},
+	})
+
+	b := Bucket{
+		active:   initialMemtable,
+		disk:     diskSegments,
+		strategy: StrategyRoaringSet,
+	}
+
+	// validate initial data before making any changes
+	value, releaseBuffers, err := b.RoaringSetGet([]byte("key1"))
+	require.NoError(t, err)
+	require.Equal(t, bitmapFromSlice([]uint64{1, 2}).ToArray(), value.ToArray())
+	releaseBuffers()
+
+	// open a consistent view
+	view := b.getConsistentView()
+	defer view.Release()
+
+	// controls before making changes
+	validateOriginalView := func(view BucketConsistentView) {
+		expected := map[string]*sroar.Bitmap{
+			"key1": bitmapFromSlice([]uint64{1, 2}),
+		}
+
+		for k, expectedV := range expected {
+			v, release, err := b.roaringSetGetFromConsistentView(view, []byte(k))
+			require.NoError(t, err)
+			require.Equal(t, expectedV.ToArray(), v.ToArray())
+			release()
+		}
+	}
+	validateOriginalView(view)
+
+	// prove that we can switch memtables despite having an open consistent view
+	switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+		return newTestMemtableRoaringSet(map[string][]uint64{
+			"key1": {3},
+		}), nil
+	})
+	require.NoError(t, err)
+	require.True(t, switched)
+
+	// prove that the open view still sees the same data
+	validateOriginalView(view)
+
+	// prove that a new view sees the new state
+	view2 := b.getConsistentView()
+	defer view2.Release()
+	validateSecondView := func(view BucketConsistentView) {
+		expected := map[string]*sroar.Bitmap{
+			"key1": bitmapFromSlice([]uint64{1, 2, 3}),
+		}
+
+		for k, expectedV := range expected {
+			v, release, err := b.roaringSetGetFromConsistentView(view, []byte(k))
+			require.NoError(t, err)
+			require.Equal(t, expectedV.ToArray(), v.ToArray())
+			release()
+		}
+	}
+	validateSecondView(view2)
+
+	// prove that we can flush the flushing mt into a disk segment without
+	// affecting our two open views
+	seg := flushRoaringSetTestMemtableIntoTestSegment(b.flushing)
+	b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+	validateOriginalView(view)
+	validateSecondView(view2)
+
+	// finally, validate that a new view sees the final state
+	view3 := b.getConsistentView()
+	defer view3.Release()
+
+	// the original memtable was flushed to disk
+	v, release, err := b.disk.roaringSetGetWithSegments([]byte("key1"), view3.Disk)
+	assert.Equal(t, []uint64{1, 2}, v.Flatten(true).ToArray())
+	require.NoError(t, err)
+	release()
 }
 
 func newTestMemtableReplace(initialData map[string][]byte) *Memtable {
@@ -949,6 +1046,22 @@ func newTestMemtableReplace(initialData map[string][]byte) *Memtable {
 	return m
 }
 
+func newTestMemtableRoaringSet(initialData map[string][]uint64) *Memtable {
+	m := &Memtable{
+		strategy:   StrategyRoaringSet,
+		roaringSet: &roaringset.BinarySearchTree{},
+		commitlog:  newDummyCommitLogger(),
+		metrics:    newMemtableMetrics(nil, "", ""),
+	}
+
+	for k, v := range initialData {
+		m.roaringSet.Insert([]byte(k), roaringset.Insert{Additions: v})
+		m.size += uint64(len(k) + len(v))
+	}
+
+	return m
+}
+
 func flushReplaceTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
 	allEntries := m.key.flattenInOrder()
 	data := map[string][]byte{}
@@ -956,6 +1069,16 @@ func flushReplaceTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
 		data[string(e.key)] = e.value
 	}
 	return newFakeReplaceSegment(data)
+}
+
+func flushRoaringSetTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
+	// NOTE: This fake pretends only additions exist, it ignores deletes
+	allEntries := m.roaringSet.FlattenInOrder()
+	data := map[string]*sroar.Bitmap{}
+	for _, e := range allEntries {
+		data[string(e.Key)] = e.Value.Additions.Clone()
+	}
+	return newFakeRoaringSetSegment(data)
 }
 
 func newDummyCommitLogger() memtableCommitLogger {

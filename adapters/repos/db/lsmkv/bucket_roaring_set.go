@@ -67,10 +67,16 @@ func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), er
 		return nil, noopRelease, err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	view := b.getConsistentView()
+	defer view.Release()
 
-	layers, release, err := b.disk.roaringSetGet(key)
+	return b.roaringSetGetFromConsistentView(view, key)
+}
+
+func (b *Bucket) roaringSetGetFromConsistentView(
+	view BucketConsistentView, key []byte,
+) (bm *sroar.Bitmap, release func(), err error) {
+	layers, release, err := b.disk.roaringSetGetWithSegments(key, view.Disk)
 	if err != nil {
 		return nil, noopRelease, err
 	}
@@ -80,8 +86,8 @@ func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), er
 		}
 	}()
 
-	if b.flushing != nil {
-		flushing, err := b.flushing.roaringSetGet(key)
+	if view.Flushing != nil {
+		flushing, err := view.Flushing.roaringSetGet(key)
 		if err != nil {
 			if !errors.Is(err, lsmkv.NotFound) {
 				return nil, noopRelease, err
@@ -91,13 +97,13 @@ func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), er
 		}
 	}
 
-	active, err := b.active.roaringSetGet(key)
+	activeBM, err := view.Active.roaringSetGet(key)
 	if err != nil {
 		if !errors.Is(err, lsmkv.NotFound) {
 			return nil, noopRelease, err
 		}
 	} else {
-		layers = append(layers, active)
+		layers = append(layers, activeBM)
 	}
 
 	return layers.Flatten(false), release, nil

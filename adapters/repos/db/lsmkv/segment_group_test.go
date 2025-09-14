@@ -447,7 +447,7 @@ func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapB
 
 	if val, ok := f.roaringStore[string(key)]; ok {
 		return roaringset.BitmapLayer{
-			Additions: val,
+			Additions: val.Clone(),
 		}, func() {}, nil
 	}
 
