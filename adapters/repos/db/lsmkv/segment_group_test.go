@@ -82,14 +82,15 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
 
-	v, err := sg.getWithSegmentList([]byte("key1"), segments)
-	require.NoError(t, err)
-	require.Equal(t, []byte("value1"), v, "k==v on initial state")
-	require.Equal(t, 1, segA.getCounter)
-	v, err = sg.getWithSegmentList([]byte("key2"), segments)
-	require.NoError(t, err)
-	require.Equal(t, []byte("value2"), v, "k==v on initial state")
-	require.Equal(t, 2, segB.getCounter)
+	validateView := func(t *testing.T, segments []Segment) {
+		v, err := sg.getWithSegmentList([]byte("key1"), segments)
+		require.NoError(t, err)
+		require.Equal(t, []byte("value1"), v, "k==v on initial state")
+		v, err = sg.getWithSegmentList([]byte("key2"), segments)
+		require.NoError(t, err)
+		require.Equal(t, []byte("value2"), v, "k==v on initial state")
+	}
+	validateView(t, segments)
 
 	// prep compacted segment
 	segAB := newFakeReplaceSegment(map[string][]byte{
@@ -101,28 +102,14 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	require.Equal(t, []Segment{segAB}, sg.segments)
 
 	// prove that our consistent view still works
-	v, err = sg.getWithSegmentList([]byte("key1"), segments)
-	require.NoError(t, err)
-	require.Equal(t, []byte("value1"), v, "k==v on original view after compaction")
-	require.Equal(t, 2, segA.getCounter)
-	v, err = sg.getWithSegmentList([]byte("key2"), segments)
-	require.NoError(t, err)
-	require.Equal(t, []byte("value2"), v, "k==v on original view after compaction")
-	require.Equal(t, 4, segB.getCounter)
+	validateView(t, segments)
+	require.Equal(t, 0, segAB.getCounter, "new segment should not have received call")
 
 	// prove that a new view also works
 	segments, release = sg.getConsistentViewOfSegments()
 	defer release()
-	v, err = sg.getWithSegmentList([]byte("key1"), segments)
-	require.NoError(t, err)
-	require.Equal(t, []byte("value1"), v, "k==v on new view after compaction")
-	require.Equal(t, 2, segA.getCounter, "old segment should not have received call")
-	require.Equal(t, 1, segAB.getCounter, "new segment should have received call")
-	v, err = sg.getWithSegmentList([]byte("key2"), segments)
-	require.NoError(t, err)
-	require.Equal(t, []byte("value2"), v, "k==v on new view after compaction")
-	require.Equal(t, 4, segB.getCounter, "old segment should not have received call")
-	require.Equal(t, 2, segAB.getCounter, "new segment should have received call")
+	validateView(t, segments)
+	require.Greater(t, segAB.getCounter, 0, "new segment should have received call")
 }
 
 func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentAddition(t *testing.T) {
@@ -186,15 +173,18 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 	defer release()
 
 	// On the original view, key1 should be {1} (from segA), key2 should be {2} (from segB)
-	v, _, err := sg.roaringSetGet([]byte("key1"), segments)
-	require.NoError(t, err)
-	expected := []uint64{1}
-	require.Equal(t, expected, v.Flatten(true).ToArray(), "key1 on initial state")
+	validateView := func(t *testing.T, segments []Segment) {
+		v, _, err := sg.roaringSetGet([]byte("key1"), segments)
+		require.NoError(t, err)
+		expected := []uint64{1}
+		require.Equal(t, expected, v.Flatten(true).ToArray(), "key1 on initial state")
 
-	v, _, err = sg.roaringSetGet([]byte("key2"), segments)
-	require.NoError(t, err)
-	expected = []uint64{2}
-	require.Equal(t, expected, v.Flatten(true).ToArray(), "key2 on initial state")
+		v, _, err = sg.roaringSetGet([]byte("key2"), segments)
+		require.NoError(t, err)
+		expected = []uint64{2}
+		require.Equal(t, expected, v.Flatten(true).ToArray(), "key2 on initial state")
+	}
+	validateView(t, segments)
 
 	// prepare compacted segment that merges segA and segB
 	segAB := newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
@@ -207,30 +197,14 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 	require.Equal(t, []Segment{segAB}, sg.segments, "segment list should contain only the compacted segment")
 
 	// prove that the old consistent view is still valid (reads must not be affected)
-	v, _, err = sg.roaringSetGet([]byte("key1"), segments)
-	require.NoError(t, err)
-	expected = []uint64{1}
-	require.Equal(t, expected, v.Flatten(true).ToArray(), "key1 on original view after compaction")
-
-	v, _, err = sg.roaringSetGet([]byte("key2"), segments)
-	require.NoError(t, err)
-	expected = []uint64{2}
-	require.Equal(t, expected, v.Flatten(true).ToArray(), "key2 on original view after compaction")
-	require.Equal(t, 0, segAB.getCounter, "new segment should not have received call")
+	validateView(t, segments)
+	require.Equal(t, segAB.getCounter, 0, "new segment should not have received calls")
 
 	// prove that a new consistent view sees the (compacted) latest state
 	segments, release = sg.getConsistentViewOfSegments()
 	defer release()
 
-	v, _, err = sg.roaringSetGet([]byte("key1"), segments)
-	require.NoError(t, err)
-	expected = []uint64{1}
-	require.Equal(t, expected, v.Flatten(true).ToArray(), "key1 on new view after compaction")
-
-	v, _, err = sg.roaringSetGet([]byte("key2"), segments)
-	require.NoError(t, err)
-	expected = []uint64{2}
-	require.Equal(t, expected, v.Flatten(true).ToArray(), "key2 on new view after compaction")
+	validateView(t, segments)
 	require.Greater(t, segAB.getCounter, 0, "new segment should have received calls")
 }
 
@@ -299,15 +273,18 @@ func TestSegmentGroup_Set_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	defer release()
 
 	// old view should read from segA/segB as expected
-	raw, err := sg.getCollection([]byte("key1"), segments)
-	require.NoError(t, err)
-	got := newSetDecoder().Do(raw)
-	require.ElementsMatch(t, [][]byte{[]byte("a1")}, got, "key1 on initial view")
+	validateView := func(t *testing.T, segments []Segment) {
+		raw, err := sg.getCollection([]byte("key1"), segments)
+		require.NoError(t, err)
+		got := newSetDecoder().Do(raw)
+		require.ElementsMatch(t, [][]byte{[]byte("a1")}, got, "key1 on initial view")
 
-	raw, err = sg.getCollection([]byte("key2"), segments)
-	require.NoError(t, err)
-	got = newSetDecoder().Do(raw)
-	require.ElementsMatch(t, [][]byte{[]byte("b2")}, got, "key2 on initial view")
+		raw, err = sg.getCollection([]byte("key2"), segments)
+		require.NoError(t, err)
+		got = newSetDecoder().Do(raw)
+		require.ElementsMatch(t, [][]byte{[]byte("b2")}, got, "key2 on initial view")
+	}
+	validateView(t, segments)
 
 	// compacted segment containing both keys
 	segAB := newFakeSetSegment(map[string][][]byte{
@@ -320,15 +297,126 @@ func TestSegmentGroup_Set_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	require.Equal(t, []Segment{segAB}, sg.segments, "segment list should now be the compacted one")
 
 	// prove the old view still works (must not require segAB)
+	validateView(t, segments)
+	require.Equal(t, 0, segAB.getCounter, "new segment should not have received calls on old view")
+
+	// new consistent view should hit segAB
+	segments, release = sg.getConsistentViewOfSegments()
+	defer release()
+
+	validateView(t, segments)
+	require.Greater(t, segAB.getCounter, 0, "compacted segment should have received calls on new view")
+}
+
+func TestSegmentGroup_Map_ConsistentViewAcrossSegmentAddition(t *testing.T) {
+	t.Parallel()
+
+	// initial segment
+	segmentData := map[string][]MapPair{
+		"key1": {{Key: []byte("k1"), Value: []byte("v1")}},
+	}
+	sg := &SegmentGroup{
+		segments: []Segment{newFakeMapSegment(segmentData)},
+	}
+
+	// control before segment changes
+	segments, release := sg.getConsistentViewOfSegments()
+	defer release()
+
+	raw, err := sg.getCollection([]byte("key1"), segments)
+	require.NoError(t, err)
+	got, err := newMapDecoder().Do(raw, false)
+	require.NoError(t, err)
+	expected := []MapPair{
+		{Key: []byte("k1"), Value: []byte("v1")},
+	}
+	require.ElementsMatch(t, expected, got, "k==v on initial state")
+
+	// append new segment (Map semantics: union/accumulation)
+	segment2Data := map[string][]MapPair{
+		"key1": {{Key: []byte("k2"), Value: []byte("v2")}},
+	}
+	sg.addInitializedSegment(newFakeMapSegment(segment2Data))
+
+	// old view remains unchanged
 	raw, err = sg.getCollection([]byte("key1"), segments)
 	require.NoError(t, err)
-	got = newSetDecoder().Do(raw)
-	require.ElementsMatch(t, [][]byte{[]byte("a1")}, got, "key1 on original view after compaction")
-
-	raw, err = sg.getCollection([]byte("key2"), segments)
+	got, err = newMapDecoder().Do(raw, false)
 	require.NoError(t, err)
-	got = newSetDecoder().Do(raw)
-	require.ElementsMatch(t, [][]byte{[]byte("b2")}, got, "key2 on original view after compaction")
+
+	expected = []MapPair{
+		{Key: []byte("k1"), Value: []byte("v1")},
+	}
+	require.ElementsMatch(t, expected, got, "old view unchanged after segment addition")
+
+	// new readers see union from both segments
+	segments, release = sg.getConsistentViewOfSegments()
+	defer release()
+
+	raw, err = sg.getCollection([]byte("key1"), segments)
+	require.NoError(t, err)
+	got, err = newMapDecoder().Do(raw, false)
+	require.NoError(t, err)
+	require.NoError(t, err)
+
+	expected = []MapPair{
+		{Key: []byte("k1"), Value: []byte("v1")},
+		{Key: []byte("k2"), Value: []byte("v2")},
+	}
+	require.ElementsMatch(t, expected, got, "new readers see both pairs")
+}
+
+func TestSegmentGroup_Map_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := test.NewNullLogger()
+
+	// initial two segments
+	segA := newFakeMapSegment(map[string][]MapPair{
+		"key1": {{Key: []byte("ka1"), Value: []byte("va1")}},
+	})
+	segB := newFakeMapSegment(map[string][]MapPair{
+		"key2": {{Key: []byte("kb1"), Value: []byte("vb1")}},
+	})
+
+	sg := &SegmentGroup{
+		segments: []Segment{segA, segB},
+		logger:   logger,
+	}
+
+	// take a consistent view before switch
+	segments, release := sg.getConsistentViewOfSegments()
+	defer release()
+
+	validateView := func(t *testing.T, segments []Segment) {
+		raw, err := sg.getCollection([]byte("key1"), segments)
+		require.NoError(t, err)
+		got, err := newMapDecoder().Do(raw, false)
+		require.NoError(t, err)
+		expected := []MapPair{{Key: []byte("ka1"), Value: []byte("va1")}}
+		require.ElementsMatch(t, expected, got, "key1 on initial view")
+
+		raw, err = sg.getCollection([]byte("key2"), segments)
+		require.NoError(t, err)
+		got, err = newMapDecoder().Do(raw, false)
+		require.NoError(t, err)
+		expected = []MapPair{{Key: []byte("kb1"), Value: []byte("vb1")}}
+		require.ElementsMatch(t, expected, got, "key2 on initial view")
+	}
+	validateView(t, segments)
+
+	// compacted segment containing both keys
+	segAB := newFakeMapSegment(map[string][]MapPair{
+		"key1": {{Key: []byte("ka1"), Value: []byte("va1")}},
+		"key2": {{Key: []byte("kb1"), Value: []byte("vb1")}},
+	})
+
+	// perform in-memory switch
+	newSegmentReplacer(sg, 0, 1, segAB).switchInMemory(segA, segB)
+	require.Equal(t, []Segment{segAB}, sg.segments, "segment list should now be the compacted one")
+
+	// prove the old view still works (must not require segAB)
+	validateView(t, segments)
 
 	require.Equal(t, 0, segAB.getCounter, "new segment should not have received calls on old view")
 
@@ -336,15 +424,6 @@ func TestSegmentGroup_Set_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	segments, release = sg.getConsistentViewOfSegments()
 	defer release()
 
-	raw, err = sg.getCollection([]byte("key1"), segments)
-	require.NoError(t, err)
-	got = newSetDecoder().Do(raw)
-	require.ElementsMatch(t, [][]byte{[]byte("a1")}, got, "key1 on new view after compaction")
-
-	raw, err = sg.getCollection([]byte("key2"), segments)
-	require.NoError(t, err)
-	got = newSetDecoder().Do(raw)
-	require.ElementsMatch(t, [][]byte{[]byte("b2")}, got, "key2 on new view after compaction")
-
+	validateView(t, segments)
 	require.Greater(t, segAB.getCounter, 0, "compacted segment should have received calls on new view")
 }

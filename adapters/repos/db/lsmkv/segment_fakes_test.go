@@ -45,6 +45,23 @@ func newFakeSetSegment(kv map[string][][]byte) *fakeSegment {
 	return &fakeSegment{segmentType: StrategySetCollection, collectionStore: store}
 }
 
+func newFakeMapSegment(kv map[string][]MapPair) *fakeSegment {
+	store := make(map[string][]value, len(kv))
+	for k, v := range kv {
+		values := make([]value, 0, len(v))
+		for _, single := range v {
+			mBytes, err := single.Bytes()
+			if err != nil {
+				panic(err)
+			}
+
+			values = append(values, value{value: mBytes})
+		}
+		store[k] = values
+	}
+	return &fakeSegment{segmentType: StrategyMapCollection, collectionStore: store}
+}
+
 type fakeSegment struct {
 	segmentType     string
 	replaceStore    map[string][]byte
