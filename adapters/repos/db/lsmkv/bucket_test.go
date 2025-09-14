@@ -1204,6 +1204,58 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 	require.ElementsMatch(t, [][]byte{[]byte("a2")}, v)
 }
 
+func TestBucketSetStrategyWriteVsFlush(t *testing.T) {
+	t.Parallel()
+
+	b := Bucket{
+		active:   newTestMemtableSet(map[string][][]byte{"key1": {[]byte("v1")}}),
+		disk:     &SegmentGroup{segments: []Segment{}},
+		strategy: StrategySetCollection,
+	}
+
+	active, freeRefs := b.getActiveMemtableForWrite()
+	err := active.append([]byte("key1"), newSetEncoder().Do([][]byte{[]byte("v2")}))
+	require.NoError(t, err)
+
+	switchDone := make(chan struct{})
+	flushDone := make(chan struct{})
+
+	go func() {
+		switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+			return newTestMemtableSet(nil), nil
+		})
+		require.NoError(t, err)
+		require.True(t, switched)
+		close(switchDone)
+
+		b.waitForZeroWriters(b.flushing)
+
+		seg := flushSetTestMemtableIntoTestSegment(b.flushing)
+		b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+		close(flushDone)
+	}()
+
+	<-switchDone
+
+	// Second write (post-switch) through the old active reference
+	err = active.append([]byte("key1"), newSetEncoder().Do([][]byte{[]byte("v3")}))
+	require.NoError(t, err)
+
+	// Release and let flush proceed
+	freeRefs()
+	<-flushDone
+
+	// Validate disk now has {"v1","v2","v3"} for key1
+	view := b.getConsistentView()
+	defer view.Release()
+
+	raw, err := b.disk.getCollectionWithSegments([]byte("key1"), view.Disk)
+	require.NoError(t, err)
+
+	got := newSetDecoder().Do(raw)
+	require.ElementsMatch(t, [][]byte{[]byte("v1"), []byte("v2"), []byte("v3")}, got)
+}
+
 func newTestMemtableReplace(initialData map[string][]byte) *Memtable {
 	m := &Memtable{
 		strategy:  StrategyReplace,
