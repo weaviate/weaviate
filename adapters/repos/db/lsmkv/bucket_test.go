@@ -1024,7 +1024,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 	defer view3.Release()
 
 	// the original memtable was flushed to disk
-	v, release, err := b.disk.roaringSetGetWithSegments([]byte("key1"), view3.Disk)
+	v, release, err := b.disk.roaringSetGet([]byte("key1"), view3.Disk)
 	assert.Equal(t, []uint64{1, 2}, v.Flatten(true).ToArray())
 	require.NoError(t, err)
 	release()
@@ -1090,7 +1090,7 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 	view := b.getConsistentView()
 	defer view.Release()
 
-	bm, release, err := b.disk.roaringSetGetWithSegments([]byte("key1"), view.Disk)
+	bm, release, err := b.disk.roaringSetGet([]byte("key1"), view.Disk)
 	require.NoError(t, err)
 	assert.Equal(t, []uint64{1, 2, 3}, bm.Flatten(true).ToArray())
 	release()
@@ -1193,12 +1193,12 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 	require.Nil(t, view3.Flushing)
 
 	// disk: key1 -> {"d1"}, key2 -> {"a2"}
-	raw1, err := b.disk.getCollectionWithSegments([]byte("key1"), view3.Disk)
+	raw1, err := b.disk.getCollection([]byte("key1"), view3.Disk)
 	require.NoError(t, err)
 	v := newSetDecoder().Do(raw1)
 	require.ElementsMatch(t, [][]byte{[]byte("d1")}, v)
 
-	raw2, err := b.disk.getCollectionWithSegments([]byte("key2"), view3.Disk)
+	raw2, err := b.disk.getCollection([]byte("key2"), view3.Disk)
 	require.NoError(t, err)
 	v = newSetDecoder().Do(raw2)
 	require.ElementsMatch(t, [][]byte{[]byte("a2")}, v)
@@ -1249,7 +1249,7 @@ func TestBucketSetStrategyWriteVsFlush(t *testing.T) {
 	view := b.getConsistentView()
 	defer view.Release()
 
-	raw, err := b.disk.getCollectionWithSegments([]byte("key1"), view.Disk)
+	raw, err := b.disk.getCollection([]byte("key1"), view.Disk)
 	require.NoError(t, err)
 
 	got := newSetDecoder().Do(raw)

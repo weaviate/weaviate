@@ -652,14 +652,7 @@ func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []b
 	return nil, nil, nil, nil
 }
 
-func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
-	segments, release := sg.getConsistentViewOfSegments()
-	defer release()
-
-	return sg.getCollectionWithSegments(key, segments)
-}
-
-func (sg *SegmentGroup) getCollectionWithSegments(key []byte, segments []Segment) ([]value, error) {
+func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, error) {
 	var out []value
 
 	// start with first and do not exit
@@ -717,7 +710,7 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 	return out[:i], outSegments[:i], release, nil
 }
 
-func (sg *SegmentGroup) roaringSetGetWithSegments(key []byte, segments []Segment) (out roaringset.BitmapLayers, release func(), err error) {
+func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment) (out roaringset.BitmapLayers, release func(), err error) {
 	ln := len(segments)
 	if ln == 0 {
 		return nil, noopRelease, nil

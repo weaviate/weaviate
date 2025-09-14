@@ -673,7 +673,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 func (b *Bucket) setListFromConsistentView(view BucketConsistentView, key []byte) ([][]byte, error) {
 	var out []value
 
-	v, err := b.disk.getCollectionWithSegments(key, view.Disk)
+	v, err := b.disk.getCollection(key, view.Disk)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
