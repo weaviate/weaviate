@@ -409,7 +409,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	//
 	// However, https://github.com/weaviate/weaviate/pull/9104, where
 	// ref-counting is introduced, is already a significant change at the point
-	// of writing this comment. Thus, to minimize futher risks, we keep the
+	// of writing this comment. Thus, to minimize further risks, we keep the
 	// existing logic for now.
 	if err := sg.deleteOldSegmentsFromDisk(oldL, oldR); err != nil {
 		// don't abort if the delete fails, we can still continue (albeit
