@@ -13,7 +13,8 @@ ENV GO111MODULE=on
 RUN apk add --no-cache bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,id=gomod-${TARGETARCH},target=/go/pkg/mod go mod download
+
 
 ###############################################################################
 # This image builds the weaviate server
