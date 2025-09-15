@@ -116,8 +116,8 @@ function release() {
         "--platform=$build_platform"
         "--target=weaviate"
         "--push"
-        "--cache-from=type=gha,scope=${cache_scope}"
-        "--cache-to=type=gha,scope=${cache_scope},mode=max")
+        "--cache-from=type=gha,scope=${cache_scope},ignore-error=true"
+        "--cache-to=type=gha,scope=${cache_scope},mode=max,ignore-error=true")
 
   if [ -n "$tag_exact" ]; then
     # exact tag on main

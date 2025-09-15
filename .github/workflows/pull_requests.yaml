@@ -83,13 +83,15 @@ jobs:
           # AND (it's the production matrix or the amd64 PR build). Avoids slow emulation on arm64.
           load: ${{ !contains((matrix.build_platform_for_scan || matrix.platforms), ',') && (matrix.name == 'production' || matrix.arch == 'amd64') }}
           # Use both arch caches as "read" sources so BuildKit can reuse whatever matches.
-          cache-from: | # read from both caches
+          cache-from: | # read from all caches
+            type=gha,scope=weaviate-multi
             type=gha,scope=weaviate-amd64
             type=gha,scope=weaviate-arm64
           # Write back only to this job's cache scope to keep per-arch caches clean.
           # ignore-error=true prevents the build from failing if the cache export flakes.
           cache-to: |
             type=gha,scope=weaviate-${{ matrix.arch || 'multi' }},mode=max,ignore-error=true
+            type=gha,scope=weaviate-multi,mode=max,ignore-error=true
           # Keep CGO off speeds up builds and improves cache hits.
           build-args: |
             CGO_ENABLED=0
