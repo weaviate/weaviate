@@ -451,7 +451,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				newShard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
 					i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool)
 				if err != nil {
-					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
+					return fmt.Errorf("init shard %s for index %s: %w", shardName, i.ID(), err)
 				}
 
 				i.shards.Store(shardName, newShard)
