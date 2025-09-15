@@ -183,7 +183,7 @@ func TestHnswIndexValidatePQSegments(t *testing.T) {
 		return []float32{1, 2, 3, 4}, nil
 	}
 
-	index, err := New(cfg, ent.UserConfig{
+	uc := ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
 		EF:             36,
@@ -191,11 +191,24 @@ func TestHnswIndexValidatePQSegments(t *testing.T) {
 			Enabled:  true,
 			Segments: 3,
 		},
-	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
-	require.Nil(t, err)
+	}
 
-	err = index.ValidateBeforeInsert([]float32{1, 2, 3, 4})
-	require.ErrorContains(t, err, "pq segments must be a divisor of the vector dimensions")
+	t.Run("segments are not a divisor of the vector dimensions", func(t *testing.T) {
+		index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		require.Nil(t, err)
+
+		err = index.ValidateBeforeInsert([]float32{1, 2, 3, 4})
+		require.ErrorContains(t, err, "pq segments must be a divisor of the vector dimensions")
+	})
+
+	t.Run("segments are not a divisor of the multivector dimensions", func(t *testing.T) {
+		uc.Multivector = ent.MultivectorConfig{Enabled: true}
+		index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		require.Nil(t, err)
+
+		err = index.ValidateMultiBeforeInsert([][]float32{[]float32{1, 2, 3, 4}})
+		require.ErrorContains(t, err, "pq segments must be a divisor of the vector dimensions")
+	})
 }
 
 func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[float32]) *hnsw {
