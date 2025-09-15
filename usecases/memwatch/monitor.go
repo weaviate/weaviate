@@ -192,8 +192,8 @@ func (m *Monitor) obtainCurrentMappings() {
 	m.usedMappings = used
 }
 
-func (m *Monitor) IOPSOverloaded(expected int) bool {
-	return m.iOPSMonitor.IOPSOverloaded(expected)
+func (m *Monitor) IOPSOverloaded(level float64) bool {
+	return m.iOPSMonitor.IOPSOverloaded(level)
 }
 
 func getCurrentMappings() int64 {

@@ -9,15 +9,34 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const maxIOPSDefault = 16000 // max IOPS in cloud environments
+const maxIOPSDefault = float64(16000) // max IOPS in cloud environments
+
+type queue struct {
+	internalQueue []int
+	position      int
+	average       float64
+}
+
+func newQueue(size int) *queue {
+	return &queue{
+		internalQueue: make([]int, size),
+		position:      0,
+	}
+}
+
+func (q *queue) push(entry int) {
+	q.average += (float64(entry) - float64(q.internalQueue[q.position])) / float64(len(q.internalQueue))
+	q.internalQueue[q.position] = entry
+	q.position = (q.position + 1) % len(q.internalQueue)
+}
 
 type IOPSMonitor struct {
-	enabled     bool
-	device      string
-	maxIOPS     int
-	lastCheck   time.Time
-	lastStat    disk.IOCountersStat
-	currentIOPS int
+	enabled   bool
+	device    string
+	maxIOPS   float64
+	lastCheck time.Time
+	lastStat  disk.IOCountersStat
+	IOPSQueue *queue
 }
 
 func newIOPSMonitor(logger logrus.FieldLogger) IOPSMonitor {
@@ -25,7 +44,7 @@ func newIOPSMonitor(logger logrus.FieldLogger) IOPSMonitor {
 	if v := os.Getenv("MONITOR_DISK_IOPS_MAX"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err == nil {
-			maxIOPS = asInt
+			maxIOPS = float64(asInt)
 		}
 	}
 
@@ -66,6 +85,7 @@ func newIOPSMonitor(logger logrus.FieldLogger) IOPSMonitor {
 		enabled:   true,
 		lastStat:  stats[device],
 		lastCheck: time.Now(),
+		IOPSQueue: newQueue(100),
 	}
 }
 
@@ -90,15 +110,12 @@ func (m *IOPSMonitor) obtainCurrentIOPS() {
 		totalOps := (currentStat.ReadCount + currentStat.WriteCount) -
 			(m.lastStat.ReadCount + m.lastStat.WriteCount)
 		iops := float64(totalOps) / timeDiff
-		m.currentIOPS = int(iops)
+		m.IOPSQueue.push(int(iops))
 	}
 	m.lastCheck = currentTime
 	m.lastStat = currentStat
 }
 
-func (m *IOPSMonitor) IOPSOverloaded(expected int) bool {
-	if m.currentIOPS+expected > m.maxIOPS {
-		return true
-	}
-	return true
+func (m *IOPSMonitor) IOPSOverloaded(level float64) bool {
+	return m.maxIOPS/m.IOPSQueue.average > level
 }
