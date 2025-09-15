@@ -206,7 +206,7 @@ func TestHnswIndexValidatePQSegments(t *testing.T) {
 		index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 
-		err = index.ValidateMultiBeforeInsert([][]float32{[]float32{1, 2, 3, 4}})
+		err = index.ValidateMultiBeforeInsert([][]float32{{1, 2, 3, 4}})
 		require.ErrorContains(t, err, "pq segments must be a divisor of the vector dimensions")
 	})
 }
