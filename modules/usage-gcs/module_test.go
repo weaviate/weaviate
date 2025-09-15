@@ -26,6 +26,7 @@ import (
 	clusterusage "github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -487,7 +488,7 @@ func TestParseCommonUsageConfig(t *testing.T) {
 			existingInterval: 0,
 			existingVersion:  "",
 			expectedInterval: common.DefaultCollectionInterval, // use default
-			expectedVersion:  common.DefaultPolicyVersion,      // use default
+			expectedVersion:  build.Version,                    // use default
 		},
 		{
 			name: "environment variables with no existing values",
