@@ -379,7 +379,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	// The postProcess function is used to limit the number of results and to resolve references
 	// in the results.  It is called after all the subsearches have been completed, and before autocut
-	postProcess := func(results []*search.Result) ([]search.Result, error) {
+	postProcess := func(results []search.Result) ([]search.Result, error) {
 		totalLimit, err := e.CalculateTotalLimit(origParams.Pagination)
 		if err != nil {
 			return nil, err
@@ -389,24 +389,22 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			results = results[:totalLimit]
 		}
 
-		res1 := make([]search.Result, 0, len(results))
-		for _, res := range results {
-			res1 = append(res1, *res)
-		}
-
-		res, err := e.searcher.ResolveReferences(ctx, res1, origParams.Properties, nil, origParams.AdditionalProperties, origParams.Tenant)
+		res, err := e.searcher.ResolveReferences(ctx, results, origParams.Properties, nil, origParams.AdditionalProperties, origParams.Tenant)
 		if err != nil {
 			return nil, err
 		}
+
 		return res, nil
 	}
 
 	res, err := hybrid.HybridCombiner(ctx, &hybrid.Params{
-		HybridSearch: origParams.HybridSearch,
-		Keyword:      origParams.KeywordRanking,
-		Class:        origParams.ClassName,
-		Autocut:      origParams.Pagination.Autocut,
-	}, results, weights, names, e.logger, postProcess)
+		HybridSearch:         origParams.HybridSearch,
+		Keyword:              origParams.KeywordRanking,
+		Class:                origParams.ClassName,
+		Autocut:              origParams.Pagination.Autocut,
+		ModuleParams:         origParams.ModuleParams,
+		AdditionalProperties: origParams.AdditionalProperties,
+	}, results, weights, names, e.logger, e.modulesProvider, postProcess)
 	if err != nil {
 		return nil, err
 	}
