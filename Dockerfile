@@ -10,7 +10,7 @@ ARG TARGETARCH
 # Populate the module cache based on the go.{mod,sum} files.
 ENV GOMODCACHE=/go/pkg/mod
 ENV GO111MODULE=on
-RUN apk add --no-cache bash ca-certificates git
+RUN apk add --no-cache bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
 COPY go.mod go.sum ./
 RUN go mod download
@@ -27,7 +27,7 @@ ARG GIT_REVISION="unknown"
 ARG BUILD_USER="unknown"
 ARG BUILD_DATE="unknown"
 ARG EXTRA_BUILD_ARGS=""
-ARG CGO_ENABLED=0
+ARG CGO_ENABLED=1
 ENV CGO_ENABLED=$CGO_ENABLED
 COPY . .
 RUN --mount=type=cache,id=gobuild-${TARGETARCH},target=/root/.cache/go-build,sharing=locked \
