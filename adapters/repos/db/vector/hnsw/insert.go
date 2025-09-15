@@ -34,6 +34,7 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 		if err := h.validatePQSegments(len(vector)); err != nil {
 			return err
 		}
+		return nil
 	}
 
 	// check if vector length is the same as existing nodes
