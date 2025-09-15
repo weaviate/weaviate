@@ -177,6 +177,27 @@ func TestHnswIndexGrowSafely(t *testing.T) {
 	})
 }
 
+func TestHnswIndexValidatePQSegments(t *testing.T) {
+	cfg := createVectorHnswIndexTestConfig()
+	cfg.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		return []float32{1, 2, 3, 4}, nil
+	}
+
+	index, err := New(cfg, ent.UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
+		EF:             36,
+		PQ: ent.PQConfig{
+			Enabled:  true,
+			Segments: 3,
+		},
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
+
+	err = index.ValidateBeforeInsert([]float32{1, 2, 3, 4})
+	require.ErrorContains(t, err, "pq segments must be a divisor of the vector dimensions")
+}
+
 func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[float32]) *hnsw {
 	cfg := createVectorHnswIndexTestConfig()
 	cfg.VectorForIDThunk = vecForIDFn
