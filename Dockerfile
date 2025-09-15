@@ -13,7 +13,7 @@ ENV GO111MODULE=on
 RUN apk add --no-cache bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
 COPY go.mod go.sum ./
-RUN --mount=type=cache,id=gomod,target=/go/pkg/mod,sharing=locked go mod download
+RUN go mod download
 
 ###############################################################################
 # This image builds the weaviate server
@@ -29,15 +29,14 @@ ARG EXTRA_BUILD_ARGS=""
 ARG CGO_ENABLED=1
 ENV CGO_ENABLED=$CGO_ENABLED
 COPY . .
-RUN --mount=type=cache,id=gomod,target=/go/pkg/mod,sharing=locked \
-    --mount=type=cache,id=gobuild-${TARGETARCH},target=/root/.cache/go-build,sharing=locked \
+RUN --mount=type=cache,id=gobuild-${TARGETARCH},target=/root/.cache/go-build,sharing=locked \
     GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
-      -ldflags '-w -extldflags "-static" \
-      -X github.com/weaviate/weaviate/usecases/build.Branch='"$GIT_BRANCH"' \
-      -X github.com/weaviate/weaviate/usecases/build.Revision='"$GIT_REVISION"' \
-      -X github.com/weaviate/weaviate/usecases/build.BuildUser='"$BUILD_USER"' \
-      -X github.com/weaviate/weaviate/usecases/build.BuildDate='"$BUILD_DATE"'' \
-      -o /weaviate-server ./cmd/weaviate-server
+    -ldflags '-w -extldflags "-static" \
+    -X github.com/weaviate/weaviate/usecases/build.Branch='"$GIT_BRANCH"' \
+    -X github.com/weaviate/weaviate/usecases/build.Revision='"$GIT_REVISION"' \
+    -X github.com/weaviate/weaviate/usecases/build.BuildUser='"$BUILD_USER"' \
+    -X github.com/weaviate/weaviate/usecases/build.BuildDate='"$BUILD_DATE"'' \
+    -o /weaviate-server ./cmd/weaviate-server
 
 RUN if [ -d /go/pkg/mod/github.com/go-ego ]; then \
       cp -a /go/pkg/mod/github.com/go-ego/* /runtime/go-ego/; \
