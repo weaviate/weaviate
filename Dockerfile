@@ -13,7 +13,7 @@ ENV GO111MODULE=on
 RUN apk add --no-cache bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
 COPY go.mod go.sum ./
-RUN --mount=type=cache,id=gomod-${TARGETARCH},target=/go/pkg/mod go mod download
+RUN --mount=type=cache,id=gomod-${TARGETARCH},target=/go/pkg/mod,sharing=locked go mod download
 
 
 ###############################################################################
@@ -30,8 +30,10 @@ ARG EXTRA_BUILD_ARGS=""
 ARG CGO_ENABLED=1
 ENV CGO_ENABLED=$CGO_ENABLED
 COPY . .
-RUN --mount=type=cache,id=gobuild-${TARGETARCH},target=/root/.cache/go-build,sharing=locked \
-    GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
+RUN --mount=type=cache,id=gomod-${TARGETARCH},target=/go/pkg/mod,sharing=locked \
+    --mount=type=cache,id=gobuild-${TARGETARCH},target=/root/.cache/go-build,sharing=locked \
+    GOOS=linux GOARCH=${TARGETARCH} \
+    go build -mod=readonly \
     -ldflags '-w -extldflags "-static" \
     -X github.com/weaviate/weaviate/usecases/build.Branch='"$GIT_BRANCH"' \
     -X github.com/weaviate/weaviate/usecases/build.Revision='"$GIT_REVISION"' \
