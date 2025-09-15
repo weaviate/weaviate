@@ -69,6 +69,10 @@ jobs:
         if: steps.should-run.outputs.should_run == 'true'
         uses: docker/setup-buildx-action@v3
 
+      - name: Get build date
+        id: date
+        run: echo "date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_OUTPUT
+
       # Step 1: Build Docker image (with cross-arch caching and selective load)
       - name: Build and cache Docker image
         id: build
@@ -92,9 +96,16 @@ jobs:
           cache-to: |
             type=gha,scope=weaviate-${{ matrix.arch || 'multi' }},mode=max,ignore-error=true
             type=gha,scope=weaviate-multi,mode=max,ignore-error=true
-          # Keep CGO off speeds up builds and improves cache hits.
+          # CGO disabled for faster cross-compilation and better cache consistency.
+          # Build metadata (git info, timestamps) only added for production releases to maximize
+          # cache reuse across PR builds while preserving traceability for release and production versions.
           build-args: |
             CGO_ENABLED=0
+            TARGETARCH=${{ matrix.arch == 'arm64' && 'arm64' || 'amd64' }}
+            ${{ matrix.name == 'production' && format('GIT_REVISION={0}', github.sha) || '' }}
+            ${{ matrix.name == 'production' && format('GIT_BRANCH={0}', github.head_ref || github.ref_name) || '' }}
+            ${{ matrix.name == 'production' && 'BUILD_USER=github-actions' || '' }}
+            ${{ matrix.name == 'production' && format('BUILD_DATE={0}', steps.date.outputs.date) || '' }}
 
       # Step 2: Vulnerability scanning
       - name: Run Orca Container Image Scan
