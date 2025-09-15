@@ -32,11 +32,10 @@ func (c *retryClient) doWithCustomMarshaller(ctx context.Context, timeout time.D
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	try := func(ctx context.Context) (b bool, e error) {
-		req, err := reqMaker()
+		req, err := reqMaker(ctx)
 		if err != nil {
 			return false, fmt.Errorf("create http request: %w", err)
 		}
-		req = req.WithContext(ctx)
 		if data != nil {
 			req.Body = io.NopCloser(bytes.NewReader(data))
 		}
@@ -68,11 +67,10 @@ func (c *retryClient) do(ctx context.Context, timeout time.Duration, reqMaker re
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	try := func(ctx context.Context) (bool, error) {
-		req, err := reqMaker()
+		req, err := reqMaker(ctx)
 		if err != nil {
 			return false, fmt.Errorf("create http request: %w", err)
 		}
-		req = req.WithContext(ctx)
 		if body != nil {
 			req.Body = io.NopCloser(bytes.NewReader(body))
 		}

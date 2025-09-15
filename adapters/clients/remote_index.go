@@ -69,7 +69,7 @@ func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 		return fmt.Errorf("encode request: %w", err)
 	}
 
-	maker := func() (*http.Request, error) {
+	maker := func(ctx context.Context) (*http.Request, error) {
 		req, err := setupRequest(ctx, http.MethodPost, c.host(host),
 			fmt.Sprintf("/indices/%s/shards/%s/objects", index, shard),
 			url.Values{replica.SchemaVersionKey: value}.Encode(),
@@ -101,7 +101,7 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 		return duplicateErr(fmt.Errorf("encode request: %w", err), len(objs))
 	}
 
-	maker := func() (*http.Request, error) {
+	maker := func(ctx context.Context) (*http.Request, error) {
 		req, err := setupRequest(ctx, http.MethodPost, c.host(host),
 			fmt.Sprintf("/indices/%s/shards/%s/objects", index, shard),
 			url.Values{replica.SchemaVersionKey: value}.Encode(),
@@ -238,7 +238,7 @@ func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
 func (c *RemoteIndex) Exists(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID,
 ) (bool, error) {
-	maker := func() (*http.Request, error) {
+	maker := func(ctx context.Context) (*http.Request, error) {
 		req, err := setupRequest(ctx, http.MethodGet, c.host(hostName),
 			fmt.Sprintf("/indices/%s/shards/%s/objects/%s", indexName, shardName, id),
 			url.Values{"check_exists": []string{"true"}}.Encode(),
@@ -391,7 +391,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal request payload: %w", err)
 	}
-	maker := func() (*http.Request, error) {
+	maker := func(ctx context.Context) (*http.Request, error) {
 		req, err := setupRequest(ctx, http.MethodPost, c.host(host),
 			fmt.Sprintf("/indices/%s/shards/%s/objects/_search", index, shard),
 			"", bytes.NewReader(body))
@@ -435,7 +435,7 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 	if err != nil {
 		return nil, fmt.Errorf("marshal request payload: %w", err)
 	}
-	maker := func() (*http.Request, error) {
+	maker := func(ctx context.Context) (*http.Request, error) {
 		req, err := setupRequest(ctx, http.MethodPost, c.host(hostName),
 			fmt.Sprintf("/indices/%s/shards/%s/objects/_aggregations", index, shard),
 			"", bytes.NewReader(body))
