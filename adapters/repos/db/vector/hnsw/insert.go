@@ -40,6 +40,10 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 			"Existing nodes have vectors with length %v", len(vector), dims)
 	}
 
+	if err := h.validatePQSegments(dims); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -70,6 +74,17 @@ func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 		}
 	}
 
+	if err := h.validatePQSegments(dims); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (h *hnsw) validatePQSegments(dims int) error {
+	if h.pqConfig.Enabled && h.pqConfig.Segments != 0 && dims%h.pqConfig.Segments != 0 {
+		return fmt.Errorf("pq segments must be a divisor of the vector dimensions")
+	}
 	return nil
 }
 
