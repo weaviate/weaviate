@@ -2,7 +2,13 @@ package spfresh
 
 import (
 	"fmt"
+	"log"
+	"net/http"
+	_ "net/http/pprof"
+	"os"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,6 +20,22 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
+func TestMain(m *testing.M) {
+	// Capture every contended mutex event (set >0; 1 is fine)
+	runtime.SetMutexProfileFraction(1)
+
+	// Optional: also capture blocking profile
+	// runtime.SetBlockProfileRate(1)
+
+	go func() {
+		addr := "127.0.0.1:6060"
+		log.Printf("pprof listening at http://%s/debug/pprof/\n", addr)
+		_ = http.ListenAndServe(addr, nil) // DefaultServeMux has pprof handlers
+	}()
+
+	os.Exit(m.Run())
+}
+
 func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	return func(x, y []float32) float32 {
 		dist, _ := provider.SingleDist(x, y)
@@ -23,13 +45,14 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 
 func TestSPFreshRecall(t *testing.T) {
 	cfg := DefaultConfig()
+	cfg.RNGFactor = 5.0
 	l := logrus.New()
 	// l.SetLevel(logrus.DebugLevel)
 	cfg.Logger = l
 
 	logger, _ := test.NewNullLogger()
 
-	vectors_size := 10_000
+	vectors_size := 100_000
 	queries_size := 100
 	dimensions := 64
 	k := 100
@@ -37,9 +60,14 @@ func TestSPFreshRecall(t *testing.T) {
 	before := time.Now()
 	vectors, queries := testinghelpers.RandomVecsFixedSeed(vectors_size, queries_size, dimensions)
 
+	var mu sync.Mutex
+
 	truths := make([][]uint64, queries_size)
 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(cfg.Distancer))
+		res, _ := testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(cfg.Distancer))
+		mu.Lock()
+		truths[i] = res
+		mu.Unlock()
 	})
 
 	fmt.Printf("generating data took %s\n", time.Since(before))
@@ -49,11 +77,11 @@ func TestSPFreshRecall(t *testing.T) {
 	defer index.Shutdown(t.Context())
 
 	before = time.Now()
-	var count int
+	var count atomic.Uint32
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(id uint64) {
-		count++
-		if count%1000 == 0 {
-			fmt.Printf("indexing vector %d/%d\n", count, vectors_size)
+		cur := count.Add(1)
+		if cur%1000 == 0 {
+			fmt.Printf("indexing vectors %d/%d\n", cur, vectors_size)
 		}
 		err := index.Add(t.Context(), id, vectors[id])
 		require.NoError(t, err)
@@ -61,26 +89,7 @@ func TestSPFreshRecall(t *testing.T) {
 
 	fmt.Printf("indexing done, took: %s\n", time.Since(before))
 
-	time.Sleep(2 * time.Second)
-
-	var mu sync.Mutex
-	var relevant uint64
-	var retrieved int
-
-	var querying time.Duration = 0
-	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-		before := time.Now()
-		results, _, err := index.SearchByVector(t.Context(), queries[i], k, nil)
-		require.NoError(t, err)
-		mu.Lock()
-		querying += time.Since(before)
-		retrieved += k
-		relevant += testinghelpers.MatchesInLists(truths[i], results)
-		mu.Unlock()
-	})
-
-	recall := float32(relevant) / float32(retrieved)
-	latency := float32(querying.Microseconds()) / float32(queries_size)
+	recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
 	fmt.Println(recall, latency)
 	require.Greater(t, recall, float32(0.7))
 }

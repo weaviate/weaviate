@@ -74,7 +74,7 @@ type SPFresh struct {
 	visitedPool *visited.Pool
 	distancer   *Distancer
 
-	postingLocks *common.HashedLocks // Locks to prevent concurrent modifications to the same posting.
+	postingLocks *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
 
 	initialPostingLock sync.Mutex
 }
@@ -109,7 +109,7 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
-	s.postingLocks = common.NewHashedLocks32k()
+	s.postingLocks = common.NewDefaultShardedRWLocks()
 	s.splitCh = make(chan splitOperation, s.Config.SplitWorkers*100)              // TODO: fine-tune buffer size
 	s.mergeCh = make(chan mergeOperation, 1024)                                   // TODO: fine-tune buffer size
 	s.reassignCh = make(chan reassignOperation, s.Config.ReassignWorkers*500_000) // TODO: fine-tune buffer size

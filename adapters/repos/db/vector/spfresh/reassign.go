@@ -75,20 +75,16 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	// check if the vector is still valid
 	version := s.VersionMap.Get(op.Vector.ID())
 	if version.Deleted() || version.Version() > op.Vector.Version().Version() {
-		s.Logger.WithField("vectorID", op.Vector.ID()).
-			Debug("Vector is already assigned to the best posting, skipping reassign operation")
 		return nil
 	}
 
 	// perform a RNG selection to determine the postings where the vector should be
 	// reassigned to.
-	replicas, needsReassign, err := s.selectReplicas(op.Vector, op.PostingID)
+	replicas, needsReassign, err := s.RNGSelect(op.Vector, op.PostingID)
 	if err != nil {
 		return errors.Wrap(err, "failed to select replicas")
 	}
 	if !needsReassign {
-		s.Logger.WithField("vectorID", op.Vector.ID()).
-			Debug("Vector is already assigned to the best posting, skipping reassign operation")
 		return nil
 	}
 	// check again if the version is still valid
@@ -129,50 +125,4 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	}
 
 	return nil
-}
-
-func (s *SPFresh) selectReplicas(query Vector, unless uint64) ([]SearchResult, bool, error) {
-	results, err := s.SPTAG.Search(query, s.Config.InternalPostingCandidates)
-	if err != nil {
-		return nil, false, errors.Wrap(err, "failed to search for nearest neighbors")
-	}
-
-	replicas := make([]SearchResult, 0, s.Config.Replicas)
-
-	for i := 0; i < len(results) && len(replicas) < s.Config.Replicas; i++ {
-		candidate := results[i]
-
-		// Commenting out RNG logic for now as it seems to hurt recall
-		// with the current testing setup.
-		// Will re-enable once we have a test with a larger dataset.
-
-		qDist := candidate.Distance
-		candidateCentroid := s.SPTAG.Get(candidate.ID)
-
-		tooClose := false
-		for j := range replicas {
-			other := s.SPTAG.Get(replicas[j].ID)
-			pairDist, err := candidateCentroid.Vector.Distance(s.distancer, other.Vector)
-			if err != nil {
-				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", candidate.ID, replicas[j].ID)
-			}
-
-			if s.Config.RNGFactor*pairDist <= qDist {
-				tooClose = true
-				break
-			}
-		}
-		if tooClose {
-			continue
-		}
-
-		// abort if candidate already assigned to `unless`
-		if unless != 0 && candidate.ID == unless {
-			return nil, false, nil
-		}
-
-		replicas = append(replicas, candidate)
-	}
-
-	return replicas, true, nil
 }

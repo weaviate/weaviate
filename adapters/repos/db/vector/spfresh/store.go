@@ -26,7 +26,7 @@ type LSMStore struct {
 	store      *lsmkv.Store
 	bucket     *lsmkv.Bucket
 	vectorSize atomic.Int32
-	locks      *common.HashedLocks
+	locks      *common.ShardedRWLocks
 }
 
 func NewLSMStore(store *lsmkv.Store, bucketName string) (*LSMStore, error) {
@@ -38,7 +38,7 @@ func NewLSMStore(store *lsmkv.Store, bucketName string) (*LSMStore, error) {
 	return &LSMStore{
 		store:  store,
 		bucket: store.Bucket(bucketName),
-		locks:  common.NewHashedLocks32k(),
+		locks:  common.NewDefaultShardedRWLocks(),
 	}, nil
 }
 
@@ -50,21 +50,22 @@ func (l *LSMStore) Init(size int32) {
 }
 
 func (l *LSMStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
-	l.locks.RLock(postingID)
-	defer l.locks.RUnlock(postingID)
-
 	vectorSize := l.vectorSize.Load()
 	if vectorSize == 0 {
 		// the store is empty
 		return nil, errors.WithStack(ErrPostingNotFound)
 	}
 
+	l.locks.RLock(postingID)
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 	list, err := l.bucket.SetList(buf[:])
+	l.locks.RUnlock(postingID)
+
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
+
 	if len(list) == 0 {
 		return nil, errors.WithStack(ErrPostingNotFound)
 	}
@@ -132,11 +133,11 @@ func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting Posting) e
 }
 
 func (l *LSMStore) Merge(ctx context.Context, postingID uint64, vector Vector) error {
-	l.locks.Lock(postingID)
-	defer l.locks.Unlock(postingID)
-
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
+
+	l.locks.Lock(postingID)
+	defer l.locks.Unlock(postingID)
 
 	return l.bucket.SetAdd(buf[:], [][]byte{vector.(CompressedVector)})
 }

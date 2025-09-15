@@ -18,11 +18,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-const (
-	SizeBasedPruningStrategy     = "size"     // Size pruning strategy for brute force search
-	DistanceBasedPruningStrategy = "distance" // Distance pruning strategy for brute force search
-)
-
 // UserConfig defines the configuration options for the SPFresh index.
 type UserConfig struct {
 }
@@ -72,6 +67,5 @@ func DefaultConfig() *Config {
 		Replicas:                  8,
 		RNGFactor:                 10.0,
 		MaxDistanceRatio:          10_000,
-		PruningStrategy:           SizeBasedPruningStrategy,
 	}
 }

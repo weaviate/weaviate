@@ -108,13 +108,6 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 
 	// skip if the filtered posting is now too small
 	if lf := filtered.Len(); lf < int(s.Config.MaxPostingSize) {
-		s.Logger.
-			WithField("postingID", postingID).
-			WithField("size", lf).
-			WithField("initialSize", lp).
-			WithField("max", s.Config.MaxPostingSize).
-			Debug("Posting has less than max size after garbage collection, skipping split operation")
-
 		if lf == lp {
 			// no changes, just return
 			return nil

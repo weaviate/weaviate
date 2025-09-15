@@ -72,8 +72,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 
 	v := NewCompressedVector(id, version, compressed)
 
-	// TODO can this ever return 0 replicas even if a posting/centroid already exists?
-	replicas, _, err := s.selectReplicas(v, 0)
+	replicas, _, err := s.RNGSelect(v, 0)
 	if err != nil {
 		return err
 	}
@@ -103,7 +102,7 @@ func (s *SPFresh) ensureInitialPosting(v Vector) ([]SearchResult, error) {
 	defer s.initialPostingLock.Unlock()
 
 	// check if a posting was created concurrently
-	replicas, _, err := s.selectReplicas(v, 0)
+	replicas, _, err := s.RNGSelect(v, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -157,21 +156,8 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroid SearchResu
 		s.postingLocks.Unlock(centroid.ID)
 		return false, err
 	}
-	// Update the radius of the associated centroid
-	// Note: only update PostingSizes after the centroid update succeeded
 
-	// Update the radius of the associated centroid
-	prev := s.SPTAG.Get(centroid.ID)
-	err = s.SPTAG.Upsert(centroid.ID, &Centroid{
-		Vector: prev.Vector,
-		Radius: max(prev.Radius, centroid.Distance),
-	})
-	if err != nil {
-		s.postingLocks.Unlock(centroid.ID)
-		return false, err
-	}
-
-	// increment the size of the posting after successful Store.Merge and SPTAG.Upsert
+	// increment the size of the posting
 	s.PostingSizes.Inc(centroid.ID, 1)
 
 	s.postingLocks.Unlock(centroid.ID)
