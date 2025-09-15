@@ -1,10 +1,5 @@
 #!/bin/bash
-set -euo pipefail
-
-# Make sure we use BuildKit for caching Docker layers (needed for RUN --mount)
-export DOCKER_BUILDKIT=1
-export COMPOSE_DOCKER_CLI_BUILD=1
-export BUILDKIT_PROGRESS=plain
+set -eou pipefail
 
 function main() {
   # This script runs all non-benchmark tests if no CMD switch is given and the respective tests otherwise.
