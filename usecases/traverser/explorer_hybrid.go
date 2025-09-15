@@ -409,7 +409,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return nil, err
 	}
 
-	var pointerResultList hybrid.Results
+	var out []search.Result
 
 	if origParams.Pagination.Limit <= 0 {
 		origParams.Pagination.Limit = int(e.config.QueryHybridMaximumResults)
@@ -420,20 +420,13 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	if len(res) >= origParams.Pagination.Limit+origParams.Pagination.Offset {
-		pointerResultList = res[origParams.Pagination.Offset : origParams.Pagination.Limit+origParams.Pagination.Offset]
+		out = res[origParams.Pagination.Offset : origParams.Pagination.Limit+origParams.Pagination.Offset]
 	}
 	if len(res) < origParams.Pagination.Limit+origParams.Pagination.Offset && len(res) > origParams.Pagination.Offset {
-		pointerResultList = res[origParams.Pagination.Offset:]
+		out = res[origParams.Pagination.Offset:]
 	}
 	if len(res) <= origParams.Pagination.Offset {
-		pointerResultList = hybrid.Results{}
-	}
-
-	// The rest of weaviate uses []search.Result, so we convert the hpointerResultList to []search.Result
-
-	out := make([]search.Result, 0, len(pointerResultList))
-	for _, pointerResult := range pointerResultList {
-		out = append(out, *pointerResult)
+		out = []search.Result{}
 	}
 
 	if origParams.GroupBy != nil {

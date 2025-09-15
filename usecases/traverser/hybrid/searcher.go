@@ -39,15 +39,6 @@ type Params struct {
 	AdditionalProperties additional.Properties
 }
 
-// Result facilitates the pairing of a search result with its internal doc id.
-//
-// This type is key in generalising hybrid search across different use cases.
-// Some use cases require a full search result (Get{} queries) and others need
-// only a doc id (Aggregate{}) which the search.Result type does not contain.
-// It does now
-
-type Results []*search.Result
-
 // sparseSearchFunc is the signature of a closure which performs sparse search.
 // Any package which wishes use hybrid search must provide this. The weights are
 // used in calculating the final scores of the result set.
@@ -81,7 +72,7 @@ type targetVectorParamHelper interface {
 }
 
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
-func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider, schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper) ([]*search.Result, error) {
+func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider, schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper) ([]search.Result, error) {
 	var (
 		found   [][]*search.Result
 		weights []float64
@@ -167,7 +158,7 @@ func HybridCombiner(ctx context.Context,
 	logger logrus.FieldLogger,
 	modulesProvider modulesProvider,
 	postProc postProcFunc,
-) ([]*search.Result, error) {
+) ([]search.Result, error) {
 	if params.Vector != nil && params.NearVectorParams != nil {
 		return nil, fmt.Errorf("hybrid search: cannot have both vector and nearVectorParams")
 	}
@@ -333,7 +324,7 @@ func extendHybridResults(ctx context.Context,
 	moduleParams map[string]interface{},
 	additionalProperties additional.Properties,
 	modulesProvider modulesProvider,
-) ([]*search.Result, error) {
+) ([]search.Result, error) {
 	var err error
 	if modulesProvider != nil {
 		res, err = modulesProvider.GetExploreAdditionalExtend(ctx, res,
@@ -342,11 +333,7 @@ func extendHybridResults(ctx context.Context,
 			return nil, fmt.Errorf("searcher: hybrid: extend: %w", err)
 		}
 	}
-	results := make([]*search.Result, len(res))
-	for i := range res {
-		results[i] = &res[i]
-	}
-	return results, nil
+	return res, nil
 }
 
 func toSearchResults(in []*search.Result) []search.Result {
