@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -43,11 +44,12 @@ type (
 	// coordinator coordinates replication of write and read requests
 	coordinator[T any] struct {
 		Client
-		Router router
-		log    logrus.FieldLogger
-		Class  string
-		Shard  string
-		TxID   string // transaction ID
+		Router  router
+		metrics *Metrics
+		log     logrus.FieldLogger
+		Class   string
+		Shard   string
+		TxID    string // transaction ID
 		// wait twice this duration for the first Pull backoff for each host
 		pullBackOffPreInitialInterval time.Duration
 		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
@@ -61,6 +63,7 @@ func newCoordinator[T any](r *Replicator, shard, requestID string, l logrus.Fiel
 	return &coordinator[T]{
 		Client:                        r.client,
 		Router:                        r.router,
+		metrics:                       r.metrics,
 		log:                           l,
 		Class:                         r.class,
 		Shard:                         shard,
@@ -80,6 +83,7 @@ func newReadCoordinator[T any](f *Finder, shard string,
 		Router:                        f.router,
 		Class:                         f.class,
 		Shard:                         shard,
+		metrics:                       f.metrics,
 		pullBackOffPreInitialInterval: pullBackOffInitivalInterval / 2,
 		pullBackOffMaxElapsedTime:     pullBackOffMaxElapsedTime,
 		deletionStrategy:              deletionStrategy,
@@ -153,20 +157,37 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 func (c *coordinator[T]) commitAll(ctx context.Context,
 	replicaCh <-chan string,
 	op commitOp[T],
+	callback func(successful int),
 ) <-chan _Result[T] {
 	replyCh := make(chan _Result[T], cap(replicaCh))
-	f := func() { // tells active replicas to commit
+
+	f := func() {
+		// tells active replicas to commit
+
+		var successful atomic.Int32
+
+		defer func() {
+			if callback != nil {
+				callback(int(successful.Load()))
+			}
+		}()
+
 		wg := sync.WaitGroup{}
+
 		for replica := range replicaCh {
 			wg.Add(1)
 			replica := replica
 			g := func() {
 				defer wg.Done()
 				resp, err := op(ctx, replica, c.TxID)
+				if err == nil {
+					successful.Add(1)
+				}
 				replyCh <- _Result[T]{resp, err}
 			}
 			enterrors.GoWrapper(g, c.log)
 		}
+
 		wg.Wait()
 		close(replyCh)
 	}
@@ -188,7 +209,9 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
+
 	level := writeRoutingPlan.IntConsistencyLevel
+
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
 	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 20*time.Second)
 	c.log.WithFields(logrus.Fields{
@@ -196,16 +219,41 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		"duration": 20 * time.Second,
 		"level":    level,
 	}).Debug("context.WithTimeout")
+
+	// create callback for metrics
+	// the use of an immediately invoked function expression (IIFE) captures the start time
+	// and returns the actual callback function.
+	// The returned function is then called by commitAll once it knows how many
+	// replicas have successfully committed
+	callback := func() func(successful int) {
+		start := time.Now()
+
+		return func(successful int) {
+			numReplicas := len(writeRoutingPlan.Replicas())
+
+			if numReplicas == successful {
+				c.metrics.IncWritesSucceedAll()
+			} else if successful > 0 {
+				c.metrics.IncWritesSucceedSome()
+			} else {
+				c.metrics.IncWritesFailed()
+			}
+
+			c.metrics.ObserveWriteDuration(time.Since(start))
+		}
+	}()
+
 	nodeCh := c.broadcast(ctxWithTimeout, writeRoutingPlan.HostAddresses(), ask, level)
-	commitCh := c.commitAll(context.Background(), nodeCh, com)
+	commitCh := c.commitAll(context.Background(), nodeCh, com, callback)
 
 	// if there are additional hosts, we do a "best effort" write to them
 	// where we don't wait for a response because they are not part of the
 	// replicas used to reach level consistency
 	if len(writeRoutingPlan.AdditionalHostAddresses()) > 0 {
 		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, writeRoutingPlan.AdditionalHostAddresses(), ask, len(writeRoutingPlan.AdditionalHostAddresses()))
-		c.commitAll(context.Background(), additionalHostsBroadcast, com)
+		c.commitAll(context.Background(), additionalHostsBroadcast, com, nil)
 	}
+
 	return commitCh, level, nil
 }
 
@@ -237,6 +285,21 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	hosts := readRoutingPlan.HostAddresses()
 	replyCh := make(chan _Result[T], level)
 	f := func() {
+		start := time.Now()
+		var successful atomic.Int32
+
+		defer func() {
+			if int(successful.Load()) == level {
+				c.metrics.IncReadsSucceedAll()
+			} else if successful.Load() > 0 {
+				c.metrics.IncReadsSucceedSome()
+			} else {
+				c.metrics.IncReadsFailed()
+			}
+
+			c.metrics.ObserveReadDuration(time.Since(start))
+		}()
+
 		hostRetryQueue := make(chan hostRetry, len(hosts))
 
 		// put the "backups/fallbacks" on the retry queue
@@ -266,6 +329,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				// TODO return retryable info here, for now should be fine since most errors are considered retryable
 				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
 				if err == nil {
+					successful.Add(1)
 					replyCh <- _Result[T]{resp, err}
 					return
 				}

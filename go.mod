@@ -76,7 +76,7 @@ require (
 	github.com/weaviate/s5cmd/v2 v2.0.1
 	github.com/weaviate/sroar v0.0.12
 	github.com/weaviate/tiktoken-go v0.0.3
-	go.etcd.io/bbolt v1.3.11
+	go.etcd.io/bbolt v1.4.3
 	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa
 	golang.org/x/net v0.41.0
 	golang.org/x/oauth2 v0.30.0
