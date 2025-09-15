@@ -66,7 +66,7 @@ type compactorInverted struct {
 	docIdEncoder varenc.VarEncEncoder[uint64]
 	tfEncoder    varenc.VarEncEncoder[uint64]
 
-	allocChecker memwatch.AllocChecker
+	allocChecker memwatch.ResourceChecker
 
 	k1, b, avgPropLen float64
 
@@ -80,7 +80,7 @@ func newCompactorInverted(w io.WriteSeeker,
 	c1, c2 *segmentCursorInvertedReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
 	k1, b, avgPropLen float64, maxNewFileSize int64,
-	allocChecker memwatch.AllocChecker, enableChecksumValidation bool,
+	allocChecker memwatch.ResourceChecker, enableChecksumValidation bool,
 ) *compactorInverted {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",

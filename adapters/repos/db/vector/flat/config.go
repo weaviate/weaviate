@@ -26,7 +26,7 @@ type Config struct {
 	MaxWalReuseSize              int64
 	Logger                       logrus.FieldLogger
 	DistanceProvider             distancer.Provider
-	AllocChecker                 memwatch.AllocChecker
+	AllocChecker                 memwatch.ResourceChecker
 	LazyLoadSegments             bool
 	WriteSegmentInfoIntoFileName bool
 	WriteMetadataFilesEnabled    bool

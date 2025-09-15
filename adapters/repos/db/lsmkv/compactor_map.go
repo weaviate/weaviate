@@ -52,7 +52,7 @@ type compactorMap struct {
 	// not guaranteed to be sorted yet
 	requiresSorting bool
 
-	allocChecker memwatch.AllocChecker
+	allocChecker memwatch.ResourceChecker
 
 	enableChecksumValidation bool
 	maxNewFileSize           int64
@@ -61,7 +61,7 @@ type compactorMap struct {
 func newCompactorMapCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollectionReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, requiresSorting bool, cleanupTombstones bool,
-	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
+	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.ResourceChecker,
 ) *compactorMap {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",

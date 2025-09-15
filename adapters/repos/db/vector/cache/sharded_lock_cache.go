@@ -37,7 +37,7 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 	cancel                 chan bool
 	logger                 logrus.FieldLogger
 	deletionInterval       time.Duration
-	allocChecker           memwatch.AllocChecker
+	allocChecker           memwatch.ResourceChecker
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -55,7 +55,7 @@ const (
 
 func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], multiVecForID common.VectorForID[[]float32], maxSize int, pageSize uint64,
 	logger logrus.FieldLogger, normalizeOnRead bool, deletionInterval time.Duration,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) Cache[float32] {
 	vc := &shardedLockCache[float32]{
 		vectorForID: func(ctx context.Context, id uint64) ([]float32, error) {
@@ -87,7 +87,7 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], multiVecFo
 
 func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int, pageSize uint64,
 	logger logrus.FieldLogger, deletionInterval time.Duration,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) Cache[byte] {
 	vc := &shardedLockCache[byte]{
 		vectorForID:      vecForID,
@@ -109,7 +109,7 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int, pag
 
 func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int, pageSize uint64,
 	logger logrus.FieldLogger, deletionInterval time.Duration,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) Cache[uint64] {
 	vc := &shardedLockCache[uint64]{
 		vectorForID:      vecForID,
@@ -434,7 +434,7 @@ type shardedMultipleLockCache[T float32 | uint64 | byte] struct {
 	cancelFn               func()
 	logger                 logrus.FieldLogger
 	deletionInterval       time.Duration
-	allocChecker           memwatch.AllocChecker
+	allocChecker           memwatch.ResourceChecker
 	vectorDocID            []CacheKeys
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
@@ -444,7 +444,7 @@ type shardedMultipleLockCache[T float32 | uint64 | byte] struct {
 
 func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[[]float32], maxSize int,
 	logger logrus.FieldLogger, normalizeOnRead bool, deletionInterval time.Duration,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) Cache[float32] {
 	multipleVecForIDValue := func(ctx context.Context, id uint64, relativeID uint64) ([]float32, error) {
 		vecs, err := multipleVecForID(ctx, id)
@@ -483,7 +483,7 @@ func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[[]float
 
 func NewShardedMultiUInt64LockCache(multipleVecForID common.VectorForID[uint64], maxSize int,
 	logger logrus.FieldLogger, deletionInterval time.Duration,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) Cache[uint64] {
 	multipleVecForIDValue := func(ctx context.Context, id uint64, relativeID uint64) ([]uint64, error) {
 		vec, err := multipleVecForID(ctx, id)
@@ -516,7 +516,7 @@ func NewShardedMultiUInt64LockCache(multipleVecForID common.VectorForID[uint64],
 
 func NewShardedMultiByteLockCache(multipleVecForID common.VectorForID[byte], maxSize int,
 	logger logrus.FieldLogger, deletionInterval time.Duration,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) Cache[byte] {
 	multipleVecForIDValue := func(ctx context.Context, id uint64, relativeID uint64) ([]byte, error) {
 		vec, err := multipleVecForID(ctx, id)

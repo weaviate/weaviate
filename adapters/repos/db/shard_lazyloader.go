@@ -58,14 +58,14 @@ type LazyLoadShard struct {
 	shard            *Shard
 	loaded           bool
 	mutex            sync.Mutex
-	memMonitor       memwatch.AllocChecker
+	memMonitor       memwatch.ResourceChecker
 	shardLoadLimiter ShardLoadLimiter
 	lazyLoadSegments bool
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
+	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.ResourceChecker,
 	shardLoadLimiter ShardLoadLimiter, shardReindexer ShardReindexerV3,
 	lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 ) *LazyLoadShard {

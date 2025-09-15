@@ -39,7 +39,7 @@ type Memtable struct {
 	roaringSet         *roaringset.BinarySearchTree
 	roaringSetRange    *roaringsetrange.Memtable
 	commitlog          memtableCommitLogger
-	allocChecker       memwatch.AllocChecker
+	allocChecker       memwatch.ResourceChecker
 	size               uint64
 	path               string
 	strategy           string
@@ -63,7 +63,7 @@ type Memtable struct {
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
 	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
-	enableChecksumValidation bool, bm25config *models.BM25Config, writeSegmentInfoIntoFileName bool, allocChecker memwatch.AllocChecker,
+	enableChecksumValidation bool, bm25config *models.BM25Config, writeSegmentInfoIntoFileName bool, allocChecker memwatch.ResourceChecker,
 ) (*Memtable, error) {
 	m := &Memtable{
 		key:                          &binarySearchTree{},

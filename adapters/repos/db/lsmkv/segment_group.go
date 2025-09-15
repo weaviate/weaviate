@@ -83,7 +83,7 @@ type SegmentGroup struct {
 	MinMMapSize              int64
 	keepLevelCompaction      bool // see bucket for more details
 
-	allocChecker   memwatch.AllocChecker
+	allocChecker   memwatch.ResourceChecker
 	maxSegmentSize int64
 
 	segmentCleaner     segmentCleaner

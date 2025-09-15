@@ -46,7 +46,7 @@ type compactorSet struct {
 	mw   *compactor.MemoryWriter
 
 	maxNewFileSize int64
-	allocChecker   memwatch.AllocChecker
+	allocChecker   memwatch.ResourceChecker
 
 	scratchSpacePath string
 
@@ -56,7 +56,7 @@ type compactorSet struct {
 func newCompactorSetCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollection, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
-	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
+	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.ResourceChecker,
 ) *compactorSet {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",

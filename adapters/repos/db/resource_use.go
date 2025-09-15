@@ -80,7 +80,7 @@ func newResourceScanState() *resourceScanState {
 
 // logs a warning if user-set threshold is surpassed
 func (db *DB) resourceUseWarn(mon *memwatch.Monitor, du diskUse, updateMappings bool) {
-	mon.Refresh(updateMappings)
+	mon.Refresh(updateMappings, true)
 	db.diskUseWarn(du)
 	db.memUseWarn(mon)
 }

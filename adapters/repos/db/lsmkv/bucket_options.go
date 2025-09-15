@@ -128,7 +128,7 @@ func WithDynamicMemtableSizing(
 	}
 }
 
-func WithAllocChecker(mm memwatch.AllocChecker) BucketOption {
+func WithAllocChecker(mm memwatch.ResourceChecker) BucketOption {
 	return func(b *Bucket) error {
 		b.allocChecker = mm
 		return nil

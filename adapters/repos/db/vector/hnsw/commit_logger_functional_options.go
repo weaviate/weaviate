@@ -33,7 +33,7 @@ func WithCommitlogThresholdForCombining(size int64) CommitlogOption {
 	}
 }
 
-func WithAllocChecker(mm memwatch.AllocChecker) CommitlogOption {
+func WithAllocChecker(mm memwatch.ResourceChecker) CommitlogOption {
 	return func(l *hnswCommitLogger) error {
 		l.allocChecker = mm
 		return nil
