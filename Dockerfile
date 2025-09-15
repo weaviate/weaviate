@@ -5,7 +5,7 @@
 
 ###############################################################################
 # Base build image
-FROM golang:1.24-alpine AS build_base
+FROM golang:1.24-alpine3.22 AS build_base
 ARG TARGETARCH
 # Populate the module cache based on the go.{mod,sum} files.
 ENV GOMODCACHE=/go/pkg/mod
@@ -56,7 +56,7 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 
 ###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)
-FROM alpine AS weaviate
+FROM alpine:3.22 AS weaviate
 RUN apk add --no-cache bc ca-certificates openssl && mkdir ./modules
 COPY --from=server_builder /weaviate-server /bin/weaviate
 COPY --from=server_builder /runtime/go-ego/ /go/pkg/mod/github.com/go-ego/
