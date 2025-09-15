@@ -77,9 +77,9 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 		panic(err)
 	}
 
-	client := clients.NewRemoteIndex(&http.Client{}, mocks.NewMockNodeSelector(names...))
+	client := clients.NewRemoteIndex(&http.Client{}, nodeResolver)
 	nodesClient := clients.NewRemoteNode(&http.Client{})
-	replicaClient := clients.NewReplicationClient(&http.Client{}, mocks.NewMockNodeSelector(names...))
+	replicaClient := clients.NewReplicationClient(&http.Client{}, nodeResolver)
 	n.repo, err = db.New(logger, db.Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  localDir,
