@@ -429,10 +429,9 @@ func (s *Shard) initHashtree(ctx context.Context, config asyncReplicationConfig,
 	}
 
 	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
 
 	if s.hashtree == nil {
-		s.asyncReplicationRWMux.Unlock()
-
 		s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
@@ -450,8 +449,6 @@ func (s *Shard) initHashtree(ctx context.Context, config asyncReplicationConfig,
 		WithField("object_count", objCount).
 		WithField("took", fmt.Sprintf("%v", time.Since(start))).
 		Info("hashtree successfully initialized")
-
-	s.asyncReplicationRWMux.Unlock()
 
 	s.initHashBeater(ctx, config)
 
