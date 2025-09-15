@@ -31,7 +31,9 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 
 	// no vectors exist
 	if dims == 0 {
-		return nil
+		if err := h.validatePQSegments(len(vector)); err != nil {
+			return err
+		}
 	}
 
 	// check if vector length is the same as existing nodes
@@ -58,6 +60,9 @@ func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 		}
 		if len(vecDimensions) > 1 {
 			return fmt.Errorf("multi vector array consists of vectors with varying dimensions")
+		}
+		if err := h.validatePQSegments(len(vector[0])); err != nil {
+			return err
 		}
 		return nil
 	}
