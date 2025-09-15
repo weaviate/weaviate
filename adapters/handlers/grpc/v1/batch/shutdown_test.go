@@ -36,18 +36,26 @@ func TestShutdownLogic(t *testing.T) {
 	readQueues := batch.NewBatchReadQueues()
 	readQueues.Make(StreamId)
 	writeQueues := batch.NewBatchWriteQueues()
-	writeQueues.Make(StreamId, nil, 0, 0)
+	writeQueues.Make(StreamId, nil)
 	wq, ok := writeQueues.GetQueue(StreamId)
 	require.Equal(t, true, ok, "write queue should exist")
 	internalQueue := batch.NewBatchInternalQueue()
 
 	howManyObjs := 5000
 	// 5000 objs will be sent five times in batches of 1000
+	// 100 of the each batch will error
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(context.Context, *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 		time.Sleep(1 * time.Second)
+		errors := make([]*pb.BatchObjectsReply_BatchError, 0, 100)
+		for i := 0; i < 100; i++ {
+			errors = append(errors, &pb.BatchObjectsReply_BatchError{
+				Error: "some error",
+				Index: int32(i),
+			})
+		}
 		return &pb.BatchObjectsReply{
 			Took:   float32(1),
-			Errors: nil,
+			Errors: errors,
 		}, nil
 	}).Times(5)
 
@@ -62,6 +70,11 @@ func TestShutdownLogic(t *testing.T) {
 			Start: &pb.BatchStreamMessage_Start{},
 		},
 	}).Return(nil).Once()
+	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamMessage) bool {
+		return msg.StreamId == StreamId &&
+			msg.GetError().Error == "some error" &&
+			msg.GetError().GetObject() != nil
+	})).Return(nil).Times(500)
 	stream.EXPECT().Send(&pb.BatchStreamMessage{
 		StreamId: StreamId,
 		Message: &pb.BatchStreamMessage_ShuttingDown_{
