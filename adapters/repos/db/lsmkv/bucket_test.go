@@ -1373,57 +1373,68 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 	}, v)
 }
 
-// func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
-// t.Parallel()
+func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
+	t.Parallel()
 
-// b := Bucket{
-// 	active:   newTestMemtableMap(map[string][][]byte{"key1": {[]byte("v1")}}),
-// 	disk:     &SegmentGroup{segments: []Segment{}},
-// 	strategy: StrategyMapCollection,
-// }
+	b := Bucket{
+		active: newTestMemtableMap(map[string][]MapPair{"key1": {
+			{Key: []byte("k1"), Value: []byte("v1")},
+		}}),
+		disk:     &SegmentGroup{segments: []Segment{}},
+		strategy: StrategyMapCollection,
+	}
 
-// active, freeRefs := b.getActiveMemtableForWrite()
-// err := active.append([]byte("key1"), newMapEncoder().Do([][]byte{[]byte("v2")}))
-// require.NoError(t, err)
+	active, freeRefs := b.getActiveMemtableForWrite()
+	err := active.appendMapSorted([]byte("key1"), MapPair{
+		Key: []byte("k2"), Value: []byte("v2"),
+	})
+	require.NoError(t, err)
 
-// switchDone := make(chan struct{})
-// flushDone := make(chan struct{})
+	switchDone := make(chan struct{})
+	flushDone := make(chan struct{})
 
-// go func() {
-// 	switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
-// 		return newTestMemtableMap(nil), nil
-// 	})
-// 	require.NoError(t, err)
-// 	require.True(t, switched)
-// 	close(switchDone)
+	go func() {
+		switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+			return newTestMemtableMap(nil), nil
+		})
+		require.NoError(t, err)
+		require.True(t, switched)
+		close(switchDone)
 
-// 	b.waitForZeroWriters(b.flushing)
+		b.waitForZeroWriters(b.flushing)
 
-// 	seg := flushMapTestMemtableIntoTestSegment(b.flushing)
-// 	b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
-// 	close(flushDone)
-// }()
+		seg := flushMapTestMemtableIntoTestSegment(b.flushing)
+		b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+		close(flushDone)
+	}()
 
-// <-switchDone
+	<-switchDone
 
-// // Second write (post-switch) through the old active reference
-// err = active.append([]byte("key1"), newMapEncoder().Do([][]byte{[]byte("v3")}))
-// require.NoError(t, err)
+	// Second write (post-switch) through the old active reference
+	err = active.appendMapSorted([]byte("key1"), MapPair{
+		Key: []byte("k3"), Value: []byte("v3"),
+	})
+	require.NoError(t, err)
 
-// // Release and let flush proceed
-// freeRefs()
-// <-flushDone
+	// Release and let flush proceed
+	freeRefs()
+	<-flushDone
 
-// // Validate disk now has {"v1","v2","v3"} for key1
-// view := b.getConsistentView()
-// defer view.Release()
+	// Validate disk now has {"v1","v2","v3"} for key1
+	view := b.getConsistentView()
+	defer view.Release()
 
-// raw, err := b.disk.getCollection([]byte("key1"), view.Disk)
-// require.NoError(t, err)
+	raw, err := b.disk.getCollection([]byte("key1"), view.Disk)
+	require.NoError(t, err)
 
-// got := newMapDecoder().Do(raw)
-// require.ElementsMatch(t, [][]byte{[]byte("v1"), []byte("v2"), []byte("v3")}, got)
-// }
+	got, err := newMapDecoder().Do(raw, false)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []MapPair{
+		{Key: []byte("k1"), Value: []byte("v1")},
+		{Key: []byte("k2"), Value: []byte("v2")},
+		{Key: []byte("k3"), Value: []byte("v3")},
+	}, got)
+}
 
 func newTestMemtableReplace(initialData map[string][]byte) *Memtable {
 	m := &Memtable{
