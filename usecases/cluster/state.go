@@ -134,7 +134,7 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 	}
 
 	if userConfig.FastFailureDetection {
-		cfg.SuspicionMult = 1
+		cfg.SuspicionMult = 2
 		cfg.DeadNodeReclaimTime = 5 * time.Second
 	}
 
