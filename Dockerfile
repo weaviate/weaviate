@@ -28,17 +28,18 @@ ARG CGO_ENABLED=1
 ENV CGO_ENABLED=$CGO_ENABLED
 COPY . .
 RUN --mount=type=cache,id=gobuild-${TARGETARCH},target=/root/.cache/go-build,sharing=locked \
-    GOOS=linux GOARCH=${TARGETARCH} go build -trimpath \
-    -ldflags '-w -extldflags "-static" \
-    -X github.com/weaviate/weaviate/usecases/build.Branch='"$GIT_BRANCH"' \
-    -X github.com/weaviate/weaviate/usecases/build.Revision='"$GIT_REVISION"' \
-    -X github.com/weaviate/weaviate/usecases/build.BuildUser='"$BUILD_USER"' \
-    -X github.com/weaviate/weaviate/usecases/build.BuildDate='"$BUILD_DATE"'' \
-    -o /weaviate-server ./cmd/weaviate-server
+    GOOS=linux GOARCH=${TARGETARCH} \
+    go build $EXTRA_BUILD_ARGS -trimpath \
+      -ldflags="-s -w -extldflags '-static' \
+        -X github.com/weaviate/weaviate/usecases/build.Branch=${GIT_BRANCH} \
+        -X github.com/weaviate/weaviate/usecases/build.Revision=${GIT_REVISION} \
+        -X github.com/weaviate/weaviate/usecases/build.BuildUser=${BUILD_USER} \
+        -X github.com/weaviate/weaviate/usecases/build.BuildDate=${BUILD_DATE}" \
+      -o /weaviate-server ./cmd/weaviate-server
 
-RUN if [ -d /go/pkg/mod/github.com/go-ego ]; then \
-      cp -a /go/pkg/mod/github.com/go-ego/* /runtime/go-ego/; \
-    fi
+RUN go_ego_dir=/go/pkg/mod/github.com/go-ego && \
+    if [ -d "$go_ego_dir" ]; then cp -a "$go_ego_dir/." /runtime/go-ego/; fi
+
 
 
 
