@@ -34,6 +34,10 @@ type RotationalQuantizer struct {
 	l2  float32 // Indicator for the l2-squared distancer.
 }
 
+const (
+	RQMetadataSize = 16
+)
+
 func distancerIndicatorsAndError(distancer distancer.Provider) (float32, float32, error) {
 	supportedDistances := []string{"cosine-dot", "l2-squared", "dot"}
 	if !slices.Contains(supportedDistances, distancer.Type()) {
@@ -261,7 +265,7 @@ func (rq *RotationalQuantizer) NewDistancer(q []float32) *RQDistancer {
 // Optimized distance computation that precomputes as much as possible and
 // avoids conditional statements by using indicator variables.
 func (d *RQDistancer) Distance(x []byte) (float32, error) {
-	if len(x) != (len(d.bytes) + 16) { // 16 bytes for the metadata
+	if len(x) != (len(d.bytes) + RQMetadataSize) {
 		return 0, errors.Errorf("vector lengths don't match: %d vs %d",
 			len(x), len(d.bytes))
 	}
