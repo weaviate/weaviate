@@ -237,7 +237,7 @@ func (m *contextMutex) TryLockWithContext(ctx context.Context) bool {
 		case <-m.ch:
 			// make sure the lock is still available, don't block if someone else
 			// took it already
-			if m.TryLock() {
+			if m.mu.TryLock() {
 				return true
 			}
 		}
