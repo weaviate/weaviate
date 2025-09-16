@@ -68,7 +68,7 @@ type Segment interface {
 	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
 	newRoaringSetCursor() roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor
-	newRoaringSetRangeReader() *roaringsetrange.SegmentReader
+	newRoaringSetRangeReader() roaringsetrange.InnerReader
 	quantileKeys(q int) [][]byte
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	replaceStratParseData(in []byte) ([]byte, []byte, error)

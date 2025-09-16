@@ -256,7 +256,7 @@ func (s *lazySegment) newRoaringSetRangeCursor() roaringsetrange.SegmentCursor {
 	return s.segment.newRoaringSetRangeCursor()
 }
 
-func (s *lazySegment) newRoaringSetRangeReader() *roaringsetrange.SegmentReader {
+func (s *lazySegment) newRoaringSetRangeReader() roaringsetrange.InnerReader {
 	s.mustLoad()
 	return s.segment.newRoaringSetRangeReader()
 }

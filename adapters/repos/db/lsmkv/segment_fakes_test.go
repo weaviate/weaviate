@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"sort"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/concurrency"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -31,6 +33,14 @@ func newFakeReplaceSegment(kv map[string][]byte) *fakeSegment {
 
 func newFakeRoaringSetSegment(kv map[string]*sroar.Bitmap) *fakeSegment {
 	return &fakeSegment{strategy: segmentindex.StrategyRoaringSet, roaringStore: kv}
+}
+
+func newFakeRoaringSetRangeSegment(additionsKV map[uint64]*sroar.Bitmap, deletionsV *sroar.Bitmap) *fakeSegment {
+	return &fakeSegment{
+		strategy:              segmentindex.StrategyRoaringSetRange,
+		roaringRangeAdditions: additionsKV,
+		roaringRangeDeletions: deletionsV,
+	}
 }
 
 func newFakeSetSegment(kv map[string][][]byte) *fakeSegment {
@@ -63,13 +73,15 @@ func newFakeMapSegment(kv map[string][]MapPair) *fakeSegment {
 }
 
 type fakeSegment struct {
-	strategy        segmentindex.Strategy
-	replaceStore    map[string][]byte
-	roaringStore    map[string]*sroar.Bitmap
-	collectionStore map[string][]value
-	refs            int
-	path            string
-	getCounter      int
+	strategy              segmentindex.Strategy
+	replaceStore          map[string][]byte
+	roaringStore          map[string]*sroar.Bitmap
+	roaringRangeAdditions map[uint64]*sroar.Bitmap
+	roaringRangeDeletions *sroar.Bitmap
+	collectionStore       map[string][]value
+	refs                  int
+	path                  string
+	getCounter            int
 }
 
 func (f *fakeSegment) getPath() string {
@@ -237,8 +249,12 @@ func (f *fakeSegment) newRoaringSetRangeCursor() roaringsetrange.SegmentCursor {
 	panic("not implemented") // TODO: Implement
 }
 
-func (f *fakeSegment) newRoaringSetRangeReader() *roaringsetrange.SegmentReader {
-	panic("not implemented") // TODO: Implement
+func (f *fakeSegment) newRoaringSetRangeReader() roaringsetrange.InnerReader {
+	if f.strategy != segmentindex.StrategyRoaringSetRange {
+		panic("not a roaring set range segment")
+	}
+
+	return newFakeRoaringSetRangeReader(f.roaringRangeAdditions, f.roaringRangeDeletions, func() { f.getCounter++ })
 }
 
 func (f *fakeSegment) quantileKeys(q int) [][]byte {
@@ -414,6 +430,33 @@ func (c *fakeRoaringSetCursor) Next() ([]byte, roaringset.BitmapLayer, error) {
 
 func (c *fakeRoaringSetCursor) Seek(seek []byte) ([]byte, roaringset.BitmapLayer, error) {
 	panic("not implemented")
+}
+
+type fakeRoaringSetRangeReader struct {
+	additions map[uint64]*sroar.Bitmap
+	deletions *sroar.Bitmap
+	incReads  func()
+}
+
+func newFakeRoaringSetRangeReader(additions map[uint64]*sroar.Bitmap, deletions *sroar.Bitmap, incReads func(),
+) *fakeRoaringSetRangeReader {
+	return &fakeRoaringSetRangeReader{additions: additions, deletions: deletions, incReads: incReads}
+}
+
+func (r *fakeRoaringSetRangeReader) Read(ctx context.Context, value uint64, operator filters.Operator,
+) (layer roaringset.BitmapLayer, release func(), err error) {
+	if operator != filters.OperatorEqual {
+		panic("operators other than 'equal' not supported")
+	}
+
+	r.incReads()
+	var add *sroar.Bitmap
+	if bm, ok := r.additions[value]; ok {
+		add = bm.Clone()
+	} else {
+		add = sroar.NewBitmap()
+	}
+	return roaringset.BitmapLayer{Additions: add, Deletions: r.deletions}, func() {}, nil
 }
 
 type fakeCollectionCursor struct {

@@ -12,11 +12,15 @@
 package lsmkv
 
 import (
+	"context"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/filters"
 )
 
 // This test proves two things:
@@ -206,6 +210,133 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 
 	validateView(t, segments)
 	require.Greater(t, segAB.getCounter, 0, "new segment should have received calls")
+}
+
+func TestSegmentGroup_RoaringSetRange_ConsistentViewAcrossSegmentAddition(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := test.NewNullLogger()
+	key1 := uint64(1)
+
+	// initial segment
+	segmentData := map[uint64]*sroar.Bitmap{
+		key1: roaringset.NewBitmap(1),
+	}
+	sg := &SegmentGroup{
+		segments: []Segment{newFakeRoaringSetRangeSegment(segmentData, sroar.NewBitmap())},
+	}
+
+	createReaderFromConsistentViewOfSegments := func() ReaderRoaringSetRange {
+		segments, release := sg.getConsistentViewOfSegments()
+		readers := make([]roaringsetrange.InnerReader, len(segments))
+		for i := range segments {
+			readers[i] = segments[i].newRoaringSetRangeReader()
+		}
+		return roaringsetrange.NewCombinedReader(readers, release, 1, logger)
+	}
+
+	// control before segment changes
+	reader := createReaderFromConsistentViewOfSegments()
+	defer reader.Close()
+
+	v, release, err := reader.Read(context.Background(), key1, filters.OperatorEqual)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{1}, v.ToArray(), "k==v on initial state")
+	release()
+
+	// append new segment
+	segment2Data := map[uint64]*sroar.Bitmap{
+		key1: roaringset.NewBitmap(2),
+	}
+	sg.addInitializedSegment(newFakeRoaringSetRangeSegment(segment2Data, sroar.NewBitmap()))
+
+	// prove that our consistent view still shows the old value
+	v, release, err = reader.Read(context.Background(), key1, filters.OperatorEqual)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{1}, v.ToArray(), "k==v after segment addition on old view")
+	release()
+
+	// prove that new readers will see the most recent view
+	reader2 := createReaderFromConsistentViewOfSegments()
+	defer reader2.Close()
+
+	v, release, err = reader2.Read(context.Background(), key1, filters.OperatorEqual)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{1, 2}, v.ToArray(), "k==v on new view after segment addition")
+	release()
+}
+
+func TestSegmentGroup_RoaringSetRange_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := test.NewNullLogger()
+	key1, key2 := uint64(1), uint64(2)
+
+	// initial two segments: segA (key1 -> {1}), segB (key2 -> {2})
+	segA := newFakeRoaringSetRangeSegment(map[uint64]*sroar.Bitmap{
+		key1: roaringset.NewBitmap(1),
+	}, sroar.NewBitmap())
+	segB := newFakeRoaringSetRangeSegment(map[uint64]*sroar.Bitmap{
+		key2: roaringset.NewBitmap(2),
+	}, sroar.NewBitmap())
+	sg := &SegmentGroup{
+		segments: []Segment{segA, segB},
+		logger:   logger,
+	}
+
+	createReaderFromConsistentViewOfSegments := func() ReaderRoaringSetRange {
+		segments, release := sg.getConsistentViewOfSegments()
+		readers := make([]roaringsetrange.InnerReader, len(segments))
+		for i := range segments {
+			readers[i] = segments[i].newRoaringSetRangeReader()
+		}
+		return roaringsetrange.NewCombinedReader(readers, release, 1, logger)
+	}
+
+	// control: take a consistent view before any switch
+	reader := createReaderFromConsistentViewOfSegments()
+	defer reader.Close()
+
+	// On the original view, key1 should be {1} (from segA), key2 should be {2} (from segB)
+	validateReader := func(t *testing.T, reader ReaderRoaringSetRange) {
+		t.Helper()
+
+		v, release, err := reader.Read(context.Background(), key1, filters.OperatorEqual)
+		require.NoError(t, err)
+		require.Equal(t, []uint64{1}, v.ToArray())
+		release()
+
+		v, release, err = reader.Read(context.Background(), key2, filters.OperatorEqual)
+		require.NoError(t, err)
+		require.Equal(t, []uint64{2}, v.ToArray())
+		release()
+	}
+	validateReader(t, reader)
+
+	// prepare compacted segment that merges segA and segB
+	segAB := newFakeRoaringSetRangeSegment(map[uint64]*sroar.Bitmap{
+		key1: roaringset.NewBitmap(1),
+		key2: roaringset.NewBitmap(2),
+	}, sroar.NewBitmap())
+
+	// perform in-memory switch (like compaction)
+	newSegmentReplacer(sg, 0, 1, segAB).switchInMemory(segA, segB)
+	require.Equal(t, []Segment{segAB}, sg.segments, "segment list should contain only the compacted segment")
+
+	// prove that the old consistent view is still valid (reads must not be affected)
+	validateReader(t, reader)
+	require.Equal(t, segAB.getCounter, 0, "new segment should not have received calls")
+	countA := segA.getCounter
+	countB := segB.getCounter
+
+	// prove that a new consistent view sees the (compacted) latest state
+	reader2 := createReaderFromConsistentViewOfSegments()
+	defer reader2.Close()
+
+	validateReader(t, reader2)
+	require.Greater(t, segAB.getCounter, 0, "new segment should have received calls")
+	require.Equal(t, countA, segA.getCounter, "old segmentA should not have received calls")
+	require.Equal(t, countB, segB.getCounter, "old segmentB should not have received calls")
 }
 
 func TestSegmentGroup_Set_ConsistentViewAcrossSegmentAddition(t *testing.T) {
