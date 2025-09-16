@@ -446,12 +446,129 @@ func tombstoneDeletionConcurrency() int {
 	return concurrency
 }
 
+// preloadVectorsForCleanup pre-loads vectors for nodes that will be processed during tombstone cleanup.
+// This optimization significantly improves performance after a reboot when the cache is cold.
+func (h *hnsw) preloadVectorsForCleanup(ctx context.Context, size int, deleteList helpers.AllowList,
+	breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc,
+) error {
+	if h.compressed.Load() {
+		// For compressed vectors, we can't preload as they need to be decompressed on-demand
+		return nil
+	}
+
+	// Only preload if we have a reasonable number of nodes to avoid excessive memory usage
+	if size > 1000000 { // 1M nodes threshold
+		return nil
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"action":      "tombstone_cleanup_preload",
+		"class":       h.className,
+		"shard":       h.shardName,
+		"total_nodes": size,
+	}).Debug("preloading vectors for tombstone cleanup")
+
+	// Preload vectors in batches to avoid memory issues
+	batchSize := 1000
+	concurrency := tombstoneDeletionConcurrency()
+	
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	
+	ch := make(chan []uint64, concurrency)
+	
+	// Start worker goroutines
+	for i := 0; i < concurrency; i++ {
+		g.Go(func() error {
+			for {
+				select {
+				case <-ctx.Done():
+					return nil
+				case batch, ok := <-ch:
+					if !ok {
+						return nil
+					}
+					
+					if breakCleanUpTombstonedNodes() {
+						cancel()
+						return nil
+					}
+					
+					// Preload vectors for this batch
+					for _, nodeID := range batch {
+						if breakCleanUpTombstonedNodes() {
+							cancel()
+							return nil
+						}
+						
+						// Check if node exists and is not in delete list
+						h.shardedNodeLocks.RLock(nodeID)
+						if nodeID >= uint64(len(h.nodes)) || h.nodes[nodeID] == nil || deleteList.Contains(nodeID) {
+							h.shardedNodeLocks.RUnlock(nodeID)
+							continue
+						}
+						h.shardedNodeLocks.RUnlock(nodeID)
+						
+						// Preload the vector into cache
+						_, err := h.cache.Get(context.Background(), nodeID)
+						if err != nil {
+							// Ignore individual errors, continue with other vectors
+							continue
+						}
+					}
+				}
+			}
+		})
+	}
+	
+	// Send batches to workers
+	go func() {
+		defer close(ch)
+		for i := 0; i < size; i += batchSize {
+			if breakCleanUpTombstonedNodes() {
+				cancel()
+				return
+			}
+			
+			end := i + batchSize
+			if end > size {
+				end = size
+			}
+			
+			batch := make([]uint64, 0, batchSize)
+			for j := i; j < end; j++ {
+				batch = append(batch, uint64(j))
+			}
+			
+			select {
+			case ch <- batch:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	
+	err := g.Wait()
+	if errors.Is(err, context.Canceled) {
+		return nil // Cancellation is expected if cleanup is aborted
+	}
+	
+	return err
+}
+
 func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.AllowList,
 	breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc,
 ) (ok bool, err error) {
 	h.RLock()
 	size := len(h.nodes)
 	h.RUnlock()
+
+	// Pre-load vectors for nodes that will be processed to improve performance after reboot
+	// This addresses the performance issue described in https://github.com/weaviate/weaviate/issues/8914
+	if err := h.preloadVectorsForCleanup(ctx, size, deleteList, breakCleanUpTombstonedNodes); err != nil {
+		h.logger.WithError(err).Warn("failed to preload vectors for tombstone cleanup, continuing with individual lookups")
+	}
 
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, ctx)
 	ctx, cancel := context.WithCancel(ctx)
