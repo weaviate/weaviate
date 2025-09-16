@@ -229,13 +229,17 @@ func (m *contextMutex) TryLockWithContext(ctx context.Context) bool {
 
 	// If the lock is not available, we wait for either the context to be
 	// canceled or the mutex to be released.
-	select {
-	case <-ctx.Done():
-		// The context was canceled, so we return an error.
-		return false
-	case <-m.ch:
-		// The mutex was released, so we acquire the lock and return.
-		m.mu.Lock()
-		return true
+	for {
+		select {
+		case <-ctx.Done():
+			// The context was canceled, so we return an error.
+			return false
+		case <-m.ch:
+			// make sure the lock is still available, don't block if someone else
+			// took it already
+			if m.TryLock() {
+				return true
+			}
+		}
 	}
 }
