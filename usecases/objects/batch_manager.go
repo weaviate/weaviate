@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -36,6 +37,7 @@ type BatchManager struct {
 	modulesProvider   ModulesProvider
 	autoSchemaManager *AutoSchemaManager
 	metrics           *Metrics
+	memWatch          *memwatch.Monitor
 }
 
 type BatchVectorRepo interface {
@@ -56,7 +58,7 @@ type batchRepoNew interface {
 func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider,
 	schemaManager schemaManager, config *config.WeaviateConfig,
 	logger logrus.FieldLogger, authorizer authorization.Authorizer,
-	prom *monitoring.PrometheusMetrics, autoSchemaManager *AutoSchemaManager,
+	prom *monitoring.PrometheusMetrics, autoSchemaManager *AutoSchemaManager, memWatch *memwatch.Monitor,
 ) *BatchManager {
 	return &BatchManager{
 		config:            config,
@@ -68,6 +70,7 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 		authorizer:        authorizer,
 		autoSchemaManager: autoSchemaManager,
 		metrics:           NewMetrics(prom),
+		memWatch:          memWatch,
 	}
 }
 

@@ -192,7 +192,7 @@ func (m *Monitor) obtainCurrentMappings() {
 	m.usedMappings = used
 }
 
-func (m *Monitor) IOPSOverloaded(level float64) bool {
+func (m *Monitor) IOPSOverloaded(level float64) error {
 	return m.iOPSMonitor.IOPSOverloaded(level)
 }
 

@@ -1,6 +1,7 @@
 package memwatch
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -9,7 +10,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const maxIOPSDefault = float64(16000) // max IOPS in cloud environments
+const (
+	maxIOPSDefault = float64(16000) // max IOPS in cloud environments
+	component      = "IOPSMonitor"
+)
+
+type IOPSLevels float64
 
 type queue struct {
 	internalQueue []int
@@ -41,7 +47,7 @@ type IOPSMonitor struct {
 
 func newIOPSMonitor(logger logrus.FieldLogger) IOPSMonitor {
 	maxIOPS := maxIOPSDefault
-	if v := os.Getenv("MONITOR_DISK_IOPS_MAX"); v != "" {
+	if v := os.Getenv("MONITOR_DISK_MAX_IOPS"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err == nil {
 			maxIOPS = float64(asInt)
@@ -51,26 +57,26 @@ func newIOPSMonitor(logger logrus.FieldLogger) IOPSMonitor {
 	stats, err := disk.IOCounters()
 	if err != nil {
 		logger.WithFields(logrus.Fields{
-			"component": "IOPSMonitor",
+			"component": component,
 		}).Warnf("Could not get disk stats, IOPS monitoring disabled: %v", err)
 		return IOPSMonitor{enabled: false}
 	}
 
 	var device string
-	if v := os.Getenv("MONITOR_DISK_IOPS_DEVICE"); v != "" {
+	if v := os.Getenv("MONITOR_DISK_DEVICE"); v != "" {
 		device = v
 		_, exists := stats[device]
 		if !exists {
 			logger.WithFields(logrus.Fields{
-				"component": "IOPSMonitor",
+				"component": component,
 			}).Warnf("Could not find device %q, IOPS monitoring disabled", device)
 			return IOPSMonitor{enabled: false}
 		}
 	} else {
 		if len(stats) > 1 {
 			logger.WithFields(logrus.Fields{
-				"component": "IOPSMonitor",
-			}).Warnf("More than one disk found, please set MONITOR_DISK_IOPS_DEVICE to the appropriate device name. IOPS monitoring disabled.")
+				"component": component,
+			}).Warnf("More than one disk found, please set MONITOR_DISK_DEVICE to the appropriate device name. IOPS monitoring disabled.")
 			return IOPSMonitor{enabled: false}
 		}
 		for k := range stats {
@@ -116,6 +122,9 @@ func (m *IOPSMonitor) obtainCurrentIOPS() {
 	m.lastStat = currentStat
 }
 
-func (m *IOPSMonitor) IOPSOverloaded(level float64) bool {
-	return m.maxIOPS/m.IOPSQueue.average > level
+func (m *IOPSMonitor) IOPSOverloaded(level float64) error {
+	if m.IOPSQueue.average/m.maxIOPS > level {
+		return fmt.Errorf("IOPS overloaded: current %.2f, max %.2f", m.IOPSQueue.average, m.maxIOPS)
+	}
+	return nil
 }

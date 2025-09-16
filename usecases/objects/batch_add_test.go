@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -74,7 +75,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()), memwatch.NewDummyMonitor())
 	}
 
 	reset := func() {
@@ -327,7 +328,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()), memwatch.NewDummyMonitor())
 	}
 
 	ctx := context.Background()
@@ -471,7 +472,7 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()), memwatch.NewDummyMonitor())
 	}
 	reset()
 	objects := []*models.Object{

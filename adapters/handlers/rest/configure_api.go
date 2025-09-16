@@ -691,7 +691,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Logger, prometheus.DefaultRegisterer)
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, appState.Metrics, appState.AutoSchemaManager)
+		appState.Authorizer, appState.Metrics, appState.AutoSchemaManager, appState.MemWatch)
 	appState.BatchManager = batchManager
 
 	err = migrator.AdjustFilterablePropSettings(ctx)
