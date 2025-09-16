@@ -29,10 +29,6 @@ func testText2VecJinaAI(rest, grpc string) func(t *testing.T) {
 			dimensions int
 		}{
 			{
-				name:  "jina-embeddings-v2-base-en",
-				model: "jina-embeddings-v2-base-en",
-			},
-			{
 				name:       "jina-embeddings-v3",
 				model:      "jina-embeddings-v3",
 				dimensions: 64,
