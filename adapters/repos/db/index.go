@@ -2329,7 +2329,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 
 	// make sure same shard is not inited in parallel
 	if !i.shardCreateLocks.TryLockWithContext(shardName, ctx) {
-		return nil, func() {}, fmt.Errorf("unable to acquire shardCreateLocks lock: %w", err)
+		return nil, func() {}, fmt.Errorf("unable to acquire shardCreateLocks lock: %w", ctx.Err())
 	}
 	defer i.shardCreateLocks.Unlock(shardName)
 
