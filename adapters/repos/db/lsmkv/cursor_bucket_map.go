@@ -43,6 +43,7 @@ type innerCursorMap interface {
 
 func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
 	b.flushLock.RLock()
+	b.flushLock.RUnlock()
 
 	c := MapListOptionConfig{}
 	for _, cfg := range cfgs {
@@ -51,9 +52,10 @@ func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
 
 	innerCursors, unlockSegmentGroup := b.disk.newMapCursors()
 
-	// we have a flush-RLock, so we have the guarantee that the flushing state
-	// will not change for the lifetime of the cursor, thus there can only be two
-	// states: either a flushing memtable currently exists - or it doesn't
+	// we hold a flush-lock during initialzation, but we release it before
+	// returning to the caller. However, `*memtable.newCursor` creates a deep
+	// copy of the entire content, so this cursor will remain valid even after we
+	// release the lock
 	if b.flushing != nil {
 		innerCursors = append(innerCursors, b.flushing.newMapCursor())
 	}
@@ -63,7 +65,6 @@ func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
 	return &CursorMap{
 		unlock: func() {
 			unlockSegmentGroup()
-			b.flushLock.RUnlock()
 		},
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top

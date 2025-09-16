@@ -64,7 +64,7 @@ type Segment interface {
 	newCollectionCursorReusable() *segmentCursorCollectionReusable
 	newCursor() innerCursorReplaceAllKeys
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
-	newMapCursor() *segmentCursorMap
+	newMapCursor() innerCursorMap
 	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
 	newRoaringSetCursor() roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor

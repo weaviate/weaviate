@@ -236,7 +236,7 @@ func (s *lazySegment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	return s.segment.newCursorWithSecondaryIndex(pos)
 }
 
-func (s *lazySegment) newMapCursor() *segmentCursorMap {
+func (s *lazySegment) newMapCursor() innerCursorMap {
 	s.mustLoad()
 	return s.segment.newMapCursor()
 }

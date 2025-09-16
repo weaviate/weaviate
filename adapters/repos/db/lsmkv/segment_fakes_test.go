@@ -205,8 +205,21 @@ func (f *fakeSegment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	panic("not implemented") // TODO: Implement
 }
 
-func (f *fakeSegment) newMapCursor() *segmentCursorMap {
-	panic("not implemented") // TODO: Implement
+func (f *fakeSegment) newMapCursor() innerCursorMap {
+	// Build a stable, sorted key list for deterministic iteration.
+	keys := make([]string, 0, len(f.collectionStore))
+	for k := range f.collectionStore {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	return &fakeMapCursor{
+		cc: &fakeCollectionCursor{
+			keys:  keys,
+			store: f.collectionStore,
+			idx:   -1, // before first
+		},
+	}
 }
 
 func (f *fakeSegment) newNodeReader(offset nodeOffset, operation string) (*nodeReader, error) {
@@ -434,5 +447,47 @@ func (c *fakeCollectionCursor) next() ([]byte, []value, error) {
 }
 
 func (c *fakeCollectionCursor) seek(target []byte) ([]byte, []value, error) {
+	panic("not implemented")
+}
+
+type fakeMapCursor struct {
+	cc *fakeCollectionCursor
+}
+
+func (c *fakeMapCursor) first() ([]byte, []MapPair, error) {
+	k, vals, err := c.cc.first()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	mp := make([]MapPair, len(vals))
+	for i, v := range vals {
+		err := mp[i].FromBytes(v.value, false)
+		if err != nil {
+			return nil, nil, fmt.Errorf("parse map value: %w", err)
+		}
+	}
+
+	return k, mp, nil
+}
+
+func (c *fakeMapCursor) next() ([]byte, []MapPair, error) {
+	k, vals, err := c.cc.next()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	mp := make([]MapPair, len(vals))
+	for i, v := range vals {
+		err := mp[i].FromBytes(v.value, false)
+		if err != nil {
+			return nil, nil, fmt.Errorf("parse map value: %w", err)
+		}
+	}
+
+	return k, mp, nil
+}
+
+func (c *fakeMapCursor) seek(target []byte) ([]byte, []MapPair, error) {
 	panic("not implemented")
 }
