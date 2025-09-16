@@ -182,6 +182,10 @@ type Config struct {
 	// ReplicaMovementMinimumAsyncWait is the minimum time bound that replica movement operations will wait before
 	// async replication can complete.
 	ReplicaMovementMinimumAsyncWait *runtime.DynamicValue[time.Duration]
+
+	// DrainSleep is the time the node will wait for the cluster to process any ongoing
+	// operations before shutting down.
+	DrainSleep time.Duration
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -531,6 +535,9 @@ func (st *Store) Close(ctx context.Context) error {
 	}
 
 	st.open.Store(false)
+
+	// drain any ongoing operations
+	time.Sleep(st.cfg.DrainSleep)
 
 	st.log.Info("closing raft-net ...")
 	if err := st.raftTransport.Close(); err != nil {
