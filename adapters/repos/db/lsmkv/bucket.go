@@ -763,10 +763,10 @@ func (b *Bucket) getActiveMemtableForWrite() (active *Memtable, release func()) 
 // SetAdd is specific to the Set strategy. For Replace, use [Bucket.Put], for
 // Map use either [Bucket.MapSet] or [Bucket.MapSetMulti].
 func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
-	return b.active.append(key, newSetEncoder().Do(values))
+	return active.append(key, newSetEncoder().Do(values))
 }
 
 // SetDeleteSingle removes one Set element from the given key. Note that LSM
@@ -1055,20 +1055,20 @@ func (b *Bucket) loadAllTombstones(view BucketConsistentView) ([]*sroar.Bitmap, 
 //
 // MapSet is specific to the Map Strategy, for Replace use [Bucket.Put], and for Set use [Bucket.SetAdd] instead.
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
-	return b.active.appendMapSorted(rowKey, kv)
+	return active.appendMapSorted(rowKey, kv)
 }
 
 // MapSetMulti is the same as [Bucket.MapSet], except that it takes in multiple
 // [MapPair] objects at the same time.
 func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
 	for _, kv := range kvs {
-		if err := b.active.appendMapSorted(rowKey, kv); err != nil {
+		if err := active.appendMapSorted(rowKey, kv); err != nil {
 			return err
 		}
 	}
@@ -1652,7 +1652,6 @@ func (b *Bucket) WriteWAL() error {
 	return b.active.writeWAL()
 }
 
-// TODO: unit test (can possibly be combined with the Map unit test)
 func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBoost float32, cfgs ...MapListOption) ([]terms.DocPointerWithScore, error) {
 	view := b.getConsistentView()
 	defer view.Release()
