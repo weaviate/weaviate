@@ -261,6 +261,10 @@ func (rq *RotationalQuantizer) NewDistancer(q []float32) *RQDistancer {
 // Optimized distance computation that precomputes as much as possible and
 // avoids conditional statements by using indicator variables.
 func (d *RQDistancer) Distance(x []byte) (float32, error) {
+	if len(x) != len(d.bytes) {
+		return 0, errors.Errorf("vector lengths don't match: %d vs %d",
+			len(x), len(d.bytes))
+	}
 	cx := RQCode(x)
 	dotEstimate := cx.Lower()*d.a + cx.CodeSum()*d.lower + cx.Step()*d.step*float32(dotByteImpl(cx.Bytes(), d.bytes))
 	return d.l2*(cx.Norm2()+d.norm2) + d.cos - (1.0+d.l2)*dotEstimate, d.err
