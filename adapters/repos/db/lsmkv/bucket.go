@@ -1656,6 +1656,12 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	view := b.getConsistentView()
 	defer view.Release()
 
+	return b.docPointerWithScoreListFromConsistentView(ctx, view, key, propBoost, cfgs...)
+}
+
+func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, view BucketConsistentView,
+	key []byte, propBoost float32, cfgs ...MapListOption,
+) ([]terms.DocPointerWithScore, error) {
 	c := MapListOptionConfig{}
 	for _, cfg := range cfgs {
 		cfg(&c)

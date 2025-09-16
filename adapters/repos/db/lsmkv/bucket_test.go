@@ -13,7 +13,9 @@ package lsmkv
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -1373,6 +1376,125 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 	}, v)
 }
 
+func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
+	// DocPointers is a special accessor of a map bucket that uses tf-idf style
+	// data
+	t.Parallel()
+	ctx := context.Background()
+
+	diskSegments := &SegmentGroup{
+		segments: []Segment{
+			newFakeMapSegment(map[string][]MapPair{
+				"key1": {mapFromDocPointers(0, 1.0, 3)},
+			}),
+		},
+	}
+
+	initialMemtable := newTestMemtableMap(map[string][]MapPair{
+		"key2": {mapFromDocPointers(1, 0.8, 4)},
+	})
+
+	b := Bucket{
+		active:   initialMemtable,
+		disk:     diskSegments,
+		strategy: StrategyMapCollection,
+	}
+
+	// Sanity via Bucket API
+	got, err := b.DocPointerWithScoreList(ctx, []byte("key1"), 1)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []terms.DocPointerWithScore{docPointers(0, 1.0, 3)}, got)
+
+	got, err = b.DocPointerWithScoreList(ctx, []byte("key2"), 1)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []terms.DocPointerWithScore{docPointers(1, 0.8, 4)}, got)
+
+	// View #1 (pre-switch): active=key2, flushing=nil, disk=key1
+	view1 := b.getConsistentView()
+	defer view1.Release()
+
+	validateView1 := func(v BucketConsistentView) {
+		expected := map[string][]terms.DocPointerWithScore{
+			"key1": {docPointers(0, 1.0, 3)},
+			"key2": {docPointers(1, 0.8, 4)},
+		}
+
+		for k, expectedV := range expected {
+			value, err := b.docPointerWithScoreListFromConsistentView(ctx, v, []byte(k), 1)
+			require.NoError(t, err)
+			require.ElementsMatch(t, expectedV, value)
+		}
+	}
+	validateView1(view1)
+
+	// Switch: move active->flushing (key2), new active with key3 -> {"a3"}
+	switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+		return newTestMemtableMap(map[string][]MapPair{
+			"key3": {mapFromDocPointers(2, 0.6, 2)},
+		}), nil
+	})
+	require.NoError(t, err)
+	require.True(t, switched)
+
+	// view1 remains unchanged
+	validateView1(view1)
+
+	// View #2 (post-switch): active=key3, flushing=key2, disk=key1
+	view2 := b.getConsistentView()
+	defer view2.Release()
+
+	validateView2 := func(v BucketConsistentView) {
+		expected := map[string][]terms.DocPointerWithScore{
+			"key1": {docPointers(0, 1.0, 3)},
+			"key2": {docPointers(1, 0.8, 4)},
+			"key3": {docPointers(2, 0.6, 2)},
+		}
+
+		for k, expectedV := range expected {
+			value, err := b.docPointerWithScoreListFromConsistentView(ctx, v, []byte(k), 1)
+			require.NoError(t, err)
+			require.ElementsMatch(t, expectedV, value)
+		}
+	}
+	validateView2(view2)
+
+	// Flush flushing (key2) -> disk; both views stay stable
+	seg := flushMapTestMemtableIntoTestSegment(b.flushing)
+	b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+	validateView1(view1)
+	validateView2(view2)
+
+	// Final view: active=key3, flushing=nil, disk has key1 & key2
+	view3 := b.getConsistentView()
+	defer view3.Release()
+
+	// active: key3 -> {"a3"}
+	a3, err := b.docPointerWithScoreListFromConsistentView(ctx, view3, []byte("key3"), 1)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []terms.DocPointerWithScore{
+		docPointers(2, 0.6, 2),
+	}, a3)
+
+	require.Nil(t, view3.Flushing)
+
+	// disk: key1 -> {"d1"}, key2 -> {"a2"}
+	raw1, err := b.disk.getCollection([]byte("key1"), view3.Disk)
+	require.NoError(t, err)
+	v, err := newMapDecoder().Do(raw1, false)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []MapPair{
+		mapFromDocPointers(0, 1.0, 3),
+	}, v)
+
+	raw2, err := b.disk.getCollection([]byte("key2"), view3.Disk)
+	require.NoError(t, err)
+	v, err = newMapDecoder().Do(raw2, false)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []MapPair{
+		mapFromDocPointers(1, 0.8, 4),
+	}, v)
+}
+
 func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
 	t.Parallel()
 
@@ -1582,4 +1704,17 @@ func (d *dummyCommitLogger) delete() error {
 
 func (d *dummyCommitLogger) sync() error {
 	return nil
+}
+
+func mapFromDocPointers(id uint64, frequency, proplength float32) MapPair {
+	buf := make([]byte, 16)
+	binary.BigEndian.PutUint64(buf[0:8], id)
+	binary.LittleEndian.PutUint32(buf[8:12], math.Float32bits(frequency))
+	binary.LittleEndian.PutUint32(buf[12:16], math.Float32bits(proplength))
+
+	return MapPair{Key: buf[0:8], Value: buf[8:16]}
+}
+
+func docPointers(id uint64, frequency, proplength float32) terms.DocPointerWithScore {
+	return terms.DocPointerWithScore{Id: id, Frequency: frequency, PropLength: proplength}
 }
