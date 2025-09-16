@@ -12,6 +12,8 @@
 package monitoring
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -377,6 +379,24 @@ func InitConfig(cfg Config) {
 
 func GetMetrics() *PrometheusMetrics {
 	return metrics
+}
+
+// EnsureRegisteredMetric tries to register the given metric with the given
+// registerer. If the metric is already registered, it returns the existing
+// metric.
+func EnsureRegisteredMetric[T prometheus.Collector](reg prometheus.Registerer, metric T) (T, error) {
+	if err := reg.Register(metric); err != nil {
+		var alreadyRegistered prometheus.AlreadyRegisteredError
+		if errors.As(err, &alreadyRegistered) {
+			existing, ok := alreadyRegistered.ExistingCollector.(T)
+			if !ok {
+				return metric, fmt.Errorf("metric already registered but not as expected type: %T", metric)
+			}
+			return existing, nil
+		}
+		return metric, err
+	}
+	return metric, nil
 }
 
 func newPrometheusMetrics() *PrometheusMetrics {
