@@ -1080,6 +1080,9 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 				} else {
 					h.logger.
 						WithField("action", "rescore").
+						WithField("id", h.id).
+						WithField("class", h.className).
+						WithField("shard", h.shardName).
 						WithError(err).
 						Warnf("could not rescore node %d", id)
 				}
