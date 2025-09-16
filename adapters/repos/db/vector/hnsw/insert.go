@@ -20,7 +20,9 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
@@ -36,7 +38,7 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 
 	// check if vector length is the same as existing nodes
 	if dims != len(vector) {
-		return fmt.Errorf("new node has a vector with length %v. "+
+		return errors.Wrapf(common.ErrWrongDimensions, "new node has a vector with length %v. "+
 			"Existing nodes have vectors with length %v", len(vector), dims)
 	}
 
@@ -45,10 +47,6 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 
 func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 	dims := int(atomic.LoadInt32(&h.dims))
-
-	if h.muvera.Load() {
-		return nil
-	}
 
 	// no vectors exist
 	if dims == 0 {
@@ -60,6 +58,10 @@ func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 			return fmt.Errorf("multi vector array consists of vectors with varying dimensions")
 		}
 		return nil
+	}
+
+	if h.muvera.Load() {
+		dims = h.muveraEncoder.Dimensions()
 	}
 
 	// check if vector length is the same as existing nodes
@@ -112,8 +114,12 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 				h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
 
 			if err == nil {
+				h.Lock()
+				defer h.Unlock()
 				h.compressed.Store(true)
-				h.cache.Drop()
+				if h.cache != nil {
+					h.cache.Drop()
+				}
 				h.cache = nil
 				h.compressor.PersistCompression(h.commitLog)
 			}
@@ -254,7 +260,6 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 					})
 				h.compressed.Store(true)
 				h.cache.Drop()
-				h.cache = nil
 				h.compressor.PersistCompression(h.commitLog)
 				h.Unlock()
 			}

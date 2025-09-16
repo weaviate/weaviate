@@ -75,7 +75,7 @@ func (s *SchemaManager) ResolveAlias(req *command.QueryRequest) ([]byte, error) 
 
 	rootClass := s.schema.ResolveAlias(subCommand.Alias)
 	if rootClass == "" {
-		return nil, fmt.Errorf("resolve alias: alias %q not found", subCommand.Alias)
+		return nil, fmt.Errorf("resolve alias: %s, %w", subCommand.Alias, ErrAliasNotFound)
 	}
 
 	response := command.QueryResolveAliasResponse{

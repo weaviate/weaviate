@@ -296,7 +296,7 @@ func Test_AliasesAPI(t *testing.T) {
 				{
 					name:             "clashing alias name",
 					alias:            &models.Alias{Alias: "BookAlias", Class: documents.Passage},
-					expectedErrorMsg: fmt.Sprintf("create alias: alias %s already exists", "BookAlias"),
+					expectedErrorMsg: fmt.Sprintf("create alias: %s, alias already exists", "BookAlias"),
 				},
 			}
 			for _, tt := range tests {
@@ -363,8 +363,118 @@ func Test_AliasesAPI(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, objWithAlias)
 			assert.Equal(t, objWithClassName.ID, objWithAlias.ID)
-			assert.Equal(t, aliasName, objWithAlias.Class)
+
+			// no matter how the object is accessed(via collection name or alias name),
+			// returned JSON should have original class name as source of truth.
+			assert.Equal(t, books.DefaultClassName, objWithAlias.Class)
 		}
+
+		// Properties test via alias. Any collection properties manipulation needs
+		// original class name, not the alias. Assumes we have collection: Book, alias: BookAlias.
+		t.Run("update class property with alias - should fail", func(t *testing.T) {
+			c := &models.Class{
+				Class: aliasName, // using alias name to add property
+				Properties: []*models.Property{
+					{
+						Name:     "new-property",
+						DataType: []string{"int"},
+					},
+				},
+			}
+			params := schema.NewSchemaObjectsUpdateParams().WithClassName(aliasName).WithObjectClass(c)
+			resp, err := helper.Client(t).Schema.SchemaObjectsUpdate(params, nil)
+			require.Error(t, err)
+			assert.Nil(t, resp)
+		})
+		t.Run("delete class with alias - should fail", func(t *testing.T) {
+			params := schema.NewSchemaObjectsDeleteParams().WithClassName(aliasName)
+			resp, err := helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
+			// even deleting non-existing class will return 200 OK for collection. so we verify by getting the collection back.
+			require.NoError(t, err)
+			assert.NotNil(t, resp)
+
+			gparams := schema.NewSchemaObjectsGetParams().WithClassName(books.DefaultClassName)
+			gresp, err := helper.Client(t).Schema.SchemaObjectsGet(gparams, nil)
+			require.NoError(t, err)
+			assert.NotNil(t, gresp)
+			assert.NotNil(t, gresp.Payload)
+			assert.Equal(t, books.DefaultClassName, gresp.Payload.Class)
+		})
+
+		// Tenants test via alias. Any collection tenants manipulation needs
+		// original class name, not the alias. Assumes we have collection: Book, alias: BookAlias.
+		t.Run("add_update_delete tenants withalias - should fail", func(t *testing.T) {
+			className := "MultiTenantClass"
+			testClass := models.Class{
+				Class: className,
+				MultiTenancyConfig: &models.MultiTenancyConfig{
+					Enabled: true,
+				},
+				Properties: []*models.Property{
+					{
+						Name:     "name",
+						DataType: entschema.DataTypeText.PropString(),
+					},
+				},
+			}
+			helper.CreateClass(t, &testClass)
+			defer helper.DeleteClass(t, className)
+
+			aliasName := "MultiTenantAlias"
+			alias := models.Alias{
+				Class: className,
+				Alias: aliasName,
+			}
+
+			helper.CreateAlias(t, &alias)
+			resp := helper.GetAliases(t, &alias.Class)
+			require.NotNil(t, resp)
+			require.NotEmpty(t, resp.Aliases)
+			aliasCreated := false
+			for _, alias := range resp.Aliases {
+				expAlias := entschema.UppercaseClassName(alias.Alias)
+				expClass := entschema.UppercaseClassName(alias.Class)
+				if expAlias == alias.Alias && expClass == alias.Class {
+					aliasCreated = true
+				}
+			}
+			assert.True(t, aliasCreated)
+			defer helper.DeleteAlias(t, aliasName)
+
+			// try to add tenants via alias should fail
+			tenantName := "Tenant1"
+			tenants := []*models.Tenant{{
+				Name:           tenantName,
+				ActivityStatus: "HOT",
+			}}
+			params := schema.NewTenantsCreateParams().WithClassName(aliasName).WithBody(tenants)
+			xresp, err := helper.Client(t).Schema.TenantsCreate(params, nil)
+			require.Error(t, err)
+			assert.Nil(t, xresp)
+
+			// try to update tenants via alias should fail
+			tenantName = "Tenant2"
+			tenants = []*models.Tenant{{
+				Name:           tenantName,
+				ActivityStatus: "HOT",
+			}}
+			params = schema.NewTenantsCreateParams().WithClassName(className).WithBody(tenants) // try to create with class name
+			xresp, err = helper.Client(t).Schema.TenantsCreate(params, nil)
+			require.NoError(t, err)
+			assert.NotNil(t, xresp)
+
+			tenants[0].ActivityStatus = "COLD"
+			uparams := schema.NewTenantsUpdateParams().WithClassName(aliasName).WithBody(tenants) // try to update with alias name
+			uresp, err := helper.Client(t).Schema.TenantsUpdate(uparams, nil)
+			require.Error(t, err)
+			assert.Nil(t, uresp)
+
+			// try to delete tenants via alias
+			dparams := schema.NewTenantsDeleteParams().WithClassName(aliasName).WithTenants([]string{tenantName})
+			dresp, err := helper.Client(t).Schema.TenantsDelete(dparams, nil)
+			require.Error(t, err)
+			assert.Nil(t, dresp)
+		})
 
 		t.Run("create class with alias name", func(t *testing.T) {
 			class := books.ClassModel2VecVectorizerWithName(aliasName)
@@ -475,7 +585,8 @@ func Test_AliasesAPI(t *testing.T) {
 			}
 			created, err := helper.CreateObjectWithResponse(t, obj)
 			require.NoError(t, err)
-			assert.Equal(t, aliasName, created.Class)
+			// should still return original class name in the response (not alias)
+			assert.Equal(t, books.DefaultClassName, created.Class)
 			assertGetObject(t, objID)
 		})
 
@@ -491,7 +602,8 @@ func Test_AliasesAPI(t *testing.T) {
 			}
 			updated, err := helper.UpdateObjectWithResponse(t, obj)
 			require.NoError(t, err)
-			assert.Equal(t, aliasName, updated.Class)
+			// should still return original class name in the response (not alias)
+			assert.Equal(t, books.DefaultClassName, updated.Class)
 			assertGetObject(t, objID)
 		})
 
@@ -552,7 +664,8 @@ func Test_AliasesAPI(t *testing.T) {
 			}
 			resp := helper.CreateObjectsBatchWithResponse(t, []*models.Object{obj1, obj2})
 			for _, obj := range resp {
-				assert.Equal(t, aliasName, obj.Class)
+				// should still return original class name in the response (not alias)
+				assert.Equal(t, books.DefaultClassName, obj.Class)
 			}
 			assertGetObject(t, objID1)
 			assertGetObject(t, objID2)
@@ -573,7 +686,8 @@ func Test_AliasesAPI(t *testing.T) {
 			resp := helper.DeleteObjectsBatchWithResponse(t, batchDelete, types.ConsistencyLevelAll)
 			require.NotNil(t, resp)
 			require.NotNil(t, resp.Match)
-			assert.Equal(t, aliasName, resp.Match.Class)
+			// should still return original class name in the response (not alias)
+			assert.Equal(t, books.DefaultClassName, resp.Match.Class)
 		})
 	})
 }

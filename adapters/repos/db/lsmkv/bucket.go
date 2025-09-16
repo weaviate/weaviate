@@ -46,7 +46,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-const FlushAfterDirtyDefault = 60 * time.Second
+const (
+	FlushAfterDirtyDefault = 60 * time.Second
+	contextCheckInterval   = 50 // check context every 50 iterations, every iteration adds too much overhead
+)
 
 type BucketCreator interface {
 	NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
@@ -228,7 +231,9 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
 	}
 
-	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
+	b.desiredStrategy = b.strategy
+
+	sg, err := newSegmentGroup(ctx, logger, metrics,
 		sgConfig{
 			dir:                          dir,
 			strategy:                     b.strategy,
@@ -248,77 +253,12 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
-		}, b.allocChecker, b.lazySegmentLoading, files, b.bitmapBufPool)
+		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
 
-	b.desiredStrategy = b.strategy
-	// Actual strategy is stored in segment files. In case it is SetCollection,
-	// while new implementation uses bitmaps and supposed to be RoaringSet,
-	// bucket and segmentgroup strategy is changed back to SetCollection
-	// (memtables will be created later on, with already modified strategy)
-	// TODO what if only WAL files exists, and there is no segment to get actual strategy?
-	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
-		sg.segments[0].getStrategy() == segmentindex.StrategySetCollection {
-		b.strategy = StrategySetCollection
-		b.desiredStrategy = StrategyRoaringSet
-		sg.strategy = StrategySetCollection
-	}
-	// As of v1.19 property's IndexInterval setting is replaced with
-	// IndexFilterable (roaring set) + IndexSearchable (map) and enabled by default.
-	// Buckets for text/text[] inverted indexes created before 1.19 have strategy
-	// map and name that since 1.19 is used by filterable indeverted index.
-	// Those buckets (roaring set by configuration, but in fact map) have to be
-	// renamed on startup by migrator. Here actual strategy is set based on
-	// data found in segment files
-	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
-		sg.segments[0].getStrategy() == segmentindex.StrategyMapCollection {
-		b.strategy = StrategyMapCollection
-		b.desiredStrategy = StrategyRoaringSet
-		sg.strategy = StrategyMapCollection
-	}
-
-	// Inverted segments share a lot of their logic as the MapCollection,
-	// and the main difference is in the way they store their data.
-	// Setting the desired strategy to Inverted will make sure that we can
-	// distinguish between the two strategies for search.
-	// The changes only apply when we have segments on disk,
-	// as the memtables will always be created with the MapCollection strategy.
-	if b.strategy == StrategyInverted && len(sg.segments) > 0 &&
-		sg.segments[0].getStrategy() == segmentindex.StrategyMapCollection {
-		b.strategy = StrategyMapCollection
-		b.desiredStrategy = StrategyInverted
-		sg.strategy = StrategyMapCollection
-	} else if b.strategy == StrategyMapCollection && len(sg.segments) > 0 &&
-		sg.segments[0].getStrategy() == segmentindex.StrategyInverted {
-		// TODO amourao: blockmax "else" to be removed before final release
-		// in case bucket was created as inverted and default strategy was reverted to map
-		// by unsetting corresponding env variable
-		b.strategy = StrategyInverted
-		b.desiredStrategy = StrategyMapCollection
-		sg.strategy = StrategyInverted
-	}
-
 	b.disk = sg
-
-	if err := b.mayRecoverFromCommitLogs(ctx, files); err != nil {
-		return nil, err
-	}
-
-	// segment load order is as follows:
-	// - find .tmp files and recover them first
-	// - find .db files and load them
-	//   - if there is a .wal file exists for a .db, remove the .db file
-	// - find .wal files and load them into a memtable
-	//   - flush the memtable to a segment file
-	// Thus, files may be loaded in a different order than they were created,
-	// and we need to re-sort them to ensure the order is correct, as compations
-	// and other operations are based on the creation order of the segments
-
-	sort.Slice(b.disk.segments, func(i, j int) bool {
-		return b.disk.segments[i].getPath() < b.disk.segments[j].getPath()
-	})
 
 	if b.active == nil {
 		err = b.setNewActiveMemtable()
@@ -907,7 +847,7 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 
 	segments := [][]MapPair{}
 	// before := time.Now()
-	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(key)
+	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(ctx, key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
@@ -1156,7 +1096,7 @@ func (b *Bucket) setNewActiveMemtable() error {
 	return nil
 }
 
-func (b *Bucket) Count() int {
+func (b *Bucket) Count(ctx context.Context) (int, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -1166,13 +1106,22 @@ func (b *Bucket) Count() int {
 
 	memtableCount := 0
 	if b.flushing == nil {
-		// only consider active
-		memtableCount += b.memtableNetCount(b.active.countStats(), nil)
+		count, err := b.memtableNetCount(ctx, b.active.countStats(), nil)
+		if err != nil {
+			return 0, err
+		}
+		memtableCount += count
 	} else {
 		flushingCountStats := b.flushing.countStats()
 		activeCountStats := b.active.countStats()
-		deltaActive := b.memtableNetCount(activeCountStats, flushingCountStats)
-		deltaFlushing := b.memtableNetCount(flushingCountStats, nil)
+		deltaActive, err := b.memtableNetCount(ctx, activeCountStats, flushingCountStats)
+		if err != nil {
+			return 0, err
+		}
+		deltaFlushing, err := b.memtableNetCount(ctx, flushingCountStats, nil)
+		if err != nil {
+			return 0, err
+		}
 
 		memtableCount = deltaActive + deltaFlushing
 	}
@@ -1182,7 +1131,7 @@ func (b *Bucket) Count() int {
 	if b.monitorCount {
 		b.metrics.ObjectCount(memtableCount + diskCount)
 	}
-	return memtableCount + diskCount
+	return memtableCount + diskCount, nil
 }
 
 // CountAsync ignores the current memtable, that makes it async because it only
@@ -1193,25 +1142,31 @@ func (b *Bucket) CountAsync() int {
 	return b.disk.count()
 }
 
-func (b *Bucket) memtableNetCount(stats *countStats, previousMemtable *countStats) int {
+func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previousMemtable *countStats) (int, error) {
 	netCount := 0
 
 	// TODO: this uses regular get, given that this may be called quite commonly,
 	// we might consider building a pure Exists(), which skips reading the value
 	// and only checks for tombstones, etc.
-	for _, key := range stats.upsertKeys {
+	for i, key := range stats.upsertKeys {
+		if i%contextCheckInterval == 0 && ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
 		if !b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
 			netCount++
 		}
 	}
 
-	for _, key := range stats.tombstonedKeys {
+	for i, key := range stats.tombstonedKeys {
+		if i%contextCheckInterval == 0 && ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
 		if b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
 			netCount--
 		}
 	}
 
-	return netCount
+	return netCount, nil
 }
 
 func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byte) bool {
@@ -1603,7 +1558,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	}
 
 	segments := [][]terms.DocPointerWithScore{}
-	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(key)
+	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(ctx, key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
@@ -1617,7 +1572,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 
 	for i := range disk {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("docPointerWithScoreList: %w", ctx.Err())
 		}
 		propLengths := make(map[uint64]uint32)
 		if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
@@ -1798,6 +1753,11 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		flushing.currentBlockImpact = float32(idfs[i])
 
 		idfCounts[queryTerm] = n
+	}
+
+	if ctx.Err() != nil {
+		release()
+		return nil, nil, func() {}, fmt.Errorf("after memtable terms: %w", ctx.Err())
 	}
 
 	for j := len(segmentsDisk) - 1; j >= 0; j-- {

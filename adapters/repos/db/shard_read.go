@@ -139,75 +139,31 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
-	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
-	cursor := bucket.CursorOnDisk()
+	cursor := bucket.Cursor()
 	defer cursor.Close()
-
-	inmemProcessedDocIDs := make(map[uint64]struct{})
 
 	n := 0
 
-	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
-	err = func() error {
-		inMemCursor := bucket.CursorInMem()
-		defer inMemCursor.Close()
-
-		for k, v := inMemCursor.Seek(initialUUIDBytes); n < limit && k != nil && bytes.Compare(k, finalUUIDBytes) < 1; k, v = inMemCursor.Next() {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-				obj, err := storobj.FromBinaryUUIDOnly(v)
-				if err != nil {
-					return fmt.Errorf("cannot unmarshal object: %w", err)
-				}
-
-				replicaObj := types.RepairResponse{
-					ID:         obj.ID().String(),
-					UpdateTime: obj.LastUpdateTimeUnix(),
-					// TODO: use version when supported
-					Version: 0,
-				}
-
-				objs = append(objs, replicaObj)
-
-				inmemProcessedDocIDs[obj.DocID] = struct{}{}
-
-				n++
-			}
-		}
-
-		return nil
-	}()
-	if err != nil {
-		return nil, err
-	}
-
 	for k, v := cursor.Seek(initialUUIDBytes); n < limit && k != nil && bytes.Compare(k, finalUUIDBytes) < 1; k, v = cursor.Next() {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return objs, ctx.Err()
-		default:
-			obj, err := storobj.FromBinaryUUIDOnly(v)
-			if err != nil {
-				return objs, fmt.Errorf("cannot unmarshal object: %w", err)
-			}
-
-			if _, ok := inmemProcessedDocIDs[obj.DocID]; ok {
-				continue
-			}
-
-			replicaObj := types.RepairResponse{
-				ID:         obj.ID().String(),
-				UpdateTime: obj.LastUpdateTimeUnix(),
-				// TODO: use version when supported
-				Version: 0,
-			}
-
-			objs = append(objs, replicaObj)
-
-			n++
 		}
+
+		obj, err := storobj.FromBinaryUUIDOnly(v)
+		if err != nil {
+			return objs, fmt.Errorf("cannot unmarshal object: %w", err)
+		}
+
+		replicaObj := types.RepairResponse{
+			ID:         obj.ID().String(),
+			UpdateTime: obj.LastUpdateTimeUnix(),
+			// TODO: use version when supported
+			Version: 0,
+		}
+
+		objs = append(objs, replicaObj)
+
+		n++
 	}
 
 	return objs, nil
@@ -342,11 +298,10 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		var bm25objs []*storobj.Object
 		var bm25count []float32
-		var objs helpers.AllowList
 		var filterDocIds helpers.AllowList
 
 		if filters != nil {
-			objs, err = inverted.NewSearcher(s.index.logger, s.store,
+			filterDocIds, err = inverted.NewSearcher(s.index.logger, s.store,
 				s.index.getSchema.ReadOnlyClass, s.propertyIndices,
 				s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
 				s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit,
@@ -356,8 +311,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 				return nil, nil, err
 			}
 
-			filterDocIds = objs
-			defer objs.Close()
+			defer filterDocIds.Close()
 		}
 
 		className := s.index.Config.ClassName
@@ -540,11 +494,12 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		})
 	}
 
-	if err := eg.Wait(); err != nil {
-		return nil, nil, err
-	}
+	err := eg.Wait()
 	if allowList != nil {
-		defer allowList.Close()
+		allowList.Close()
+	}
+	if err != nil {
+		return nil, nil, err
 	}
 
 	idsCombined, distCombined, err := CombineMultiTargetResults(ctx, s, s.index.logger, idss, distss, targetVectors, searchVectors, targetCombination, limit, targetDist)

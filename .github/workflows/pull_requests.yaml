@@ -15,10 +15,10 @@ concurrency:
 
 jobs:
   Buf-Checks:
-    name: buf-checks
+    name: buf checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: bufbuild/buf-setup-action@v1
         with:
           github_token: ${{ github.token }}
@@ -31,12 +31,12 @@ jobs:
           input: "cluster/proto"
           against: "https://github.com/${GITHUB_REPOSITORY}.git#branch=${{ github.event.pull_request.base.ref }},subdir=cluster/proto"
   Run-Swagger:
-    name: run-swagger
+    name: swagger
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -54,13 +54,13 @@ jobs:
             exit 0
           fi
   Vulnerability-Scanning:
-    name: vulnerability-scanning
+    name: orca vulnerability scan
     runs-on: ubuntu-latest
     env:
       PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Run locally Docker build
         run: docker build -t weaviate:${{ github.sha }} .
       - name: Run Orca Container Image Scan
@@ -79,13 +79,13 @@ jobs:
         with:
           sarif_file: results/image.sarif
   SAST-Scanning:
-    name: sast-scanning
+    name: orca sast scan
     runs-on: ubuntu-latest
     env:
       PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Run Orca SAST Scan
         id: orcasecurity_container_sast_action
         uses: orcasecurity/shiftleft-sast-action@v1
@@ -98,12 +98,12 @@ jobs:
             # scanning the entire repository
             "."
   Unit-Tests:
-    name: unit-tests
+    name: unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -115,19 +115,20 @@ jobs:
           name: coverage-report-unit
           path: coverage-unit.txt
   Integration-Tests:
-    name: integration-tests
+    name: integration tests (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        test: [
-          "--integration-vector-package-only",
-          "--integration-without-vector-package"
-        ]
+        include:
+          - name: "with vectors"
+            test: "--integration-vector-package-only"
+          - name: "without vector"
+            test: "--integration-without-vector-package"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -139,26 +140,34 @@ jobs:
           name: coverage-report-integration${{ matrix.test }}
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
-    name: modules-acceptance-tests
+    name: modules (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        test: [
-          "--only-module-backup-azure",
-          "--only-module-backup-filesystem",
-          "--only-module-backup-gcs",
-          "--only-module-backup-s3",
-          "--only-module-offload-s3",
-          "--only-module-text2vec-transformers",
-          "--only-module-text2vec-ollama",
-          "--only-module-generative-ollama",
-          "--only-module-text2vec-model2vec"
-        ]
+        include:
+          - name: "backup-azure"
+            test: "--only-module-backup-azure"
+          - name: "backup-filesystem"
+            test: "--only-module-backup-filesystem"
+          - name: "backup-gcs"
+            test: "--only-module-backup-gcs"
+          - name: "backup-s3"
+            test: "--only-module-backup-s3"
+          - name: "offload-s3"
+            test: "--only-module-offload-s3"
+          - name: "text2vec-transformers"
+            test: "--only-module-text2vec-transformers"
+          - name: "text2vec-ollama"
+            test: "--only-module-text2vec-ollama"
+          - name: "generative-ollama"
+            test: "--only-module-generative-ollama"
+          - name: "text2vec-model2vec"
+            test: "--only-module-text2vec-model2vec"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -177,13 +186,13 @@ jobs:
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Modules-On-Demand-Tests-Check:
-    name: modules-on-demand-tests-check
+    name: modules on demand
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     outputs:
       run_pipeline: ${{ steps.check.outputs.run_pipeline }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 2
       - id: check
@@ -200,23 +209,26 @@ jobs:
             echo "run_pipeline=false" >> $GITHUB_OUTPUT
           fi
   Modules-Acceptance-Tests-large:
-    name: modules-acceptance-tests-large
+    name: modules large (${{ matrix.name }})
     runs-on: DB-ubuntu-24.04-4-cores
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
       fail-fast: false
       matrix:
-        test: [
-          "--only-module-qna-transformers",
-          "--only-module-sum-transformers",
-          "--only-module-multi2vec-clip",
-          "--only-module-reranker-transformers"
-        ]
+        include:
+          - name: "qna-trans"
+            test: "--only-module-qna-transformers"
+          - name: "sum-trans"
+            test: "--only-module-sum-transformers"
+          - name: "multi2vec-clip"
+            test: "--only-module-multi2vec-clip"
+          - name: "reranker-trans"
+            test: "--only-module-reranker-transformers"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -235,24 +247,28 @@ jobs:
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-light:
-    name: modules-acceptance-tests-light
+    name: modules light (${{ matrix.name }})
     runs-on: ubuntu-latest
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
       fail-fast: false
       matrix:
-        test: [
-          "--only-module-text2vec-contextionary",
-          "--only-module-img2vec-neural",
-          "--only-module-ref2vec-centroid",
-          "--only-module-many-modules",
-          "--only-module-many-generative"
-        ]
+        include:
+          - name: "text2vec-contextionary"
+            test: "--only-module-text2vec-contextionary"
+          - name: "img2vec-neural"
+            test: "--only-module-img2vec-neural"
+          - name: "ref2vec-centroid"
+            test: "--only-module-ref2vec-centroid"
+          - name: "many-modules"
+            test: "--only-module-many-modules"
+          - name: "many-generative"
+            test: "--only-module-many-generative"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -271,33 +287,48 @@ jobs:
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-api:
-    name: modules-acceptance-tests-api
+    name: modules api (${{ matrix.name }})
     runs-on: ubuntu-latest
     needs: [Modules-On-Demand-Tests-Check]
-    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork && !startsWith(github.ref, 'refs/tags') }}  # no PRs from fork
     strategy:
       fail-fast: false
       matrix:
-        test: [
-          "--only-module-multi2vec-cohere",
-          "--only-module-multi2vec-google",
-          "--only-module-generative-aws",
-          "--only-module-generative-cohere",
-          "--only-module-generative-google",
-          "--only-module-generative-openai",
-          "--only-module-text2vec-google",
-          "--only-module-text2vec-aws",
-          "--only-module-text2vec-jinaai",
-          "--only-module-multi2vec-jinaai",
-          "--only-module-text2multivec-jinaai",
-          "--only-module-multi2multivec-jinaai",
-        ]
+        include:
+          - name: "multi2vec-cohere"
+            test: "--only-module-multi2vec-cohere"
+          - name: "multi2vec-google"
+            test: "--only-module-multi2vec-google"
+          - name: "generative-aws"
+            test: "--only-module-generative-aws"
+          - name: "generative-cohere"
+            test: "--only-module-generative-cohere"
+          - name: "generative-google"
+            test: "--only-module-generative-google"
+          - name: "generative-openai"
+            test: "--only-module-generative-openai"
+          - name: "text2vec-google"
+            test: "--only-module-text2vec-google"
+          - name: "text2vec-aws"
+            test: "--only-module-text2vec-aws"
+          - name: "text2vec-jinaai"
+            test: "--only-module-text2vec-jinaai"
+          - name: "multi2vec-jinaai"
+            test: "--only-module-multi2vec-jinaai"
+          - name: "text2multivec-jinaai"
+            test: "--only-module-text2multivec-jinaai"
+          - name: "multi2multivec-jinaai"
+            test: "--only-module-multi2multivec-jinaai"
+          - name: "multi2vec-aws"
+            test: "--only-module-multi2vec-aws"
+          - name: "text2vec-openai"
+            test: "--only-module-text2vec-openai"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 2
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -314,7 +345,7 @@ jobs:
             echo "run_pipeline=false" >> $GITHUB_ENV
           fi
       - name: configure gcp
-        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' }}
         id: creds-gcp
         env:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
@@ -325,9 +356,9 @@ jobs:
           echo "::add-mask::$google_apikey"
           echo "google_apikey=$google_apikey" >> "$GITHUB_OUTPUT"
       - name: configure aws
-        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' }}
         id: creds-aws
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -337,7 +368,7 @@ jobs:
           role-skip-session-tagging: true
           output-credentials: true
       - name: Acceptance tests (modules)
-        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' }}
         env:
           GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
           GOOGLE_APIKEY: ${{ steps.creds-gcp.outputs.google_apikey }}
@@ -352,26 +383,42 @@ jobs:
           JINAAI_APIKEY: ${{ secrets.JINAAI_APIKEY }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
-    name: acceptance-tests
+    name: acceptance (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        test: [
-          "--acceptance-only-fast",
-          "--acceptance-only-graphql",
-          "--acceptance-only-authz",
-          "--acceptance-only-replication",
-          "--acceptance-only-async-replication",
-          "--acceptance-only-replica-replication-fast",
-          "--acceptance-only-replica-replication-slow",
-          "--acceptance-go-client-only-fast",
-          "--acceptance-only-python",
-        ]
+        include:
+          - name: "fast-group-1"
+            test: "--acceptance-only-fast-group-1"
+          - name: "fast-group-2"
+            test: "--acceptance-only-fast-group-2"
+          - name: "fast-group-3"
+            test: "--acceptance-only-fast-group-3"
+          - name: "fast-group-4"
+            test: "--acceptance-only-fast-group-4"
+          - name: "graphql"
+            test: "--acceptance-only-graphql"
+          - name: "authz"
+            test: "--acceptance-only-authz"
+          - name: "replication"
+            test: "--acceptance-only-replication"
+          - name: "async-replication"
+            test: "--acceptance-only-async-replication"
+          - name: "replica-fast"
+            test: "--acceptance-only-replica-replication-fast"
+          - name: "replica-slow"
+            test: "--acceptance-only-replica-replication-slow"
+          - name: "go-client-group-1"
+            test: "--acceptance-go-client-only-fast-group-1"
+          - name: "go-client-group-2"
+            test: "--acceptance-go-client-only-fast-group-2"
+          - name: "python"
+            test: "--acceptance-only-python"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -387,16 +434,22 @@ jobs:
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests-large:
-    name: acceptance-tests-large
+    name: acceptance large (${{ matrix.name }})
     runs-on: DB-ubuntu-24.04-4-cores
     strategy:
       fail-fast: false
       matrix:
-        test: ["--acceptance-go-client-named-vectors-single-node", "--acceptance-go-client-named-vectors-cluster", "--acceptance-lsmkv"]
+        include:
+          - name: "vector-single"
+            test: "--acceptance-go-client-named-vectors-single-node"
+          - name: "vector-cluster"
+            test: "--acceptance-go-client-named-vectors-cluster"
+          - name: "lsmkv"
+            test: "--acceptance-lsmkv"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -408,7 +461,7 @@ jobs:
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Determine retry max_attempts value
         env:
-          MATRIX_TEST: ${{ matrix.test }}
+          MATRIX_TEST: ${{ matrix.name }}
         run: |
           if [[ "$MATRIX_TEST" == *"lsmkv"* ]]; then
             echo "retry_max_attempts=2" >> $GITHUB_ENV
@@ -429,18 +482,18 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'main') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Download coverage artifacts integration
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: coverage-report-unit
       - name: Download coverage integration without vector package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: coverage-report-integration--integration-without-vector-package
           path: coverage-integration-without-vector-package.txt
       - name: Download coverage integration vector package only
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: coverage-report-integration--integration-vector-package-only
           path: coverage-integration-vector-package-only.txt
@@ -451,12 +504,12 @@ jobs:
           files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit.txt
           verbose: true
   Compile-and-upload-binaries:
-    name: compile-and-upload-binaries
+    name: compile and upload binaries
     runs-on: DB-ubuntu-24.04-4-cores
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -495,7 +548,7 @@ jobs:
 
 
   Acceptance-Tests-windows:
-    name: acceptance-tests-windows
+    name: acceptance (windows)
     needs: Compile-and-upload-binaries
     runs-on: windows-latest
     env:
@@ -507,13 +560,13 @@ jobs:
       RAFT_JOIN: node1
       GRPC_PORT: 50052
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Download binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binaries-windows-amd64
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -534,7 +587,7 @@ jobs:
     timeout-minutes: 30
     runs-on: DB-ubuntu-24.04-8-cores
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -552,7 +605,7 @@ jobs:
         run: ./ci/generate_docker_report.sh
   Push-Docker-Fast:
     if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }} # no PRs from fork
-    name: push-docker-fast
+    name: push docker fast (${{ matrix.arch }})
     timeout-minutes: 30
     strategy:
       matrix:
@@ -568,7 +621,7 @@ jobs:
       preview-tags-arm64: ${{ steps.set-outputs.outputs.preview-tags-arm64 }}
       semver-tags-arm64: ${{ steps.set-outputs.outputs.semver-tags-arm64 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -587,10 +640,10 @@ jobs:
           echo "semver-tags-${{ matrix.arch }}=${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}" >> $GITHUB_OUTPUT
   Generate-Docker-Report:
     needs: [Push-Docker-Fast]
-    name: generate-docker-report
+    name: docker report
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Combine tags
         run: |
           # Collect all architecture-specific outputs

@@ -13,6 +13,7 @@ package tests
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -69,6 +70,16 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 				generativeModel: "gpt-4o-mini",
 				withImages:      true,
 			},
+			{
+				name:            "gpt-5",
+				generativeModel: "gpt-5",
+				withImages:      true,
+			},
+			{
+				name:            "gpt-5-mini",
+				generativeModel: "gpt-5-mini",
+				withImages:      true,
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -109,9 +120,9 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 					planets.CreateTweetTest(t, class.Class)
 				})
 				t.Run("create a tweet with params", func(t *testing.T) {
-					params := "openai:{temperature:0.1}"
+					params := "openai:{temperature:1.0}"
 					if tt.absentModuleConfig {
-						params = fmt.Sprintf("openai:{temperature:0.1 model:\"%s\" baseURL:\"https://api.openai.com\" isAzure:false}", tt.generativeModel)
+						params = fmt.Sprintf("openai:{temperature:1.0 model:\"%s\" baseURL:\"https://api.openai.com\" isAzure:false}", tt.generativeModel)
 					}
 					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
@@ -121,13 +132,27 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 
 				params := func() *pb.GenerativeOpenAI {
 					params := &pb.GenerativeOpenAI{
-						MaxTokens:        grpchelper.ToPtr(int64(90)),
-						Model:            grpchelper.ToPtr(tt.generativeModel),
-						Temperature:      grpchelper.ToPtr(0.9),
-						N:                grpchelper.ToPtr(int64(90)),
-						TopP:             grpchelper.ToPtr(0.9),
-						FrequencyPenalty: grpchelper.ToPtr(0.9),
-						PresencePenalty:  grpchelper.ToPtr(0.9),
+						Model:       grpchelper.ToPtr(tt.generativeModel),
+						MaxTokens:   grpchelper.ToPtr(int64(2000)),
+						Temperature: grpchelper.ToPtr(1.0),
+						N:           grpchelper.ToPtr(int64(8)),
+					}
+					if !strings.HasPrefix(tt.generativeModel, "gpt-5") {
+						// gpt-5 models don't support topP, presencePenalty and frequencyPenalty parameters
+						params.TopP = grpchelper.ToPtr(0.9)
+						params.PresencePenalty = grpchelper.ToPtr(0.9)
+						params.FrequencyPenalty = grpchelper.ToPtr(0.9)
+						if tt.generativeModel == "gpt-5-mini" {
+							params.Verbosity = pb.GenerativeOpenAI_VERBOSITY_LOW.Enum()
+							params.ReasoningEffort = pb.GenerativeOpenAI_REASONING_EFFORT_MINIMAL.Enum()
+						} else {
+							params.Verbosity = pb.GenerativeOpenAI_VERBOSITY_MEDIUM.Enum()
+							params.ReasoningEffort = pb.GenerativeOpenAI_REASONING_EFFORT_LOW.Enum()
+						}
+					}
+					if strings.HasPrefix(tt.generativeModel, "gpt-4o") {
+						// increase the max tokens
+						params.MaxTokens = grpchelper.ToPtr(int64(5000))
 					}
 					if tt.absentModuleConfig {
 						params.BaseUrl = grpchelper.ToPtr("https://api.openai.com")

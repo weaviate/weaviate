@@ -39,6 +39,7 @@ import (
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativexai "github.com/weaviate/weaviate/modules/generative-xai"
 	modmulti2multivecjinaai "github.com/weaviate/weaviate/modules/multi2multivec-jinaai"
+	modmulti2vecaws "github.com/weaviate/weaviate/modules/multi2vec-aws"
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
@@ -57,6 +58,7 @@ import (
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modmistral "github.com/weaviate/weaviate/modules/text2vec-mistral"
 	modmodel2vec "github.com/weaviate/weaviate/modules/text2vec-model2vec"
+	modmorph "github.com/weaviate/weaviate/modules/text2vec-morph"
 	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -111,6 +113,7 @@ type Compose struct {
 	withBackendAzure           bool
 	withBackendAzureContainer  string
 	withTransformers           bool
+	withTransformersImage      string
 	withModel2Vec              bool
 	withContextionary          bool
 	withQnATransformers        bool
@@ -167,6 +170,14 @@ func (d *Compose) WithAzurite() *Compose {
 
 func (d *Compose) WithText2VecTransformers() *Compose {
 	d.withTransformers = true
+	d.enableModules = append(d.enableModules, Text2VecTransformers)
+	d.defaultVectorizerModule = Text2VecTransformers
+	return d
+}
+
+func (d *Compose) WithText2VecTransformersImage(image string) *Compose {
+	d.withTransformers = true
+	d.withTransformersImage = image
 	d.enableModules = append(d.enableModules, Text2VecTransformers)
 	d.defaultVectorizerModule = Text2VecTransformers
 	return d
@@ -307,6 +318,12 @@ func (d *Compose) WithText2VecOpenAI(openAIApiKey, openAIOrganization, azureApiK
 	return d
 }
 
+func (d *Compose) WithText2VecMorph(apiKey string) *Compose {
+	d.weaviateEnvs["MORPH_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmorph.Name)
+	return d
+}
+
 func (d *Compose) WithText2VecCohere(apiKey string) *Compose {
 	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modcohere.Name)
@@ -330,6 +347,14 @@ func (d *Compose) WithText2VecAWS(accessKey, secretKey, sessionToken string) *Co
 	d.weaviateEnvs["AWS_SECRET_KEY"] = secretKey
 	d.weaviateEnvs["AWS_SESSION_TOKEN"] = sessionToken
 	d.enableModules = append(d.enableModules, modaws.Name)
+	return d
+}
+
+func (d *Compose) WithMulti2VecAWS(accessKey, secretKey, sessionToken string) *Compose {
+	d.weaviateEnvs["AWS_ACCESS_KEY"] = accessKey
+	d.weaviateEnvs["AWS_SECRET_KEY"] = secretKey
+	d.weaviateEnvs["AWS_SESSION_TOKEN"] = sessionToken
+	d.enableModules = append(d.enableModules, modmulti2vecaws.Name)
 	return d
 }
 
@@ -391,7 +416,6 @@ func (d *Compose) WithText2VecNvidia(apiKey string) *Compose {
 func (d *Compose) WithText2VecModel2Vec() *Compose {
 	d.withModel2Vec = true
 	d.enableModules = append(d.enableModules, modmodel2vec.Name)
-	d.defaultVectorizerModule = Text2VecModel2Vec
 	return d
 }
 
@@ -687,6 +711,9 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	}
 	if d.withTransformers {
 		image := os.Getenv(envTestText2vecTransformersImage)
+		if d.withTransformersImage != "" {
+			image = d.withTransformersImage
+		}
 		container, err := startT2VTransformers(ctx, networkName, image)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", Text2VecTransformers)

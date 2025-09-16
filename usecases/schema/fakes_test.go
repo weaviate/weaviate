@@ -79,6 +79,10 @@ func (f *fakeSchemaManager) ResolveAlias(alias string) string {
 	return ""
 }
 
+func (f *fakeSchemaManager) GetAliasesForClass(class string) []*models.Alias {
+	return nil
+}
+
 func (f *fakeSchemaManager) Join(ctx context.Context, nodeID, raftAddr string, voter bool) error {
 	args := f.Called(ctx, nodeID, raftAddr, voter)
 	return args.Error(0)
@@ -218,16 +222,6 @@ func (f *fakeSchemaManager) Aliases() map[string]string {
 	return nil
 }
 
-func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
-	args := f.Called(class)
-	return args.Get(0).(*sharding.State)
-}
-
-func (f *fakeSchemaManager) CopyShardingStateWithVersion(ctx context.Context, class string, version uint64) (*sharding.State, error) {
-	args := f.Called(ctx, class, version)
-	return args.Get(0).(*sharding.State), args.Error(1)
-}
-
 func (f *fakeSchemaManager) ShardReplicas(class, shard string) ([]string, error) {
 	args := f.Called(class, shard)
 	return args.Get(0).([]string), args.Error(1)
@@ -268,6 +262,16 @@ func (f *fakeSchemaManager) Read(class string, reader func(*models.Class, *shard
 	return args.Error(0)
 }
 
+func (f *fakeSchemaManager) Shards(class string) ([]string, error) {
+	args := f.Called(class)
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (f *fakeSchemaManager) LocalShards(class string) ([]string, error) {
+	args := f.Called(class)
+	return args.Get(0).([]string), args.Error(1)
+}
+
 func (f *fakeSchemaManager) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	args := f.Called(class, tenant)
 	return args.Get(0).(models.ShardStatusList), args.Error(1)
@@ -292,6 +296,11 @@ func (f *fakeSchemaManager) DeleteAlias(ctx context.Context, alias string) (uint
 	return 0, args.Error(0)
 }
 
+func (f *fakeSchemaManager) GetAlias(ctx context.Context, alias string) (*models.Alias, error) {
+	args := f.Called(ctx, alias)
+	return args.Get(0).(*models.Alias), args.Error(1)
+}
+
 func (f *fakeSchemaManager) GetAliases(ctx context.Context, alias string, class *models.Class) ([]*models.Alias, error) {
 	args := f.Called(ctx, alias, class)
 	return args.Get(0).([]*models.Alias), args.Error(1)
@@ -305,7 +314,7 @@ type fakeStore struct {
 func NewFakeStore() *fakeStore {
 	return &fakeStore{
 		collections: make(map[string]*models.Class),
-		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}, fakeModulesProvider{}),
+		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}, fakeModulesProvider{}, nil),
 	}
 }
 
@@ -337,4 +346,17 @@ func (f *fakeStore) UpdateClass(cls *models.Class) error {
 	cls.VectorIndexConfig = u.VectorIndexConfig
 	cls.InvertedIndexConfig = u.InvertedIndexConfig
 	return nil
+}
+
+// fakeSchemaManagerWithAlias wraps the fakeSchemaManager to provide alias resolution support
+type fakeSchemaManagerWithAlias struct {
+	*fakeSchemaManager
+	aliasMap map[string]string
+}
+
+func (f *fakeSchemaManagerWithAlias) ResolveAlias(alias string) string {
+	if resolvedClass, exists := f.aliasMap[alias]; exists {
+		return resolvedClass
+	}
+	return ""
 }

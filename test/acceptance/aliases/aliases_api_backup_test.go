@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,36 +23,6 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 )
-
-func waitForBackup(t *testing.T, backupID, backend string) {
-	for {
-		resp, err := helper.CreateBackupStatus(t, backend, backupID, "", "")
-		require.Nil(t, err)
-		require.NotNil(t, resp.Payload)
-		if *resp.Payload.Status == "SUCCESS" {
-			break
-		}
-		if *resp.Payload.Status == "FAILED" {
-			t.Fatalf("backup failed: %s", resp.Payload.Error)
-		}
-		time.Sleep(time.Second / 10)
-	}
-}
-
-func waitForRestore(t *testing.T, backupID, backend string) {
-	for {
-		resp, err := helper.RestoreBackupStatus(t, backend, backupID, "", "")
-		require.Nil(t, err)
-		require.NotNil(t, resp.Payload)
-		if *resp.Payload.Status == "SUCCESS" {
-			break
-		}
-		if *resp.Payload.Status == "FAILED" {
-			t.Fatalf("backup failed: %s", resp.Payload.Error)
-		}
-		time.Sleep(time.Second / 10)
-	}
-}
 
 func Test_AliasesAPI_Backup(t *testing.T) {
 	ctx := context.Background()
@@ -71,13 +40,9 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 
 	// Three options for the test:
-	// 1. no-delete: backup and restore collection without deleting the alias, will pass as of 1.32
-	// 2. delete: backup and restore after deleting the alias, fails as aliases are not currently backed up or restored
-	// 3. conflict: backup and restore after creating a new class with the same name as the alias, fails as we don't support restoring collections on alias on conflict yet
-	for _, options := range []string{"no-delete", "delete", "conflict"} {
-		if options != "no-delete" {
-			t.Skip("Skipping backup with " + options + " option as aliases are not currently backed up nor restored on conflict")
-		}
+	// 1. full: backup and restore collection after deleting both collection and the alias, will pass as of 1.32
+	// 2. overwrite: backup and restore after deleting the collection but not the alias, should pass only if "overwrite option is set"
+	for _, options := range []string{"full", "overwrite"} {
 		t.Run("backup with "+options, func(t *testing.T) {
 			t.Run("create schema", func(t *testing.T) {
 				t.Run("Books", func(t *testing.T) {
@@ -151,14 +116,14 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 				backupResp, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), books.DefaultClassName, backend, backupID)
 				assert.Nil(t, err)
 				assert.NotNil(t, backupResp)
-				waitForBackup(t, backupID, backend)
+				helper.ExpectBackupEventuallyCreated(t, backupID, backend, nil, helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 			})
 
 			t.Run("delete collection", func(t *testing.T) {
 				helper.DeleteClass(t, books.DefaultClassName)
 			})
 
-			if options != "no-delete" {
+			if options != "overwrite" {
 				t.Run("delete alias", func(t *testing.T) {
 					helper.DeleteAlias(t, "BookAlias")
 				})
@@ -170,57 +135,16 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 				})
 			}
 
-			if options == "conflict" {
-				t.Run("re-create schema", func(t *testing.T) {
-					t.Run("BooksConflict", func(t *testing.T) {
-						booksClass := books.ClassModel2VecVectorizer()
-						booksClass.Class = "BooksConflict"
-						helper.CreateClass(t, booksClass)
-						for _, book := range books.Objects() {
-							helper.CreateObject(t, book)
-							helper.AssertGetObjectEventually(t, book.Class, book.ID)
-						}
-					})
-				})
-
-				defer func() {
-					helper.DeleteClass(t, "BooksConflict")
-				}()
-
-				t.Run("create alias with old collection name", func(t *testing.T) {
-					tests := []struct {
-						name  string
-						alias *models.Alias
-					}{
-						{
-							name:  "BooksConflict",
-							alias: &models.Alias{Alias: "Books", Class: "BooksConflict"},
-						},
-					}
-					for _, tt := range tests {
-						t.Run(tt.name, func(t *testing.T) {
-							helper.CreateAlias(t, tt.alias)
-							resp := helper.GetAliases(t, &tt.alias.Class)
-							require.NotNil(t, resp)
-							require.NotEmpty(t, resp.Aliases)
-							aliasCreated := false
-							for _, alias := range resp.Aliases {
-								if tt.alias.Alias == alias.Alias && tt.alias.Class == alias.Class {
-									aliasCreated = true
-								}
-							}
-							assert.True(t, aliasCreated)
-							aliases = append(aliases, tt.alias.Alias)
-						})
-					}
-				})
-			}
-
 			t.Run("restore with local filesystem backend", func(t *testing.T) {
-				restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), books.DefaultClassName, backend, backupID, map[string]string{})
+				var overwriteAlias bool
+				if options == "overwrite" {
+					overwriteAlias = true
+				}
+
+				restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), books.DefaultClassName, backend, backupID, map[string]string{}, overwriteAlias)
 				assert.Nil(t, err)
 				assert.NotNil(t, restoreResp)
-				waitForRestore(t, backupID, backend)
+				helper.ExpectBackupEventuallyRestored(t, backupID, backend, nil, helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
 			})
 
 			t.Run("check class after restore", func(t *testing.T) {

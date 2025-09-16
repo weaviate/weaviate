@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -118,10 +119,8 @@ type sgConfig struct {
 	writeMetadata                bool
 }
 
-func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
-	compactionCallbacks cyclemanager.CycleCallbackGroup, cfg sgConfig,
-	allocChecker memwatch.AllocChecker, lazySegmentLoading bool, files map[string]int64,
-	bitmapBufPool roaringset.BitmapBufPool,
+func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
+	compactionCallbacks cyclemanager.CycleCallbackGroup, b *Bucket, files map[string]int64,
 ) (*SegmentGroup, error) {
 	now := time.Now()
 	sg := &SegmentGroup{
@@ -140,18 +139,16 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		maxSegmentSize:               cfg.maxSegmentSize,
 		cleanupInterval:              cfg.cleanupInterval,
 		enableChecksumValidation:     cfg.enableChecksumValidation,
-		allocChecker:                 allocChecker,
+		allocChecker:                 b.allocChecker,
 		lastCompactionCall:           now,
 		lastCleanupCall:              now,
 		MinMMapSize:                  cfg.MinMMapSize,
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 		writeMetadata:                cfg.writeMetadata,
-		bitmapBufPool:                bitmapBufPool,
+		bitmapBufPool:                b.bitmapBufPool,
 	}
 
 	segmentIndex := 0
-
-	segmentsAlreadyRecoveredFromCompaction := make(map[string]struct{})
 
 	// Note: it's important to process first the compacted segments
 	// TODO: a single iteration may be possible
@@ -187,28 +184,11 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			continue
 		}
 
-		// source segments for the compacted segment had a lower level
-		var leftSegmentFilename, rightSegmentFilename string
-		if cfg.writeSegmentInfoIntoFileName {
-			level, strategy := strategyAndLevelFromFileName(potentialCompactedSegmentFileName)
-			leftSegmentFilename = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[0], segmentExtraInfo(level-1, strategy))
-			rightSegmentFilename = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[1], segmentExtraInfo(level-1, strategy))
-		} else {
-			leftSegmentFilename = fmt.Sprintf("segment-%s.db", jointSegmentsIDs[0])
-			rightSegmentFilename = fmt.Sprintf("segment-%s.db", jointSegmentsIDs[1])
-		}
+		// jointSegmentsIDs[0] is the left segment, jointSegmentsIDs[1] is the right segment
+		leftSegmentFound, _ := segmentExistsWithID(jointSegmentsIDs[0], files)
+		rightSegmentFound, rightSegmentFilename := segmentExistsWithID(jointSegmentsIDs[1], files)
 
-		leftSegmentPath := filepath.Join(sg.dir, leftSegmentFilename)
 		rightSegmentPath := filepath.Join(sg.dir, rightSegmentFilename)
-
-		leftSegmentFound, err := fileExists(leftSegmentPath)
-		if err != nil {
-			return nil, fmt.Errorf("check for presence of segment %s: %w", leftSegmentFilename, err)
-		}
-		rightSegmentFound, err := fileExists(rightSegmentPath)
-		if err != nil {
-			return nil, fmt.Errorf("check for presence of segment %s: %w", rightSegmentFilename, err)
-		}
 
 		if leftSegmentFound && rightSegmentFound {
 			delete(files, entry)
@@ -222,6 +202,10 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			return nil, fmt.Errorf("missing right segment %q", rightSegmentFilename)
 		}
 
+		var rightSegmentMetadata *struct {
+			Level    uint16
+			Strategy segmentindex.Strategy
+		}
 		if !leftSegmentFound && rightSegmentFound {
 			// segment is initialized just to be erased
 			// there is no need of bloom filters nor net addition counter re-calculation
@@ -240,6 +224,14 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
+			}
+
+			rightSegmentMetadata = &struct {
+				Level    uint16
+				Strategy segmentindex.Strategy
+			}{
+				Level:    rightSegment.getLevel(),
+				Strategy: rightSegment.getStrategy(),
 			}
 
 			err = rightSegment.close()
@@ -275,9 +267,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		}
 
 		var newRightSegmentFileName string
-		if cfg.writeSegmentInfoIntoFileName {
-			level, strategy := strategyAndLevelFromFileName(potentialCompactedSegmentFileName)
-			newRightSegmentFileName = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[1], segmentExtraInfo(level, strategy))
+		if cfg.writeSegmentInfoIntoFileName && rightSegmentMetadata != nil {
+			newRightSegmentFileName = fmt.Sprintf("segment-%s%s.db", jointSegmentsIDs[1], segmentExtraInfo(rightSegmentMetadata.Level, rightSegmentMetadata.Strategy))
 		} else {
 			newRightSegmentFileName = fmt.Sprintf("segment-%s.db", jointSegmentsIDs[1])
 		}
@@ -287,41 +278,19 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry, newRightSegmentFileName, err)
 		}
 
-		var segment Segment
-		sgConf := segmentConfig{
-			mmapContents:             sg.mmapContents,
-			useBloomFilter:           sg.useBloomFilter,
-			calcCountNetAdditions:    sg.calcCountNetAdditions,
-			overwriteDerived:         true,
-			enableChecksumValidation: sg.enableChecksumValidation,
-			MinMMapSize:              sg.MinMMapSize,
-			allocChecker:             sg.allocChecker,
-			fileList:                 files,
-			writeMetadata:            sg.writeMetadata,
-		}
-		if lazySegmentLoading {
-			segment, err = newLazySegment(newRightSegmentPath, logger,
-				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), sgConf,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("init lazy segment %s: %w", newRightSegmentFileName, err)
-			}
-		} else {
-			segment, err = newSegment(newRightSegmentPath, logger,
-				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), sgConf,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("init segment %s: %w", newRightSegmentFileName, err)
-			}
-		}
-
-		sg.segments[segmentIndex] = segment
-		segmentIndex++
-
-		segmentsAlreadyRecoveredFromCompaction[newRightSegmentFileName] = struct{}{}
+		// initialize in correct order in the next iteration
+		files[newRightSegmentFileName] = files[entry]
+		delete(files, entry)
 	}
 
+	// segments need to be initialised in order of their timestamp to ensure that various computations are correct (CNA etc)
+	fileList := make([]string, 0, len(files))
 	for entry := range files {
+		fileList = append(fileList, entry)
+	}
+	slices.Sort(fileList)
+
+	for _, entry := range fileList {
 		if filepath.Ext(entry) == DeleteMarkerSuffix {
 			// marked for deletion, but never actually deleted. Delete now.
 			if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
@@ -338,12 +307,6 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 		if filepath.Ext(entry) != ".db" {
 			// skip, this could be commit log, etc.
-			continue
-		}
-
-		_, alreadyRecoveredFromCompaction := segmentsAlreadyRecoveredFromCompaction[entry]
-		if alreadyRecoveredFromCompaction {
-			// the .db file was already removed and restored from a compacted segment
 			continue
 		}
 
@@ -382,7 +345,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			writeMetadata:            sg.writeMetadata,
 		}
 		var err error
-		if lazySegmentLoading {
+		if b.lazySegmentLoading {
 			segment, err = newLazySegment(filepath.Join(sg.dir, entry), logger,
 				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), segConf,
 			)
@@ -403,6 +366,56 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 	sg.segments = sg.segments[:segmentIndex]
 
+	// Actual strategy is stored in segment files. In case it is SetCollection,
+	// while new implementation uses bitmaps and supposed to be RoaringSet,
+	// bucket and segmentgroup strategy is changed back to SetCollection
+	// (memtables will be created later on, with already modified strategy)
+	// TODO what if only WAL files exists, and there is no segment to get actual strategy?
+	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
+		sg.segments[0].getStrategy() == segmentindex.StrategySetCollection {
+		b.strategy = StrategySetCollection
+		b.desiredStrategy = StrategyRoaringSet
+		sg.strategy = StrategySetCollection
+	}
+	// As of v1.19 property's IndexInterval setting is replaced with
+	// IndexFilterable (roaring set) + IndexSearchable (map) and enabled by default.
+	// Buckets for text/text[] inverted indexes created before 1.19 have strategy
+	// map and name that since 1.19 is used by filterable indeverted index.
+	// Those buckets (roaring set by configuration, but in fact map) have to be
+	// renamed on startup by migrator. Here actual strategy is set based on
+	// data found in segment files
+	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
+		sg.segments[0].getStrategy() == segmentindex.StrategyMapCollection {
+		b.strategy = StrategyMapCollection
+		b.desiredStrategy = StrategyRoaringSet
+		sg.strategy = StrategyMapCollection
+	}
+
+	// Inverted segments share a lot of their logic as the MapCollection,
+	// and the main difference is in the way they store their data.
+	// Setting the desired strategy to Inverted will make sure that we can
+	// distinguish between the two strategies for search.
+	// The changes only apply when we have segments on disk,
+	// as the memtables will always be created with the MapCollection strategy.
+	if b.strategy == StrategyInverted && len(sg.segments) > 0 &&
+		sg.segments[0].getStrategy() == segmentindex.StrategyMapCollection {
+		b.strategy = StrategyMapCollection
+		b.desiredStrategy = StrategyInverted
+		sg.strategy = StrategyMapCollection
+	} else if b.strategy == StrategyMapCollection && len(sg.segments) > 0 &&
+		sg.segments[0].getStrategy() == segmentindex.StrategyInverted {
+		// TODO amourao: blockmax "else" to be removed before final release
+		// in case bucket was created as inverted and default strategy was reverted to map
+		// by unsetting corresponding env variable
+		b.strategy = StrategyInverted
+		b.desiredStrategy = StrategyMapCollection
+		sg.strategy = StrategyInverted
+	}
+
+	if err := b.mayRecoverFromCommitLogs(ctx, sg, files); err != nil {
+		return nil, err
+	}
+
 	if sg.monitorCount {
 		sg.metrics.ObjectCount(sg.count())
 	}
@@ -412,10 +425,6 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		return nil, err
 	}
 	sg.segmentCleaner = sc
-
-	// TODO AL: use separate cycle callback for cleanup?
-	id := "segmentgroup/compaction/" + sg.dir
-	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
 	// if a segment exists of the map collection strategy, we need to
 	// convert the inverted strategy to a map collection strategy
@@ -456,6 +465,9 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			}).Debug("rangeable segment-in-memory built")
 		}
 	}
+
+	id := "segmentgroup/compaction/" + sg.dir
+	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
 	return sg, nil
 }
@@ -675,7 +687,7 @@ func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	return out, nil
 }
 
-func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []Segment, func(), error) {
+func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte) ([][]value, []Segment, func(), error) {
 	segments, release := sg.getAndLockSegments()
 
 	out := make([][]value, len(segments))
@@ -684,6 +696,10 @@ func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []Segme
 	i := 0
 	// start with first and do not exit
 	for _, segment := range segments {
+		if ctx.Err() != nil {
+			release()
+			return nil, nil, func() {}, ctx.Err()
+		}
 		v, err := segment.getCollection(key)
 		if err != nil {
 			if !errors.Is(err, lsmkv.NotFound) {
@@ -901,6 +917,19 @@ func fileExists(path string) (bool, error) {
 	}
 
 	return false, err
+}
+
+func segmentExistsWithID(segmentID string, files map[string]int64) (bool, string) {
+	// segment file format is "segment-{segmentID}.EXT" where EXT is either
+	// - ".db" if extra infos in filename are not used
+	// - ".{extra_infos}.db" if extra infos in filename are used
+	match := fmt.Sprintf("segment-%s.", segmentID)
+	for fileName := range files {
+		if strings.HasPrefix(fileName, match) && strings.HasSuffix(fileName, ".db") {
+			return true, fileName
+		}
+	}
+	return false, ""
 }
 
 func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {

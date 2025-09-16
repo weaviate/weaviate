@@ -71,6 +71,9 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 	// SegmentGroup should refrain from flushing until its
 	// shard indicates otherwise
 	if sg.isReadyOnly() {
+		sg.logger.WithField("action", "lsm_compaction").
+			WithField("path", sg.dir).
+			Debug("compaction halted due to shard READONLY status")
 		return nil, 0
 	}
 
@@ -202,14 +205,6 @@ func segmentID(path string) string {
 	filename := filepath.Base(path)
 	filename, _, _ = strings.Cut(filename, ".")
 	return strings.TrimPrefix(filename, "segment-")
-}
-
-func strategyAndLevelFromFileName(path string) (uint16, segmentindex.Strategy) {
-	// is not used, only the filename parsing
-	ls := lazySegment{path: path}
-	level := ls.getLevel()
-	strategy := ls.getStrategy()
-	return level, strategy
 }
 
 func segmentExtraInfo(level uint16, strategy segmentindex.Strategy) string {

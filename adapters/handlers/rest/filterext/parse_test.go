@@ -433,6 +433,38 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					},
 				},
 			},
+			{
+				name: "chained together using not",
+				input: &models.WhereFilter{
+					Operator: "Not",
+					Operands: []*models.WhereFilter{
+						inputIntFilterWithValueAndPath(44,
+							[]string{"hasAction", "SomeAction", "intField"}),
+					},
+				},
+				expectedFilter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorNot,
+						Operands: []filters.Clause{
+							{
+								Operator: filters.OperatorEqual,
+								On: &filters.Path{
+									Class:    schema.AssertValidClassName("Todo"),
+									Property: schema.AssertValidPropertyName("hasAction"),
+									Child: &filters.Path{
+										Class:    schema.AssertValidClassName("SomeAction"),
+										Property: schema.AssertValidPropertyName("intField"),
+									},
+								},
+								Value: &filters.Value{
+									Value: 44,
+									Type:  schema.DataTypeInt,
+								},
+							},
+						},
+					},
+				},
+			},
 		}
 
 		for _, test := range tests {

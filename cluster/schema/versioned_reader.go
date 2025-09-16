@@ -139,15 +139,4 @@ func (s VersionedSchemaReader) TenantsShards(ctx context.Context,
 	return status, version, err
 }
 
-func (s VersionedSchemaReader) CopyShardingState(ctx context.Context,
-	class string, v uint64,
-) (*sharding.State, error) {
-	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues("CopyShardingState"))
-	defer t.ObserveDuration()
-
-	err := s.WaitForUpdate(ctx, v)
-	ss, _ := s.schema.CopyShardingState(class)
-	return ss, err
-}
-
 func (s VersionedSchemaReader) Len() int { return s.schema.len() }

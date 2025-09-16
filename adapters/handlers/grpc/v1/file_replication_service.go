@@ -20,7 +20,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -106,7 +105,7 @@ func (fps *FileReplicationService) ListFiles(ctx context.Context, req *pb.ListFi
 	}, nil
 }
 
-func (fps *FileReplicationService) GetFileMetadata(stream grpc.BidiStreamingServer[pb.GetFileMetadataRequest, pb.FileMetadata]) error {
+func (fps *FileReplicationService) GetFileMetadata(stream pb.FileReplicationService_GetFileMetadataServer) error {
 	for {
 		req, err := stream.Recv()
 		if err != nil {
@@ -142,7 +141,7 @@ func (fps *FileReplicationService) GetFileMetadata(stream grpc.BidiStreamingServ
 	}
 }
 
-func (fps *FileReplicationService) GetFile(stream grpc.BidiStreamingServer[pb.GetFileRequest, pb.FileChunk]) error {
+func (fps *FileReplicationService) GetFile(stream pb.FileReplicationService_GetFileServer) error {
 	for {
 		req, err := stream.Recv()
 		if err != nil {

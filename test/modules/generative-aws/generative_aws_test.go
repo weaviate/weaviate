@@ -53,7 +53,23 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			generativeModel    string
 			absentModuleConfig bool
 			withImages         bool
+			maxTokens          int64
 		}{
+			// Amazon Nova
+			{
+				name:            "amazon.nova-micro-v1:0",
+				generativeModel: "amazon.nova-micro-v1:0",
+			},
+			{
+				name:            "amazon.nova-lite-v1:0",
+				generativeModel: "amazon.nova-lite-v1:0",
+				withImages:      true,
+			},
+			{
+				name:            "amazon.nova-pro-v1:0",
+				generativeModel: "amazon.nova-pro-v1:0",
+				withImages:      true,
+			},
 			// Amazon Titan
 			{
 				name:            "amazon.titan-text-lite-v1",
@@ -68,6 +84,11 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 				generativeModel: "amazon.titan-text-premier-v1:0",
 			},
 			// Anthropic
+			{
+				name:            "anthropic.claude-3-5-sonnet-20240620-v1:0",
+				generativeModel: "anthropic.claude-3-5-sonnet-20240620-v1:0",
+				maxTokens:       4000,
+			},
 			{
 				name:            "anthropic.claude-3-sonnet-20240229-v1:0",
 				generativeModel: "anthropic.claude-3-sonnet-20240229-v1:0",
@@ -176,7 +197,7 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 				t.Run("create a tweet with params", func(t *testing.T) {
 					params := "aws:{temperature:0.1}"
 					if tt.absentModuleConfig {
-						params = fmt.Sprintf("aws:{temperature:0.1 service:\"bedrock\" region:\"%s\" model:\"%s\"}", region, tt.generativeModel)
+						params = fmt.Sprintf("aws:{temperature:0.1 maxTokens:500 service:\"bedrock\" region:\"%s\" model:\"%s\"}", region, tt.generativeModel)
 					}
 					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
@@ -189,6 +210,9 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 					if tt.absentModuleConfig {
 						params.Region = grpchelper.ToPtr(region)
 						params.Service = grpchelper.ToPtr("bedrock")
+					}
+					if tt.maxTokens != 0 {
+						params.MaxTokens = &tt.maxTokens
 					}
 					return params
 				}

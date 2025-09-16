@@ -5,6 +5,7 @@ package protocol
 import (
 	reflect "reflect"
 	sync "sync"
+	unsafe "unsafe"
 
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -19,20 +20,17 @@ const (
 )
 
 type Properties struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Fields        map[string]*Value      `protobuf:"bytes,1,rep,name=fields,proto3" json:"fields,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
-
-	Fields map[string]*Value `protobuf:"bytes,1,rep,name=fields,proto3" json:"fields,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Properties) Reset() {
 	*x = Properties{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_properties_proto_msgTypes[0]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_properties_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *Properties) String() string {
@@ -43,7 +41,7 @@ func (*Properties) ProtoMessage() {}
 
 func (x *Properties) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_properties_proto_msgTypes[0]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -66,14 +64,10 @@ func (x *Properties) GetFields() map[string]*Value {
 }
 
 type Value struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	// Types that are assignable to Kind:
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Kind:
 	//
 	//	*Value_NumberValue
-	//	*Value_StringValue
 	//	*Value_BoolValue
 	//	*Value_ObjectValue
 	//	*Value_ListValue
@@ -85,16 +79,16 @@ type Value struct {
 	//	*Value_PhoneValue
 	//	*Value_NullValue
 	//	*Value_TextValue
-	Kind isValue_Kind `protobuf_oneof:"kind"`
+	Kind          isValue_Kind `protobuf_oneof:"kind"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Value) Reset() {
 	*x = Value{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_properties_proto_msgTypes[1]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_properties_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *Value) String() string {
@@ -105,7 +99,7 @@ func (*Value) ProtoMessage() {}
 
 func (x *Value) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_properties_proto_msgTypes[1]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -120,101 +114,117 @@ func (*Value) Descriptor() ([]byte, []int) {
 	return file_v1_properties_proto_rawDescGZIP(), []int{1}
 }
 
-func (m *Value) GetKind() isValue_Kind {
-	if m != nil {
-		return m.Kind
+func (x *Value) GetKind() isValue_Kind {
+	if x != nil {
+		return x.Kind
 	}
 	return nil
 }
 
 func (x *Value) GetNumberValue() float64 {
-	if x, ok := x.GetKind().(*Value_NumberValue); ok {
-		return x.NumberValue
+	if x != nil {
+		if x, ok := x.Kind.(*Value_NumberValue); ok {
+			return x.NumberValue
+		}
 	}
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/properties.proto.
-func (x *Value) GetStringValue() string {
-	if x, ok := x.GetKind().(*Value_StringValue); ok {
-		return x.StringValue
-	}
-	return ""
-}
-
 func (x *Value) GetBoolValue() bool {
-	if x, ok := x.GetKind().(*Value_BoolValue); ok {
-		return x.BoolValue
+	if x != nil {
+		if x, ok := x.Kind.(*Value_BoolValue); ok {
+			return x.BoolValue
+		}
 	}
 	return false
 }
 
 func (x *Value) GetObjectValue() *Properties {
-	if x, ok := x.GetKind().(*Value_ObjectValue); ok {
-		return x.ObjectValue
+	if x != nil {
+		if x, ok := x.Kind.(*Value_ObjectValue); ok {
+			return x.ObjectValue
+		}
 	}
 	return nil
 }
 
 func (x *Value) GetListValue() *ListValue {
-	if x, ok := x.GetKind().(*Value_ListValue); ok {
-		return x.ListValue
+	if x != nil {
+		if x, ok := x.Kind.(*Value_ListValue); ok {
+			return x.ListValue
+		}
 	}
 	return nil
 }
 
 func (x *Value) GetDateValue() string {
-	if x, ok := x.GetKind().(*Value_DateValue); ok {
-		return x.DateValue
+	if x != nil {
+		if x, ok := x.Kind.(*Value_DateValue); ok {
+			return x.DateValue
+		}
 	}
 	return ""
 }
 
 func (x *Value) GetUuidValue() string {
-	if x, ok := x.GetKind().(*Value_UuidValue); ok {
-		return x.UuidValue
+	if x != nil {
+		if x, ok := x.Kind.(*Value_UuidValue); ok {
+			return x.UuidValue
+		}
 	}
 	return ""
 }
 
 func (x *Value) GetIntValue() int64 {
-	if x, ok := x.GetKind().(*Value_IntValue); ok {
-		return x.IntValue
+	if x != nil {
+		if x, ok := x.Kind.(*Value_IntValue); ok {
+			return x.IntValue
+		}
 	}
 	return 0
 }
 
 func (x *Value) GetGeoValue() *GeoCoordinate {
-	if x, ok := x.GetKind().(*Value_GeoValue); ok {
-		return x.GeoValue
+	if x != nil {
+		if x, ok := x.Kind.(*Value_GeoValue); ok {
+			return x.GeoValue
+		}
 	}
 	return nil
 }
 
 func (x *Value) GetBlobValue() string {
-	if x, ok := x.GetKind().(*Value_BlobValue); ok {
-		return x.BlobValue
+	if x != nil {
+		if x, ok := x.Kind.(*Value_BlobValue); ok {
+			return x.BlobValue
+		}
 	}
 	return ""
 }
 
 func (x *Value) GetPhoneValue() *PhoneNumber {
-	if x, ok := x.GetKind().(*Value_PhoneValue); ok {
-		return x.PhoneValue
+	if x != nil {
+		if x, ok := x.Kind.(*Value_PhoneValue); ok {
+			return x.PhoneValue
+		}
 	}
 	return nil
 }
 
 func (x *Value) GetNullValue() structpb.NullValue {
-	if x, ok := x.GetKind().(*Value_NullValue); ok {
-		return x.NullValue
+	if x != nil {
+		if x, ok := x.Kind.(*Value_NullValue); ok {
+			return x.NullValue
+		}
 	}
 	return structpb.NullValue(0)
 }
 
 func (x *Value) GetTextValue() string {
-	if x, ok := x.GetKind().(*Value_TextValue); ok {
-		return x.TextValue
+	if x != nil {
+		if x, ok := x.Kind.(*Value_TextValue); ok {
+			return x.TextValue
+		}
 	}
 	return ""
 }
@@ -227,12 +237,8 @@ type Value_NumberValue struct {
 	NumberValue float64 `protobuf:"fixed64,1,opt,name=number_value,json=numberValue,proto3,oneof"`
 }
 
-type Value_StringValue struct {
-	// Deprecated: Marked as deprecated in v1/properties.proto.
-	StringValue string `protobuf:"bytes,2,opt,name=string_value,json=stringValue,proto3,oneof"`
-}
-
 type Value_BoolValue struct {
+	// dont reuse 2, old field that has been removed; Was "string string_value = 2;"
 	BoolValue bool `protobuf:"varint,3,opt,name=bool_value,json=boolValue,proto3,oneof"`
 }
 
@@ -278,8 +284,6 @@ type Value_TextValue struct {
 
 func (*Value_NumberValue) isValue_Kind() {}
 
-func (*Value_StringValue) isValue_Kind() {}
-
 func (*Value_BoolValue) isValue_Kind() {}
 
 func (*Value_ObjectValue) isValue_Kind() {}
@@ -303,13 +307,8 @@ func (*Value_NullValue) isValue_Kind() {}
 func (*Value_TextValue) isValue_Kind() {}
 
 type ListValue struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	// Deprecated: Marked as deprecated in v1/properties.proto.
-	Values []*Value `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
-	// Types that are assignable to Kind:
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Kind:
 	//
 	//	*ListValue_NumberValues
 	//	*ListValue_BoolValues
@@ -318,16 +317,16 @@ type ListValue struct {
 	//	*ListValue_UuidValues
 	//	*ListValue_IntValues
 	//	*ListValue_TextValues
-	Kind isListValue_Kind `protobuf_oneof:"kind"`
+	Kind          isListValue_Kind `protobuf_oneof:"kind"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListValue) Reset() {
 	*x = ListValue{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_properties_proto_msgTypes[2]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_properties_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *ListValue) String() string {
@@ -338,7 +337,7 @@ func (*ListValue) ProtoMessage() {}
 
 func (x *ListValue) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_properties_proto_msgTypes[2]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -353,66 +352,72 @@ func (*ListValue) Descriptor() ([]byte, []int) {
 	return file_v1_properties_proto_rawDescGZIP(), []int{2}
 }
 
-// Deprecated: Marked as deprecated in v1/properties.proto.
-func (x *ListValue) GetValues() []*Value {
+func (x *ListValue) GetKind() isListValue_Kind {
 	if x != nil {
-		return x.Values
-	}
-	return nil
-}
-
-func (m *ListValue) GetKind() isListValue_Kind {
-	if m != nil {
-		return m.Kind
+		return x.Kind
 	}
 	return nil
 }
 
 func (x *ListValue) GetNumberValues() *NumberValues {
-	if x, ok := x.GetKind().(*ListValue_NumberValues); ok {
-		return x.NumberValues
+	if x != nil {
+		if x, ok := x.Kind.(*ListValue_NumberValues); ok {
+			return x.NumberValues
+		}
 	}
 	return nil
 }
 
 func (x *ListValue) GetBoolValues() *BoolValues {
-	if x, ok := x.GetKind().(*ListValue_BoolValues); ok {
-		return x.BoolValues
+	if x != nil {
+		if x, ok := x.Kind.(*ListValue_BoolValues); ok {
+			return x.BoolValues
+		}
 	}
 	return nil
 }
 
 func (x *ListValue) GetObjectValues() *ObjectValues {
-	if x, ok := x.GetKind().(*ListValue_ObjectValues); ok {
-		return x.ObjectValues
+	if x != nil {
+		if x, ok := x.Kind.(*ListValue_ObjectValues); ok {
+			return x.ObjectValues
+		}
 	}
 	return nil
 }
 
 func (x *ListValue) GetDateValues() *DateValues {
-	if x, ok := x.GetKind().(*ListValue_DateValues); ok {
-		return x.DateValues
+	if x != nil {
+		if x, ok := x.Kind.(*ListValue_DateValues); ok {
+			return x.DateValues
+		}
 	}
 	return nil
 }
 
 func (x *ListValue) GetUuidValues() *UuidValues {
-	if x, ok := x.GetKind().(*ListValue_UuidValues); ok {
-		return x.UuidValues
+	if x != nil {
+		if x, ok := x.Kind.(*ListValue_UuidValues); ok {
+			return x.UuidValues
+		}
 	}
 	return nil
 }
 
 func (x *ListValue) GetIntValues() *IntValues {
-	if x, ok := x.GetKind().(*ListValue_IntValues); ok {
-		return x.IntValues
+	if x != nil {
+		if x, ok := x.Kind.(*ListValue_IntValues); ok {
+			return x.IntValues
+		}
 	}
 	return nil
 }
 
 func (x *ListValue) GetTextValues() *TextValues {
-	if x, ok := x.GetKind().(*ListValue_TextValues); ok {
-		return x.TextValues
+	if x != nil {
+		if x, ok := x.Kind.(*ListValue_TextValues); ok {
+			return x.TextValues
+		}
 	}
 	return nil
 }
@@ -464,23 +469,20 @@ func (*ListValue_IntValues) isListValue_Kind() {}
 func (*ListValue_TextValues) isListValue_Kind() {}
 
 type NumberValues struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
+	state protoimpl.MessageState `protogen:"open.v1"`
 	// *
 	// The values are stored as a byte array, where each 8 bytes represent a single float64 value.
 	// The byte array is stored in little-endian order using uint64 encoding.
-	Values []byte `protobuf:"bytes,1,opt,name=values,proto3" json:"values,omitempty"`
+	Values        []byte `protobuf:"bytes,1,opt,name=values,proto3" json:"values,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NumberValues) Reset() {
 	*x = NumberValues{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_properties_proto_msgTypes[3]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_properties_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *NumberValues) String() string {
@@ -491,7 +493,7 @@ func (*NumberValues) ProtoMessage() {}
 
 func (x *NumberValues) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_properties_proto_msgTypes[3]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -514,20 +516,17 @@ func (x *NumberValues) GetValues() []byte {
 }
 
 type TextValues struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        []string               `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Values []string `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TextValues) Reset() {
 	*x = TextValues{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_properties_proto_msgTypes[4]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_properties_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *TextValues) String() string {
@@ -538,7 +537,7 @@ func (*TextValues) ProtoMessage() {}
 
 func (x *TextValues) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_properties_proto_msgTypes[4]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -561,20 +560,17 @@ func (x *TextValues) GetValues() []string {
 }
 
 type BoolValues struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        []bool                 `protobuf:"varint,1,rep,packed,name=values,proto3" json:"values,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Values []bool `protobuf:"varint,1,rep,packed,name=values,proto3" json:"values,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BoolValues) Reset() {
 	*x = BoolValues{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_properties_proto_msgTypes[5]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_properties_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *BoolValues) String() string {
@@ -585,7 +581,7 @@ func (*BoolValues) ProtoMessage() {}
 
 func (x *BoolValues) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_properties_proto_msgTypes[5]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -608,20 +604,17 @@ func (x *BoolValues) GetValues() []bool {
 }
 
 type ObjectValues struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        []*Properties          `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Values []*Properties `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ObjectValues) Reset() {
 	*x = ObjectValues{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_properties_proto_msgTypes[6]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_properties_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *ObjectValues) String() string {
@@ -632,7 +625,7 @@ func (*ObjectValues) ProtoMessage() {}
 
 func (x *ObjectValues) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_properties_proto_msgTypes[6]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -655,20 +648,17 @@ func (x *ObjectValues) GetValues() []*Properties {
 }
 
 type DateValues struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        []string               `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Values []string `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DateValues) Reset() {
 	*x = DateValues{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_properties_proto_msgTypes[7]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_properties_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *DateValues) String() string {
@@ -679,7 +669,7 @@ func (*DateValues) ProtoMessage() {}
 
 func (x *DateValues) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_properties_proto_msgTypes[7]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -702,20 +692,17 @@ func (x *DateValues) GetValues() []string {
 }
 
 type UuidValues struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        []string               `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Values []string `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UuidValues) Reset() {
 	*x = UuidValues{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_properties_proto_msgTypes[8]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_properties_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *UuidValues) String() string {
@@ -726,7 +713,7 @@ func (*UuidValues) ProtoMessage() {}
 
 func (x *UuidValues) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_properties_proto_msgTypes[8]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -749,23 +736,20 @@ func (x *UuidValues) GetValues() []string {
 }
 
 type IntValues struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
+	state protoimpl.MessageState `protogen:"open.v1"`
 	// *
 	// The values are stored as a byte array, where each 8 bytes represent a single int64 value.
 	// The byte array is stored in little-endian order using uint64 encoding.
-	Values []byte `protobuf:"bytes,1,opt,name=values,proto3" json:"values,omitempty"`
+	Values        []byte `protobuf:"bytes,1,opt,name=values,proto3" json:"values,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *IntValues) Reset() {
 	*x = IntValues{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_properties_proto_msgTypes[9]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_properties_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *IntValues) String() string {
@@ -776,7 +760,7 @@ func (*IntValues) ProtoMessage() {}
 
 func (x *IntValues) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_properties_proto_msgTypes[9]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -799,21 +783,18 @@ func (x *IntValues) GetValues() []byte {
 }
 
 type GeoCoordinate struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Longitude     float32                `protobuf:"fixed32,1,opt,name=longitude,proto3" json:"longitude,omitempty"`
+	Latitude      float32                `protobuf:"fixed32,2,opt,name=latitude,proto3" json:"latitude,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Longitude float32 `protobuf:"fixed32,1,opt,name=longitude,proto3" json:"longitude,omitempty"`
-	Latitude  float32 `protobuf:"fixed32,2,opt,name=latitude,proto3" json:"latitude,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GeoCoordinate) Reset() {
 	*x = GeoCoordinate{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_properties_proto_msgTypes[10]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_properties_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *GeoCoordinate) String() string {
@@ -824,7 +805,7 @@ func (*GeoCoordinate) ProtoMessage() {}
 
 func (x *GeoCoordinate) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_properties_proto_msgTypes[10]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -854,26 +835,23 @@ func (x *GeoCoordinate) GetLatitude() float32 {
 }
 
 type PhoneNumber struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	CountryCode            uint64 `protobuf:"varint,1,opt,name=country_code,json=countryCode,proto3" json:"country_code,omitempty"`
-	DefaultCountry         string `protobuf:"bytes,2,opt,name=default_country,json=defaultCountry,proto3" json:"default_country,omitempty"`
-	Input                  string `protobuf:"bytes,3,opt,name=input,proto3" json:"input,omitempty"`
-	InternationalFormatted string `protobuf:"bytes,4,opt,name=international_formatted,json=internationalFormatted,proto3" json:"international_formatted,omitempty"`
-	National               uint64 `protobuf:"varint,5,opt,name=national,proto3" json:"national,omitempty"`
-	NationalFormatted      string `protobuf:"bytes,6,opt,name=national_formatted,json=nationalFormatted,proto3" json:"national_formatted,omitempty"`
-	Valid                  bool   `protobuf:"varint,7,opt,name=valid,proto3" json:"valid,omitempty"`
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	CountryCode            uint64                 `protobuf:"varint,1,opt,name=country_code,json=countryCode,proto3" json:"country_code,omitempty"`
+	DefaultCountry         string                 `protobuf:"bytes,2,opt,name=default_country,json=defaultCountry,proto3" json:"default_country,omitempty"`
+	Input                  string                 `protobuf:"bytes,3,opt,name=input,proto3" json:"input,omitempty"`
+	InternationalFormatted string                 `protobuf:"bytes,4,opt,name=international_formatted,json=internationalFormatted,proto3" json:"international_formatted,omitempty"`
+	National               uint64                 `protobuf:"varint,5,opt,name=national,proto3" json:"national,omitempty"`
+	NationalFormatted      string                 `protobuf:"bytes,6,opt,name=national_formatted,json=nationalFormatted,proto3" json:"national_formatted,omitempty"`
+	Valid                  bool                   `protobuf:"varint,7,opt,name=valid,proto3" json:"valid,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *PhoneNumber) Reset() {
 	*x = PhoneNumber{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_properties_proto_msgTypes[11]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
+	mi := &file_v1_properties_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
 }
 
 func (x *PhoneNumber) String() string {
@@ -884,7 +862,7 @@ func (*PhoneNumber) ProtoMessage() {}
 
 func (x *PhoneNumber) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_properties_proto_msgTypes[11]
-	if protoimpl.UnsafeEnabled && x != nil {
+	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
@@ -950,147 +928,91 @@ func (x *PhoneNumber) GetValid() bool {
 
 var File_v1_properties_proto protoreflect.FileDescriptor
 
-var file_v1_properties_proto_rawDesc = []byte{
-	0x0a, 0x13, 0x76, 0x31, 0x2f, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x2e,
-	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12, 0x0b, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e,
-	0x76, 0x31, 0x1a, 0x1c, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f,
-	0x62, 0x75, 0x66, 0x2f, 0x73, 0x74, 0x72, 0x75, 0x63, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f,
-	0x22, 0x98, 0x01, 0x0a, 0x0a, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x12,
-	0x3b, 0x0a, 0x06, 0x66, 0x69, 0x65, 0x6c, 0x64, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32,
-	0x23, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x50, 0x72,
-	0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x2e, 0x46, 0x69, 0x65, 0x6c, 0x64, 0x73, 0x45,
-	0x6e, 0x74, 0x72, 0x79, 0x52, 0x06, 0x66, 0x69, 0x65, 0x6c, 0x64, 0x73, 0x1a, 0x4d, 0x0a, 0x0b,
-	0x46, 0x69, 0x65, 0x6c, 0x64, 0x73, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x10, 0x0a, 0x03, 0x6b,
-	0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x28, 0x0a,
-	0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x12, 0x2e, 0x77,
-	0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x56, 0x61, 0x6c, 0x75, 0x65,
-	0x52, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x3a, 0x02, 0x38, 0x01, 0x22, 0xcd, 0x04, 0x0a, 0x05,
-	0x56, 0x61, 0x6c, 0x75, 0x65, 0x12, 0x23, 0x0a, 0x0c, 0x6e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x5f,
-	0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x01, 0x48, 0x00, 0x52, 0x0b, 0x6e,
-	0x75, 0x6d, 0x62, 0x65, 0x72, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x12, 0x27, 0x0a, 0x0c, 0x73, 0x74,
-	0x72, 0x69, 0x6e, 0x67, 0x5f, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09,
-	0x42, 0x02, 0x18, 0x01, 0x48, 0x00, 0x52, 0x0b, 0x73, 0x74, 0x72, 0x69, 0x6e, 0x67, 0x56, 0x61,
-	0x6c, 0x75, 0x65, 0x12, 0x1f, 0x0a, 0x0a, 0x62, 0x6f, 0x6f, 0x6c, 0x5f, 0x76, 0x61, 0x6c, 0x75,
-	0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x08, 0x48, 0x00, 0x52, 0x09, 0x62, 0x6f, 0x6f, 0x6c, 0x56,
-	0x61, 0x6c, 0x75, 0x65, 0x12, 0x3c, 0x0a, 0x0c, 0x6f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x5f, 0x76,
-	0x61, 0x6c, 0x75, 0x65, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x17, 0x2e, 0x77, 0x65, 0x61,
-	0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74,
-	0x69, 0x65, 0x73, 0x48, 0x00, 0x52, 0x0b, 0x6f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x56, 0x61, 0x6c,
-	0x75, 0x65, 0x12, 0x37, 0x0a, 0x0a, 0x6c, 0x69, 0x73, 0x74, 0x5f, 0x76, 0x61, 0x6c, 0x75, 0x65,
-	0x18, 0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74,
-	0x65, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x48, 0x00,
-	0x52, 0x09, 0x6c, 0x69, 0x73, 0x74, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x12, 0x1f, 0x0a, 0x0a, 0x64,
-	0x61, 0x74, 0x65, 0x5f, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x06, 0x20, 0x01, 0x28, 0x09, 0x48,
-	0x00, 0x52, 0x09, 0x64, 0x61, 0x74, 0x65, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x12, 0x1f, 0x0a, 0x0a,
-	0x75, 0x75, 0x69, 0x64, 0x5f, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x07, 0x20, 0x01, 0x28, 0x09,
-	0x48, 0x00, 0x52, 0x09, 0x75, 0x75, 0x69, 0x64, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x12, 0x1d, 0x0a,
-	0x09, 0x69, 0x6e, 0x74, 0x5f, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x08, 0x20, 0x01, 0x28, 0x03,
-	0x48, 0x00, 0x52, 0x08, 0x69, 0x6e, 0x74, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x12, 0x39, 0x0a, 0x09,
-	0x67, 0x65, 0x6f, 0x5f, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x09, 0x20, 0x01, 0x28, 0x0b, 0x32,
-	0x1a, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65,
-	0x6f, 0x43, 0x6f, 0x6f, 0x72, 0x64, 0x69, 0x6e, 0x61, 0x74, 0x65, 0x48, 0x00, 0x52, 0x08, 0x67,
-	0x65, 0x6f, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x12, 0x1f, 0x0a, 0x0a, 0x62, 0x6c, 0x6f, 0x62, 0x5f,
-	0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x0a, 0x20, 0x01, 0x28, 0x09, 0x48, 0x00, 0x52, 0x09, 0x62,
-	0x6c, 0x6f, 0x62, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x12, 0x3b, 0x0a, 0x0b, 0x70, 0x68, 0x6f, 0x6e,
-	0x65, 0x5f, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x0b, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x18, 0x2e,
-	0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x50, 0x68, 0x6f, 0x6e,
-	0x65, 0x4e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x48, 0x00, 0x52, 0x0a, 0x70, 0x68, 0x6f, 0x6e, 0x65,
-	0x56, 0x61, 0x6c, 0x75, 0x65, 0x12, 0x3b, 0x0a, 0x0a, 0x6e, 0x75, 0x6c, 0x6c, 0x5f, 0x76, 0x61,
-	0x6c, 0x75, 0x65, 0x18, 0x0c, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x1a, 0x2e, 0x67, 0x6f, 0x6f, 0x67,
-	0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x4e, 0x75, 0x6c, 0x6c,
-	0x56, 0x61, 0x6c, 0x75, 0x65, 0x48, 0x00, 0x52, 0x09, 0x6e, 0x75, 0x6c, 0x6c, 0x56, 0x61, 0x6c,
-	0x75, 0x65, 0x12, 0x1f, 0x0a, 0x0a, 0x74, 0x65, 0x78, 0x74, 0x5f, 0x76, 0x61, 0x6c, 0x75, 0x65,
-	0x18, 0x0d, 0x20, 0x01, 0x28, 0x09, 0x48, 0x00, 0x52, 0x09, 0x74, 0x65, 0x78, 0x74, 0x56, 0x61,
-	0x6c, 0x75, 0x65, 0x42, 0x06, 0x0a, 0x04, 0x6b, 0x69, 0x6e, 0x64, 0x22, 0xf0, 0x03, 0x0a, 0x09,
-	0x4c, 0x69, 0x73, 0x74, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x12, 0x2e, 0x0a, 0x06, 0x76, 0x61, 0x6c,
-	0x75, 0x65, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x12, 0x2e, 0x77, 0x65, 0x61, 0x76,
-	0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x42, 0x02, 0x18,
-	0x01, 0x52, 0x06, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x12, 0x40, 0x0a, 0x0d, 0x6e, 0x75, 0x6d,
-	0x62, 0x65, 0x72, 0x5f, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b,
-	0x32, 0x19, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x4e,
-	0x75, 0x6d, 0x62, 0x65, 0x72, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x48, 0x00, 0x52, 0x0c, 0x6e,
-	0x75, 0x6d, 0x62, 0x65, 0x72, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x12, 0x3a, 0x0a, 0x0b, 0x62,
-	0x6f, 0x6f, 0x6c, 0x5f, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b,
-	0x32, 0x17, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x42,
-	0x6f, 0x6f, 0x6c, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x48, 0x00, 0x52, 0x0a, 0x62, 0x6f, 0x6f,
-	0x6c, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x12, 0x40, 0x0a, 0x0d, 0x6f, 0x62, 0x6a, 0x65, 0x63,
-	0x74, 0x5f, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x19,
-	0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x4f, 0x62, 0x6a,
-	0x65, 0x63, 0x74, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x48, 0x00, 0x52, 0x0c, 0x6f, 0x62, 0x6a,
-	0x65, 0x63, 0x74, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x12, 0x3a, 0x0a, 0x0b, 0x64, 0x61, 0x74,
-	0x65, 0x5f, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x17,
-	0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x61, 0x74,
-	0x65, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x48, 0x00, 0x52, 0x0a, 0x64, 0x61, 0x74, 0x65, 0x56,
-	0x61, 0x6c, 0x75, 0x65, 0x73, 0x12, 0x3a, 0x0a, 0x0b, 0x75, 0x75, 0x69, 0x64, 0x5f, 0x76, 0x61,
-	0x6c, 0x75, 0x65, 0x73, 0x18, 0x06, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x17, 0x2e, 0x77, 0x65, 0x61,
-	0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x55, 0x75, 0x69, 0x64, 0x56, 0x61, 0x6c,
-	0x75, 0x65, 0x73, 0x48, 0x00, 0x52, 0x0a, 0x75, 0x75, 0x69, 0x64, 0x56, 0x61, 0x6c, 0x75, 0x65,
-	0x73, 0x12, 0x37, 0x0a, 0x0a, 0x69, 0x6e, 0x74, 0x5f, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x18,
-	0x07, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
-	0x2e, 0x76, 0x31, 0x2e, 0x49, 0x6e, 0x74, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x48, 0x00, 0x52,
-	0x09, 0x69, 0x6e, 0x74, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x12, 0x3a, 0x0a, 0x0b, 0x74, 0x65,
-	0x78, 0x74, 0x5f, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x18, 0x08, 0x20, 0x01, 0x28, 0x0b, 0x32,
-	0x17, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x65,
-	0x78, 0x74, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x48, 0x00, 0x52, 0x0a, 0x74, 0x65, 0x78, 0x74,
-	0x56, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x42, 0x06, 0x0a, 0x04, 0x6b, 0x69, 0x6e, 0x64, 0x22, 0x26,
-	0x0a, 0x0c, 0x4e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x12, 0x16,
-	0x0a, 0x06, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x06,
-	0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x22, 0x24, 0x0a, 0x0a, 0x54, 0x65, 0x78, 0x74, 0x56, 0x61,
-	0x6c, 0x75, 0x65, 0x73, 0x12, 0x16, 0x0a, 0x06, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x18, 0x01,
-	0x20, 0x03, 0x28, 0x09, 0x52, 0x06, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x22, 0x24, 0x0a, 0x0a,
-	0x42, 0x6f, 0x6f, 0x6c, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x12, 0x16, 0x0a, 0x06, 0x76, 0x61,
-	0x6c, 0x75, 0x65, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x08, 0x52, 0x06, 0x76, 0x61, 0x6c, 0x75,
-	0x65, 0x73, 0x22, 0x3f, 0x0a, 0x0c, 0x4f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x56, 0x61, 0x6c, 0x75,
-	0x65, 0x73, 0x12, 0x2f, 0x0a, 0x06, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x18, 0x01, 0x20, 0x03,
-	0x28, 0x0b, 0x32, 0x17, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31,
-	0x2e, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x52, 0x06, 0x76, 0x61, 0x6c,
-	0x75, 0x65, 0x73, 0x22, 0x24, 0x0a, 0x0a, 0x44, 0x61, 0x74, 0x65, 0x56, 0x61, 0x6c, 0x75, 0x65,
-	0x73, 0x12, 0x16, 0x0a, 0x06, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28,
-	0x09, 0x52, 0x06, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x22, 0x24, 0x0a, 0x0a, 0x55, 0x75, 0x69,
-	0x64, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x12, 0x16, 0x0a, 0x06, 0x76, 0x61, 0x6c, 0x75, 0x65,
-	0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x09, 0x52, 0x06, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x22,
-	0x23, 0x0a, 0x09, 0x49, 0x6e, 0x74, 0x56, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x12, 0x16, 0x0a, 0x06,
-	0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x06, 0x76, 0x61,
-	0x6c, 0x75, 0x65, 0x73, 0x22, 0x49, 0x0a, 0x0d, 0x47, 0x65, 0x6f, 0x43, 0x6f, 0x6f, 0x72, 0x64,
-	0x69, 0x6e, 0x61, 0x74, 0x65, 0x12, 0x1c, 0x0a, 0x09, 0x6c, 0x6f, 0x6e, 0x67, 0x69, 0x74, 0x75,
-	0x64, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x02, 0x52, 0x09, 0x6c, 0x6f, 0x6e, 0x67, 0x69, 0x74,
-	0x75, 0x64, 0x65, 0x12, 0x1a, 0x0a, 0x08, 0x6c, 0x61, 0x74, 0x69, 0x74, 0x75, 0x64, 0x65, 0x18,
-	0x02, 0x20, 0x01, 0x28, 0x02, 0x52, 0x08, 0x6c, 0x61, 0x74, 0x69, 0x74, 0x75, 0x64, 0x65, 0x22,
-	0x89, 0x02, 0x0a, 0x0b, 0x50, 0x68, 0x6f, 0x6e, 0x65, 0x4e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x12,
-	0x21, 0x0a, 0x0c, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x72, 0x79, 0x5f, 0x63, 0x6f, 0x64, 0x65, 0x18,
-	0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x0b, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x72, 0x79, 0x43, 0x6f,
-	0x64, 0x65, 0x12, 0x27, 0x0a, 0x0f, 0x64, 0x65, 0x66, 0x61, 0x75, 0x6c, 0x74, 0x5f, 0x63, 0x6f,
-	0x75, 0x6e, 0x74, 0x72, 0x79, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0e, 0x64, 0x65, 0x66,
-	0x61, 0x75, 0x6c, 0x74, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x14, 0x0a, 0x05, 0x69,
-	0x6e, 0x70, 0x75, 0x74, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x69, 0x6e, 0x70, 0x75,
-	0x74, 0x12, 0x37, 0x0a, 0x17, 0x69, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x74, 0x69, 0x6f, 0x6e,
-	0x61, 0x6c, 0x5f, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x74, 0x65, 0x64, 0x18, 0x04, 0x20, 0x01,
-	0x28, 0x09, 0x52, 0x16, 0x69, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x61,
-	0x6c, 0x46, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x74, 0x65, 0x64, 0x12, 0x1a, 0x0a, 0x08, 0x6e, 0x61,
-	0x74, 0x69, 0x6f, 0x6e, 0x61, 0x6c, 0x18, 0x05, 0x20, 0x01, 0x28, 0x04, 0x52, 0x08, 0x6e, 0x61,
-	0x74, 0x69, 0x6f, 0x6e, 0x61, 0x6c, 0x12, 0x2d, 0x0a, 0x12, 0x6e, 0x61, 0x74, 0x69, 0x6f, 0x6e,
-	0x61, 0x6c, 0x5f, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x74, 0x65, 0x64, 0x18, 0x06, 0x20, 0x01,
-	0x28, 0x09, 0x52, 0x11, 0x6e, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x61, 0x6c, 0x46, 0x6f, 0x72, 0x6d,
-	0x61, 0x74, 0x74, 0x65, 0x64, 0x12, 0x14, 0x0a, 0x05, 0x76, 0x61, 0x6c, 0x69, 0x64, 0x18, 0x07,
-	0x20, 0x01, 0x28, 0x08, 0x52, 0x05, 0x76, 0x61, 0x6c, 0x69, 0x64, 0x42, 0x74, 0x0a, 0x23, 0x69,
-	0x6f, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x63, 0x6c, 0x69, 0x65, 0x6e,
-	0x74, 0x2e, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x2e,
-	0x76, 0x31, 0x42, 0x17, 0x57, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x50, 0x72, 0x6f, 0x74,
-	0x6f, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x5a, 0x34, 0x67, 0x69, 0x74,
-	0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
-	0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x67, 0x72, 0x70, 0x63, 0x2f, 0x67,
-	0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x65, 0x64, 0x3b, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f,
-	0x6c, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
-}
+const file_v1_properties_proto_rawDesc = "" +
+	"\n" +
+	"\x13v1/properties.proto\x12\vweaviate.v1\x1a\x1cgoogle/protobuf/struct.proto\"\x98\x01\n" +
+	"\n" +
+	"Properties\x12;\n" +
+	"\x06fields\x18\x01 \x03(\v2#.weaviate.v1.Properties.FieldsEntryR\x06fields\x1aM\n" +
+	"\vFieldsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12(\n" +
+	"\x05value\x18\x02 \x01(\v2\x12.weaviate.v1.ValueR\x05value:\x028\x01\"\xa4\x04\n" +
+	"\x05Value\x12#\n" +
+	"\fnumber_value\x18\x01 \x01(\x01H\x00R\vnumberValue\x12\x1f\n" +
+	"\n" +
+	"bool_value\x18\x03 \x01(\bH\x00R\tboolValue\x12<\n" +
+	"\fobject_value\x18\x04 \x01(\v2\x17.weaviate.v1.PropertiesH\x00R\vobjectValue\x127\n" +
+	"\n" +
+	"list_value\x18\x05 \x01(\v2\x16.weaviate.v1.ListValueH\x00R\tlistValue\x12\x1f\n" +
+	"\n" +
+	"date_value\x18\x06 \x01(\tH\x00R\tdateValue\x12\x1f\n" +
+	"\n" +
+	"uuid_value\x18\a \x01(\tH\x00R\tuuidValue\x12\x1d\n" +
+	"\tint_value\x18\b \x01(\x03H\x00R\bintValue\x129\n" +
+	"\tgeo_value\x18\t \x01(\v2\x1a.weaviate.v1.GeoCoordinateH\x00R\bgeoValue\x12\x1f\n" +
+	"\n" +
+	"blob_value\x18\n" +
+	" \x01(\tH\x00R\tblobValue\x12;\n" +
+	"\vphone_value\x18\v \x01(\v2\x18.weaviate.v1.PhoneNumberH\x00R\n" +
+	"phoneValue\x12;\n" +
+	"\n" +
+	"null_value\x18\f \x01(\x0e2\x1a.google.protobuf.NullValueH\x00R\tnullValue\x12\x1f\n" +
+	"\n" +
+	"text_value\x18\r \x01(\tH\x00R\ttextValueB\x06\n" +
+	"\x04kind\"\xc6\x03\n" +
+	"\tListValue\x12@\n" +
+	"\rnumber_values\x18\x02 \x01(\v2\x19.weaviate.v1.NumberValuesH\x00R\fnumberValues\x12:\n" +
+	"\vbool_values\x18\x03 \x01(\v2\x17.weaviate.v1.BoolValuesH\x00R\n" +
+	"boolValues\x12@\n" +
+	"\robject_values\x18\x04 \x01(\v2\x19.weaviate.v1.ObjectValuesH\x00R\fobjectValues\x12:\n" +
+	"\vdate_values\x18\x05 \x01(\v2\x17.weaviate.v1.DateValuesH\x00R\n" +
+	"dateValues\x12:\n" +
+	"\vuuid_values\x18\x06 \x01(\v2\x17.weaviate.v1.UuidValuesH\x00R\n" +
+	"uuidValues\x127\n" +
+	"\n" +
+	"int_values\x18\a \x01(\v2\x16.weaviate.v1.IntValuesH\x00R\tintValues\x12:\n" +
+	"\vtext_values\x18\b \x01(\v2\x17.weaviate.v1.TextValuesH\x00R\n" +
+	"textValuesB\x06\n" +
+	"\x04kindJ\x04\b\x01\x10\x02\"&\n" +
+	"\fNumberValues\x12\x16\n" +
+	"\x06values\x18\x01 \x01(\fR\x06values\"$\n" +
+	"\n" +
+	"TextValues\x12\x16\n" +
+	"\x06values\x18\x01 \x03(\tR\x06values\"$\n" +
+	"\n" +
+	"BoolValues\x12\x16\n" +
+	"\x06values\x18\x01 \x03(\bR\x06values\"?\n" +
+	"\fObjectValues\x12/\n" +
+	"\x06values\x18\x01 \x03(\v2\x17.weaviate.v1.PropertiesR\x06values\"$\n" +
+	"\n" +
+	"DateValues\x12\x16\n" +
+	"\x06values\x18\x01 \x03(\tR\x06values\"$\n" +
+	"\n" +
+	"UuidValues\x12\x16\n" +
+	"\x06values\x18\x01 \x03(\tR\x06values\"#\n" +
+	"\tIntValues\x12\x16\n" +
+	"\x06values\x18\x01 \x01(\fR\x06values\"I\n" +
+	"\rGeoCoordinate\x12\x1c\n" +
+	"\tlongitude\x18\x01 \x01(\x02R\tlongitude\x12\x1a\n" +
+	"\blatitude\x18\x02 \x01(\x02R\blatitude\"\x89\x02\n" +
+	"\vPhoneNumber\x12!\n" +
+	"\fcountry_code\x18\x01 \x01(\x04R\vcountryCode\x12'\n" +
+	"\x0fdefault_country\x18\x02 \x01(\tR\x0edefaultCountry\x12\x14\n" +
+	"\x05input\x18\x03 \x01(\tR\x05input\x127\n" +
+	"\x17international_formatted\x18\x04 \x01(\tR\x16internationalFormatted\x12\x1a\n" +
+	"\bnational\x18\x05 \x01(\x04R\bnational\x12-\n" +
+	"\x12national_formatted\x18\x06 \x01(\tR\x11nationalFormatted\x12\x14\n" +
+	"\x05valid\x18\a \x01(\bR\x05validBt\n" +
+	"#io.weaviate.client.grpc.protocol.v1B\x17WeaviateProtoPropertiesZ4github.com/weaviate/weaviate/grpc/generated;protocolb\x06proto3"
 
 var (
 	file_v1_properties_proto_rawDescOnce sync.Once
-	file_v1_properties_proto_rawDescData = file_v1_properties_proto_rawDesc
+	file_v1_properties_proto_rawDescData []byte
 )
 
 func file_v1_properties_proto_rawDescGZIP() []byte {
 	file_v1_properties_proto_rawDescOnce.Do(func() {
-		file_v1_properties_proto_rawDescData = protoimpl.X.CompressGZIP(file_v1_properties_proto_rawDescData)
+		file_v1_properties_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_v1_properties_proto_rawDesc), len(file_v1_properties_proto_rawDesc)))
 	})
 	return file_v1_properties_proto_rawDescData
 }
@@ -1119,21 +1041,20 @@ var file_v1_properties_proto_depIdxs = []int32{
 	10, // 3: weaviate.v1.Value.geo_value:type_name -> weaviate.v1.GeoCoordinate
 	11, // 4: weaviate.v1.Value.phone_value:type_name -> weaviate.v1.PhoneNumber
 	13, // 5: weaviate.v1.Value.null_value:type_name -> google.protobuf.NullValue
-	1,  // 6: weaviate.v1.ListValue.values:type_name -> weaviate.v1.Value
-	3,  // 7: weaviate.v1.ListValue.number_values:type_name -> weaviate.v1.NumberValues
-	5,  // 8: weaviate.v1.ListValue.bool_values:type_name -> weaviate.v1.BoolValues
-	6,  // 9: weaviate.v1.ListValue.object_values:type_name -> weaviate.v1.ObjectValues
-	7,  // 10: weaviate.v1.ListValue.date_values:type_name -> weaviate.v1.DateValues
-	8,  // 11: weaviate.v1.ListValue.uuid_values:type_name -> weaviate.v1.UuidValues
-	9,  // 12: weaviate.v1.ListValue.int_values:type_name -> weaviate.v1.IntValues
-	4,  // 13: weaviate.v1.ListValue.text_values:type_name -> weaviate.v1.TextValues
-	0,  // 14: weaviate.v1.ObjectValues.values:type_name -> weaviate.v1.Properties
-	1,  // 15: weaviate.v1.Properties.FieldsEntry.value:type_name -> weaviate.v1.Value
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	3,  // 6: weaviate.v1.ListValue.number_values:type_name -> weaviate.v1.NumberValues
+	5,  // 7: weaviate.v1.ListValue.bool_values:type_name -> weaviate.v1.BoolValues
+	6,  // 8: weaviate.v1.ListValue.object_values:type_name -> weaviate.v1.ObjectValues
+	7,  // 9: weaviate.v1.ListValue.date_values:type_name -> weaviate.v1.DateValues
+	8,  // 10: weaviate.v1.ListValue.uuid_values:type_name -> weaviate.v1.UuidValues
+	9,  // 11: weaviate.v1.ListValue.int_values:type_name -> weaviate.v1.IntValues
+	4,  // 12: weaviate.v1.ListValue.text_values:type_name -> weaviate.v1.TextValues
+	0,  // 13: weaviate.v1.ObjectValues.values:type_name -> weaviate.v1.Properties
+	1,  // 14: weaviate.v1.Properties.FieldsEntry.value:type_name -> weaviate.v1.Value
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_v1_properties_proto_init() }
@@ -1141,155 +1062,8 @@ func file_v1_properties_proto_init() {
 	if File_v1_properties_proto != nil {
 		return
 	}
-	if !protoimpl.UnsafeEnabled {
-		file_v1_properties_proto_msgTypes[0].Exporter = func(v any, i int) any {
-			switch v := v.(*Properties); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_properties_proto_msgTypes[1].Exporter = func(v any, i int) any {
-			switch v := v.(*Value); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_properties_proto_msgTypes[2].Exporter = func(v any, i int) any {
-			switch v := v.(*ListValue); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_properties_proto_msgTypes[3].Exporter = func(v any, i int) any {
-			switch v := v.(*NumberValues); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_properties_proto_msgTypes[4].Exporter = func(v any, i int) any {
-			switch v := v.(*TextValues); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_properties_proto_msgTypes[5].Exporter = func(v any, i int) any {
-			switch v := v.(*BoolValues); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_properties_proto_msgTypes[6].Exporter = func(v any, i int) any {
-			switch v := v.(*ObjectValues); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_properties_proto_msgTypes[7].Exporter = func(v any, i int) any {
-			switch v := v.(*DateValues); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_properties_proto_msgTypes[8].Exporter = func(v any, i int) any {
-			switch v := v.(*UuidValues); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_properties_proto_msgTypes[9].Exporter = func(v any, i int) any {
-			switch v := v.(*IntValues); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_properties_proto_msgTypes[10].Exporter = func(v any, i int) any {
-			switch v := v.(*GeoCoordinate); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_v1_properties_proto_msgTypes[11].Exporter = func(v any, i int) any {
-			switch v := v.(*PhoneNumber); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-	}
 	file_v1_properties_proto_msgTypes[1].OneofWrappers = []any{
 		(*Value_NumberValue)(nil),
-		(*Value_StringValue)(nil),
 		(*Value_BoolValue)(nil),
 		(*Value_ObjectValue)(nil),
 		(*Value_ListValue)(nil),
@@ -1315,7 +1089,7 @@ func file_v1_properties_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: file_v1_properties_proto_rawDesc,
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_properties_proto_rawDesc), len(file_v1_properties_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   13,
 			NumExtensions: 0,
@@ -1326,7 +1100,6 @@ func file_v1_properties_proto_init() {
 		MessageInfos:      file_v1_properties_proto_msgTypes,
 	}.Build()
 	File_v1_properties_proto = out.File
-	file_v1_properties_proto_rawDesc = nil
 	file_v1_properties_proto_goTypes = nil
 	file_v1_properties_proto_depIdxs = nil
 }
