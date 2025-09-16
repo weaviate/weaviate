@@ -6,9 +6,6 @@
 ###############################################################################
 # Base build image
 FROM golang:1.24-alpine3.22 AS build_base
-ARG TARGETARCH
-# Populate the module cache based on the go.{mod,sum} files.
-ENV GOMODCACHE=/go/pkg/mod
 ENV GO111MODULE=on
 RUN apk add --no-cache bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
