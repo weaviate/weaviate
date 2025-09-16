@@ -276,6 +276,10 @@ func (d *RQDistancer) DistanceToFloat(x []float32) (float32, error) {
 
 // We duplicate the distance computation from the RQDistancer here for performance reasons.
 func (rq RotationalQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
+	if len(x) != len(y) {
+		return 0, errors.Errorf("vector lengths don't match: %d vs %d",
+			len(x), len(y))
+	}
 	cx, cy := RQCode(x), RQCode(y)
 	a := float32(rq.rotation.OutputDim) * cx.Lower() * cy.Lower()
 	b := cx.Lower() * cy.CodeSum()
