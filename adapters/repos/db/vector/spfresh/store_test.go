@@ -64,6 +64,7 @@ func TestStore(t *testing.T) {
 		// unknown postings
 		ps, err = s.MultiGet(ctx, []uint64{1, 2, 3})
 		require.ErrorIs(t, err, ErrPostingNotFound)
+		require.Empty(t, ps)
 
 		var postings []*CompressedPosting
 		// create a few postings

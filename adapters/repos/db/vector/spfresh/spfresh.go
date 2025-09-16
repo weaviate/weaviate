@@ -14,11 +14,13 @@ package spfresh
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -224,30 +226,29 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 }
 
 func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
-	// var bucketName string
-	// if s.Config.TargetVector != "" {
-	// 	bucketName = fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, s.Config.TargetVector)
-	// } else {
-	// 	bucketName = helpers.VectorsBucketLSM
-	// }
+	var bucketName string
+	if s.Config.TargetVector != "" {
+		bucketName = fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, s.Config.TargetVector)
+	} else {
+		bucketName = helpers.VectorsBucketLSM
+	}
 
-	// distFunc := func(id uint64) (float32, error) {
-	// 	var buf [8]byte
-	// 	binary.BigEndian.PutUint64(buf[:], id)
-	// 	// vec, err := s.Store.store.Bucket(bucketName).Get(buf[:])
-	// 	// if err != nil {
-	// 	// 	return 0, err
-	// 	// }
+	distFunc := func(id uint64) (float32, error) {
+		var buf [8]byte
+		binary.BigEndian.PutUint64(buf[:], id)
+		vec, err := s.Store.store.Bucket(bucketName).Get(buf[:])
+		if err != nil {
+			return 0, err
+		}
 
-	// 	// dist, err := s.Config.Distancer.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
-	// 	// if err != nil {
-	// 	// 	return 0, err
-	// 	// }
-	// 	return dist, nil
-	// }
+		dist, err := s.Config.Distancer.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+		if err != nil {
+			return 0, err
+		}
+		return dist, nil
+	}
 
-	// return common.QueryVectorDistancer{DistanceFunc: distFunc}
-	return common.QueryVectorDistancer{}
+	return common.QueryVectorDistancer{DistanceFunc: distFunc}
 }
 
 func (s *SPFresh) CompressionStats() compressionhelpers.CompressionStats {

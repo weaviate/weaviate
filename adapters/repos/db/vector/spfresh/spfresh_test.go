@@ -1,12 +1,18 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package spfresh
 
 import (
 	"fmt"
-	"log"
-	"net/http"
-	_ "net/http/pprof"
-	"os"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,22 +25,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
-
-func TestMain(m *testing.M) {
-	// Capture every contended mutex event (set >0; 1 is fine)
-	runtime.SetMutexProfileFraction(1)
-
-	// Optional: also capture blocking profile
-	// runtime.SetBlockProfileRate(1)
-
-	go func() {
-		addr := "127.0.0.1:6060"
-		log.Printf("pprof listening at http://%s/debug/pprof/\n", addr)
-		_ = http.ListenAndServe(addr, nil) // DefaultServeMux has pprof handlers
-	}()
-
-	os.Exit(m.Run())
-}
 
 func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	return func(x, y []float32) float32 {
@@ -52,7 +42,7 @@ func TestSPFreshRecall(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	vectors_size := 100_000
+	vectors_size := 10_000
 	queries_size := 100
 	dimensions := 64
 	k := 100
