@@ -261,7 +261,7 @@ func (rq *RotationalQuantizer) NewDistancer(q []float32) *RQDistancer {
 // Optimized distance computation that precomputes as much as possible and
 // avoids conditional statements by using indicator variables.
 func (d *RQDistancer) Distance(x []byte) (float32, error) {
-	if len(x) != len(d.bytes) {
+	if len(x) != (len(d.bytes) + 16) { // 16 bytes for the metadata
 		return 0, errors.Errorf("vector lengths don't match: %d vs %d",
 			len(x), len(d.bytes))
 	}
