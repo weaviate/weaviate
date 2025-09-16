@@ -676,9 +676,7 @@ func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, 
 	return out, nil
 }
 
-func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte) ([][]value, []Segment, func(), error) {
-	segments, release := sg.getConsistentViewOfSegments()
-
+func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte, segments []Segment) ([][]value, []Segment, error) {
 	out := make([][]value, len(segments))
 	outSegments := make([]Segment, len(segments))
 
@@ -686,14 +684,12 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 	// start with first and do not exit
 	for _, segment := range segments {
 		if ctx.Err() != nil {
-			release()
-			return nil, nil, func() {}, ctx.Err()
+			return nil, nil, ctx.Err()
 		}
 		v, err := segment.getCollection(key)
 		if err != nil {
 			if !errors.Is(err, lsmkv.NotFound) {
-				release()
-				return nil, nil, func() {}, err
+				return nil, nil, err
 			}
 			// inverted segments need to be loaded anyway, even if they don't have
 			// the key, as we need to know if they have tombstones
@@ -707,7 +703,7 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 		i++
 	}
 
-	return out[:i], outSegments[:i], release, nil
+	return out[:i], outSegments[:i], nil
 }
 
 func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment) (out roaringset.BitmapLayers, release func(), err error) {

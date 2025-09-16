@@ -1256,6 +1256,175 @@ func TestBucketSetStrategyWriteVsFlush(t *testing.T) {
 	require.ElementsMatch(t, [][]byte{[]byte("v1"), []byte("v2"), []byte("v3")}, got)
 }
 
+func TestBucketMapStrategyConsistentView(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	diskSegments := &SegmentGroup{
+		segments: []Segment{
+			newFakeMapSegment(map[string][]MapPair{
+				"key1": {{Key: []byte("dk1"), Value: []byte("dv1")}},
+			}),
+		},
+	}
+
+	initialMemtable := newTestMemtableMap(map[string][]MapPair{
+		"key2": {{Key: []byte("ak1"), Value: []byte("av1")}},
+	})
+
+	b := Bucket{
+		active:   initialMemtable,
+		disk:     diskSegments,
+		strategy: StrategyMapCollection,
+	}
+
+	// Sanity via Bucket API
+	got, err := b.MapList(ctx, []byte("key1"))
+	require.NoError(t, err)
+	require.ElementsMatch(t, []MapPair{{Key: []byte("dk1"), Value: []byte("dv1")}}, got)
+
+	got, err = b.MapList(ctx, []byte("key2"))
+	require.NoError(t, err)
+	require.ElementsMatch(t, []MapPair{{Key: []byte("ak1"), Value: []byte("av1")}}, got)
+
+	// View #1 (pre-switch): active=key2, flushing=nil, disk=key1
+	view1 := b.getConsistentView()
+	defer view1.Release()
+
+	validateView1 := func(v BucketConsistentView) {
+		expected := map[string][]MapPair{
+			"key1": {{Key: []byte("dk1"), Value: []byte("dv1")}},
+			"key2": {{Key: []byte("ak1"), Value: []byte("av1")}},
+		}
+
+		for k, expectedV := range expected {
+			value, err := b.mapListFromConsistentView(ctx, v, []byte(k))
+			require.NoError(t, err)
+			require.ElementsMatch(t, expectedV, value)
+		}
+	}
+	validateView1(view1)
+
+	// Switch: move active->flushing (key2), new active with key3 -> {"a3"}
+	switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+		return newTestMemtableMap(map[string][]MapPair{
+			"key3": {{Key: []byte("ak2"), Value: []byte("av2")}},
+		}), nil
+	})
+	require.NoError(t, err)
+	require.True(t, switched)
+
+	// view1 remains unchanged
+	validateView1(view1)
+
+	// View #2 (post-switch): active=key3, flushing=key2, disk=key1
+	view2 := b.getConsistentView()
+	defer view2.Release()
+
+	validateView2 := func(v BucketConsistentView) {
+		expected := map[string][]MapPair{
+			"key1": {{Key: []byte("dk1"), Value: []byte("dv1")}},
+			"key2": {{Key: []byte("ak1"), Value: []byte("av1")}},
+			"key3": {{Key: []byte("ak2"), Value: []byte("av2")}},
+		}
+
+		for k, expectedV := range expected {
+			value, err := b.mapListFromConsistentView(ctx, v, []byte(k))
+			require.NoError(t, err)
+			require.ElementsMatch(t, expectedV, value)
+		}
+	}
+	validateView2(view2)
+
+	// Flush flushing (key2) -> disk; both views stay stable
+	seg := flushMapTestMemtableIntoTestSegment(b.flushing)
+	b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+	validateView1(view1)
+	validateView2(view2)
+
+	// Final view: active=key3, flushing=nil, disk has key1 & key2
+	view3 := b.getConsistentView()
+	defer view3.Release()
+
+	// active: key3 -> {"a3"}
+	a3, err := b.mapListFromConsistentView(ctx, view3, []byte("key3"))
+	require.NoError(t, err)
+	require.ElementsMatch(t, []MapPair{
+		{Key: []byte("ak2"), Value: []byte("av2")},
+	}, a3)
+
+	require.Nil(t, view3.Flushing)
+
+	// disk: key1 -> {"d1"}, key2 -> {"a2"}
+	raw1, err := b.disk.getCollection([]byte("key1"), view3.Disk)
+	require.NoError(t, err)
+	v, err := newMapDecoder().Do(raw1, false)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []MapPair{
+		{Key: []byte("dk1"), Value: []byte("dv1")},
+	}, v)
+
+	raw2, err := b.disk.getCollection([]byte("key2"), view3.Disk)
+	require.NoError(t, err)
+	v, err = newMapDecoder().Do(raw2, false)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []MapPair{
+		{Key: []byte("ak1"), Value: []byte("av1")},
+	}, v)
+}
+
+// func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
+// t.Parallel()
+
+// b := Bucket{
+// 	active:   newTestMemtableMap(map[string][][]byte{"key1": {[]byte("v1")}}),
+// 	disk:     &SegmentGroup{segments: []Segment{}},
+// 	strategy: StrategyMapCollection,
+// }
+
+// active, freeRefs := b.getActiveMemtableForWrite()
+// err := active.append([]byte("key1"), newMapEncoder().Do([][]byte{[]byte("v2")}))
+// require.NoError(t, err)
+
+// switchDone := make(chan struct{})
+// flushDone := make(chan struct{})
+
+// go func() {
+// 	switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+// 		return newTestMemtableMap(nil), nil
+// 	})
+// 	require.NoError(t, err)
+// 	require.True(t, switched)
+// 	close(switchDone)
+
+// 	b.waitForZeroWriters(b.flushing)
+
+// 	seg := flushMapTestMemtableIntoTestSegment(b.flushing)
+// 	b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+// 	close(flushDone)
+// }()
+
+// <-switchDone
+
+// // Second write (post-switch) through the old active reference
+// err = active.append([]byte("key1"), newMapEncoder().Do([][]byte{[]byte("v3")}))
+// require.NoError(t, err)
+
+// // Release and let flush proceed
+// freeRefs()
+// <-flushDone
+
+// // Validate disk now has {"v1","v2","v3"} for key1
+// view := b.getConsistentView()
+// defer view.Release()
+
+// raw, err := b.disk.getCollection([]byte("key1"), view.Disk)
+// require.NoError(t, err)
+
+// got := newMapDecoder().Do(raw)
+// require.ElementsMatch(t, [][]byte{[]byte("v1"), []byte("v2"), []byte("v3")}, got)
+// }
+
 func newTestMemtableReplace(initialData map[string][]byte) *Memtable {
 	m := &Memtable{
 		strategy:  StrategyReplace,
@@ -1303,6 +1472,23 @@ func newTestMemtableSet(initialData map[string][][]byte) *Memtable {
 	return m
 }
 
+func newTestMemtableMap(initialData map[string][]MapPair) *Memtable {
+	m := &Memtable{
+		strategy:  StrategyMapCollection,
+		keyMap:    &binarySearchTreeMap{},
+		commitlog: newDummyCommitLogger(),
+		metrics:   newMemtableMetrics(nil, "", ""),
+	}
+
+	for k, v := range initialData {
+		for _, mp := range v {
+			m.appendMapSorted([]byte(k), mp)
+		}
+	}
+
+	return m
+}
+
 func flushReplaceTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
 	allEntries := m.key.flattenInOrder()
 	data := map[string][]byte{}
@@ -1330,6 +1516,15 @@ func flushSetTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
 		data[string(e.key)] = values
 	}
 	return newFakeSetSegment(data)
+}
+
+func flushMapTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
+	allEntries := m.keyMap.flattenInOrder()
+	data := map[string][]MapPair{}
+	for _, e := range allEntries {
+		data[string(e.key)] = e.values
+	}
+	return newFakeMapSegment(data)
 }
 
 func newDummyCommitLogger() memtableCommitLogger {

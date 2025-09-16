@@ -26,11 +26,11 @@ import (
 )
 
 func newFakeReplaceSegment(kv map[string][]byte) *fakeSegment {
-	return &fakeSegment{segmentType: StrategyReplace, replaceStore: kv}
+	return &fakeSegment{strategy: segmentindex.StrategyReplace, replaceStore: kv}
 }
 
 func newFakeRoaringSetSegment(kv map[string]*sroar.Bitmap) *fakeSegment {
-	return &fakeSegment{segmentType: StrategyRoaringSet, roaringStore: kv}
+	return &fakeSegment{strategy: segmentindex.StrategyRoaringSet, roaringStore: kv}
 }
 
 func newFakeSetSegment(kv map[string][][]byte) *fakeSegment {
@@ -42,7 +42,7 @@ func newFakeSetSegment(kv map[string][][]byte) *fakeSegment {
 		}
 		store[k] = values
 	}
-	return &fakeSegment{segmentType: StrategySetCollection, collectionStore: store}
+	return &fakeSegment{strategy: segmentindex.StrategySetCollection, collectionStore: store}
 }
 
 func newFakeMapSegment(kv map[string][]MapPair) *fakeSegment {
@@ -59,11 +59,11 @@ func newFakeMapSegment(kv map[string][]MapPair) *fakeSegment {
 		}
 		store[k] = values
 	}
-	return &fakeSegment{segmentType: StrategyMapCollection, collectionStore: store}
+	return &fakeSegment{strategy: segmentindex.StrategyMapCollection, collectionStore: store}
 }
 
 type fakeSegment struct {
-	segmentType     string
+	strategy        segmentindex.Strategy
 	replaceStore    map[string][]byte
 	roaringStore    map[string]*sroar.Bitmap
 	collectionStore map[string][]value
@@ -81,7 +81,7 @@ func (f *fakeSegment) setPath(path string) {
 }
 
 func (f *fakeSegment) getStrategy() segmentindex.Strategy {
-	panic("not implemented") // TODO: Implement
+	return f.strategy
 }
 
 func (f *fakeSegment) getSecondaryIndexCount() uint16 {
@@ -128,7 +128,7 @@ func (f *fakeSegment) get(key []byte) ([]byte, error) {
 	f.getCounter++
 
 	keyStr := string(key)
-	if f.segmentType != StrategyReplace {
+	if f.strategy != segmentindex.StrategyReplace {
 		return nil, fmt.Errorf("not a replace segment")
 	}
 
@@ -147,7 +147,7 @@ func (f *fakeSegment) getCollection(key []byte) ([]value, error) {
 	f.getCounter++
 
 	keyStr := string(key)
-	if f.segmentType != StrategySetCollection && f.segmentType != StrategyMapCollection {
+	if f.strategy != segmentindex.StrategySetCollection && f.strategy != segmentindex.StrategyMapCollection {
 		return nil, fmt.Errorf("not a collection segment")
 	}
 
@@ -214,7 +214,7 @@ func (f *fakeSegment) newNodeReader(offset nodeOffset, operation string) (*nodeR
 }
 
 func (f *fakeSegment) newRoaringSetCursor() roaringset.SegmentCursor {
-	if f.segmentType != StrategyRoaringSet {
+	if f.strategy != segmentindex.StrategyRoaringSet {
 		panic("not a roaring set segment")
 	}
 	return newFakeRoaringSetCursor(f.roaringStore)
@@ -242,7 +242,7 @@ func (f *fakeSegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 
 func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (roaringset.BitmapLayer, func(), error) {
 	f.getCounter++
-	if f.segmentType != StrategyRoaringSet {
+	if f.strategy != segmentindex.StrategyRoaringSet {
 		return roaringset.BitmapLayer{}, nil, fmt.Errorf("not a roaring set segment")
 	}
 

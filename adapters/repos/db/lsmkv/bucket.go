@@ -890,24 +890,31 @@ func MapListLegacySortingRequired() MapListOption {
 // MapList is specific to the Map strategy, for Sets use [Bucket.SetList], for
 // Replace use [Bucket.Get].
 func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption) ([]MapPair, error) {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	view := b.getConsistentView()
+	defer view.Release()
 
+	return b.mapListFromConsistentView(ctx, view, key, cfgs...)
+}
+
+func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsistentView,
+	key []byte, cfgs ...MapListOption,
+) ([]MapPair, error) {
 	c := MapListOptionConfig{}
 	for _, cfg := range cfgs {
 		cfg(&c)
 	}
 
-	segments := [][]MapPair{}
+	entriesPerSegment := [][]MapPair{}
 	// before := time.Now()
-	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(ctx, key)
+	disk, segmentsDisk, err := b.disk.getCollectionAndSegments(ctx, key, view.Disk)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
+	// segmentsDisk would be the same as view.Segments on StrategyInverted, but
+	// differs on StrategyMapCollection where we would only contain segments that
+	// have the key.
 
-	defer release()
-
-	allTombstones, err := b.loadAllTombstones(segmentsDisk)
+	allTombstones, err := b.loadAllTombstones(view)
 	if err != nil {
 		return nil, err
 	}
@@ -956,7 +963,7 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 			}
 		}
 		if len(segmentDecoded) > 0 {
-			segments = append(segments, segmentDecoded)
+			entriesPerSegment = append(entriesPerSegment, segmentDecoded)
 		}
 	}
 
@@ -965,23 +972,23 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 	// before = time.Now()
 	// fmt.Printf("--map-list: append all disk segments took %s\n", time.Since(before))
 
-	if b.flushing != nil {
-		v, err := b.flushing.getMap(key)
+	if view.Flushing != nil {
+		v, err := view.Flushing.getMap(key)
 		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
 		if len(v) > 0 {
-			segments = append(segments, v)
+			entriesPerSegment = append(entriesPerSegment, v)
 		}
 	}
 
 	// before = time.Now()
-	v, err := b.active.getMap(key)
+	v, err := view.Active.getMap(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
 	if len(v) > 0 {
-		segments = append(segments, v)
+		entriesPerSegment = append(entriesPerSegment, v)
 	}
 	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
 
@@ -992,20 +999,20 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 
 	if c.legacyRequireManualSorting {
 		// Sort to support segments which were stored in an unsorted fashion
-		for i := range segments {
-			sort.Slice(segments[i], func(a, b int) bool {
-				return bytes.Compare(segments[i][a].Key, segments[i][b].Key) == -1
+		for i := range entriesPerSegment {
+			sort.Slice(entriesPerSegment[i], func(a, b int) bool {
+				return bytes.Compare(entriesPerSegment[i][a].Key, entriesPerSegment[i][b].Key) == -1
 			})
 		}
 	}
 
-	return newSortedMapMerger().do(ctx, segments)
+	return newSortedMapMerger().do(ctx, entriesPerSegment)
 }
 
-func (b *Bucket) loadAllTombstones(segmentsDisk []Segment) ([]*sroar.Bitmap, error) {
+func (b *Bucket) loadAllTombstones(view BucketConsistentView) ([]*sroar.Bitmap, error) {
 	hasTombstones := false
-	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
-	for i, segment := range segmentsDisk {
+	allTombstones := make([]*sroar.Bitmap, len(view.Disk)+2)
+	for i, segment := range view.Disk {
 		if segment.getStrategy() == segmentindex.StrategyInverted {
 			tombstones, err := segment.ReadOnlyTombstones()
 			if err != nil {
@@ -1016,20 +1023,19 @@ func (b *Bucket) loadAllTombstones(segmentsDisk []Segment) ([]*sroar.Bitmap, err
 		}
 	}
 	if hasTombstones {
-
-		if b.flushing != nil {
-			tombstones, err := b.flushing.ReadOnlyTombstones()
+		if view.Flushing != nil {
+			tombstones, err := view.Flushing.ReadOnlyTombstones()
 			if err != nil {
 				return nil, err
 			}
-			allTombstones[len(segmentsDisk)] = tombstones
+			allTombstones[len(view.Disk)] = tombstones
 		}
 
-		tombstones, err := b.active.ReadOnlyTombstones()
+		tombstones, err := view.Active.ReadOnlyTombstones()
 		if err != nil {
 			return nil, err
 		}
-		allTombstones[len(segmentsDisk)+1] = tombstones
+		allTombstones[len(view.Disk)+1] = tombstones
 	}
 	return allTombstones, nil
 }
@@ -1646,9 +1652,10 @@ func (b *Bucket) WriteWAL() error {
 	return b.active.writeWAL()
 }
 
+// TODO: unit test (can possibly be combined with the Map unit test)
 func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBoost float32, cfgs ...MapListOption) ([]terms.DocPointerWithScore, error) {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	view := b.getConsistentView()
+	defer view.Release()
 
 	c := MapListOptionConfig{}
 	for _, cfg := range cfgs {
@@ -1656,14 +1663,12 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	}
 
 	segments := [][]terms.DocPointerWithScore{}
-	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(ctx, key)
+	disk, segmentsDisk, err := b.disk.getCollectionAndSegments(ctx, key, view.Disk)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
 
-	defer release()
-
-	allTombstones, err := b.loadAllTombstones(segmentsDisk)
+	allTombstones, err := b.loadAllTombstones(view)
 	if err != nil {
 		return nil, err
 	}
@@ -1706,8 +1711,8 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 		segments = append(segments, segmentDecoded)
 	}
 
-	if b.flushing != nil {
-		mem, err := b.flushing.getMap(key)
+	if view.Flushing != nil {
+		mem, err := view.Flushing.getMap(key)
 		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
@@ -1720,7 +1725,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 		segments = append(segments, docPointers)
 	}
 
-	mem, err := b.active.getMap(key)
+	mem, err := view.Active.getMap(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
