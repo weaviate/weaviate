@@ -12,6 +12,7 @@
 package sync
 
 import (
+	"context"
 	"sync"
 	"testing"
 
@@ -24,6 +25,14 @@ func mutexLocked(m *sync.Mutex) bool {
 		defer m.Unlock()
 	}
 	return !rlocked
+}
+
+func contextMutexLocked(m *contextMutex) bool {
+	l := m.mu.TryLock()
+	if l {
+		defer m.mu.Unlock()
+	}
+	return !l
 }
 
 func rwMutexLocked(m *sync.RWMutex) bool {
@@ -68,6 +77,27 @@ func TestKeyLockerLockUnlock(t *testing.T) {
 	s.Unlock("t2")
 	lock, _ = s.m.Load("t2")
 	r.False(mutexLocked(lock.(*sync.Mutex)))
+}
+
+func TestKeyLockerContextMutexLockUnlock(t *testing.T) {
+	r := require.New(t)
+	s := NewKeyLockerContext()
+
+	s.Lock("t1")
+	lock, _ := s.m.Load("t1")
+	r.True(contextMutexLocked(lock.(*contextMutex)))
+
+	s.Unlock("t1")
+	lock, _ = s.m.Load("t1")
+	r.False(contextMutexLocked(lock.(*contextMutex)))
+
+	s.TryLockWithContext("t2", context.Background())
+	lock, _ = s.m.Load("t2")
+	r.True(contextMutexLocked(lock.(*contextMutex)))
+
+	s.Unlock("t2")
+	lock, _ = s.m.Load("t2")
+	r.False(contextMutexLocked(lock.(*contextMutex)))
 }
 
 func TestKeyRWLockerLockUnlock(t *testing.T) {

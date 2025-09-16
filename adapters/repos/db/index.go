@@ -277,7 +277,7 @@ type Index struct {
 	// loading will be set to true once the last shard was loaded.
 	allShardsReady   atomic.Bool
 	allocChecker     memwatch.AllocChecker
-	shardCreateLocks *esync.KeyLocker
+	shardCreateLocks *esync.KeyLockerContext
 
 	replicationConfigLock sync.RWMutex
 
@@ -362,7 +362,7 @@ func NewIndex(
 		scheduler:               scheduler,
 		indexCheckpoints:        indexCheckpoints,
 		allocChecker:            allocChecker,
-		shardCreateLocks:        esync.NewKeyLocker(),
+		shardCreateLocks:        esync.NewKeyLockerContext(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		shardReindexer:          shardReindexer,
 		router:                  router,
@@ -2328,7 +2328,9 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	}
 
 	// make sure same shard is not inited in parallel
-	i.shardCreateLocks.Lock(shardName)
+	if !i.shardCreateLocks.TryLockWithContext(shardName, ctx) {
+		return nil, func() {}, fmt.Errorf("unable to acquire shardCreateLocks lock: %w", err)
+	}
 	defer i.shardCreateLocks.Unlock(shardName)
 
 	// check if created in the meantime by concurrent call
