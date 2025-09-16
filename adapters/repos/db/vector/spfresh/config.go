@@ -19,6 +19,7 @@ import (
 )
 
 // UserConfig defines the configuration options for the SPFresh index.
+// Will be populated once we decide what should be exposed.
 type UserConfig struct{}
 
 type Config struct {
@@ -36,7 +37,6 @@ type Config struct {
 	Replicas                  int     `json:"replicas,omitempty"`                  // Number of closure replicas to maintain
 	RNGFactor                 float32 `json:"rngFactor,omitempty"`                 // Distance factor used by the RNG rule to determine how spread out replica selections are
 	MaxDistanceRatio          float32 `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
-	PruningStrategy           string  `json:"pruningStrategy,omitempty"`           // Strategy to use for pruning postings during brute force
 }
 
 func (c *Config) Validate() error {
@@ -57,7 +57,8 @@ func DefaultConfig() *Config {
 		// vector size and compression method
 		MaxPostingSize: 128,
 		MinPostingSize: 10,
-		// TODO: create unbounded channels to avoid having to create
+		// TODO: the number of goroutines is way too big,
+		// create unbounded channels to avoid having to create
 		// too many workers.
 		SplitWorkers:              64,
 		ReassignWorkers:           128,

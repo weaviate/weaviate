@@ -29,7 +29,6 @@ type SPTAG interface {
 	Get(id uint64) *Centroid
 	Exists(id uint64) bool
 	Upsert(id uint64, centroid *Centroid) error
-	IsEmpty() bool
 	IsMarkedAsDeleted(id uint64) bool
 	MarkAsDeleted(id uint64) error
 	Search(query Vector, k int) ([]SearchResult, error)
@@ -120,13 +119,6 @@ func (s *BruteForceSPTAG) IsMarkedAsDeleted(id uint64) bool {
 
 func (s *BruteForceSPTAG) Quantizer() *compressionhelpers.RotationalQuantizer {
 	return s.quantizer
-}
-
-func (s *BruteForceSPTAG) IsEmpty() bool {
-	s.m.RLock()
-	defer s.m.RUnlock()
-
-	return len(s.centroids) == 0
 }
 
 func (s *BruteForceSPTAG) Len() (int, int) {

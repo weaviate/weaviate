@@ -66,49 +66,50 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 		compressed = s.SPTAG.Quantizer().Encode(vector)
 	}
 
+	// add the vector to the version map.
+	// TODO: if the vector already exists, invalidate all previous instances
+	// by incrementing the version
 	s.VersionMap.AllocPageFor(id)
-
 	version, _ := s.VersionMap.Increment(0, id)
 
 	v := NewCompressedVector(id, version, compressed)
 
-	replicas, _, err := s.RNGSelect(v, 0)
+	targets, _, err := s.RNGSelect(v, 0)
 	if err != nil {
 		return err
 	}
 
 	// if there are no postings found, ensure an initial posting is created
-	if len(replicas) == 0 {
-		replicas, err = s.ensureInitialPosting(v)
+	if len(targets) == 0 {
+		targets, err = s.ensureInitialPosting(v)
 		if err != nil {
 			return err
 		}
 	}
 
-	for _, replica := range replicas {
-		_, err = s.append(ctx, v, replica, false)
+	for _, target := range targets {
+		_, err = s.append(ctx, v, target, false)
 		if err != nil {
-			return errors.Wrapf(err, "failed to append vector %d to replica %d", id, replica.ID)
+			return errors.Wrapf(err, "failed to append vector %d to posting %d", id, target.ID)
 		}
 	}
 
 	return nil
 }
 
-// ensureInitialPosting creates a new posting for Vector v if no replicas are found and ensures
-// using a critical section to avoid multiple initial postings being created concurrently.
+// ensureInitialPosting creates a new posting for vector v if the index is empty
 func (s *SPFresh) ensureInitialPosting(v Vector) ([]SearchResult, error) {
 	s.initialPostingLock.Lock()
 	defer s.initialPostingLock.Unlock()
 
 	// check if a posting was created concurrently
-	replicas, _, err := s.RNGSelect(v, 0)
+	targets, _, err := s.RNGSelect(v, 0)
 	if err != nil {
 		return nil, err
 	}
 
-	// if no replicas were found, create a new posting while holding the lock
-	if len(replicas) == 0 {
+	// if no postings were found, create a new posting while holding the lock
+	if len(targets) == 0 {
 		postingID := s.IDs.Next()
 		s.PostingSizes.AllocPageFor(postingID)
 		// use the vector as the centroid and register it in the SPTAG
@@ -119,18 +120,18 @@ func (s *SPFresh) ensureInitialPosting(v Vector) ([]SearchResult, error) {
 			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
 		}
 		// return the new posting ID
-		replicas = append(replicas, SearchResult{
+		targets = append(targets, SearchResult{
 			ID: postingID,
 			// distance is zero since we are using the vector as the centroid
-			Distance: 0,
 		})
 	}
 
-	return replicas, nil
+	return targets, nil
 }
 
-// append adds a vector to the specified posting.
+// Append adds a vector to the specified posting.
 // It returns true if the vector was successfully added, false if the posting no longer exists.
+// It is called synchronously during imports but also asynchronously by reassign operations.
 func (s *SPFresh) append(ctx context.Context, vector Vector, centroid SearchResult, reassigned bool) (bool, error) {
 	s.postingLocks.Lock(centroid.ID)
 
@@ -151,7 +152,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroid SearchResu
 	}
 
 	// append the new vector to the existing posting
-	err := s.Store.Merge(ctx, centroid.ID, vector)
+	err := s.Store.Append(ctx, centroid.ID, vector)
 	if err != nil {
 		s.postingLocks.Unlock(centroid.ID)
 		return false, err

@@ -37,6 +37,10 @@ type Vector interface {
 
 var _ Vector = CompressedVector(nil)
 
+// A compressed vector is structured as follows:
+// - 8 bytes for the vector ID (uint64, little endian)
+// - 1 byte for the version (VectorVersion)
+// - N bytes for the compressed vector data
 type CompressedVector []byte
 
 func NewCompressedVector(id uint64, version VectorVersion, data []byte) CompressedVector {
@@ -48,6 +52,7 @@ func NewCompressedVector(id uint64, version VectorVersion, data []byte) Compress
 	return v
 }
 
+// Used for creating a vector without an ID and version, e.g. for queries
 func NewAnonymousCompressedVector(data []byte) CompressedVector {
 	v := make(CompressedVector, 8+1+len(data))
 	// id and version are zero
@@ -176,6 +181,8 @@ func (p *CompressedPosting) Uncompress(quantizer *compressionhelpers.RotationalQ
 // A VectorVersion is a 1-byte value structured as follows:
 // - 7 bits for the version number
 // - 1 bit for the tombstone flag (0 = alive, 1 = deleted)
+// TODO: versions can wrap around after 127 updates,
+// we need a mechanism to handle this in the future (e.g. during snapshots perhaps, etc.)
 type VectorVersion uint8
 
 func (ve VectorVersion) Version() uint8 {
@@ -187,6 +194,9 @@ func (ve VectorVersion) Deleted() bool {
 }
 
 // VersionMap maps vector IDs to their latest version number.
+// Because versions are stored as a single byte, we cannot use atomic operations
+// to update them. Instead, we use a sharded locks to ensure that updates
+// to the same ID are serialized.
 type VersionMap struct {
 	locks    *common.ShardedRWLocks
 	versions *common.PagedArray[VectorVersion]

@@ -74,6 +74,9 @@ func (s *SPFresh) splitWorker() {
 	}
 }
 
+// doSplit performs the actual split operation for a given postingID.
+// If reassign is true, it will enqueue reassign operations for vectors that
+// may need to be moved to other postings after the split.
 func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	s.postingLocks.Lock(postingID)
 
@@ -86,11 +89,10 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	}()
 
 	if s.SPTAG.IsMarkedAsDeleted(postingID) {
-		// s.Logger.WithField("postingID", postingID).
-		// 	Debug("Posting is marked as deleted, skipping split operation")
 		return nil
 	}
 
+	// load the posting from disk
 	p, err := s.Store.Get(s.ctx, postingID)
 	if err != nil {
 		if errors.Is(err, ErrPostingNotFound) {
@@ -205,11 +207,12 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	}
 
 	if !postingReused {
+		// delete the old centroid if it wasn't reused
 		err = s.SPTAG.MarkAsDeleted(postingID)
 		if err != nil {
 			return errors.Wrapf(err, "failed to delete old centroid %d after split operation", postingID)
 		}
-		s.PostingSizes.Set(postingID, 0) // Mark the old posting as deleted
+		s.PostingSizes.Set(postingID, 0)
 		s.Logger.WithField("postingID", postingID).
 			Debug("Old posting deleted after split operation")
 	}

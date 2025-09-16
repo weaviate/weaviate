@@ -132,7 +132,7 @@ func (l *LSMStore) Put(ctx context.Context, postingID uint64, posting Posting) e
 	return l.bucket.SetAdd(buf[:], set)
 }
 
-func (l *LSMStore) Merge(ctx context.Context, postingID uint64, vector Vector) error {
+func (l *LSMStore) Append(ctx context.Context, postingID uint64, vector Vector) error {
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], postingID)
 
@@ -140,6 +140,10 @@ func (l *LSMStore) Merge(ctx context.Context, postingID uint64, vector Vector) e
 	defer l.locks.Unlock(postingID)
 
 	return l.bucket.SetAdd(buf[:], [][]byte{vector.(CompressedVector)})
+}
+
+func (l *LSMStore) Flush() error {
+	return l.bucket.FlushMemtable()
 }
 
 func bucketName(id string) string {
