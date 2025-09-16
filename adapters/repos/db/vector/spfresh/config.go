@@ -19,8 +19,7 @@ import (
 )
 
 // UserConfig defines the configuration options for the SPFresh index.
-type UserConfig struct {
-}
+type UserConfig struct{}
 
 type Config struct {
 	Logger                    logrus.FieldLogger

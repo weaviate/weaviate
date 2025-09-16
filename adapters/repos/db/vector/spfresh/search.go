@@ -130,7 +130,6 @@ func (s *SPFresh) SearchByVectorDistance(
 	maxLimit int64,
 	allow helpers.AllowList,
 ) ([]uint64, []float32, error) {
-
 	searchParams := common.NewSearchByDistParams(0, common.DefaultSearchByDistInitialLimit, common.DefaultSearchByDistInitialLimit, maxLimit)
 	var resultIDs []uint64
 	var resultDist []float32

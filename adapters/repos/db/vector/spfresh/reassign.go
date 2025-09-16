@@ -115,11 +115,11 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 			return nil
 		}
 
-		ok, err := s.append(s.ctx, newVector, replica, true)
+		added, err := s.append(s.ctx, newVector, replica, true)
 		if err != nil {
 			return err
 		}
-		if !ok {
+		if !added {
 			continue // Skip if the vector already exists in the replica
 		}
 	}
