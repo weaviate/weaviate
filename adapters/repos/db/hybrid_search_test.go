@@ -948,14 +948,16 @@ func (f *fakeObjectSearcher) SparseObjectSearch(ctx context.Context, params dto.
 	out := []*storobj.Object{
 		{
 			Object: models.Object{
-				ID: "9889a225-3b28-477d-b8fc-5f6071bb4731",
+				Class: params.ClassName,
+				ID:    "9889a225-3b28-477d-b8fc-5f6071bb4731",
 			},
 
 			Vector: []float32{1, 2, 3},
 		},
 		{
 			Object: models.Object{
-				ID: "0bcdef12-3314-442e-a4d1-e94d7c0afc3a",
+				Class: params.ClassName,
+				ID:    "0bcdef12-3314-442e-a4d1-e94d7c0afc3a",
 			},
 			Vector: []float32{4, 5, 6},
 		},
