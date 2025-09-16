@@ -515,7 +515,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		HeartbeatTimeout:                appState.ServerConfig.Config.Raft.HeartbeatTimeout,
 		ElectionTimeout:                 appState.ServerConfig.Config.Raft.ElectionTimeout,
 		LeaderLeaseTimeout:              appState.ServerConfig.Config.Raft.LeaderLeaseTimeout,
-		TimeoutsMultiplier:              appState.ServerConfig.Config.Raft.TimeoutsMultiplier,
+		TimeoutsMultiplier:              appState.ServerConfig.Config.Raft.TimeoutsMultiplier.Get(),
 		SnapshotInterval:                appState.ServerConfig.Config.Raft.SnapshotInterval,
 		SnapshotThreshold:               appState.ServerConfig.Config.Raft.SnapshotThreshold,
 		TrailingLogs:                    appState.ServerConfig.Config.Raft.TrailingLogs,
@@ -541,6 +541,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		DistributedTasks:                appState.ServerConfig.Config.DistributedTasks,
 		ReplicaMovementEnabled:          appState.ServerConfig.Config.ReplicaMovementEnabled,
 		ReplicaMovementMinimumAsyncWait: appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait,
+		DrainSleep:                      appState.ServerConfig.Config.Raft.DrainSleep.Get(),
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -1045,7 +1046,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	if cfg := serverConfig.Config.Raft; cfg.MetadataOnlyVoters {
 		nonStorageNodes = parseVotersNames(cfg)
 	}
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier, dataPath, nonStorageNodes, logger)
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")
@@ -1811,6 +1812,8 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
+		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
 
 		hooks := make(map[string]func() error)
 
