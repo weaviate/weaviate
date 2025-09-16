@@ -120,7 +120,10 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 			return err
 		}
 		if !added {
-			continue // Skip if the vector already exists in the replica
+			// the posting has been deleted concurrently,
+			// append has enqueued a new reassign operation
+			// we can stop here
+			break
 		}
 	}
 
