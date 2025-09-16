@@ -126,7 +126,7 @@ type KeyLockerContext struct {
 	m sync.Map
 }
 
-// NewKeyLockerContext creates KeylockerContextMutex
+// NewKeyLockerContext creates KeyLockerContext
 func NewKeyLockerContext() *KeyLockerContext {
 	return &KeyLockerContext{
 		m: sync.Map{},
@@ -134,7 +134,7 @@ func NewKeyLockerContext() *KeyLockerContext {
 }
 
 // Lock locks a specific bucket by it's ID
-// to hold ant concurrent access to that specific item
+// to hold any concurrent access to that specific item
 //
 //	do not forget to call Unlock() after locking it.
 func (s *KeyLockerContext) Lock(ID string) {
