@@ -12,7 +12,6 @@
 package common
 
 import (
-	"math/bits"
 	"sync"
 )
 
@@ -108,19 +107,19 @@ func NewShardedRWLocks(count uint64) *ShardedRWLocks {
 		count = 2
 	}
 
+	return NewShardedRWLocksWith(count, DefaultPageSize)
+}
+
+func NewShardedRWLocksWith(pages, pageSize uint64) *ShardedRWLocks {
 	return &ShardedRWLocks{
-		shards:   make([]sync.RWMutex, count),
-		count:    count,
-		PageSize: DefaultPageSize,
+		shards:   make([]sync.RWMutex, pages),
+		count:    pages,
+		PageSize: pageSize,
 	}
 }
 
 func NewShardedRWLocksWithPageSize(pageSize uint64) *ShardedRWLocks {
-	return &ShardedRWLocks{
-		shards:   make([]sync.RWMutex, DefaultShardedLocksCount),
-		count:    DefaultShardedLocksCount,
-		PageSize: pageSize,
-	}
+	return NewShardedRWLocksWith(DefaultShardedLocksCount, pageSize)
 }
 
 func (sl *ShardedRWLocks) LockAll() {
@@ -193,62 +192,4 @@ func (sl *ShardedRWLocks) RLocked(id uint64, callback func()) {
 	defer sl.RUnlock(id)
 
 	callback()
-}
-
-// HashedLocks provides fine-grained in-memory locking by mapping keys to a fixed pool of mutexes using a high-entropy hash.
-// It trades some raw speed for stronger key distribution guarantees.
-// Compared to modulo-based sharding, HashedLocks reduces contention under sequential or clustered key patterns.
-// It uses multiplicative hashing with bit rotation and perturbation to evenly spread lock acquisition across the pool.
-// The lock pool size must be a power of two to enable efficient masking. Use 32k shards for maximum distribution or 512 for lower memory use.
-type HashedLocks struct {
-	// sharded locks
-	shards []sync.RWMutex
-	// number of locks
-	count uint64
-	prime uint64
-}
-
-// NewHashedLocks512 creates a HashedLocks instance with 512 shards.
-func NewHashedLocks512() *HashedLocks {
-	return &HashedLocks{
-		shards: make([]sync.RWMutex, 512), // 512 shards for optimal distribution
-		count:  512,
-		prime:  1009, // sweet spot prime for 512 shards
-	}
-}
-
-// NewHashedLocks32k creates a HashedLocks instance with 32k shards.
-func NewHashedLocks32k() *HashedLocks {
-	return &HashedLocks{
-		shards: make([]sync.RWMutex, 32768), // 32k shards for optimal distribution
-		count:  32768,
-		prime:  99991, // sweet spot prime for 32k shards
-	}
-}
-
-func (h *HashedLocks) Hash(idx uint64) uint64 {
-	// Multiplicative hashing with large prime
-	result := idx * h.prime
-	// Add bit rotation (rotate left by 2 bits)
-	result += bits.RotateLeft64(result, 2)
-	// Add constant for additional perturbation
-	result += 101
-	// Mask with pool size (equivalent to modulo but faster)
-	return result & (h.count - 1)
-}
-
-func (h *HashedLocks) Lock(id uint64) {
-	h.shards[h.Hash(id)].Lock()
-}
-
-func (h *HashedLocks) Unlock(id uint64) {
-	h.shards[h.Hash(id)].Unlock()
-}
-
-func (h *HashedLocks) RLock(id uint64) {
-	h.shards[h.Hash(id)].RLock()
-}
-
-func (h *HashedLocks) RUnlock(id uint64) {
-	h.shards[h.Hash(id)].RUnlock()
 }

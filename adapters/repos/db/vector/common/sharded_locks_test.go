@@ -610,67 +610,6 @@ func TestShardedRWLocks(t *testing.T) {
 	})
 }
 
-func TestHashedLocks(t *testing.T) {
-	t.Run("Lock", func(t *testing.T) {
-		t.Parallel()
-		m := NewHashedLocks512()
-
-		m.Lock(1)
-
-		ch := make(chan struct{})
-		go func() {
-			time.Sleep(50 * time.Millisecond)
-			m.Unlock(1)
-
-			close(ch)
-		}()
-
-		m.Lock(1)
-
-		select {
-		case <-ch:
-		case <-time.After(1 * time.Second):
-			require.Fail(t, "should be unlocked")
-		}
-
-		m.Unlock(1)
-	})
-
-	t.Run("unlock should wake up next waiting lock", func(t *testing.T) {
-		t.Parallel()
-		m := NewHashedLocks512()
-
-		m.Lock(1)
-
-		ch1 := make(chan struct{})
-		ch2 := make(chan struct{})
-
-		go func() {
-			defer close(ch1)
-
-			m.Lock(1)
-		}()
-
-		go func() {
-			defer close(ch2)
-
-			time.Sleep(100 * time.Millisecond)
-			m.Lock(1)
-		}()
-
-		time.Sleep(10 * time.Millisecond)
-		m.Unlock(1)
-
-		<-ch1
-
-		m.Unlock(1)
-
-		<-ch2
-
-		m.Unlock(1)
-	})
-}
-
 type lockable interface {
 	Lock(id uint64)
 	Unlock(id uint64)

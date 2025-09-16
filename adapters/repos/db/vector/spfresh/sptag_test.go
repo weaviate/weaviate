@@ -20,10 +20,10 @@ import (
 )
 
 func TestBruteForceSPTAG_Search(t *testing.T) {
-	dim := 512
-	q := compressionhelpers.NewRotationalQuantizer(dim, 42, 8, distancer.NewCosineDistanceProvider())
+	dim := 64
+	q := compressionhelpers.NewRotationalQuantizer(dim, 42, 8, distancer.NewL2SquaredProvider())
 	sptag := NewBruteForceSPTAG()
-	sptag.Init(int32(dim), distancer.NewCosineDistanceProvider())
+	sptag.Init(int32(dim), distancer.NewL2SquaredProvider())
 
 	// Seed vectors
 	vectors := map[uint64][]float32{
@@ -35,8 +35,8 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	// Populate with some deterministic values for reproducibility
 	for i := range dim {
 		vectors[1][i] = float32(i)
-		vectors[2][i] = float32(i + 1)
-		vectors[3][i] = float32(2*i + 5)
+		vectors[2][i] = float32(i + 10)
+		vectors[3][i] = float32(2*i + 10)
 	}
 
 	// Encode and upsert
@@ -51,7 +51,7 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	// Use a query close to vector 2
 	query := make([]float32, dim)
 	for i := range dim {
-		query[i] = float32(i + 1) // same as vector 2
+		query[i] = float32(i + 11) // close to vector 2
 	}
 	encodedQuery := q.Encode(query)
 
@@ -60,7 +60,7 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	require.True(t, len(results) >= 1)
 
 	// Vector 2 should be one of the closest
-	require.Equal(t, results[0].ID, uint64(2))
+	require.Equal(t, uint64(2), results[0].ID)
 	require.NotZero(t, results[0].Distance)
 
 	// Delete vector 2 and search again
@@ -72,8 +72,8 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	require.NotContains(t, results, uint64(2))
 
 	// Ensure other vectors are still present
-	require.Equal(t, results[0].ID, uint64(3))
-	require.Equal(t, results[1].ID, uint64(1))
+	require.Equal(t, uint64(1), results[0].ID)
+	require.Equal(t, uint64(3), results[1].ID)
 
 	// Test with an empty search
 	results, err = sptag.Search(NewAnonymousCompressedVector(encodedQuery), 0)

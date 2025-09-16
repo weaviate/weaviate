@@ -97,11 +97,11 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 		SPTAG:  NewBruteForceSPTAG(),
 		Store:  postingStore,
 		IDs:    common.NewUint64Counter(0),
-		// Capacity of the version map: 10k pages, 1M vectors each -> 10B vectors
+		// Capacity of the version map: 8k pages, 1M vectors each -> 8B vectors
 		// - An empty version map consumes 240KB of memory
 		// - Each allocated page consumes 1MB of memory
-		// - A fully used version map consumes 10GB of memory
-		VersionMap: NewVersionMap(10*1024, 1024*1024),
+		// - A fully used version map consumes 8GB of memory
+		VersionMap: NewVersionMap(8*1024, 1024*1024),
 		// Capacity of the posting sizes: 1k pages, 1M postings each -> 1B postings
 		// - An empty posting sizes buffer consumes 240KB of memory
 		// - Each allocated page consumes 4MB of memory

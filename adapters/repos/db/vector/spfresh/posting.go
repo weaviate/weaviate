@@ -193,8 +193,15 @@ type VersionMap struct {
 }
 
 func NewVersionMap(pages, pageSize uint64) *VersionMap {
+	// keep the number of mutexes reasonable by reducing it to the nearest
+	// power of two <= 512
+	locks := pages
+	for locks > 512 {
+		locks = locks >> 1
+	}
+
 	return &VersionMap{
-		locks:    common.NewShardedRWLocks(512),
+		locks:    common.NewShardedRWLocksWith(locks, pageSize),
 		versions: common.NewPagedArray[VectorVersion](pages, pageSize),
 	}
 }
@@ -263,6 +270,7 @@ func (v *VersionMap) AllocPageFor(id uint64) {
 	v.locks.Unlock(id)
 }
 
+// PostingSizes keeps track of the number of vectors in each posting.
 type PostingSizes struct {
 	m     sync.RWMutex // Ensures pages are allocated atomically
 	sizes *common.PagedArray[uint32]
