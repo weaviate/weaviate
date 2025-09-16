@@ -171,8 +171,9 @@ jobs:
       - name: Generate Report
         if: success() && steps.should-run.outputs.should_run == 'true'
         env:
-          PREVIEW_TAG: "${{ steps.push.outputs.PREVIEW_TAG }}"
-          PREVIEW_SEMVER_TAG: "${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}"
+          PREVIEW_TAG: ${{ steps.push.outputs.PREVIEW_TAG }}
+          PREVIEW_SEMVER_TAG: ${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}
+          ARCH: ${{ matrix.arch || 'multi' }}
         run: ./ci/generate_docker_report.sh
   Buf-Checks:
     name: buf checks
