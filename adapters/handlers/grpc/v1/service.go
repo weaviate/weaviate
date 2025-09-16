@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
@@ -262,18 +263,18 @@ func (s *Service) BatchReferences(ctx context.Context, req *pb.BatchReferencesRe
 //
 // This method therefore does not work in isolation, it has to be used in conjunction with other methods.
 // It should be used as part of the automatic batching process provided in clients.
-func (s *Service) BatchSend(ctx context.Context, req *pb.BatchSendRequest) (*pb.BatchSendReply, error) {
-	var result *pb.BatchSendReply
-	var errInner error
+// func (s *Service) BatchSend(ctx context.Context, req *pb.BatchSendRequest) (*pb.BatchSendReply, error) {
+// 	var result *pb.BatchSendReply
+// 	var errInner error
 
-	if err := enterrors.GoWrapperWithBlock(func() {
-		result, errInner = s.batchQueuesHandler.Send(ctx, req)
-	}, s.logger); err != nil {
-		return nil, err
-	}
+// 	if err := enterrors.GoWrapperWithBlock(func() {
+// 		result, errInner = s.batchQueuesHandler.Send(ctx, req)
+// 	}, s.logger); err != nil {
+// 		return nil, err
+// 	}
 
-	return result, errInner
-}
+// 	return result, errInner
+// }
 
 // BatchStream defines a UnaryStream gRPC method whereby the server streams messages back to the client in order to
 // asynchronously report on any errors that have occurred during the automatic batching process.
@@ -291,15 +292,36 @@ func (s *Service) BatchSend(ctx context.Context, req *pb.BatchSendRequest) (*pb.
 // reconnect to a different available node. At that point, the batching process resumes on the other node as if nothing happened.
 //
 // It should be used as part of the automatic batching process provided in clients.
-func (s *Service) BatchStream(req *pb.BatchStreamRequest, stream pb.Weaviate_BatchStreamServer) error {
+func (s *Service) BatchStream(stream pb.Weaviate_BatchStreamServer) error {
 	id, err := uuid.NewRandom()
 	if err != nil {
 		return fmt.Errorf("stream ID generation failed: %w", err)
 	}
 	streamId := id.String()
-	s.batchQueuesHandler.Setup(streamId, req)
+
+	message, err := stream.Recv()
+	if err != nil {
+		return fmt.Errorf("initial stream message receive: %w", err)
+	}
+
+	startReq := message.GetStart()
+	if startReq == nil {
+		return fmt.Errorf("first message must be a start message")
+	}
+
+	s.batchQueuesHandler.Setup(streamId, startReq)
 	defer s.batchQueuesHandler.Teardown(streamId)
-	return s.batchQueuesHandler.Stream(stream.Context(), streamId, stream)
+
+	done := make(chan struct{})
+	g, ctx := errgroup.WithContext(stream.Context())
+	g.Go(func() error { return s.batchQueuesHandler.StreamRecv(ctx, streamId, stream, done) })
+	g.Go(func() error { return s.batchQueuesHandler.StreamSend(ctx, streamId, stream, done) })
+
+	if err := g.Wait(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {

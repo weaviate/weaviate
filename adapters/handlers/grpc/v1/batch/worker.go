@@ -78,7 +78,7 @@ func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObje
 	}
 	if len(reply.GetErrors()) > 0 {
 		retriable := make([]*pb.BatchObject, 0, len(reply.GetErrors()))
-		errs := make([]*pb.BatchStreamMessage_Error, 0, len(reply.GetErrors()))
+		errs := make([]*pb.BatchStreamReply_Error, 0, len(reply.GetErrors()))
 		for _, err := range reply.GetErrors() {
 			if err == nil {
 				continue
@@ -87,9 +87,9 @@ func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObje
 				retriable = append(retriable, req.Values[err.Index])
 				continue
 			}
-			errs = append(errs, &pb.BatchStreamMessage_Error{
+			errs = append(errs, &pb.BatchStreamReply_Error{
 				Error:  err.Error,
-				Detail: &pb.BatchStreamMessage_Error_Object{Object: req.Values[err.Index]},
+				Detail: &pb.BatchStreamReply_Error_Object{Object: req.Values[err.Index]},
 			})
 		}
 		if ch, ok := w.readQueues.Get(streamId); ok {
@@ -121,7 +121,7 @@ func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendR
 	}
 	if len(reply.GetErrors()) > 0 {
 		retriable := make([]*pb.BatchReference, 0, len(reply.GetErrors()))
-		errs := make([]*pb.BatchStreamMessage_Error, 0, len(reply.GetErrors()))
+		errs := make([]*pb.BatchStreamReply_Error, 0, len(reply.GetErrors()))
 		for _, err := range reply.GetErrors() {
 			if err == nil {
 				continue
@@ -130,9 +130,9 @@ func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendR
 				retriable = append(retriable, req.Values[err.Index])
 				continue
 			}
-			errs = append(errs, &pb.BatchStreamMessage_Error{
+			errs = append(errs, &pb.BatchStreamReply_Error{
 				Error:  err.Error,
-				Detail: &pb.BatchStreamMessage_Error_Reference{Reference: req.Values[err.Index]},
+				Detail: &pb.BatchStreamReply_Error_Reference{Reference: req.Values[err.Index]},
 			})
 		}
 		if ch, ok := w.readQueues.Get(streamId); ok {

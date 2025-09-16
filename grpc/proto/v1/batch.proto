@@ -19,7 +19,10 @@ message BatchReferencesRequest {
   optional ConsistencyLevel consistency_level = 2;
 }
 
-message BatchSendRequest {
+message BatchStreamRequest {
+  message Start {
+    optional ConsistencyLevel consistency_level = 1;
+  }
   message Stop {
   }
   message Objects {
@@ -32,20 +35,12 @@ message BatchSendRequest {
   oneof message {
     Objects objects = 2;
     References references = 3;
-    Stop stop = 4;
+    Start start = 4;
+    Stop stop = 5;
   }
 }
 
-message BatchSendReply {
-  int32 next_batch_size = 1;
-  float backoff_seconds = 2;
-}
-
-message BatchStreamRequest {
-  optional ConsistencyLevel consistency_level = 1;
-}
-
-message BatchStreamMessage {
+message BatchStreamReply {
   message Start {
   }
   message Stop {
@@ -60,6 +55,10 @@ message BatchStreamMessage {
       BatchReference reference = 3;
     }
   }
+  message Backoff {
+    int32 next_batch_size = 1;
+    float backoff_seconds = 2;
+  }
   string stream_id = 1;
   oneof message {
     Error error = 2;
@@ -67,6 +66,7 @@ message BatchStreamMessage {
     Stop stop = 4;
     Shutdown shutdown = 5;
     ShuttingDown shutting_down = 6;
+    Backoff backoff = 7;
   }
 }
 
