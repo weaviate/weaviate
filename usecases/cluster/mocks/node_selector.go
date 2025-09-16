@@ -41,6 +41,10 @@ func (m memberlist) NodeHostname(name string) (string, bool) {
 	return "", false
 }
 
+func (m memberlist) AllClusterMembers(port int) map[string]string {
+	return map[string]string{}
+}
+
 func (m memberlist) LocalName() string {
 	if len(m.nodes) == 0 {
 		return ""

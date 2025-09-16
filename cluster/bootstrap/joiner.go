@@ -58,14 +58,19 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 	var resp *cmd.JoinPeerResponse
 	var err error
 	req := &cmd.JoinPeerRequest{Id: j.localNodeID, Address: j.localRaftAddr, Voter: j.voter}
-	lg.WithField("remoteNodes", remoteNodes).Info("attempting to join")
 
 	// For each server, try to join.
 	// If we have no error then we have a leader
 	// If we have an error check for err == NOT_FOUND and leader != "" -> we contacted a non-leader node part of the
 	// cluster, let's join the leader.
 	// If no server allows us to join a cluster, return an error
-	for _, addr := range remoteNodes {
+	for name, addr := range remoteNodes {
+		lg.WithFields(logrus.Fields{
+			"action":         "join",
+			"node":           name,
+			"local_address":  j.localRaftAddr,
+			"remote_address": addr,
+		}).Info("attempting to join")
 		resp, err = j.peerJoiner.Join(ctx, addr, req)
 		if err == nil {
 			return addr, nil
