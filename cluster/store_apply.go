@@ -102,6 +102,8 @@ func (st *Store) Apply(l *raft.Log) any {
 	// If we don't have any last applied index on start, schema only is always false.
 	// we check for index !=0 to force apply of the 1st index in both db and schema
 	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
+	// TODO: get rid off schema only as it causes more trouble than it's worth
+	// T-Nr: DB-306
 	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
@@ -183,6 +185,24 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_DELETE_CLASS:
 		f = func() {
+			// During RAFT log replay (schemaOnly=true), apply case-insensitive handling
+			// to prevent silent failures due to case mismatches in log entries.
+			// This ensures we capture the correct class name as stored in memory,
+			// regardless of what the user used in the original request.
+			//
+			// Example scenario:
+			// - Old RAFT entry: add Class "FooBar"
+			// - New RAFT entry: delete Class "foobar"
+			//
+			// Without case-insensitive handling, we would never delete "FooBar"
+			// because the new log entry contains "foobar", leading to class
+			// reappearance during rollout.
+			if schemaOnly {
+				existingClass := st.SchemaReader().ClassEqual(cmd.Class)
+				if existingClass != "" {
+					cmd.Class = existingClass
+				}
+			}
 			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, !catchingUp)
 		}
 

@@ -295,7 +295,9 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 		res = grouped
 	}
 
-	if e.modulesProvider != nil {
+	// This operation cannot be performed with hybrid search.
+	// In case of hybrid it needs to be done later with combined results from vector and keyword search
+	if e.modulesProvider != nil && params.HybridSearch == nil {
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
 			params.AdditionalProperties.ModuleParams, searchVectors[0], params.ModuleParams)
 		if err != nil {

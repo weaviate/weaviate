@@ -90,7 +90,10 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 			err = b.Put(key3, orig3)
 			require.Nil(t, err)
 
-			assert.Equal(t, 3, b.Count())
+			count, err := b.Count(ctx)
+			require.NoError(t, err)
+
+			assert.Equal(t, 3, count)
 			assert.Equal(t, 0, b.CountAsync())
 
 			res, err := b.Get(key1)
@@ -117,7 +120,10 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 			err = b.Put(key3, replaced3)
 			require.Nil(t, err)
 
-			assert.Equal(t, 3, b.Count())
+			count, err := b.Count(ctx)
+			require.NoError(t, err)
+
+			assert.Equal(t, 3, count)
 			assert.Equal(t, 0, b.CountAsync())
 
 			res, err := b.Get(key1)
@@ -173,7 +179,10 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("count only objects on disk segment", func(t *testing.T) {
-			assert.Equal(t, 3, b.Count())
+			count, err := b.Count(ctx)
+			require.NoError(t, err)
+
+			assert.Equal(t, 3, count)
 			assert.Equal(t, 3, b.CountAsync())
 		})
 
@@ -191,7 +200,9 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 			require.Nil(t, err)
 
 			// make sure that the updates aren't counted as additions
-			assert.Equal(t, 3, b.Count())
+			count, err := b.Count(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, 3, count)
 
 			// happens to be the same value, but that's just a coincidence, async
 			// ignores the memtable
@@ -277,7 +288,10 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("count objects over several segments", func(t *testing.T) {
-			assert.Equal(t, 3, b.Count())
+			count, err := b.Count(ctx)
+			require.NoError(t, err)
+
+			assert.Equal(t, 3, count)
 			assert.Equal(t, 3, b.CountAsync())
 		})
 	})
@@ -360,7 +374,9 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 			assert.Equal(t, res, replaced3)
 
 			// count objects over several segments after disk read
-			assert.Equal(t, 3, b2.Count())
+			count, err := b2.Count(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, 3, count)
 			assert.Equal(t, 3, b2.CountAsync())
 		})
 	})
@@ -717,7 +733,10 @@ func replaceInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("count objects", func(t *testing.T) {
-			assert.Equal(t, 1, b.Count())
+			count, err := b.Count(ctx)
+			require.NoError(t, err)
+
+			assert.Equal(t, 1, count)
 			// all happenin in the memtable so far, async does not know of any
 			// objects yet
 			assert.Equal(t, 0, b.CountAsync())
@@ -777,7 +796,10 @@ func replaceInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("count objects", func(t *testing.T) {
-			assert.Equal(t, 1, b.Count())
+			count, err := b.Count(ctx)
+			require.NoError(t, err)
+
+			assert.Equal(t, 1, count)
 			// async still looks at the objects in the segment, ignores deletes in
 			// the memtable
 			assert.Equal(t, 3, b.CountAsync())
@@ -840,7 +862,10 @@ func replaceInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("count objects", func(t *testing.T) {
-			assert.Equal(t, 1, b.Count())
+			count, err := b.Count(ctx)
+			require.NoError(t, err)
+
+			assert.Equal(t, 1, count)
 			assert.Equal(t, 1, b.CountAsync())
 		})
 	})

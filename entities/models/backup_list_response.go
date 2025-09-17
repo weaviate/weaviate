@@ -93,8 +93,16 @@ type BackupListResponseItems0 struct {
 	// The list of classes for which the existed backup process
 	Classes []string `json:"classes"`
 
+	// Timestamp when the backup process completed (successfully or with failure)
+	// Format: date-time
+	CompletedAt strfmt.DateTime `json:"completedAt,omitempty"`
+
 	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
+
+	// Timestamp when the backup process started
+	// Format: date-time
+	StartedAt strfmt.DateTime `json:"startedAt,omitempty"`
 
 	// status of backup process
 	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED CANCELED]
@@ -105,6 +113,14 @@ type BackupListResponseItems0 struct {
 func (m *BackupListResponseItems0) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateCompletedAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateStartedAt(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateStatus(formats); err != nil {
 		res = append(res, err)
 	}
@@ -112,6 +128,30 @@ func (m *BackupListResponseItems0) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *BackupListResponseItems0) validateCompletedAt(formats strfmt.Registry) error {
+	if swag.IsZero(m.CompletedAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("completedAt", "body", "date-time", m.CompletedAt.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *BackupListResponseItems0) validateStartedAt(formats strfmt.Registry) error {
+	if swag.IsZero(m.StartedAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("startedAt", "body", "date-time", m.StartedAt.String(), formats); err != nil {
+		return err
+	}
+
 	return nil
 }
 

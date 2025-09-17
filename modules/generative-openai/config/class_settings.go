@@ -31,6 +31,8 @@ const (
 	topPProperty             = "topP"
 	baseURLProperty          = "baseURL"
 	apiVersionProperty       = "apiVersion"
+	reasoningEffortProperty  = "reasoningEffort"
+	verbosityProperty        = "verbosity"
 )
 
 var availableOpenAILegacyModels = []string{
@@ -50,6 +52,14 @@ var availableOpenAIModels = []string{
 	"gpt-5",
 	"gpt-5-mini",
 	"gpt-5-nano",
+}
+
+var availableReasoningEffortValues = []string{
+	"minimal", "low", "medium", "high",
+}
+
+var availableVerbosityValues = []string{
+	"low", "medium", "high",
 }
 
 var (
@@ -126,6 +136,8 @@ type ClassSettings interface {
 	Validate(class *models.Class) error
 	BaseURL() string
 	ApiVersion() string
+	ReasoningEffort() *string
+	Verbosity() *string
 }
 
 type classSettings struct {
@@ -179,6 +191,16 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("wrong Azure OpenAI apiVersion, available api versions are: %v", availableApiVersions)
 	}
 
+	reasoningEffort := ic.ReasoningEffort()
+	if reasoningEffort != nil && !slices.Contains(availableReasoningEffortValues, *reasoningEffort) {
+		return errors.Errorf("wrong %s value, allowed values are: %v", reasoningEffortProperty, availableReasoningEffortValues)
+	}
+
+	verbosity := ic.Verbosity()
+	if verbosity != nil && !slices.Contains(availableVerbosityValues, *verbosity) {
+		return errors.Errorf("wrong %s value, allowed values are: %v", verbosityProperty, availableVerbosityValues)
+	}
+
 	if ic.IsAzure() {
 		err := ic.validateAzureConfig(ic.ResourceName(), ic.DeploymentID())
 		if err != nil {
@@ -192,6 +214,13 @@ func (ic *classSettings) Validate(class *models.Class) error {
 func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
 	asString := ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, name, "", defaultValue)
 	return &asString
+}
+
+func (ic *classSettings) getStringPropertyOrNil(name string) *string {
+	if asString := ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, name, "", ""); asString != "" {
+		return &asString
+	}
+	return nil
 }
 
 func (ic *classSettings) getBoolProperty(name string, defaultValue bool) *bool {
@@ -254,6 +283,14 @@ func (ic *classSettings) DeploymentID() string {
 
 func (ic *classSettings) IsAzure() bool {
 	return IsAzure(*ic.getBoolProperty("isAzure", false), ic.ResourceName(), ic.DeploymentID())
+}
+
+func (ic *classSettings) ReasoningEffort() *string {
+	return ic.getStringPropertyOrNil(reasoningEffortProperty)
+}
+
+func (ic *classSettings) Verbosity() *string {
+	return ic.getStringPropertyOrNil(verbosityProperty)
 }
 
 func (ic *classSettings) validateAzureConfig(resourceName string, deploymentId string) error {

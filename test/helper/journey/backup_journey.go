@@ -332,6 +332,26 @@ wait:
 				found = true
 				assert.Equal(t, string(backup.Success), b.Status)
 				assert.Contains(t, b.Classes, className)
+
+				// Validate timestamp fields
+				require.NotNil(t, b.StartedAt, "StartedAt should not be nil")
+				require.NotNil(t, b.CompletedAt, "CompletedAt should not be nil")
+
+				startTime := time.Time(b.StartedAt)
+				completedTime := time.Time(b.CompletedAt)
+
+				// Verify timestamps are reasonable
+				assert.False(t, startTime.IsZero(), "Start time should not be zero")
+				assert.False(t, completedTime.IsZero(), "Completed time should not be zero")
+				assert.True(t, completedTime.After(startTime), "Completed time should be after start time")
+
+				// Verify timestamps are recent (within last hour)
+				now := time.Now()
+				assert.True(t, startTime.After(now.Add(-1*time.Hour)), "Start time should be within the last hour")
+				assert.True(t, completedTime.After(now.Add(-1*time.Hour)), "Completed time should be within the last hour")
+
+				t.Logf("Backup %s: started at %v, completed at %v, duration: %v",
+					b.ID, startTime, completedTime, completedTime.Sub(startTime))
 				break
 			}
 		}

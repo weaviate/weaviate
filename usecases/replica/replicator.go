@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -70,8 +71,14 @@ func NewReplicator(className string,
 	nodeName string,
 	getDeletionStrategy func() string,
 	client Client,
+	promMetrics *monitoring.PrometheusMetrics,
 	l logrus.FieldLogger,
-) *Replicator {
+) (*Replicator, error) {
+	metrics, err := NewMetrics(promMetrics)
+	if err != nil {
+		return nil, fmt.Errorf("create metrics: %w", err)
+	}
+
 	return &Replicator{
 		class:    className,
 		nodeName: nodeName,
@@ -83,12 +90,13 @@ func NewReplicator(className string,
 			router,
 			nodeName,
 			client,
+			metrics,
 			l,
 			defaultPullBackOffInitialInterval,
 			defaultPullBackOffMaxElapsedTime,
 			getDeletionStrategy,
 		),
-	}
+	}, nil
 }
 
 func (r *Replicator) AllHostnames() []string {

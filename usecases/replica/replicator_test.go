@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
@@ -794,7 +795,10 @@ func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Repl
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
-	return replica.NewReplicator(
+
+	metrics := monitoring.GetMetrics()
+
+	rep, err := replica.NewReplicator(
 		f.CLS,
 		router,
 		"A",
@@ -803,8 +807,14 @@ func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Repl
 			replica.RClient
 			replica.WClient
 		}{f.RClient, f.WClient},
+		metrics,
 		f.log,
 	)
+	if err != nil {
+		f.t.Fatalf("could not create replicator: %v", err)
+	}
+
+	return rep
 }
 
 func (f *fakeFactory) newReplicator() *replica.Replicator {
@@ -812,7 +822,10 @@ func (f *fakeFactory) newReplicator() *replica.Replicator {
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
-	return replica.NewReplicator(
+
+	metrics := monitoring.GetMetrics()
+
+	rep, err := replica.NewReplicator(
 		f.CLS,
 		router,
 		"A",
@@ -821,8 +834,14 @@ func (f *fakeFactory) newReplicator() *replica.Replicator {
 			replica.RClient
 			replica.WClient
 		}{f.RClient, f.WClient},
+		metrics,
 		f.log,
 	)
+	if err != nil {
+		f.t.Fatalf("could not create replicator: %v", err)
+	}
+
+	return rep
 }
 
 func (f *fakeFactory) newFinderWithTimings(thisNode string, tInitial time.Duration, tMax time.Duration) *replica.Finder {
@@ -830,7 +849,13 @@ func (f *fakeFactory) newFinderWithTimings(thisNode string, tInitial time.Durati
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
-	return replica.NewFinder(f.CLS, router, thisNode, f.RClient, f.log, tInitial, tMax, getDeletionStrategy)
+
+	metrics, err := replica.NewMetrics(monitoring.GetMetrics())
+	if err != nil {
+		f.t.Fatalf("could not create metrics: %v", err)
+	}
+
+	return replica.NewFinder(f.CLS, router, thisNode, f.RClient, metrics, f.log, tInitial, tMax, getDeletionStrategy)
 }
 
 func (f *fakeFactory) newFinder(thisNode string) *replica.Finder {

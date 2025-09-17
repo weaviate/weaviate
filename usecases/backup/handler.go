@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -242,6 +243,7 @@ func (m *Handler) OnStatus(ctx context.Context, req *StatusRequest) *StatusRespo
 	case OpCreate:
 		st, err := m.backupper.OnStatus(ctx, req)
 		ret.Status = st.Status
+		// mm
 		if err != nil {
 			ret.Status = backup.Failed
 			ret.Err = err.Error()

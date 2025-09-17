@@ -193,9 +193,9 @@ func (l *LazyLoadShard) Counter() *indexcounter.Counter {
 	return l.shard.Counter()
 }
 
-func (l *LazyLoadShard) ObjectCount() int {
+func (l *LazyLoadShard) ObjectCount(ctx context.Context) (int, error) {
 	l.mustLoad()
-	return l.shard.ObjectCount()
+	return l.shard.ObjectCount(ctx)
 }
 
 func (l *LazyLoadShard) ObjectCountAsync() int {
@@ -367,8 +367,12 @@ func (l *LazyLoadShard) drop() error {
 		shardName := l.shardOpts.name
 
 		// cleanup metrics
-		NewMetrics(idx.logger, l.shardOpts.promMetrics, className, shardName).
-			DeleteShardLabels(className, shardName)
+		metrics, err := NewMetrics(idx.logger, l.shardOpts.promMetrics, className, shardName)
+		if err != nil {
+			return fmt.Errorf("shard metrics: %w", err)
+		}
+
+		metrics.DeleteShardLabels(className, shardName)
 
 		// cleanup dimensions
 		if idx.Config.TrackVectorDimensions {

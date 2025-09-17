@@ -18,7 +18,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -149,8 +149,6 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 	segmentIndex := 0
 
-	segmentsAlreadyRecoveredFromCompaction := make(map[string]struct{})
-
 	// Note: it's important to process first the compacted segments
 	// TODO: a single iteration may be possible
 
@@ -279,42 +277,19 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry, newRightSegmentFileName, err)
 		}
 
-		var segment Segment
-		var err error
-		sgConf := segmentConfig{
-			mmapContents:             sg.mmapContents,
-			useBloomFilter:           sg.useBloomFilter,
-			calcCountNetAdditions:    sg.calcCountNetAdditions,
-			overwriteDerived:         true,
-			enableChecksumValidation: sg.enableChecksumValidation,
-			MinMMapSize:              sg.MinMMapSize,
-			allocChecker:             sg.allocChecker,
-			fileList:                 files,
-			writeMetadata:            sg.writeMetadata,
-		}
-		if b.lazySegmentLoading {
-			segment, err = newLazySegment(newRightSegmentPath, logger,
-				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), sgConf,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("init lazy segment %s: %w", newRightSegmentFileName, err)
-			}
-		} else {
-			segment, err = newSegment(newRightSegmentPath, logger,
-				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), sgConf,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("init segment %s: %w", newRightSegmentFileName, err)
-			}
-		}
-
-		sg.segments[segmentIndex] = segment
-		segmentIndex++
-
-		segmentsAlreadyRecoveredFromCompaction[newRightSegmentFileName] = struct{}{}
+		// initialize in correct order in the next iteration
+		files[newRightSegmentFileName] = files[entry]
+		delete(files, entry)
 	}
 
+	// segments need to be initialised in order of their timestamp to ensure that various computations are correct (CNA etc)
+	fileList := make([]string, 0, len(files))
 	for entry := range files {
+		fileList = append(fileList, entry)
+	}
+	slices.Sort(fileList)
+
+	for _, entry := range fileList {
 		if filepath.Ext(entry) == DeleteMarkerSuffix {
 			// marked for deletion, but never actually deleted. Delete now.
 			if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
@@ -331,12 +306,6 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 		if filepath.Ext(entry) != ".db" {
 			// skip, this could be commit log, etc.
-			continue
-		}
-
-		_, alreadyRecoveredFromCompaction := segmentsAlreadyRecoveredFromCompaction[entry]
-		if alreadyRecoveredFromCompaction {
-			// the .db file was already removed and restored from a compacted segment
 			continue
 		}
 
@@ -395,19 +364,6 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	}
 
 	sg.segments = sg.segments[:segmentIndex]
-
-	// segment load order is as follows:
-	// - find .tmp files and recover them first
-	// - find .db files and load them
-	//   - if there is a .wal file exists for a .db, remove the .db file
-	// - find .wal files and load them into a memtable
-	//   - flush the memtable to a segment file
-	// Thus, files may be loaded in a different order than they were created,
-	// and we need to re-sort them to ensure the order is correct, as compations
-	// and other operations are based on the creation order of the segments
-	sort.Slice(sg.segments, func(i, j int) bool {
-		return sg.segments[i].getPath() < sg.segments[j].getPath()
-	})
 
 	// Actual strategy is stored in segment files. In case it is SetCollection,
 	// while new implementation uses bitmaps and supposed to be RoaringSet,
@@ -730,7 +686,7 @@ func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	return out, nil
 }
 
-func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []Segment, func(), error) {
+func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte) ([][]value, []Segment, func(), error) {
 	segments, release := sg.getAndLockSegments()
 
 	out := make([][]value, len(segments))
@@ -739,6 +695,10 @@ func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []Segme
 	i := 0
 	// start with first and do not exit
 	for _, segment := range segments {
+		if ctx.Err() != nil {
+			release()
+			return nil, nil, func() {}, ctx.Err()
+		}
 		v, err := segment.getCollection(key)
 		if err != nil {
 			if !errors.Is(err, lsmkv.NotFound) {

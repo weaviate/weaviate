@@ -53,6 +53,7 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			generativeModel    string
 			absentModuleConfig bool
 			withImages         bool
+			maxTokens          int64
 		}{
 			// Amazon Nova
 			{
@@ -84,6 +85,11 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			},
 			// Anthropic
 			{
+				name:            "anthropic.claude-3-5-sonnet-20240620-v1:0",
+				generativeModel: "anthropic.claude-3-5-sonnet-20240620-v1:0",
+				maxTokens:       4000,
+			},
+			{
 				name:            "anthropic.claude-3-sonnet-20240229-v1:0",
 				generativeModel: "anthropic.claude-3-sonnet-20240229-v1:0",
 			},
@@ -91,18 +97,6 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 				name:            "anthropic.claude-3-haiku-20240307-v1:0",
 				generativeModel: "anthropic.claude-3-haiku-20240307-v1:0",
 				withImages:      true,
-			},
-			{
-				name:            "anthropic.claude-v2:1",
-				generativeModel: "anthropic.claude-v2:1",
-			},
-			{
-				name:            "anthropic.claude-v2",
-				generativeModel: "anthropic.claude-v2",
-			},
-			{
-				name:            "anthropic.claude-instant-v1",
-				generativeModel: "anthropic.claude-instant-v1",
 			},
 			// Cohere
 			{
@@ -191,7 +185,7 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 				t.Run("create a tweet with params", func(t *testing.T) {
 					params := "aws:{temperature:0.1}"
 					if tt.absentModuleConfig {
-						params = fmt.Sprintf("aws:{temperature:0.1 service:\"bedrock\" region:\"%s\" model:\"%s\"}", region, tt.generativeModel)
+						params = fmt.Sprintf("aws:{temperature:0.1 maxTokens:500 service:\"bedrock\" region:\"%s\" model:\"%s\"}", region, tt.generativeModel)
 					}
 					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
@@ -204,6 +198,9 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 					if tt.absentModuleConfig {
 						params.Region = grpchelper.ToPtr(region)
 						params.Service = grpchelper.ToPtr("bedrock")
+					}
+					if tt.maxTokens != 0 {
+						params.MaxTokens = &tt.maxTokens
 					}
 					return params
 				}

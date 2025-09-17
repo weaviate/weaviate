@@ -12,6 +12,8 @@
 package generative
 
 import (
+	"strings"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -244,6 +246,7 @@ func (p *Parser) aws(in *pb.GenerativeAWS) map[string]any {
 			TargetVariant:   in.GetTargetVariant(),
 			Model:           in.GetModel(),
 			Temperature:     in.Temperature,
+			MaxTokens:       p.int64ToInt(in.MaxTokens),
 			Images:          p.getStringPtrs(in.Images),
 			ImageProperties: p.getStrings(in.ImageProperties),
 		},
@@ -303,6 +306,22 @@ func (p *Parser) openai(in *pb.GenerativeOpenAI) map[string]any {
 	if in == nil {
 		return nil
 	}
+	var reasoningEffort *string
+	switch in.GetReasoningEffort() {
+	case pb.GenerativeOpenAI_REASONING_EFFORT_UNSPECIFIED:
+		reasoningEffort = nil
+	default:
+		enumValue := strings.ToLower(strings.TrimPrefix(in.GetReasoningEffort().String(), "REASONING_EFFORT_"))
+		reasoningEffort = &enumValue
+	}
+	var verbosity *string
+	switch in.GetVerbosity() {
+	case pb.GenerativeOpenAI_VERBOSITY_UNSPECIFIED:
+		verbosity = nil
+	default:
+		enumValue := strings.ToLower(strings.TrimPrefix(in.GetVerbosity().String(), "VERBOSITY_"))
+		verbosity = &enumValue
+	}
 	return map[string]any{
 		openaiParams.Name: openaiParams.Params{
 			BaseURL:          in.GetBaseUrl(),
@@ -320,6 +339,8 @@ func (p *Parser) openai(in *pb.GenerativeOpenAI) map[string]any {
 			TopP:             in.TopP,
 			Images:           p.getStringPtrs(in.Images),
 			ImageProperties:  p.getStrings(in.ImageProperties),
+			ReasoningEffort:  reasoningEffort,
+			Verbosity:        verbosity,
 		},
 	}
 }

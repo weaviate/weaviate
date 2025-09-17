@@ -88,3 +88,43 @@ def test_generative_array(collection_factory: CollectionFactory) -> None:
         assert "world" in ret.generated
         assert "apple" in ret.generated
         assert "wide" in ret.generated
+
+
+def test_generative_hybrid(collection_factory: CollectionFactory) -> None:
+    collection = collection_factory(
+        vectorizer_config=Configure.Vectorizer.none(),
+        generative_config=Configure.Generative.custom("generative-dummy"),
+        properties=[
+            Property(name="prop", data_type=DataType.TEXT),
+            Property(name="prop2", data_type=DataType.TEXT),
+        ],
+    )
+
+    collection.data.insert({"prop": "hello", "prop2": "banana"}, vector=[1, 0, 0])
+    collection.data.insert({"prop": "world", "prop2": "banana"}, vector=[1, 0, 0])
+    for i in range(100):
+        collection.data.insert({"prop": "other", "prop2": "other"}, vector=[0, 0, 1])
+
+    count = collection.aggregate.over_all()
+    assert count.total_count == 102
+
+    ret = collection.generate.hybrid(
+        "banana",
+        vector=[1, 0, 0],
+        query_properties=["prop2"],
+        auto_limit=1,
+        single_prompt="show me {prop}",
+    )
+    assert len(ret.objects) == 2
+    for obj in ret.objects:
+        assert "show me" in obj.generative.text
+
+    ret = collection.generate.near_vector(
+        near_vector=[1, 0, 0],
+        certainty=0.8,
+        limit=2,
+        single_prompt="show me {prop}",
+    )
+    assert len(ret.objects) == 2
+    for obj in ret.objects:
+        assert "show me" in obj.generative.text

@@ -24,6 +24,7 @@ type Params struct {
 	TargetVariant   string
 	Model           string
 	Temperature     *float64
+	MaxTokens       *int
 	Images          []*string
 	ImageProperties []string
 }
@@ -48,6 +49,8 @@ func extract(field *ast.ObjectField) interface{} {
 				out.Model = gqlparser.GetValueAsStringOrEmpty(f)
 			case "temperature":
 				out.Temperature = gqlparser.GetValueAsFloat64(f)
+			case "maxTokens":
+				out.MaxTokens = gqlparser.GetValueAsInt(f)
 			case "images":
 				out.Images = gqlparser.GetValueAsStringPtrArray(f)
 			case "imageProperties":
