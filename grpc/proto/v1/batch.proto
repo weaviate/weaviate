@@ -31,18 +31,15 @@ message BatchStreamRequest {
   message References {
     repeated BatchReference values = 1;
   }
-  string stream_id = 1;
   oneof message {
-    Objects objects = 2;
-    References references = 3;
-    Start start = 4;
-    Stop stop = 5;
+    Objects objects = 1;
+    References references = 2;
+    Start start = 3;
+    Stop stop = 4;
   }
 }
 
 message BatchStreamReply {
-  message Start {
-  }
   message Stop {
   }
   message Shutdown {}
@@ -59,14 +56,12 @@ message BatchStreamReply {
     int32 next_batch_size = 1;
     float backoff_seconds = 2;
   }
-  string stream_id = 1;
   oneof message {
-    Error error = 2;
-    Start start = 3;
-    Stop stop = 4;
-    Shutdown shutdown = 5;
-    ShuttingDown shutting_down = 6;
-    Backoff backoff = 7;
+    Error error = 1;
+    Stop stop = 2;
+    Shutdown shutdown = 3;
+    ShuttingDown shutting_down = 4;
+    Backoff backoff = 5;
   }
 }
 

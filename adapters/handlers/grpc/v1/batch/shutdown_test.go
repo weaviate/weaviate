@@ -65,25 +65,16 @@ func TestShutdownLogic(t *testing.T) {
 
 	done := make(chan struct{})
 	stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
-	stream.EXPECT().Send(&pb.BatchStreamReply{
-		StreamId: StreamId,
-		Message: &pb.BatchStreamReply_Start_{
-			Start: &pb.BatchStreamReply_Start{},
-		},
-	}).Return(nil).Once()
 	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
-		return msg.StreamId == StreamId &&
-			msg.GetError().Error == "some error" &&
+		return msg.GetError().Error == "some error" &&
 			msg.GetError().GetObject() != nil
 	})).Return(nil).Times(500)
 	stream.EXPECT().Send(&pb.BatchStreamReply{
-		StreamId: StreamId,
 		Message: &pb.BatchStreamReply_ShuttingDown_{
 			ShuttingDown: &pb.BatchStreamReply_ShuttingDown{},
 		},
 	}).Return(nil).Once()
 	stream.EXPECT().Send(&pb.BatchStreamReply{
-		StreamId: StreamId,
 		Message: &pb.BatchStreamReply_Shutdown_{
 			Shutdown: &pb.BatchStreamReply_Shutdown{},
 		},

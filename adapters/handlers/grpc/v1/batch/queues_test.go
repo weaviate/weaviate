@@ -79,7 +79,6 @@ func TestHandler(t *testing.T) {
 			// Arrange
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
 			stream.EXPECT().Recv().Return(&pb.BatchStreamRequest{
-				StreamId: StreamId,
 				Message: &pb.BatchStreamRequest_Objects_{
 					Objects: &pb.BatchStreamRequest_Objects{
 						Values: []*pb.BatchObject{{Collection: "TestClass"}},
@@ -88,7 +87,6 @@ func TestHandler(t *testing.T) {
 			}, nil).Once() // Send 1 objects
 			stream.EXPECT().Recv().Return(nil, io.EOF).Once() // End the stream
 			stream.EXPECT().Send(&pb.BatchStreamReply{
-				StreamId: StreamId,
 				Message: &pb.BatchStreamReply_Backoff_{
 					Backoff: &pb.BatchStreamReply_Backoff{
 						BackoffSeconds: 0,
@@ -137,7 +135,6 @@ func TestHandler(t *testing.T) {
 
 			// Send 8000 objects
 			req1 := &pb.BatchStreamRequest{
-				StreamId: StreamId,
 				Message: &pb.BatchStreamRequest_Objects_{
 					Objects: &pb.BatchStreamRequest_Objects{},
 				},
@@ -147,7 +144,6 @@ func TestHandler(t *testing.T) {
 			}
 			// Saturate the buffer
 			req2 := &pb.BatchStreamRequest{
-				StreamId: StreamId,
 				Message: &pb.BatchStreamRequest_Objects_{
 					Objects: &pb.BatchStreamRequest_Objects{},
 				},
@@ -161,7 +157,6 @@ func TestHandler(t *testing.T) {
 			stream.EXPECT().Recv().Return(req2, nil).Once()   // Send second request to saturate the buffer
 			stream.EXPECT().Recv().Return(nil, io.EOF).Once() // End the stream
 			stream.EXPECT().Send(&pb.BatchStreamReply{
-				StreamId: StreamId,
 				Message: &pb.BatchStreamReply_Backoff_{
 					Backoff: &pb.BatchStreamReply_Backoff{
 						BackoffSeconds: 1.2499998,
@@ -170,7 +165,6 @@ func TestHandler(t *testing.T) {
 				},
 			}).Return(nil).Once() // Expected reply after first request
 			stream.EXPECT().Send(&pb.BatchStreamReply{
-				StreamId: StreamId,
 				Message: &pb.BatchStreamReply_Backoff_{
 					Backoff: &pb.BatchStreamReply_Backoff{
 						BackoffSeconds: 2.1599982,
@@ -194,13 +188,6 @@ func TestHandler(t *testing.T) {
 
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
 			stream.EXPECT().Send(&pb.BatchStreamReply{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamReply_Start_{
-					Start: &pb.BatchStreamReply_Start{},
-				},
-			}).Return(nil).Once()
-			stream.EXPECT().Send(&pb.BatchStreamReply{
-				StreamId: StreamId,
 				Message: &pb.BatchStreamReply_Stop_{
 					Stop: &pb.BatchStreamReply_Stop{},
 				},
@@ -232,13 +219,6 @@ func TestHandler(t *testing.T) {
 
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
 			stream.EXPECT().Send(&pb.BatchStreamReply{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamReply_Start_{
-					Start: &pb.BatchStreamReply_Start{},
-				},
-			}).Return(nil).Once()
-			stream.EXPECT().Send(&pb.BatchStreamReply{
-				StreamId: StreamId,
 				Message: &pb.BatchStreamReply_Stop_{
 					Stop: &pb.BatchStreamReply_Stop{},
 				},
@@ -275,13 +255,6 @@ func TestHandler(t *testing.T) {
 			shutdownFinished := make(chan struct{})
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
 			stream.EXPECT().Send(&pb.BatchStreamReply{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamReply_Start_{
-					Start: &pb.BatchStreamReply_Start{},
-				},
-			}).Return(nil).Once()
-			stream.EXPECT().Send(&pb.BatchStreamReply{
-				StreamId: StreamId,
 				Message: &pb.BatchStreamReply_ShuttingDown_{
 					ShuttingDown: &pb.BatchStreamReply_ShuttingDown{},
 				},
@@ -291,7 +264,6 @@ func TestHandler(t *testing.T) {
 				return nil
 			}).Once()
 			stream.EXPECT().Send(&pb.BatchStreamReply{
-				StreamId: StreamId,
 				Message: &pb.BatchStreamReply_Shutdown_{
 					Shutdown: &pb.BatchStreamReply_Shutdown{},
 				},
@@ -324,13 +296,6 @@ func TestHandler(t *testing.T) {
 			done := make(chan struct{})
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
 			stream.EXPECT().Send(&pb.BatchStreamReply{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamReply_Start_{
-					Start: &pb.BatchStreamReply_Start{},
-				},
-			}).Return(nil).Once()
-			stream.EXPECT().Send(&pb.BatchStreamReply{
-				StreamId: StreamId,
 				Message: &pb.BatchStreamReply_Error_{
 					Error: &pb.BatchStreamReply_Error{
 						Error: "processing error",
@@ -338,7 +303,6 @@ func TestHandler(t *testing.T) {
 				},
 			}).Return(nil).Once()
 			stream.EXPECT().Send(&pb.BatchStreamReply{
-				StreamId: StreamId,
 				Message: &pb.BatchStreamReply_Stop_{
 					Stop: &pb.BatchStreamReply_Stop{},
 				},
@@ -375,13 +339,6 @@ func TestHandler(t *testing.T) {
 			done := make(chan struct{})
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
 			stream.EXPECT().Send(&pb.BatchStreamReply{
-				StreamId: StreamId,
-				Message: &pb.BatchStreamReply_Start_{
-					Start: &pb.BatchStreamReply_Start{},
-				},
-			}).Return(nil).Once()
-			stream.EXPECT().Send(&pb.BatchStreamReply{
-				StreamId: StreamId,
 				Message: &pb.BatchStreamReply_Error_{
 					Error: &pb.BatchStreamReply_Error{
 						Error: "processing error",
@@ -389,7 +346,6 @@ func TestHandler(t *testing.T) {
 				},
 			}).Return(nil).Once()
 			stream.EXPECT().Send(&pb.BatchStreamReply{
-				StreamId: StreamId,
 				Message: &pb.BatchStreamReply_Stop_{
 					Stop: &pb.BatchStreamReply_Stop{},
 				},

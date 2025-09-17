@@ -71,17 +71,15 @@ func NewQueuesHandler(shuttingDownCtx context.Context, sendWg, streamWg *sync.Wa
 func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer, done chan struct{}) error {
 	h.streamWg.Add(1)
 	defer h.streamWg.Done()
-	if err := stream.Send(newBatchStartMessage(streamId)); err != nil {
-		return err
-	}
 	// shuttingDown acts as a soft cancel here so we can send the shutting down message to the client.
 	// Once the workers are drained then h.shutdownFinished will be closed and we will shutdown completely
 	shuttingDown := h.shuttingDownCtx.Done()
+	stopping := false
 	for {
 		if readQueue, ok := h.readQueues.Get(streamId); ok {
 			select {
 			case <-ctx.Done():
-				if innerErr := stream.Send(newBatchStopMessage(streamId)); innerErr != nil {
+				if innerErr := stream.Send(newBatchStopMessage()); innerErr != nil {
 					return innerErr
 				}
 				return ctx.Err()
@@ -89,23 +87,27 @@ func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream 
 				// StreamIn has closed the done channel, we can exit gracefully since the client has hung-up
 				return nil
 			case <-shuttingDown:
-				if innerErr := stream.Send(newBatchShuttingDownMessage(streamId)); innerErr != nil {
+				if innerErr := stream.Send(newBatchShuttingDownMessage()); innerErr != nil {
 					return innerErr
 				}
 				shuttingDown = nil
 			case <-h.shutdownFinished:
-				if innerErr := stream.Send(newBatchShutdownMessage(streamId)); innerErr != nil {
+				if innerErr := stream.Send(newBatchShutdownMessage()); innerErr != nil {
 					return innerErr
 				}
 			case readObj, ok := <-readQueue:
+				if stopping {
+					continue
+				}
 				if !ok {
-					if innerErr := stream.Send(newBatchStopMessage(streamId)); innerErr != nil {
+					if innerErr := stream.Send(newBatchStopMessage()); innerErr != nil {
 						return innerErr
 					}
+					stopping = true
 					continue
 				}
 				for _, err := range readObj.Errors {
-					if innerErr := stream.Send(newBatchErrorMessage(streamId, err)); innerErr != nil {
+					if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
 						return innerErr
 					}
 				}
@@ -122,6 +124,7 @@ func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream 
 func (h *QueuesHandler) StreamRecv(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer, done chan struct{}) error {
 	h.sendWg.Add(1)
 	defer h.sendWg.Done()
+	stopping := false
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -148,6 +151,7 @@ func (h *QueuesHandler) StreamRecv(ctx context.Context, streamId string, stream 
 			}
 		} else if request.GetStop() != nil {
 			objs = append(objs, &writeObject{Stop: true})
+			stopping = true
 		} else {
 			return fmt.Errorf("invalid batch send request: neither objects, references nor stop signal provided")
 		}
@@ -155,10 +159,14 @@ func (h *QueuesHandler) StreamRecv(ctx context.Context, streamId string, stream 
 			h.logger.WithField("streamId", streamId).Error("write queue not found")
 			return fmt.Errorf("write queue for stream %s not found", streamId)
 		}
-		h.writeQueues.Write(streamId, objs)
+		if len(objs) > 0 {
+			h.writeQueues.Write(streamId, objs)
+		}
+		if stopping {
+			continue
+		}
 		batchSize, backoff := h.writeQueues.NextBatch(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues()))
 		stream.Send(&pb.BatchStreamReply{
-			StreamId: streamId,
 			Message: &pb.BatchStreamReply_Backoff_{
 				Backoff: &pb.BatchStreamReply_Backoff{
 					NextBatchSize:  batchSize,
@@ -190,45 +198,32 @@ func (h *QueuesHandler) Teardown(streamId string) {
 	h.logger.WithField("streamId", streamId).Info("teardown completed")
 }
 
-func newBatchStartMessage(streamId string) *pb.BatchStreamReply {
+func newBatchErrorMessage(err *pb.BatchStreamReply_Error) *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
-		StreamId: streamId,
-		Message: &pb.BatchStreamReply_Start_{
-			Start: &pb.BatchStreamReply_Start{},
-		},
-	}
-}
-
-func newBatchErrorMessage(streamId string, err *pb.BatchStreamReply_Error) *pb.BatchStreamReply {
-	return &pb.BatchStreamReply{
-		StreamId: streamId,
 		Message: &pb.BatchStreamReply_Error_{
 			Error: err,
 		},
 	}
 }
 
-func newBatchStopMessage(streamId string) *pb.BatchStreamReply {
+func newBatchStopMessage() *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
-		StreamId: streamId,
 		Message: &pb.BatchStreamReply_Stop_{
 			Stop: &pb.BatchStreamReply_Stop{},
 		},
 	}
 }
 
-func newBatchShutdownMessage(streamId string) *pb.BatchStreamReply {
+func newBatchShutdownMessage() *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
-		StreamId: streamId,
 		Message: &pb.BatchStreamReply_Shutdown_{
 			Shutdown: &pb.BatchStreamReply_Shutdown{},
 		},
 	}
 }
 
-func newBatchShuttingDownMessage(streamId string) *pb.BatchStreamReply {
+func newBatchShuttingDownMessage() *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
-		StreamId: streamId,
 		Message: &pb.BatchStreamReply_ShuttingDown_{
 			ShuttingDown: &pb.BatchStreamReply_ShuttingDown{},
 		},
