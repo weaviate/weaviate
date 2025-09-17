@@ -321,11 +321,11 @@ func New(cfg Config, uc ent.UserConfig,
 		if !uc.Multivector.Enabled {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.AllocChecker)
+				cfg.AllocChecker, index.id)
 		} else {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.AllocChecker)
+				cfg.AllocChecker, index.id)
 		}
 		if err != nil {
 			return nil, err

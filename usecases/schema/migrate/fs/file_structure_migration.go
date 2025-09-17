@@ -110,7 +110,7 @@ func assembleFSMigrationPlan(entries []os.DirEntry, rootPath string, fm *fileMat
 			for _, cs := range css {
 				plan.append(cs.class, cs.shard,
 					path.Join(strings.ToLower(entry.Name()), cs.shard, "compressed_objects"),
-					path.Join("lsm", helpers.VectorsCompressedBucketLSM))
+					path.Join("lsm", helpers.VectorsCompressedBucketLSMPrefix))
 			}
 
 			// explicitly rename Class directory starting with uppercase to lowercase
