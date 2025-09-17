@@ -304,6 +304,20 @@ func TestRQHandlesAbnormalVectorsGracefully(t *testing.T) {
 	assert.True(t, slices.Equal(rq.Encode(x[:outDim]), rq.Encode(x)))
 }
 
+func TestRQDifferentLengths(t *testing.T) {
+	rng := newRNG(999)
+	inputDim := 64
+	rq := compressionhelpers.NewRotationalQuantizer(inputDim, rng.Uint64(), 8, distancer.NewDotProductProvider())
+	x := randomUnitVector(inputDim, rng)
+	cx := rq.Encode(x)
+	cy := cx[:9]
+	_, err := rq.DistanceBetweenCompressedVectors(cx, cy)
+	assert.EqualError(t, err, fmt.Sprintf("vector lengths don't match: %d vs %d", len(cx), len(cy)))
+	distancer := rq.NewDistancer(x)
+	_, err = distancer.Distance(cy)
+	assert.EqualError(t, err, fmt.Sprintf("vector lengths don't match: %d vs %d", len(cy), len(cx)-compressionhelpers.RQMetadataSize)) // because distancer splits code and metadata
+}
+
 func BenchmarkRQEncode(b *testing.B) {
 	dimensions := []int{256, 1024, 1536}
 	rng := newRNG(42)
