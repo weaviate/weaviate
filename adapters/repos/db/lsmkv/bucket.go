@@ -1088,22 +1088,22 @@ func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
 // MapDeleteKey is specific to the Map Strategy. For Replace, you can use
 // [Bucket.Delete] to delete the entire row, for Sets use [Bucket.SetDeleteSingle] to delete a single set element.
 func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
 	pair := MapPair{
 		Key:       mapKey,
 		Tombstone: true,
 	}
 
-	if b.active.getStrategy() == StrategyInverted {
+	if active.getStrategy() == StrategyInverted {
 		docID := binary.BigEndian.Uint64(mapKey)
-		if err := b.active.SetTombstone(docID); err != nil {
+		if err := active.SetTombstone(docID); err != nil {
 			return err
 		}
 	}
 
-	return b.active.appendMapSorted(rowKey, pair)
+	return active.appendMapSorted(rowKey, pair)
 }
 
 // Delete removes the given row. Note that LSM stores are append only, thus

@@ -1621,7 +1621,7 @@ func newTestMemtableSet(initialData map[string][][]byte) *Memtable {
 	return m
 }
 
-func newTestMemtableMap(initialData map[string][]MapPair) *Memtable {
+func newTestMemtableMap(initialData map[string][]MapPair) *testMemtable {
 	m := &Memtable{
 		strategy:  StrategyMapCollection,
 		keyMap:    &binarySearchTreeMap{},
@@ -1635,7 +1635,7 @@ func newTestMemtableMap(initialData map[string][]MapPair) *Memtable {
 		}
 	}
 
-	return m
+	return &testMemtable{Memtable: m}
 }
 
 func flushReplaceTestMemtableIntoTestSegment(m memtable) *fakeSegment {
@@ -1668,7 +1668,7 @@ func flushSetTestMemtableIntoTestSegment(m memtable) *fakeSegment {
 }
 
 func flushMapTestMemtableIntoTestSegment(m memtable) *fakeSegment {
-	allEntries := m.(*Memtable).keyMap.flattenInOrder()
+	allEntries := m.(*testMemtable).keyMap.flattenInOrder()
 	data := map[string][]MapPair{}
 	for _, e := range allEntries {
 		data[string(e.key)] = e.values
