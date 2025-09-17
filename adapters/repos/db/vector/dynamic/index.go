@@ -271,10 +271,7 @@ func (dynamic *dynamic) getBucketName() string {
 }
 
 func (dynamic *dynamic) getCompressedBucketName() string {
-	if dynamic.targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsCompressedBucketLSM, dynamic.targetVector)
-	}
-	return helpers.VectorsCompressedBucketLSM
+	return helpers.VectorsCompressedBucketLSM(dynamic.targetVector)
 }
 
 func (dynamic *dynamic) Compressed() bool {
