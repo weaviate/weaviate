@@ -13,6 +13,7 @@ package sync
 
 import (
 	"context"
+	"fmt"
 	"sync"
 )
 
@@ -157,6 +158,9 @@ func (s *KeyLockerContext) TryLockWithContext(ID string, ctx context.Context) bo
 // Unlock unlocks a specific item by it's ID
 func (s *KeyLockerContext) Unlock(ID string) {
 	iLocks, _ := s.m.Load(ID)
+	if iLocks == nil {
+		panic(fmt.Sprintf("unlock on non-existent ID: %s", ID))
+	}
 	iLock := iLocks.(*contextMutex)
 	iLock.Unlock()
 }
@@ -172,7 +176,7 @@ type contextMutex struct {
 	ch chan struct{}
 }
 
-// newContextMutex creates a new ContextMutex.
+// newContextMutex creates a new contextMutex.
 func newContextMutex() *contextMutex {
 	return &contextMutex{
 		// Initialize the channel with a buffer size of 1.
