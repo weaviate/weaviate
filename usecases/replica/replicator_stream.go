@@ -46,7 +46,7 @@ func (r replicatorStream) readErrors(batchSize int,
 		}
 	}
 	if level > 0 && firstError == nil {
-		firstError = fmt.Errorf("broadcast: %w", ErrReplicas)
+		firstError = fmt.Errorf("commit: %w", ErrReplicas)
 	}
 	return r.flattenErrors(batchSize, urs, firstError)
 }
@@ -75,7 +75,7 @@ func (r replicatorStream) readDeletions(batchSize int,
 		}
 	}
 	if level > 0 && firstError == nil {
-		firstError = fmt.Errorf("broadcast: %w", ErrReplicas)
+		firstError = fmt.Errorf("commit: %w", ErrReplicas)
 	}
 	urs = append(urs, rs...)
 	return r.flattenDeletions(batchSize, urs, firstError)
