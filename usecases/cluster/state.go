@@ -46,6 +46,10 @@ type NodeSelector interface {
 	// This is useful for bootstrap when the join config is incomplete
 	// TODO-RAFT: shall be removed once unifying with raft package
 	AllOtherClusterMembers(port int) map[string]string
+	// Leave marks the node as leaving the cluster (still visible but shutting down)
+	Leave() error
+	// Shutdown called when leaves the cluster gracefully and shuts down the memberlist instance
+	Shutdown() error
 }
 
 type State struct {
@@ -324,6 +328,31 @@ func (s *State) AllOtherClusterMembers(port int) map[string]string {
 	}
 
 	return result
+}
+
+// Leave marks the node as leaving the cluster (still visible but shutting down)
+func (s *State) Leave() error {
+	if s.list == nil {
+		return fmt.Errorf("memberlist not initialized")
+	}
+
+	s.delegate.log.Info("marking node as gracefully leaving...")
+
+	if err := s.list.Leave(5 * time.Second); err != nil {
+		return fmt.Errorf("failed to leave memberlist: %w", err)
+	}
+
+	s.delegate.log.Info("successfully marked as leaving in memberlist")
+	return nil
+}
+
+// Shutdown called when leaves the cluster gracefully and shuts down the memberlist instance
+func (s *State) Shutdown() error {
+	if s.list == nil {
+		return fmt.Errorf("memberlist not initialized")
+	}
+
+	return s.list.Shutdown()
 }
 
 func (s *State) SchemaSyncIgnored() bool {

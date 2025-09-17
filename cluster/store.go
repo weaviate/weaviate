@@ -521,7 +521,7 @@ func (st *Store) Close(ctx context.Context) error {
 
 	// transfer leadership: it stops accepting client requests, ensures
 	// the target server is up to date and initiates the transfer
-	if st.IsLeader() {
+	if st.IsLeader() && len(st.raft.GetConfiguration().Configuration().Servers) > 1 {
 		st.log.Info("transferring leadership to another server")
 		if err := st.raft.LeadershipTransfer().Error(); err != nil {
 			st.log.WithError(err).Error("transferring leadership")
@@ -530,22 +530,35 @@ func (st *Store) Close(ctx context.Context) error {
 		}
 	}
 
-	if err := st.raft.Shutdown().Error(); err != nil {
-		return err
+	// leave memberlist first to announce node graceful departure
+	if err := st.cfg.NodeSelector.Leave(); err != nil {
+		st.log.WithError(err).Error("leave node from cluster")
 	}
-
-	st.open.Store(false)
 
 	// drain any ongoing operations
 	time.Sleep(st.cfg.DrainSleep)
 
-	st.log.Info("closing raft-net ...")
-	if err := st.raftTransport.Close(); err != nil {
-		// it's not that fatal if we weren't able to close
-		// the transport, that's why just warn
-		st.log.WithError(err).Warn("close raft-net")
+	// Shutdown memberlist after leave to clean up resources and connections
+	if err := st.cfg.NodeSelector.Shutdown(); err != nil {
+		st.log.WithError(err).Error("shutdown node from cluster")
 	}
 
+	// close transport to stop accepting new connections
+	// this prevents "transport shutdown" errors during raft shutdown
+	st.log.Info("closing raft transport ...")
+	if err := st.raftTransport.Close(); err != nil {
+		st.log.WithError(err).Warn("failed to close raft transport")
+	}
+
+	// shutdown raft after transport is closed to ensure clean termination
+	st.log.Info("shutting down raft ...")
+	if err := st.raft.Shutdown().Error(); err != nil {
+		st.log.WithError(err).Warn("raft shutdown failed")
+	}
+
+	st.open.Store(false)
+
+	// close log store after raft shutdown to persist final log entries
 	st.log.Info("closing log store ...")
 	if err := st.logStore.Close(); err != nil {
 		return fmt.Errorf("close log store: %w", err)
@@ -765,6 +778,14 @@ func (st *Store) raftConfig() *raft.Config {
 	logger := log.NewHCLogrusLogger("raft", st.log)
 	cfg.Logger = logger
 
+	st.log.WithFields(logrus.Fields{
+		"heartbeat_timeout":    cfg.HeartbeatTimeout,
+		"election_timeout":     cfg.ElectionTimeout,
+		"leader_lease_timeout": cfg.LeaderLeaseTimeout,
+		"snapshot_interval":    cfg.SnapshotInterval,
+		"snapshot_threshold":   cfg.SnapshotThreshold,
+		"trailing_logs":        cfg.TrailingLogs,
+	}).Debug("current raft config")
 	return cfg
 }
 
