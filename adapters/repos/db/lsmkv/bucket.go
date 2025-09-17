@@ -782,10 +782,10 @@ func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
 // [Bucket.Delete] to delete the entire row, for Maps use [Bucket.MapDeleteKey]
 // to delete a single map entry.
 func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
-	return b.active.append(key, []value{
+	return active.append(key, []value{
 		{
 			value:     valueToDelete,
 			tombstone: true,

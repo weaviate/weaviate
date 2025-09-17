@@ -1606,7 +1606,7 @@ func newTestMemtableRoaringSet(initialData map[string][]uint64) *testMemtable {
 	return &testMemtable{Memtable: m}
 }
 
-func newTestMemtableSet(initialData map[string][][]byte) *Memtable {
+func newTestMemtableSet(initialData map[string][][]byte) *testMemtable {
 	m := &Memtable{
 		strategy:  StrategySetCollection,
 		keyMulti:  &binarySearchTreeMulti{},
@@ -1618,7 +1618,7 @@ func newTestMemtableSet(initialData map[string][][]byte) *Memtable {
 		m.append([]byte(k), newSetEncoder().Do(v))
 	}
 
-	return m
+	return &testMemtable{Memtable: m}
 }
 
 func newTestMemtableMap(initialData map[string][]MapPair) *testMemtable {
@@ -1658,7 +1658,7 @@ func flushRoaringSetTestMemtableIntoTestSegment(m memtable) *fakeSegment {
 }
 
 func flushSetTestMemtableIntoTestSegment(m memtable) *fakeSegment {
-	allEntries := m.(*Memtable).keyMulti.flattenInOrder()
+	allEntries := m.(*testMemtable).keyMulti.flattenInOrder()
 	data := map[string][][]byte{}
 	for _, e := range allEntries {
 		values := newSetDecoder().Do(e.values)

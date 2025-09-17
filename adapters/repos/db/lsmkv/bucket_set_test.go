@@ -12,17 +12,16 @@
 package lsmkv
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestMapWritePathRefCount(t *testing.T) {
+func TestSetWritePathRefCount(t *testing.T) {
 	b := Bucket{
-		strategy: StrategyMapCollection,
+		strategy: StrategySetCollection,
 		disk:     &SegmentGroup{segments: []Segment{}},
-		active:   newTestMemtableMap(nil),
+		active:   newTestMemtableSet(nil),
 	}
 
 	expectedRefs := 0
@@ -32,32 +31,20 @@ func TestMapWritePathRefCount(t *testing.T) {
 	}
 	assertWriterRefs()
 
-	// add one
-	err := b.MapSet([]byte("key1"), MapPair{Key: []byte("k1"), Value: []byte("v1")})
-	require.NoError(t, err)
-	expectedRefs++
-	assertWriterRefs()
-
-	// add many
-	err = b.MapSetMulti([]byte("key1"), []MapPair{
-		{Key: []byte("k2"), Value: []byte("v2")},
-		{Key: []byte("k3"), Value: []byte("v3")},
-	})
+	// add
+	err := b.SetAdd([]byte("key1"), [][]byte{[]byte("v1"), []byte("v2")})
 	require.NoError(t, err)
 	expectedRefs++
 	assertWriterRefs()
 
 	// delete one
-	err = b.MapDeleteKey([]byte("key1"), []byte("k2"))
+	err = b.SetDeleteSingle([]byte("key1"), []byte("v1"))
 	require.NoError(t, err)
 	expectedRefs++
 	assertWriterRefs()
 
 	// sanity check, final state:
-	v, err := b.MapList(context.Background(), []byte("key1"))
+	v, err := b.SetList([]byte("key1"))
 	require.NoError(t, err)
-	require.Equal(t, []MapPair{
-		{Key: []byte("k1"), Value: []byte("v1")},
-		{Key: []byte("k3"), Value: []byte("v3")},
-	}, v)
+	require.Equal(t, [][]byte{[]byte("v2")}, v)
 }
