@@ -16,6 +16,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -297,4 +298,62 @@ func TestKeyRWLockerLockUnlock(t *testing.T) {
 	lock, _ = s.m.Load("t2")
 	r.False(rwMutexLocked(lock.(*sync.RWMutex)))
 	r.False(rwMutexRLocked(lock.(*sync.RWMutex)))
+}
+
+func TestContextMutex(t *testing.T) {
+	m := newContextMutex()
+	require.False(t, contextMutexLocked(m))
+	m.Lock()
+	require.True(t, contextMutexLocked(m))
+	m.Unlock()
+	require.False(t, contextMutexLocked(m))
+	m.TryLockWithContext(context.Background())
+	require.True(t, contextMutexLocked(m))
+	m.Unlock()
+	require.False(t, contextMutexLocked(m))
+}
+
+func TestContextMutexCriticalSection(t *testing.T) {
+	m := newContextMutex()
+	atomicCounter := atomic.Int64{}
+	var counter int64 = 0
+	numWorkers := 100
+	numIterations := 100000
+	numIterationsPerWorker := numIterations / numWorkers
+	wg := sync.WaitGroup{}
+	wg.Add(numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		i := i
+		go func(workerNum int) {
+			defer wg.Done()
+			workerContext, workerCancel := context.WithCancel(t.Context())
+			for j := 0; j < numIterations; j++ {
+				if j == workerNum*numIterationsPerWorker {
+					timer := time.NewTimer(time.Millisecond)
+					<-timer.C
+					workerCancel()
+					return
+				}
+				m.Lock()
+				counter++
+				m.Unlock()
+				atomicCounter.Add(1)
+
+				if m.TryLockWithContext(workerContext) {
+					counter++
+					m.Unlock()
+					atomicCounter.Add(1)
+				}
+
+				if m.TryLock() {
+					counter++
+					m.Unlock()
+					atomicCounter.Add(1)
+				}
+			}
+			workerCancel()
+		}(i)
+	}
+	wg.Wait()
+	require.Equal(t, atomicCounter.Load(), counter)
 }
