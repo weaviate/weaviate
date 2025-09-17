@@ -1590,7 +1590,7 @@ func newTestMemtableReplace(initialData map[string][]byte) *testMemtable {
 	return &testMemtable{Memtable: m}
 }
 
-func newTestMemtableRoaringSet(initialData map[string][]uint64) *Memtable {
+func newTestMemtableRoaringSet(initialData map[string][]uint64) *testMemtable {
 	m := &Memtable{
 		strategy:   StrategyRoaringSet,
 		roaringSet: &roaringset.BinarySearchTree{},
@@ -1603,7 +1603,7 @@ func newTestMemtableRoaringSet(initialData map[string][]uint64) *Memtable {
 		m.size += uint64(len(k) + len(v))
 	}
 
-	return m
+	return &testMemtable{Memtable: m}
 }
 
 func newTestMemtableSet(initialData map[string][][]byte) *Memtable {
@@ -1649,7 +1649,7 @@ func flushReplaceTestMemtableIntoTestSegment(m memtable) *fakeSegment {
 
 func flushRoaringSetTestMemtableIntoTestSegment(m memtable) *fakeSegment {
 	// NOTE: This fake pretends only additions exist, it ignores deletes
-	allEntries := m.(*Memtable).roaringSet.FlattenInOrder()
+	allEntries := m.(*testMemtable).roaringSet.FlattenInOrder()
 	data := map[string]*sroar.Bitmap{}
 	for _, e := range allEntries {
 		data[string(e.Key)] = e.Value.Additions.Clone()
