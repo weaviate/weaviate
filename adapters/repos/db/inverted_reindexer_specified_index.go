@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -42,11 +43,13 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) GetPropertiesToReindex(ctx con
 	}
 
 	for name := range shard.Store().GetBucketsByName() {
+		if strings.HasSuffix(name, helpers.VectorsCompressedBucketLSMPrefix) {
+			continue
+		}
 		// skip non prop buckets
 		switch name {
 		case helpers.ObjectsBucketLSM:
 		case helpers.VectorsBucketLSM:
-		case helpers.VectorsCompressedBucketLSM:
 		case helpers.DimensionsBucketLSM:
 			continue
 		}

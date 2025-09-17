@@ -158,6 +158,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						data.Encoders,
 						h.store,
 						h.allocChecker,
+						h.id,
 					)
 				} else {
 					h.compressor, err = compressionhelpers.RestoreHNSWPQMultiCompressor(
@@ -169,6 +170,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						data.Encoders,
 						h.store,
 						h.allocChecker,
+						h.id,
 					)
 				}
 				if err != nil {
@@ -188,6 +190,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					data.Dimensions,
 					h.store,
 					h.allocChecker,
+					h.id,
 				)
 			} else {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQMultiCompressor(
@@ -199,6 +202,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					data.Dimensions,
 					h.store,
 					h.allocChecker,
+					h.id,
 				)
 			}
 			if err != nil {
@@ -265,6 +269,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 				nil,
 				h.store,
 				h.allocChecker,
+				h.id,
 			)
 		})
 	} else {
@@ -282,6 +287,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 				nil,
 				h.store,
 				h.allocChecker,
+				h.id,
 			)
 		})
 	}
@@ -306,6 +312,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQD
 				data.Rounding,
 				h.store,
 				h.allocChecker,
+				h.id,
 			)
 		})
 	} else {
@@ -323,6 +330,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQD
 				data.Rounding,
 				h.store,
 				h.allocChecker,
+				h.id,
 			)
 		})
 	}

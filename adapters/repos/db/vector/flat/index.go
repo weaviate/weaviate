@@ -200,10 +200,7 @@ func (index *flat) getBucketName() string {
 }
 
 func (index *flat) getCompressedBucketName() string {
-	if index.targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsCompressedBucketLSM, index.targetVector)
-	}
-	return helpers.VectorsCompressedBucketLSM
+	return helpers.VectorsCompressedBucketLSM(index.targetVector)
 }
 
 func (index *flat) initBuckets(ctx context.Context, cfg Config) error {

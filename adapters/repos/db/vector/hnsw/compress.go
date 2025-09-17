@@ -79,11 +79,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewHNSWPQCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-					h.allocChecker)
+					h.allocChecker, h.id)
 			} else {
 				h.compressor, err = compressionhelpers.NewHNSWPQMultiCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-					h.allocChecker)
+					h.allocChecker, h.id)
 			}
 			if err != nil {
 				h.pqConfig.Enabled = false
@@ -94,11 +94,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewHNSWSQCompressor(
 					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-					h.allocChecker)
+					h.allocChecker, h.id)
 			} else {
 				h.compressor, err = compressionhelpers.NewHNSWSQMultiCompressor(
 					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-					h.allocChecker)
+					h.allocChecker, h.id)
 			}
 			if err != nil {
 				h.sqConfig.Enabled = false
@@ -110,10 +110,10 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		var err error
 		if singleVector {
 			h.compressor, err = compressionhelpers.NewBQCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker)
+				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.id)
 		} else {
 			h.compressor, err = compressionhelpers.NewBQMultiCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker)
+				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.id)
 		}
 		if err != nil {
 			return err
@@ -123,10 +123,10 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		h.trackRQOnce.Do(func() {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewRQCompressor(
-					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
+					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.id)
 			} else {
 				h.compressor, err = compressionhelpers.NewRQMultiCompressor(
-					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
+					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, int(h.rqConfig.Bits), int(h.dims), h.id)
 			}
 			if err == nil {
 				h.rqConfig.RescoreLimit = cfg.RQ.RescoreLimit
