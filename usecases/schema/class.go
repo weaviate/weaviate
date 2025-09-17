@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
-	cschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -293,29 +292,23 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	for _, alias := range aliases {
-		var err error
-		_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
-		if errors.Is(err, cschema.ErrAliasExists) {
-			// Overwrite if user asks to during restore
-			if overwriteAlias {
-				_, err = h.schemaManager.DeleteAlias(ctx, alias.Alias)
-				if err != nil {
-					return fmt.Errorf("failed to restore alias for class: delete alias failed: %w", err)
-				}
-				// retry again
-				_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
-				if err != nil {
-					return fmt.Errorf("failed to restore alias for class: create alias failed: %w", err)
-				}
-				return nil
-			}
-			// Schema returned alias already exists error. So let user know
-			// that there is a "flag overwrite" if she want's to overwrite alias.
-			return fmt.Errorf("failed to restore alias for class: alias already exists. You can overwrite using `overwrite_alias` param when restoring")
+		resolved := h.schemaReader.ResolveAlias(alias.Alias)
+
+		// Alias do exist and don't want to overwrite
+		if resolved != "" && !overwriteAlias {
+			continue
 		}
 
+		if resolved != "" {
+			_, err := h.schemaManager.DeleteAlias(ctx, alias.Alias)
+			if err != nil {
+				return fmt.Errorf("failed to restore alias for class: delete alias %s failed: %w", alias.Alias, err)
+			}
+		}
+
+		_, err := h.schemaManager.CreateAlias(ctx, alias.Alias, class)
 		if err != nil {
-			return fmt.Errorf("failed to restore alias for class: %w", err)
+			return fmt.Errorf("failed to restore alias for class: create alias %s failed: %w", alias.Alias, err)
 		}
 	}
 
