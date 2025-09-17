@@ -1118,21 +1118,21 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 // [Bucket.MapDeleteKey] to delete a single key-value pair, for Sets use
 // [Bucket.SetDeleteSingle] to delete a single set element.
 func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
-	return b.active.setTombstone(key, opts...)
+	return active.setTombstone(key, opts...)
 }
 
 func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) error {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
 	if !b.keepTombstones {
 		return fmt.Errorf("bucket requires option `keepTombstones` set to delete keys at a given timestamp")
 	}
 
-	return b.active.setTombstoneWith(key, deletionTime, opts...)
+	return active.setTombstoneWith(key, deletionTime, opts...)
 }
 
 func (b *Bucket) createNewActiveMemtable() (memtable, error) {

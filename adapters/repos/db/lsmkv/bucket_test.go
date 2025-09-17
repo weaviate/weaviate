@@ -1560,6 +1560,18 @@ func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
 
 type testMemtable struct {
 	*Memtable
+	totalWriteCountIncs int
+	totalWriteCountDecs int
+}
+
+func (t *testMemtable) incWriterCount() {
+	t.totalWriteCountIncs++
+	t.Memtable.incWriterCount()
+}
+
+func (t *testMemtable) decWriterCount() {
+	t.totalWriteCountDecs++
+	t.Memtable.decWriterCount()
 }
 
 func newTestMemtableReplace(initialData map[string][]byte) *testMemtable {
