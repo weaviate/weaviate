@@ -67,9 +67,14 @@ func newIOPSMonitor(logger logrus.FieldLogger) IOPSMonitor {
 		device = v
 		_, exists := stats[device]
 		if !exists {
+			devices := make([]string, 0, len(stats))
+			for k := range stats {
+				devices = append(devices, k)
+			}
+
 			logger.WithFields(logrus.Fields{
 				"component": component,
-			}).Warnf("Could not find device %q, IOPS monitoring disabled", device)
+			}).Warnf("Could not find device %q, IOPS monitoring disabled. Available devices are %v", device, devices)
 			return IOPSMonitor{enabled: false}
 		}
 	} else {
@@ -127,6 +132,10 @@ func (m *IOPSMonitor) obtainCurrentIOPS() {
 }
 
 func (m *IOPSMonitor) IOPSOverloaded(level float64) error {
+	if !m.enabled {
+		return nil
+	}
+
 	if m.IOPSQueue.average/m.maxIOPS > level {
 		return fmt.Errorf("IOPS overloaded: current %.2f, max %.2f", m.IOPSQueue.average, m.maxIOPS)
 	}
