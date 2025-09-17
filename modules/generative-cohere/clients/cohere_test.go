@@ -46,19 +46,29 @@ func TestGetAnswer(t *testing.T) {
 		{
 			name: "when the server has a successful aner",
 			answer: generateResponse{
-				Text: "John",
+				Message: responseMessage{
+					Content: []responseContent{
+						{Text: "John"},
+					},
+				},
 			},
 			expectedResult: "John",
 		},
 		{
 			name: "when the server has a an error",
 			answer: generateResponse{
-				Message: "some error from the server",
+				Message: responseMessage{
+					ErrorMessage: "some error from the server",
+				},
 			},
 		},
 		{
-			name:    "when the server does not respond in time",
-			answer:  generateResponse{Message: "context deadline exceeded"},
+			name: "when the server does not respond in time",
+			answer: generateResponse{
+				Message: responseMessage{
+					ErrorMessage: "context deadline exceeded",
+				},
+			},
 			timeout: time.Second,
 		},
 	}
@@ -77,8 +87,8 @@ func TestGetAnswer(t *testing.T) {
 			cfg := &fakeClassConfig{baseURL: server.URL}
 			res, err := c.GenerateAllResults(context.Background(), props, "What is my name?", nil, false, cfg)
 
-			if test.answer.Message != "" {
-				assert.Contains(t, err.Error(), test.answer.Message)
+			if test.answer.Message.ErrorMessage != "" {
+				assert.Contains(t, err.Error(), test.answer.Message.GetMessage())
 			} else {
 				assert.Equal(t, test.expectedResult, *res.Result)
 			}
@@ -94,11 +104,30 @@ func TestGetAnswer(t *testing.T) {
 
 		buildURL, err := c.getCohereUrl(ctxWithValue, baseURL)
 		require.NoError(t, err)
-		assert.Equal(t, "http://base-url-passed-in-header.com/v1/chat", buildURL)
+		assert.Equal(t, "http://base-url-passed-in-header.com/v2/chat", buildURL)
 
 		buildURL, err = c.getCohereUrl(context.TODO(), baseURL)
 		require.NoError(t, err)
-		assert.Equal(t, "http://default-url.com/v1/chat", buildURL)
+		assert.Equal(t, "http://default-url.com/v2/chat", buildURL)
+	})
+
+	t.Run("unmarshal error messages", func(t *testing.T) {
+		// Error message
+		var resp generateResponse
+		jsonStr := `{"id":"456","message":"invalid key"}`
+		err := json.Unmarshal([]byte(jsonStr), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, "invalid key", resp.Message.ErrorMessage)
+		assert.Empty(t, resp.Message.Content)
+		assert.Equal(t, "invalid key", resp.Message.GetMessage())
+
+		jsonStr = `{"id":"123","message":[{"role":"assistant","content":{"text":"Hello"}}]}`
+		err = json.Unmarshal([]byte(jsonStr), &resp)
+		require.NoError(t, err)
+		assert.Empty(t, resp.Message.ErrorMessage)
+		require.Len(t, resp.Message.Content, 1)
+		assert.Equal(t, "Hello", resp.Message.Content[0].Text)
+		assert.Equal(t, "Hello", resp.Message.GetMessage())
 	})
 }
 
@@ -110,12 +139,12 @@ type testAnswerHandler struct {
 }
 
 func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	assert.Equal(f.t, "/v1/chat", r.URL.String())
+	assert.Equal(f.t, "/v2/chat", r.URL.String())
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	time.Sleep(f.timeout)
 
-	if f.answer.Message != "" {
+	if f.answer.Message.ErrorMessage != "" {
 		outBytes, err := json.Marshal(f.answer)
 		require.Nil(f.t, err)
 
@@ -128,7 +157,7 @@ func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	require.Nil(f.t, err)
 	defer r.Body.Close()
 
-	var b map[string]interface{}
+	var b map[string]any
 	require.Nil(f.t, json.Unmarshal(bodyBytes, &b))
 
 	outBytes, err := json.Marshal(f.answer)
@@ -145,18 +174,18 @@ func (cfg *fakeClassConfig) Tenant() string {
 	return ""
 }
 
-func (cfg *fakeClassConfig) Class() map[string]interface{} {
+func (cfg *fakeClassConfig) Class() map[string]any {
 	return nil
 }
 
-func (cfg *fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
-	settings := map[string]interface{}{
+func (cfg *fakeClassConfig) ClassByModuleName(moduleName string) map[string]any {
+	settings := map[string]any{
 		"baseURL": cfg.baseURL,
 	}
 	return settings
 }
 
-func (cfg *fakeClassConfig) Property(propName string) map[string]interface{} {
+func (cfg *fakeClassConfig) Property(propName string) map[string]any {
 	return nil
 }
 
