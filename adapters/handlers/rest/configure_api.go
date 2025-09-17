@@ -1673,13 +1673,15 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
-			KeepAlive: 120 * time.Second,
+			KeepAlive: 60 * time.Second,
 		}).DialContext,
 		MaxIdleConnsPerHost:   100,
-		MaxIdleConns:          100,
+		MaxIdleConns:          200,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		ForceAttemptHTTP2:     true,
 	}
 
 	if authConfig.BasicAuth.Enabled() {
