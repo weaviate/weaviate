@@ -97,7 +97,7 @@ func TestRoaringSetCursorConsistentView(t *testing.T) {
 		"key1": bitmapFromSlice([]uint64{1}),
 		"key2": bitmapFromSlice([]uint64{2}),
 	})
-	newSegmentReplacer(b.disk, 0, 1, segAB).switchInMemory(b.disk.segments[0], b.disk.segments[1])
+	newSegmentReplacer(b.disk, 0, 1, segAB).switchInMemory()
 
 	//    compaction #2: (A+B) + C  => ABC
 	segABC := newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
@@ -105,7 +105,7 @@ func TestRoaringSetCursorConsistentView(t *testing.T) {
 		"key2": bitmapFromSlice([]uint64{2}),
 		"key3": bitmapFromSlice([]uint64{3}),
 	})
-	newSegmentReplacer(b.disk, 0, 1, segABC).switchInMemory(b.disk.segments[0], b.disk.segments[1])
+	newSegmentReplacer(b.disk, 0, 1, segABC).switchInMemory()
 
 	// Cursor still sees only key1..key3
 	validateOriginalCursorView(t, cur)

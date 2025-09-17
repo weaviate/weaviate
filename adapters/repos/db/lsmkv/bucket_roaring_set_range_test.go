@@ -103,7 +103,7 @@ func TestRoaringSetRangeReaderConsistentView(t *testing.T) {
 		key1: roaringset.NewBitmap(1),
 		key2: roaringset.NewBitmap(2),
 	}, sroar.NewBitmap())
-	newSegmentReplacer(b.disk, 0, 1, segAB).switchInMemory(b.disk.segments[0], b.disk.segments[1])
+	newSegmentReplacer(b.disk, 0, 1, segAB).switchInMemory()
 
 	//    compaction #2: (A+B) + C  => ABC
 	segABC := newFakeRoaringSetRangeSegment(map[uint64]*sroar.Bitmap{
@@ -111,7 +111,7 @@ func TestRoaringSetRangeReaderConsistentView(t *testing.T) {
 		key2: roaringset.NewBitmap(2),
 		key3: roaringset.NewBitmap(3),
 	}, sroar.NewBitmap())
-	newSegmentReplacer(b.disk, 0, 1, segABC).switchInMemory(b.disk.segments[0], b.disk.segments[1])
+	newSegmentReplacer(b.disk, 0, 1, segABC).switchInMemory()
 
 	// Cursor still sees only key1..key3
 	validateOriginalReader(t)

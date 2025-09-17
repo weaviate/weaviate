@@ -139,7 +139,7 @@ func TestSetCursorConsistentView(t *testing.T) {
 		"key1": {[]byte("value1")},
 		"key2": {[]byte("value2")},
 	})
-	newSegmentReplacer(b.disk, 0, 1, segAB).switchInMemory(b.disk.segments[0], b.disk.segments[1])
+	newSegmentReplacer(b.disk, 0, 1, segAB).switchInMemory()
 
 	//    compaction #2: (A+B) + C  => ABC
 	segABC := newFakeSetSegment(map[string][][]byte{
@@ -147,7 +147,7 @@ func TestSetCursorConsistentView(t *testing.T) {
 		"key2": {[]byte("value2")},
 		"key3": {[]byte("value3")},
 	})
-	newSegmentReplacer(b.disk, 0, 1, segABC).switchInMemory(b.disk.segments[0], b.disk.segments[1])
+	newSegmentReplacer(b.disk, 0, 1, segABC).switchInMemory()
 
 	// Cursor still sees only key1..key3
 	validateOriginalCursorView(t, cur)

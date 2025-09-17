@@ -102,7 +102,7 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 		"key2": []byte("value2"),
 	})
 
-	newSegmentReplacer(sg, 0, 1, segAB).switchInMemory(segA, segB)
+	newSegmentReplacer(sg, 0, 1, segAB).switchInMemory()
 	require.Equal(t, []Segment{segAB}, sg.segments)
 
 	// prove that our consistent view still works
@@ -197,7 +197,7 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 	})
 
 	// perform in-memory switch (like compaction)
-	newSegmentReplacer(sg, 0, 1, segAB).switchInMemory(segA, segB)
+	newSegmentReplacer(sg, 0, 1, segAB).switchInMemory()
 	require.Equal(t, []Segment{segAB}, sg.segments, "segment list should contain only the compacted segment")
 
 	// prove that the old consistent view is still valid (reads must not be affected)
@@ -320,7 +320,7 @@ func TestSegmentGroup_RoaringSetRange_ConsistentViewAcrossSegmentSwitch(t *testi
 	}, sroar.NewBitmap())
 
 	// perform in-memory switch (like compaction)
-	newSegmentReplacer(sg, 0, 1, segAB).switchInMemory(segA, segB)
+	newSegmentReplacer(sg, 0, 1, segAB).switchInMemory()
 	require.Equal(t, []Segment{segAB}, sg.segments, "segment list should contain only the compacted segment")
 
 	// prove that the old consistent view is still valid (reads must not be affected)
@@ -424,7 +424,7 @@ func TestSegmentGroup_Set_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	})
 
 	// perform in-memory switch
-	newSegmentReplacer(sg, 0, 1, segAB).switchInMemory(segA, segB)
+	newSegmentReplacer(sg, 0, 1, segAB).switchInMemory()
 	require.Equal(t, []Segment{segAB}, sg.segments, "segment list should now be the compacted one")
 
 	// prove the old view still works (must not require segAB)
@@ -543,7 +543,7 @@ func TestSegmentGroup_Map_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	})
 
 	// perform in-memory switch
-	newSegmentReplacer(sg, 0, 1, segAB).switchInMemory(segA, segB)
+	newSegmentReplacer(sg, 0, 1, segAB).switchInMemory()
 	require.Equal(t, []Segment{segAB}, sg.segments, "segment list should now be the compacted one")
 
 	// prove the old view still works (must not require segAB)

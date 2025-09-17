@@ -144,7 +144,7 @@ func TestMapCursorConsistentView(t *testing.T) {
 		"key1": {{Key: []byte("dk1"), Value: []byte("dv1")}},
 		"key2": {{Key: []byte("dk2"), Value: []byte("dv2")}},
 	})
-	newSegmentReplacer(b.disk, 0, 1, segAB).switchInMemory(b.disk.segments[0], b.disk.segments[1])
+	newSegmentReplacer(b.disk, 0, 1, segAB).switchInMemory()
 
 	//    compaction #2: (A+B) + C  => ABC
 	segABC := newFakeMapSegment(map[string][]MapPair{
@@ -152,7 +152,7 @@ func TestMapCursorConsistentView(t *testing.T) {
 		"key2": {{Key: []byte("dk2"), Value: []byte("dv2")}},
 		"key3": {{Key: []byte("ak1"), Value: []byte("av1")}},
 	})
-	newSegmentReplacer(b.disk, 0, 1, segABC).switchInMemory(b.disk.segments[0], b.disk.segments[1])
+	newSegmentReplacer(b.disk, 0, 1, segABC).switchInMemory()
 
 	// Cursor still sees only key1..key3
 	validateOriginalCursorView(t, cur)

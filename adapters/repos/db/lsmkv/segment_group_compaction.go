@@ -383,7 +383,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		return false, errors.Wrap(err, "close compacted segment file")
 	}
 
-	newSegment, err := sg.preinitializeNewSegment(pair[0], pair[1], path)
+	newSegment, err := sg.preinitializeNewSegment(path, pair[0], pair[1])
 	if err != nil {
 		return false, errors.Wrap(err, "preinitialize new segment")
 	}
@@ -394,7 +394,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		return false, fmt.Errorf("replace compacted segments on disk: %w", err)
 	}
 
-	if err := replacer.switchInMemory(oldL, oldR); err != nil {
+	if err := replacer.switchInMemory(); err != nil {
 		return false, fmt.Errorf("replace compacted segments (blocking): %w", err)
 	}
 
@@ -425,12 +425,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	return true, nil
 }
 
-func (sg *SegmentGroup) preinitializeNewSegment(old1, old2 int, newPathTmp string) (*segment, error) {
-	sg.maintenanceLock.RLock()
-	updatedCountNetAdditions := sg.segments[old1].getSegment().getCountNetAdditions() +
-		sg.segments[old2].getSegment().getCountNetAdditions()
-	sg.maintenanceLock.RUnlock()
-
+func (sg *SegmentGroup) preinitializeNewSegment(newPathTmp string, oldPos ...int) (*segment, error) {
 	// WIP: we could add a random suffix to the tmp file to avoid conflicts
 
 	// as a guardrail validate that the segment is considered a .tmp segment.
@@ -438,6 +433,18 @@ func (sg *SegmentGroup) preinitializeNewSegment(old1, old2 int, newPathTmp strin
 	// segment as the segment group completely ignores .tmp segment files
 	if !strings.HasSuffix(newPathTmp, ".tmp") {
 		return nil, fmt.Errorf("pre computing a segment expects a .tmp segment path")
+	}
+
+	updatedCountNetAdditions := 0
+	if len(oldPos) > 0 {
+		func() {
+			sg.maintenanceLock.RLock()
+			defer sg.maintenanceLock.RUnlock()
+
+			for i := range oldPos {
+				updatedCountNetAdditions += sg.segments[oldPos[i]].getSegment().getCountNetAdditions()
+			}
+		}()
 	}
 
 	seg, err := newSegment(newPathTmp, sg.logger, sg.metrics, nil,
@@ -526,22 +533,6 @@ func (sg *SegmentGroup) deleteOldSegmentsFromDisk(segments ...Segment) error {
 	}
 
 	return nil
-}
-
-func (sg *SegmentGroup) stripTmpExtension(oldPath, left, right string) (string, error) {
-	ext := filepath.Ext(oldPath)
-	if ext != ".tmp" {
-		return "", errors.Errorf("segment %q did not have .tmp extension", oldPath)
-	}
-	newPath := oldPath[:len(oldPath)-len(ext)]
-
-	newPath = strings.ReplaceAll(newPath, fmt.Sprintf("%s_%s", left, right), right)
-
-	if err := os.Rename(oldPath, newPath); err != nil {
-		return "", errors.Wrapf(err, "rename %q -> %q", oldPath, newPath)
-	}
-
-	return newPath, nil
 }
 
 func (sg *SegmentGroup) monitorSegments() {

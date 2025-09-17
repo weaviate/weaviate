@@ -17,14 +17,10 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
-
-	"github.com/pkg/errors"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/diskio"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -573,110 +569,45 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyE
 	}
 }
 
-// TODO: should be broken right now, needs adjustment similar to regular compaction
-func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
+func (sg *SegmentGroup) replaceSegment(segmentPos int, tmpSegmentPath string,
 ) (*segment, error) {
-	oldSegment := sg.segmentAtPos(segmentIdx)
-	countNetAdditions := oldSegment.countNetAdditions
-
-	// as a guardrail validate that the segment is considered a .tmp segment.
-	// This way we can be sure that we're not accidentally operating on a live
-	// segment as the segment group completely ignores .tmp segment files
-	if !strings.HasSuffix(tmpSegmentPath, ".tmp") {
-		return nil, fmt.Errorf("pre computing a segment expects a .tmp segment path")
-	}
-
-	seg, err := newSegment(tmpSegmentPath, sg.logger, sg.metrics, nil,
-		segmentConfig{
-			mmapContents:                 sg.mmapContents,
-			useBloomFilter:               sg.useBloomFilter,
-			calcCountNetAdditions:        sg.calcCountNetAdditions,
-			overwriteDerived:             true,
-			enableChecksumValidation:     sg.enableChecksumValidation,
-			MinMMapSize:                  sg.MinMMapSize,
-			allocChecker:                 sg.allocChecker,
-			precomputedCountNetAdditions: &countNetAdditions,
-			writeMetadata:                sg.writeMetadata,
-		})
+	newSegment, err := sg.preinitializeNewSegment(tmpSegmentPath, segmentPos)
 	if err != nil {
 		return nil, fmt.Errorf("precompute segment meta: %w", err)
 	}
 
-	newSegment, err := sg.replaceSegmentBlocking(segmentIdx, oldSegment, seg)
+	replacer := newSegmentReplacer(sg, segmentPos, segmentPos, newSegment)
+	_, oldSegment, err := replacer.switchOnDisk()
 	if err != nil {
-		return nil, fmt.Errorf("replace segment (blocking): %w", err)
+		return nil, fmt.Errorf("replace cleaned segment on disk: %w", err)
 	}
 
+	if err := replacer.switchInMemory(); err != nil {
+		return nil, fmt.Errorf("replace cleaned segment (blocking): %w", err)
+	}
+
+	// NOTE: The delete logic will wait for the ref count to reach zero, to
+	// ensure we are not deleting any segments that are still being referenced,
+	// e.g. from cursor or other "slow" readers.
+	//
+	// The whole compaction cycle is single-threaded, so waiting for a delete,
+	// also means we are essentially delaying the next compaction. That is not
+	// ideal and also not strictly necessary. We could extract the delete logic
+	// into a simple job queue that runs in a separate goroutine.
+	//
+	// However, https://github.com/weaviate/weaviate/pull/9104, where
+	// ref-counting is introduced, is already a significant change at the point
+	// of writing this comment. Thus, to minimize further risks, we keep the
+	// existing logic for now.
 	if err := sg.deleteOldSegmentsFromDisk(oldSegment); err != nil {
 		// don't abort if the delete fails, we can still continue (albeit
 		// without freeing disk space that should have been freed). The
 		// compaction itself was successful.
 		sg.logger.WithError(err).WithFields(logrus.Fields{
-			"action": "lsm_replace_segments_delete_file",
+			"action": "lsm_replace_cleaned_segment_delete_file",
 			"file":   oldSegment.path,
 		}).Error("failed to delete file already marked for deletion")
 	}
 
 	return newSegment, nil
-}
-
-func (sg *SegmentGroup) replaceSegmentBlocking(
-	segmentIdx int, oldSegment *segment, newSegment *segment,
-) (*segment, error) {
-	sg.maintenanceLock.Lock()
-	defer sg.maintenanceLock.Unlock()
-
-	start := time.Now()
-
-	if err := oldSegment.close(); err != nil {
-		return nil, fmt.Errorf("close disk segment %q: %w", oldSegment.path, err)
-	}
-	if err := oldSegment.markForDeletion(); err != nil {
-		return nil, fmt.Errorf("drop disk segment %q: %w", oldSegment.path, err)
-	}
-	if err := diskio.Fsync(sg.dir); err != nil {
-		return nil, fmt.Errorf("fsync segment directory %q: %w", sg.dir, err)
-	}
-
-	segmentId := segmentID(oldSegment.path)
-	newPath, err := sg.stripTmpExtension(newSegment.path, segmentId, segmentId)
-	if err != nil {
-		return nil, errors.Wrap(err, "strip .tmp extension of new segment")
-	}
-	newSegment.path = newPath
-
-	// the old segment have been deleted, we can now safely remove the .tmp
-	// extension from the new segment itself and the pre-computed files
-	for i, tmpPath := range newSegment.metaPaths {
-		path, err := sg.stripTmpExtension(tmpPath, segmentId, segmentId)
-		if err != nil {
-			return nil, fmt.Errorf("strip .tmp extension of new segment %q: %w", tmpPath, err)
-		}
-		newSegment.metaPaths[i] = path
-	}
-
-	sg.segments[segmentIdx] = newSegment
-
-	sg.observeReplaceDuration(start, segmentIdx, oldSegment, newSegment)
-	return newSegment, nil
-}
-
-func (sg *SegmentGroup) observeReplaceDuration(
-	start time.Time, segmentIdx int, oldSegment, newSegment *segment,
-) {
-	// observe duration - warn if it took too long
-	took := time.Since(start)
-	fields := sg.logger.WithFields(logrus.Fields{
-		"action":        "lsm_replace_segment_blocking",
-		"segment_index": segmentIdx,
-		"path_old":      oldSegment.path,
-		"path_new":      newSegment.path,
-		"took":          took,
-	})
-	msg := fmt.Sprintf("replacing segment took %s", took)
-	if took > replaceSegmentWarnThreshold {
-		fields.Warn(msg)
-	} else {
-		fields.Debug(msg)
-	}
 }

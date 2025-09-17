@@ -125,13 +125,13 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 		"key1": []byte("value1"),
 		"key2": []byte("value2"),
 	})
-	newSegmentReplacer(b.disk, 0, 1, segAB).switchInMemory(b.disk.segments[0], b.disk.segments[1])
+	newSegmentReplacer(b.disk, 0, 1, segAB).switchInMemory()
 	segABC := newFakeReplaceSegment(map[string][]byte{
 		"key1": []byte("value1"),
 		"key2": []byte("value2"),
 		"key3": []byte("value3"),
 	})
-	newSegmentReplacer(b.disk, 0, 1, segABC).switchInMemory(b.disk.segments[0], b.disk.segments[1])
+	newSegmentReplacer(b.disk, 0, 1, segABC).switchInMemory()
 
 	// final validation
 	validateOriginalCursorView(t, cursor, diskCursor)
