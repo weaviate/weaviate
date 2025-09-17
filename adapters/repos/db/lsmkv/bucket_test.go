@@ -805,7 +805,7 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	validateOriginalView(view)
 
 	// prove that we can switch memtables despite having an open consistent view
-	switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
 		return newTestMemtableReplace(map[string][]byte{
 			"key3": []byte("value3"),
 		}), nil
@@ -899,7 +899,7 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 	go func() {
 		// switch memtable into flushing and add new. This also proves that we can
 		// switch memtables despite having an active writer.
-		switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
 			return newTestMemtableReplace(nil), nil
 		})
 		require.NoError(t, err)
@@ -987,7 +987,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 	validateOriginalView(view)
 
 	// prove that we can switch memtables despite having an open consistent view
-	switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
 		return newTestMemtableRoaringSet(map[string][]uint64{
 			"key1": {3},
 		}), nil
@@ -1065,7 +1065,7 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 	flushComplete := make(chan struct{})
 	go func() {
 		// Switch active -> flushing, new empty active installed
-		switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
 			return newTestMemtableRoaringSet(nil), nil
 		})
 		require.NoError(t, err)
@@ -1148,7 +1148,7 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 	validateView1(view1)
 
 	// Switch: move active->flushing (key2), new active with key3 -> {"a3"}
-	switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
 		return newTestMemtableSet(map[string][][]byte{
 			"key3": {[]byte("a3")},
 		}), nil
@@ -1224,7 +1224,7 @@ func TestBucketSetStrategyWriteVsFlush(t *testing.T) {
 	flushDone := make(chan struct{})
 
 	go func() {
-		switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
 			return newTestMemtableSet(nil), nil
 		})
 		require.NoError(t, err)
@@ -1309,7 +1309,7 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 	validateView1(view1)
 
 	// Switch: move active->flushing (key2), new active with key3 -> {"a3"}
-	switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
 		return newTestMemtableMap(map[string][]MapPair{
 			"key3": {{Key: []byte("ak2"), Value: []byte("av2")}},
 		}), nil
@@ -1428,7 +1428,7 @@ func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
 	validateView1(view1)
 
 	// Switch: move active->flushing (key2), new active with key3 -> {"a3"}
-	switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
 		return newTestMemtableMap(map[string][]MapPair{
 			"key3": {mapFromDocPointers(2, 0.6, 2)},
 		}), nil
@@ -1516,7 +1516,7 @@ func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
 	flushDone := make(chan struct{})
 
 	go func() {
-		switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
 			return newTestMemtableMap(nil), nil
 		})
 		require.NoError(t, err)
@@ -1558,7 +1558,11 @@ func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
 	}, got)
 }
 
-func newTestMemtableReplace(initialData map[string][]byte) *Memtable {
+type testMemtable struct {
+	*Memtable
+}
+
+func newTestMemtableReplace(initialData map[string][]byte) *testMemtable {
 	m := &Memtable{
 		strategy:  StrategyReplace,
 		key:       &binarySearchTree{},
@@ -1571,7 +1575,7 @@ func newTestMemtableReplace(initialData map[string][]byte) *Memtable {
 		m.size += uint64(len(k) + len(v))
 	}
 
-	return m
+	return &testMemtable{Memtable: m}
 }
 
 func newTestMemtableRoaringSet(initialData map[string][]uint64) *Memtable {
@@ -1623,7 +1627,7 @@ func newTestMemtableMap(initialData map[string][]MapPair) *Memtable {
 }
 
 func flushReplaceTestMemtableIntoTestSegment(m memtable) *fakeSegment {
-	allEntries := m.(*Memtable).key.flattenInOrder()
+	allEntries := m.(*testMemtable).key.flattenInOrder()
 	data := map[string][]byte{}
 	for _, e := range allEntries {
 		data[string(e.key)] = e.value

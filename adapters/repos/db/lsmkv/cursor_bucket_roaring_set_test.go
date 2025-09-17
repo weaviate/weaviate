@@ -68,7 +68,7 @@ func TestRoaringSetCursorConsistentView(t *testing.T) {
 	validateOriginalCursorView(t, cur)
 
 	// 2) Switch memtables (new empty active, old active -> flushing)
-	switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
 		return newTestMemtableRoaringSet(nil), nil
 	})
 	require.NoError(t, err)

@@ -96,7 +96,7 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 	validateOriginalCursorView(t, cursor, diskCursor)
 
 	// switch memtables while the cursor is open
-	switched, err := b.atomicallySwitchMemtable(func() (*Memtable, error) {
+	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
 		return newTestMemtableReplace(nil), nil
 	})
 	require.NoError(t, err)

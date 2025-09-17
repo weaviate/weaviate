@@ -1135,7 +1135,7 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 	return b.active.setTombstoneWith(key, deletionTime, opts...)
 }
 
-func (b *Bucket) createNewActiveMemtable() (*Memtable, error) {
+func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
 
 	cl, err := newLazyCommitLogger(path, b.strategy)
@@ -1515,7 +1515,7 @@ func (b *Bucket) FlushAndSwitch() error {
 // memtable to flushing while holding the flush lock. This makes the change atomic.
 // This method is agnostic of how a new memtable is constructed, the caller can
 // dependency-inject a function to do so.
-func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (*Memtable, error)) (bool, error) {
+func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (memtable, error)) (bool, error) {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 
