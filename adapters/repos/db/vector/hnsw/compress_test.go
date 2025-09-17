@@ -246,6 +246,13 @@ func Test_NoRaceCompressNamedVectorsDoNotMessEachOther(t *testing.T) {
 	control2, _, err := index2.SearchByVector(t.Context(), queries2[0], 10, nil)
 	assert.Nil(t, err)
 
+	sample1, _, err := index1.SearchByVector(t.Context(), queries1[0], 10, nil)
+	assert.Nil(t, err)
+	sample2, _, err := index2.SearchByVector(t.Context(), queries2[0], 10, nil)
+	assert.Nil(t, err)
+	assert.ElementsMatch(t, control1, sample1)
+	assert.ElementsMatch(t, control2, sample2)
+
 	assert.Nil(t, index1.Flush())
 	assert.Nil(t, index2.Flush())
 	assert.Nil(t, index1.Shutdown(context.Background()))
@@ -257,9 +264,9 @@ func Test_NoRaceCompressNamedVectorsDoNotMessEachOther(t *testing.T) {
 	index1.PostStartup()
 	index2.PostStartup()
 
-	sample1, _, err := index1.SearchByVector(t.Context(), queries1[0], 10, nil)
+	sample1, _, err = index1.SearchByVector(t.Context(), queries1[0], 10, nil)
 	assert.Nil(t, err)
-	sample2, _, err := index2.SearchByVector(t.Context(), queries2[0], 10, nil)
+	sample2, _, err = index2.SearchByVector(t.Context(), queries2[0], 10, nil)
 	assert.Nil(t, err)
 	assert.ElementsMatch(t, control1, sample1)
 	assert.ElementsMatch(t, control2, sample2)
