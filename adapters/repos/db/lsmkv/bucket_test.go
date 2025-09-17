@@ -790,7 +790,7 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	// controls before making changes
 	validateOriginalView := func(view BucketConsistentView) {
 		// active
-		v, err := view.Active.key.get([]byte("key2"))
+		v, err := view.Active.get([]byte("key2"))
 		require.NoError(t, err)
 		require.Equal(t, []byte("value2"), v)
 
@@ -821,12 +821,12 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	defer view2.Release()
 	validateSecondView := func(view BucketConsistentView) {
 		require.NotNil(t, view.Active)
-		v, err := view.Active.key.get([]byte("key3"))
+		v, err := view.Active.get([]byte("key3"))
 		require.NoError(t, err)
 		require.Equal(t, []byte("value3"), v)
 
 		require.NotNil(t, view.Flushing)
-		v, err = view.Flushing.key.get([]byte("key2"))
+		v, err = view.Flushing.get([]byte("key2"))
 		require.NoError(t, err)
 		require.Equal(t, []byte("value2"), v)
 
@@ -848,7 +848,7 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	defer view3.Release()
 
 	require.NotNil(t, view3.Active)
-	v, err := view3.Active.key.get([]byte("key3"))
+	v, err := view3.Active.get([]byte("key3"))
 	require.NoError(t, err)
 	require.Equal(t, []byte("value3"), v)
 
@@ -1622,8 +1622,8 @@ func newTestMemtableMap(initialData map[string][]MapPair) *Memtable {
 	return m
 }
 
-func flushReplaceTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
-	allEntries := m.key.flattenInOrder()
+func flushReplaceTestMemtableIntoTestSegment(m memtable) *fakeSegment {
+	allEntries := m.(*Memtable).key.flattenInOrder()
 	data := map[string][]byte{}
 	for _, e := range allEntries {
 		data[string(e.key)] = e.value
@@ -1631,9 +1631,9 @@ func flushReplaceTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
 	return newFakeReplaceSegment(data)
 }
 
-func flushRoaringSetTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
+func flushRoaringSetTestMemtableIntoTestSegment(m memtable) *fakeSegment {
 	// NOTE: This fake pretends only additions exist, it ignores deletes
-	allEntries := m.roaringSet.FlattenInOrder()
+	allEntries := m.(*Memtable).roaringSet.FlattenInOrder()
 	data := map[string]*sroar.Bitmap{}
 	for _, e := range allEntries {
 		data[string(e.Key)] = e.Value.Additions.Clone()
@@ -1641,8 +1641,8 @@ func flushRoaringSetTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
 	return newFakeRoaringSetSegment(data)
 }
 
-func flushSetTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
-	allEntries := m.keyMulti.flattenInOrder()
+func flushSetTestMemtableIntoTestSegment(m memtable) *fakeSegment {
+	allEntries := m.(*Memtable).keyMulti.flattenInOrder()
 	data := map[string][][]byte{}
 	for _, e := range allEntries {
 		values := newSetDecoder().Do(e.values)
@@ -1651,8 +1651,8 @@ func flushSetTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
 	return newFakeSetSegment(data)
 }
 
-func flushMapTestMemtableIntoTestSegment(m *Memtable) *fakeSegment {
-	allEntries := m.keyMap.flattenInOrder()
+func flushMapTestMemtableIntoTestSegment(m memtable) *fakeSegment {
+	allEntries := m.(*Memtable).keyMap.flattenInOrder()
 	data := map[string][]MapPair{}
 	for _, e := range allEntries {
 		data[string(e.key)] = e.values

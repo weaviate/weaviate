@@ -62,8 +62,8 @@ type BucketCreator interface {
 type Bucket struct {
 	dir      string
 	rootDir  string
-	active   *Memtable
-	flushing *Memtable
+	active   memtable
+	flushing memtable
 	disk     *SegmentGroup
 	logger   logrus.FieldLogger
 
@@ -437,8 +437,8 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 }
 
 type BucketConsistentView struct {
-	Active   *Memtable
-	Flushing *Memtable
+	Active   memtable
+	Flushing memtable
 	Disk     []Segment
 	release  func()
 }
@@ -733,15 +733,15 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) error {
 // is ongoing, because the actual flush only happens once the writer count
 // has dropped to zero. Essentially the switch just switches pointers, but we
 // will always work on the same pointer for the duration of the write.
-func (b *Bucket) getActiveMemtableForWrite() (active *Memtable, release func()) {
+func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func()) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
 	active = b.active
-	active.writerCount.Add(1)
+	active.incWriterCount()
 
 	release = func() {
-		active.writerCount.Add(-1)
+		active.decWriterCount()
 	}
 
 	return active, release
@@ -1096,7 +1096,7 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 		Tombstone: true,
 	}
 
-	if b.active.strategy == StrategyInverted {
+	if b.active.getStrategy() == StrategyInverted {
 		docID := binary.BigEndian.Uint64(mapKey)
 		if err := b.active.SetTombstone(docID); err != nil {
 			return err
@@ -1248,8 +1248,9 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 
 	b.flushLock.Lock()
-	if b.active.strategy == StrategyInverted {
-		b.active.averagePropLength, b.active.propLengthCount = b.disk.GetAveragePropertyLength()
+	if b.active.getStrategy() == StrategyInverted {
+		avgPropLength, propLengthCount := b.disk.GetAveragePropertyLength()
+		b.active.setAveragePropertyLength(avgPropLength, propLengthCount)
 	}
 	if b.shouldReuseWAL() {
 		if err := b.active.flushWAL(); err != nil {
@@ -1286,13 +1287,13 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 }
 
 func (b *Bucket) shouldReuseWAL() bool {
-	return uint64(b.active.commitlog.size()) <= uint64(b.minWalThreshold)
+	return uint64(b.active.commitlogSize()) <= uint64(b.minWalThreshold)
 }
 
 // flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
 func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	b.flushLock.RLock()
-	commitLogSize := b.active.commitlog.size()
+	commitLogSize := b.active.commitlogSize()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
 	dirtyTooLong := b.active.DirtyDuration() >= b.flushDirtyAfter
@@ -1343,37 +1344,7 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 }
 
 func (b *Bucket) getAndUpdateWritesSinceLastSync() bool {
-	b.active.Lock()
-	defer b.active.Unlock()
-
-	hasWrites := b.active.writesSinceLastSync
-	if !hasWrites {
-		// had no work this iteration, cycle manager can back off
-		return false
-	}
-
-	err := b.active.commitlog.flushBuffers()
-	if err != nil {
-		b.logger.WithField("action", "lsm_memtable_flush").
-			WithField("path", b.dir).
-			WithError(err).
-			Errorf("flush and switch failed")
-
-		return false
-	}
-
-	err = b.active.commitlog.sync()
-	if err != nil {
-		b.logger.WithField("action", "lsm_memtable_flush").
-			WithField("path", b.dir).
-			WithError(err).
-			Errorf("flush and switch failed")
-
-		return false
-	}
-	b.active.writesSinceLastSync = false
-	// there was work in this iteration, cycle manager should not back off and revisit soon
-	return true
+	return b.active.getAndUpdateWritesSinceLastSync(b.logger)
 }
 
 // UpdateStatus is used by the parent shard to communicate to the bucket
@@ -1475,8 +1446,9 @@ func (b *Bucket) FlushAndSwitch() error {
 	// their work
 	b.waitForZeroWriters(b.flushing)
 
-	if b.flushing.strategy == StrategyInverted {
-		b.flushing.averagePropLength, b.flushing.propLengthCount = b.disk.GetAveragePropertyLength()
+	if b.flushing.getStrategy() == StrategyInverted {
+		avgPropLength, propLengthCount := b.disk.GetAveragePropertyLength()
+		b.flushing.setAveragePropertyLength(avgPropLength, propLengthCount)
 	}
 	segmentPath, err := b.flushing.flush()
 	if err != nil {
@@ -1520,7 +1492,7 @@ func (b *Bucket) FlushAndSwitch() error {
 
 	case StrategyRoaringSetRange:
 		if b.keepSegmentsInMemory {
-			if err := b.disk.roaringSetRangeSegmentInMemory.MergeMemtable(flushing.roaringSetRange); err != nil {
+			if err := b.disk.roaringSetRangeSegmentInMemory.MergeMemtable(flushing.extractRoaringSetRange()); err != nil {
 				return fmt.Errorf("merge roaringsetrange memtable to segment-in-memory: %w", err)
 			}
 		}
@@ -1563,7 +1535,7 @@ func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (*Memta
 	return true, nil
 }
 
-func (b *Bucket) waitForZeroWriters(mt *Memtable) {
+func (b *Bucket) waitForZeroWriters(mt memtable) {
 	const (
 		tickerInterval = 100 * time.Millisecond
 		warnThreshold  = 1 * time.Second
@@ -1574,7 +1546,7 @@ func (b *Bucket) waitForZeroWriters(mt *Memtable) {
 	var lastWarn time.Time
 	t := time.NewTicker(tickerInterval)
 	for {
-		writers := mt.writerCount.Load()
+		writers := mt.getWriterCount()
 		if writers == 0 {
 			return
 		}
@@ -1892,7 +1864,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	return output, idfCounts, release, nil
 }
 
-func fillTerm(memtable *Memtable, key []byte, blockmax *SegmentBlockMax, filterDocIds helpers.AllowList) (uint64, error) {
+func fillTerm(memtable memtable, key []byte, blockmax *SegmentBlockMax, filterDocIds helpers.AllowList) (uint64, error) {
 	mapPairs, err := memtable.getMap(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return 0, err

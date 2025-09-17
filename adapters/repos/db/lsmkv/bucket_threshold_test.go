@@ -101,8 +101,8 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 			}
 
 			bucket.flushLock.RLock()
-			walFile := bucket.active.commitlog.walPath()
-			walSize := bucket.active.commitlog.size()
+			walFile := bucket.active.commitlogWalPath()
+			walSize := bucket.active.commitlogSize()
 			bucket.flushLock.RUnlock()
 
 			if firstWalFile == "" {
@@ -203,7 +203,7 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 			}
 
 			bucket.flushLock.RLock()
-			activePath := bucket.active.path
+			activePath := bucket.active.Path()
 			activeSize := bucket.active.Size()
 			bucket.flushLock.RUnlock()
 
