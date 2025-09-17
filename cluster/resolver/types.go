@@ -32,10 +32,3 @@ type RaftConfig struct {
 	LocalName          string
 	LocalAddress       string
 }
-
-type FQDNConfig struct {
-	RaftPort          int
-	IsLocalHost       bool
-	NodeNameToPortMap map[string]int
-	TLD               string
-}
