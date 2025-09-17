@@ -223,6 +223,14 @@ func (v *VersionMap) Get(id uint64) VectorVersion {
 	return ve
 }
 
+// Delete removes the version entry for the given ID.
+// Used when an insert fails and the vector was not added anywhere.
+func (v *VersionMap) Delete(id uint64) {
+	v.locks.Lock(id)
+	v.versions.Delete(id)
+	v.locks.Unlock(id)
+}
+
 func (v *VersionMap) Increment(previousVersion VectorVersion, id uint64) (VectorVersion, bool) {
 	v.locks.Lock(id)
 	defer v.locks.Unlock(id)

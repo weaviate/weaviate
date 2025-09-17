@@ -21,6 +21,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
+const (
+	// minimum max distance to use when pruning
+	pruningMinMaxDistance = 0.1
+)
+
 func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	queryVector := NewAnonymousCompressedVector(s.SPTAG.Quantizer().Encode(vector))
 
@@ -44,7 +49,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 	// filter out candidates that are too far away or have no vectors
 	selected = make([]uint64, 0, candidateNum)
 	for i := 0; i < len(centroids) && len(selected) < candidateNum; i++ {
-		if (maxDist > 0.1 && centroids[i].Distance > maxDist) || s.PostingSizes.Get(centroids[i].ID) == 0 {
+		if (maxDist > pruningMinMaxDistance && centroids[i].Distance > maxDist) || s.PostingSizes.Get(centroids[i].ID) == 0 {
 			continue
 		}
 

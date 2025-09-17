@@ -87,9 +87,14 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 		}
 	}
 
-	for _, target := range targets {
+	for i, target := range targets {
 		_, err = s.append(ctx, v, target, false)
 		if err != nil {
+			if i == 0 {
+				// if the first append fails, the vector was not added anywhere.
+				// we must delete the version from the version map
+				s.VersionMap.Delete(id)
+			}
 			return errors.Wrapf(err, "failed to append vector %d to posting %d", id, target.ID)
 		}
 	}
