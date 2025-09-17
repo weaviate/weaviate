@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
@@ -317,7 +316,7 @@ func (s *Service) BatchStream(stream pb.Weaviate_BatchStreamServer) error {
 	defer s.batchQueuesHandler.Teardown(streamId)
 
 	done := make(chan struct{})
-	g, ctx := errors.NewErrorGroupWithContextWrapper(s.logger, stream.Context())
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(s.logger, stream.Context())
 	g.Go(func() error { return s.batchQueuesHandler.StreamRecv(ctx, streamId, stream, done) })
 	g.Go(func() error { return s.batchQueuesHandler.StreamSend(ctx, streamId, stream, done) })
 
