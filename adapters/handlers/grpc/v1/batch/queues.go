@@ -76,6 +76,7 @@ func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream 
 	// Once the workers are drained then h.shutdownFinished will be closed and we will shutdown completely
 	shuttingDown := h.shuttingDownCtx.Done()
 	stopping := false
+	shutdown := false
 	for {
 		if readQueue, ok := h.readQueues.Get(streamId); ok {
 			select {
@@ -93,9 +94,13 @@ func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream 
 				}
 				shuttingDown = nil
 			case <-h.shutdownFinished:
+				if shutdown {
+					continue
+				}
 				if innerErr := stream.Send(newBatchShutdownMessage()); innerErr != nil {
 					return innerErr
 				}
+				shutdown = true
 			case readObj, ok := <-readQueue:
 				if stopping {
 					continue
