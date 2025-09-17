@@ -74,9 +74,13 @@ func newIOPSMonitor(logger logrus.FieldLogger) IOPSMonitor {
 		}
 	} else {
 		if len(stats) > 1 {
+			devices := make([]string, 0, len(stats))
+			for k := range stats {
+				devices = append(devices, k)
+			}
 			logger.WithFields(logrus.Fields{
 				"component": component,
-			}).Warnf("More than one disk found, please set MONITOR_DISK_DEVICE to the appropriate device name. IOPS monitoring disabled.")
+			}).Warnf("More than one disk found, please set MONITOR_DISK_DEVICE to the appropriate device name from %v. IOPS monitoring disabled.", devices)
 			return IOPSMonitor{enabled: false}
 		}
 		for k := range stats {
