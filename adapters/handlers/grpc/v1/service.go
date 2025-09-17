@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
@@ -317,7 +317,7 @@ func (s *Service) BatchStream(stream pb.Weaviate_BatchStreamServer) error {
 	defer s.batchQueuesHandler.Teardown(streamId)
 
 	done := make(chan struct{})
-	g, ctx := errgroup.WithContext(stream.Context())
+	g, ctx := errors.NewErrorGroupWithContextWrapper(s.logger, stream.Context())
 	g.Go(func() error { return s.batchQueuesHandler.StreamRecv(ctx, streamId, stream, done) })
 	g.Go(func() error { return s.batchQueuesHandler.StreamSend(ctx, streamId, stream, done) })
 

@@ -13,6 +13,7 @@ package batch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -133,7 +134,7 @@ func (h *QueuesHandler) StreamRecv(ctx context.Context, streamId string, stream 
 		if h.shuttingDownCtx.Err() != nil {
 			return fmt.Errorf("grpc shutdown in progress, no more requests are permitted on this node")
 		}
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			close(done)
 			return nil
 		}

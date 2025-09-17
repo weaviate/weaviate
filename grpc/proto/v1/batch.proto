@@ -42,7 +42,8 @@ message BatchStreamRequest {
 message BatchStreamReply {
   message Stop {
   }
-  message Shutdown {}
+  message Shutdown {
+  }
   message ShuttingDown {
   }
   message Error {

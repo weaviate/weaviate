@@ -247,10 +247,6 @@ func client(t *testing.T, host string) (pb.WeaviateClient, *grpc.ClientConn) {
 	return grpcClient, conn
 }
 
-type isBatchStreamRequest_Message interface {
-	isBatchStreamRequest_Message()
-}
-
 func sendObjects(stream pb.Weaviate_BatchStreamClient, message []*pb.BatchObject) {
 	// Send objects over
 	err := stream.Send(&pb.BatchStreamRequest{
