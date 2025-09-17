@@ -162,7 +162,7 @@ func ResolveRemoteNodes(addrResolver resolver.ClusterStateReader, serverPortMap 
 	}
 
 	// this is a fallback for cases where the join config is incomplete
-	memberlistNodes := addrResolver.AllClusterMembers(config.DefaultRaftPort)
+	memberlistNodes := addrResolver.AllOtherClusterMembers(config.DefaultRaftPort)
 	for name, addr := range memberlistNodes {
 		// Only add memberlist nodes that are NOT already in the join configuration
 		if _, exists := serverPortMap[name]; !exists {

@@ -42,10 +42,10 @@ type NodeSelector interface {
 	// NodeHostname return hosts address for a specific node name
 	NodeHostname(name string) (string, bool)
 	AllHostnames() []string
-	// AllClusterMembers returns all cluster members discovered via memberlist with their raft addresses
+	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
 	// This is useful for bootstrap when the join config is incomplete
 	// TODO-RAFT: shall be removed once unifying with raft package
-	AllClusterMembers(port int) map[string]string
+	AllOtherClusterMembers(port int) map[string]string
 }
 
 type State struct {
@@ -305,9 +305,9 @@ func (s *State) NodeAddress(id string) string {
 	return strings.Split(addr, ":")[0] // get address without port
 }
 
-// AllClusterMembers returns all cluster members discovered via memberlist with their raft addresses
+// AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
 // This is useful for bootstrap when the join config is incomplete
-func (s *State) AllClusterMembers(port int) map[string]string {
+func (s *State) AllOtherClusterMembers(port int) map[string]string {
 	if s.list == nil {
 		return map[string]string{}
 	}

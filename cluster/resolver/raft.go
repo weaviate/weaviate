@@ -103,7 +103,7 @@ func (a *raft) NotResolvedNodes() map[raftImpl.ServerID]struct{} {
 	return notResolvedNodes
 }
 
-// AllClusterMembers returns all cluster members discovered via memberlist with their raft addresses
-func (a *raft) AllClusterMembers(raftPort int) map[string]string {
-	return a.ClusterStateReader.AllClusterMembers(raftPort)
+// AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
+func (a *raft) AllOtherClusterMembers(raftPort int) map[string]string {
+	return a.ClusterStateReader.AllOtherClusterMembers(raftPort)
 }
