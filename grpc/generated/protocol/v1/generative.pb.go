@@ -18,6 +18,113 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type GenerativeOpenAI_ReasoningEffort int32
+
+const (
+	GenerativeOpenAI_REASONING_EFFORT_UNSPECIFIED GenerativeOpenAI_ReasoningEffort = 0
+	GenerativeOpenAI_REASONING_EFFORT_MINIMAL     GenerativeOpenAI_ReasoningEffort = 1
+	GenerativeOpenAI_REASONING_EFFORT_LOW         GenerativeOpenAI_ReasoningEffort = 2
+	GenerativeOpenAI_REASONING_EFFORT_MEDIUM      GenerativeOpenAI_ReasoningEffort = 3
+	GenerativeOpenAI_REASONING_EFFORT_HIGH        GenerativeOpenAI_ReasoningEffort = 4
+)
+
+// Enum value maps for GenerativeOpenAI_ReasoningEffort.
+var (
+	GenerativeOpenAI_ReasoningEffort_name = map[int32]string{
+		0: "REASONING_EFFORT_UNSPECIFIED",
+		1: "REASONING_EFFORT_MINIMAL",
+		2: "REASONING_EFFORT_LOW",
+		3: "REASONING_EFFORT_MEDIUM",
+		4: "REASONING_EFFORT_HIGH",
+	}
+	GenerativeOpenAI_ReasoningEffort_value = map[string]int32{
+		"REASONING_EFFORT_UNSPECIFIED": 0,
+		"REASONING_EFFORT_MINIMAL":     1,
+		"REASONING_EFFORT_LOW":         2,
+		"REASONING_EFFORT_MEDIUM":      3,
+		"REASONING_EFFORT_HIGH":        4,
+	}
+)
+
+func (x GenerativeOpenAI_ReasoningEffort) Enum() *GenerativeOpenAI_ReasoningEffort {
+	p := new(GenerativeOpenAI_ReasoningEffort)
+	*p = x
+	return p
+}
+
+func (x GenerativeOpenAI_ReasoningEffort) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (GenerativeOpenAI_ReasoningEffort) Descriptor() protoreflect.EnumDescriptor {
+	return file_v1_generative_proto_enumTypes[0].Descriptor()
+}
+
+func (GenerativeOpenAI_ReasoningEffort) Type() protoreflect.EnumType {
+	return &file_v1_generative_proto_enumTypes[0]
+}
+
+func (x GenerativeOpenAI_ReasoningEffort) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use GenerativeOpenAI_ReasoningEffort.Descriptor instead.
+func (GenerativeOpenAI_ReasoningEffort) EnumDescriptor() ([]byte, []int) {
+	return file_v1_generative_proto_rawDescGZIP(), []int{9, 0}
+}
+
+type GenerativeOpenAI_Verbosity int32
+
+const (
+	GenerativeOpenAI_VERBOSITY_UNSPECIFIED GenerativeOpenAI_Verbosity = 0
+	GenerativeOpenAI_VERBOSITY_LOW         GenerativeOpenAI_Verbosity = 1
+	GenerativeOpenAI_VERBOSITY_MEDIUM      GenerativeOpenAI_Verbosity = 2
+	GenerativeOpenAI_VERBOSITY_HIGH        GenerativeOpenAI_Verbosity = 3
+)
+
+// Enum value maps for GenerativeOpenAI_Verbosity.
+var (
+	GenerativeOpenAI_Verbosity_name = map[int32]string{
+		0: "VERBOSITY_UNSPECIFIED",
+		1: "VERBOSITY_LOW",
+		2: "VERBOSITY_MEDIUM",
+		3: "VERBOSITY_HIGH",
+	}
+	GenerativeOpenAI_Verbosity_value = map[string]int32{
+		"VERBOSITY_UNSPECIFIED": 0,
+		"VERBOSITY_LOW":         1,
+		"VERBOSITY_MEDIUM":      2,
+		"VERBOSITY_HIGH":        3,
+	}
+)
+
+func (x GenerativeOpenAI_Verbosity) Enum() *GenerativeOpenAI_Verbosity {
+	p := new(GenerativeOpenAI_Verbosity)
+	*p = x
+	return p
+}
+
+func (x GenerativeOpenAI_Verbosity) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (GenerativeOpenAI_Verbosity) Descriptor() protoreflect.EnumDescriptor {
+	return file_v1_generative_proto_enumTypes[1].Descriptor()
+}
+
+func (GenerativeOpenAI_Verbosity) Type() protoreflect.EnumType {
+	return &file_v1_generative_proto_enumTypes[1]
+}
+
+func (x GenerativeOpenAI_Verbosity) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use GenerativeOpenAI_Verbosity.Descriptor instead.
+func (GenerativeOpenAI_Verbosity) EnumDescriptor() ([]byte, []int) {
+	return file_v1_generative_proto_rawDescGZIP(), []int{9, 1}
+}
+
 type GenerativeSearch struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Deprecated: Marked as deprecated in v1/generative.proto.
@@ -545,6 +652,7 @@ type GenerativeAWS struct {
 	TargetVariant   *string                `protobuf:"bytes,13,opt,name=target_variant,json=targetVariant,proto3,oneof" json:"target_variant,omitempty"`
 	Images          *TextArray             `protobuf:"bytes,14,opt,name=images,proto3,oneof" json:"images,omitempty"`
 	ImageProperties *TextArray             `protobuf:"bytes,15,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+	MaxTokens       *int64                 `protobuf:"varint,16,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -640,6 +748,13 @@ func (x *GenerativeAWS) GetImageProperties() *TextArray {
 		return x.ImageProperties
 	}
 	return nil
+}
+
+func (x *GenerativeAWS) GetMaxTokens() int64 {
+	if x != nil && x.MaxTokens != nil {
+		return *x.MaxTokens
+	}
+	return 0
 }
 
 type GenerativeCohere struct {
@@ -939,22 +1054,24 @@ func (x *GenerativeOllama) GetImageProperties() *TextArray {
 }
 
 type GenerativeOpenAI struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	FrequencyPenalty *float64               `protobuf:"fixed64,1,opt,name=frequency_penalty,json=frequencyPenalty,proto3,oneof" json:"frequency_penalty,omitempty"`
-	MaxTokens        *int64                 `protobuf:"varint,2,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
-	Model            *string                `protobuf:"bytes,3,opt,name=model,proto3,oneof" json:"model,omitempty"`
-	N                *int64                 `protobuf:"varint,4,opt,name=n,proto3,oneof" json:"n,omitempty"`
-	PresencePenalty  *float64               `protobuf:"fixed64,5,opt,name=presence_penalty,json=presencePenalty,proto3,oneof" json:"presence_penalty,omitempty"`
-	Stop             *TextArray             `protobuf:"bytes,6,opt,name=stop,proto3,oneof" json:"stop,omitempty"`
-	Temperature      *float64               `protobuf:"fixed64,7,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
-	TopP             *float64               `protobuf:"fixed64,8,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
-	BaseUrl          *string                `protobuf:"bytes,9,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
-	ApiVersion       *string                `protobuf:"bytes,10,opt,name=api_version,json=apiVersion,proto3,oneof" json:"api_version,omitempty"`
-	ResourceName     *string                `protobuf:"bytes,11,opt,name=resource_name,json=resourceName,proto3,oneof" json:"resource_name,omitempty"`
-	DeploymentId     *string                `protobuf:"bytes,12,opt,name=deployment_id,json=deploymentId,proto3,oneof" json:"deployment_id,omitempty"`
-	IsAzure          *bool                  `protobuf:"varint,13,opt,name=is_azure,json=isAzure,proto3,oneof" json:"is_azure,omitempty"`
-	Images           *TextArray             `protobuf:"bytes,14,opt,name=images,proto3,oneof" json:"images,omitempty"`
-	ImageProperties  *TextArray             `protobuf:"bytes,15,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+	state            protoimpl.MessageState            `protogen:"open.v1"`
+	FrequencyPenalty *float64                          `protobuf:"fixed64,1,opt,name=frequency_penalty,json=frequencyPenalty,proto3,oneof" json:"frequency_penalty,omitempty"`
+	MaxTokens        *int64                            `protobuf:"varint,2,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
+	Model            *string                           `protobuf:"bytes,3,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	N                *int64                            `protobuf:"varint,4,opt,name=n,proto3,oneof" json:"n,omitempty"`
+	PresencePenalty  *float64                          `protobuf:"fixed64,5,opt,name=presence_penalty,json=presencePenalty,proto3,oneof" json:"presence_penalty,omitempty"`
+	Stop             *TextArray                        `protobuf:"bytes,6,opt,name=stop,proto3,oneof" json:"stop,omitempty"`
+	Temperature      *float64                          `protobuf:"fixed64,7,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	TopP             *float64                          `protobuf:"fixed64,8,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
+	BaseUrl          *string                           `protobuf:"bytes,9,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
+	ApiVersion       *string                           `protobuf:"bytes,10,opt,name=api_version,json=apiVersion,proto3,oneof" json:"api_version,omitempty"`
+	ResourceName     *string                           `protobuf:"bytes,11,opt,name=resource_name,json=resourceName,proto3,oneof" json:"resource_name,omitempty"`
+	DeploymentId     *string                           `protobuf:"bytes,12,opt,name=deployment_id,json=deploymentId,proto3,oneof" json:"deployment_id,omitempty"`
+	IsAzure          *bool                             `protobuf:"varint,13,opt,name=is_azure,json=isAzure,proto3,oneof" json:"is_azure,omitempty"`
+	Images           *TextArray                        `protobuf:"bytes,14,opt,name=images,proto3,oneof" json:"images,omitempty"`
+	ImageProperties  *TextArray                        `protobuf:"bytes,15,opt,name=image_properties,json=imageProperties,proto3,oneof" json:"image_properties,omitempty"`
+	ReasoningEffort  *GenerativeOpenAI_ReasoningEffort `protobuf:"varint,16,opt,name=reasoning_effort,json=reasoningEffort,proto3,enum=weaviate.v1.GenerativeOpenAI_ReasoningEffort,oneof" json:"reasoning_effort,omitempty"`
+	Verbosity        *GenerativeOpenAI_Verbosity       `protobuf:"varint,17,opt,name=verbosity,proto3,enum=weaviate.v1.GenerativeOpenAI_Verbosity,oneof" json:"verbosity,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1092,6 +1209,20 @@ func (x *GenerativeOpenAI) GetImageProperties() *TextArray {
 		return x.ImageProperties
 	}
 	return nil
+}
+
+func (x *GenerativeOpenAI) GetReasoningEffort() GenerativeOpenAI_ReasoningEffort {
+	if x != nil && x.ReasoningEffort != nil {
+		return *x.ReasoningEffort
+	}
+	return GenerativeOpenAI_REASONING_EFFORT_UNSPECIFIED
+}
+
+func (x *GenerativeOpenAI) GetVerbosity() GenerativeOpenAI_Verbosity {
+	if x != nil && x.Verbosity != nil {
+		return *x.Verbosity
+	}
+	return GenerativeOpenAI_VERBOSITY_UNSPECIFIED
 }
 
 type GenerativeGoogle struct {
@@ -3596,7 +3727,7 @@ const file_v1_generative_proto_rawDesc = "" +
 	"\vtemperature\x18\x03 \x01(\x01H\x02R\vtemperature\x88\x01\x01B\v\n" +
 	"\t_base_urlB\b\n" +
 	"\x06_modelB\x0e\n" +
-	"\f_temperature\"\x81\x04\n" +
+	"\f_temperature\"\xb4\x04\n" +
 	"\rGenerativeAWS\x12\x19\n" +
 	"\x05model\x18\x03 \x01(\tH\x00R\x05model\x88\x01\x01\x12%\n" +
 	"\vtemperature\x18\b \x01(\x01H\x01R\vtemperature\x88\x01\x01\x12\x1d\n" +
@@ -3607,7 +3738,9 @@ const file_v1_generative_proto_rawDesc = "" +
 	"\ftarget_model\x18\f \x01(\tH\x05R\vtargetModel\x88\x01\x01\x12*\n" +
 	"\x0etarget_variant\x18\r \x01(\tH\x06R\rtargetVariant\x88\x01\x01\x123\n" +
 	"\x06images\x18\x0e \x01(\v2\x16.weaviate.v1.TextArrayH\aR\x06images\x88\x01\x01\x12F\n" +
-	"\x10image_properties\x18\x0f \x01(\v2\x16.weaviate.v1.TextArrayH\bR\x0fimageProperties\x88\x01\x01B\b\n" +
+	"\x10image_properties\x18\x0f \x01(\v2\x16.weaviate.v1.TextArrayH\bR\x0fimageProperties\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"max_tokens\x18\x10 \x01(\x03H\tR\tmaxTokens\x88\x01\x01B\b\n" +
 	"\x06_modelB\x0e\n" +
 	"\f_temperatureB\n" +
 	"\n" +
@@ -3617,7 +3750,8 @@ const file_v1_generative_proto_rawDesc = "" +
 	"\r_target_modelB\x11\n" +
 	"\x0f_target_variantB\t\n" +
 	"\a_imagesB\x13\n" +
-	"\x11_image_properties\"\xe4\x03\n" +
+	"\x11_image_propertiesB\r\n" +
+	"\v_max_tokens\"\xe4\x03\n" +
 	"\x10GenerativeCohere\x12\x1e\n" +
 	"\bbase_url\x18\x01 \x01(\tH\x00R\abaseUrl\x88\x01\x01\x120\n" +
 	"\x11frequency_penalty\x18\x02 \x01(\x01H\x01R\x10frequencyPenalty\x88\x01\x01\x12\"\n" +
@@ -3661,7 +3795,8 @@ const file_v1_generative_proto_rawDesc = "" +
 	"\x06_modelB\x0e\n" +
 	"\f_temperatureB\t\n" +
 	"\a_imagesB\x13\n" +
-	"\x11_image_properties\"\xca\x06\n" +
+	"\x11_image_properties\"\xa3\n" +
+	"\n" +
 	"\x10GenerativeOpenAI\x120\n" +
 	"\x11frequency_penalty\x18\x01 \x01(\x01H\x00R\x10frequencyPenalty\x88\x01\x01\x12\"\n" +
 	"\n" +
@@ -3681,7 +3816,20 @@ const file_v1_generative_proto_rawDesc = "" +
 	"\rdeployment_id\x18\f \x01(\tH\vR\fdeploymentId\x88\x01\x01\x12\x1e\n" +
 	"\bis_azure\x18\r \x01(\bH\fR\aisAzure\x88\x01\x01\x123\n" +
 	"\x06images\x18\x0e \x01(\v2\x16.weaviate.v1.TextArrayH\rR\x06images\x88\x01\x01\x12F\n" +
-	"\x10image_properties\x18\x0f \x01(\v2\x16.weaviate.v1.TextArrayH\x0eR\x0fimageProperties\x88\x01\x01B\x14\n" +
+	"\x10image_properties\x18\x0f \x01(\v2\x16.weaviate.v1.TextArrayH\x0eR\x0fimageProperties\x88\x01\x01\x12]\n" +
+	"\x10reasoning_effort\x18\x10 \x01(\x0e2-.weaviate.v1.GenerativeOpenAI.ReasoningEffortH\x0fR\x0freasoningEffort\x88\x01\x01\x12J\n" +
+	"\tverbosity\x18\x11 \x01(\x0e2'.weaviate.v1.GenerativeOpenAI.VerbosityH\x10R\tverbosity\x88\x01\x01\"\xa3\x01\n" +
+	"\x0fReasoningEffort\x12 \n" +
+	"\x1cREASONING_EFFORT_UNSPECIFIED\x10\x00\x12\x1c\n" +
+	"\x18REASONING_EFFORT_MINIMAL\x10\x01\x12\x18\n" +
+	"\x14REASONING_EFFORT_LOW\x10\x02\x12\x1b\n" +
+	"\x17REASONING_EFFORT_MEDIUM\x10\x03\x12\x19\n" +
+	"\x15REASONING_EFFORT_HIGH\x10\x04\"c\n" +
+	"\tVerbosity\x12\x19\n" +
+	"\x15VERBOSITY_UNSPECIFIED\x10\x00\x12\x11\n" +
+	"\rVERBOSITY_LOW\x10\x01\x12\x14\n" +
+	"\x10VERBOSITY_MEDIUM\x10\x02\x12\x12\n" +
+	"\x0eVERBOSITY_HIGH\x10\x03B\x14\n" +
 	"\x12_frequency_penaltyB\r\n" +
 	"\v_max_tokensB\b\n" +
 	"\x06_modelB\x04\n" +
@@ -3696,7 +3844,10 @@ const file_v1_generative_proto_rawDesc = "" +
 	"\x0e_deployment_idB\v\n" +
 	"\t_is_azureB\t\n" +
 	"\a_imagesB\x13\n" +
-	"\x11_image_properties\"\xb4\x06\n" +
+	"\x11_image_propertiesB\x13\n" +
+	"\x11_reasoning_effortB\f\n" +
+	"\n" +
+	"_verbosity\"\xb4\x06\n" +
 	"\x10GenerativeGoogle\x120\n" +
 	"\x11frequency_penalty\x18\x01 \x01(\x01H\x00R\x10frequencyPenalty\x88\x01\x01\x12\"\n" +
 	"\n" +
@@ -3974,131 +4125,136 @@ func file_v1_generative_proto_rawDescGZIP() []byte {
 	return file_v1_generative_proto_rawDescData
 }
 
+var file_v1_generative_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_v1_generative_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
 var file_v1_generative_proto_goTypes = []any{
-	(*GenerativeSearch)(nil),                       // 0: weaviate.v1.GenerativeSearch
-	(*GenerativeProvider)(nil),                     // 1: weaviate.v1.GenerativeProvider
-	(*GenerativeAnthropic)(nil),                    // 2: weaviate.v1.GenerativeAnthropic
-	(*GenerativeAnyscale)(nil),                     // 3: weaviate.v1.GenerativeAnyscale
-	(*GenerativeAWS)(nil),                          // 4: weaviate.v1.GenerativeAWS
-	(*GenerativeCohere)(nil),                       // 5: weaviate.v1.GenerativeCohere
-	(*GenerativeDummy)(nil),                        // 6: weaviate.v1.GenerativeDummy
-	(*GenerativeMistral)(nil),                      // 7: weaviate.v1.GenerativeMistral
-	(*GenerativeOllama)(nil),                       // 8: weaviate.v1.GenerativeOllama
-	(*GenerativeOpenAI)(nil),                       // 9: weaviate.v1.GenerativeOpenAI
-	(*GenerativeGoogle)(nil),                       // 10: weaviate.v1.GenerativeGoogle
-	(*GenerativeDatabricks)(nil),                   // 11: weaviate.v1.GenerativeDatabricks
-	(*GenerativeFriendliAI)(nil),                   // 12: weaviate.v1.GenerativeFriendliAI
-	(*GenerativeNvidia)(nil),                       // 13: weaviate.v1.GenerativeNvidia
-	(*GenerativeXAI)(nil),                          // 14: weaviate.v1.GenerativeXAI
-	(*GenerativeAnthropicMetadata)(nil),            // 15: weaviate.v1.GenerativeAnthropicMetadata
-	(*GenerativeAnyscaleMetadata)(nil),             // 16: weaviate.v1.GenerativeAnyscaleMetadata
-	(*GenerativeAWSMetadata)(nil),                  // 17: weaviate.v1.GenerativeAWSMetadata
-	(*GenerativeCohereMetadata)(nil),               // 18: weaviate.v1.GenerativeCohereMetadata
-	(*GenerativeDummyMetadata)(nil),                // 19: weaviate.v1.GenerativeDummyMetadata
-	(*GenerativeMistralMetadata)(nil),              // 20: weaviate.v1.GenerativeMistralMetadata
-	(*GenerativeOllamaMetadata)(nil),               // 21: weaviate.v1.GenerativeOllamaMetadata
-	(*GenerativeOpenAIMetadata)(nil),               // 22: weaviate.v1.GenerativeOpenAIMetadata
-	(*GenerativeGoogleMetadata)(nil),               // 23: weaviate.v1.GenerativeGoogleMetadata
-	(*GenerativeDatabricksMetadata)(nil),           // 24: weaviate.v1.GenerativeDatabricksMetadata
-	(*GenerativeFriendliAIMetadata)(nil),           // 25: weaviate.v1.GenerativeFriendliAIMetadata
-	(*GenerativeNvidiaMetadata)(nil),               // 26: weaviate.v1.GenerativeNvidiaMetadata
-	(*GenerativeXAIMetadata)(nil),                  // 27: weaviate.v1.GenerativeXAIMetadata
-	(*GenerativeMetadata)(nil),                     // 28: weaviate.v1.GenerativeMetadata
-	(*GenerativeReply)(nil),                        // 29: weaviate.v1.GenerativeReply
-	(*GenerativeResult)(nil),                       // 30: weaviate.v1.GenerativeResult
-	(*GenerativeDebug)(nil),                        // 31: weaviate.v1.GenerativeDebug
-	(*GenerativeSearch_Single)(nil),                // 32: weaviate.v1.GenerativeSearch.Single
-	(*GenerativeSearch_Grouped)(nil),               // 33: weaviate.v1.GenerativeSearch.Grouped
-	(*GenerativeAnthropicMetadata_Usage)(nil),      // 34: weaviate.v1.GenerativeAnthropicMetadata.Usage
-	(*GenerativeCohereMetadata_ApiVersion)(nil),    // 35: weaviate.v1.GenerativeCohereMetadata.ApiVersion
-	(*GenerativeCohereMetadata_BilledUnits)(nil),   // 36: weaviate.v1.GenerativeCohereMetadata.BilledUnits
-	(*GenerativeCohereMetadata_Tokens)(nil),        // 37: weaviate.v1.GenerativeCohereMetadata.Tokens
-	(*GenerativeMistralMetadata_Usage)(nil),        // 38: weaviate.v1.GenerativeMistralMetadata.Usage
-	(*GenerativeOpenAIMetadata_Usage)(nil),         // 39: weaviate.v1.GenerativeOpenAIMetadata.Usage
-	(*GenerativeGoogleMetadata_TokenCount)(nil),    // 40: weaviate.v1.GenerativeGoogleMetadata.TokenCount
-	(*GenerativeGoogleMetadata_TokenMetadata)(nil), // 41: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata
-	(*GenerativeGoogleMetadata_Metadata)(nil),      // 42: weaviate.v1.GenerativeGoogleMetadata.Metadata
-	(*GenerativeGoogleMetadata_UsageMetadata)(nil), // 43: weaviate.v1.GenerativeGoogleMetadata.UsageMetadata
-	(*GenerativeDatabricksMetadata_Usage)(nil),     // 44: weaviate.v1.GenerativeDatabricksMetadata.Usage
-	(*GenerativeFriendliAIMetadata_Usage)(nil),     // 45: weaviate.v1.GenerativeFriendliAIMetadata.Usage
-	(*GenerativeNvidiaMetadata_Usage)(nil),         // 46: weaviate.v1.GenerativeNvidiaMetadata.Usage
-	(*GenerativeXAIMetadata_Usage)(nil),            // 47: weaviate.v1.GenerativeXAIMetadata.Usage
-	(*TextArray)(nil),                              // 48: weaviate.v1.TextArray
+	(GenerativeOpenAI_ReasoningEffort)(0),          // 0: weaviate.v1.GenerativeOpenAI.ReasoningEffort
+	(GenerativeOpenAI_Verbosity)(0),                // 1: weaviate.v1.GenerativeOpenAI.Verbosity
+	(*GenerativeSearch)(nil),                       // 2: weaviate.v1.GenerativeSearch
+	(*GenerativeProvider)(nil),                     // 3: weaviate.v1.GenerativeProvider
+	(*GenerativeAnthropic)(nil),                    // 4: weaviate.v1.GenerativeAnthropic
+	(*GenerativeAnyscale)(nil),                     // 5: weaviate.v1.GenerativeAnyscale
+	(*GenerativeAWS)(nil),                          // 6: weaviate.v1.GenerativeAWS
+	(*GenerativeCohere)(nil),                       // 7: weaviate.v1.GenerativeCohere
+	(*GenerativeDummy)(nil),                        // 8: weaviate.v1.GenerativeDummy
+	(*GenerativeMistral)(nil),                      // 9: weaviate.v1.GenerativeMistral
+	(*GenerativeOllama)(nil),                       // 10: weaviate.v1.GenerativeOllama
+	(*GenerativeOpenAI)(nil),                       // 11: weaviate.v1.GenerativeOpenAI
+	(*GenerativeGoogle)(nil),                       // 12: weaviate.v1.GenerativeGoogle
+	(*GenerativeDatabricks)(nil),                   // 13: weaviate.v1.GenerativeDatabricks
+	(*GenerativeFriendliAI)(nil),                   // 14: weaviate.v1.GenerativeFriendliAI
+	(*GenerativeNvidia)(nil),                       // 15: weaviate.v1.GenerativeNvidia
+	(*GenerativeXAI)(nil),                          // 16: weaviate.v1.GenerativeXAI
+	(*GenerativeAnthropicMetadata)(nil),            // 17: weaviate.v1.GenerativeAnthropicMetadata
+	(*GenerativeAnyscaleMetadata)(nil),             // 18: weaviate.v1.GenerativeAnyscaleMetadata
+	(*GenerativeAWSMetadata)(nil),                  // 19: weaviate.v1.GenerativeAWSMetadata
+	(*GenerativeCohereMetadata)(nil),               // 20: weaviate.v1.GenerativeCohereMetadata
+	(*GenerativeDummyMetadata)(nil),                // 21: weaviate.v1.GenerativeDummyMetadata
+	(*GenerativeMistralMetadata)(nil),              // 22: weaviate.v1.GenerativeMistralMetadata
+	(*GenerativeOllamaMetadata)(nil),               // 23: weaviate.v1.GenerativeOllamaMetadata
+	(*GenerativeOpenAIMetadata)(nil),               // 24: weaviate.v1.GenerativeOpenAIMetadata
+	(*GenerativeGoogleMetadata)(nil),               // 25: weaviate.v1.GenerativeGoogleMetadata
+	(*GenerativeDatabricksMetadata)(nil),           // 26: weaviate.v1.GenerativeDatabricksMetadata
+	(*GenerativeFriendliAIMetadata)(nil),           // 27: weaviate.v1.GenerativeFriendliAIMetadata
+	(*GenerativeNvidiaMetadata)(nil),               // 28: weaviate.v1.GenerativeNvidiaMetadata
+	(*GenerativeXAIMetadata)(nil),                  // 29: weaviate.v1.GenerativeXAIMetadata
+	(*GenerativeMetadata)(nil),                     // 30: weaviate.v1.GenerativeMetadata
+	(*GenerativeReply)(nil),                        // 31: weaviate.v1.GenerativeReply
+	(*GenerativeResult)(nil),                       // 32: weaviate.v1.GenerativeResult
+	(*GenerativeDebug)(nil),                        // 33: weaviate.v1.GenerativeDebug
+	(*GenerativeSearch_Single)(nil),                // 34: weaviate.v1.GenerativeSearch.Single
+	(*GenerativeSearch_Grouped)(nil),               // 35: weaviate.v1.GenerativeSearch.Grouped
+	(*GenerativeAnthropicMetadata_Usage)(nil),      // 36: weaviate.v1.GenerativeAnthropicMetadata.Usage
+	(*GenerativeCohereMetadata_ApiVersion)(nil),    // 37: weaviate.v1.GenerativeCohereMetadata.ApiVersion
+	(*GenerativeCohereMetadata_BilledUnits)(nil),   // 38: weaviate.v1.GenerativeCohereMetadata.BilledUnits
+	(*GenerativeCohereMetadata_Tokens)(nil),        // 39: weaviate.v1.GenerativeCohereMetadata.Tokens
+	(*GenerativeMistralMetadata_Usage)(nil),        // 40: weaviate.v1.GenerativeMistralMetadata.Usage
+	(*GenerativeOpenAIMetadata_Usage)(nil),         // 41: weaviate.v1.GenerativeOpenAIMetadata.Usage
+	(*GenerativeGoogleMetadata_TokenCount)(nil),    // 42: weaviate.v1.GenerativeGoogleMetadata.TokenCount
+	(*GenerativeGoogleMetadata_TokenMetadata)(nil), // 43: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata
+	(*GenerativeGoogleMetadata_Metadata)(nil),      // 44: weaviate.v1.GenerativeGoogleMetadata.Metadata
+	(*GenerativeGoogleMetadata_UsageMetadata)(nil), // 45: weaviate.v1.GenerativeGoogleMetadata.UsageMetadata
+	(*GenerativeDatabricksMetadata_Usage)(nil),     // 46: weaviate.v1.GenerativeDatabricksMetadata.Usage
+	(*GenerativeFriendliAIMetadata_Usage)(nil),     // 47: weaviate.v1.GenerativeFriendliAIMetadata.Usage
+	(*GenerativeNvidiaMetadata_Usage)(nil),         // 48: weaviate.v1.GenerativeNvidiaMetadata.Usage
+	(*GenerativeXAIMetadata_Usage)(nil),            // 49: weaviate.v1.GenerativeXAIMetadata.Usage
+	(*TextArray)(nil),                              // 50: weaviate.v1.TextArray
 }
 var file_v1_generative_proto_depIdxs = []int32{
-	32, // 0: weaviate.v1.GenerativeSearch.single:type_name -> weaviate.v1.GenerativeSearch.Single
-	33, // 1: weaviate.v1.GenerativeSearch.grouped:type_name -> weaviate.v1.GenerativeSearch.Grouped
-	2,  // 2: weaviate.v1.GenerativeProvider.anthropic:type_name -> weaviate.v1.GenerativeAnthropic
-	3,  // 3: weaviate.v1.GenerativeProvider.anyscale:type_name -> weaviate.v1.GenerativeAnyscale
-	4,  // 4: weaviate.v1.GenerativeProvider.aws:type_name -> weaviate.v1.GenerativeAWS
-	5,  // 5: weaviate.v1.GenerativeProvider.cohere:type_name -> weaviate.v1.GenerativeCohere
-	6,  // 6: weaviate.v1.GenerativeProvider.dummy:type_name -> weaviate.v1.GenerativeDummy
-	7,  // 7: weaviate.v1.GenerativeProvider.mistral:type_name -> weaviate.v1.GenerativeMistral
-	8,  // 8: weaviate.v1.GenerativeProvider.ollama:type_name -> weaviate.v1.GenerativeOllama
-	9,  // 9: weaviate.v1.GenerativeProvider.openai:type_name -> weaviate.v1.GenerativeOpenAI
-	10, // 10: weaviate.v1.GenerativeProvider.google:type_name -> weaviate.v1.GenerativeGoogle
-	11, // 11: weaviate.v1.GenerativeProvider.databricks:type_name -> weaviate.v1.GenerativeDatabricks
-	12, // 12: weaviate.v1.GenerativeProvider.friendliai:type_name -> weaviate.v1.GenerativeFriendliAI
-	13, // 13: weaviate.v1.GenerativeProvider.nvidia:type_name -> weaviate.v1.GenerativeNvidia
-	14, // 14: weaviate.v1.GenerativeProvider.xai:type_name -> weaviate.v1.GenerativeXAI
-	48, // 15: weaviate.v1.GenerativeAnthropic.stop_sequences:type_name -> weaviate.v1.TextArray
-	48, // 16: weaviate.v1.GenerativeAnthropic.images:type_name -> weaviate.v1.TextArray
-	48, // 17: weaviate.v1.GenerativeAnthropic.image_properties:type_name -> weaviate.v1.TextArray
-	48, // 18: weaviate.v1.GenerativeAWS.images:type_name -> weaviate.v1.TextArray
-	48, // 19: weaviate.v1.GenerativeAWS.image_properties:type_name -> weaviate.v1.TextArray
-	48, // 20: weaviate.v1.GenerativeCohere.stop_sequences:type_name -> weaviate.v1.TextArray
-	48, // 21: weaviate.v1.GenerativeOllama.images:type_name -> weaviate.v1.TextArray
-	48, // 22: weaviate.v1.GenerativeOllama.image_properties:type_name -> weaviate.v1.TextArray
-	48, // 23: weaviate.v1.GenerativeOpenAI.stop:type_name -> weaviate.v1.TextArray
-	48, // 24: weaviate.v1.GenerativeOpenAI.images:type_name -> weaviate.v1.TextArray
-	48, // 25: weaviate.v1.GenerativeOpenAI.image_properties:type_name -> weaviate.v1.TextArray
-	48, // 26: weaviate.v1.GenerativeGoogle.stop_sequences:type_name -> weaviate.v1.TextArray
-	48, // 27: weaviate.v1.GenerativeGoogle.images:type_name -> weaviate.v1.TextArray
-	48, // 28: weaviate.v1.GenerativeGoogle.image_properties:type_name -> weaviate.v1.TextArray
-	48, // 29: weaviate.v1.GenerativeDatabricks.stop:type_name -> weaviate.v1.TextArray
-	48, // 30: weaviate.v1.GenerativeXAI.images:type_name -> weaviate.v1.TextArray
-	48, // 31: weaviate.v1.GenerativeXAI.image_properties:type_name -> weaviate.v1.TextArray
-	34, // 32: weaviate.v1.GenerativeAnthropicMetadata.usage:type_name -> weaviate.v1.GenerativeAnthropicMetadata.Usage
-	35, // 33: weaviate.v1.GenerativeCohereMetadata.api_version:type_name -> weaviate.v1.GenerativeCohereMetadata.ApiVersion
-	36, // 34: weaviate.v1.GenerativeCohereMetadata.billed_units:type_name -> weaviate.v1.GenerativeCohereMetadata.BilledUnits
-	37, // 35: weaviate.v1.GenerativeCohereMetadata.tokens:type_name -> weaviate.v1.GenerativeCohereMetadata.Tokens
-	48, // 36: weaviate.v1.GenerativeCohereMetadata.warnings:type_name -> weaviate.v1.TextArray
-	38, // 37: weaviate.v1.GenerativeMistralMetadata.usage:type_name -> weaviate.v1.GenerativeMistralMetadata.Usage
-	39, // 38: weaviate.v1.GenerativeOpenAIMetadata.usage:type_name -> weaviate.v1.GenerativeOpenAIMetadata.Usage
-	42, // 39: weaviate.v1.GenerativeGoogleMetadata.metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.Metadata
-	43, // 40: weaviate.v1.GenerativeGoogleMetadata.usage_metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.UsageMetadata
-	44, // 41: weaviate.v1.GenerativeDatabricksMetadata.usage:type_name -> weaviate.v1.GenerativeDatabricksMetadata.Usage
-	45, // 42: weaviate.v1.GenerativeFriendliAIMetadata.usage:type_name -> weaviate.v1.GenerativeFriendliAIMetadata.Usage
-	46, // 43: weaviate.v1.GenerativeNvidiaMetadata.usage:type_name -> weaviate.v1.GenerativeNvidiaMetadata.Usage
-	47, // 44: weaviate.v1.GenerativeXAIMetadata.usage:type_name -> weaviate.v1.GenerativeXAIMetadata.Usage
-	15, // 45: weaviate.v1.GenerativeMetadata.anthropic:type_name -> weaviate.v1.GenerativeAnthropicMetadata
-	16, // 46: weaviate.v1.GenerativeMetadata.anyscale:type_name -> weaviate.v1.GenerativeAnyscaleMetadata
-	17, // 47: weaviate.v1.GenerativeMetadata.aws:type_name -> weaviate.v1.GenerativeAWSMetadata
-	18, // 48: weaviate.v1.GenerativeMetadata.cohere:type_name -> weaviate.v1.GenerativeCohereMetadata
-	19, // 49: weaviate.v1.GenerativeMetadata.dummy:type_name -> weaviate.v1.GenerativeDummyMetadata
-	20, // 50: weaviate.v1.GenerativeMetadata.mistral:type_name -> weaviate.v1.GenerativeMistralMetadata
-	21, // 51: weaviate.v1.GenerativeMetadata.ollama:type_name -> weaviate.v1.GenerativeOllamaMetadata
-	22, // 52: weaviate.v1.GenerativeMetadata.openai:type_name -> weaviate.v1.GenerativeOpenAIMetadata
-	23, // 53: weaviate.v1.GenerativeMetadata.google:type_name -> weaviate.v1.GenerativeGoogleMetadata
-	24, // 54: weaviate.v1.GenerativeMetadata.databricks:type_name -> weaviate.v1.GenerativeDatabricksMetadata
-	25, // 55: weaviate.v1.GenerativeMetadata.friendliai:type_name -> weaviate.v1.GenerativeFriendliAIMetadata
-	26, // 56: weaviate.v1.GenerativeMetadata.nvidia:type_name -> weaviate.v1.GenerativeNvidiaMetadata
-	27, // 57: weaviate.v1.GenerativeMetadata.xai:type_name -> weaviate.v1.GenerativeXAIMetadata
-	31, // 58: weaviate.v1.GenerativeReply.debug:type_name -> weaviate.v1.GenerativeDebug
-	28, // 59: weaviate.v1.GenerativeReply.metadata:type_name -> weaviate.v1.GenerativeMetadata
-	29, // 60: weaviate.v1.GenerativeResult.values:type_name -> weaviate.v1.GenerativeReply
-	1,  // 61: weaviate.v1.GenerativeSearch.Single.queries:type_name -> weaviate.v1.GenerativeProvider
-	48, // 62: weaviate.v1.GenerativeSearch.Grouped.properties:type_name -> weaviate.v1.TextArray
-	1,  // 63: weaviate.v1.GenerativeSearch.Grouped.queries:type_name -> weaviate.v1.GenerativeProvider
-	40, // 64: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata.input_token_count:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenCount
-	40, // 65: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata.output_token_count:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenCount
-	41, // 66: weaviate.v1.GenerativeGoogleMetadata.Metadata.token_metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenMetadata
-	67, // [67:67] is the sub-list for method output_type
-	67, // [67:67] is the sub-list for method input_type
-	67, // [67:67] is the sub-list for extension type_name
-	67, // [67:67] is the sub-list for extension extendee
-	0,  // [0:67] is the sub-list for field type_name
+	34, // 0: weaviate.v1.GenerativeSearch.single:type_name -> weaviate.v1.GenerativeSearch.Single
+	35, // 1: weaviate.v1.GenerativeSearch.grouped:type_name -> weaviate.v1.GenerativeSearch.Grouped
+	4,  // 2: weaviate.v1.GenerativeProvider.anthropic:type_name -> weaviate.v1.GenerativeAnthropic
+	5,  // 3: weaviate.v1.GenerativeProvider.anyscale:type_name -> weaviate.v1.GenerativeAnyscale
+	6,  // 4: weaviate.v1.GenerativeProvider.aws:type_name -> weaviate.v1.GenerativeAWS
+	7,  // 5: weaviate.v1.GenerativeProvider.cohere:type_name -> weaviate.v1.GenerativeCohere
+	8,  // 6: weaviate.v1.GenerativeProvider.dummy:type_name -> weaviate.v1.GenerativeDummy
+	9,  // 7: weaviate.v1.GenerativeProvider.mistral:type_name -> weaviate.v1.GenerativeMistral
+	10, // 8: weaviate.v1.GenerativeProvider.ollama:type_name -> weaviate.v1.GenerativeOllama
+	11, // 9: weaviate.v1.GenerativeProvider.openai:type_name -> weaviate.v1.GenerativeOpenAI
+	12, // 10: weaviate.v1.GenerativeProvider.google:type_name -> weaviate.v1.GenerativeGoogle
+	13, // 11: weaviate.v1.GenerativeProvider.databricks:type_name -> weaviate.v1.GenerativeDatabricks
+	14, // 12: weaviate.v1.GenerativeProvider.friendliai:type_name -> weaviate.v1.GenerativeFriendliAI
+	15, // 13: weaviate.v1.GenerativeProvider.nvidia:type_name -> weaviate.v1.GenerativeNvidia
+	16, // 14: weaviate.v1.GenerativeProvider.xai:type_name -> weaviate.v1.GenerativeXAI
+	50, // 15: weaviate.v1.GenerativeAnthropic.stop_sequences:type_name -> weaviate.v1.TextArray
+	50, // 16: weaviate.v1.GenerativeAnthropic.images:type_name -> weaviate.v1.TextArray
+	50, // 17: weaviate.v1.GenerativeAnthropic.image_properties:type_name -> weaviate.v1.TextArray
+	50, // 18: weaviate.v1.GenerativeAWS.images:type_name -> weaviate.v1.TextArray
+	50, // 19: weaviate.v1.GenerativeAWS.image_properties:type_name -> weaviate.v1.TextArray
+	50, // 20: weaviate.v1.GenerativeCohere.stop_sequences:type_name -> weaviate.v1.TextArray
+	50, // 21: weaviate.v1.GenerativeOllama.images:type_name -> weaviate.v1.TextArray
+	50, // 22: weaviate.v1.GenerativeOllama.image_properties:type_name -> weaviate.v1.TextArray
+	50, // 23: weaviate.v1.GenerativeOpenAI.stop:type_name -> weaviate.v1.TextArray
+	50, // 24: weaviate.v1.GenerativeOpenAI.images:type_name -> weaviate.v1.TextArray
+	50, // 25: weaviate.v1.GenerativeOpenAI.image_properties:type_name -> weaviate.v1.TextArray
+	0,  // 26: weaviate.v1.GenerativeOpenAI.reasoning_effort:type_name -> weaviate.v1.GenerativeOpenAI.ReasoningEffort
+	1,  // 27: weaviate.v1.GenerativeOpenAI.verbosity:type_name -> weaviate.v1.GenerativeOpenAI.Verbosity
+	50, // 28: weaviate.v1.GenerativeGoogle.stop_sequences:type_name -> weaviate.v1.TextArray
+	50, // 29: weaviate.v1.GenerativeGoogle.images:type_name -> weaviate.v1.TextArray
+	50, // 30: weaviate.v1.GenerativeGoogle.image_properties:type_name -> weaviate.v1.TextArray
+	50, // 31: weaviate.v1.GenerativeDatabricks.stop:type_name -> weaviate.v1.TextArray
+	50, // 32: weaviate.v1.GenerativeXAI.images:type_name -> weaviate.v1.TextArray
+	50, // 33: weaviate.v1.GenerativeXAI.image_properties:type_name -> weaviate.v1.TextArray
+	36, // 34: weaviate.v1.GenerativeAnthropicMetadata.usage:type_name -> weaviate.v1.GenerativeAnthropicMetadata.Usage
+	37, // 35: weaviate.v1.GenerativeCohereMetadata.api_version:type_name -> weaviate.v1.GenerativeCohereMetadata.ApiVersion
+	38, // 36: weaviate.v1.GenerativeCohereMetadata.billed_units:type_name -> weaviate.v1.GenerativeCohereMetadata.BilledUnits
+	39, // 37: weaviate.v1.GenerativeCohereMetadata.tokens:type_name -> weaviate.v1.GenerativeCohereMetadata.Tokens
+	50, // 38: weaviate.v1.GenerativeCohereMetadata.warnings:type_name -> weaviate.v1.TextArray
+	40, // 39: weaviate.v1.GenerativeMistralMetadata.usage:type_name -> weaviate.v1.GenerativeMistralMetadata.Usage
+	41, // 40: weaviate.v1.GenerativeOpenAIMetadata.usage:type_name -> weaviate.v1.GenerativeOpenAIMetadata.Usage
+	44, // 41: weaviate.v1.GenerativeGoogleMetadata.metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.Metadata
+	45, // 42: weaviate.v1.GenerativeGoogleMetadata.usage_metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.UsageMetadata
+	46, // 43: weaviate.v1.GenerativeDatabricksMetadata.usage:type_name -> weaviate.v1.GenerativeDatabricksMetadata.Usage
+	47, // 44: weaviate.v1.GenerativeFriendliAIMetadata.usage:type_name -> weaviate.v1.GenerativeFriendliAIMetadata.Usage
+	48, // 45: weaviate.v1.GenerativeNvidiaMetadata.usage:type_name -> weaviate.v1.GenerativeNvidiaMetadata.Usage
+	49, // 46: weaviate.v1.GenerativeXAIMetadata.usage:type_name -> weaviate.v1.GenerativeXAIMetadata.Usage
+	17, // 47: weaviate.v1.GenerativeMetadata.anthropic:type_name -> weaviate.v1.GenerativeAnthropicMetadata
+	18, // 48: weaviate.v1.GenerativeMetadata.anyscale:type_name -> weaviate.v1.GenerativeAnyscaleMetadata
+	19, // 49: weaviate.v1.GenerativeMetadata.aws:type_name -> weaviate.v1.GenerativeAWSMetadata
+	20, // 50: weaviate.v1.GenerativeMetadata.cohere:type_name -> weaviate.v1.GenerativeCohereMetadata
+	21, // 51: weaviate.v1.GenerativeMetadata.dummy:type_name -> weaviate.v1.GenerativeDummyMetadata
+	22, // 52: weaviate.v1.GenerativeMetadata.mistral:type_name -> weaviate.v1.GenerativeMistralMetadata
+	23, // 53: weaviate.v1.GenerativeMetadata.ollama:type_name -> weaviate.v1.GenerativeOllamaMetadata
+	24, // 54: weaviate.v1.GenerativeMetadata.openai:type_name -> weaviate.v1.GenerativeOpenAIMetadata
+	25, // 55: weaviate.v1.GenerativeMetadata.google:type_name -> weaviate.v1.GenerativeGoogleMetadata
+	26, // 56: weaviate.v1.GenerativeMetadata.databricks:type_name -> weaviate.v1.GenerativeDatabricksMetadata
+	27, // 57: weaviate.v1.GenerativeMetadata.friendliai:type_name -> weaviate.v1.GenerativeFriendliAIMetadata
+	28, // 58: weaviate.v1.GenerativeMetadata.nvidia:type_name -> weaviate.v1.GenerativeNvidiaMetadata
+	29, // 59: weaviate.v1.GenerativeMetadata.xai:type_name -> weaviate.v1.GenerativeXAIMetadata
+	33, // 60: weaviate.v1.GenerativeReply.debug:type_name -> weaviate.v1.GenerativeDebug
+	30, // 61: weaviate.v1.GenerativeReply.metadata:type_name -> weaviate.v1.GenerativeMetadata
+	31, // 62: weaviate.v1.GenerativeResult.values:type_name -> weaviate.v1.GenerativeReply
+	3,  // 63: weaviate.v1.GenerativeSearch.Single.queries:type_name -> weaviate.v1.GenerativeProvider
+	50, // 64: weaviate.v1.GenerativeSearch.Grouped.properties:type_name -> weaviate.v1.TextArray
+	3,  // 65: weaviate.v1.GenerativeSearch.Grouped.queries:type_name -> weaviate.v1.GenerativeProvider
+	42, // 66: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata.input_token_count:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenCount
+	42, // 67: weaviate.v1.GenerativeGoogleMetadata.TokenMetadata.output_token_count:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenCount
+	43, // 68: weaviate.v1.GenerativeGoogleMetadata.Metadata.token_metadata:type_name -> weaviate.v1.GenerativeGoogleMetadata.TokenMetadata
+	69, // [69:69] is the sub-list for method output_type
+	69, // [69:69] is the sub-list for method input_type
+	69, // [69:69] is the sub-list for extension type_name
+	69, // [69:69] is the sub-list for extension extendee
+	0,  // [0:69] is the sub-list for field type_name
 }
 
 func init() { file_v1_generative_proto_init() }
@@ -4178,13 +4334,14 @@ func file_v1_generative_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_generative_proto_rawDesc), len(file_v1_generative_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      2,
 			NumMessages:   48,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_v1_generative_proto_goTypes,
 		DependencyIndexes: file_v1_generative_proto_depIdxs,
+		EnumInfos:         file_v1_generative_proto_enumTypes,
 		MessageInfos:      file_v1_generative_proto_msgTypes,
 	}.Build()
 	File_v1_generative_proto = out.File

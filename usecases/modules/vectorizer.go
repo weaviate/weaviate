@@ -331,7 +331,8 @@ func (p *Provider) addVectorToObject(object *models.Object,
 	}
 	if multiVector != nil {
 		object.Vectors[cfg.TargetVector()] = multiVector
-	} else {
+	}
+	if vector != nil {
 		object.Vectors[cfg.TargetVector()] = vector
 	}
 }

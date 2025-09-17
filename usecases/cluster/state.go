@@ -48,11 +48,11 @@ type NodeSelector interface {
 }
 
 type State struct {
-	config        Config
+	config Config
+	// memberlist methods are thread safe
+	// see https://github.com/hashicorp/memberlist/blob/master/memberlist.go#L502-L503
 	localGrpcPort int
 
-	// that lock to serialize access to memberlist
-	listLock             sync.RWMutex
 	list                 *memberlist.Memberlist
 	nonStorageNodes      map[string]struct{}
 	delegate             delegate
@@ -120,7 +120,7 @@ func Init(userConfig Config, grpcPort, raftBootstrapExpect int, dataPath string,
 	}
 
 	if err := state.delegate.init(diskSpace); err != nil {
-		logger.WithField("action", "init_state.delete_init").WithError(err).
+		logger.WithField("action", "init_state.delegate_init").WithError(err).
 			Error("delegate init failed")
 	}
 	cfg.Delegate = &state.delegate
@@ -149,7 +149,7 @@ func Init(userConfig Config, grpcPort, raftBootstrapExpect int, dataPath string,
 			"hostname":  userConfig.Hostname,
 			"bind_port": userConfig.GossipBindPort,
 		}).WithError(err).Error("memberlist not created")
-		return nil, errors.Wrap(err, "create member list")
+		return nil, errors.Wrap(err, "create memberlist")
 	}
 	var joinAddr []string
 	if userConfig.Join != "" {
@@ -183,9 +183,6 @@ func Init(userConfig Config, grpcPort, raftBootstrapExpect int, dataPath string,
 // Hostnames for all live members, except self. Use AllHostnames to include
 // self, prefixes the data port.
 func (s *State) Hostnames() []string {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -245,9 +242,6 @@ func (s *State) grpcPort(m *memberlist.Node) int {
 
 // AllHostnames for live members, including self.
 func (s *State) AllHostnames() []string {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	if s.list == nil {
 		return []string{}
 	}
@@ -264,9 +258,6 @@ func (s *State) AllHostnames() []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) AllNames() []string {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -282,9 +273,6 @@ func (s *State) storageNodes() []string {
 	if len(s.nonStorageNodes) == 0 {
 		return s.AllNames()
 	}
-
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
 
 	members := s.list.Members()
 	out := make([]string, len(members))
@@ -325,31 +313,19 @@ func (s *State) SortCandidates(nodes []string) []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) NodeCount() int {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	return s.list.NumMembers()
 }
 
 // LocalName() return local node name
 func (s *State) LocalName() string {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	return s.list.LocalNode().Name
 }
 
 func (s *State) ClusterHealthScore() int {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	return s.list.GetHealthScore()
 }
 
 func (s *State) NodeHostname(nodeName string) (string, bool) {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeName {
 			return fmt.Sprintf("%s:%d", mem.Addr.String(), s.dataPort(mem)), true
@@ -362,9 +338,6 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 // NodeAddress is used to resolve the node name into an ip address without the port
 // TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
 func (s *State) NodeAddress(id string) string {
-	s.listLock.RLock()
-	defer s.listLock.RUnlock()
-
 	// network interruption detection which can cause a single node to be isolated from the cluster (split brain)
 	nodeCount := s.list.NumMembers()
 	var joinAddr []string

@@ -20,24 +20,23 @@ import (
 	"testing"
 	"time"
 
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func Benchmark_Migration(b *testing.B) {
@@ -495,11 +494,11 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 			namedVectorConfig: func() enthnsw.UserConfig {
 				cfg := enthnsw.NewDefaultUserConfig()
 				cfg.PQ.Enabled = true
-				cfg.PQ.Segments = 10
+				cfg.PQ.Segments = 16 // segments should be a divisor of dimensions
 				return cfg
 			},
 
-			expectSegments: 10 * objectCount,
+			expectSegments: 16 * objectCount,
 		},
 		{
 			name: "named_with_pq_zero_segments",
@@ -520,6 +519,27 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 			multiVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 			expectDimensions:  multiVecCard * dimensionsPerVector * objectCount,
 			expectSegments:    (dimensionsPerVector / 8) * objectCount,
+		},
+		{
+			name: "named_with_rq_8bit",
+			namedVectorConfig: func() enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.RQ.Enabled = true
+				cfg.RQ.Bits = 8
+				return cfg
+			},
+
+			expectDimensions: dimensionsPerVector * objectCount,
+		},
+		{
+			name: "named_with_rq_1bit",
+			namedVectorConfig: func() enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.RQ.Enabled = true
+				cfg.RQ.Bits = 1
+				return cfg
+			},
+			expectSegments: (dimensionsPerVector / 8) * objectCount,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

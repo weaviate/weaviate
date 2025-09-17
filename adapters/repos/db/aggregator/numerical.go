@@ -14,6 +14,7 @@ package aggregator
 import (
 	"math"
 	"sort"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -83,6 +84,7 @@ func newNumericalAggregator() *numericalAggregator {
 }
 
 type numericalAggregator struct {
+	sync.Mutex
 	count        uint64
 	min          float64
 	max          float64
@@ -146,6 +148,9 @@ func (a *numericalAggregator) AddNumberRow(number float64, count uint64) error {
 		// skip
 		return nil
 	}
+
+	a.Lock()
+	defer a.Unlock()
 
 	a.count += count
 	a.sum += number * float64(count)

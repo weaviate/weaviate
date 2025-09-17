@@ -745,7 +745,7 @@ func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]sche
 ) error {
 	for vecName := range old {
 		if err := m.ValidateVectorIndexConfigUpdate(old[vecName], updated[vecName]); err != nil {
-			return fmt.Errorf("vector %q", vecName)
+			return fmt.Errorf("invalid update for vector %q: %w", vecName, err)
 		}
 	}
 	return nil

@@ -343,6 +343,12 @@ func NewIndex(
 	if vectorIndexUserConfigs == nil {
 		vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{}
 	}
+
+	metrics, err := NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a")
+	if err != nil {
+		return nil, fmt.Errorf("create metrics for index %q: %w", cfg.ClassName.String(), err)
+	}
+
 	index := &Index{
 		Config:                  cfg,
 		globalreplicationConfig: globalReplicationConfig,
@@ -356,7 +362,7 @@ func NewIndex(
 		stopwords:               sd,
 		partitioningEnabled:     multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
-		metrics:                 NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
+		metrics:                 metrics,
 		centralJobQueue:         jobQueueCh,
 		shardTransferMutex:      shardTransfer{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
 		scheduler:               scheduler,
@@ -374,7 +380,10 @@ func NewIndex(
 	}
 
 	// TODO: Fix replica router instantiation to be at the top level
-	index.replicator = replica.NewReplicator(cfg.ClassName.String(), router, sg.NodeName(), getDeletionStrategy, replicaClient, logger)
+	index.replicator, err = replica.NewReplicator(cfg.ClassName.String(), router, sg.NodeName(), getDeletionStrategy, replicaClient, promMetrics, logger)
+	if err != nil {
+		return nil, fmt.Errorf("create replicator for index %q: %w", index.ID(), err)
+	}
 
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -413,10 +422,6 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	className := i.Config.ClassName.String()
 
 	err := i.schemaReader.Read(className, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
-		}
-
 		for shardName, physical := range state.Physical {
 			if state.IsLocalShard(shardName) {
 				localShards = append(localShards, shardInfo{
@@ -1991,67 +1996,83 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	out := make([]*storobj.Object, 0, shardCap)
 	dists := make([]float32, 0, shardCap)
-	var localSearches int64
+	var localSearches atomic.Int64
 	var localResponses atomic.Int64
-	var remoteSearches int64
+	var remoteSearches atomic.Int64
 	var remoteResponses atomic.Int64
 
-	for _, sn := range readPlan.Shards() {
-		shardName := sn
-		shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead)
+	remoteSearch := func(shardName string) error {
+		// If we have no local shard or if we force the query to reach all replicas
+		remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName)
+		if err2 != nil {
+			return fmt.Errorf(
+				"remote shard object search %s: %w", shardName, err2)
+		}
+		m.Lock()
+		remoteResponses.Add(1)
+		out = append(out, remoteShardObject...)
+		dists = append(dists, remoteShardScores...)
+		m.Unlock()
+		return nil
+	}
+	localSearch := func(shardName string) error {
+		shard, release, err := i.GetShard(ctx, shardName)
 		defer release()
 		if err != nil {
-			return nil, nil, err
+			return err
 		}
-
 		if shard != nil {
-			localSearches++
-			eg.Go(func() error {
-				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName)
-				if err1 != nil {
-					return fmt.Errorf(
-						"local shard object search %s: %w", shard.ID(), err1)
-				}
+			localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName)
+			if err1 != nil {
+				return fmt.Errorf(
+					"local shard object search %s: %w", shard.ID(), err1)
+			}
 
-				m.Lock()
-				localResponses.Add(1)
-				out = append(out, localShardResult...)
-				dists = append(dists, localShardScores...)
-				m.Unlock()
-				return nil
-			})
+			m.Lock()
+			localResponses.Add(1)
+			out = append(out, localShardResult...)
+			dists = append(dists, localShardScores...)
+			m.Unlock()
+		} else {
+			return remoteSearch(shardName)
 		}
 
-		if shard == nil || i.Config.ForceFullReplicasSearch {
-			remoteSearches++
-			eg.Go(func() error {
-				// If we have no local shard or if we force the query to reach all replicas
-				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName)
-				if err2 != nil {
-					return fmt.Errorf(
-						"remote shard object search %s: %w", shardName, err2)
-				}
-				m.Lock()
-				remoteResponses.Add(1)
-				out = append(out, remoteShardObject...)
-				dists = append(dists, remoteShardScores...)
-				m.Unlock()
-				return nil
-			})
-		}
+		return nil
 	}
 
+	err = executor.ExecuteForEachShard(readPlan,
+		// Local Shard Search
+		func(replica routerTypes.Replica) error {
+			shardName := replica.ShardName
+			eg.Go(func() error {
+				localSearches.Add(1)
+				return localSearch(shardName)
+			}, shardName)
+			return nil
+		},
+		func(replica routerTypes.Replica) error {
+			shardName := replica.ShardName
+			eg.Go(func() error {
+				remoteSearches.Add(1)
+				return remoteSearch(shardName)
+			}, shardName)
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error executing search for each shard: %w", err)
+	}
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
 
 	// If we are force querying all replicas, we need to run deduplication on the result.
 	if i.Config.ForceFullReplicasSearch {
-		if localSearches != localResponses.Load() {
-			i.logger.Warnf("(in full replica search) local search count does not match local response count: searches=%d responses=%d", localSearches, localResponses.Load())
+		if localSearches.Load() != localResponses.Load() {
+			i.logger.Warnf("(in full replica search) local search count does not match local response count: searches=%d responses=%d", localSearches.Load(), localResponses.Load())
 		}
-		if remoteSearches != remoteResponses.Load() {
-			i.logger.Warnf("(in full replica search) remote search count does not match remote response count: searches=%d responses=%d", remoteSearches, remoteResponses.Load())
+		if remoteSearches.Load() != remoteResponses.Load() {
+			i.logger.Warnf("(in full replica search) remote search count does not match remote response count: searches=%d responses=%d", remoteSearches.Load(), remoteResponses.Load())
 		}
 		out, dists, err = searchResultDedup(out, dists)
 		if err != nil {

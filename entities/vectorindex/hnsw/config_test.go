@@ -306,7 +306,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         DefaultRQBits,
 					RescoreLimit: DefaultRQRescoreLimit,
 				},
-				FilterStrategy: DefaultFilterStrategy,
+				FilterStrategy: FilterStrategySweeping,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
 					Aggregation: DefaultMultivectorAggregation,
@@ -1135,14 +1135,14 @@ func Test_UserConfigFilterStrategy(t *testing.T) {
 	t.Run("default filter strategy is sweeping", func(t *testing.T) {
 		cfg := UserConfig{}
 		cfg.SetDefaults()
-		assert.Equal(t, FilterStrategySweeping, cfg.FilterStrategy)
+		assert.Equal(t, FilterStrategyAcorn, cfg.FilterStrategy)
 	})
 
 	t.Run("can override default strategy", func(t *testing.T) {
-		os.Setenv("HNSW_DEFAULT_FILTER_STRATEGY", FilterStrategyAcorn)
+		os.Setenv("HNSW_DEFAULT_FILTER_STRATEGY", FilterStrategySweeping)
 		cfg := UserConfig{}
 		cfg.SetDefaults()
-		assert.Equal(t, FilterStrategyAcorn, cfg.FilterStrategy)
+		assert.Equal(t, FilterStrategySweeping, cfg.FilterStrategy)
 		assert.Nil(t, os.Unsetenv("HNSW_DEFAULT_FILTER_STRATEGY"))
 	})
 }

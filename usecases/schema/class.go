@@ -57,11 +57,17 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, nam
 func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Principal,
 	name string, consistency bool,
 ) (*models.Class, uint64, error) {
+	// NOTE: Support getting class via alias name
+	// Also we resolve before doing `Authorize` so that Authorizer will work
+	// with correct `collectionName` for permissions and errors UX
+	name = schema.UppercaseClassName(name)
+	if rname := h.schemaReader.ResolveAlias(name); rname != "" {
+		name = rname
+	}
+
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 		return nil, 0, err
 	}
-
-	name = schema.UppercaseClassName(name)
 
 	if consistency {
 		vclasses, err := h.schemaManager.QueryReadOnlyClasses(name)

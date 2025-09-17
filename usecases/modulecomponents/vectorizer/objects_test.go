@@ -212,8 +212,9 @@ func TestVectorizingObjects(t *testing.T) {
 				excludedProperty:      test.excludedProperty,
 				lowerCase:             test.lowerCase,
 			}
-			text := v.Texts(context.Background(), test.input, cfg)
+			text, isEmpty := v.Texts(context.Background(), test.input, cfg)
 			assert.Equal(t, test.expectedClientCall, text)
+			assert.False(t, isEmpty)
 		})
 	}
 }
