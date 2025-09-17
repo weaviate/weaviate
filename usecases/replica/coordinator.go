@@ -94,7 +94,7 @@ func newReadCoordinator[T any](f *Finder, shard string,
 func (c *coordinator[T]) broadcast(ctx context.Context,
 	replicas []string,
 	op readyOp, level int,
-) <-chan string {
+) <-chan _Result[string] {
 	// prepare tells replicas to be ready
 	prepare := func() <-chan _Result[string] {
 		resChan := make(chan _Result[string], len(replicas))
@@ -118,10 +118,10 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 	}
 
 	// handle responses to prepare requests
-	replicaCh := make(chan string, len(replicas))
+	resChan := make(chan _Result[string], len(replicas))
 	f := func() {
-		defer close(replicaCh)
-		actives := make([]string, 0, level) // cache for active replicas
+		defer close(resChan)
+		actives := make([]_Result[string], 0, level) // cache for active replicas
 		for r := range prepare() {
 			if r.Err != nil { // connection error
 				c.log.WithField("op", "broadcast").Error(r.Err)
@@ -130,15 +130,15 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 
 			level--
 			if level > 0 { // cache since level has not been reached yet
-				actives = append(actives, r.Value)
+				actives = append(actives, r)
 				continue
 			}
 			if level == 0 { // consistency level has been reached
 				for _, x := range actives {
-					replicaCh <- x
+					resChan <- x
 				}
 			}
-			replicaCh <- r.Value
+			resChan <- r
 		}
 		if level > 0 { // abort: nothing has been sent to the caller
 			fs := logrus.Fields{"op": "broadcast", "active": len(actives), "total": len(replicas)}
@@ -146,22 +146,22 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 			for _, node := range replicas {
 				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
 			}
+			resChan <- _Result[string]{Err: fmt.Errorf("broadcast: %w", ErrReplicas)}
 		}
 	}
 	enterrors.GoWrapper(f, c.log)
-	return replicaCh
+	return resChan
 }
 
 // commitAll tells replicas to commit pending updates related to a specific request
 // (second phase of a two-phase commit)
 func (c *coordinator[T]) commitAll(ctx context.Context,
-	replicaCh <-chan string,
+	broadcastCh <-chan _Result[string],
 	op commitOp[T],
 	callback func(successful int),
 ) <-chan _Result[T] {
-	replyCh := make(chan _Result[T], cap(replicaCh))
-
-	f := func() {
+	replyCh := make(chan _Result[T], cap(broadcastCh))
+	f := func() { // tells active replicas to commit
 		// tells active replicas to commit
 
 		var successful atomic.Int32
@@ -174,9 +174,13 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 
 		wg := sync.WaitGroup{}
 
-		for replica := range replicaCh {
+		for res := range broadcastCh {
+			if res.Err != nil {
+				replyCh <- _Result[T]{Err: res.Err}
+				continue
+			}
+			replica := res.Value
 			wg.Add(1)
-			replica := replica
 			g := func() {
 				defer wg.Done()
 				resp, err := op(ctx, replica, c.TxID)
