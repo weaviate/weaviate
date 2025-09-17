@@ -30,9 +30,9 @@ var (
 
 const ObjectsBucketLSMDocIDSecondaryIndex int = 0
 
-func VectorsCompressedBucketLSM(id string) string {
-	if len(id) > 0 {
-		return fmt.Sprintf("%s_%s", VectorsCompressedBucketLSMPrefix, id)
+func VectorsCompressedBucketLSM(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s_%s", VectorsCompressedBucketLSMPrefix, targetVector)
 	}
 	return VectorsCompressedBucketLSMPrefix
 }
