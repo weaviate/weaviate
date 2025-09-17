@@ -16,7 +16,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -113,8 +112,8 @@ func TestKeyLockerContextMutexLockConcurrentCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	wgOuter := sync.WaitGroup{}
 	wgOuter.Add(numGoroutines)
-	wgInner := sync.WaitGroup{}
-	wgInner.Add(numGoroutines)
+	wg := sync.WaitGroup{}
+	wg.Add(numGoroutines)
 	counter := atomic.Int32{}
 	// try to lock concurrently, should all wait
 	for i := 0; i < numGoroutines; i++ {
@@ -123,7 +122,7 @@ func TestKeyLockerContextMutexLockConcurrentCancel(t *testing.T) {
 			if !done {
 				counter.Add(1)
 			}
-			wgInner.Done()
+			wg.Done()
 		}()
 		wgOuter.Done()
 	}
@@ -131,7 +130,7 @@ func TestKeyLockerContextMutexLockConcurrentCancel(t *testing.T) {
 	cancel()       // cancel context to stop trying to lock
 
 	// now all goroutines should have given up getting the lock
-	wgInner.Wait()
+	wg.Wait()
 	require.Equal(t, int32(numGoroutines), counter.Load())
 }
 
@@ -140,10 +139,8 @@ func TestKeyLockerContextMutexLockConcurrentUnlock(t *testing.T) {
 	s.Lock("t1")
 
 	numGoroutines := 10
-	wgOuter := sync.WaitGroup{}
-	wgOuter.Add(numGoroutines)
-	wgInner := sync.WaitGroup{}
-	wgInner.Add(numGoroutines)
+	wg := sync.WaitGroup{}
+	wg.Add(numGoroutines)
 	counter := atomic.Int32{}
 	// try to lock concurrently, should all wait
 	for i := 0; i < numGoroutines; i++ {
@@ -155,14 +152,12 @@ func TestKeyLockerContextMutexLockConcurrentUnlock(t *testing.T) {
 				counter.Add(-1)
 				s.Unlock("t1")
 			}
-			wgInner.Done()
+			wg.Done()
 		}()
-		wgOuter.Done()
 	}
-	wgOuter.Wait() // make sure all goroutines are started
 	s.Unlock("t1") // unlock so that one of the goroutines can acquire the lock
 
-	wgInner.Wait() // wait for all goroutines to be done
+	wg.Wait() // wait for all goroutines to be done
 	require.Equal(t, -int32(numGoroutines), counter.Load())
 }
 
@@ -174,48 +169,51 @@ func TestKeyLockerContextMultipleContext(t *testing.T) {
 
 	contexts := make([]struct {
 		context context.Context
-		cancel1 context.CancelFunc
+		cancel  context.CancelFunc
 	}, numGoroutines)
 	for i := range contexts {
-		contexts[i].context, contexts[i].cancel1 = context.WithCancel(context.Background())
+		contexts[i].context, contexts[i].cancel = context.WithCancel(context.Background())
 	}
 
-	wgOuter := sync.WaitGroup{}
-	wgOuter.Add(numGoroutines)
-	wgInner := sync.WaitGroup{}
-	wgInner.Add(numGoroutines)
+	wg := sync.WaitGroup{}
+	wg.Add(numGoroutines)
+
+	cancelNum := numGoroutines / 2
+	wgCancel := sync.WaitGroup{}
+	wgCancel.Add(cancelNum)
 	counterCancelled := atomic.Int32{}
-	counterSucceded := atomic.Int32{}
+	counterSucceeded := atomic.Int32{}
 	// try to lock concurrently, should all wait
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
 			done := s.TryLockWithContext("t1", contexts[i].context)
 			if !done {
 				counterCancelled.Add(1)
+				wgCancel.Done()
 			} else {
-				counterSucceded.Add(1)
+				counterSucceeded.Add(1)
 				s.Unlock("t1")
 			}
-			wgInner.Done()
+			wg.Done()
 		}()
-		wgOuter.Done()
 	}
-	wgOuter.Wait() // make sure all goroutines are started
 
 	// cancel some contexts
-	for i := range contexts[:5] {
-		contexts[i].cancel1()
+	for i := range contexts[:cancelNum] {
+		contexts[i].cancel()
 	}
-	time.Sleep(100 * time.Millisecond) // wait a little to give goroutines time to react to cancellation
-	require.Equal(t, int32(0), counterSucceded.Load())
-	require.Equal(t, int32(5), counterCancelled.Load())
+
+	wgCancel.Wait()
+
+	require.Equal(t, int32(0), counterSucceeded.Load())
+	require.Equal(t, int32(cancelNum), counterCancelled.Load())
 
 	// unlock original lock so remaining goroutines can acquire the lock
 	s.Unlock("t1")
 
-	wgInner.Wait()
-	require.Equal(t, int32(5), counterSucceded.Load())
-	require.Equal(t, int32(5), counterCancelled.Load())
+	wg.Wait()
+	require.Equal(t, int32(numGoroutines-cancelNum), counterSucceeded.Load())
+	require.Equal(t, int32(cancelNum), counterCancelled.Load())
 }
 
 func TestKeyLockerContextWithNormalLock(t *testing.T) {
@@ -223,10 +221,8 @@ func TestKeyLockerContextWithNormalLock(t *testing.T) {
 	s.Lock("t1")
 
 	numGoroutines := 10
-	wgOuter := sync.WaitGroup{}
-	wgOuter.Add(numGoroutines)
-	wgInner := sync.WaitGroup{}
-	wgInner.Add(numGoroutines * 2)
+	wg := sync.WaitGroup{}
+	wg.Add(numGoroutines * 2)
 	counterCtx := atomic.Int32{}
 	counterNoCtx := atomic.Int32{}
 
@@ -240,22 +236,20 @@ func TestKeyLockerContextWithNormalLock(t *testing.T) {
 				counterCtx.Add(-1)
 				s.Unlock("t1")
 			}
-			wgInner.Done()
+			wg.Done()
 		}()
 
 		go func() {
 			s.Lock("t1")
 			counterNoCtx.Add(1)
 			defer s.Unlock("t1")
-			wgInner.Done()
+			wg.Done()
 		}()
 
-		wgOuter.Done()
 	}
-	wgOuter.Wait() // make sure all goroutines are started
 	s.Unlock("t1") // unlock so that one of the goroutines can acquire the lock
 
-	wgInner.Wait() // wait for all goroutines to be done
+	wg.Wait() // wait for all goroutines to be done
 	require.Equal(t, int32(-numGoroutines), counterCtx.Load())
 	require.Equal(t, int32(numGoroutines), counterNoCtx.Load())
 }
