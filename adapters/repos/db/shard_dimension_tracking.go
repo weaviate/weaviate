@@ -141,6 +141,26 @@ func clearDimensionMetrics(cfg IndexConfig, promMetrics *monitoring.PrometheusMe
 	}
 }
 
+func GetDimensionCategoryLegacy(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
+	// We have special dimension tracking for BQ and PQ to represent reduced costs
+	// these are published under the separate vector_segments_dimensions metric
+	if hnswUserConfig, ok := cfg.(hnswent.UserConfig); ok {
+		if hnswUserConfig.PQ.Enabled {
+			return DimensionCategoryPQ, hnswUserConfig.PQ.Segments
+		}
+		if hnswUserConfig.BQ.Enabled {
+			return DimensionCategoryBQ, 0
+		}
+		if hnswUserConfig.SQ.Enabled {
+			return DimensionCategorySQ, 0
+		}
+		if hnswUserConfig.RQ.Enabled {
+			return DimensionCategoryRQ, 0
+		}
+	}
+	return DimensionCategoryStandard, 0
+}
+
 func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
 	// We have special dimension tracking for BQ and PQ to represent reduced costs
 	// these are published under the separate vector_segments_dimensions metric
