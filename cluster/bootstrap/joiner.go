@@ -75,15 +75,35 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 		if err == nil {
 			return addr, nil
 		}
-		st := status.Convert(err)
-		lg.WithField("remoteNode", addr).WithField("status", st.Code()).Info("attempted to join and failed")
+
+		rpcStatusCode := status.Convert(err).Code()
+		leaderAddr := resp.GetLeader()
+		// handle cases joining a cluster with no leader
+		// or election is in progress
+		if leaderAddr == "" {
+			continue
+		}
+
+		// avoid self multiple join attempts
+		if rpcStatusCode == rpc.NotLeaderRPCCode && leaderAddr == j.localRaftAddr {
+			return leaderAddr, nil
+		}
+
+		lg.WithFields(logrus.Fields{
+			"action":                  "join",
+			"trying_remote_node_addr": addr,
+			"leader":                  leaderAddr,
+			"rpc_status_code":         rpcStatusCode,
+		}).Info("attempted to join and failed")
+
 		// Get the leader from response and if not empty try to join it
-		if leader := resp.GetLeader(); st.Code() == rpc.NotLeaderRPCCode && leader != "" {
-			_, err = j.peerJoiner.Join(ctx, leader, req)
+		if rpcStatusCode == rpc.NotLeaderRPCCode {
+			// join the actual leader
+			_, err = j.peerJoiner.Join(ctx, leaderAddr, req)
 			if err == nil {
-				return leader, nil
+				return leaderAddr, nil
 			}
-			lg.WithField("leader", leader).WithError(err).Info("attempted to follow to leader and failed")
+			lg.WithField("leader", leaderAddr).WithError(err).Info("attempted to follow to leader and failed")
 		}
 	}
 	return "", fmt.Errorf("could not join a cluster from %v", remoteNodes)
