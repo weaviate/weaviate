@@ -35,6 +35,10 @@ type raft struct {
 	// NodeNameToPortMap maps a given node name ot a given port. This is useful when running locally so that we can
 	// keep in memory which node uses which port.
 	NodeNameToPortMap map[string]int
+	// LocalName is the name of the local node
+	LocalName string
+	// LocalAddress is the address of the local node
+	LocalAddress string
 
 	notResolvedNodes sync.Map
 }
@@ -46,6 +50,8 @@ func NewRaft(cfg RaftConfig) *raft {
 		IsLocalCluster:     cfg.IsLocalHost,
 		NodeNameToPortMap:  cfg.NodeNameToPortMap,
 		notResolvedNodes:   sync.Map{},
+		LocalName:          cfg.LocalName,
+		LocalAddress:       cfg.LocalAddress,
 	}
 }
 
@@ -53,6 +59,9 @@ func NewRaft(cfg RaftConfig) *raft {
 // it's thread safe see https://github.com/hashicorp/raft/blob/main/net_transport.go#L389-L391
 func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) {
 	// Get the address from the node id
+	if id == raftImpl.ServerID(a.LocalName) {
+		return raftImpl.ServerAddress(a.LocalAddress), nil
+	}
 	addr := a.ClusterStateReader.NodeAddress(string(id))
 
 	// Update the internal notResolvedNodes if the addr if empty, otherwise delete it from the map
