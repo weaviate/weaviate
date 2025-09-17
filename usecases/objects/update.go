@@ -52,7 +52,7 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	m.metrics.UpdateObjectInc()
 	defer m.metrics.UpdateObjectDec()
 
-	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(updates)); err != nil {
+	if err := m.resouceChecker.CheckAlloc(memwatch.EstimateObjectMemory(updates)); err != nil {
 		m.logger.WithError(err).Errorf("memory pressure: cannot process update object")
 		return nil, fmt.Errorf("cannot process update object: %w", err)
 	}
