@@ -107,7 +107,7 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 				g := func() {
 					defer wg.Done()
 					//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-					opctx, _ := context.WithTimeout(ctx, 30*time.Second)
+					opctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
 					err := op(opctx, replica, c.TxID)
 					resChan <- _Result[string]{replica, err}
 				}
@@ -245,7 +245,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	}()
 
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	ctxPrepare, _ := context.WithTimeout(ctx, 20*time.Second)
+	ctxPrepare, _ := context.WithTimeout(context.Background(), 20*time.Second)
 	nodeCh := c.broadcast(ctxPrepare, routingPlan.ReplicasHostAddrs, ask, level)
 
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
