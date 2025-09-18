@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -85,6 +85,7 @@ func startWeaviate(ctx context.Context,
 		"FAST_FAILURE_DETECTION":    "true",
 		"DISABLE_TELEMETRY":         "true",
 		"RAFT_DRAIN_SLEEP":          "1ms", // almost as no sleep, no 0 because will fail validation
+		"RAFT_TIMEOUTS_MULTIPLIER":  "3",
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")
