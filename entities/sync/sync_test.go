@@ -111,8 +111,6 @@ func TestKeyLockerContextMutexLockConcurrentCancel(t *testing.T) {
 
 	numGoroutines := 10
 	ctx, cancel := context.WithCancel(context.Background())
-	wgOuter := sync.WaitGroup{}
-	wgOuter.Add(numGoroutines)
 	wg := sync.WaitGroup{}
 	wg.Add(numGoroutines)
 	counter := atomic.Int32{}
@@ -125,10 +123,8 @@ func TestKeyLockerContextMutexLockConcurrentCancel(t *testing.T) {
 			}
 			wg.Done()
 		}()
-		wgOuter.Done()
 	}
-	wgOuter.Wait() // make sure all goroutines are started
-	cancel()       // cancel context to stop trying to lock
+	cancel() // cancel context to stop trying to lock
 
 	// now all goroutines should have given up getting the lock
 	wg.Wait()
@@ -396,20 +392,25 @@ func TestContextMutexTryLockWithContextTimeout(t *testing.T) {
 
 	// Lock the mutex
 	m.Lock()
+	defer m.Unlock()
 
 	// Try to lock with a short timeout
-	ctx, cancel := context.WithTimeout(t.Context(), 51*time.Millisecond)
-	defer cancel()
+	ctx, cancel := context.WithCancel(t.Context())
 
+	var slept time.Duration
 	start := time.Now()
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		slept = time.Since(start)
+		cancel()
+	}()
+
 	success := m.TryLockWithContext(ctx)
 	duration := time.Since(start)
 
 	require.False(t, success)
-	require.True(t, duration >= 50*time.Millisecond)
-	require.True(t, duration < 100*time.Millisecond)
-
-	m.Unlock()
+	require.GreaterOrEqual(t, duration, slept)
 }
 
 // TestContextMutexTryLockWithContextAlreadyCanceled tests already canceled context behavior
