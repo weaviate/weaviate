@@ -43,6 +43,34 @@ func TestMakeUnboundedChannel(t *testing.T) {
 	ch.Close(t.Context())
 }
 
+func TestMakeUnboundedChannel_CapShrink(t *testing.T) {
+	ch := MakeUnboundedChannel[int]()
+
+	// add over 1024 items
+	for i := range 2000 {
+		ch.Push(i)
+	}
+
+	ch.mu.RLock()
+	c := cap(ch.q)
+	ch.mu.RUnlock()
+	require.GreaterOrEqual(t, c, 2000)
+
+	// read > 75% items
+	for i := range 1600 {
+		v := <-ch.Out()
+		require.Equal(t, i, v)
+	}
+
+	ch.mu.RLock()
+	c = cap(ch.q)
+	ch.mu.RUnlock()
+
+	require.LessOrEqual(t, c, 1024)
+
+	ch.Close(t.Context())
+}
+
 func BenchmarkUnboundedChannel(b *testing.B) {
 	b.Run("Push", func(b *testing.B) {
 		ch := MakeUnboundedChannel[int]()
