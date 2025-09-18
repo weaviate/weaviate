@@ -41,13 +41,7 @@ func (s *SPFresh) enqueueSplit(ctx context.Context, postingID uint64) error {
 	}
 
 	// Enqueue the operation to the channel
-	select {
-	case s.splitCh <- splitOperation{PostingID: postingID}:
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-s.ctx.Done():
-		return s.ctx.Err()
-	}
+	s.splitCh.Push(postingID)
 
 	return nil
 }
@@ -55,19 +49,19 @@ func (s *SPFresh) enqueueSplit(ctx context.Context, postingID uint64) error {
 func (s *SPFresh) splitWorker() {
 	defer s.wg.Done()
 
-	for op := range s.splitCh {
+	for postingID := range s.splitCh.Out() {
 		if s.ctx.Err() != nil {
 			return
 		}
 
-		err := s.doSplit(op.PostingID, true)
+		err := s.doSplit(postingID, true)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				continue
 			}
 
 			s.Logger.WithError(err).
-				WithField("postingID", op.PostingID).
+				WithField("postingID", postingID).
 				Error("Failed to process split operation")
 			continue // Log the error and continue processing other operations
 		}

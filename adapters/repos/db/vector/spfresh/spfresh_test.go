@@ -42,7 +42,7 @@ func TestSPFreshRecall(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	vectors_size := 10_000
+	vectors_size := 100_000
 	queries_size := 100
 	dimensions := 64
 	k := 100
@@ -77,7 +77,13 @@ func TestSPFreshRecall(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	fmt.Printf("indexing done, took: %s\n", time.Since(before))
+	fmt.Printf("indexing done, took: %s, waiting for background tasks...\n", time.Since(before))
+
+	for index.splitCh.Len() > 0 || index.reassignCh.Len() > 0 || index.mergeCh.Len() > 0 {
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	fmt.Printf("all background tasks done,took: %s\n", time.Since(before))
 
 	recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
 	fmt.Println(recall, latency)

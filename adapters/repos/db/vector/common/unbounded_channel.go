@@ -58,10 +58,10 @@ func (u *UnboundedChannel[T]) Push(v T) bool {
 
 	wasEmpty := len(u.q) == 0
 	u.q = append(u.q, v)
-	u.mu.Unlock()
 	if wasEmpty {
 		u.cond.Signal()
 	}
+	u.mu.Unlock()
 
 	return true
 }
@@ -129,15 +129,19 @@ func (u *UnboundedChannel[T]) pop() T {
 	u.q[0] = zero // prevent memory leak
 	u.q = u.q[1:]
 
-	// shrink the queue if necessary
+	// ensure the underlying array doesn't grow indefinitely
 	if len(u.q) == 0 {
 		if cap(u.q) > 1024 {
 			u.q = nil // release underlying array
 		} else {
 			u.q = u.q[:0] // reset to zero length
 		}
-	} else if cap(u.q) > 1024 && len(u.q) < cap(u.q)/4 {
-		// if the queue is less than 25% full, shrink it to half the capacity
+
+		return v
+	}
+
+	// if the queue is less than 25% full, shrink it to half the capacity
+	if cap(u.q) > 1024 && len(u.q) < cap(u.q)/4 {
 		newQ := make([]T, len(u.q), cap(u.q)/2)
 		copy(newQ, u.q)
 		u.q = newQ
@@ -149,6 +153,7 @@ func (u *UnboundedChannel[T]) pop() T {
 // Len returns the number of items currently buffered in the channel.
 func (u *UnboundedChannel[T]) Len() int {
 	u.mu.RLock()
-	defer u.mu.RUnlock()
-	return len(u.q) + len(u.ch)
+	l := len(u.q) + len(u.ch)
+	u.mu.RUnlock()
+	return l
 }

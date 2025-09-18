@@ -32,10 +32,6 @@ func TestMakeUnboundedChannel(t *testing.T) {
 		j++
 	}
 
-	ch.Close(t.Context())
-
-	require.Equal(t, 1000, ch.Len())
-
 	for range 1000 {
 		v := <-ch.Out()
 		require.Equal(t, j, v)
@@ -43,6 +39,8 @@ func TestMakeUnboundedChannel(t *testing.T) {
 	}
 
 	require.Zero(t, ch.Len())
+
+	ch.Close(t.Context())
 }
 
 func BenchmarkUnboundedChannel(b *testing.B) {

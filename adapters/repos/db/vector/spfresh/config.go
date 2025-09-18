@@ -55,13 +55,10 @@ func DefaultConfig() *Config {
 		Distancer: distancer.NewL2SquaredProvider(),
 		// TODO: make the MaxPostingSize dynamic and dependent on the
 		// vector size and compression method
-		MaxPostingSize: 128,
-		MinPostingSize: 10,
-		// TODO: the number of goroutines is way too big,
-		// create unbounded channels to avoid having to create
-		// too many workers.
-		SplitWorkers:              64,
-		ReassignWorkers:           128,
+		MaxPostingSize:            128,
+		MinPostingSize:            10,
+		SplitWorkers:              8,
+		ReassignWorkers:           16,
 		InternalPostingCandidates: 64,
 		ReassignNeighbors:         64,
 		Replicas:                  8,

@@ -40,13 +40,7 @@ func (s *SPFresh) enqueueMerge(ctx context.Context, postingID uint64) error {
 	}
 
 	// Enqueue the operation to the channel
-	select {
-	case s.mergeCh <- mergeOperation{PostingID: postingID}:
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-s.ctx.Done():
-		return s.ctx.Err()
-	}
+	s.mergeCh.Push(postingID)
 
 	return nil
 }
@@ -54,54 +48,54 @@ func (s *SPFresh) enqueueMerge(ctx context.Context, postingID uint64) error {
 func (s *SPFresh) mergeWorker() {
 	defer s.wg.Done()
 
-	for op := range s.mergeCh {
+	for postingID := range s.mergeCh.Out() {
 		if s.ctx.Err() != nil {
 			return // Exit if the context is cancelled
 		}
 
-		err := s.doMerge(op)
+		err := s.doMerge(postingID)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				continue
 			}
 
 			s.Logger.WithError(err).
-				WithField("postingID", op.PostingID).
+				WithField("postingID", postingID).
 				Error("Failed to process merge operation")
 			continue // Log the error and continue processing other operations
 		}
 	}
 }
 
-func (s *SPFresh) doMerge(op mergeOperation) error {
-	defer s.mergeList.done(op.PostingID)
+func (s *SPFresh) doMerge(postingID uint64) error {
+	defer s.mergeList.done(postingID)
 
-	s.Logger.WithField("postingID", op.PostingID).Debug("Merging posting")
+	s.Logger.WithField("postingID", postingID).Debug("Merging posting")
 
 	var markedAsDone bool
-	s.postingLocks.Lock(op.PostingID)
+	s.postingLocks.Lock(postingID)
 	defer func() {
 		if !markedAsDone {
-			s.postingLocks.Unlock(op.PostingID)
+			s.postingLocks.Unlock(postingID)
 		}
 	}()
 
 	// Ensure the posting exists in the index
-	if !s.SPTAG.Exists(op.PostingID) {
-		s.Logger.WithField("postingID", op.PostingID).
+	if !s.SPTAG.Exists(postingID) {
+		s.Logger.WithField("postingID", postingID).
 			Debug("Posting not found, skipping merge operation")
 		return nil // Nothing to merge
 	}
 
-	p, err := s.Store.Get(s.ctx, op.PostingID)
+	p, err := s.Store.Get(s.ctx, postingID)
 	if err != nil {
 		if errors.Is(err, ErrPostingNotFound) {
-			s.Logger.WithField("postingID", op.PostingID).
+			s.Logger.WithField("postingID", postingID).
 				Debug("Posting not found, skipping merge operation")
 			return nil
 		}
 
-		return errors.Wrapf(err, "failed to get posting %d for merge operation", op.PostingID)
+		return errors.Wrapf(err, "failed to get posting %d for merge operation", postingID)
 	}
 
 	initialLen := p.Len()
@@ -117,7 +111,7 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 	// skip if the posting is big enough
 	if prevLen >= int(s.Config.MinPostingSize) {
 		s.Logger.
-			WithField("postingID", op.PostingID).
+			WithField("postingID", postingID).
 			WithField("size", prevLen).
 			WithField("min", s.Config.MinPostingSize).
 			Debug("Posting is big enough, skipping merge operation")
@@ -128,39 +122,39 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 		}
 
 		// persist the gc'ed posting
-		err = s.Store.Put(s.ctx, op.PostingID, newPosting)
+		err = s.Store.Put(s.ctx, postingID, newPosting)
 		if err != nil {
-			return errors.Wrapf(err, "failed to put filtered posting %d", op.PostingID)
+			return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 		}
 		// update the size of the posting after successful Persist
-		s.PostingSizes.Set(op.PostingID, uint32(prevLen))
+		s.PostingSizes.Set(postingID, uint32(prevLen))
 
 		return nil
 	}
 
 	// get posting centroid
-	oldCentroid := s.SPTAG.Get(op.PostingID)
+	oldCentroid := s.SPTAG.Get(postingID)
 	if oldCentroid == nil {
-		return errors.Errorf("centroid not found for posting %d", op.PostingID)
+		return errors.Errorf("centroid not found for posting %d", postingID)
 	}
 
 	// search for the closest centroids
 	nearest, err := s.SPTAG.Search(oldCentroid.Vector, s.Config.InternalPostingCandidates)
 	if err != nil {
-		return errors.Wrapf(err, "failed to search for nearest centroid for posting %d", op.PostingID)
+		return errors.Wrapf(err, "failed to search for nearest centroid for posting %d", postingID)
 	}
 
 	if len(nearest) <= 1 {
-		s.Logger.WithField("postingID", op.PostingID).
+		s.Logger.WithField("postingID", postingID).
 			Debug("No candidates found for merge operation, skipping")
 
 		// persist the gc'ed posting
-		err = s.Store.Put(s.ctx, op.PostingID, newPosting)
+		err = s.Store.Put(s.ctx, postingID, newPosting)
 		if err != nil {
-			return errors.Wrapf(err, "failed to put filtered posting %d", op.PostingID)
+			return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 		}
 		// update the size of the posting after successful Persist
-		s.PostingSizes.Set(op.PostingID, uint32(prevLen))
+		s.PostingSizes.Set(postingID, uint32(prevLen))
 
 		return nil
 	}
@@ -176,7 +170,7 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 		// lock the candidate posting to ensure no concurrent modifications
 		// note: the candidate lock might be the same as the current posting lock
 		// so we need to ensure we don't deadlock
-		if s.postingLocks.Hash(op.PostingID) != s.postingLocks.Hash(nearest[i].ID) {
+		if s.postingLocks.Hash(postingID) != s.postingLocks.Hash(nearest[i].ID) {
 			// lock the candidate posting
 			s.postingLocks.Lock(nearest[i].ID)
 			defer func() {
@@ -189,7 +183,7 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 		// get the candidate posting
 		candidate, err := s.Store.Get(s.ctx, nearest[i].ID)
 		if err != nil {
-			return errors.Wrapf(err, "failed to get candidate posting %d for merge operation on posting %d", nearest[i].ID, op.PostingID)
+			return errors.Wrapf(err, "failed to get candidate posting %d for merge operation on posting %d", nearest[i].ID, postingID)
 		}
 
 		var candidateLen int
@@ -206,10 +200,10 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 		}
 
 		// delete the smallest posting and update the large posting
-		smallID, largeID := op.PostingID, nearest[i].ID
+		smallID, largeID := postingID, nearest[i].ID
 		smallPosting := p
 		if prevLen > candidateLen {
-			smallID, largeID = nearest[i].ID, op.PostingID
+			smallID, largeID = nearest[i].ID, postingID
 			smallPosting = candidate
 		}
 
@@ -222,7 +216,7 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 		// persist the merged posting first
 		err = s.Store.Put(s.ctx, largeID, newPosting)
 		if err != nil {
-			return errors.Wrapf(err, "failed to put merged posting %d after merge operation", op.PostingID)
+			return errors.Wrapf(err, "failed to put merged posting %d after merge operation", postingID)
 		}
 
 		// set the small posting size to 0 and update the large posting size only after successful persist
@@ -231,10 +225,10 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 
 		// mark the operation as done and unlock everything
 		markedAsDone = true
-		if s.postingLocks.Hash(op.PostingID) != s.postingLocks.Hash(nearest[i].ID) {
+		if s.postingLocks.Hash(postingID) != s.postingLocks.Hash(nearest[i].ID) {
 			s.postingLocks.Unlock(nearest[i].ID)
 		}
-		s.postingLocks.Unlock(op.PostingID)
+		s.postingLocks.Unlock(postingID)
 
 		// if merged vectors are closer to their old centroid than the new one
 		// there may be better centroids for them out there.
@@ -265,10 +259,10 @@ func (s *SPFresh) doMerge(op mergeOperation) error {
 	}
 
 	// if no candidates were found, just persist the gc'ed posting
-	s.PostingSizes.Set(op.PostingID, uint32(newPosting.Len()))
-	err = s.Store.Put(s.ctx, op.PostingID, newPosting)
+	s.PostingSizes.Set(postingID, uint32(newPosting.Len()))
+	err = s.Store.Put(s.ctx, postingID, newPosting)
 	if err != nil {
-		return errors.Wrapf(err, "failed to put filtered posting %d", op.PostingID)
+		return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 	}
 
 	return nil
