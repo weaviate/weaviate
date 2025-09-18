@@ -996,7 +996,7 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 
 	if err := parsePositiveInt(
 		"RAFT_TIMEOUTS_MULTIPLIER",
-		func(val int) { cfg.TimeoutsMultiplier = val },
+		func(val int) { cfg.TimeoutsMultiplier = runtime.NewDynamicValue(val) },
 		1, // raft default
 	); err != nil {
 		return cfg, err
@@ -1030,6 +1030,14 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		"RAFT_CONSISTENCY_WAIT_TIMEOUT",
 		func(val int) { cfg.ConsistencyWaitTimeout = time.Second * time.Duration(val) },
 		10,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveDuration(
+		"RAFT_DRAIN_SLEEP",
+		func(val time.Duration) { cfg.DrainSleep = runtime.NewDynamicValue(val) },
+		200*time.Millisecond,
 	); err != nil {
 		return cfg, err
 	}
@@ -1195,6 +1203,24 @@ func parseIntVerify(envName string, defaultValue int, cb func(val int), verify f
 	}
 
 	cb(asInt)
+	return nil
+}
+
+// parsePositiveDuration parses an environment variable as time.Duration using time.ParseDuration,
+// applies a default when unset, and validates it is > 0.
+func parsePositiveDuration(envName string, cb func(val time.Duration), defaultValue time.Duration) error {
+	asDuration := defaultValue
+	if v := os.Getenv(envName); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse %s as duration: %w", envName, err)
+		}
+		asDuration = d
+	}
+	if asDuration <= 0 {
+		return fmt.Errorf("%s must be a duration greater than 0. Got: %v", envName, asDuration)
+	}
+	cb(asDuration)
 	return nil
 }
 
