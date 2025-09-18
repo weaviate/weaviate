@@ -548,6 +548,7 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_fixing").
 			Error("hnsw commit log maintenance (fixing) failed")
+		return false
 	}
 
 	executedCombine, err := l.combineLogs()
@@ -555,6 +556,7 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_combining").
 			Error("hnsw commit log maintenance (combining) failed")
+		return false
 	}
 
 	executedCondense, err := l.condenseLogs()
@@ -562,6 +564,7 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_condensing").
 			Error("hnsw commit log maintenance (condensing) failed")
+		return executedCombine
 	}
 
 	executedSnapshot, err := l.createSnapshot(shouldAbort)
@@ -569,6 +572,7 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 		l.logger.WithError(err).
 			WithField("action", "hnsw_snapshot_creating").
 			Error("hnsw commit log maintenance (snapshot) failed")
+		return executedCombine || executedCondense
 	}
 
 	return executedCombine || executedCondense || executedSnapshot
