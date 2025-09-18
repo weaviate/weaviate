@@ -260,12 +260,12 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithMinWalThreshold(4096), WithSecondaryIndices(2),
 	)
 	require.NoError(t, err)
 
-	require.NoError(t, b.Put([]byte("hello1"), []byte("world1")))
-	require.NoError(t, b.Put([]byte("hello2"), []byte("world2")))
+	require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1")), WithSecondaryKey(1, []byte("hallo1"))))
+	require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2")), WithSecondaryKey(1, []byte("hallo2"))))
 
 	count, err := b.Count(ctx)
 	require.NoError(t, err)
@@ -288,7 +288,7 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 
 	// now reload bucket
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithMinWalThreshold(4096), WithSecondaryIndices(2),
 	)
 	require.NoError(t, err)
 
@@ -297,9 +297,9 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 	require.Equal(t, count, 1)
 
 	// write more data
-	require.NoError(t, b.Put([]byte("hello3"), []byte("world3")))
-	require.NoError(t, b.Put([]byte("hello4"), []byte("world4")))
-	require.NoError(t, b.Put([]byte("hello5"), []byte("world5")))
+	require.NoError(t, b.Put([]byte("hello3"), []byte("world3"), WithSecondaryKey(0, []byte("bonjour3")), WithSecondaryKey(1, []byte("hallo3"))))
+	require.NoError(t, b.Put([]byte("hello4"), []byte("world4"), WithSecondaryKey(0, []byte("bonjour4")), WithSecondaryKey(1, []byte("hallo4"))))
+	require.NoError(t, b.Put([]byte("hello5"), []byte("world5"), WithSecondaryKey(0, []byte("bonjour5")), WithSecondaryKey(1, []byte("hallo5"))))
 
 	count, err = b.Count(ctx)
 	require.NoError(t, err)
@@ -311,7 +311,7 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 	require.Equal(t, walFiles, 1)
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithMinWalThreshold(4096), WithSecondaryIndices(2),
 	)
 	require.NoError(t, err)
 
@@ -319,4 +319,28 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 	count, err = b.Count(ctx)
 	require.NoError(t, err)
 	require.Equal(t, count, 1)
+
+	require.NoError(t, b.FlushMemtable())
+
+	require.NoError(t, b.Shutdown(ctx))
+
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithMinWalThreshold(4096), WithSecondaryIndices(2),
+	)
+	require.NoError(t, err)
+	count, err = b.Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, count, 1)
+
+	val, err := b.get([]byte("hello1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("world1"), val)
+
+	secondary0, err := b.GetBySecondary(0, []byte("bonjour1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("world1"), secondary0)
+
+	secondary1, err := b.GetBySecondary(1, []byte("hallo1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("world1"), secondary1)
 }
