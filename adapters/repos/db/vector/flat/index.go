@@ -200,7 +200,7 @@ func (index *flat) getBucketName() string {
 }
 
 func (index *flat) getCompressedBucketName() string {
-	return helpers.VectorsCompressedBucketLSM(index.targetVector)
+	return helpers.GetCompressedBucketName(index.targetVector)
 }
 
 func (index *flat) initBuckets(ctx context.Context, cfg Config) error {

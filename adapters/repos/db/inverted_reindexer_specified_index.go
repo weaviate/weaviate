@@ -43,7 +43,7 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) GetPropertiesToReindex(ctx con
 	}
 
 	for name := range shard.Store().GetBucketsByName() {
-		if strings.HasPrefix(name, helpers.VectorsCompressedBucketLSMPrefix) {
+		if strings.HasPrefix(name, helpers.VectorsCompressedBucketLSM) {
 			continue
 		}
 		// skip non prop buckets

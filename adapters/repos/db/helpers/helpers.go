@@ -21,20 +21,20 @@ import (
 )
 
 var (
-	ObjectsBucket                    = []byte("objects")
-	ObjectsBucketLSM                 = "objects"
-	VectorsBucketLSM                 = "vectors"
-	DimensionsBucketLSM              = "dimensions"
-	VectorsCompressedBucketLSMPrefix = "vectors_compressed"
+	ObjectsBucket              = []byte("objects")
+	ObjectsBucketLSM           = "objects"
+	VectorsBucketLSM           = "vectors"
+	DimensionsBucketLSM        = "dimensions"
+	VectorsCompressedBucketLSM = "vectors_compressed"
 )
 
 const ObjectsBucketLSMDocIDSecondaryIndex int = 0
 
-func VectorsCompressedBucketLSM(targetVector string) string {
+func GetCompressedBucketName(targetVector string) string {
 	if targetVector != "" {
-		return fmt.Sprintf("%s_%s", VectorsCompressedBucketLSMPrefix, targetVector)
+		return fmt.Sprintf("%s_%s", VectorsCompressedBucketLSM, targetVector)
 	}
-	return VectorsCompressedBucketLSMPrefix
+	return VectorsCompressedBucketLSM
 }
 
 // MetaCountProp helps create an internally used propName for meta props that
