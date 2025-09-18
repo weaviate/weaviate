@@ -294,7 +294,7 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 
 	count, err = b.Count(ctx)
 	require.NoError(t, err)
-	require.Equal(t, count, 1)
+	require.Equal(t, 1, count)
 
 	// write more data
 	require.NoError(t, b.Put([]byte("hello3"), []byte("world3"), WithSecondaryKey(0, []byte("bonjour3")), WithSecondaryKey(1, []byte("hallo3"))))
@@ -303,11 +303,11 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 
 	count, err = b.Count(ctx)
 	require.NoError(t, err)
-	require.Equal(t, count, 4)
+	require.Equal(t, 4, count)
 
 	require.NoError(t, b.Shutdown(ctx))
 	dbFiles, walFiles = countDbAndWalFiles(t, dirName)
-	require.Equal(t, dbFiles, 0)
+	require.Equal(t, dbFiles, 1)
 	require.Equal(t, walFiles, 1)
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
@@ -315,10 +315,9 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// should be 4
 	count, err = b.Count(ctx)
 	require.NoError(t, err)
-	require.Equal(t, count, 1)
+	require.Equal(t, 4, count)
 
 	require.NoError(t, b.FlushMemtable())
 
@@ -330,17 +329,22 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 	require.NoError(t, err)
 	count, err = b.Count(ctx)
 	require.NoError(t, err)
-	require.Equal(t, count, 1)
+	require.Equal(t, 4, count)
 
-	val, err := b.get([]byte("hello1"))
-	require.NoError(t, err)
-	require.Equal(t, []byte("world1"), val)
+	for i := 1; i <= 5; i++ {
+		if i == 2 {
+			continue // this one was lost due to the damage
+		}
+		val, err := b.Get([]byte(fmt.Sprintf("hello%d", i)))
+		require.NoError(t, err)
+		require.Equal(t, []byte(fmt.Sprintf("world%d", i)), val)
 
-	secondary0, err := b.GetBySecondary(0, []byte("bonjour1"))
-	require.NoError(t, err)
-	require.Equal(t, []byte("world1"), secondary0)
+		secondary0, err := b.GetBySecondary(0, []byte(fmt.Sprintf("bonjour%d", i)))
+		require.NoError(t, err)
+		require.Equal(t, []byte(fmt.Sprintf("world%d", i)), secondary0)
 
-	secondary1, err := b.GetBySecondary(1, []byte("hallo1"))
-	require.NoError(t, err)
-	require.Equal(t, []byte("world1"), secondary1)
+		secondary1, err := b.GetBySecondary(1, []byte(fmt.Sprintf("hallo%d", i)))
+		require.NoError(t, err)
+		require.Equal(t, []byte(fmt.Sprintf("world%d", i)), secondary1)
+	}
 }
