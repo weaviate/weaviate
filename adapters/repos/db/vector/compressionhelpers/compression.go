@@ -105,7 +105,7 @@ func (compressor *quantizedVectorsCompressor[T]) Delete(ctx context.Context, id 
 	compressor.cache.Delete(ctx, id)
 	idBytes := make([]byte, 8)
 	compressor.storeId(idBytes, id)
-	if err := compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM(compressor.targetVector)).Delete(idBytes); err != nil {
+	if err := compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)).Delete(idBytes); err != nil {
 		compressor.logger.WithFields(logrus.Fields{
 			"action": "compressor_delete",
 			"id":     id,
@@ -118,7 +118,7 @@ func (compressor *quantizedVectorsCompressor[T]) Preload(id uint64, vector []flo
 	compressedVector := compressor.quantizer.Encode(vector)
 	idBytes := make([]byte, 8)
 	compressor.storeId(idBytes, id)
-	compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM(compressor.targetVector)).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
+	compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
 	compressor.cache.Grow(id)
 	compressor.cache.Preload(id, compressedVector)
 }
@@ -132,7 +132,7 @@ func (compressor *quantizedVectorsCompressor[T]) PreloadMulti(docID uint64, ids 
 	for i, id := range ids {
 		idBytes := make([]byte, 8)
 		compressor.storeId(idBytes, id)
-		compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM(compressor.targetVector)).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVectors[i]))
+		compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVectors[i]))
 		if id > maxID {
 			maxID = id
 		}
@@ -145,7 +145,7 @@ func (compressor *quantizedVectorsCompressor[T]) PreloadPassage(id, docID, relat
 	compressedVector := compressor.quantizer.Encode(vec)
 	idBytes := make([]byte, 8)
 	compressor.storeId(idBytes, id)
-	compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM(compressor.targetVector)).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
+	compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
 	compressor.cache.Grow(id)
 	compressor.cache.PreloadPassage(id, docID, relativeID, compressedVector)
 }
@@ -199,7 +199,7 @@ func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedVector
 func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx context.Context, id uint64) ([]T, error) {
 	idBytes := make([]byte, 8)
 	compressor.storeId(idBytes, id)
-	compressedVector, err := compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM(compressor.targetVector)).Get(idBytes)
+	compressedVector, err := compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)).Get(idBytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "Getting vector for id")
 	}
@@ -253,7 +253,7 @@ func (compressor *quantizedVectorsCompressor[T]) NewBag() CompressionDistanceBag
 }
 
 func (compressor *quantizedVectorsCompressor[T]) initCompressedStore() error {
-	err := compressor.compressedStore.CreateOrLoadBucket(context.Background(), helpers.VectorsCompressedBucketLSM(compressor.targetVector))
+	err := compressor.compressedStore.CreateOrLoadBucket(context.Background(), helpers.GetCompressedBucketName(compressor.targetVector))
 	if err != nil {
 		return errors.Wrapf(err, "Create or load bucket (compressed vectors store)")
 	}
@@ -275,7 +275,7 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 	vecs := make([]VecAndID[T], 0, 10_000)
 
 	it := NewParallelIterator(
-		compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM(compressor.targetVector)),
+		compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)),
 		parallel, compressor.loadId, compressor.quantizer.FromCompressedBytesWithSubsliceBuffer,
 		compressor.logger)
 	channel := it.IterateAll()
@@ -316,7 +316,7 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(docIDVectors 
 	vecs := make([]VecAndID[T], 0, 10_000)
 
 	it := NewParallelIterator(
-		compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM(compressor.targetVector)),
+		compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector)),
 		parallel, compressor.loadId, compressor.quantizer.FromCompressedBytesWithSubsliceBuffer,
 		compressor.logger)
 	channel := it.IterateAll()
