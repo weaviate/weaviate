@@ -48,6 +48,7 @@ import (
 
 const (
 	FlushAfterDirtyDefault = 60 * time.Second
+	dummyStrategy          = "DUMMY"
 	contextCheckInterval   = 50 // check context every 50 iterations, every iteration adds too much overhead
 )
 
@@ -190,7 +191,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
 	defaultFlushAfterDirty := FlushAfterDirtyDefault
-	defaultStrategy := StrategyReplace
+	defaultStrategy := dummyStrategy
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
@@ -221,6 +222,10 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		if err := opt(b); err != nil {
 			return nil, err
 		}
+	}
+
+	if b.strategy == dummyStrategy {
+		return nil, errors.New("strategy needs to be explicitly set for all buckets")
 	}
 
 	if b.memtableResizer != nil {
