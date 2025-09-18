@@ -313,8 +313,12 @@ func TestContextMutex(t *testing.T) {
 	require.False(t, contextMutexLocked(m))
 }
 
+// verify that the critical sections are not accessed concurrently
+// by ensuring a counter matches an atomic counter and that
+// we don't see a "concurrent map writes" error inside critical sections
 func TestContextMutexCriticalSection(t *testing.T) {
 	m := newContextMutex()
+	raceDetector := map[int]int{}
 	atomicCounter := atomic.Int64{}
 	var counter int64 = 0
 	numWorkers := 100
@@ -336,17 +340,20 @@ func TestContextMutexCriticalSection(t *testing.T) {
 				}
 				m.Lock()
 				counter++
+				raceDetector[workerNum]++
 				m.Unlock()
 				atomicCounter.Add(1)
 
 				if m.TryLockWithContext(workerContext) {
 					counter++
+					raceDetector[workerNum]++
 					m.Unlock()
 					atomicCounter.Add(1)
 				}
 
 				if m.TryLock() {
 					counter++
+					raceDetector[workerNum]++
 					m.Unlock()
 					atomicCounter.Add(1)
 				}
@@ -356,4 +363,112 @@ func TestContextMutexCriticalSection(t *testing.T) {
 	}
 	wg.Wait()
 	require.Equal(t, atomicCounter.Load(), counter)
+}
+
+// TestContextMutexConcurrentAccess tests concurrent access to the same mutex
+func TestContextMutexConcurrentAccess(t *testing.T) {
+	m := newContextMutex()
+	counter := 0
+	numGoroutines := 100
+	numIterations := 1000
+
+	wg := sync.WaitGroup{}
+	wg.Add(numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < numIterations; j++ {
+				m.Lock()
+				counter++
+				m.Unlock()
+			}
+		}()
+	}
+
+	wg.Wait()
+	require.Equal(t, numGoroutines*numIterations, counter)
+}
+
+// TestContextMutexTryLockWithContextTimeout tests timeout behavior
+func TestContextMutexTryLockWithContextTimeout(t *testing.T) {
+	m := newContextMutex()
+
+	// Lock the mutex
+	m.Lock()
+
+	// Try to lock with a short timeout
+	ctx, cancel := context.WithTimeout(t.Context(), 51*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	success := m.TryLockWithContext(ctx)
+	duration := time.Since(start)
+
+	require.False(t, success)
+	require.True(t, duration >= 50*time.Millisecond)
+	require.True(t, duration < 100*time.Millisecond)
+
+	m.Unlock()
+}
+
+// TestContextMutexTryLockWithContextAlreadyCanceled tests already canceled context behavior
+func TestContextMutexTryLockWithContextAlreadyCanceled(t *testing.T) {
+	m := newContextMutex()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	success := m.TryLockWithContext(ctx)
+	require.False(t, success)
+}
+
+// TestContextMutexTryLock tests the TryLock method
+func TestContextMutexTryLock(t *testing.T) {
+	m := newContextMutex()
+
+	// Should succeed when not locked
+	success := m.TryLock()
+	require.True(t, success)
+
+	// Should fail when already locked
+	success = m.TryLock()
+	require.False(t, success)
+
+	m.Unlock()
+
+	// Should succeed again after unlock
+	success = m.TryLock()
+	require.True(t, success)
+	m.Unlock()
+}
+
+// TestContextMutexMixedOperations tests mixing different lock types
+func TestContextMutexMixedOperations(t *testing.T) {
+	m := newContextMutex()
+
+	// Mix Lock, TryLock, and TryLockWithContext
+	m.Lock()
+	m.Unlock()
+
+	success := m.TryLock()
+	require.True(t, success)
+	m.Unlock()
+
+	ctx := context.Background()
+	success = m.TryLockWithContext(ctx)
+	require.True(t, success)
+	m.Unlock()
+
+	// Test when already locked
+	m.Lock()
+	success = m.TryLock()
+	require.False(t, success)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+	success = m.TryLockWithContext(ctx)
+	require.False(t, success)
+
+	m.Unlock()
 }
