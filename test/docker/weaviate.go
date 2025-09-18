@@ -84,6 +84,7 @@ func startWeaviate(ctx context.Context,
 		"DEFAULT_VECTORIZER_MODULE": "none",
 		"FAST_FAILURE_DETECTION":    "true",
 		"DISABLE_TELEMETRY":         "true",
+		"RAFT_DRAIN_SLEEP":          "1ms", // almost as no sleep, no 0 because will fail validation
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")

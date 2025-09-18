@@ -23,13 +23,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/log"
 )
 
-const (
-	// RaftTcpMaxPool controls how many connections raft transport will pool
-	raftTcpMaxPool = 3
-	// RaftTcpTimeout is used to apply I/O deadlines.
-	raftTcpTimeout = 10 * time.Second
-)
-
 type raft struct {
 	// ClusterStateReader allows the raft to also be used to the current cluster state
 	ClusterStateReader
@@ -42,6 +35,10 @@ type raft struct {
 	// NodeNameToPortMap maps a given node name ot a given port. This is useful when running locally so that we can
 	// keep in memory which node uses which port.
 	NodeNameToPortMap map[string]int
+	// LocalName is the name of the local node
+	LocalName string
+	// LocalAddress is the address of the local node
+	LocalAddress string
 
 	notResolvedNodes sync.Map
 }
@@ -53,6 +50,8 @@ func NewRaft(cfg RaftConfig) *raft {
 		IsLocalCluster:     cfg.IsLocalHost,
 		NodeNameToPortMap:  cfg.NodeNameToPortMap,
 		notResolvedNodes:   sync.Map{},
+		LocalName:          cfg.LocalName,
+		LocalAddress:       cfg.LocalAddress,
 	}
 }
 
@@ -60,12 +59,15 @@ func NewRaft(cfg RaftConfig) *raft {
 // it's thread safe see https://github.com/hashicorp/raft/blob/main/net_transport.go#L389-L391
 func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) {
 	// Get the address from the node id
+	if id == raftImpl.ServerID(a.LocalName) {
+		return raftImpl.ServerAddress(a.LocalAddress), nil
+	}
 	addr := a.ClusterStateReader.NodeAddress(string(id))
 
 	// Update the internal notResolvedNodes if the addr if empty, otherwise delete it from the map
 	if addr == "" {
 		a.notResolvedNodes.Store(id, struct{}{})
-		return raftImpl.ServerAddress(invalidAddr), nil
+		return "", fmt.Errorf("could not resolve server id %s", id)
 	}
 	a.notResolvedNodes.Delete(id)
 
@@ -74,7 +76,12 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	if !a.IsLocalCluster {
 		return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, a.RaftPort)), nil
 	}
-	return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, a.NodeNameToPortMap[string(id)])), nil
+	port, exists := a.NodeNameToPortMap[string(id)]
+	if !exists {
+		// if does not exist, use the default raft port, self healing from bad config
+		port = a.RaftPort
+	}
+	return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, port)), nil
 }
 
 // NewTCPTransport returns a new raft.NetworkTransportConfig that utilizes
@@ -89,8 +96,8 @@ func (a *raft) NewTCPTransport(
 ) (*raftImpl.NetworkTransport, error) {
 	cfg := &raftImpl.NetworkTransportConfig{
 		ServerAddressProvider: a,
-		MaxPool:               raftTcpMaxPool,
-		Timeout:               raftTcpTimeout,
+		MaxPool:               maxPool,
+		Timeout:               timeout,
 		Logger:                log.NewHCLogrusLogger("raft-net", logger),
 	}
 	return raftImpl.NewTCPTransportWithConfig(bindAddr, advertise, cfg)
@@ -103,4 +110,9 @@ func (a *raft) NotResolvedNodes() map[raftImpl.ServerID]struct{} {
 		return true
 	})
 	return notResolvedNodes
+}
+
+// AllOtherClusterMembers returns all cluster members discovered via memberlist with their raft addresses
+func (a *raft) AllOtherClusterMembers(raftPort int) map[string]string {
+	return a.ClusterStateReader.AllOtherClusterMembers(raftPort)
 }
