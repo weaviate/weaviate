@@ -63,16 +63,18 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	logger logrus.FieldLogger, shutdown *batch.Shutdown,
 ) *Service {
 	authenticator := NewAuthHandler(allowAnonymousAccess, authComposer)
-	internalQueue := batch.NewBatchInternalQueue()
+	numWorkers := _NUMCPU
+
+	processingQueue := batch.NewBatchProcessingQueue(numWorkers)
+	reportingQueue := batch.NewBatchReportingQueue(numWorkers)
 	batchWriteQueues := batch.NewBatchWriteQueues()
 	batchReadQueues := batch.NewBatchReadQueues()
 
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchQueuesHandler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.SendWg, shutdown.StreamWg, shutdown.ShutdownFinished, batchWriteQueues, batchReadQueues, logger)
+	batchQueuesHandler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, shutdown.ShutdownFinished, batchWriteQueues, batchReadQueues, logger)
 
-	numWorkers := _NUMCPU
-	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, numWorkers, internalQueue, batchReadQueues, batchHandler, logger)
-	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, batchWriteQueues, internalQueue, logger)
+	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, numWorkers, processingQueue, reportingQueue, batchReadQueues, batchHandler, logger)
+	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, batchWriteQueues, processingQueue, reportingQueue, logger)
 
 	return &Service{
 		traverser:            traverser,
@@ -315,10 +317,9 @@ func (s *Service) BatchStream(stream pb.Weaviate_BatchStreamServer) error {
 	s.batchQueuesHandler.Setup(streamId, startReq)
 	defer s.batchQueuesHandler.Teardown(streamId)
 
-	done := make(chan struct{})
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(s.logger, stream.Context())
-	g.Go(func() error { return s.batchQueuesHandler.StreamRecv(ctx, streamId, stream, done) })
-	g.Go(func() error { return s.batchQueuesHandler.StreamSend(ctx, streamId, stream, done) })
+	g.Go(func() error { return s.batchQueuesHandler.StreamRecv(ctx, streamId, stream) })
+	g.Go(func() error { return s.batchQueuesHandler.StreamSend(ctx, streamId, stream) })
 
 	if err := g.Wait(); err != nil {
 		return err

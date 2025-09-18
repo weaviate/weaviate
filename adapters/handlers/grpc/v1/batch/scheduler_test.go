@@ -33,11 +33,12 @@ func TestScheduler(t *testing.T) {
 		defer shutdownCancel()
 
 		writeQueues := batch.NewBatchWriteQueues()
-		internalQueue := batch.NewBatchInternalQueue()
+		processingQueue := batch.NewBatchProcessingQueue(1)
+		reportingQueue := batch.NewBatchReportingQueue(1)
 
 		writeQueues.Make("test-stream", nil)
 		var wg sync.WaitGroup
-		batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
+		batch.StartScheduler(shutdownCtx, &wg, writeQueues, processingQueue, reportingQueue, logger)
 
 		queue, ok := writeQueues.GetQueue("test-stream")
 		require.True(t, ok, "Expected write queue to exist")
@@ -47,18 +48,18 @@ func TestScheduler(t *testing.T) {
 
 		require.Eventually(t, func() bool {
 			select {
-			case receivedObj := <-internalQueue:
+			case receivedObj := <-processingQueue:
 				return receivedObj.Objects.Values[0] == obj
 			default:
 				return false
 			}
-		}, 1*time.Second, 10*time.Millisecond, "Expected object to be sent to internal queue")
+		}, 1*time.Second, 10*time.Millisecond, "Expected object to be sent to processing queue")
 
 		shutdownCancel() // Trigger shutdown
 		close(queue)     // Close the write queue as part of shutdown
 		wg.Wait()
 
-		require.Empty(t, internalQueue, "Expected internal queue to be empty after shutdown")
+		require.Empty(t, processingQueue, "Expected processing queue to be empty after shutdown")
 		ch, ok := writeQueues.GetQueue("test-stream")
 		require.True(t, ok, "Expected write queue to still exist after shutdown")
 		require.Empty(t, ch, "Expected write queue to be empty after shutdown")

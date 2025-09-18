@@ -100,24 +100,25 @@ func TestHandler(t *testing.T) {
 
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
-			internalQueue := batch.NewBatchInternalQueue()
+			processingQueue := batch.NewBatchProcessingQueue(1)
+			reportingQueue := batch.NewBatchReportingQueue(1)
 			var sendWg sync.WaitGroup
 			var streamWg sync.WaitGroup
 			handler := batch.NewQueuesHandler(shutdownCtx, &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
 			var sWg sync.WaitGroup
-			batch.StartScheduler(shutdownCtx, &sWg, writeQueues, internalQueue, logger)
+			batch.StartScheduler(shutdownCtx, &sWg, writeQueues, processingQueue, reportingQueue, logger)
 
 			writeQueues.Make(StreamId, nil)
 			go func() {
 				done := make(chan struct{})
-				err := handler.StreamRecv(ctx, StreamId, stream, done)
+				err := handler.StreamRecv(ctx, StreamId, stream)
 				require.NoError(t, err, "Expected no error when streaming in objects")
 				_, ok := <-done
 				require.False(t, ok, "Expected done channel to be closed")
 			}()
 
 			// Verify that the internal queue has the object
-			obj := <-internalQueue
+			obj := <-processingQueue
 			require.NotNil(t, obj, "Expected object to be sent to internal queue")
 		})
 
@@ -174,7 +175,7 @@ func TestHandler(t *testing.T) {
 			}).Return(nil).Once() // Expected reply after second request
 
 			done := make(chan struct{})
-			err := handler.StreamRecv(ctx, StreamId, stream, done)
+			err := handler.StreamRecv(ctx, StreamId, stream)
 			require.NoError(t, err, "Expected no error when streaming in objects")
 			_, ok := <-done
 			require.False(t, ok, "Expected done channel to be closed")
@@ -202,7 +203,7 @@ func TestHandler(t *testing.T) {
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
 			done := make(chan struct{})
-			err := handler.StreamSend(ctx, StreamId, stream, done)
+			err := handler.StreamSend(ctx, StreamId, stream)
 			require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 			select {
 			case <-done:
@@ -242,14 +243,13 @@ func TestHandler(t *testing.T) {
 				close(ch)
 			}()
 
-			err := handler.StreamSend(ctx, StreamId, stream, done)
+			err := handler.StreamSend(ctx, StreamId, stream)
 			require.NoError(t, err, "Expected no error when streaming")
 		})
 
 		t.Run("start and stop due to shutdown", func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 			defer cancel()
-			done := make(chan struct{})
 
 			shutdownHandlersCtx, shutdownHandlersCancel := context.WithCancel(context.Background())
 			shutdownFinished := make(chan struct{})
@@ -267,11 +267,7 @@ func TestHandler(t *testing.T) {
 				Message: &pb.BatchStreamReply_Shutdown_{
 					Shutdown: &pb.BatchStreamReply_Shutdown{},
 				},
-			}).RunAndReturn(func(*pb.BatchStreamReply) error {
-				// Ensure handler cancel call comes after this message has been emitted to avoid races
-				close(done)
-				return nil
-			}).Once()
+			}).Return(nil).Once()
 
 			writeQueues := batch.NewBatchWriteQueues()
 			readQueues := batch.NewBatchReadQueues()
@@ -284,10 +280,8 @@ func TestHandler(t *testing.T) {
 
 			shutdownHandlersCancel() // Trigger shutdown of handlers, which emits the shutting down message
 
-			err := handler.StreamSend(ctx, StreamId, stream, done)
+			err := handler.StreamSend(ctx, StreamId, stream)
 			require.NoError(t, err, "Expected no error when streaming")
-			_, ok := <-done
-			require.False(t, ok, "Expected done channel to be closed")
 		})
 
 		t.Run("start process error and stop due to cancellation", func(t *testing.T) {
@@ -327,7 +321,7 @@ func TestHandler(t *testing.T) {
 			}()
 
 			readQueues.Make(StreamId)
-			err := handler.StreamSend(ctx, StreamId, stream, done)
+			err := handler.StreamSend(ctx, StreamId, stream)
 			require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 			_, ok = <-done
 			require.False(t, ok, "Expected done channel to be closed")
@@ -371,7 +365,7 @@ func TestHandler(t *testing.T) {
 			}()
 
 			readQueues.Make(StreamId)
-			err := handler.StreamSend(ctx, StreamId, stream, done)
+			err := handler.StreamSend(ctx, StreamId, stream)
 			require.NoError(t, err, "Expected error when processing")
 			_, ok = <-done
 			require.False(t, ok, "Expected done channel to be closed")
