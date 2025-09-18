@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
-	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -384,28 +383,68 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		return false, errors.Wrap(err, "close compacted segment file")
 	}
 
-	if err := sg.replaceCompactedSegments(pair[0], pair[1], path); err != nil {
-		return false, errors.Wrap(err, "replace compacted segments")
+	newSegment, err := sg.preinitializeNewSegment(path, pair[0], pair[1])
+	if err != nil {
+		return false, errors.Wrap(err, "preinitialize new segment")
+	}
+
+	replacer := newSegmentReplacer(sg, pair[0], pair[1], newSegment)
+	oldL, oldR, err := replacer.switchOnDisk()
+	if err != nil {
+		return false, fmt.Errorf("replace compacted segments on disk: %w", err)
+	}
+
+	if err := replacer.switchInMemory(); err != nil {
+		return false, fmt.Errorf("replace compacted segments (blocking): %w", err)
+	}
+
+	// NOTE: The delete logic will wait for the ref count to reach zero, to
+	// ensure we are not deleting any segments that are still being referenced,
+	// e.g. from cursor or other "slow" readers.
+	//
+	// The whole compaction cycle is single-threaded, so waiting for a delete,
+	// also means we are essentially delaying the next compaction. That is not
+	// ideal and also not strictly necessary. We could extract the delete logic
+	// into a simple job queue that runs in a separate goroutine.
+	//
+	// However, https://github.com/weaviate/weaviate/pull/9104, where
+	// ref-counting is introduced, is already a significant change at the point
+	// of writing this comment. Thus, to minimize further risks, we keep the
+	// existing logic for now.
+	if err := sg.deleteOldSegmentsFromDisk(oldL, oldR); err != nil {
+		// don't abort if the delete fails, we can still continue (albeit
+		// without freeing disk space that should have been freed). The
+		// compaction itself was successful.
+		sg.logger.WithError(err).WithFields(logrus.Fields{
+			"action":     "lsm_replace_compacted_segments_delete_files",
+			"file_left":  oldL.getPath(),
+			"file_right": oldR.getPath(),
+		}).Error("failed to delete file already marked for deletion")
 	}
 
 	return true, nil
 }
 
-func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
-	newPathTmp string,
-) error {
-	sg.maintenanceLock.RLock()
-	updatedCountNetAdditions := sg.segments[old1].getSegment().getCountNetAdditions() +
-		sg.segments[old2].getSegment().getCountNetAdditions()
-	sg.maintenanceLock.RUnlock()
-
+func (sg *SegmentGroup) preinitializeNewSegment(newPathTmp string, oldPos ...int) (*segment, error) {
 	// WIP: we could add a random suffix to the tmp file to avoid conflicts
 
 	// as a guardrail validate that the segment is considered a .tmp segment.
 	// This way we can be sure that we're not accidentally operating on a live
 	// segment as the segment group completely ignores .tmp segment files
 	if !strings.HasSuffix(newPathTmp, ".tmp") {
-		return fmt.Errorf("pre computing a segment expects a .tmp segment path")
+		return nil, fmt.Errorf("pre computing a segment expects a .tmp segment path")
+	}
+
+	updatedCountNetAdditions := 0
+	if len(oldPos) > 0 {
+		func() {
+			sg.maintenanceLock.RLock()
+			defer sg.maintenanceLock.RUnlock()
+
+			for i := range oldPos {
+				updatedCountNetAdditions += sg.segments[oldPos[i]].getSegment().getCountNetAdditions()
+			}
+		}()
 	}
 
 	seg, err := newSegment(newPathTmp, sg.logger, sg.metrics, nil,
@@ -422,158 +461,78 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 			writeMetadata:                sg.writeMetadata,
 		})
 	if err != nil {
-		return errors.Wrap(err, "create new segment")
+		return nil, fmt.Errorf("initialize new segment: %w", err)
 	}
 
-	oldL, oldR, err := sg.replaceCompactedSegmentsBlocking(old1, old2, seg)
-	if err != nil {
-		return fmt.Errorf("replace compacted segments (blocking): %w", err)
-	}
-
-	if err := sg.deleteOldSegmentsNonBlocking(oldL, oldR); err != nil {
-		// don't abort if the delete fails, we can still continue (albeit
-		// without freeing disk space that should have been freed). The
-		// compaction itself was successful.
-		sg.logger.WithError(err).WithFields(logrus.Fields{
-			"action":     "lsm_replace_compacted_segments_delete_files",
-			"file_left":  oldL.path,
-			"file_right": oldR.path,
-		}).Error("failed to delete file already marked for deletion")
-	}
-
-	return nil
+	return seg, nil
 }
 
-const replaceSegmentWarnThreshold = 300 * time.Millisecond
-
-func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
-	old1, old2 int, newSeg *segment,
-) (*segment, *segment, error) {
-	// We need a maintenanceLock.Lock() to switch segments, however, we can't
-	// simply call Lock(). Due to the write-preferring nature of the RWMutex this
-	// would mean that if any RLock() holder still holds the lock, all future
-	// RLock() holders would be blocked until we release the Lock() again.
-	//
-	// Typical RLock() holders are user operations that are short-lived. However,
-	// the flush routine also requires an RLock() and could potentially hold it
-	// for minutes. This is problematic, so we need to synchronize with the flush
-	// routine by obtaining the flushVsCompactLock.
-	//
-	// This gives us the guarantee that – until we have released the
-	// flushVsCompactLock – no flush routine will try to obtain a long-lived
-	// maintenanceLock.RLock().
-	sg.flushVsCompactLock.Lock()
-	defer sg.flushVsCompactLock.Unlock()
+func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
+	const (
+		tickerInterval = 100 * time.Millisecond
+		warnThreshold  = 10 * time.Second
+		warnInterval   = 10 * time.Second
+	)
 
 	start := time.Now()
-	beforeMaintenanceLock := time.Now()
-	sg.maintenanceLock.Lock()
-	if time.Since(beforeMaintenanceLock) > 100*time.Millisecond {
-		sg.logger.WithField("duration", time.Since(beforeMaintenanceLock)).
-			Debug("compaction took more than 100ms to acquire maintenance lock")
-	}
-	defer sg.maintenanceLock.Unlock()
+	var lastWarn time.Time
+	t := time.NewTicker(tickerInterval)
+	for {
+		sg.segmentRefCounterLock.Lock()
 
-	leftSegment := sg.segments[old1]
-	rightSegment := sg.segments[old2]
-
-	if err := leftSegment.close(); err != nil {
-		return nil, nil, errors.Wrap(err, "close disk segment")
-	}
-
-	if err := rightSegment.close(); err != nil {
-		return nil, nil, errors.Wrap(err, "close disk segment")
-	}
-
-	if err := leftSegment.markForDeletion(); err != nil {
-		return nil, nil, errors.Wrap(err, "drop disk segment")
-	}
-
-	if err := rightSegment.markForDeletion(); err != nil {
-		return nil, nil, errors.Wrap(err, "drop disk segment")
-	}
-
-	err := diskio.Fsync(sg.dir)
-	if err != nil {
-		return nil, nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
-	}
-
-	sg.segments[old1] = nil
-	sg.segments[old2] = nil
-
-	// the old segments have been deleted, we can now safely remove the .tmp
-	// extension from the new segment itself and the pre-computed files which
-	// carried the name of the second old segment
-
-	newPath, err := sg.stripTmpExtension(newSeg.path, segmentID(leftSegment.getPath()), segmentID(rightSegment.getPath()))
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
-	}
-	newSeg.path = newPath
-
-	for i, pth := range newSeg.metaPaths {
-		updated, err := sg.stripTmpExtension(pth, segmentID(leftSegment.getPath()), segmentID(rightSegment.getPath()))
-		if err != nil {
-			return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
+		allZero := true
+		var pos, count int
+		for i, seg := range segments {
+			if refs := seg.getRefs(); refs != 0 {
+				allZero = false
+				pos = i
+				count = refs
+				break
+			}
 		}
-		newSeg.metaPaths[i] = updated
-	}
 
-	sg.segments[old2] = newSeg
+		sg.segmentRefCounterLock.Unlock()
 
-	sg.segments = append(sg.segments[:old1], sg.segments[old1+1:]...)
+		if allZero {
+			return
+		}
 
-	sg.observeReplaceCompactedDuration(start, old1, leftSegment.getSegment(), rightSegment.getSegment())
-	return leftSegment.getSegment(), rightSegment.getSegment(), nil
-}
+		now := time.Now()
+		if sinceStart := now.Sub(start); sinceStart >= warnThreshold {
+			if lastWarn.IsZero() || now.Sub(lastWarn) >= warnInterval {
+				sg.logger.WithFields(logrus.Fields{
+					"action":           "lsm_compaction_wait_refcount",
+					"path":             sg.dir,
+					"segment_position": pos,
+					"refcount":         count,
+					"total_wait":       sinceStart,
+				}).Warnf("still waiting for segments to reach refcount=0 (waited %.2fs so far)", sinceStart.Seconds())
+				lastWarn = now
+			}
+		}
 
-func (sg *SegmentGroup) observeReplaceCompactedDuration(
-	start time.Time, segmentIdx int, left, right *segment,
-) {
-	// observe duration - warn if it took too long
-	took := time.Since(start)
-	fields := sg.logger.WithFields(logrus.Fields{
-		"action":        "lsm_replace_compacted_segments_blocking",
-		"segment_index": segmentIdx,
-		"path_left":     left.path,
-		"path_right":    right.path,
-		"took":          took,
-	})
-	msg := fmt.Sprintf("replacing compacted segments took %s", took)
-	if took > replaceSegmentWarnThreshold {
-		fields.Warn(msg)
-	} else {
-		fields.Debug(msg)
+		<-t.C
 	}
 }
 
-func (sg *SegmentGroup) deleteOldSegmentsNonBlocking(segments ...*segment) error {
+func (sg *SegmentGroup) deleteOldSegmentsFromDisk(segments ...Segment) error {
+	// wait for ref count to reach zero, close and delete files
 	// At this point those segments are no longer used, so we can drop them
 	// without holding the maintenance lock and therefore not block readers.
+	sg.waitForReferenceCountToReachZero(segments...)
 
+	// it is now safe to close and drop them
 	for pos, seg := range segments {
+		if err := seg.close(); err != nil {
+			return fmt.Errorf("close segment at pos %d: %w", pos, err)
+		}
+
 		if err := seg.dropMarked(); err != nil {
 			return fmt.Errorf("drop segment at pos %d: %w", pos, err)
 		}
 	}
 
 	return nil
-}
-
-func (sg *SegmentGroup) stripTmpExtension(oldPath, left, right string) (string, error) {
-	ext := filepath.Ext(oldPath)
-	if ext != ".tmp" {
-		return "", errors.Errorf("segment %q did not have .tmp extension", oldPath)
-	}
-	newPath := oldPath[:len(oldPath)-len(ext)]
-
-	newPath = strings.ReplaceAll(newPath, fmt.Sprintf("%s_%s", left, right), right)
-
-	if err := os.Rename(oldPath, newPath); err != nil {
-		return "", errors.Wrapf(err, "rename %q -> %q", oldPath, newPath)
-	}
-
-	return newPath, nil
 }
 
 func (sg *SegmentGroup) monitorSegments() {

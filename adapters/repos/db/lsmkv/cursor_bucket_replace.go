@@ -33,26 +33,42 @@ type innerCursorReplace interface {
 	seek([]byte) ([]byte, []byte, error)
 }
 
+type innerCursorReplaceAllKeys interface {
+	innerCursorReplace
+
+	firstWithAllKeys() (segmentReplaceNode, error)
+	nextWithAllKeys() (segmentReplaceNode, error)
+}
+
 type cursorStateReplace struct {
 	key   []byte
 	value []byte
 	err   error
 }
 
-// Cursor holds a RLock for the flushing state. It needs to be closed using the
-// .Close() methods or otherwise the lock will never be released
+// Cursor allows you to scan over all key-value pairs in the bucket. You can
+// start with the first element using .First() or seek to an arbitrary key
+// using .Seek(key). You have reached the end when no more keys are returned.
+//
+// During the lifetime of the cursor, you have a consistent view of the bucket.
+// It does not hold any locks to do so. It only holds the flushLock during
+// initialization. Nevertheless, it must be closed using the .Close() method,
+// as it holds references to underlying disk segments.
+//
+// There are no references to memtables, as their entire content is copied
+// during init time. This is also a potential limitation of a curors, the
+// initialization can be quite costly if memtables are large.
 func (b *Bucket) Cursor() *CursorReplace {
+	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 	b.flushLock.RLock()
-
-	if b.strategy != StrategyReplace {
-		panic("Cursor() called on strategy other than 'replace'")
-	}
+	defer b.flushLock.RUnlock()
 
 	innerCursors, unlockSegmentGroup := b.disk.newCursors()
 
-	// we have a flush-RLock, so we have the guarantee that the flushing state
-	// will not change for the lifetime of the cursor, thus there can only be two
-	// states: either a flushing memtable currently exists - or it doesn't
+	// we hold a flush-lock during initialzation, but we release it before
+	// returning to the caller. However, `*memtable.newCursor` creates a deep
+	// copy of the entire content, so this cursor will remain valid even after we
+	// release the lock
 	if b.flushing != nil {
 		innerCursors = append(innerCursors, b.flushing.newCursor())
 	}
@@ -65,7 +81,6 @@ func (b *Bucket) Cursor() *CursorReplace {
 		innerCursors: innerCursors,
 		unlock: func() {
 			unlockSegmentGroup()
-			b.flushLock.RUnlock()
 		},
 	}
 }
@@ -74,11 +89,8 @@ func (b *Bucket) Cursor() *CursorReplace {
 // not yet persisted on disk.
 // Segment creation and compaction will be blocked until the cursor is closed
 func (b *Bucket) CursorInMem() *CursorReplace {
+	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 	b.flushLock.RLock()
-
-	if b.strategy != StrategyReplace {
-		panic("CursorInMemWith() called on strategy other than 'replace'")
-	}
 
 	var innerCursors []innerCursorReplace
 
@@ -114,12 +126,11 @@ func (b *Bucket) CursorInMem() *CursorReplace {
 // already persisted on disk.
 // New segments can still be created but compaction will be prevented
 // while any cursor remains active
+// TODO
 func (b *Bucket) CursorOnDisk() *CursorReplace {
-	if b.strategy != StrategyReplace {
-		panic("CursorWith(desiredSecondaryIndexCount) called on strategy other than 'replace'")
-	}
+	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 
-	innerCursors, unlockSegmentGroup := b.disk.newCursorsWithFlushingSupport()
+	innerCursors, unlockSegmentGroup := b.disk.newCursors()
 
 	return &CursorReplace{
 		innerCursors: innerCursors,

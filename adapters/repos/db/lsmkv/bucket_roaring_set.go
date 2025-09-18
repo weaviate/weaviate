@@ -23,10 +23,10 @@ func (b *Bucket) RoaringSetAddOne(key []byte, value uint64) error {
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
-	return b.active.roaringSetAddOne(key, value)
+	return active.roaringSetAddOne(key, value)
 }
 
 func (b *Bucket) RoaringSetRemoveOne(key []byte, value uint64) error {
@@ -34,10 +34,10 @@ func (b *Bucket) RoaringSetRemoveOne(key []byte, value uint64) error {
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
-	return b.active.roaringSetRemoveOne(key, value)
+	return active.roaringSetRemoveOne(key, value)
 }
 
 func (b *Bucket) RoaringSetAddList(key []byte, values []uint64) error {
@@ -45,10 +45,10 @@ func (b *Bucket) RoaringSetAddList(key []byte, values []uint64) error {
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
-	return b.active.roaringSetAddList(key, values)
+	return active.roaringSetAddList(key, values)
 }
 
 func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
@@ -56,10 +56,10 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
 
-	return b.active.roaringSetAddBitmap(key, bm)
+	return active.roaringSetAddBitmap(key, bm)
 }
 
 func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), err error) {
@@ -67,10 +67,16 @@ func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), er
 		return nil, noopRelease, err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	view := b.getConsistentView()
+	defer view.Release()
 
-	layers, release, err := b.disk.roaringSetGet(key)
+	return b.roaringSetGetFromConsistentView(view, key)
+}
+
+func (b *Bucket) roaringSetGetFromConsistentView(
+	view BucketConsistentView, key []byte,
+) (bm *sroar.Bitmap, release func(), err error) {
+	layers, release, err := b.disk.roaringSetGet(key, view.Disk)
 	if err != nil {
 		return nil, noopRelease, err
 	}
@@ -80,8 +86,8 @@ func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), er
 		}
 	}()
 
-	if b.flushing != nil {
-		flushing, err := b.flushing.roaringSetGet(key)
+	if view.Flushing != nil {
+		flushing, err := view.Flushing.roaringSetGet(key)
 		if err != nil {
 			if !errors.Is(err, lsmkv.NotFound) {
 				return nil, noopRelease, err
@@ -91,13 +97,13 @@ func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), er
 		}
 	}
 
-	active, err := b.active.roaringSetGet(key)
+	activeBM, err := view.Active.roaringSetGet(key)
 	if err != nil {
 		if !errors.Is(err, lsmkv.NotFound) {
 			return nil, noopRelease, err
 		}
 	} else {
-		layers = append(layers, active)
+		layers = append(layers, activeBM)
 	}
 
 	return layers.Flatten(false), release, nil
