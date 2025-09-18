@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 // Package resolver provides shard resolution strategies for Weaviate collections
 // based on their configuration. It maps objects to target shards using either
 // UUID-based consistent hashing (single-tenant) or tenant-based partitioning
