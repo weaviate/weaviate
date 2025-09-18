@@ -191,6 +191,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
 	defaultFlushAfterDirty := FlushAfterDirtyDefault
+	// this is not the nicest way of doing this check, but we will make strategy a required parameter in the future on
+	// main
 	defaultStrategy := dummyStrategy
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
