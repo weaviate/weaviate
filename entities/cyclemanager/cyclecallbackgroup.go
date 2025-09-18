@@ -13,6 +13,7 @@ package cyclemanager
 
 import (
 	"context"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -267,6 +268,7 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 func (c *cycleCallbackGroup) recover(callbackCustomId string, cancel context.CancelFunc) {
 	if r := recover(); r != nil {
 		entsentry.Recover(r)
+		debug.PrintStack()
 		c.logger.WithFields(logrus.Fields{
 			"action":       "cyclemanager",
 			"callback_id":  callbackCustomId,
