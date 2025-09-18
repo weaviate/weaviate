@@ -3261,6 +3261,7 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName
 		nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
+		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
 	)
 	if err != nil {
 		return usagetypes.Dimensionality{}, err
@@ -3297,6 +3298,7 @@ func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName 
 			nil,
 			cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop(),
+			lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
 		)
 		if err != nil {
 			return 0, err
