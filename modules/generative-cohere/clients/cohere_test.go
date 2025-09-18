@@ -121,7 +121,7 @@ func TestGetAnswer(t *testing.T) {
 		assert.Empty(t, resp.Message.Content)
 		assert.Equal(t, "invalid key", resp.Message.GetMessage())
 
-		jsonStr = `{"id":"123","message":[{"role":"assistant","content":{"text":"Hello"}}]}`
+		jsonStr = `{"id": "c14c80c3-18eb-4519-9460-6c92edd8cfb4","finish_reason": "COMPLETE","message": {"role": "assistant","content": [{"type": "text","text": "Hello"}]}}`
 		err = json.Unmarshal([]byte(jsonStr), &resp)
 		require.NoError(t, err)
 		assert.Empty(t, resp.Message.ErrorMessage)

@@ -303,7 +303,7 @@ func (rm *responseMessage) UnmarshalJSON(data []byte) error {
 	type Alias responseMessage
 	var temp Alias
 	if err := json.Unmarshal(data, &temp); err != nil {
-		return fmt.Errorf("failed to unmarshal message: %v", err)
+		return fmt.Errorf("failed to unmarshal message: %w", err)
 	}
 	*rm = responseMessage(temp)
 	return nil
