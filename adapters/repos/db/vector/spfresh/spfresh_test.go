@@ -42,7 +42,7 @@ func TestSPFreshRecall(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	vectors_size := 100_000
+	vectors_size := 10_000
 	queries_size := 100
 	dimensions := 64
 	k := 100

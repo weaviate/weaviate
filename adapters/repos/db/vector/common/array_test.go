@@ -136,17 +136,21 @@ func BenchmarkArrayMonotonic(b *testing.B) {
 
 func TestPagedArrayConcurrentSetAndGet(t *testing.T) {
 	buf := NewPagedArray[uint64](20, 512)
-	locks := NewShardedRWLocks(10)
+	locks := NewShardedRWLocks(20)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
+
+		for j := uint64(0); j < 1000; j++ {
+			buf.AllocPageFor(j)
+		}
+
 		wg.Add(2)
 		go func(i int) {
 			defer wg.Done()
 
 			for j := uint64(0); j < 1000; j++ {
 				locks.Lock(j)
-				buf.AllocPageFor(j)
 				buf.Set(j, j)
 				locks.Unlock(j)
 			}

@@ -57,7 +57,7 @@ func DefaultConfig() *Config {
 		// vector size and compression method
 		MaxPostingSize:            128,
 		MinPostingSize:            10,
-		SplitWorkers:              8,
+		SplitWorkers:              16,
 		ReassignWorkers:           16,
 		InternalPostingCandidates: 64,
 		ReassignNeighbors:         64,
