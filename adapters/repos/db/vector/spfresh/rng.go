@@ -17,31 +17,27 @@ import "github.com/pkg/errors"
 // the postings where the vector should be assigned to.
 // It performs a search to find candidate postings, then iteratively selects
 // postings that are not too close to already selected ones based on the RNGFactor.
-// If `unless` is non-zero, the function will abort and return false
-// if one of the selected postings is equal to `unless`.
-func (s *SPFresh) RNGSelect(query Vector, unless uint64) ([]SearchResult, bool, error) {
-	results, err := s.SPTAG.Search(query, s.Config.InternalPostingCandidates)
+// If `reassignedFromID` is non-zero, the function will abort and return false
+// if one of the selected postings is equal to `reassignedFromID`.
+func (s *SPFresh) RNGSelect(query Vector, reassignedFromID uint64) ([]SearchResult, bool, error) {
+	replicas := make([]SearchResult, 0, s.Config.Replicas)
+	candidates, err := s.SPTAG.Search(query, s.Config.InternalPostingCandidates)
 	if err != nil {
 		return nil, false, errors.Wrap(err, "failed to search for nearest neighbors")
 	}
 
-	replicas := make([]SearchResult, 0, s.Config.Replicas)
-
-	for i := 0; i < len(results) && len(replicas) < s.Config.Replicas; i++ {
-		candidate := results[i]
-
-		qDist := candidate.Distance
-		candidateCentroid := s.SPTAG.Get(candidate.ID)
+	for _, c := range candidates {
+		cCenter := s.SPTAG.Get(c.ID)
 
 		tooClose := false
-		for j := range replicas {
-			other := s.SPTAG.Get(replicas[j].ID)
-			pairDist, err := candidateCentroid.Vector.Distance(s.distancer, other.Vector)
+		for _, r := range replicas {
+			rCenter := s.SPTAG.Get(r.ID)
+			centerDist, err := cCenter.Vector.Distance(s.distancer, rCenter.Vector)
 			if err != nil {
-				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", candidate.ID, replicas[j].ID)
+				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", c.ID, r.ID)
 			}
 
-			if s.Config.RNGFactor*pairDist <= qDist {
+			if centerDist <= (1.0/s.Config.RNGFactor)*c.Distance {
 				tooClose = true
 				break
 			}
@@ -50,12 +46,12 @@ func (s *SPFresh) RNGSelect(query Vector, unless uint64) ([]SearchResult, bool, 
 			continue
 		}
 
-		// abort if candidate already assigned to `unless`
-		if unless != 0 && candidate.ID == unless {
+		// abort if candidate already assigned to `reassignedFrom`
+		if reassignedFromID != 0 && c.ID == reassignedFromID {
 			return nil, false, nil
 		}
 
-		replicas = append(replicas, candidate)
+		replicas = append(replicas, c)
 	}
 
 	return replicas, true, nil

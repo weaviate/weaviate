@@ -16,7 +16,9 @@ import (
 )
 
 // PagedArray is a array that stores elements in pages of a fixed size.
-// It is optimized for cases where the array is sparse and the number of elements is not known in advance.
+// It is optimized for concurrent access patterns where multiple goroutines may read and write to different pages simultaneously.
+// The thread-safety is delegated to the caller, a typical pattern is to use an exclusive lock when allocating pages
+// and atomic operations for reading and writing individual elements within a page.
 type PagedArray[T any] struct {
 	buf      [][]T
 	pageSize uint64 // Size of each page
