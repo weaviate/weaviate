@@ -449,6 +449,7 @@ func TestContextMutexMixedOperations(t *testing.T) {
 
 	// Mix Lock, TryLock, and TryLockWithContext
 	m.Lock()
+	require.True(t, contextMutexLocked(m))
 	m.Unlock()
 
 	success := m.TryLock()

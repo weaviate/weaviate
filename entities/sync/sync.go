@@ -224,7 +224,7 @@ func (m *contextMutex) TryLock() bool {
 
 // LockContext locks the mutex. If the lock is already in use, the calling
 // goroutine blocks until the mutex is available or the context is canceled.
-// If the context is Done/Err before the lock aquisition is attempted,
+// If the context is Done/Err before the lock acquisition is attempted,
 // the lock is not acquired.
 func (m *contextMutex) TryLockWithContext(ctx context.Context) bool {
 	// First, try to acquire the lock immediately.
