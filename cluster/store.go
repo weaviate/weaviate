@@ -321,6 +321,8 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			RaftPort:           cfg.RaftPort,
 			IsLocalHost:        cfg.IsLocalHost,
 			NodeNameToPortMap:  cfg.NodeNameToPortMap,
+			LocalName:          cfg.NodeID,
+			LocalAddress:       fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
 		}),
 		schemaManager:      schemaManager,
 		snapshotter:        snapshotter,
