@@ -385,8 +385,12 @@ func (l *LazyLoadShard) drop() error {
 		shardName := l.shardOpts.name
 
 		// cleanup metrics
-		NewMetrics(idx.logger, l.shardOpts.promMetrics, className, shardName).
-			DeleteShardLabels(className, shardName)
+		metrics, err := NewMetrics(idx.logger, l.shardOpts.promMetrics, className, shardName)
+		if err != nil {
+			return fmt.Errorf("shard metrics: %w", err)
+		}
+
+		metrics.DeleteShardLabels(className, shardName)
 
 		// cleanup dimensions: not deleted in s.metrics.DeleteShardLabels
 		clearDimensionMetrics(idx.Config, l.shardOpts.promMetrics, className, shardName)

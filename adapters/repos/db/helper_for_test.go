@@ -363,6 +363,9 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		require.NoError(t, err)
 	}
 
+	metrics, err := NewMetrics(logger, nil, class.Class, "")
+	require.NoError(t, err)
+
 	idx := &Index{
 		Config: IndexConfig{
 			RootPath:            tmpDir,
@@ -370,7 +373,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 			QueryMaximumResults: maxResults,
 			ReplicationFactor:   1,
 		},
-		metrics:                NewMetrics(logger, nil, class.Class, ""),
+		metrics:                metrics,
 		partitioningEnabled:    shardState.PartitioningEnabled,
 		invertedIndexConfig:    iic,
 		vectorIndexUserConfig:  vic,

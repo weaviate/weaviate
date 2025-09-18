@@ -248,6 +248,7 @@ func setupTestSchema(t *testing.T, ms MockStore) {
 				Status:         models.TenantActivityStatusCOLD,
 			},
 		},
+		PartitioningEnabled: productClass.MultiTenancyConfig.Enabled,
 	}
 
 	categoryClass := &models.Class{
@@ -265,6 +266,7 @@ func setupTestSchema(t *testing.T, ms MockStore) {
 				Status:         models.TenantActivityStatusHOT,
 			},
 		},
+		PartitioningEnabled: categoryClass.MultiTenancyConfig.Enabled,
 	}
 
 	// Create mock raft logs to use with the Store's Apply method
@@ -390,7 +392,7 @@ func TestReplicationFactorMigration(t *testing.T) {
 					Status:         models.TenantActivityStatusHOT,
 				},
 			},
-			PartitioningEnabled: false,
+			PartitioningEnabled: class.MultiTenancyConfig.Enabled,
 			// uninitialized ReplicationFactor
 		}
 
@@ -470,7 +472,7 @@ func TestReplicationFactorMigration(t *testing.T) {
 		shardState := &sharding.State{
 			IndexID:             className,
 			Physical:            map[string]sharding.Physical{},
-			PartitioningEnabled: true,
+			PartitioningEnabled: class.MultiTenancyConfig.Enabled,
 			// uninitialized ReplicationFactor
 		}
 
@@ -557,7 +559,7 @@ func TestReplicationFactorMigration(t *testing.T) {
 					Status:         models.TenantActivityStatusHOT,
 				},
 			},
-			PartitioningEnabled: false,
+			PartitioningEnabled: class.MultiTenancyConfig.Enabled,
 			ReplicationFactor:   0,
 		}
 
@@ -724,7 +726,7 @@ func TestReplicationFactorMigration(t *testing.T) {
 					Status:         models.TenantActivityStatusHOT,
 				},
 			},
-			PartitioningEnabled: false,
+			PartitioningEnabled: class.MultiTenancyConfig.Enabled,
 			ReplicationFactor:   4,
 		}
 
@@ -804,7 +806,7 @@ func TestReplicationFactorMigration(t *testing.T) {
 		shardState := &sharding.State{
 			IndexID:             className,
 			Physical:            map[string]sharding.Physical{}, // Empty physical map for partitioning
-			PartitioningEnabled: true,
+			PartitioningEnabled: class.MultiTenancyConfig.Enabled,
 			ReplicationFactor:   3,
 		}
 
@@ -891,6 +893,7 @@ func TestReplicationFactorMigration(t *testing.T) {
 					Status:         models.TenantActivityStatusHOT,
 				},
 			},
+			PartitioningEnabled: class.MultiTenancyConfig.Enabled,
 		}
 
 		createClassLog := raft.Log{
@@ -974,7 +977,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 					Status:         models.TenantActivityStatusHOT,
 				},
 			},
-			ReplicationFactor: 0,
+			PartitioningEnabled: class.MultiTenancyConfig.Enabled,
+			ReplicationFactor:   0,
 		}
 
 		createClassLog := raft.Log{
@@ -1058,7 +1062,8 @@ func TestReplicationFactorMigration(t *testing.T) {
 					Status:         models.TenantActivityStatusHOT,
 				},
 			},
-			ReplicationFactor: 3,
+			PartitioningEnabled: class.MultiTenancyConfig.Enabled,
+			ReplicationFactor:   3,
 		}
 
 		createClassLog := raft.Log{

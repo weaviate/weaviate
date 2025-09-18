@@ -491,16 +491,14 @@ func TestDB_Shards(t *testing.T) {
 		assert.Equal(t, []string{}, nodes)
 	})
 
-	t.Run("nil sharding state", func(t *testing.T) {
+	t.Run("invalid sharding state (nil)", func(t *testing.T) {
 		className := "NilStateClass"
 
 		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-		mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
-			func(className string, readFunc func(*models.Class, *sharding.State) error) error {
-				class := &models.Class{Class: className}
-				return readFunc(class, nil)
-			},
-		)
+		expectedErrorMsg := "invalid sharding state: state is nil"
+		mockSchemaReader.EXPECT().
+			Read(className, mock.Anything).
+			Return(fmt.Errorf("%s", expectedErrorMsg))
 
 		db := &DB{
 			logger:       logger,
@@ -508,9 +506,9 @@ func TestDB_Shards(t *testing.T) {
 		}
 
 		nodes, err := db.Shards(ctx, className)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, nodes)
-		assert.Contains(t, err.Error(), "unable to retrieve sharding state")
+		assert.Contains(t, err.Error(), expectedErrorMsg)
 	})
 
 	t.Run("schema reader error", func(t *testing.T) {

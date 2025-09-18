@@ -249,9 +249,6 @@ func (m *Manager) QueryShardingStateByCollection(c *cmd.QueryRequest) ([]byte, e
 	var err error
 
 	err = m.schemaReader.Read(subCommand.Collection, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
-		}
 		for _, physical := range state.Physical {
 			shards[physical.Name] = append([]string(nil), physical.BelongsToNodes...)
 		}
@@ -284,10 +281,6 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 	)
 
 	err = m.schemaReader.Read(subCommand.Collection, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
-		}
-
 		for _, physical := range state.Physical {
 			if physical.Name == subCommand.Shard {
 				shards = map[string][]string{

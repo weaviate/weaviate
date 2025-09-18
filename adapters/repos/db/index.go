@@ -343,6 +343,12 @@ func NewIndex(
 	if vectorIndexUserConfigs == nil {
 		vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{}
 	}
+
+	metrics, err := NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a")
+	if err != nil {
+		return nil, fmt.Errorf("create metrics for index %q: %w", cfg.ClassName.String(), err)
+	}
+
 	index := &Index{
 		Config:                  cfg,
 		globalreplicationConfig: globalReplicationConfig,
@@ -356,7 +362,7 @@ func NewIndex(
 		stopwords:               sd,
 		partitioningEnabled:     multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
-		metrics:                 NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
+		metrics:                 metrics,
 		centralJobQueue:         jobQueueCh,
 		shardTransferMutex:      shardTransfer{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
 		scheduler:               scheduler,
@@ -374,7 +380,10 @@ func NewIndex(
 	}
 
 	// TODO: Fix replica router instantiation to be at the top level
-	index.replicator = replica.NewReplicator(cfg.ClassName.String(), router, sg.NodeName(), getDeletionStrategy, replicaClient, logger)
+	index.replicator, err = replica.NewReplicator(cfg.ClassName.String(), router, sg.NodeName(), getDeletionStrategy, replicaClient, promMetrics, logger)
+	if err != nil {
+		return nil, fmt.Errorf("create replicator for index %q: %w", index.ID(), err)
+	}
 
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -413,10 +422,6 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	className := i.Config.ClassName.String()
 
 	err := i.schemaReader.Read(className, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
-		}
-
 		for shardName, physical := range state.Physical {
 			if state.IsLocalShard(shardName) {
 				localShards = append(localShards, shardInfo{
