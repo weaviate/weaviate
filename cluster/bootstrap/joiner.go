@@ -92,7 +92,7 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 		lg.WithFields(logrus.Fields{
 			"action":                  "join",
 			"trying_remote_node_addr": addr,
-			"leader":                  leaderAddr,
+			"leader_address":          leaderAddr,
 			"rpc_status_code":         rpcStatusCode,
 		}).Info("attempted to join and failed")
 
@@ -103,7 +103,11 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 			if err == nil {
 				return leaderAddr, nil
 			}
-			lg.WithField("leader", leaderAddr).WithError(err).Info("attempted to follow to leader and failed")
+			lg.WithFields(logrus.Fields{
+				"action":          "join",
+				"leader_address":  leaderAddr,
+				"rpc_status_code": rpcStatusCode,
+			}).Info("attempted to follow to leader and failed")
 		}
 	}
 	return "", fmt.Errorf("could not join a cluster from %v", remoteNodes)
