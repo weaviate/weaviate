@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	"io"
+	"runtime"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -50,15 +51,20 @@ func (c *Config) Validate() error {
 }
 
 func DefaultConfig() *Config {
+	w := runtime.GOMAXPROCS(0)
+
 	return &Config{
 		Logger:    logrus.New(),
 		Distancer: distancer.NewL2SquaredProvider(),
 		// TODO: make the MaxPostingSize dynamic and dependent on the
 		// vector size and compression method
-		MaxPostingSize:            128,
-		MinPostingSize:            10,
-		SplitWorkers:              16,
-		ReassignWorkers:           16,
+		MaxPostingSize: 128,
+		MinPostingSize: 10,
+		// Use 2x the number of CPUs as default for workers.
+		// Workers are mostly idle waiting for I/O, so having
+		// more workers than CPUs makes sense.
+		SplitWorkers:              w * 2,
+		ReassignWorkers:           w * 2,
 		InternalPostingCandidates: 64,
 		ReassignNeighbors:         64,
 		Replicas:                  8,
