@@ -156,11 +156,11 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 // commitAll tells replicas to commit pending updates related to a specific request
 // (second phase of a two-phase commit)
 func (c *coordinator[T]) commitAll(ctx context.Context,
-	resChan <-chan _Result[string],
+	broadcastCh <-chan _Result[string],
 	op commitOp[T],
 	callback func(successful int),
 ) <-chan _Result[T] {
-	replyCh := make(chan _Result[T], cap(resChan))
+	replyCh := make(chan _Result[T], cap(broadcastCh))
 	f := func() { // tells active replicas to commit
 		// tells active replicas to commit
 
@@ -174,17 +174,16 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 
 		wg := sync.WaitGroup{}
 
-		for res := range resChan {
-			wg.Add(1)
+		for res := range broadcastCh {
 			if res.Err != nil {
 				replyCh <- _Result[T]{Err: res.Err}
-				wg.Done()
 				continue
 			}
-			res := res
+			replica := res.Value
+			wg.Add(1)
 			g := func() {
 				defer wg.Done()
-				resp, err := op(ctx, res.Value, c.TxID)
+				resp, err := op(ctx, replica, c.TxID)
 				if err == nil {
 					successful.Add(1)
 				}
