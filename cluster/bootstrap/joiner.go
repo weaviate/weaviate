@@ -61,7 +61,7 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 
 	// For each server, try to join.
 	// If we have no error then we have a leader
-	// If we have an error check for err == NOT_FOUND and leader != "" -> we contacted a non-leader node part of the
+	// If we have an error check for err == NotLeaderRPCCode and leader != "" -> we contacted a non-leader node part of the
 	// cluster, let's join the leader.
 	// If no server allows us to join a cluster, return an error
 	for name, addr := range remoteNodes {
