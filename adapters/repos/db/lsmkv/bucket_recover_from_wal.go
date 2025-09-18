@@ -112,6 +112,9 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 		if mt.strategy == StrategyInverted {
 			mt.averagePropLength, _ = sg.GetAveragePropertyLength()
 		}
+
+		// immediately flush the .wal file if there have been any damages during recovery. This means that the file is
+		// damaged and cannot be used for new writes.
 		if walForActiveMemtable && errRecovery == nil {
 			_, err = cl.file.Seek(0, io.SeekEnd)
 			if err != nil {
