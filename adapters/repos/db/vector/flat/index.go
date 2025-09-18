@@ -245,6 +245,7 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 			lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
 			lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
 			lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+			lsmkv.WithStrategy(lsmkv.StrategyReplace),
 
 			// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
 			// was simply missing. Now we want to explicitly set it to false for
