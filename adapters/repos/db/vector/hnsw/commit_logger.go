@@ -542,6 +542,14 @@ func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortC
 }
 
 func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+
+	err := l.fixCorruptedCommitLogs()
+	if err != nil {
+		l.logger.WithError(err).
+			WithField("action", "hnsw_commit_log_fixing").
+			Error("hnsw commit log maintenance (fixing) failed")
+	}
+
 	executedCombine, err := l.combineLogs()
 	if err != nil {
 		l.logger.WithError(err).
@@ -732,4 +740,13 @@ func (l *hnswCommitLogger) Flush() error {
 	defer l.Unlock()
 
 	return l.commitLogger.Flush()
+}
+
+func (l *hnswCommitLogger) fixCorruptedCommitLogs() error {
+	fileNames, err := getCommitFileNames(l.rootPath, l.id, 0, l.fs)
+	if err != nil {
+		return err
+	}
+	_, err = NewCorruptedCommitLogFixer().Do(fileNames)
+	return err
 }

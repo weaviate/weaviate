@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func Test_CommitlogCombiner(t *testing.T) {
@@ -576,12 +577,11 @@ func TestCondensorCombiningCrashSafety(t *testing.T) {
 		fileNames = getFileNames(t, rootPath)
 		require.Equal(t, []string{"100.condensed", "101", "101.condensed"}, fileNames)
 
-		// extract full commit log file names
-		fileNames, err = getCommitFileNames(rootPath, id, 1, common.NewOSFS())
+		cl, err := NewCommitLogger(rootPath, id, logger,
+			cyclemanager.NewCallbackGroupNoop())
 		require.NoError(t, err)
-		// make sure commit log fixer will remove "101.condensed" file
-		_, err = NewCorruptedCommitLogFixer().Do(fileNames)
-		require.NoError(t, err)
+		cl.startCommitLogsMaintenance(func() bool { return false })
+
 		fixedNames := getFileNames(t, rootPath)
 		sizes := getSizes(t, rootPath)
 		require.Equal(t, fixedNames, []string{"100.condensed", "101"})
