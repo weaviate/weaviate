@@ -466,8 +466,11 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 	defer t.Stop()
 	for range t.C {
 
-		if leader := st.Leader(); leader != "" {
-			st.log.WithField("address", leader).Info("current Leader")
+		if leaderAddr := st.Leader(); leaderAddr != "" {
+			st.log.WithFields(logrus.Fields{
+				"action":         "leader_found",
+				"leader_address": leaderAddr,
+			}).Info("current leader")
 		} else {
 			continue
 		}
