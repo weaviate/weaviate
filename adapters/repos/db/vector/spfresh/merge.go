@@ -17,10 +17,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-type mergeOperation struct {
-	PostingID uint64
-}
-
 func (s *SPFresh) enqueueMerge(ctx context.Context, postingID uint64) error {
 	if s.ctx == nil {
 		return nil // Not started yet

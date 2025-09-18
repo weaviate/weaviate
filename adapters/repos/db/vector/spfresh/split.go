@@ -18,10 +18,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
-type splitOperation struct {
-	PostingID uint64
-}
-
 func (s *SPFresh) enqueueSplit(ctx context.Context, postingID uint64) error {
 	if s.ctx == nil {
 		return nil // Not started yet
