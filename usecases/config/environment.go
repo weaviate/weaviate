@@ -992,7 +992,20 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 	if err := parsePositiveInt(
 		"RAFT_TIMEOUTS_MULTIPLIER",
 		func(val int) { cfg.TimeoutsMultiplier = runtime.NewDynamicValue(val) },
-		1, // raft default
+		5,
+		// 5 is the default value for raft timeout multiplier
+		// we are using 5 to tolerate the network delay and avoid extensive leader election triggered more frequently
+		// which would cause Memeroy/CPU pressure.
+		// for production requirement,it's recommended to set it to 5
+		// example : https://developer.hashicorp.com/consul/docs/reference/architecture/server#production-server-requirements
+
+		// e.g. in PROD incase of heacy load environments while there is rollout in progress which by default will
+		// trigger leader election more frequently this will be pressure on the nodes and we don't want to add more pressure
+		// by triggering leader elections more frequently.
+
+		// e.g. pipeline flakiness because we are runnining tests in bounded memory environments
+		// and this would cause the tests to fail because nodes won't respond to requests in time.
+
 	); err != nil {
 		return cfg, err
 	}
