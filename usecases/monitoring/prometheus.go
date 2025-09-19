@@ -99,8 +99,13 @@ type PrometheusMetrics struct {
 	VectorIndexDurations               *prometheus.SummaryVec
 	VectorIndexSize                    *prometheus.GaugeVec
 	VectorIndexMaintenanceDurations    *prometheus.SummaryVec
-	VectorDimensionsSum                *prometheus.GaugeVec
-	VectorSegmentsSum                  *prometheus.GaugeVec
+	// IVF
+	VectorIndexPostings                      *prometheus.GaugeVec
+	VectorIndexPendingBackgroundOperations   *prometheus.GaugeVec
+	VectorIndexBackgroundOperationsDurations *prometheus.SummaryVec
+
+	VectorDimensionsSum *prometheus.GaugeVec
+	VectorSegmentsSum   *prometheus.GaugeVec
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
@@ -320,6 +325,9 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.VectorIndexOperations.DeletePartialMatch(labels)
 	pm.VectorIndexMaintenanceDurations.DeletePartialMatch(labels)
 	pm.VectorIndexDurations.DeletePartialMatch(labels)
+	pm.VectorIndexPostings.DeletePartialMatch(labels)
+	pm.VectorIndexPendingBackgroundOperations.DeletePartialMatch(labels)
+	pm.VectorIndexBackgroundOperationsDurations.DeletePartialMatch(labels)
 	pm.VectorIndexSize.DeletePartialMatch(labels)
 	pm.StartupProgress.DeletePartialMatch(labels)
 	pm.StartupDurations.DeletePartialMatch(labels)
@@ -593,6 +601,18 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		VectorIndexDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "vector_index_durations_ms",
 			Help: "Duration of typical vector index operations (insert, delete)",
+		}, []string{"operation", "step", "class_name", "shard_name"}),
+		VectorIndexPostings: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_index_postings",
+			Help: "The size of the vector index postings. Typically much lower than number of vectors.",
+		}, []string{"class_name", "shard_name"}),
+		VectorIndexPendingBackgroundOperations: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_index_pending_background_operations",
+			Help: "Number of background operations yet to be processed.",
+		}, []string{"class_name", "shard_name"}),
+		VectorIndexBackgroundOperationsDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "vector_index_background_operations_durations_ms",
+			Help: "Duration of typical vector index background operations (split, merge, reassign)",
 		}, []string{"operation", "step", "class_name", "shard_name"}),
 		VectorDimensionsSum: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_dimensions_sum",

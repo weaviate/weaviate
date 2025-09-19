@@ -72,6 +72,7 @@ func TestSPFreshRecall(t *testing.T) {
 		cur := count.Add(1)
 		if cur%1000 == 0 {
 			fmt.Printf("indexing vectors %d/%d\n", cur, vectors_size)
+			fmt.Println("background tasks: split", index.splitCh.Len(), "reassign", index.reassignCh.Len(), "merge", index.mergeCh.Len())
 		}
 		err := index.Add(t.Context(), id, vectors[id])
 		require.NoError(t, err)
@@ -80,6 +81,8 @@ func TestSPFreshRecall(t *testing.T) {
 	fmt.Printf("indexing done, took: %s, waiting for background tasks...\n", time.Since(before))
 
 	for index.splitCh.Len() > 0 || index.reassignCh.Len() > 0 || index.mergeCh.Len() > 0 {
+		fmt.Println("background tasks: split", index.splitCh.Len(), "reassign", index.reassignCh.Len(), "merge", index.mergeCh.Len())
+
 		time.Sleep(500 * time.Millisecond)
 	}
 
