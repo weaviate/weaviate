@@ -14,6 +14,7 @@ package clients
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -24,20 +25,26 @@ import (
 )
 
 type RemoteNode struct {
-	client *http.Client
+	client       *http.Client
+	nodeResolver nodeResolver
 }
 
-func NewRemoteNode(httpClient *http.Client) *RemoteNode {
-	return &RemoteNode{client: httpClient}
+func NewRemoteNode(httpClient *http.Client, nodeResolver nodeResolver) *RemoteNode {
+	return &RemoteNode{client: httpClient, nodeResolver: nodeResolver}
 }
 
-func (c *RemoteNode) GetNodeStatus(ctx context.Context, hostName, className, output string) (*models.NodeStatus, error) {
+func (c *RemoteNode) GetNodeStatus(ctx context.Context, nodeName, className, output string) (*models.NodeStatus, error) {
 	p := "/nodes/status"
 	if className != "" {
 		p = path.Join(p, className)
 	}
 	method := http.MethodGet
 	params := url.Values{"output": []string{output}}
+
+	hostName, ok := c.nodeResolver.NodeHostname(nodeName)
+	if !ok {
+		return nil, fmt.Errorf("resolve node name %q to host", nodeName)
+	}
 	url := url.URL{Scheme: "http", Host: hostName, Path: p, RawQuery: params.Encode()}
 
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
@@ -57,17 +64,20 @@ func (c *RemoteNode) GetNodeStatus(ctx context.Context, hostName, className, out
 	}
 
 	var nodeStatus models.NodeStatus
-	err = json.Unmarshal(body, &nodeStatus)
-	if err != nil {
+	if err := json.Unmarshal(body, &nodeStatus); err != nil {
 		return nil, enterrors.NewErrUnmarshalBody(err)
 	}
 
 	return &nodeStatus, nil
 }
 
-func (c *RemoteNode) GetStatistics(ctx context.Context, hostName string) (*models.Statistics, error) {
+func (c *RemoteNode) GetStatistics(ctx context.Context, nodeName string) (*models.Statistics, error) {
 	p := "/nodes/statistics"
 	method := http.MethodGet
+	hostName, ok := c.nodeResolver.NodeHostname(nodeName)
+	if !ok {
+		return nil, fmt.Errorf("resolve node name %q to host", nodeName)
+	}
 	url := url.URL{Scheme: "http", Host: hostName, Path: p}
 
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
@@ -87,8 +97,7 @@ func (c *RemoteNode) GetStatistics(ctx context.Context, hostName string) (*model
 	}
 
 	var statistics models.Statistics
-	err = json.Unmarshal(body, &statistics)
-	if err != nil {
+	if err := json.Unmarshal(body, &statistics); err != nil {
 		return nil, enterrors.NewErrUnmarshalBody(err)
 	}
 
