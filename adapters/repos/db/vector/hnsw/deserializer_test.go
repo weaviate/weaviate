@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -478,7 +479,7 @@ func TestDeserializerTotalReadPQ(t *testing.T) {
 		nullLogger, _ := test.NewNullLogger()
 		commitLoggerPath := rootPath + "/tmpLogger.hnsw.commitlog.d"
 
-		fileName, found, err := getCurrentCommitLogFileName(commitLoggerPath)
+		fileName, found, err := getCurrentCommitLogFileName(commitLoggerPath, common.NewOSFS())
 		require.Nil(t, err)
 		require.True(t, found)
 
@@ -553,7 +554,7 @@ func TestDeserializerTotalReadMUVERA(t *testing.T) {
 		nullLogger, _ := test.NewNullLogger()
 		commitLoggerPath := rootPath + "/tmpLogger.hnsw.commitlog.d"
 
-		fileName, found, err := getCurrentCommitLogFileName(commitLoggerPath)
+		fileName, found, err := getCurrentCommitLogFileName(commitLoggerPath, common.NewOSFS())
 		require.Nil(t, err)
 		require.True(t, found)
 
