@@ -54,11 +54,8 @@ func DefaultConfig() *Config {
 	w := runtime.GOMAXPROCS(0)
 
 	return &Config{
-		Logger:    logrus.New(),
-		Distancer: distancer.NewL2SquaredProvider(),
-		// TODO: make the MaxPostingSize dynamic and dependent on the
-		// vector size and compression method
-		MaxPostingSize: 128,
+		Logger:         logrus.New(),
+		Distancer:      distancer.NewL2SquaredProvider(),
 		MinPostingSize: 10,
 		// Use 2x the number of CPUs as default for workers.
 		// Workers are mostly idle waiting for I/O, so having
