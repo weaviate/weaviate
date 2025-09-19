@@ -34,6 +34,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 )
 
 func TestRemoteIndexIncreaseRF(t *testing.T) {
@@ -76,7 +77,7 @@ func TestRemoteIndexReInitShardIn(t *testing.T) {
 	fs := newFakeRemoteIndexServer(t, http.MethodPut, path)
 	ts := fs.server(t)
 	defer ts.Close()
-	client := newRemoteIndex(ts.Client())
+	client := newRemoteIndex(ts.Client(), fs.host)
 	t.Run("ConnectionError", func(t *testing.T) {
 		err := client.ReInitShard(ctx, "", "C1", "S1")
 		assert.NotNil(t, err)
@@ -108,7 +109,7 @@ func TestRemoteIndexCreateShard(t *testing.T) {
 	fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
 	ts := fs.server(t)
 	defer ts.Close()
-	client := newRemoteIndex(ts.Client())
+	client := newRemoteIndex(ts.Client(), fs.host)
 	t.Run("ConnectionError", func(t *testing.T) {
 		err := client.CreateShard(ctx, "", "C1", "S1")
 		assert.NotNil(t, err)
@@ -140,7 +141,7 @@ func TestRemoteIndexUpdateShardStatus(t *testing.T) {
 	fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
 	ts := fs.server(t)
 	defer ts.Close()
-	client := newRemoteIndex(ts.Client())
+	client := newRemoteIndex(ts.Client(), fs.host)
 	t.Run("ConnectionError", func(t *testing.T) {
 		err := client.UpdateShardStatus(ctx, "", "C1", "S1", "NewStatus", 0)
 		assert.NotNil(t, err)
@@ -174,7 +175,7 @@ func TestRemoteIndexShardStatus(t *testing.T) {
 	)
 	ts := fs.server(t)
 	defer ts.Close()
-	client := newRemoteIndex(ts.Client())
+	client := newRemoteIndex(ts.Client(), fs.host)
 	t.Run("ConnectionError", func(t *testing.T) {
 		_, err := client.GetShardStatus(ctx, "", "C1", "S1")
 		assert.NotNil(t, err)
@@ -223,7 +224,7 @@ func TestRemoteIndexPutFile(t *testing.T) {
 	)
 	ts := fs.server(t)
 	defer ts.Close()
-	client := newRemoteIndex(ts.Client())
+	client := newRemoteIndex(ts.Client(), fs.host)
 
 	rsc := struct {
 		*strings.Reader
@@ -256,8 +257,8 @@ func TestRemoteIndexPutFile(t *testing.T) {
 	})
 }
 
-func newRemoteIndex(httpClient *http.Client) *RemoteIndex {
-	ri := NewRemoteIndex(httpClient)
+func newRemoteIndex(httpClient *http.Client, nodes ...string) *RemoteIndex {
+	ri := NewRemoteIndex(httpClient, mocks.NewMockNodeSelector(nodes...))
 	ri.minBackOff = time.Millisecond * 1
 	ri.maxBackOff = time.Millisecond * 10
 	ri.timeoutUnit = time.Millisecond * 20

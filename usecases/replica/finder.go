@@ -274,7 +274,7 @@ func (f *Finder) NodeObject(ctx context.Context,
 	if !ok || host == "" {
 		return nil, fmt.Errorf("cannot resolve node name: %s", nodeName)
 	}
-	r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 9)
+	r, err := f.client.FullRead(ctx, nodeName, f.class, shard, id, props, adds, 9)
 	return r.Object, err
 }
 
@@ -344,12 +344,12 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		for l := 0; l <= ht.Height(); l++ {
 			_, err := ht.Level(l, diff, digests)
 			if err != nil {
-				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
+				return nil, fmt.Errorf("%q: %w", targetNodeName, err)
 			}
 
-			levelDigests, err := f.client.HashTreeLevel(ctx, targetNodeAddress, f.class, shardName, l, diff)
+			levelDigests, err := f.client.HashTreeLevel(ctx, targetNodeName, f.class, shardName, l, diff)
 			if err != nil {
-				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
+				return nil, fmt.Errorf("%q: %w", targetNodeName, err)
 			}
 			if len(levelDigests) == 0 {
 				// no differences were found

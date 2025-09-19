@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
@@ -124,7 +125,7 @@ func TestReplicationPutObject(t *testing.T) {
 	ts := f.server(t)
 	defer ts.Close()
 
-	client := newReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client(), f.host)
 	t.Run("EncodeRequest", func(t *testing.T) {
 		obj := &storobj.Object{}
 		_, err := client.PutObject(ctx, "Node1", "C1", "S1", "RID", obj, 0)
@@ -169,7 +170,7 @@ func TestReplicationDeleteObject(t *testing.T) {
 	ts := fs.server(t)
 	defer ts.Close()
 
-	client := newReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client(), fs.host)
 	t.Run("ConnectionError", func(t *testing.T) {
 		_, err := client.DeleteObject(ctx, "", "C1", "S1", "", uuid, deletionTime, 0)
 		assert.NotNil(t, err)
@@ -203,7 +204,7 @@ func TestReplicationPutObjects(t *testing.T) {
 	ts := fs.server(t)
 	defer ts.Close()
 
-	client := newReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client(), fs.host)
 	t.Run("EncodeRequest", func(t *testing.T) {
 		objs := []*storobj.Object{{}}
 		_, err := client.PutObjects(ctx, "Node1", "C1", "S1", "RID", objs, 123)
@@ -217,7 +218,7 @@ func TestReplicationPutObjects(t *testing.T) {
 	}
 
 	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.PutObjects(ctx, "", "C1", "S1", "", objects, 123)
+		_, err := client.PutObjects(ctx, "Node2", "C1", "S1", "", objects, 123)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
@@ -249,7 +250,7 @@ func TestReplicationMergeObject(t *testing.T) {
 	ts := f.server(t)
 	defer ts.Close()
 
-	client := newReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client(), f.host)
 	doc := &objects.MergeDocument{ID: uuid}
 	t.Run("ConnectionError", func(t *testing.T) {
 		_, err := client.MergeObject(ctx, "", "C1", "S1", "", doc, 0)
@@ -285,7 +286,7 @@ func TestReplicationAddReferences(t *testing.T) {
 	ts := fs.server(t)
 	defer ts.Close()
 
-	client := newReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client(), fs.host)
 	refs := []objects.BatchReference{{OriginalIndex: 1}, {OriginalIndex: 2}}
 	t.Run("ConnectionError", func(t *testing.T) {
 		_, err := client.AddReferences(ctx, "", "C1", "S1", "", refs, 0)
@@ -320,7 +321,7 @@ func TestReplicationDeleteObjects(t *testing.T) {
 	fs.RequestError.Errors = append(fs.RequestError.Errors, replica.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
-	client := newReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client(), fs.host)
 
 	uuids := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 	deletionTime := time.Now()
@@ -358,7 +359,7 @@ func TestReplicationAbort(t *testing.T) {
 	fs := newFakeReplicationServer(t, http.MethodPost, path, 0)
 	ts := fs.server(t)
 	defer ts.Close()
-	client := newReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client(), fs.host)
 
 	t.Run("ConnectionError", func(t *testing.T) {
 		client := newReplicationClient(ts.Client())
@@ -396,7 +397,7 @@ func TestReplicationCommit(t *testing.T) {
 	ts := fs.server(t)
 	defer ts.Close()
 	resp := replica.SimpleResponse{}
-	client := newReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client(), fs.host)
 
 	t.Run("ConnectionError", func(t *testing.T) {
 		err := client.Commit(ctx, "", "C1", "S1", "", &resp)
@@ -446,7 +447,7 @@ func TestReplicationFetchObject(t *testing.T) {
 		w.Write(b)
 	}))
 
-	c := newReplicationClient(server.Client())
+	c := newReplicationClient(server.Client(), server.URL[7:])
 	resp, err := c.FetchObject(context.Background(), server.URL[7:],
 		"C1", "S1", expected.ID, nil, additional.Properties{}, 9)
 	require.Nil(t, err)
@@ -493,7 +494,7 @@ func TestReplicationFetchObjects(t *testing.T) {
 		w.Write(b)
 	}))
 
-	c := newReplicationClient(server.Client())
+	c := newReplicationClient(server.Client(), server.URL[7:])
 	resp, err := c.FetchObjects(context.Background(), server.URL[7:], "C1", "S1", []strfmt.UUID{expected[0].ID})
 	require.Nil(t, err)
 	require.Len(t, resp, 2)
@@ -528,7 +529,7 @@ func TestReplicationDigestObjects(t *testing.T) {
 		w.Write(b)
 	}))
 
-	c := newReplicationClient(server.Client())
+	c := newReplicationClient(server.Client(), server.URL[7:])
 	resp, err := c.DigestObjects(context.Background(), server.URL[7:], "C1", "S1", []strfmt.UUID{
 		strfmt.UUID(expected[0].ID),
 		strfmt.UUID(expected[1].ID),
@@ -578,7 +579,7 @@ func TestReplicationOverwriteObjects(t *testing.T) {
 		w.Write(b)
 	}))
 
-	c := newReplicationClient(server.Client())
+	c := newReplicationClient(server.Client(), server.URL[7:])
 	resp, err := c.OverwriteObjects(context.Background(), server.URL[7:], "C1", "S1", input)
 	require.Nil(t, err)
 	require.Len(t, resp, 1)
@@ -600,8 +601,8 @@ func TestExpBackOff(t *testing.T) {
 	}
 }
 
-func newReplicationClient(httpClient *http.Client) *replicationClient {
-	c := NewReplicationClient(httpClient).(*replicationClient)
+func newReplicationClient(httpClient *http.Client, nodes ...string) *replicationClient {
+	c := NewReplicationClient(httpClient, mocks.NewMockNodeSelector(nodes...)).(*replicationClient)
 	c.minBackOff = time.Millisecond * 1
 	c.maxBackOff = time.Millisecond * 8
 	c.timeoutUnit = time.Millisecond * 20

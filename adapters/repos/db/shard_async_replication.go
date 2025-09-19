@@ -998,7 +998,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 		propagationCtx, cancel := context.WithTimeout(ctx, config.propagationTimeout)
 		defer cancel()
 
-		resp, err := s.propagateObjects(propagationCtx, config, shardDiffReader.TargetNodeAddress, objectsToPropagate, remoteStaleUpdateTimeByUUID)
+		resp, err := s.propagateObjects(propagationCtx, config, shardDiffReader.TargetNodeName, objectsToPropagate, remoteStaleUpdateTimeByUUID)
 		if err != nil {
 			return nil, fmt.Errorf("propagating local objects: %w", err)
 		}
@@ -1155,7 +1155,7 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config asyncR
 
 				// TODO could speed up by passing through the target node override upper time bound here
 				remoteDigests, err := s.index.replicator.DigestObjectsInRange(ctx,
-					s.name, targetNodeAddress, currRemoteUUID, lastLocalUUID, config.diffBatchSize)
+					s.name, targetNodeName, currRemoteUUID, lastLocalUUID, config.diffBatchSize)
 				if err != nil {
 					return localObjectsCount, remoteObjectsCount, objectsToPropagate, fmt.Errorf("fetching remote object digests: %w", err)
 				}

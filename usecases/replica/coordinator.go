@@ -248,15 +248,15 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		}
 	}()
 
-	nodeCh := c.broadcast(ctxWithTimeout, routingPlan.ReplicasHostAddrs, ask, level)
+	nodeCh := c.broadcast(ctxWithTimeout, routingPlan.Replicas, ask, level)
 
 	commitCh := c.commitAll(context.Background(), nodeCh, com, callback)
 
 	// if there are additional hosts, we do a "best effort" write to them
 	// where we don't wait for a response because they are not part of the
 	// replicas used to reach level consistency
-	if len(routingPlan.AdditionalHostAddrs) > 0 {
-		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
+	if len(routingPlan.AdditionalReplicas) > 0 {
+		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, routingPlan.AdditionalReplicas, ask, len(routingPlan.AdditionalReplicas))
 		c.commitAll(context.Background(), additionalHostsBroadcast, com, nil)
 	}
 
@@ -289,7 +289,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 	level := routingPlan.IntConsistencyLevel
-	hosts := routingPlan.ReplicasHostAddrs
+	hosts := routingPlan.Replicas
 	replyCh := make(chan _Result[T], level)
 	f := func() {
 		start := time.Now()
