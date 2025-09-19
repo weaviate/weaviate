@@ -109,7 +109,7 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 	}(shd.Index().Config.RootPath)
 
 	err := shd.Store().CreateOrLoadBucket(context.Background(), bucketName,
-		lsmkv.WithMemtableThreshold(1024))
+		lsmkv.WithMemtableThreshold(1024), lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	require.Nil(t, err)
 
 	bucket := shd.Store().Bucket(bucketName)
