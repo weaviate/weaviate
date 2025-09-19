@@ -424,18 +424,6 @@ func (b *Bucket) SetMemtableThreshold(size uint64) {
 	b.memtableThreshold = size
 }
 
-// Get retrieves the single value for the given key.
-//
-// Get is specific to ReplaceStrategy and cannot be used with any of the other
-// strategies. Use [Bucket.SetList] or [Bucket.MapList] instead.
-//
-// Get uses the regular or "primary" key for an object. If a bucket has
-// secondary indexes, use [Bucket.GetBySecondary] to retrieve an object using
-// its secondary key
-func (b *Bucket) Get(key []byte) ([]byte, error) {
-	return b.get(key)
-}
-
 type BucketConsistentView struct {
 	Active   memtable
 	Flushing memtable
@@ -452,10 +440,11 @@ func (b *Bucket) getConsistentView() BucketConsistentView {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	if time.Since(beforeFlushLock) > 100*time.Millisecond {
-		b.logger.WithField("duration", time.Since(beforeFlushLock)).
-			WithField("action", "lsm_bucket_get_acquire_flush_lock").
-			Debugf("Waited more than 100ms to obtain a flush lock during get")
+	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond {
+		b.logger.WithFields(logrus.Fields{
+			"duration": duration,
+			"action":   "lsm_bucket_get_acquire_flush_lock",
+		}).Debug("Waited more than 100ms to obtain a flush lock during get")
 	}
 
 	diskSegments, releaseDiskSegments := b.disk.getConsistentViewOfSegments()
@@ -467,39 +456,44 @@ func (b *Bucket) getConsistentView() BucketConsistentView {
 	}
 }
 
+// Get retrieves the single value for the given key.
+//
+// Get is specific to ReplaceStrategy and cannot be used with any of the other
+// strategies. Use [Bucket.SetList] or [Bucket.MapList] instead.
+//
+// Get uses the regular or "primary" key for an object. If a bucket has
+// secondary indexes, use [Bucket.GetBySecondary] to retrieve an object using
+// its secondary key
+func (b *Bucket) Get(key []byte) ([]byte, error) {
+	v, err := b.get(key)
+	if err != nil && (errors.Is(err, lsmkv.Deleted) || errors.Is(err, lsmkv.NotFound)) {
+		return nil, nil
+	}
+	return v, err
+}
+
+func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
+	return b.get(key)
+}
+
 func (b *Bucket) get(key []byte) ([]byte, error) {
 	view := b.getConsistentView()
 	defer view.release()
 
-	beforeMemtable := time.Now()
-	v, err := view.Active.get(key)
-	if time.Since(beforeMemtable) > 100*time.Millisecond {
-		b.logger.WithField("duration", time.Since(beforeMemtable)).
-			WithField("action", "lsm_bucket_get_active_memtable").
-			Debugf("Waited more than 100ms to retrieve object from memtable")
-	}
-	if err == nil {
-		// item found and no error, return and stop searching, since the strategy
-		// is replace
-		return v, nil
-	}
-	if errors.Is(err, lsmkv.Deleted) {
-		// deleted in the mem-table (which is always the latest) means we don't
-		// have to check the disk segments, return nil now
-		return nil, nil
-	}
-
-	if !errors.Is(err, lsmkv.NotFound) {
-		panic(fmt.Sprintf("unsupported error in bucket.Get: %v\n", err))
-	}
-
+	memtableNames := []string{"active", "flushing"}
+	memtables := []memtable{view.Active}
 	if view.Flushing != nil {
-		beforeFlushMemtable := time.Now()
-		v, err := view.Flushing.get(key)
-		if time.Since(beforeFlushMemtable) > 100*time.Millisecond {
-			b.logger.WithField("duration", time.Since(beforeFlushMemtable)).
-				WithField("action", "lsm_bucket_get_flushing_memtable").
-				Debugf("Waited over 100ms to retrieve object from flushing memtable")
+		memtables = append(memtables, view.Flushing)
+	}
+
+	for i := range memtables {
+		beforeMemtable := time.Now()
+		v, err := memtables[i].get(key)
+		if duration := time.Since(beforeMemtable); duration > 100*time.Millisecond {
+			b.logger.WithFields(logrus.Fields{
+				"duration": duration,
+				"action":   fmt.Sprintf("lsm_bucket_get_%s_memtable", memtableNames[i]),
+			}).Debug("Waited more than 100ms to retrieve object from memtable")
 		}
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
@@ -507,59 +501,16 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 			return v, nil
 		}
 		if errors.Is(err, lsmkv.Deleted) {
-			// deleted in the now most recent memtable  means we don't have to check
-			// the disk segments, return nil now
-			return nil, nil
+			// deleted in the mem-table (which is always the latest) means we don't
+			// have to check the disk segments, return nil now
+			return nil, err
 		}
-
 		if !errors.Is(err, lsmkv.NotFound) {
-			panic("unsupported error in bucket.Get")
+			return nil, fmt.Errorf("Bucket::get() memtable %q: %w", memtableNames[i], err)
 		}
 	}
 
 	return b.disk.getWithSegmentList(key, view.Disk)
-}
-
-// TODO: use consistent view
-func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
-
-	v, err := b.active.get(key)
-	if err == nil {
-		// item found and no error, return and stop searching, since the strategy
-		// is replace
-		return v, nil
-	}
-	if errors.Is(err, lsmkv.Deleted) {
-		// deleted in the mem-table (which is always the latest) means we don't
-		// have to check the disk segments, return nil now
-		return nil, err
-	}
-
-	if !errors.Is(err, lsmkv.NotFound) {
-		panic(fmt.Sprintf("unsupported error in bucket.Get: %v\n", err))
-	}
-
-	if b.flushing != nil {
-		v, err := b.flushing.get(key)
-		if err == nil {
-			// item found and no error, return and stop searching, since the strategy
-			// is replace
-			return v, nil
-		}
-		if errors.Is(err, lsmkv.Deleted) {
-			// deleted in the now most recent memtable  means we don't have to check
-			// the disk segments, return nil now
-			return nil, err
-		}
-
-		if !errors.Is(err, lsmkv.NotFound) {
-			panic("unsupported error in bucket.Get")
-		}
-	}
-
-	return b.disk.getErrDeleted(key)
 }
 
 // GetBySecondary retrieves an object using one of its secondary keys. A bucket
@@ -578,14 +529,14 @@ func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 	return bytes, err
 }
 
+// TODO aliszka:copy-on-read get rid one of [GetBySecondaryWithBuffer, GetBySecondaryIntoMemory]
 // GetBySecondaryWithBuffer is like [Bucket.GetBySecondary], but also takes a
 // buffer. It's in the response of the caller to pool the buffer, since the
 // bucket does not know when the caller is done using it. The return bytes will
 // likely point to the same memory that's part of the buffer. However, if the
 // buffer is to small, a larger buffer may also be returned (second arg).
 func (b *Bucket) GetBySecondaryWithBuffer(pos int, key []byte, buf []byte) ([]byte, []byte, error) {
-	bytes, newBuf, err := b.GetBySecondaryIntoMemory(pos, key, buf)
-	return bytes, newBuf, err
+	return b.GetBySecondaryIntoMemory(pos, key, buf)
 }
 
 // GetBySecondaryIntoMemory copies into the specified memory, and retrieves
@@ -600,63 +551,63 @@ func (b *Bucket) GetBySecondaryWithBuffer(pos int, key []byte, buf []byte) ([]by
 // Similar to [Bucket.Get], GetBySecondary is limited to ReplaceStrategy. No
 // equivalent exists for Set and Map, as those do not support secondary
 // indexes.
-// TODO: use consistent view
-func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, error) {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+func (b *Bucket) GetBySecondaryIntoMemory(pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
+	v, allocBuf, err := b.getBySecondaryIntoMemory(pos, seckey, buffer)
+	if err != nil && (errors.Is(err, lsmkv.Deleted) || errors.Is(err, lsmkv.NotFound)) {
+		return nil, buffer, nil
+	}
+	return v, allocBuf, err
+}
 
+func (b *Bucket) getBySecondaryIntoMemory(pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
 	if pos >= int(b.secondaryIndices) {
 		return nil, nil, fmt.Errorf("no secondary index at pos %d", pos)
 	}
 
-	v, err := b.active.getBySecondary(pos, key)
-	if err == nil {
-		// item found and no error, return and stop searching, since the strategy
-		// is replace
-		return v, buffer, nil
-	}
-	if errors.Is(err, lsmkv.Deleted) {
-		// deleted in the mem-table (which is always the latest) means we don't
-		// have to check the disk segments, return nil now
-		return nil, buffer, nil
+	view := b.getConsistentView()
+	defer view.release()
+
+	memtableNames := []string{"active", "flushing"}
+	memtables := []memtable{view.Active}
+	if view.Flushing != nil {
+		memtables = append(memtables, view.Flushing)
 	}
 
-	if !errors.Is(err, lsmkv.NotFound) {
-		panic("unsupported error in bucket.Get")
-	}
-
-	if b.flushing != nil {
-		v, err := b.flushing.getBySecondary(pos, key)
+	for i := range memtables {
+		beforeMemtable := time.Now()
+		v, err := memtables[i].getBySecondary(pos, seckey)
+		if duration := time.Since(beforeMemtable); duration > 100*time.Millisecond {
+			b.logger.WithFields(logrus.Fields{
+				"duration": duration,
+				"action":   fmt.Sprintf("lsm_bucket_getbysecondary_%s_memtable", memtableNames[i]),
+			}).Debug("Waited more than 100ms to retrieve object from memtable")
+		}
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
 			// is replace
 			return v, buffer, nil
 		}
 		if errors.Is(err, lsmkv.Deleted) {
-			// deleted in the now most recent memtable  means we don't have to check
-			// the disk segments, return nil now
-			return nil, buffer, nil
+			// deleted in the mem-table (which is always the latest) means we don't
+			// have to check the disk segments, return nil now
+			return nil, nil, err
 		}
-
 		if !errors.Is(err, lsmkv.NotFound) {
-			panic("unsupported error in bucket.Get")
+			return nil, nil, fmt.Errorf("Bucket::getBySecondary() memtable %q: %w", memtableNames[i], err)
 		}
 	}
 
-	k, v, buffer, err := b.disk.getBySecondaryIntoMemory(pos, key, buffer)
+	k, v, allocBuf, err := b.disk.getBySecondaryWithSegmentList(pos, seckey, buffer, view.Disk)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// additional validation to ensure the primary key has not been marked as deleted
-	pkv, err := b.get(k)
-	if err != nil {
+	if _, err := b.get(k); err != nil {
 		return nil, nil, err
-	} else if pkv == nil {
-		return nil, buffer, nil
 	}
 
-	return v, buffer, nil
+	return v, allocBuf, nil
 }
 
 // SetList returns all Set entries for a given key.
@@ -799,67 +750,22 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 // in this order: active memtable, flushing memtable, and disk
 // segment
 func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
-
 	if !b.keepTombstones {
 		return false, time.Time{}, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
 	}
 
-	_, err := b.active.get(key)
-	if err == nil {
-		return false, time.Time{}, nil
-	}
-	if errors.Is(err, lsmkv.Deleted) {
-		var errDeleted lsmkv.ErrDeleted
-		if errors.As(err, &errDeleted) {
-			return true, errDeleted.DeletionTime(), nil
-		} else {
-			return true, time.Time{}, nil
-		}
-	}
-	if !errors.Is(err, lsmkv.NotFound) {
-		return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
-	}
-
-	// can still check flushing and disk
-
-	if b.flushing != nil {
-		_, err := b.flushing.get(key)
-		if err == nil {
-			return false, time.Time{}, nil
-		}
+	if _, err := b.get(key); err != nil {
 		if errors.Is(err, lsmkv.Deleted) {
 			var errDeleted lsmkv.ErrDeleted
 			if errors.As(err, &errDeleted) {
 				return true, errDeleted.DeletionTime(), nil
-			} else {
-				return true, time.Time{}, nil
 			}
+			return true, time.Time{}, nil
 		}
 		if !errors.Is(err, lsmkv.NotFound) {
 			return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
 		}
-
-		// can still check disk
 	}
-
-	_, err = b.disk.getErrDeleted(key)
-	if err == nil {
-		return false, time.Time{}, nil
-	}
-	if errors.Is(err, lsmkv.Deleted) {
-		var errDeleted lsmkv.ErrDeleted
-		if errors.As(err, &errDeleted) {
-			return true, errDeleted.DeletionTime(), nil
-		} else {
-			return true, time.Time{}, nil
-		}
-	}
-	if !errors.Is(err, lsmkv.NotFound) {
-		return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
-	}
-
 	return false, time.Time{}, nil
 }
 
