@@ -49,9 +49,6 @@ jobs:
             platforms: "linux/arm64"
     env:
       PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
-    outputs:
-      preview-tag: ${{ steps.push.outputs.PREVIEW_TAG }}
-      preview-semver-tag: ${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}
     steps:
       - name: Check build trigger conditions
         id: should-run
@@ -168,13 +165,59 @@ jobs:
         env:
           PR_TITLE: "${{ github.event.pull_request.title }}"
 
-      - name: Generate Report
+      - name: Save outputs to artifact
         if: success() && steps.should-run.outputs.should_run == 'true'
+        run: |
+          mkdir -p /tmp/docker-outputs
+          echo "${{ steps.push.outputs.PREVIEW_TAG }}" > /tmp/docker-outputs/preview-tag.txt
+          echo "${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}" > /tmp/docker-outputs/preview-semver-tag.txt
+
+      - name: Upload outputs
+        if: success() && steps.should-run.outputs.should_run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-outputs-${{ matrix.name }}
+          path: /tmp/docker-outputs/
+          retention-days: 1
+
+  Generate-Docker-Report:
+    name: Generate Docker Report
+    runs-on: ubuntu-latest
+    needs: [ Build-Scan-and-Push ]
+    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && always() && needs.Build-Scan-and-Push.result == 'success' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download all build outputs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: docker-outputs-*
+          path: /tmp/all-outputs/
+
+      - name: Combine all outputs
+        run: |
+          echo "PREVIEW_TAG<<EOF" >> $GITHUB_ENV
+          for file in /tmp/all-outputs/docker-outputs-*/preview-tag.txt; do
+            if [ -f "$file" ]; then
+              cat "$file" >> $GITHUB_ENV
+            fi
+          done
+          echo "EOF" >> $GITHUB_ENV
+
+          echo "PREVIEW_SEMVER_TAG<<EOF" >> $GITHUB_ENV
+          for file in /tmp/all-outputs/docker-outputs-*/preview-semver-tag.txt; do
+            if [ -f "$file" ]; then
+              cat "$file" >> $GITHUB_ENV
+            fi
+          done
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Generate unified Docker report
         env:
-          PREVIEW_TAG: ${{ steps.push.outputs.PREVIEW_TAG }}
-          PREVIEW_SEMVER_TAG: ${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}
-          ARCH: ${{ matrix.arch || 'multi' }}
+          PREVIEW_TAG: ${{ env.PREVIEW_TAG }}
+          PREVIEW_SEMVER_TAG: ${{ env.PREVIEW_SEMVER_TAG }}
         run: ./ci/generate_docker_report.sh
+
   Buf-Checks:
     name: buf checks
     runs-on: ubuntu-latest
