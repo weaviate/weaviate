@@ -632,7 +632,7 @@ func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers
 		// not a typed error, we can recover from, return with err
 		return 0, errors.Wrapf(err, "get vector of docID %d", nodeID)
 	}
-	vec = h.normalizeVec(vec)
+	h.normalizeVecInPlace(vec)
 	return concreteDistancer.DistanceToFloat(vec)
 }
 
