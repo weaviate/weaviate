@@ -220,8 +220,7 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 	var searchErrors []error
 	totalLimit := offset + limit
 
-	db.indexLock.RLock()
-	for _, index := range db.indices {
+	for _, index := range db.Indices() {
 		wg.Add(1)
 		index := index
 		f := func() {
@@ -242,7 +241,6 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 		}
 		enterrors.GoWrapper(f, index.logger)
 	}
-	db.indexLock.RUnlock()
 
 	wg.Wait()
 
@@ -345,10 +343,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 	// painfully slow on large schemas
 	// wrapped in func to unlock mutex within defer
 	if err := func() error {
-		db.indexLock.RLock()
-		defer db.indexLock.RUnlock()
-
-		for _, index := range db.indices {
+		for _, index := range db.Indices() {
 			// TODO support all additional props
 			scheme := index.getSchema.GetSchemaSkipAuth()
 			props := scheme.GetClass(string(index.Config.ClassName)).Properties
@@ -436,15 +431,13 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 func (db *DB) validateSort(sort []filters.Sort) error {
 	if len(sort) > 0 {
 		var errorMsgs []string
-		db.indexLock.RLock()
-		for _, index := range db.indices {
+		for _, index := range db.Indices() {
 			err := filters.ValidateSort(db.schemaGetter.ReadOnlyClass, index.Config.ClassName, sort)
 			if err != nil {
 				errorMsg := errors.Wrapf(err, "search index %s", index.ID()).Error()
 				errorMsgs = append(errorMsgs, errorMsg)
 			}
 		}
-		db.indexLock.RUnlock()
 		if len(errorMsgs) > 0 {
 			return errors.Errorf("%s", strings.Join(errorMsgs, ", "))
 		}

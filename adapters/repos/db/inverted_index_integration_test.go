@@ -136,7 +136,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	}))
 
 	t.Run("check for additional buckets", func(t *testing.T) {
-		for _, idx := range migrator.db.indices {
+		for _, idx := range migrator.db.Indices() {
 			idx.ForEachShard(func(_ string, shd ShardLike) error {
 				createBucket := shd.Store().Bucket("property__creationTimeUnix")
 				assert.NotNil(t, createBucket)
@@ -193,7 +193,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 
 	t.Run("delete class", func(t *testing.T) {
 		require.Nil(t, migrator.DropClass(context.Background(), class.Class, false))
-		for _, idx := range migrator.db.indices {
+		for _, idx := range migrator.db.Indices() {
 			idx.ForEachShard(func(name string, shd ShardLike) error {
 				require.Nil(t, shd.Store().Bucket("property__creationTimeUnix"))
 				require.Nil(t, shd.Store().Bucket("property_name"+filters.InternalNullIndex))
@@ -349,7 +349,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 	})
 
 	t.Run("check buckets exist", func(t *testing.T) {
-		index := repo.indices["testclass"]
+		index := repo.Indices()["testclass"]
 		n := 0
 		index.ForEachShard(func(_ string, shard ShardLike) error {
 			bucketNull := shard.Store().Bucket(helpers.BucketFromPropNameNullLSM("name"))
@@ -637,7 +637,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 	})
 
 	t.Run("check buckets exist", func(t *testing.T) {
-		index := repo.indices["testclass"]
+		index := repo.Indices()["testclass"]
 		n := 0
 		index.ForEachShard(func(_ string, shard ShardLike) error {
 			bucketPropLengthName := shard.Store().Bucket(helpers.BucketFromPropNameLengthLSM("name"))
@@ -1007,7 +1007,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 	})
 
 	t.Run("check buckets exist", func(t *testing.T) {
-		index := repo.indices["testclass"]
+		index := repo.Indices()["testclass"]
 		n := 0
 		index.ForEachShard(func(_ string, shard ShardLike) error {
 			bucketCreated := shard.Store().Bucket("property_" + filters.InternalPropCreationTimeUnix)
