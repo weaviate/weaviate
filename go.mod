@@ -41,6 +41,7 @@ require (
 	github.com/hashicorp/memberlist v0.5.2
 	github.com/hashicorp/raft v1.7.2
 	github.com/hashicorp/raft-boltdb/v2 v2.3.1
+	github.com/hashicorp/serf v0.10.2
 	github.com/ikawaha/kagome-dict-ko v0.2.1
 	github.com/ikawaha/kagome-dict/ipa v1.2.0
 	github.com/ikawaha/kagome/v2 v2.10.0
@@ -145,7 +146,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
-	github.com/google/btree v1.0.1 // indirect
+	github.com/google/btree v1.1.2 // indirect
 	github.com/google/pprof v0.0.0-20240227163752-401108e1b7e7 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.6 // indirect
@@ -155,8 +156,7 @@ require (
 	github.com/hashicorp/go-metrics v0.5.4 // indirect
 	github.com/hashicorp/go-msgpack/v2 v2.1.2 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
-	github.com/hashicorp/go-sockaddr v1.0.0 // indirect
-	github.com/hashicorp/go-uuid v1.0.1 // indirect
+	github.com/hashicorp/go-sockaddr v1.0.5 // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/ikawaha/kagome-dict v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
@@ -179,7 +179,7 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
-	github.com/miekg/dns v1.1.31 // indirect
+	github.com/miekg/dns v1.1.56 // indirect
 	github.com/minio/crc64nvme v1.0.1 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
@@ -231,6 +231,8 @@ require (
 	go.uber.org/mock v0.4.0 // indirect
 	golang.org/x/crypto v0.40.0 // indirect
 	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa // indirect
+	golang.org/x/mod v0.25.0 // indirect
+	golang.org/x/tools v0.34.0 // indirect
 	google.golang.org/genproto v0.0.0-20250303144028-a0af3efb3deb // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250505200425-f936aa4a68b2 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250505200425-f936aa4a68b2 // indirect
