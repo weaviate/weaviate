@@ -42,7 +42,7 @@ type innerCursorMap interface {
 }
 
 func (b *Bucket) MapCursor(cfgs ...MapListOption) (*CursorMap, error) {
-	if b.strategy != StrategyMapCollection {
+	if b.strategy != StrategyMapCollection && b.strategy != StrategyInverted {
 		return nil, fmt.Errorf("cannot create map cursor on bucket with strategy %s", b.strategy)
 	}
 	b.flushLock.RLock()
