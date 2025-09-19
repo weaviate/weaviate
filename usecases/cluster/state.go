@@ -72,9 +72,9 @@ type Config struct {
 	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
 	AdvertiseAddr           string     `json:"advertiseAddr" yaml:"advertiseAddr"`
 	AdvertisePort           int        `json:"advertisePort" yaml:"advertisePort"`
-	// FastFailureDetection mostly for testing purpose, it will make memberlist sensitive and detect
+	// MemberlistFastFailureDetection mostly for testing purpose, it will make memberlist sensitive and detect
 	// failures (down nodes) faster.
-	FastFailureDetection bool `json:"fastFailureDetection" yaml:"fastFailureDetection"`
+	MemberlistFastFailureDetection bool `json:"memberlistFastFailureDetection" yaml:"memberlistFastFailureDetection"`
 	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
 	Localhost bool `json:"localhost" yaml:"localhost"`
 	// MaintenanceNodes is experimental. You should not use this directly, but should use the
@@ -137,7 +137,7 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 		cfg.AdvertisePort = userConfig.AdvertisePort
 	}
 
-	if userConfig.FastFailureDetection {
+	if userConfig.MemberlistFastFailureDetection {
 		cfg.SuspicionMult = 1
 		cfg.DeadNodeReclaimTime = 5 * time.Second
 	}
