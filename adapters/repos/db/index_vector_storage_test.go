@@ -697,6 +697,8 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 		TrackVectorDimensions: true,
 		DisableLazyLoadShards: true, // we have to make sure lazyload shard disabled to load directly
+		MaxReuseWalSize:       4096, // with recovery from .wal
+
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
@@ -785,6 +787,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		ReplicationFactor:     1,
 		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 		TrackVectorDimensions: true,
+		MaxReuseWalSize:       4096,
 		DisableLazyLoadShards: false, // we have to make sure lazyload enabled
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
