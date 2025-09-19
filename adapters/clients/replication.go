@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -321,7 +322,8 @@ func (c *replicationClient) Commit(ctx context.Context, host, index, shard strin
 	if err != nil {
 		return fmt.Errorf("create http request: %w", err)
 	}
-
+	// attach the provided context so upstream cancellations/timeouts are honored
+	req = req.WithContext(ctx)
 	return c.do(c.timeoutUnit*90, req, nil, resp, 9)
 }
 
@@ -332,7 +334,8 @@ func (c *replicationClient) Abort(ctx context.Context, host, index, shard, reque
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-
+	// attach the provided context so upstream cancellations/timeouts are honored
+	req = req.WithContext(ctx)
 	err = c.do(c.timeoutUnit*5, req, nil, &resp, 9)
 	return resp, err
 }
