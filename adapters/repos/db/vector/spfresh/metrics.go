@@ -22,9 +22,9 @@ type Metrics struct {
 	enabled          bool
 	size             prometheus.Gauge
 	insert           prometheus.Gauge
-	insertTime       prometheus.ObserverVec
+	insertTime       prometheus.Observer
 	delete           prometheus.Gauge
-	deleteTime       prometheus.ObserverVec
+	deleteTime       prometheus.Observer
 	postings         prometheus.Gauge
 	splitsPending    prometheus.Gauge
 	split            prometheus.Observer
@@ -57,7 +57,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"operation":  "create",
 	})
 
-	insertTime := prom.VectorIndexDurations.MustCurryWith(prometheus.Labels{
+	insertTime := prom.VectorIndexDurations.With(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
 		"operation":  "create",
@@ -69,7 +69,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"operation":  "delete",
 	})
 
-	deleteTime := prom.VectorIndexDurations.MustCurryWith(prometheus.Labels{
+	deleteTime := prom.VectorIndexDurations.With(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
 		"operation":  "delete",
@@ -138,50 +138,24 @@ func (m *Metrics) SetSize(size int) {
 	m.size.Set(float64(size))
 }
 
-func (m *Metrics) InsertVector() {
-	if !m.enabled {
-		return
-	}
-
-	m.insert.Inc()
-}
-
-func (m *Metrics) TrackInsertObserver(step string) Observer {
-	if !m.enabled {
-		return noOpObserver
-	}
-
-	curried := m.insertTime.With(prometheus.Labels{"step": step})
-
-	return func(start time.Time) {
-		took := float64(time.Since(start)) / float64(time.Millisecond)
-		curried.Observe(took)
-	}
-}
-
-func (m *Metrics) DeleteVector() {
-	if !m.enabled {
-		return
-	}
-
-	m.delete.Inc()
-}
-
-func (m *Metrics) TrackDelete(start time.Time, step string) {
+func (m *Metrics) InsertVector(start time.Time) {
 	if !m.enabled {
 		return
 	}
 
 	took := float64(time.Since(start)) / float64(time.Millisecond)
-	m.deleteTime.With(prometheus.Labels{"step": step}).Observe(took)
+	m.insertTime.Observe(took)
+	m.insert.Inc()
 }
 
-func (m *Metrics) AddPosting() {
+func (m *Metrics) DeleteVector(start time.Time) {
 	if !m.enabled {
 		return
 	}
 
-	m.postings.Inc()
+	took := float64(time.Since(start)) / float64(time.Millisecond)
+	m.deleteTime.Observe(took)
+	m.delete.Inc()
 }
 
 func (m *Metrics) SetPostings(count int) {
@@ -265,10 +239,4 @@ func (m *Metrics) ReassignDuration(start time.Time) {
 
 	took := float64(time.Since(start)) / float64(time.Millisecond)
 	m.reassign.Observe(took)
-}
-
-type Observer func(start time.Time)
-
-func noOpObserver(start time.Time) {
-	// do nothing
 }

@@ -34,7 +34,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
-	candidateNum := max(k, s.Config.InternalPostingCandidates)
+	candidateNum := max(k, s.config.InternalPostingCandidates)
 
 	centroids, err := s.SPTAG.Search(queryVector, candidateNum)
 	if err != nil {
@@ -44,7 +44,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 	q := priorityqueue.NewMax[any](k)
 
 	// compute the max distance to filter out candidates that are too far away
-	maxDist := centroids[0].Distance * s.Config.MaxDistanceRatio
+	maxDist := centroids[0].Distance * s.config.MaxDistanceRatio
 
 	// filter out candidates that are too far away or have no vectors
 	selected = make([]uint64, 0, candidateNum)
@@ -107,7 +107,7 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 
 		// if the posting size is lower than the configured minimum,
 		// enqueue a merge operation
-		if postingSize < int(s.Config.MinPostingSize) {
+		if postingSize < int(s.config.MinPostingSize) {
 			err = s.enqueueMerge(ctx, selected[i])
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selected[i])
@@ -179,7 +179,7 @@ func (s *SPFresh) SearchByVectorDistance(
 	for shouldContinue, err = recursiveSearch(); shouldContinue && err == nil; {
 		searchParams.Iterate()
 		if searchParams.MaxLimitReached() {
-			s.Logger.
+			s.logger.
 				WithField("action", "unlimited_vector_search").
 				Warnf("maximum search limit of %d results has been reached",
 					searchParams.MaximumSearchLimit())

@@ -14,6 +14,7 @@ package spfresh
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -41,10 +42,13 @@ func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float3
 	return nil
 }
 
-func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
+func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+
+	start := time.Now()
+	defer s.metrics.InsertVector(start)
 
 	var compressed []byte
 
@@ -52,11 +56,11 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 	// and compressed size
 	s.initDimensionsOnce.Do(func() {
 		s.dims = int32(len(vector))
-		s.SPTAG.Init(s.dims, s.Config.Distancer)
+		s.SPTAG.Init(s.dims, s.config.Distancer)
 		compressed = s.SPTAG.Quantizer().Encode(vector)
 		s.distancer = &Distancer{
 			quantizer: s.SPTAG.Quantizer(),
-			distancer: s.Config.Distancer,
+			distancer: s.config.Distancer,
 		}
 		s.vectorSize = int32(len(compressed))
 		s.Store.Init(s.vectorSize)
@@ -176,7 +180,7 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroid SearchResu
 	// however during a reassign, we want to split immediately.
 	// Also, reassign operations may cause the posting to grow beyond the max size
 	// temporarily. To avoid triggering unnecessary splits, we add a fine-tuned threshold.
-	max := s.Config.MaxPostingSize
+	max := s.config.MaxPostingSize
 	if reassigned {
 		max += reassignThreshold
 	}
