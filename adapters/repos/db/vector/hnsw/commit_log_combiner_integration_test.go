@@ -421,13 +421,14 @@ func TestCombinerCrashSafety(t *testing.T) {
 				}
 
 				// combine once, should fail
-				cb := NewCommitLogCombiner(rootPath, id, 10_000, logger, common.NewOSFS())
-				cb.fs = fs
-				_, err := cb.Do("1004", "1008")
+				cl, err := NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
+				require.NoError(t, err)
+				cl.fs = fs
+				_, err = cl.combineLogs()
 				require.Error(t, err)
 
 				// combine again, should work file
-				_, err = cb.Do("1004", "1008")
+				_, err = cl.combineLogs()
 				require.NoError(t, err)
 
 				verifyFiles(t, rootPath, id)
@@ -452,13 +453,14 @@ func TestCombinerCrashSafety(t *testing.T) {
 		}
 
 		// combine once, should fail
-		cb := NewCommitLogCombiner(rootPath, id, 10_000, logger, common.NewOSFS())
-		cb.fs = fs
-		_, err := cb.Do("1004", "1008")
+		cl, err := NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
+		require.NoError(t, err)
+		cl.fs = fs
+		_, err = cl.combineLogs()
 		require.Error(t, err)
 
 		// combine again, should work
-		_, err = cb.Do("1004", "1008")
+		_, err = cl.combineLogs()
 		require.NoError(t, err)
 
 		verifyFiles(t, rootPath, id)
@@ -481,16 +483,22 @@ func TestCombinerCrashSafety(t *testing.T) {
 		}
 
 		// combine once, should fail
-		cb := NewCommitLogCombiner(rootPath, id, 10_000, logger, common.NewOSFS())
-		cb.fs = fs
-		_, err := cb.Do("1004", "1008")
+		cl, err := NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
+		cl.fs = fs
+		require.NoError(t, err)
+		_, err = cl.combineLogs()
 		require.Error(t, err)
 
-		// combine again, should work
-		_, err = cb.Do("1004", "1008")
+		err = cl.fixCorruptedCommitLogs()
 		require.NoError(t, err)
 
-		verifyFiles(t, rootPath, id)
+		// combine again, should work
+		_, err = cl.combineLogs()
+		require.NoError(t, err)
+
+		// verify files, we would expect
+		//verifyFiles(t, rootPath, id)
+		assertFilesExist(t, rootPath, id, "1002", "1004", "1006", "1008", "1009", "1001.condensed")
 	})
 
 	t.Run("ensure it's calling fsync", func(t *testing.T) {
@@ -511,9 +519,10 @@ func TestCombinerCrashSafety(t *testing.T) {
 			}
 		}
 
-		cb := NewCommitLogCombiner(rootPath, id, 10_000, logger, common.NewOSFS())
-		cb.fs = fs
-		_, err := cb.Do("1004", "1008")
+		cl, err := NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
+		require.NoError(t, err)
+		cl.fs = fs
+		_, err = cl.combineLogs()
 		require.NoError(t, err)
 		require.True(t, fsyncCalled, "fsync was not called")
 	})

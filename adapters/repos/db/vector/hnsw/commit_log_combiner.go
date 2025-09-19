@@ -215,6 +215,10 @@ func (c *CommitLogCombiner) mergeFiles(outName, first, second string) error {
 			outName)
 	}
 
+	if err := out.Sync(); err != nil {
+		return errors.Wrapf(err, "sync target file %q", outName)
+	}
+
 	err = out.Close()
 	if err != nil {
 		return errors.Wrapf(err, "close target file %q", outName)
