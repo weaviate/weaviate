@@ -195,7 +195,7 @@ jobs:
           retention-days: 1
 
   Generate-Docker-Report:
-    name: generate docker report
+    name: docker report
     runs-on: ubuntu-latest
     # Depends on both production and PR jobs, but only one will run based on the event type
     needs: [Production-Docker-Build, PR-Docker-Build]
