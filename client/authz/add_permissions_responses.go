@@ -94,7 +94,7 @@ func NewAddPermissionsOK() *AddPermissionsOK {
 /*
 AddPermissionsOK describes a response with status code 200, with default header values.
 
-Permissions added successfully
+Permissions added successfully.
 */
 type AddPermissionsOK struct {
 }
@@ -342,7 +342,7 @@ func NewAddPermissionsNotFound() *AddPermissionsNotFound {
 /*
 AddPermissionsNotFound describes a response with status code 404, with default header values.
 
-no role found
+No role found.
 */
 type AddPermissionsNotFound struct {
 }
@@ -398,7 +398,7 @@ func NewAddPermissionsUnprocessableEntity() *AddPermissionsUnprocessableEntity {
 /*
 AddPermissionsUnprocessableEntity describes a response with status code 422, with default header values.
 
-Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+The request syntax is correct, but the server couldn't process it due to semantic issues.
 */
 type AddPermissionsUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -532,7 +532,7 @@ swagger:model AddPermissionsBody
 */
 type AddPermissionsBody struct {
 
-	// permissions to be added to the role
+	// Permissions to be added to the role.
 	// Required: true
 	Permissions []*models.Permission `json:"permissions"`
 }
