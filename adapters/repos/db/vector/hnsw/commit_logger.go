@@ -542,7 +542,6 @@ func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortC
 }
 
 func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-
 	err := l.fixCorruptedCommitLogs()
 	if err != nil {
 		l.logger.WithError(err).
