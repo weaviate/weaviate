@@ -367,17 +367,10 @@ func (s *Shard) initHashtree(ctx context.Context, config asyncReplicationConfig,
 		close(s.minimalHashtreeInitializationCh)
 	}
 
-	err := s.store.PauseCompaction(ctx)
-	if err != nil {
-		releaseInitialization()
-		return fmt.Errorf("pausing compaction: %w", err)
-	}
-	defer s.store.ResumeCompaction(ctx)
-
 	objCount := 0
 	prevProgressLogging := time.Now()
 
-	err = bucket.ApplyToObjectDigests(ctx, releaseInitialization, func(object *storobj.Object) error {
+	err := bucket.ApplyToObjectDigests(ctx, releaseInitialization, func(object *storobj.Object) error {
 		if time.Since(prevProgressLogging) >= config.loggingFrequency {
 			s.index.logger.
 				WithField("action", "async_replication").
