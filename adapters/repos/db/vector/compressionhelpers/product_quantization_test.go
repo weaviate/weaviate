@@ -249,3 +249,35 @@ func Test_PQDistanceError(t *testing.T) {
 	msg := "ProductQuantizer.DistanceBetweenCompressedVectors: inconsistent compressed vectors lengths"
 	assert.EqualError(t, err, msg)
 }
+
+func Test_PQNilEmptyVector(t *testing.T) {
+	dimensions := 128
+	vectors_size := 1000
+	queries_size := 100
+	centroids := 255
+	vectors, _ := testinghelpers.RandomVecs(vectors_size, queries_size, int(dimensions))
+	distanceProvider := distancer.NewDotProductProvider()
+
+	cfg := ent.PQConfig{
+		Enabled: true,
+		Encoder: ent.PQEncoder{
+			Type:         ent.PQEncoderTypeKMeans,
+			Distribution: ent.PQEncoderDistributionLogNormal,
+		},
+		Centroids: centroids,
+		Segments:  dimensions,
+	}
+	pq, _ := compressionhelpers.NewProductQuantizer(
+		cfg,
+		distanceProvider,
+		dimensions,
+		logger,
+	)
+
+	vectors[5] = make([]float32, 0)
+	err := pq.Fit(vectors)
+	assert.EqualError(t, err, "unable to train product quantization: vector at index 5 has length 0, expected 128")
+	vectors[5] = nil
+	err = pq.Fit(vectors)
+	assert.EqualError(t, err, "unable to train product quantization: vector at index 5 is nil")
+}
