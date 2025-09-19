@@ -81,7 +81,7 @@ func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, se
 }
 
 func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) (types.Dimensionality, error) {
-	return calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, calcEntry), nil
+	return calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, calcEntry)
 }
 
 // DimensionMetrics represents the dimension tracking metrics for a vector.

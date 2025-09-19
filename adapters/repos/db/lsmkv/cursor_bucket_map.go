@@ -41,7 +41,10 @@ type innerCursorMap interface {
 	seek([]byte) ([]byte, []MapPair, error)
 }
 
-func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
+func (b *Bucket) MapCursor(cfgs ...MapListOption) (*CursorMap, error) {
+	if b.strategy != StrategyMapCollection {
+		return nil, fmt.Errorf("cannot create map cursor on bucket with strategy %s", b.strategy)
+	}
 	b.flushLock.RLock()
 
 	c := MapListOptionConfig{}
@@ -69,13 +72,16 @@ func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
 		// being at the very top
 		innerCursors: innerCursors,
 		listCfg:      c,
-	}
+	}, nil
 }
 
-func (b *Bucket) MapCursorKeyOnly(cfgs ...MapListOption) *CursorMap {
-	c := b.MapCursor(cfgs...)
+func (b *Bucket) MapCursorKeyOnly(cfgs ...MapListOption) (*CursorMap, error) {
+	c, err := b.MapCursor(cfgs...)
+	if err != nil {
+		return nil, err
+	}
 	c.keyOnly = true
-	return c
+	return c, nil
 }
 
 func (c *CursorMap) Seek(ctx context.Context, key []byte) ([]byte, []MapPair) {
