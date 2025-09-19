@@ -122,6 +122,10 @@ func assembleFSMigrationPlan(entries []os.DirEntry, rootPath string, fm *fileMat
 					"rename pq index dir to avoid collision, old: %q, new: %q, err: %w",
 					oldClassRoot, newClassRoot, err)
 			}
+			if f, err := os.Open(filepath.Dir(newClassRoot)); err == nil {
+				f.Sync()
+				f.Close()
+			}
 		}
 	}
 	return plan, nil
