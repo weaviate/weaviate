@@ -62,7 +62,7 @@ func (s *segment) get(key []byte) ([]byte, error) {
 	return v, nil
 }
 
-func (s *segment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
+func (s *segment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
 	if s.strategy != segmentindex.StrategyReplace {
 		return nil, nil, nil, fmt.Errorf("get only possible for strategy %q", StrategyReplace)
 	}

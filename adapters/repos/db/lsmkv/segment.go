@@ -53,7 +53,7 @@ type Segment interface {
 	close() error
 	dropMarked() error
 	get(key []byte) ([]byte, error)
-	getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
+	getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
 	getCollection(key []byte) ([]value, error)
 	getInvertedData() *segmentInvertedData
 	getSegment() *segment
