@@ -106,6 +106,11 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 			}
 			return nil, validLength, err
 		}
+		if uint8(ct) > 64 {
+			// Sanity check to fail fast on unexpected commit types
+			err = io.ErrUnexpectedEOF
+			return nil, validLength, err
+		}
 		commitTypeMetrics[ct]++
 		var readThisRound int
 		switch ct {
@@ -183,6 +188,11 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 	level, err := readUint16(r)
 	if err != nil {
 		return err
+	}
+
+	// Sanity check on file format
+	if id > 8e9 {
+		return io.ErrUnexpectedEOF
 	}
 
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, id, d.logger)

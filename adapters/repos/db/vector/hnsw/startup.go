@@ -80,6 +80,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 			h.logger.
 				WithError(err).
 				WithField("action", "restore_from_disk").
+				WithField("shard", h.shardName).
 				Error("failed to read last snapshot, loading from commit log")
 
 			state = nil
@@ -87,6 +88,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		} else if state == nil {
 			h.logger.
 				WithField("action", "restore_from_disk").
+				WithField("shard", h.shardName).
 				Info("no snapshot found, loading from commit log")
 		}
 	} else {
