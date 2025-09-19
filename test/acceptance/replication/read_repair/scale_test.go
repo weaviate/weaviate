@@ -37,6 +37,7 @@ func (suite *ReplicationTestSuite) TestReplicationFactorIncrease() {
 	compose, err := docker.New().
 		With3NodeCluster().
 		WithText2VecContextionary().
+		WithWeaviateEnv("RAFT_TIMEOUTS_MULTIPLIER", "10").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
