@@ -14,17 +14,20 @@ package clients
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/text2vec-google/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-google/vectorizer"
 )
 
 type taskType string
@@ -64,6 +67,14 @@ func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID string) strin
 	return fmt.Sprintf(urlTemplate, apiEndoint, projectID, modelID)
 }
 
+type settings struct {
+	ApiEndpoint string
+	ProjectID   string
+	Model       string
+	Dimensions  *int64
+	TaskType    string
+}
+
 type google struct {
 	apiKey        string
 	googleApiKey  *apikey.GoogleApiKey
@@ -86,21 +97,47 @@ func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus
 	}
 }
 
-func (v *google) Vectorize(ctx context.Context, input []string,
-	config ent.VectorizationConfig, titlePropertyValue string,
-) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, v.getDocumentTaskType(config.TaskType), titlePropertyValue, config)
+func (v *google) VectorizeWithTitleProperty(ctx context.Context,
+	input []string, titlePropertyValue string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult[[]float32], error) {
+	settings := v.getSettings(cfg)
+	return v.vectorize(ctx, input, v.getDocumentTaskType(settings.TaskType), titlePropertyValue, settings)
 }
 
-func (v *google) VectorizeQuery(ctx context.Context, input []string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, v.getQueryTaskType(config.TaskType), "", config)
+func (v *google) Vectorize(ctx context.Context,
+	input []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
+	settings := v.getSettings(cfg)
+	res, err := v.vectorize(ctx, input, v.getDocumentTaskType(settings.TaskType), "", settings)
+	return res, nil, 0, err
+}
+
+func (v *google) VectorizeQuery(ctx context.Context,
+	input []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult[[]float32], error) {
+	settings := v.getSettings(cfg)
+	return v.vectorize(ctx, input, v.getQueryTaskType(settings.TaskType), "", settings)
+}
+
+func (v *google) GetVectorizerRateLimit(ctx context.Context, config moduletools.ClassConfig) *modulecomponents.RateLimits {
+	return &modulecomponents.RateLimits{
+		LimitRequests:        100,
+		LimitTokens:          1000000,
+		RemainingRequests:    100,
+		RemainingTokens:      1000000,
+		ResetRequests:        time.Now(),
+		ResetTokens:          time.Now(),
+		AfterRequestFunction: func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {},
+	}
+}
+
+func (v *google) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
+	return sha256.Sum256([]byte("google"))
 }
 
 func (v *google) vectorize(ctx context.Context, input []string, taskType taskType,
-	titlePropertyValue string, config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
+	titlePropertyValue string, config settings,
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	useGenerativeAIEndpoint := v.useGenerativeAIEndpoint(config)
 
 	payload := v.getPayload(useGenerativeAIEndpoint, input, taskType, titlePropertyValue, config)
@@ -146,12 +183,12 @@ func (v *google) vectorize(ctx context.Context, input []string, taskType taskTyp
 	return v.parseEmbeddingsResponse(res.StatusCode, bodyBytes, input)
 }
 
-func (v *google) useGenerativeAIEndpoint(config ent.VectorizationConfig) bool {
+func (v *google) useGenerativeAIEndpoint(config settings) bool {
 	return v.getApiEndpoint(config) == "generativelanguage.googleapis.com"
 }
 
 func (v *google) getPayload(useGenerativeAI bool, input []string,
-	taskType taskType, title string, config ent.VectorizationConfig,
+	taskType taskType, title string, config settings,
 ) any {
 	if useGenerativeAI {
 		if v.isLegacy(config) {
@@ -202,8 +239,8 @@ func (v *google) getApiKey(ctx context.Context, useGenerativeAIEndpoint bool) (s
 }
 
 func (v *google) parseGenerativeAIApiResponse(statusCode int,
-	bodyBytes []byte, input []string, config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
+	bodyBytes []byte, input []string, config settings,
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	var resBody batchEmbedTextResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
@@ -235,7 +272,7 @@ func (v *google) parseGenerativeAIApiResponse(statusCode int,
 
 func (v *google) parseEmbeddingsResponse(statusCode int,
 	bodyBytes []byte, input []string,
-) (*ent.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
@@ -258,28 +295,39 @@ func (v *google) parseEmbeddingsResponse(statusCode int,
 	return v.getResponse(input, dimensions, vectors)
 }
 
-func (v *google) getResponse(input []string, dimensions int, vectors [][]float32) (*ent.VectorizationResult, error) {
-	return &ent.VectorizationResult{
-		Texts:      input,
+func (v *google) getResponse(input []string, dimensions int, vectors [][]float32) (*modulecomponents.VectorizationResult[[]float32], error) {
+	return &modulecomponents.VectorizationResult[[]float32]{
+		Text:       input,
 		Dimensions: dimensions,
-		Vectors:    vectors,
+		Vector:     vectors,
 	}, nil
 }
 
-func (v *google) getApiEndpoint(config ent.VectorizationConfig) string {
+func (v *google) getApiEndpoint(config settings) string {
 	return config.ApiEndpoint
 }
 
-func (v *google) getProjectID(config ent.VectorizationConfig) string {
+func (v *google) getProjectID(config settings) string {
 	return config.ProjectID
 }
 
-func (v *google) getModel(config ent.VectorizationConfig) string {
+func (v *google) getModel(config settings) string {
 	return config.Model
 }
 
-func (v *google) isLegacy(config ent.VectorizationConfig) bool {
+func (v *google) isLegacy(config settings) bool {
 	return isLegacyModel(config.Model)
+}
+
+func (v *google) getSettings(config moduletools.ClassConfig) settings {
+	icheck := vectorizer.NewClassSettings(config)
+	return settings{
+		ApiEndpoint: icheck.ApiEndpoint(),
+		ProjectID:   icheck.ProjectID(),
+		Model:       icheck.Model(),
+		Dimensions:  icheck.Dimensions(),
+		TaskType:    icheck.TaskType(),
+	}
 }
 
 func (v *google) getQueryTaskType(in string) taskType {
