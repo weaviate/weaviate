@@ -32,14 +32,17 @@ func TestStoreBackup(t *testing.T) {
 		{
 			name: "pauseCompaction",
 			f:    pauseCompaction,
+			opts: []BucketOption{WithStrategy(StrategyReplace)},
 		},
 		{
 			name: "resumeCompaction",
 			f:    resumeCompaction,
+			opts: []BucketOption{WithStrategy(StrategyReplace)},
 		},
 		{
 			name: "flushMemtable",
 			f:    flushMemtable,
+			opts: []BucketOption{WithStrategy(StrategyReplace)},
 		},
 	}
 	tests.run(ctx, t)

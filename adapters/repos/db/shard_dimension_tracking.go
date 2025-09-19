@@ -18,6 +18,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -139,7 +141,7 @@ func clearDimensionMetrics(cfg IndexConfig, promMetrics *monitoring.PrometheusMe
 	}
 }
 
-func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
+func GetDimensionCategoryLegacy(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
 	// We have special dimension tracking for BQ and PQ to represent reduced costs
 	// these are published under the separate vector_segments_dimensions metric
 	if hnswUserConfig, ok := cfg.(hnswent.UserConfig); ok {
@@ -157,6 +159,60 @@ func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory
 		}
 	}
 	return DimensionCategoryStandard, 0
+}
+
+func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
+	// We have special dimension tracking for BQ and PQ to represent reduced costs
+	// these are published under the separate vector_segments_dimensions metric
+	switch config := cfg.(type) {
+	case hnswent.UserConfig:
+		return getHNSWCompression(config)
+	case flatent.UserConfig:
+		return getFlatCompression(config)
+	case dynamicent.UserConfig:
+		return getDynamicCompression(config)
+	default:
+		return DimensionCategoryStandard, 0
+	}
+}
+
+// getHNSWCompression extracts compression info from HNSW configuration
+func getHNSWCompression(config hnswent.UserConfig) (DimensionCategory, int) {
+	if config.PQ.Enabled {
+		return DimensionCategoryPQ, config.PQ.Segments
+	}
+	if config.BQ.Enabled {
+		return DimensionCategoryBQ, 0
+	}
+	if config.SQ.Enabled {
+		return DimensionCategorySQ, 0
+	}
+	if config.RQ.Enabled {
+		return DimensionCategoryRQ, 0
+	}
+	return DimensionCategoryStandard, 0
+}
+
+// getFlatCompression extracts compression info from Flat configuration
+func getFlatCompression(config flatent.UserConfig) (DimensionCategory, int) {
+	if config.BQ.Enabled {
+		return DimensionCategoryBQ, 0
+	}
+	// Note: Flat indices only support BQ compression currently
+	return DimensionCategoryStandard, 0
+}
+
+// getDynamicCompression extracts compression info from Dynamic configuration
+// Dynamic indices can switch between HNSW and Flat based on data size.
+// For metrics purposes, we check both configurations and return the first enabled compression.
+func getDynamicCompression(config dynamicent.UserConfig) (DimensionCategory, int) {
+	// Check HNSW configuration first (higher priority for dynamic indices)
+	if category, segments := getHNSWCompression(config.HnswUC); category != DimensionCategoryStandard {
+		return category, segments
+	}
+
+	// Fall back to Flat configuration
+	return getFlatCompression(config.FlatUC)
 }
 
 func correctEmptySegments(segments int, dimensions int) int {

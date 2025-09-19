@@ -101,5 +101,6 @@ func newTestBucket(dataPath string, checkSumEnabled bool) (*lsmkv.Bucket, error)
 			cyclemanager.NewCallbackGroupNoop(),
 			lsmkv.WithSegmentsChecksumValidationEnabled(checkSumEnabled),
 			lsmkv.WithCalcCountNetAdditions(true),
+			lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		)
 }

@@ -56,6 +56,7 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 		compactionCallbacks, flushCallbacks,
 		lsmkv.WithPread(true),
 		lsmkv.WithDynamicMemtableSizing(1, 2, 1, 4),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 	)
 	if err != nil {
 		panic(err)

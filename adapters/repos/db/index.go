@@ -3172,6 +3172,18 @@ func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, 
 	return dimensionality
 }
 
+func (i *Index) tenantDirExists(tenantName string) (bool, error) {
+	tenantPath := shardPath(i.path(), tenantName)
+	if _, err := os.Stat(tenantPath); err != nil {
+		// when inactive tenant is not populated, its directory does not exist yet
+		if !errors.Is(err, os.ErrNotExist) {
+			return false, err
+		}
+		return false, nil
+	}
+	return true, nil
+}
+
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
 func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (usagetypes.ObjectUsage, error) {
 	// Obtain a lock that prevents tenant activation
@@ -3194,6 +3206,12 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 			Count:        count,
 			StorageBytes: size,
 		}, nil
+	}
+
+	if ok, err := i.tenantDirExists(tenantName); err != nil {
+		return usagetypes.ObjectUsage{}, err
+	} else if !ok {
+		return usagetypes.ObjectUsage{Count: 0, StorageBytes: 0}, nil
 	}
 
 	// Parse all .cna files in the object store and sum them up
@@ -3254,6 +3272,12 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName
 		return shard.DimensionsUsage(ctx, targetVector)
 	}
 
+	if ok, err := i.tenantDirExists(tenantName); err != nil {
+		return usagetypes.Dimensionality{}, err
+	} else if !ok {
+		return usagetypes.Dimensionality{Count: 0, Dimensions: 0}, nil
+	}
+
 	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
 		shardPathDimensionsLSM(i.path(), tenantName),
 		i.path(),
@@ -3284,6 +3308,12 @@ func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName 
 	// check if created in the meantime by concurrent call
 	if shard := i.shards.Loaded(tenantName); shard != nil {
 		return shard.VectorStorageSize(ctx)
+	}
+
+	if ok, err := i.tenantDirExists(tenantName); err != nil {
+		return 0, err
+	} else if !ok {
+		return 0, nil
 	}
 
 	totalSize := int64(0)
