@@ -250,10 +250,8 @@ func (m *filterableToSearchableMigrator) isPropToFix(ctx context.Context, prop *
 		if bucketSearchable != nil &&
 			bucketSearchable.Strategy() == lsmkv.StrategyMapCollection {
 
-			if m.isEmptyMapBucket(ctx, bucketSearchable) {
-				return true, nil
-			}
-			return false, fmt.Errorf("searchable bucket is not empty")
+			err := m.isEmptyMapBucket(ctx, bucketSearchable)
+			return err == nil, fmt.Errorf("searchable bucket is not empty: %w", err)
 		} else {
 			return false, fmt.Errorf("searchable bucket should have map strategy")
 		}
@@ -261,12 +259,15 @@ func (m *filterableToSearchableMigrator) isPropToFix(ctx context.Context, prop *
 	return false, nil
 }
 
-func (m *filterableToSearchableMigrator) isEmptyMapBucket(ctx context.Context, bucket *lsmkv.Bucket) bool {
-	cur := bucket.MapCursorKeyOnly()
+func (m *filterableToSearchableMigrator) isEmptyMapBucket(ctx context.Context, bucket *lsmkv.Bucket) error {
+	cur, err := bucket.MapCursorKeyOnly()
+	if err != nil {
+		return err
+	}
 	defer cur.Close()
 
-	key, _ := cur.First(ctx)
-	return key == nil
+	_, _ = cur.First(ctx)
+	return nil
 }
 
 func (m *filterableToSearchableMigrator) pauseStoreActivity(

@@ -364,7 +364,8 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 	t.Run("verify control before compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 
 		for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
@@ -396,7 +397,8 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 	t.Run("verify control after compaction using a cursor", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 
 		for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
@@ -547,7 +549,8 @@ func compactionMapStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 	t.Run("verify control before compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 
 		for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
@@ -571,7 +574,8 @@ func compactionMapStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 	t.Run("verify control before compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.MapCursor()
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
 		defer c.Close()
 
 		for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
