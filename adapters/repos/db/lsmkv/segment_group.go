@@ -600,7 +600,7 @@ func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffe
 	// the latest takes presence
 	for i := len(segments) - 1; i >= 0; i-- {
 		beforeSegment := time.Now()
-		k, v, allocBuf, err := segments[i].getBySecondaryIntoMemory(pos, key, buffer)
+		k, v, allocBuf, err := segments[i].getBySecondary(pos, key, buffer)
 		if duration := time.Since(beforeSegment); duration > 100*time.Millisecond {
 			sg.logger.WithError(err).
 				WithFields(logrus.Fields{

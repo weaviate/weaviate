@@ -179,9 +179,9 @@ func (s *lazySegment) get(key []byte) ([]byte, error) {
 	return s.segment.get(key)
 }
 
-func (s *lazySegment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
+func (s *lazySegment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
 	s.mustLoad()
-	return s.segment.getBySecondaryIntoMemory(pos, key, buffer)
+	return s.segment.getBySecondary(pos, key, buffer)
 }
 
 func (s *lazySegment) getCollection(key []byte) ([]value, error) {

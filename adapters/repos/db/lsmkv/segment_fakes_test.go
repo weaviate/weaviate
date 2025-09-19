@@ -151,7 +151,7 @@ func (f *fakeSegment) get(key []byte) ([]byte, error) {
 	return nil, lsmkv.NotFound
 }
 
-func (f *fakeSegment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
+func (f *fakeSegment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
 	panic("not implemented") // TODO: Implement
 }
 

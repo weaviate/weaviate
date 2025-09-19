@@ -213,7 +213,7 @@ func bucketReadsIntoMemory(ctx context.Context, t *testing.T, opts []BucketOptio
 	valuePrimary, err := b2.Get([]byte("hello"))
 	require.Nil(t, err)
 	valueSecondary := make([]byte, 5)
-	valueSecondary, _, err = b2.GetBySecondaryIntoMemory(0, []byte("bonjour"), valueSecondary)
+	valueSecondary, _, err = b2.GetBySecondaryWithBuffer(0, []byte("bonjour"), valueSecondary)
 	require.Nil(t, err)
 
 	assert.Equal(t, []byte("world"), valuePrimary)

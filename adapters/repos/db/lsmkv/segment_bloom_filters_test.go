@@ -230,7 +230,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	defer b2.Shutdown(ctx)
 
 	value := make([]byte, 5)
-	value, _, err = b2.GetBySecondaryIntoMemory(0, []byte("bonjour"), value)
+	value, _, err = b2.GetBySecondaryWithBuffer(0, []byte("bonjour"), value)
 	assert.Nil(t, err)
 	assert.Equal(t, []byte("world"), value)
 
@@ -241,7 +241,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Nil(t, v)
 
-	value, _, err = b2.GetBySecondaryIntoMemory(0, []byte("bonjour"), value)
+	value, _, err = b2.GetBySecondaryWithBuffer(0, []byte("bonjour"), value)
 	assert.Nil(t, err)
 	assert.Nil(t, value)
 }

@@ -525,41 +525,28 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 // equivalent exists for Set and Map, as those do not support secondary
 // indexes.
 func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
-	bytes, _, err := b.GetBySecondaryIntoMemory(pos, key, nil)
+	bytes, _, err := b.GetBySecondaryWithBuffer(pos, key, nil)
 	return bytes, err
 }
 
-// TODO aliszka:copy-on-read get rid one of [GetBySecondaryWithBuffer, GetBySecondaryIntoMemory]
 // GetBySecondaryWithBuffer is like [Bucket.GetBySecondary], but also takes a
 // buffer. It's in the response of the caller to pool the buffer, since the
 // bucket does not know when the caller is done using it. The return bytes will
 // likely point to the same memory that's part of the buffer. However, if the
 // buffer is to small, a larger buffer may also be returned (second arg).
-func (b *Bucket) GetBySecondaryWithBuffer(pos int, key []byte, buf []byte) ([]byte, []byte, error) {
-	return b.GetBySecondaryIntoMemory(pos, key, buf)
-}
-
-// GetBySecondaryIntoMemory copies into the specified memory, and retrieves
-// an object using one of its secondary keys. A bucket
-// can have an infinite number of secondary keys. Specify the secondary key
-// position as the first argument.
 //
-// A real-life example of secondary keys is the Weaviate object store. Objects
-// are stored with the user-facing ID as their primary key and with the doc-id
-// (an ever-increasing uint64) as the secondary key.
-//
-// Similar to [Bucket.Get], GetBySecondary is limited to ReplaceStrategy. No
+// Similar to [Bucket.Get], GetBySecondaryWithBuffer is limited to ReplaceStrategy. No
 // equivalent exists for Set and Map, as those do not support secondary
 // indexes.
-func (b *Bucket) GetBySecondaryIntoMemory(pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
-	v, allocBuf, err := b.getBySecondaryIntoMemory(pos, seckey, buffer)
+func (b *Bucket) GetBySecondaryWithBuffer(pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
+	v, allocBuf, err := b.getBySecondary(pos, seckey, buffer)
 	if err != nil && (errors.Is(err, lsmkv.Deleted) || errors.Is(err, lsmkv.NotFound)) {
 		return nil, buffer, nil
 	}
 	return v, allocBuf, err
 }
 
-func (b *Bucket) getBySecondaryIntoMemory(pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
+func (b *Bucket) getBySecondary(pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
 	if pos >= int(b.secondaryIndices) {
 		return nil, nil, fmt.Errorf("no secondary index at pos %d", pos)
 	}
