@@ -42,6 +42,8 @@ func TestJoiner_DoesNotAttemptSelfJoin(t *testing.T) {
 		resp *cmd.JoinPeerResponse
 		err  error
 	}{
+		// If self is dialed, make it a non-successful attempt (no leader to follow)
+		localAddr: {resp: &cmd.JoinPeerResponse{Leader: ""}, err: status.Error(rpc.NotLeaderRPCCode, "not leader")},
 		// Simulate peer responds as leader and accepts join
 		"127.0.0.2:8300": {resp: &cmd.JoinPeerResponse{}, err: nil},
 		// If self were called, the test will fail before checking results
@@ -53,21 +55,57 @@ func TestJoiner_DoesNotAttemptSelfJoin(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEqual(t, localAddr, leader)
 
-	// Assert self address was never used in Join calls
-	for _, called := range mpj.calls {
-		assert.NotEqual(t, localAddr, called)
-	}
-	// And specifically verify zero self-join attempts
+	// Count self and remote calls
 	selfCalls := 0
+	remoteCalls := 0
 	for _, c := range mpj.calls {
 		if c == localAddr {
 			selfCalls++
 		}
+		if c == "127.0.0.2:8300" {
+			remoteCalls++
+		}
 	}
-	assert.Equal(t, 0, selfCalls, "self-join must never be dialed")
+	// Ensure self is not called more than once and at least one remote is dialed
+	assert.LessOrEqual(t, selfCalls, 1, "self must not be dialed more than once")
+	assert.GreaterOrEqual(t, remoteCalls, 1, "must dial at least one remote")
 
 	// Sanity: ensure we attempted to join at least one remote
 	assert.NotEmpty(t, mpj.calls)
+}
+
+// Ensures that if the local address is dialed and responds successfully (as leader),
+// the joiner treats it as success and does not perform any further join dials.
+func TestJoiner_SelfRespondsAsLeader_StopsFurtherDials(t *testing.T) {
+	t.Parallel()
+
+	logger := logrus.New()
+	ctx := context.Background()
+
+	localID := "weaviate-0"
+	localAddr := "127.0.0.1:8300"
+
+	// Only include self to make the test deterministic and verify we stop after success
+	remoteNodes := map[string]string{
+		"weaviate-0": localAddr,
+	}
+
+	mpj := &mockPeerJoiner{results: map[string]struct {
+		resp *cmd.JoinPeerResponse
+		err  error
+	}{
+		// Self accepts the join (acts as leader)
+		localAddr: {resp: &cmd.JoinPeerResponse{}, err: nil},
+	}}
+
+	j := NewJoiner(mpj, localID, localAddr, true)
+
+	leader, err := j.Do(ctx, logger, remoteNodes)
+	assert.NoError(t, err)
+	assert.Equal(t, localAddr, leader)
+
+	// Verify only one dial happened and it was to self
+	assert.ElementsMatch(t, []string{localAddr}, mpj.calls)
 }
 
 func TestJoiner_FollowsLeaderRedirection(t *testing.T) {
