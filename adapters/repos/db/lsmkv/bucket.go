@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -215,6 +216,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		calcCountNetAdditions:        false,
 		haltedFlushTimer:             interval.NewBackoffTimer(),
 		writeSegmentInfoIntoFileName: false,
+		minWalThreshold:              config.DefaultPersistenceMaxReuseWalSize,
 	}
 
 	for _, opt := range opts {
