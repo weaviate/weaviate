@@ -853,7 +853,12 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 				slices.Sort(aliveHosts)
 
 				if !slices.Equal(comparedHosts, aliveHosts) {
-					propagationRequired <- struct{}{}
+					select {
+					case <-ctx.Done():
+						return
+					case propagationRequired <- struct{}{}:
+					}
+
 					s.setLastComparedNodes(aliveHosts)
 				}
 			case <-ft.C:
@@ -864,7 +869,11 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 				lastHashbeatMux.Unlock()
 
 				if shouldHashbeat {
-					propagationRequired <- struct{}{}
+					select {
+					case <-ctx.Done():
+						return
+					case propagationRequired <- struct{}{}:
+					}
 				}
 			}
 		}
