@@ -13,7 +13,9 @@ package batch
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"sync"
 	"time"
@@ -28,14 +30,14 @@ type QueuesHandler struct {
 	logger           logrus.FieldLogger
 	writeQueues      *WriteQueues
 	readQueues       *ReadQueues
+	recvWg           *sync.WaitGroup
 	sendWg           *sync.WaitGroup
-	streamWg         *sync.WaitGroup
 	shutdownFinished chan struct{}
 }
 
 const POLLING_INTERVAL = 100 * time.Millisecond
 
-func NewQueuesHandler(shuttingDownCtx context.Context, sendWg, streamWg *sync.WaitGroup, shutdownFinished chan struct{}, writeQueues *WriteQueues, readQueues *ReadQueues, logger logrus.FieldLogger) *QueuesHandler {
+func NewQueuesHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.WaitGroup, shutdownFinished chan struct{}, writeQueues *WriteQueues, readQueues *ReadQueues, logger logrus.FieldLogger) *QueuesHandler {
 	// Poll until the batch logic starts shutting down
 	// Then wait for all BatchSend requests to finish and close all the write queues
 	// Scheduler will then drain the write queues expecting the channels to be closed
@@ -47,7 +49,7 @@ func NewQueuesHandler(shuttingDownCtx context.Context, sendWg, streamWg *sync.Wa
 			select {
 			case <-shuttingDownCtx.Done():
 				logger.Info("shutting down batch queues handler, waiting for in-flight requests to finish")
-				sendWg.Wait()
+				recvWg.Wait()
 				logger.Info("all in-flight requests finished, closing write queues")
 				writeQueues.Close()
 				logger.Info("write queues closed, exiting handlers shutdown listener")
@@ -61,8 +63,8 @@ func NewQueuesHandler(shuttingDownCtx context.Context, sendWg, streamWg *sync.Wa
 		logger:           logger,
 		writeQueues:      writeQueues,
 		readQueues:       readQueues,
+		recvWg:           recvWg,
 		sendWg:           sendWg,
-		streamWg:         streamWg,
 		shutdownFinished: shutdownFinished,
 	}
 }
@@ -79,12 +81,9 @@ func (h *QueuesHandler) wait(ctx context.Context) error {
 	}
 }
 
-func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
-	h.streamWg.Add(1)
-	defer h.streamWg.Done()
-	if err := stream.Send(newBatchStartMessage(streamId)); err != nil {
-		return err
-	}
+func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
+	h.sendWg.Add(1)
+	defer h.sendWg.Done()
 	// shuttingDown acts as a soft cancel here so we can send the shutting down message to the client.
 	// Once the workers are drained then h.shutdownFinished will be closed and we will shutdown completely
 	shuttingDown := h.shuttingDownCtx.Done()
@@ -92,29 +91,29 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 		if readQueue, ok := h.readQueues.Get(streamId); ok {
 			select {
 			case <-ctx.Done():
-				if innerErr := stream.Send(newBatchStopMessage(streamId)); innerErr != nil {
+				if innerErr := stream.Send(newBatchStopMessage()); innerErr != nil {
 					return innerErr
 				}
 				return ctx.Err()
 			case <-shuttingDown:
-				if innerErr := stream.Send(newBatchShuttingDownMessage(streamId)); innerErr != nil {
+				if innerErr := stream.Send(newBatchShuttingDownMessage()); innerErr != nil {
 					return innerErr
 				}
 				shuttingDown = nil
 			case <-h.shutdownFinished:
-				if innerErr := stream.Send(newBatchShutdownMessage(streamId)); innerErr != nil {
+				if innerErr := stream.Send(newBatchShutdownMessage()); innerErr != nil {
 					return innerErr
 				}
 				return h.wait(ctx)
 			case readObj, ok := <-readQueue:
 				if !ok {
-					if innerErr := stream.Send(newBatchStopMessage(streamId)); innerErr != nil {
+					if innerErr := stream.Send(newBatchStopMessage()); innerErr != nil {
 						return innerErr
 					}
 					return h.wait(ctx)
 				}
 				for _, err := range readObj.Errors {
-					if innerErr := stream.Send(newBatchErrorMessage(streamId, err)); innerErr != nil {
+					if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
 						return innerErr
 					}
 				}
@@ -128,42 +127,68 @@ func (h *QueuesHandler) Stream(ctx context.Context, streamId string, stream pb.W
 }
 
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
-func (h *QueuesHandler) Send(ctx context.Context, request *pb.BatchSendRequest) (*pb.BatchSendReply, error) {
-	h.sendWg.Add(1)
-	defer h.sendWg.Done()
-	if h.shuttingDownCtx.Err() != nil {
-		return nil, fmt.Errorf("grpc shutdown in progress, no more requests are permitted on this node")
-	}
-	streamId := request.GetStreamId()
-	queue, ok := h.writeQueues.GetQueue(streamId)
-	if !ok {
-		h.logger.WithField("streamId", streamId).Error("write queue not found")
-		return nil, fmt.Errorf("write queue for stream %s not found", streamId)
-	}
-	if request.GetObjects() != nil {
-		for _, obj := range request.GetObjects().GetValues() {
-			queue <- &writeObject{Object: obj}
+func (h *QueuesHandler) StreamRecv(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
+	h.recvWg.Add(1)
+	defer h.recvWg.Done()
+	stopping := false
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
-	} else if request.GetReferences() != nil {
-		for _, ref := range request.GetReferences().GetValues() {
-			queue <- &writeObject{Reference: ref}
+		request, err := stream.Recv()
+		if h.shuttingDownCtx.Err() != nil {
+			// ignore any further requests as we are shutting down
+			// if users send data while we are shutting down, they will lose these writes
+			<-h.shutdownFinished
+			return nil
 		}
-	} else if request.GetStop() != nil {
-		queue <- &writeObject{Stop: true}
-	} else {
-		return nil, fmt.Errorf("invalid batch send request: neither objects, references nor stop signal provided")
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		objs := make([]*writeObject, 0, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues())+1)
+		if request.GetObjects() != nil {
+			for _, obj := range request.GetObjects().GetValues() {
+				objs = append(objs, &writeObject{Object: obj})
+			}
+		} else if request.GetReferences() != nil {
+			for _, ref := range request.GetReferences().GetValues() {
+				objs = append(objs, &writeObject{Reference: ref})
+			}
+		} else if request.GetStop() != nil {
+			objs = append(objs, &writeObject{Stop: true})
+			stopping = true
+		} else {
+			return fmt.Errorf("invalid batch send request: neither objects, references nor stop signal provided")
+		}
+		if !h.writeQueues.Exists(streamId) {
+			h.logger.WithField("streamId", streamId).Error("write queue not found")
+			return fmt.Errorf("write queue for stream %s not found", streamId)
+		}
+		if len(objs) > 0 {
+			h.writeQueues.Write(streamId, objs)
+		}
+		if stopping {
+			continue
+		}
+		batchSize, backoffSeconds := h.writeQueues.NextBatch(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues()))
+		stream.Send(&pb.BatchStreamReply{
+			Message: &pb.BatchStreamReply_Backoff_{
+				Backoff: &pb.BatchStreamReply_Backoff{
+					NextBatchSize:  batchSize,
+					BackoffSeconds: backoffSeconds,
+				},
+			},
+		})
 	}
-	batchSize, backoff := h.writeQueues.NextBatch(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues()))
-	return &pb.BatchSendReply{
-		NextBatchSize:  batchSize,
-		BackoffSeconds: backoff,
-	}, nil
 }
 
-// Setup initializes a read queue for the given stream ID and adds it to the read queues map.
-func (h *QueuesHandler) Setup(streamId string, req *pb.BatchStreamRequest) {
+// Setup initializes a read and write queues for the given stream ID and adds it to the read queues map.
+func (h *QueuesHandler) Setup(streamId string, req *pb.BatchStreamRequest_Start) {
 	h.readQueues.Make(streamId)
-	h.writeQueues.Make(streamId, req.ConsistencyLevel, req.GetObjectIndex(), req.GetReferenceIndex())
+	h.writeQueues.Make(streamId, req.ConsistencyLevel)
 }
 
 // Teardown closes the read queue for the given stream ID and removes it from the read queues map.
@@ -181,53 +206,40 @@ func (h *QueuesHandler) Teardown(streamId string) {
 	h.logger.WithField("streamId", streamId).Info("teardown completed")
 }
 
-func newBatchStartMessage(streamId string) *pb.BatchStreamMessage {
-	return &pb.BatchStreamMessage{
-		StreamId: streamId,
-		Message: &pb.BatchStreamMessage_Start_{
-			Start: &pb.BatchStreamMessage_Start{},
-		},
-	}
-}
-
-func newBatchErrorMessage(streamId string, err *pb.BatchStreamMessage_Error) *pb.BatchStreamMessage {
-	return &pb.BatchStreamMessage{
-		StreamId: streamId,
-		Message: &pb.BatchStreamMessage_Error_{
+func newBatchErrorMessage(err *pb.BatchStreamReply_Error) *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_Error_{
 			Error: err,
 		},
 	}
 }
 
-func newBatchStopMessage(streamId string) *pb.BatchStreamMessage {
-	return &pb.BatchStreamMessage{
-		StreamId: streamId,
-		Message: &pb.BatchStreamMessage_Stop_{
-			Stop: &pb.BatchStreamMessage_Stop{},
+func newBatchStopMessage() *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_Stop_{
+			Stop: &pb.BatchStreamReply_Stop{},
 		},
 	}
 }
 
-func newBatchShutdownMessage(streamId string) *pb.BatchStreamMessage {
-	return &pb.BatchStreamMessage{
-		StreamId: streamId,
-		Message: &pb.BatchStreamMessage_Shutdown_{
-			Shutdown: &pb.BatchStreamMessage_Shutdown{},
+func newBatchShutdownMessage() *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_Shutdown_{
+			Shutdown: &pb.BatchStreamReply_Shutdown{},
 		},
 	}
 }
 
-func newBatchShuttingDownMessage(streamId string) *pb.BatchStreamMessage {
-	return &pb.BatchStreamMessage{
-		StreamId: streamId,
-		Message: &pb.BatchStreamMessage_ShuttingDown_{
-			ShuttingDown: &pb.BatchStreamMessage_ShuttingDown{},
+func newBatchShuttingDownMessage() *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_ShuttingDown_{
+			ShuttingDown: &pb.BatchStreamReply_ShuttingDown{},
 		},
 	}
 }
 
 type readObject struct {
-	Errors []*pb.BatchStreamMessage_Error
+	Errors []*pb.BatchStreamReply_Error
 }
 
 type writeObject struct {
@@ -237,9 +249,10 @@ type writeObject struct {
 }
 
 type (
-	internalQueue chan *ProcessRequest
-	writeQueue    chan *writeObject
-	readQueue     chan *readObject
+	processingQueue chan *processRequest
+	reportingQueue  chan *workerStats
+	writeQueue      chan *writeObject
+	readQueue       chan *readObject
 )
 
 // NewBatchWriteQueue creates a buffered channel to store objects for batch writing.
@@ -247,12 +260,16 @@ type (
 // The buffer size can be adjusted based on expected load and performance requirements
 // to optimize throughput and resource usage. But is required so that there is a small buffer
 // that can be quickly flushed in the event of a shutdown.
-func NewBatchInternalQueue() internalQueue {
-	return make(internalQueue, 10)
+func NewBatchProcessingQueue(bufferSize int) processingQueue {
+	return make(processingQueue, bufferSize)
 }
 
-func NewBatchWriteQueue(buffer int) writeQueue {
-	return make(writeQueue, buffer) // Adjust buffer size as needed
+func NewBatchReportingQueue(bufferSize int) reportingQueue {
+	return make(reportingQueue, bufferSize)
+}
+
+func NewBatchWriteQueue(bufferSize int) writeQueue {
+	return make(writeQueue, bufferSize)
 }
 
 func NewBatchWriteQueues() *WriteQueues {
@@ -278,7 +295,7 @@ func NewStopWriteObject() *writeObject {
 	}
 }
 
-func NewErrorsObject(errs []*pb.BatchStreamMessage_Error) *readObject {
+func NewErrorsObject(errs []*pb.BatchStreamReply_Error) *readObject {
 	return &readObject{
 		Errors: errs,
 	}
@@ -332,10 +349,6 @@ type WriteQueue struct {
 	queue            writeQueue
 	consistencyLevel *pb.ConsistencyLevel
 
-	// Indexes for the next object and reference to be sent
-	objIndex int32
-	refIndex int32
-
 	lock        sync.RWMutex // Used when concurrently re-calculating NextBatchSize in Send method
 	emaQueueLen float32      // Exponential moving average of the queue length
 	buffer      int          // Buffer size for the write queue
@@ -368,8 +381,8 @@ func (w *WriteQueue) NextBatch(batchSize int) (int32, float32) {
 	usageRatio := w.emaQueueLen / float32(w.buffer)
 
 	// threshold linear batch size scaling
-	if usageRatio < 0.6 {
-		// If usage is lower than 60% threshold, increase by an order of magnitude and cap at 40% of the buffer size
+	if usageRatio < 0.5 {
+		// If usage is lower than 50% threshold, increase by an order of magnitude and cap at 40% of the buffer size
 		return int32(min(maxSize, batchSize*10)), w.thresholdCubicBackoff(usageRatio)
 	}
 	scaledSize := int32(float64(maxSize) * (1 - float64(usageRatio)))
@@ -420,6 +433,25 @@ func (w *WriteQueues) GetQueue(streamId string) (writeQueue, bool) {
 	return queue.queue, true
 }
 
+func (w *WriteQueues) Exists(streamId string) bool {
+	w.lock.RLock()
+	defer w.lock.RUnlock()
+	_, ok := w.queues[streamId]
+	return ok
+}
+
+func (w *WriteQueues) Write(streamId string, objs []*writeObject) {
+	w.lock.RLock()
+	defer w.lock.RUnlock()
+	queue, ok := w.queues[streamId]
+	if !ok {
+		return
+	}
+	for _, obj := range objs {
+		queue.queue <- obj
+	}
+}
+
 func (w *WriteQueues) Delete(streamId string) {
 	w.lock.Lock()
 	defer w.lock.Unlock()
@@ -441,7 +473,7 @@ func (w *WriteQueues) Close() {
 	}
 }
 
-func (w *WriteQueues) Make(streamId string, consistencyLevel *pb.ConsistencyLevel, objIndex, refIndex int32) {
+func (w *WriteQueues) Make(streamId string, consistencyLevel *pb.ConsistencyLevel) {
 	w.lock.Lock()
 	defer w.lock.Unlock()
 	buffer := 10000 // Default buffer size

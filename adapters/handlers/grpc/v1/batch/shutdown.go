@@ -21,8 +21,8 @@ import (
 type Shutdown struct {
 	HandlersCtx      context.Context
 	HandlersCancel   context.CancelFunc
+	RecvWg           *sync.WaitGroup
 	SendWg           *sync.WaitGroup
-	StreamWg         *sync.WaitGroup
 	SchedulerCtx     context.Context
 	SchedulerCancel  context.CancelFunc
 	SchedulerWg      *sync.WaitGroup
@@ -33,8 +33,8 @@ type Shutdown struct {
 }
 
 func NewShutdown(ctx context.Context) *Shutdown {
+	var recvWg sync.WaitGroup
 	var sendWg sync.WaitGroup
-	var streamWg sync.WaitGroup
 	var schedulerWg sync.WaitGroup
 	var workersWg sync.WaitGroup
 
@@ -46,8 +46,8 @@ func NewShutdown(ctx context.Context) *Shutdown {
 	return &Shutdown{
 		HandlersCtx:      hCtx,
 		HandlersCancel:   hCancel,
+		RecvWg:           &recvWg,
 		SendWg:           &sendWg,
-		StreamWg:         &streamWg,
 		SchedulerCtx:     sCtx,
 		SchedulerCancel:  sCancel,
 		SchedulerWg:      &schedulerWg,
@@ -86,7 +86,7 @@ func (s *Shutdown) Drain(logger logrus.FieldLogger) {
 	logger.Info("shutting down grpc batch handlers")
 	// wait for all send requests to finish
 	logger.Info("draining in-flight BatchSend methods")
-	s.SendWg.Wait()
+	s.RecvWg.Wait()
 	// stop the scheduler
 	s.SchedulerCancel()
 	logger.Info("shutting down grpc batch scheduler")
@@ -102,5 +102,5 @@ func (s *Shutdown) Drain(logger logrus.FieldLogger) {
 	close(s.ShutdownFinished)
 	logger.Info("waiting for all streams to exit")
 	// wait for all streams to exit, i.e. be hungup by their clients
-	s.StreamWg.Wait()
+	s.SendWg.Wait()
 }

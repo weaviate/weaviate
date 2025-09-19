@@ -36,52 +36,55 @@ func TestShutdownLogic(t *testing.T) {
 	readQueues := batch.NewBatchReadQueues()
 	readQueues.Make(StreamId)
 	writeQueues := batch.NewBatchWriteQueues()
-	writeQueues.Make(StreamId, nil, 0, 0)
+	writeQueues.Make(StreamId, nil)
 	wq, ok := writeQueues.GetQueue(StreamId)
 	require.Equal(t, true, ok, "write queue should exist")
-	internalQueue := batch.NewBatchInternalQueue()
+	processingQueue := batch.NewBatchProcessingQueue(1)
+	reportingQueue := batch.NewBatchReportingQueue(1)
 
 	howManyObjs := 5000
-	// 5000 objs will be sent five times in batches of 1000
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(context.Context, *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 		time.Sleep(1 * time.Second)
+		errors := make([]*pb.BatchObjectsReply_BatchError, 0, 100)
+		for i := 0; i < 100; i++ {
+			errors = append(errors, &pb.BatchObjectsReply_BatchError{
+				Error: "some error",
+				Index: int32(i),
+			})
+		}
 		return &pb.BatchObjectsReply{
 			Took:   float32(1),
-			Errors: nil,
+			Errors: errors,
 		}, nil
-	}).Times(5)
+	}).Maybe()
 
 	for i := 0; i < howManyObjs; i++ {
 		wq <- batch.NewWriteObject(&pb.BatchObject{})
 	}
 
-	stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
-	stream.EXPECT().Send(&pb.BatchStreamMessage{
-		StreamId: StreamId,
-		Message: &pb.BatchStreamMessage_Start_{
-			Start: &pb.BatchStreamMessage_Start{},
+	stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
+	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetError().GetError() == "some error" &&
+			msg.GetError().GetObject() != nil
+	})).Return(nil).Maybe()
+	stream.EXPECT().Send(&pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_ShuttingDown_{
+			ShuttingDown: &pb.BatchStreamReply_ShuttingDown{},
 		},
 	}).Return(nil).Once()
-	stream.EXPECT().Send(&pb.BatchStreamMessage{
-		StreamId: StreamId,
-		Message: &pb.BatchStreamMessage_ShuttingDown_{
-			ShuttingDown: &pb.BatchStreamMessage_ShuttingDown{},
-		},
-	}).Return(nil).Once()
-	stream.EXPECT().Send(&pb.BatchStreamMessage{
-		StreamId: StreamId,
-		Message: &pb.BatchStreamMessage_Shutdown_{
-			Shutdown: &pb.BatchStreamMessage_Shutdown{},
+	stream.EXPECT().Send(&pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_Shutdown_{
+			Shutdown: &pb.BatchStreamReply_Shutdown{},
 		},
 	}).Return(nil).Once()
 
 	shutdown := batch.NewShutdown(ctx)
-	handler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.SendWg, shutdown.StreamWg, shutdown.ShutdownFinished, writeQueues, readQueues, logger)
-	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, writeQueues, internalQueue, logger)
-	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, 1, internalQueue, readQueues, mockBatcher, logger)
+	handler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, shutdown.ShutdownFinished, writeQueues, readQueues, logger)
+	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, writeQueues, processingQueue, reportingQueue, logger)
+	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, 1, processingQueue, reportingQueue, readQueues, mockBatcher, logger)
 
 	go func() {
-		err := handler.Stream(ctx, StreamId, stream)
+		err := handler.StreamSend(ctx, StreamId, stream)
 		require.NoError(t, err, "Expected no error when streaming")
 	}()
 	shutdown.Drain(logger)

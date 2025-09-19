@@ -22,7 +22,6 @@ const (
 	Weaviate_BatchDelete_FullMethodName     = "/weaviate.v1.Weaviate/BatchDelete"
 	Weaviate_TenantsGet_FullMethodName      = "/weaviate.v1.Weaviate/TenantsGet"
 	Weaviate_Aggregate_FullMethodName       = "/weaviate.v1.Weaviate/Aggregate"
-	Weaviate_BatchSend_FullMethodName       = "/weaviate.v1.Weaviate/BatchSend"
 	Weaviate_BatchStream_FullMethodName     = "/weaviate.v1.Weaviate/BatchStream"
 )
 
@@ -36,8 +35,7 @@ type WeaviateClient interface {
 	BatchDelete(ctx context.Context, in *BatchDeleteRequest, opts ...grpc.CallOption) (*BatchDeleteReply, error)
 	TenantsGet(ctx context.Context, in *TenantsGetRequest, opts ...grpc.CallOption) (*TenantsGetReply, error)
 	Aggregate(ctx context.Context, in *AggregateRequest, opts ...grpc.CallOption) (*AggregateReply, error)
-	BatchSend(ctx context.Context, in *BatchSendRequest, opts ...grpc.CallOption) (*BatchSendReply, error)
-	BatchStream(ctx context.Context, in *BatchStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[BatchStreamMessage], error)
+	BatchStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BatchStreamRequest, BatchStreamReply], error)
 }
 
 type weaviateClient struct {
@@ -108,34 +106,18 @@ func (c *weaviateClient) Aggregate(ctx context.Context, in *AggregateRequest, op
 	return out, nil
 }
 
-func (c *weaviateClient) BatchSend(ctx context.Context, in *BatchSendRequest, opts ...grpc.CallOption) (*BatchSendReply, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(BatchSendReply)
-	err := c.cc.Invoke(ctx, Weaviate_BatchSend_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *weaviateClient) BatchStream(ctx context.Context, in *BatchStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[BatchStreamMessage], error) {
+func (c *weaviateClient) BatchStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BatchStreamRequest, BatchStreamReply], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &Weaviate_ServiceDesc.Streams[0], Weaviate_BatchStream_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[BatchStreamRequest, BatchStreamMessage]{ClientStream: stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
+	x := &grpc.GenericClientStream[BatchStreamRequest, BatchStreamReply]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Weaviate_BatchStreamClient = grpc.ServerStreamingClient[BatchStreamMessage]
+type Weaviate_BatchStreamClient = grpc.BidiStreamingClient[BatchStreamRequest, BatchStreamReply]
 
 // WeaviateServer is the server API for Weaviate service.
 // All implementations must embed UnimplementedWeaviateServer
@@ -147,8 +129,7 @@ type WeaviateServer interface {
 	BatchDelete(context.Context, *BatchDeleteRequest) (*BatchDeleteReply, error)
 	TenantsGet(context.Context, *TenantsGetRequest) (*TenantsGetReply, error)
 	Aggregate(context.Context, *AggregateRequest) (*AggregateReply, error)
-	BatchSend(context.Context, *BatchSendRequest) (*BatchSendReply, error)
-	BatchStream(*BatchStreamRequest, grpc.ServerStreamingServer[BatchStreamMessage]) error
+	BatchStream(grpc.BidiStreamingServer[BatchStreamRequest, BatchStreamReply]) error
 	mustEmbedUnimplementedWeaviateServer()
 }
 
@@ -177,10 +158,7 @@ func (UnimplementedWeaviateServer) TenantsGet(context.Context, *TenantsGetReques
 func (UnimplementedWeaviateServer) Aggregate(context.Context, *AggregateRequest) (*AggregateReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Aggregate not implemented")
 }
-func (UnimplementedWeaviateServer) BatchSend(context.Context, *BatchSendRequest) (*BatchSendReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method BatchSend not implemented")
-}
-func (UnimplementedWeaviateServer) BatchStream(*BatchStreamRequest, grpc.ServerStreamingServer[BatchStreamMessage]) error {
+func (UnimplementedWeaviateServer) BatchStream(grpc.BidiStreamingServer[BatchStreamRequest, BatchStreamReply]) error {
 	return status.Errorf(codes.Unimplemented, "method BatchStream not implemented")
 }
 func (UnimplementedWeaviateServer) mustEmbedUnimplementedWeaviateServer() {}
@@ -312,34 +290,12 @@ func _Weaviate_Aggregate_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Weaviate_BatchSend_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(BatchSendRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(WeaviateServer).BatchSend(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Weaviate_BatchSend_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(WeaviateServer).BatchSend(ctx, req.(*BatchSendRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _Weaviate_BatchStream_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(BatchStreamRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(WeaviateServer).BatchStream(m, &grpc.GenericServerStream[BatchStreamRequest, BatchStreamMessage]{ServerStream: stream})
+	return srv.(WeaviateServer).BatchStream(&grpc.GenericServerStream[BatchStreamRequest, BatchStreamReply]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Weaviate_BatchStreamServer = grpc.ServerStreamingServer[BatchStreamMessage]
+type Weaviate_BatchStreamServer = grpc.BidiStreamingServer[BatchStreamRequest, BatchStreamReply]
 
 // Weaviate_ServiceDesc is the grpc.ServiceDesc for Weaviate service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -372,16 +328,13 @@ var Weaviate_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "Aggregate",
 			Handler:    _Weaviate_Aggregate_Handler,
 		},
-		{
-			MethodName: "BatchSend",
-			Handler:    _Weaviate_BatchSend_Handler,
-		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "BatchStream",
 			Handler:       _Weaviate_BatchStream_Handler,
 			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "v1/weaviate.proto",
