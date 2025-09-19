@@ -48,7 +48,7 @@ import (
 
 const (
 	FlushAfterDirtyDefault = 60 * time.Second
-	dummyStrategy          = "DUMMY"
+	unsetStrategy          = "UNSET"
 	contextCheckInterval   = 50 // check context every 50 iterations, every iteration adds too much overhead
 )
 
@@ -193,7 +193,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	defaultFlushAfterDirty := FlushAfterDirtyDefault
 	// this is not the nicest way of doing this check, but we will make strategy a required parameter in the future on
 	// main
-	defaultStrategy := dummyStrategy
+	defaultStrategy := unsetStrategy
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
@@ -226,7 +226,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		}
 	}
 
-	if b.strategy == dummyStrategy {
+	if b.strategy == unsetStrategy {
 		return nil, errors.New("strategy needs to be explicitly set for all buckets")
 	}
 
