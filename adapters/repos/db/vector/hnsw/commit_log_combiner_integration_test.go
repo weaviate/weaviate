@@ -497,7 +497,6 @@ func TestCombinerCrashSafety(t *testing.T) {
 		require.NoError(t, err)
 
 		// verify files, we would expect
-		//verifyFiles(t, rootPath, id)
 		assertFilesExist(t, rootPath, id, "1002", "1004", "1006", "1008", "1009", "1001.condensed")
 	})
 
