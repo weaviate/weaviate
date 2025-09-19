@@ -48,4 +48,17 @@ func TestSPFreshOptimizedPostingSize(t *testing.T) {
 		maxPostingSize := index.Config.MaxPostingSize
 		require.Equal(t, uint32(56), maxPostingSize)
 	})
+
+	t.Run("max posting size too small", func(t *testing.T) {
+		cfg.MaxPostingSize = 2
+		index, err := New(cfg, store)
+		require.NoError(t, err)
+		defer index.Shutdown(t.Context())
+
+		err = index.Add(t.Context(), 0, vector)
+		require.NoError(t, err)
+
+		maxPostingSize := index.Config.MaxPostingSize
+		require.Equal(t, uint32(10), maxPostingSize)
+	})
 }
