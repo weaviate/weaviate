@@ -143,7 +143,7 @@ type Bucket struct {
 
 	// optionally supplied to prevent starting memory-intensive
 	// processes when memory pressure is high
-	allocChecker memwatch.AllocChecker
+	allocChecker memwatch.ResourceChecker
 
 	// optional segment size limit. If set, a compaction will skip segments that
 	// sum to more than the specified value.

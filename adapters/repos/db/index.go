@@ -276,7 +276,7 @@ type Index struct {
 	// always true if lazy shard loading is off, in the case of lazy shard
 	// loading will be set to true once the last shard was loaded.
 	allShardsReady   atomic.Bool
-	allocChecker     memwatch.AllocChecker
+	allocChecker     memwatch.ResourceChecker
 	shardCreateLocks *esync.KeyLocker
 
 	replicationConfigLock sync.RWMutex
@@ -327,7 +327,7 @@ func NewIndex(
 	jobQueueCh chan job,
 	scheduler *queue.Scheduler,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 	shardReindexer ShardReindexerV3,
 	bitmapBufPool roaringset.BitmapBufPool,
 ) (*Index, error) {

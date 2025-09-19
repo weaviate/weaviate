@@ -51,7 +51,7 @@ type hnswCommitLogger struct {
 	maintainLogsCallbackCtrl cyclemanager.CycleCallbackCtrl
 	maintenanceCallbacks     cyclemanager.CycleCallbackGroup
 
-	allocChecker memwatch.AllocChecker
+	allocChecker memwatch.ResourceChecker
 
 	snapshotLock   sync.Mutex
 	snapshotLogger logrus.FieldLogger

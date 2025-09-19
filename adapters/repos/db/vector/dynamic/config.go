@@ -47,7 +47,7 @@ type Config struct {
 	MinMMapSize                  int64
 	MaxWalReuseSize              int64
 	LazyLoadSegments             bool
-	AllocChecker                 memwatch.AllocChecker
+	AllocChecker                 memwatch.ResourceChecker
 	WriteSegmentInfoIntoFileName bool
 	WriteMetadataFilesEnabled    bool
 }

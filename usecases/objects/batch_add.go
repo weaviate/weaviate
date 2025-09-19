@@ -88,6 +88,10 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 		return nil, errEmptyObjects
 	}
 
+	if err := b.memWatch.IOPSOverloaded(0.75); err != nil {
+		return nil, fmt.Errorf("batch add: %w", err)
+	}
+
 	var maxSchemaVersion uint64
 	batchObjects, maxSchemaVersion := b.validateAndGetVector(ctx, principal, objects, repl, fetchedClasses)
 	schemaVersion, tenantCount, err := b.autoSchemaManager.autoTenants(ctx, principal, objects, fetchedClasses)

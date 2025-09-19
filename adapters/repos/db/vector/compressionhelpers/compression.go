@@ -377,7 +377,7 @@ func NewHNSWPQCompressor(
 	logger logrus.FieldLogger,
 	data [][]float32,
 	store *lsmkv.Store,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) (VectorCompressor, error) {
 	quantizer, err := NewProductQuantizer(cfg, distance, dimensions, logger)
 	if err != nil {
@@ -412,7 +412,7 @@ func RestoreHNSWPQCompressor(
 	logger logrus.FieldLogger,
 	encoders []PQEncoder,
 	store *lsmkv.Store,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) (VectorCompressor, error) {
 	quantizer, err := NewProductQuantizerWithEncoders(cfg, distance, dimensions, encoders, logger)
 	if err != nil {
@@ -442,7 +442,7 @@ func NewHNSWPQMultiCompressor(
 	logger logrus.FieldLogger,
 	data [][]float32,
 	store *lsmkv.Store,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) (VectorCompressor, error) {
 	quantizer, err := NewProductQuantizer(cfg, distance, dimensions, logger)
 	if err != nil {
@@ -477,7 +477,7 @@ func RestoreHNSWPQMultiCompressor(
 	logger logrus.FieldLogger,
 	encoders []PQEncoder,
 	store *lsmkv.Store,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) (VectorCompressor, error) {
 	quantizer, err := NewProductQuantizerWithEncoders(cfg, distance, dimensions, encoders, logger)
 	if err != nil {
@@ -504,7 +504,7 @@ func NewBQCompressor(
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,
 	store *lsmkv.Store,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) (VectorCompressor, error) {
 	quantizer := NewBinaryQuantizer(distance)
 	bqVectorsCompressor := &quantizedVectorsCompressor[uint64]{
@@ -528,7 +528,7 @@ func NewBQMultiCompressor(
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,
 	store *lsmkv.Store,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) (VectorCompressor, error) {
 	quantizer := NewBinaryQuantizer(distance)
 	bqVectorsCompressor := &quantizedVectorsCompressor[uint64]{
@@ -553,7 +553,7 @@ func NewHNSWSQCompressor(
 	logger logrus.FieldLogger,
 	data [][]float32,
 	store *lsmkv.Store,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) (VectorCompressor, error) {
 	quantizer := NewScalarQuantizer(data, distance)
 	sqVectorsCompressor := &quantizedVectorsCompressor[byte]{
@@ -580,7 +580,7 @@ func RestoreHNSWSQCompressor(
 	a, b float32,
 	dimensions uint16,
 	store *lsmkv.Store,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) (VectorCompressor, error) {
 	quantizer, err := RestoreScalarQuantizer(a, b, dimensions, distance)
 	if err != nil {
@@ -608,7 +608,7 @@ func NewHNSWSQMultiCompressor(
 	logger logrus.FieldLogger,
 	data [][]float32,
 	store *lsmkv.Store,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) (VectorCompressor, error) {
 	quantizer := NewScalarQuantizer(data, distance)
 	sqVectorsCompressor := &quantizedVectorsCompressor[byte]{
@@ -635,7 +635,7 @@ func RestoreHNSWSQMultiCompressor(
 	a, b float32,
 	dimensions uint16,
 	store *lsmkv.Store,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) (VectorCompressor, error) {
 	quantizer, err := RestoreScalarQuantizer(a, b, dimensions, distance)
 	if err != nil {
@@ -662,7 +662,7 @@ func NewRQCompressor(
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,
 	store *lsmkv.Store,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 	bits int,
 	dim int,
 ) (VectorCompressor, error) {
@@ -716,7 +716,7 @@ func RestoreRQCompressor(
 	signs [][]float32,
 	rounding []float32,
 	store *lsmkv.Store,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) (VectorCompressor, error) {
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
@@ -767,7 +767,7 @@ func NewRQMultiCompressor(
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,
 	store *lsmkv.Store,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 	bits int,
 	dim int,
 ) (VectorCompressor, error) {
@@ -821,7 +821,7 @@ func RestoreRQMultiCompressor(
 	signs [][]float32,
 	rounding []float32,
 	store *lsmkv.Store,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.ResourceChecker,
 ) (VectorCompressor, error) {
 	var rqVectorsCompressor VectorCompressor
 	switch bits {

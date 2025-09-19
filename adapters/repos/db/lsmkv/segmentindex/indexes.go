@@ -32,7 +32,7 @@ type Indexes struct {
 	SecondaryIndexCount uint16
 	ScratchSpacePath    string
 	ObserveWrite        prometheus.Observer
-	AllocChecker        memwatch.AllocChecker
+	AllocChecker        memwatch.ResourceChecker
 }
 
 const WriteToMemoryMaxSize = 10 * 1024 * 1024

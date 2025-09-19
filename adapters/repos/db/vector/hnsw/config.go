@@ -37,7 +37,7 @@ type Config struct {
 	Logger                       logrus.FieldLogger
 	DistanceProvider             distancer.Provider
 	PrometheusMetrics            *monitoring.PrometheusMetrics
-	AllocChecker                 memwatch.AllocChecker
+	AllocChecker                 memwatch.ResourceChecker
 	WaitForCachePrefill          bool
 	FlatSearchConcurrency        int
 	AcornFilterRatio             float64

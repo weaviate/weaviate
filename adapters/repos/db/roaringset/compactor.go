@@ -83,7 +83,7 @@ type Compactor struct {
 	enableChecksumValidation bool
 
 	maxNewFileSize int64
-	allocChecker   memwatch.AllocChecker
+	allocChecker   memwatch.ResourceChecker
 }
 
 // NewCompactor from left (older) and right (newer) segment. See [Compactor]
@@ -122,7 +122,7 @@ type Compactor struct {
 func NewCompactor(w io.WriteSeeker,
 	left, right *SegmentCursor, level uint16,
 	scratchSpacePath string, cleanupDeletions bool,
-	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
+	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.ResourceChecker,
 ) *Compactor {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",

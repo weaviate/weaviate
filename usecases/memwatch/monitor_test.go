@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,12 +45,13 @@ func TestEstimation(t *testing.T) {
 }
 
 func TestMonitor(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 	t.Run("with constant profiles (no changes)", func(t *testing.T) {
 		metrics := &fakeHeapReader{val: 30000}
 		limiter := &fakeLimitSetter{limit: 100000}
 
-		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
-		m.Refresh(true)
+		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97, logger)
+		m.Refresh(true, false)
 
 		assert.Equal(t, 0.3, m.Ratio())
 	})
@@ -58,8 +60,8 @@ func TestMonitor(t *testing.T) {
 		metrics := &fakeHeapReader{val: 700 * MiB}
 		limiter := &fakeLimitSetter{limit: 1 * GiB}
 
-		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
-		m.Refresh(true)
+		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97, logger)
+		m.Refresh(true, false)
 
 		err := m.CheckAlloc(100 * MiB)
 		assert.NoError(t, err, "with 700 allocated, an additional 100 would be about 80% which is not a problem")
@@ -75,8 +77,8 @@ func TestMonitor(t *testing.T) {
 		metrics := &fakeHeapReader{val: 1025 * MiB}
 		limiter := &fakeLimitSetter{limit: 1 * GiB}
 
-		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
-		m.Refresh(true)
+		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97, logger)
+		m.Refresh(true, false)
 
 		err := m.CheckAlloc(1 * B)
 		assert.Error(t, err,
@@ -90,7 +92,7 @@ func TestMonitor(t *testing.T) {
 	})
 
 	t.Run("with real dependencies", func(t *testing.T) {
-		m := NewMonitor(LiveHeapReader, debug.SetMemoryLimit, 0.97)
+		m := NewMonitor(LiveHeapReader, debug.SetMemoryLimit, 0.97, logger)
 		_ = m.Ratio()
 	})
 }
@@ -99,6 +101,7 @@ func TestMappings(t *testing.T) {
 	// dont matter here
 	metrics := &fakeHeapReader{val: 30000}
 	limiter := &fakeLimitSetter{limit: 100000}
+	logger, _ := test.NewNullLogger()
 
 	t.Run("max memory mappings set correctly", func(t *testing.T) {
 		t.Setenv("MAX_MEMORY_MAPPINGS", "120")
@@ -156,8 +159,8 @@ func TestMappings(t *testing.T) {
 		currentMappings := getCurrentMappings()
 		addMappings := 15
 		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
-		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
-		m.Refresh(true)
+		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97, logger)
+		m.Refresh(true, false)
 
 		mappingsLeft := getMaxMemoryMappings() - currentMappings
 		assert.InDelta(t, mappingsLeft, addMappings, 10) // other things can happen at the same time
@@ -167,7 +170,7 @@ func TestMappings(t *testing.T) {
 
 		// use up available mappings
 		for i := 0; i < int(mappingsLeft)*2; i++ {
-			m.Refresh(true)
+			m.Refresh(true, false)
 			file, err := os.OpenFile(path+"example"+strconv.FormatInt(int64(i), 10)+".txt", os.O_CREATE|os.O_RDWR, 0o666)
 			require.Nil(t, err)
 			defer file.Close() // defer inside the loop because files should stay open until end of test to continue to use mappings
@@ -207,12 +210,12 @@ func TestMappings(t *testing.T) {
 
 	t.Run("check mappings for dummy, to check that it never blocks", func(t *testing.T) {
 		m := NewDummyMonitor()
-		m.Refresh(true)
+		m.Refresh(true, false)
 
 		path := t.TempDir()
 		// use many mappings, dummy monitor should never block
 		for i := 0; i < 100; i++ {
-			m.Refresh(true)
+			m.Refresh(true, false)
 			file, err := os.OpenFile(path+"example"+strconv.FormatInt(int64(i), 10)+".txt", os.O_CREATE|os.O_RDWR, 0o666)
 			require.Nil(t, err)
 			defer file.Close() // defer inside the loop because files should stay open until end of test to continue to use mappings
@@ -235,8 +238,8 @@ func TestMappings(t *testing.T) {
 		addMappings := 15
 		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
 		maxMappings := getMaxMemoryMappings()
-		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
-		m.Refresh(true)
+		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97, logger)
+		m.Refresh(true, false)
 
 		// reserve up available mappings
 		for i := 0; i < int(addMappings)+5; i++ {

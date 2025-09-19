@@ -18,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -69,7 +70,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider := getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()), memwatch.NewDummyMonitor())
 	}
 
 	reset := func() {

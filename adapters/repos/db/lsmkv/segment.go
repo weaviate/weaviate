@@ -134,7 +134,7 @@ type segmentConfig struct {
 	overwriteDerived             bool
 	enableChecksumValidation     bool
 	MinMMapSize                  int64
-	allocChecker                 memwatch.AllocChecker
+	allocChecker                 memwatch.ResourceChecker
 	fileList                     map[string]int64
 	precomputedCountNetAdditions *int
 	writeMetadata                bool

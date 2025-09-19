@@ -21,6 +21,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
+const MonitorRefreshTime = time.Millisecond * 500
+
 type diskUse struct {
 	total uint64
 	free  uint64
@@ -44,7 +46,7 @@ func (d diskUse) String() string {
 
 func (d *DB) scanResourceUsage() {
 	f := func() {
-		t := time.NewTicker(time.Millisecond * 500)
+		t := time.NewTicker(MonitorRefreshTime)
 		i := 0
 		defer t.Stop()
 		for {
@@ -80,7 +82,7 @@ func newResourceScanState() *resourceScanState {
 
 // logs a warning if user-set threshold is surpassed
 func (db *DB) resourceUseWarn(mon *memwatch.Monitor, du diskUse, updateMappings bool) {
-	mon.Refresh(updateMappings)
+	mon.Refresh(updateMappings, true)
 	db.diskUseWarn(du)
 	db.memUseWarn(mon)
 }

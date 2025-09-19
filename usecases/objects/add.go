@@ -38,6 +38,9 @@ import (
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
+	if err := m.resouceChecker.IOPSOverloaded(0.75); err != nil {
+		return nil, fmt.Errorf("cannot add object: %w", err)
+	}
 	className := schema.UppercaseClassName(object.Class)
 	className, _ = m.resolveAlias(className)
 	object.Class = className
@@ -56,7 +59,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, err
 	}
 
-	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(object)); err != nil {
+	if err := m.resouceChecker.CheckAlloc(memwatch.EstimateObjectMemory(object)); err != nil {
 		m.logger.WithError(err).Errorf("memory pressure: cannot process add object")
 		return nil, fmt.Errorf("cannot process add object: %w", err)
 	}

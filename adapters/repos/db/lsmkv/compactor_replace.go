@@ -47,7 +47,7 @@ type compactorReplace struct {
 	mw               *compactor.MemoryWriter
 	scratchSpacePath string
 
-	allocChecker   memwatch.AllocChecker
+	allocChecker   memwatch.ResourceChecker
 	maxNewFileSize int64
 
 	enableChecksumValidation bool
@@ -56,7 +56,7 @@ type compactorReplace struct {
 func newCompactorReplace(w io.WriteSeeker,
 	c1, c2 *segmentCursorReplace, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
-	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
+	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.ResourceChecker,
 ) *compactorReplace {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",

@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -52,6 +53,8 @@ type Monitor struct {
 	maxRatio          float64
 	maxMemoryMappings int64
 
+	iOPSMonitor IOPSMonitor
+
 	// state
 	mu                     sync.Mutex
 	limit                  int64
@@ -64,11 +67,14 @@ type Monitor struct {
 
 // Refresh retrieves the current memory stats from the runtime and stores them
 // in the local cache
-func (m *Monitor) Refresh(updateMappings bool) {
+func (m *Monitor) Refresh(updateMappings bool, updateIOPS bool) {
 	m.obtainCurrentUsage()
 	m.updateLimit()
 	if updateMappings {
 		m.obtainCurrentMappings()
+	}
+	if updateIOPS {
+		m.iOPSMonitor.obtainCurrentIOPS()
 	}
 }
 
@@ -82,17 +88,18 @@ type limitSetter func(size int64) int64
 // Typically this would be called with LiveHeapReader and
 // debug.SetMemoryLimit
 func NewMonitor(metricsReader metricsReader, limitSetter limitSetter,
-	maxRatio float64,
+	maxRatio float64, logger logrus.FieldLogger,
 ) *Monitor {
 	m := &Monitor{
 		metricsReader:          metricsReader,
 		limitSetter:            limitSetter,
 		maxRatio:               maxRatio,
 		maxMemoryMappings:      getMaxMemoryMappings(),
+		iOPSMonitor:            newIOPSMonitor(logger),
 		reservedMappingsBuffer: make([]int64, mappingsEntries), // one entry per second + buffer to handle delays
 		lastReservationsClear:  time.Now(),
 	}
-	m.Refresh(true)
+	m.Refresh(true, true)
 	return m
 }
 
@@ -183,6 +190,10 @@ func (m *Monitor) obtainCurrentMappings() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.usedMappings = used
+}
+
+func (m *Monitor) IOPSOverloaded(level float64) error {
+	return m.iOPSMonitor.IOPSOverloaded(level)
 }
 
 func getCurrentMappings() int64 {
@@ -293,16 +304,16 @@ func NewDummyMonitor() *Monitor {
 		reservedMappingsBuffer: make([]int64, mappingsEntries),
 		lastReservationsClear:  time.Now(),
 	}
-	m.Refresh(true)
+	m.Refresh(false, false)
 	return m
 }
 
 type metricsReader func() int64
 
-type AllocChecker interface {
+type ResourceChecker interface {
 	CheckAlloc(sizeInBytes int64) error
 	CheckMappingAndReserve(numberMappings int64, reservationTimeInS int) error
-	Refresh(updateMappings bool)
+	Refresh(updateMappings bool, updateIOPS bool)
 }
 
 func EstimateObjectMemory(object *models.Object) int64 {

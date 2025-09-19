@@ -377,7 +377,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	limitResources(appState)
 
 	appState.ClusterHttpClient = reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig, appState.ServerConfig.Config.MinimumInternalTimeout)
-	appState.MemWatch = memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.97)
+	appState.MemWatch = memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.97, appState.Logger)
 
 	var vectorRepo vectorRepo
 	// var vectorMigrator schema.Migrator
@@ -691,7 +691,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Logger, prometheus.DefaultRegisterer)
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, appState.Metrics, appState.AutoSchemaManager)
+		appState.Authorizer, appState.Metrics, appState.AutoSchemaManager, appState.MemWatch)
 	appState.BatchManager = batchManager
 
 	err = migrator.AdjustFilterablePropSettings(ctx)

@@ -85,7 +85,7 @@ type Manager struct {
 	modulesProvider   ModulesProvider
 	autoSchemaManager *AutoSchemaManager
 	metrics           objectsMetrics
-	allocChecker      *memwatch.Monitor
+	resouceChecker    *memwatch.Monitor
 }
 
 type objectsMetrics interface {
@@ -178,7 +178,7 @@ func NewManager(schemaManager schemaManager,
 		modulesProvider:   modulesProvider,
 		autoSchemaManager: autoSchemaManager,
 		metrics:           metrics,
-		allocChecker:      allocChecker,
+		resouceChecker:    allocChecker,
 	}
 }
 
