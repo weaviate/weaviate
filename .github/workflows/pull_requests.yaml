@@ -14,120 +14,68 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  Build-Scan-and-Push:
-    name: docker pipeline (${{ matrix.name }})
-    runs-on: ${{ matrix.runner }}
-    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+  Production-Docker-Build:
+    name: docker build (production)
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && github.event_name == 'push' }}
     timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Production builds (tags, main, stable branches)
-          - name: "production"
-            condition: ${{ startsWith(github.ref, 'refs/tags') || startsWith(github.head_ref, 'build') || github.head_ref == '' }}
-            arch: "multi"
-            runner: ubuntu-latest
-            push-args: ""
-            image-tag: "weaviate:${{ github.sha }}"
-            build_platform_for_scan: "linux/amd64" # a single arch is sufficient for the scan, just load one
-            platforms: "linux/amd64,linux/arm64" # both amd64 and arm64 for Docker push
-          # PR builds (per architecture)
-          - name: "pr-amd64"
-            condition: ${{ !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && github.head_ref != '' }}
-            arch: "amd64"
-            runner: ubuntu-latest
-            push-args: "--amd64-only"
-            image-tag: "weaviate:${{ github.sha }}"
-            platforms: "linux/amd64"
-          - name: "pr-arm64"
-            condition: ${{ !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && github.head_ref != '' }}
-            arch: "arm64"
-            runner: ubuntu-24.04-arm
-            push-args: "--arm64-only"
-            image-tag: "weaviate:${{ github.sha }}"
-            platforms: "linux/arm64"
     env:
       PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
     steps:
-      - name: Check build trigger conditions
-        id: should-run
-        run: |
-          should_run=false
-          if [[ ("${{ github.event_name }}" == "push" && "${{ matrix.name }}" == "production") ||
-                ("${{ github.event_name }}" == "pull_request" && "${{ matrix.name }}" == pr-*) ]]; then
-            should_run=true
-          fi
-          echo "should_run=$should_run" >> $GITHUB_OUTPUT
       - uses: actions/checkout@v5
-        if: steps.should-run.outputs.should_run == 'true'
 
       - name: Set up Docker Buildx
-        if: steps.should-run.outputs.should_run == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Get build date
         id: date
         run: echo "date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_OUTPUT
 
-      # Step 1: Build Docker image (with cross-arch caching and selective load)
       - name: Build and cache Docker image
         id: build
-        if: steps.should-run.outputs.should_run == 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
           push: false
-          tags: ${{ matrix.image-tag }}
-          platforms: ${{ matrix.build_platform_for_scan || matrix.platforms }} # Single-arch for scan, multi-arch for prod
-          # Load the result into the local Docker engine only if we're building EXACTLY one platform
-          # AND (it's the production matrix or the amd64 PR build). Avoids slow emulation on arm64.
-          load: ${{ !contains((matrix.build_platform_for_scan || matrix.platforms), ',') && (matrix.name == 'production' || matrix.arch == 'amd64') }}
-          # Use both arch caches as "read" sources so BuildKit can reuse whatever matches.
-          cache-from: | # read from all caches
+          tags: weaviate:${{ github.sha }}
+          platforms: linux/amd64 # Single-arch for scanning
+          load: true
+          # Use all caches as "read" sources, so BuildKit can reuse whatever matches.
+          cache-from: |
             type=gha,scope=weaviate-multi
             type=gha,scope=weaviate-amd64
             type=gha,scope=weaviate-arm64
-          # Write back only to this job's cache scope to keep per-arch caches clean.
+          # Write back only to this job's cache scope (multi) to keep per-arch caches clean.
           # ignore-error=true prevents the build from failing if the cache export flakes.
           cache-to: |
-            type=gha,scope=weaviate-${{ matrix.arch || 'multi' }},mode=max,ignore-error=true
             type=gha,scope=weaviate-multi,mode=max,ignore-error=true
-          # CGO disabled for faster cross-compilation and better cache consistency.
-          # Build metadata (git info, timestamps) only added for production releases to maximize
-          # cache reuse across PR builds while preserving traceability for release and production versions.
           build-args: |
             CGO_ENABLED=0
-            TARGETARCH=${{ matrix.arch == 'arm64' && 'arm64' || 'amd64' }}
-            ${{ matrix.name == 'production' && format('GIT_REVISION={0}', github.sha) || '' }}
-            ${{ matrix.name == 'production' && format('GIT_BRANCH={0}', github.head_ref || github.ref_name) || '' }}
-            ${{ matrix.name == 'production' && 'BUILD_USER=github-actions' || '' }}
-            ${{ matrix.name == 'production' && format('BUILD_DATE={0}', steps.date.outputs.date) || '' }}
+            GIT_REVISION=${{ github.sha }}
+            GIT_BRANCH=${{ github.head_ref || github.ref_name }}
+            BUILD_USER=github-actions
+            BUILD_DATE=${{ steps.date.outputs.date }}
 
-      # Step 2: Vulnerability scanning
       - name: Run Orca Container Image Scan
         id: vuln-scan
-        if: steps.should-run.outputs.should_run == 'true' && (matrix.name == 'production' || matrix.arch == 'amd64')
         uses: orcasecurity/shiftleft-container-image-action@v1
         continue-on-error: true
         with:
           api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
           project_key: ${{ env.PROJECT_KEY }}
-          image: ${{ matrix.image-tag }}
+          image: weaviate:${{ github.sha }}
           console_output: "table"
           format: "sarif"
           output: "results/"
 
       - name: Upload SARIF file
-        if: steps.should-run.outputs.should_run == 'true' && (matrix.name == 'production' || matrix.arch == 'amd64') && always() && steps.vuln-scan.outputs.exit_code != 1
+        if: always() && steps.vuln-scan.outputs.exit_code != 1
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results/image.sarif
 
-      # Step 3: SAST scanning
       - name: Run Orca SAST Scan
         id: sast-scan
-        if: steps.should-run.outputs.should_run == 'true' && (matrix.name == 'production' || matrix.arch == 'amd64')
         uses: orcasecurity/shiftleft-sast-action@v1
         continue-on-error: true
         with:
@@ -136,9 +84,7 @@ jobs:
           fetch-depth: 0
           path: "."
 
-      # Step 4: Security gate - fail if either scan failed (production only)
       - name: Check security scan results
-        if: steps.should-run.outputs.should_run == 'true' && matrix.name == 'production'
         run: |
           if [[ "${{ steps.vuln-scan.outcome }}" == "failure" ]]; then
             echo "::error::Vulnerability scan failed - blocking push"
@@ -150,9 +96,80 @@ jobs:
           fi
           echo "All security scans passed - proceeding with push"
 
-      # Step 5: Docker Hub login and push
       - name: Login to Docker Hub
-        if: success() && steps.should-run.outputs.should_run == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Push container (multi-arch)
+        id: push
+        run: ./ci/push_docker.sh
+        env:
+          PR_TITLE: "${{ github.event.pull_request.title }}"
+
+      - name: Save outputs to artifact
+        run: |
+          mkdir -p /tmp/docker-outputs
+          echo "${{ steps.push.outputs.PREVIEW_TAG }}" > /tmp/docker-outputs/preview-tag.txt
+          echo "${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}" > /tmp/docker-outputs/preview-semver-tag.txt
+
+      - name: Upload outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-outputs-production
+          path: /tmp/docker-outputs/
+          retention-days: 1
+
+  PR-Docker-Build:
+    name: docker build (pull request ${{ matrix.arch }})
+    # ARM builds run on specific runners to avoid cross-compilation.
+    runs-on: ${{ matrix.runner }}
+    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && github.event_name == 'pull_request' }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: "amd64"
+            runner: ubuntu-latest
+            platforms: "linux/amd64"
+            push-args: "--amd64-only"
+          - arch: "arm64"
+            runner: ubuntu-24.04-arm
+            platforms: "linux/arm64"
+            push-args: "--arm64-only"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and cache Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: weaviate:${{ github.sha }}
+          platforms: ${{ matrix.platforms }}
+          # Load the result into the local Docker engine only for amd64. Avoids slow emulation on arm64.
+          load: ${{ matrix.arch == 'amd64' }}
+          # Use both arch caches as "read" sources, so BuildKit can reuse whatever matches.
+          cache-from: |
+            type=gha,scope=weaviate-multi
+            type=gha,scope=weaviate-${{ matrix.arch }}
+          # Write back only to this job's cache scope to keep per-arch caches clean.
+          # ignore-error=true prevents the build from failing if the cache export flakes.
+          cache-to: |
+            type=gha,scope=weaviate-${{ matrix.arch }},mode=max,ignore-error=true
+          # CGO disabled for faster cross-compilation and better cache consistency.
+          # No build metadata for PR builds to maximize cache reuse across PRs.
+          build-args: |
+            CGO_ENABLED=0
+            TARGETARCH=${{ matrix.arch }}
+
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
@@ -160,31 +177,30 @@ jobs:
 
       - name: Push container
         id: push
-        if: steps.build.outcome == 'success' && steps.should-run.outputs.should_run == 'true'
         run: ./ci/push_docker.sh ${{ matrix.push-args }}
         env:
           PR_TITLE: "${{ github.event.pull_request.title }}"
 
       - name: Save outputs to artifact
-        if: success() && steps.should-run.outputs.should_run == 'true'
         run: |
           mkdir -p /tmp/docker-outputs
           echo "${{ steps.push.outputs.PREVIEW_TAG }}" > /tmp/docker-outputs/preview-tag.txt
           echo "${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}" > /tmp/docker-outputs/preview-semver-tag.txt
 
       - name: Upload outputs
-        if: success() && steps.should-run.outputs.should_run == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: docker-outputs-${{ matrix.name }}
+          name: docker-outputs-pr-${{ matrix.arch }}
           path: /tmp/docker-outputs/
           retention-days: 1
 
   Generate-Docker-Report:
-    name: docker report
+    name: generate docker report
     runs-on: ubuntu-latest
-    needs: [ Build-Scan-and-Push ]
-    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && always() && needs.Build-Scan-and-Push.result == 'success' }}
+    # Depends on both production and PR jobs, but only one will run based on the event type
+    needs: [Production-Docker-Build, PR-Docker-Build]
+    # Always run if either dependency succeeded (pr or production build)
+    if: always() && (needs.Production-Docker-Build.result == 'success' || needs.PR-Docker-Build.result == 'success')
     steps:
       - uses: actions/checkout@v5
 
@@ -194,7 +210,7 @@ jobs:
           pattern: docker-outputs-*
           path: /tmp/all-outputs/
 
-      - name: Combine all outputs
+      - name: Combine all outputs into a single summary report
         run: |
           echo "PREVIEW_TAG<<EOF" >> $GITHUB_ENV
           for file in /tmp/all-outputs/docker-outputs-*/preview-tag.txt; do
