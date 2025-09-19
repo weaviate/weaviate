@@ -24,7 +24,7 @@ type logParser struct {
 
 func newLogParser(logrus logrus.FieldLogger) *logParser {
 	return &logParser{
-		logrus: logrus,
+		logrus: logrus.WithField("action", "memberlist"),
 		regexp: regexp.MustCompile(`(.*)\[(DEBUG|ERR|ERROR|INFO|WARNING|WARN)](.*)`),
 	}
 }

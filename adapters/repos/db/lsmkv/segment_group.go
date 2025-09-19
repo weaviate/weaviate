@@ -650,7 +650,7 @@ func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []b
 				return nil, nil, nil, nil
 			}
 
-			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v", err))
+			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v for segment %s", err, segments[i].getPath()))
 		}
 
 		return k, v, allocatedBuff, nil

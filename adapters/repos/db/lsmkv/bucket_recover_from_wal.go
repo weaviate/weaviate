@@ -102,7 +102,8 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 		}
 
 		meteredReader := diskio.NewMeteredReader(cl.file, b.metrics.TrackStartupReadWALDiskIO)
-		if err := newCommitLoggerParser(b.strategy, bufio.NewReaderSize(meteredReader, 32*1024), mt).Do(); err != nil {
+		errRecovery := newCommitLoggerParser(b.strategy, bufio.NewReaderSize(meteredReader, 32*1024), mt).Do()
+		if errRecovery != nil {
 			b.logger.WithField("action", "lsm_recover_from_active_wal_corruption").
 				WithField("path", filepath.Join(b.dir, fname)).
 				Error(errors.Wrap(err, "write-ahead-log ended abruptly, some elements may not have been recovered"))
@@ -111,7 +112,10 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 		if mt.strategy == StrategyInverted {
 			mt.averagePropLength, _ = sg.GetAveragePropertyLength()
 		}
-		if walForActiveMemtable {
+
+		// immediately flush the .wal file if there have been any damages during recovery. This means that the file is
+		// damaged and cannot be used for new writes.
+		if walForActiveMemtable && errRecovery == nil {
 			_, err = cl.file.Seek(0, io.SeekEnd)
 			if err != nil {
 				return err

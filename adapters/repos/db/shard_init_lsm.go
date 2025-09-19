@@ -121,9 +121,15 @@ func (s *Shard) initLSMStore() error {
 		"index": s.index.ID(),
 		"class": s.index.Config.ClassName,
 	})
+
 	var metrics *lsmkv.Metrics
+	var err error
+
 	if s.promMetrics != nil {
-		metrics = lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
+		metrics, err = lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
+		if err != nil {
+			return fmt.Errorf("init lsmkv metrics: %w", err)
+		}
 	}
 
 	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics,
