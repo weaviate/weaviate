@@ -642,42 +642,44 @@ func (i *Index) DeletionStrategy() string {
 }
 
 type IndexConfig struct {
-	RootPath                            string
-	ClassName                           schema.ClassName
-	QueryMaximumResults                 int64
-	QueryHybridMaximumResults           int64
-	QueryNestedRefLimit                 int64
-	ResourceUsage                       config.ResourceUsage
-	MemtablesFlushDirtyAfter            int
-	MemtablesInitialSizeMB              int
-	MemtablesMaxSizeMB                  int
-	MemtablesMinActiveSeconds           int
-	MemtablesMaxActiveSeconds           int
-	MinMMapSize                         int64
-	MaxReuseWalSize                     int64
-	SegmentsCleanupIntervalSeconds      int
-	SeparateObjectsCompactions          bool
-	CycleManagerRoutinesFactor          int
-	IndexRangeableInMemory              bool
-	MaxSegmentSize                      int64
-	HNSWMaxLogSize                      int64
-	HNSWWaitForCachePrefill             bool
-	HNSWFlatSearchConcurrency           int
-	HNSWAcornFilterRatio                float64
-	VisitedListPoolMaxSize              int
-	ReplicationFactor                   int64
-	DeletionStrategy                    string
-	AsyncReplicationEnabled             bool
-	AvoidMMap                           bool
-	DisableLazyLoadShards               bool
-	ForceFullReplicasSearch             bool
-	LSMEnableSegmentsChecksumValidation bool
-	TrackVectorDimensions               bool
-	ShardLoadLimiter                    ShardLoadLimiter
-	QuerySlowLogEnabled                 *configRuntime.DynamicValue[bool]
-	QuerySlowLogThreshold               *configRuntime.DynamicValue[time.Duration]
-	InvertedSorterDisabled              *configRuntime.DynamicValue[bool]
-	MaintenanceModeEnabled              func() bool
+	RootPath                             string
+	ClassName                            schema.ClassName
+	QueryMaximumResults                  int64
+	QueryHybridMaximumResults            int64
+	QueryNestedRefLimit                  int64
+	ResourceUsage                        config.ResourceUsage
+	MemtablesFlushDirtyAfter             int
+	MemtablesInitialSizeMB               int
+	MemtablesMaxSizeMB                   int
+	MemtablesMinActiveSeconds            int
+	MemtablesMaxActiveSeconds            int
+	MinMMapSize                          int64
+	MaxReuseWalSize                      int64
+	SegmentsCleanupIntervalSeconds       int
+	SeparateObjectsCompactions           bool
+	CycleManagerRoutinesFactor           int
+	IndexRangeableInMemory               bool
+	MaxSegmentSize                       int64
+	HNSWMaxLogSize                       int64
+	HNSWWaitForCachePrefill              bool
+	HNSWFlatSearchConcurrency            int
+	HNSWAcornFilterRatio                 float64
+	VisitedListPoolMaxSize               int
+	ReplicationFactor                    int64
+	DeletionStrategy                     string
+	AsyncReplicationEnabled              bool
+	AvoidMMap                            bool
+	DisableLazyLoadShards                bool
+	ForceFullReplicasSearch              *configRuntime.DynamicValue[bool]
+	FullReplicasSearchDebounceFactor     *configRuntime.DynamicValue[int]
+	FullReplicasSearchDebounceMinTimeout *configRuntime.DynamicValue[time.Duration]
+	LSMEnableSegmentsChecksumValidation  bool
+	TrackVectorDimensions                bool
+	ShardLoadLimiter                     ShardLoadLimiter
+	QuerySlowLogEnabled                  *configRuntime.DynamicValue[bool]
+	QuerySlowLogThreshold                *configRuntime.DynamicValue[time.Duration]
+	InvertedSorterDisabled               *configRuntime.DynamicValue[bool]
+	MaintenanceModeEnabled               func() bool
 }
 
 func indexID(class schema.ClassName) string {
@@ -1692,11 +1694,13 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 		defer release()
 	}
 
-	if i.Config.ForceFullReplicasSearch {
+	if i.Config.ForceFullReplicasSearch.Get() {
 		// Force a search on all the replicas for the shard
 		remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
 			i.logger, shardName, searchVectors, targetVectors, distance, limit, localFilters,
-			nil, sort, nil, groupBy, additional, i.replicationEnabled(), i.getSchema.NodeName(), targetCombination, properties)
+			nil, sort, nil, groupBy, additional, i.replicationEnabled(), i.getSchema.NodeName(), targetCombination, properties,
+			i.Config.FullReplicasSearchDebounceFactor.Get(), i.Config.FullReplicasSearchDebounceMinTimeout.Get(),
+		)
 		// Only return an error if we failed to query remote shards AND we had no local shard to query
 		if err != nil && shard == nil {
 			return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
@@ -1740,7 +1744,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		return nil, nil, err
 	}
 
-	if len(shardNames) == 1 && !i.Config.ForceFullReplicasSearch {
+	if len(shardNames) == 1 && !i.Config.ForceFullReplicasSearch.Get() {
 		shard, release, err := i.GetShard(ctx, shardNames[0])
 		if err != nil {
 			return nil, nil, err
@@ -1801,7 +1805,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			})
 		}
 
-		if shard == nil || i.Config.ForceFullReplicasSearch {
+		if shard == nil || i.Config.ForceFullReplicasSearch.Get() {
 			remoteSearches++
 			eg.Go(func() error {
 				// If we have no local shard or if we force the query to reach all replicas
@@ -1825,7 +1829,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 
 	// If we are force querying all replicas, we need to run deduplication on the result.
-	if i.Config.ForceFullReplicasSearch {
+	if i.Config.ForceFullReplicasSearch.Get() {
 		if localSearches != localResponses.Load() {
 			i.logger.Warnf("(in full replica search) local search count does not match local response count: searches=%d responses=%d", localSearches, localResponses.Load())
 		}
