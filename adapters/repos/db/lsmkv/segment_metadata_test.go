@@ -72,7 +72,7 @@ func TestMetadataNoWrites(t *testing.T) {
 			// read again
 			_, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithWriteMetadata(tt.writeMetadata), WithUseBloomFilter(tt.bloomFilter), WithCalcCountNetAdditions(tt.cna), WithSecondaryIndices(uint16(secondaryIndexCount)))
+				WithWriteMetadata(tt.writeMetadata), WithUseBloomFilter(tt.bloomFilter), WithCalcCountNetAdditions(tt.cna), WithSecondaryIndices(uint16(secondaryIndexCount)), WithStrategy(StrategyReplace))
 			require.NoError(t, err)
 		})
 	}
@@ -158,7 +158,7 @@ func TestMarkMetadataAsDeleted(t *testing.T) {
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithUseBloomFilter(true), WithWriteMetadata(true), WithCalcCountNetAdditions(true), WithSecondaryIndices(2))
+		WithUseBloomFilter(true), WithWriteMetadata(true), WithCalcCountNetAdditions(true), WithSecondaryIndices(2), WithStrategy(StrategyReplace))
 	require.NoError(t, err)
 	require.NoError(t, b.Put([]byte("key"), []byte("value"), WithSecondaryKey(0, []byte("key0")), WithSecondaryKey(1, []byte("key1"))))
 	require.NoError(t, b.FlushMemtable())
@@ -181,7 +181,7 @@ func TestDropImmediately(t *testing.T) {
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithUseBloomFilter(true), WithWriteMetadata(true), WithCalcCountNetAdditions(true), WithSecondaryIndices(2))
+		WithUseBloomFilter(true), WithWriteMetadata(true), WithCalcCountNetAdditions(true), WithSecondaryIndices(2), WithStrategy(StrategyReplace))
 	require.NoError(t, err)
 	require.NoError(t, b.Put([]byte("key"), []byte("value"), WithSecondaryKey(0, []byte("key0")), WithSecondaryKey(1, []byte("key1"))))
 	require.NoError(t, b.FlushMemtable())
