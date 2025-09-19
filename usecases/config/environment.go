@@ -1426,7 +1426,7 @@ func parseClusterConfig() (cluster.Config, error) {
 		},
 	}
 
-	cfg.MemberlistFastFailureDetection = entcfg.Enabled(os.Getenv("MEMBERLIST_FAST_FAILURE_DETECTION")) || entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION")) // ackward compatibility
+	cfg.MemberlistFastFailureDetection = entcfg.Enabled(os.Getenv("MEMBERLIST_FAST_FAILURE_DETECTION")) || entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION")) // backward compatibility
 
 	// MAINTENANCE_NODES is experimental and subject to removal/change. It is an optional, comma
 	// separated list of hostnames that are in maintenance mode. In maintenance mode, the node will
