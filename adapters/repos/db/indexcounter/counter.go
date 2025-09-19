@@ -17,6 +17,11 @@ import (
 	"os"
 	"sync"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/pkg/errors"
 )
 
@@ -24,6 +29,7 @@ type Counter struct {
 	count uint64
 	sync.Mutex
 	f *os.File
+	w diskio.WriterSeekerCloser
 }
 
 func New(shardPath string) (cr *Counter, rerr error) {
@@ -57,9 +63,20 @@ func New(shardPath string) (cr *Counter, rerr error) {
 
 	}
 
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"strategy":  "",
+		"operation": "counter",
+	})
+
+	writeCB := func(written int64) {
+		observeWrite.Observe(float64(written))
+	}
+	meteredW := diskio.NewMeteredWriter(f, writeCB)
+
 	return &Counter{
 		count: initialCount,
 		f:     f,
+		w:     meteredW,
 	}, nil
 }
 
@@ -74,12 +91,13 @@ func (c *Counter) GetAndInc() (uint64, error) {
 	defer c.Unlock()
 	before := c.count
 	c.count++
-	c.f.Seek(0, 0)
-	err := binary.Write(c.f, binary.LittleEndian, &c.count)
+
+	c.w.Seek(0, 0)
+	err := binary.Write(c.w, binary.LittleEndian, &c.count)
 	if err != nil {
 		return 0, errors.Wrap(err, "increase counter on disk")
 	}
-	c.f.Seek(0, 0)
+	c.w.Seek(0, 0)
 	return before, nil
 }
 
@@ -100,7 +118,7 @@ func (c *Counter) Drop() error {
 	}
 	filename := c.FileName()
 	c.f.Close()
-	err := os.Remove(filename)
+	err := diskio.Remove(filename, "counter")
 	if err != nil {
 		return errors.Wrap(err, "drop counter file")
 	}

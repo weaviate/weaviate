@@ -15,6 +15,9 @@ import (
 	"errors"
 	"io"
 	"os"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func FileExists(file string) (bool, error) {
@@ -43,7 +46,11 @@ func IsDirEmpty(dir string) (bool, error) {
 	return false, err
 }
 
-func Fsync(path string) error {
+func Fsync(path, source string) error {
+	monitoring.GetMetrics().FileIOOps.With(prometheus.Labels{
+		"operation": "fsync",
+		"source":    source,
+	})
 	f, err := os.Open(path)
 	if err != nil {
 		return err

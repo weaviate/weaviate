@@ -18,6 +18,8 @@ import (
 	"os"
 	"sync"
 
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/pkg/errors"
@@ -364,7 +366,7 @@ func (t *JsonShardMetaData) lockFreeFlush() error {
 		return err
 	}
 
-	err = os.Rename(tempfile, filename)
+	err = diskio.Rename(tempfile, filename, "propLengthTracker")
 	if err != nil {
 		return err
 	}
@@ -410,8 +412,8 @@ func (t *JsonShardMetaData) Drop() error {
 
 	clear(t.data.BucketedData)
 
-	os.Remove(t.path)
-	os.Remove(t.path + ".bak")
+	diskio.Remove(t.path, "propLengthTracker")
+	diskio.Remove(t.path+".bak", "propLengthTracker")
 
 	return nil
 }

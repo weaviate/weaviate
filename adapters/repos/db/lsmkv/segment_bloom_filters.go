@@ -78,7 +78,7 @@ func (s *segment) initBloomFilter(overwrite bool, existingFilesList map[string]i
 	}
 	if loadFromDisk {
 		if overwrite {
-			err := os.Remove(path)
+			err := diskio.Remove(path, "bloomfilter")
 			if err != nil {
 				return fmt.Errorf("delete existing bloom filter %s: %w", path, err)
 			}
@@ -171,7 +171,7 @@ func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool, existingFile
 	}
 	if loadFromDisk {
 		if overwrite {
-			err := os.Remove(path)
+			err := diskio.Remove(path, "bloomfilter")
 			if err != nil {
 				return fmt.Errorf("deleting existing secondary bloom filter %s: %w", path, err)
 			}
@@ -268,7 +268,7 @@ func writeWithChecksum(bufWriter byteops.ReadWriter, path string, observeFileWri
 	chksm := crc32.ChecksumIEEE(bufWriter.Buffer[byteops.Uint32Len:])
 	bufWriter.MoveBufferToAbsolutePosition(0)
 	bufWriter.WriteUint32(chksm)
-	f, err := os.Create(path)
+	f, err := diskio.CreateFile(path, "writeWithChecksum")
 	if err != nil {
 		return fmt.Errorf("open file for writing: %w", err)
 	}

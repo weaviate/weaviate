@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -275,7 +274,7 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 		path = filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+".db.tmp")
 	}
 
-	f, err := os.Create(path)
+	f, err := diskio.CreateFile(path, "compaction")
 	if err != nil {
 		return false, err
 	}
@@ -479,7 +478,7 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 		return nil, nil, errors.Wrap(err, "drop disk segment")
 	}
 
-	err := diskio.Fsync(sg.dir)
+	err := diskio.Fsync(sg.dir, "compaction")
 	if err != nil {
 		return nil, nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 	}
@@ -555,7 +554,7 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath, left, right string) (string, 
 
 	newPath = strings.ReplaceAll(newPath, fmt.Sprintf("%s_%s", left, right), right)
 
-	if err := os.Rename(oldPath, newPath); err != nil {
+	if err := diskio.Rename(oldPath, newPath, "compaction"); err != nil {
 		return "", errors.Wrapf(err, "rename %q -> %q", oldPath, newPath)
 	}
 
