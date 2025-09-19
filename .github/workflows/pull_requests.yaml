@@ -181,7 +181,7 @@ jobs:
           retention-days: 1
 
   Generate-Docker-Report:
-    name: Generate Docker Report
+    name: docker report
     runs-on: ubuntu-latest
     needs: [ Build-Scan-and-Push ]
     if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && always() && needs.Build-Scan-and-Push.result == 'success' }}
