@@ -33,6 +33,7 @@ func TestReplaceStrategy(t *testing.T) {
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
 				WithCalcCountNetAdditions(true),
+				WithMinWalThreshold(0),
 			},
 		},
 		{
