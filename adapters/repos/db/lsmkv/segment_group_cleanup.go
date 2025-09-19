@@ -192,6 +192,7 @@ func (c *segmentCleanerCommon) findCandidate() (int, int, int, onCompletedFunc, 
 	return emptyIdx, emptyIdx, emptyIdx, nil, nil
 }
 
+// TODO aliszka:copy-on-read should segments be released outside of method?
 func (c *segmentCleanerCommon) getSegmentIdsAndSizes() ([]int64, []int64, error) {
 	segments, release := c.sg.getConsistentViewOfSegments()
 	defer release()
@@ -535,6 +536,7 @@ type onCompletedFunc func(size int64) error
 
 type keyExistsOnUpperSegmentsFunc func(key []byte) (bool, error)
 
+// TODO aliszka:copy-on-read check when to release segments?
 func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyExistsOnUpperSegmentsFunc {
 	return func(key []byte) (bool, error) {
 		// asc order by default

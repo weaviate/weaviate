@@ -126,7 +126,7 @@ func (b *Bucket) CursorInMem() *CursorReplace {
 // already persisted on disk.
 // New segments can still be created but compaction will be prevented
 // while any cursor remains active
-// TODO
+// TODO aliszka:copy-on-read check
 func (b *Bucket) CursorOnDisk() *CursorReplace {
 	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 

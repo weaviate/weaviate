@@ -469,6 +469,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	return sg, nil
 }
 
+// TODO aliszka:copy-on-read should method be using fixed list of segments?
 func (sg *SegmentGroup) makeExistsOn(segments []Segment) existsOnLowerSegmentsFn {
 	return func(key []byte) (bool, error) {
 		if len(segments) == 0 {
@@ -543,6 +544,7 @@ func (sg *SegmentGroup) addInitializedSegment(segment Segment) error {
 	return nil
 }
 
+// TODO aliszka:copy-on-read check
 func (sg *SegmentGroup) get(key []byte) ([]byte, error) {
 	beforeMaintenanceLock := time.Now()
 	segments, release := sg.getConsistentViewOfSegments()
