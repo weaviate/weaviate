@@ -45,17 +45,16 @@ func TestText2VecOpenAI(t *testing.T) {
 }
 
 func createSingleNodeEnvironment(ctx context.Context, apiKey, organization string,
-) (compose *docker.DockerCompose, err error) {
-	compose, err = composeModules(apiKey, organization).
+) (*docker.DockerCompose, error) {
+	compose, err := composeModules(apiKey, organization).
 		WithWeaviate().
 		WithWeaviateWithGRPC().
 		WithWeaviateEnv("MODULES_CLIENT_TIMEOUT", fmt.Sprintf("%.0fs", companies.DefaultTimeout.Seconds())).
 		Start(ctx)
-	return
+	return compose, err
 }
 
-func composeModules(apiKey, organization string) (composeModules *docker.Compose) {
-	composeModules = docker.New().
+func composeModules(apiKey, organization string) *docker.Compose {
+	return docker.New().
 		WithText2VecOpenAI(apiKey, organization, "")
-	return
 }
