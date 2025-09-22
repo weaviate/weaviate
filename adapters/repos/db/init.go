@@ -18,9 +18,9 @@ import (
 	"path"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/multitenancy"
-
 	"github.com/pkg/errors"
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	"github.com/weaviate/weaviate/usecases/multitenancy"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -91,6 +91,11 @@ func (db *DB) init(ctx context.Context) error {
 				db.schemaReader,
 				db.replicationFSM,
 			).Build()
+			shardResolver := resolver.NewBuilder(
+				collection,
+				multitenancy.IsMultiTenant(class.MultiTenancyConfig),
+				db.schemaGetter,
+			).Build()
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                                    schema.ClassName(class.Class),
 				RootPath:                                     db.config.RootPath,
@@ -143,7 +148,7 @@ func (db *DB) init(ctx context.Context) error {
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
-				indexRouter, db.schemaGetter, db.schemaReader, db, db.logger, db.nodeResolver, db.remoteIndex,
+				indexRouter, shardResolver, db.schemaGetter, db.schemaReader, db, db.logger, db.nodeResolver, db.remoteIndex,
 				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
 				db.memMonitor, db.reindexer, db.bitmapBufPool)
 			if err != nil {

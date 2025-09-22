@@ -17,6 +17,7 @@ import (
 	"slices"
 	"time"
 
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
 
 	"github.com/pkg/errors"
@@ -117,6 +118,11 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		m.db.schemaReader,
 		m.db.replicationFSM,
 	).Build()
+	shardResolver := resolver.NewBuilder(
+		collection,
+		multitenancy.IsMultiTenant(class.MultiTenancyConfig),
+		m.db.schemaGetter,
+	).Build()
 	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName:                                    schema.ClassName(class.Class),
@@ -172,7 +178,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
-		indexRouter, m.db.schemaGetter, m.db.schemaReader, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
+		indexRouter, shardResolver, m.db.schemaGetter, m.db.schemaReader, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
 		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool)
 	if err != nil {

@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
 
 	"github.com/weaviate/weaviate/cluster/router/executor"
@@ -289,6 +290,7 @@ type Index struct {
 	shardReindexer ShardReindexerV3
 
 	router        routerTypes.Router
+	shardResolver *resolver.ShardResolver
 	bitmapBufPool roaringset.BitmapBufPool
 }
 
@@ -314,6 +316,7 @@ func NewIndex(
 	vectorIndexUserConfig schemaConfig.VectorIndexConfig,
 	vectorIndexUserConfigs map[string]schemaConfig.VectorIndexConfig,
 	router routerTypes.Router,
+	shardResolver *resolver.ShardResolver,
 	sg schemaUC.SchemaGetter,
 	schemaReader schemaUC.SchemaReader,
 	cs inverted.ClassSearcher,
@@ -372,6 +375,7 @@ func NewIndex(
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		shardReindexer:          shardReindexer,
 		router:                  router,
+		shardResolver:           shardResolver,
 		bitmapBufPool:           bitmapBufPool,
 	}
 
@@ -857,16 +861,12 @@ func (i *Index) determineObjectShardByStatus(ctx context.Context, id strfmt.UUID
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	replProps *additional.ReplicationProperties, tenantName string, schemaVersion uint64,
 ) error {
-	if err := i.validateMultiTenancy(object.Object.Tenant); err != nil {
-		return err
-	}
-
 	if i.Config.ClassName != object.Class() {
 		return fmt.Errorf("cannot import object of class %s into index of class %s",
 			object.Class(), i.Config.ClassName)
 	}
 
-	shardName, err := i.determineObjectShard(ctx, object.ID(), object.Object.Tenant)
+	targetShard, err := i.shardResolver.ResolveShard(ctx, object)
 	if err != nil {
 		switch {
 		case errors.As(err, &objects.ErrMultiTenancy{}):
@@ -880,15 +880,15 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	if replProps == nil {
 		replProps = defaultConsistency()
 	}
-	if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
+	if i.shardHasMultipleReplicasWrite(tenantName, targetShard.Shard) {
 		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
-		if err := i.replicator.PutObject(ctx, shardName, object, cl, schemaVersion); err != nil {
-			return fmt.Errorf("replicate insertion: shard=%q: %w", shardName, err)
+		if err := i.replicator.PutObject(ctx, targetShard.Shard, object, cl, schemaVersion); err != nil {
+			return fmt.Errorf("replicate insertion: shard=%q: %w", targetShard.Shard, err)
 		}
 		return nil
 	}
 
-	shard, release, err := i.getShardForDirectLocalOperation(ctx, object.Object.Tenant, shardName, localShardOperationWrite)
+	shard, release, err := i.getShardForDirectLocalOperation(ctx, object.Object.Tenant, targetShard.Shard, localShardOperationWrite)
 	defer release()
 	if err != nil {
 		return err
@@ -896,8 +896,8 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 
 	// no replication, remote shard (or local not yet inited)
 	if shard == nil {
-		if err := i.remote.PutObject(ctx, shardName, object, schemaVersion); err != nil {
-			return fmt.Errorf("put remote object: shard=%q: %w", shardName, err)
+		if err := i.remote.PutObject(ctx, targetShard.Shard, object, schemaVersion); err != nil {
+			return fmt.Errorf("put remote object: shard=%q: %w", targetShard.Shard, err)
 		}
 		return nil
 	}
@@ -908,7 +908,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 
 	err = shard.PutObject(ctx, object)
 	if err != nil {
-		return fmt.Errorf("put local object: shard=%q: %w", shardName, err)
+		return fmt.Errorf("put local object: shard=%q: %w", targetShard.Shard, err)
 	}
 
 	return nil
