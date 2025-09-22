@@ -1532,11 +1532,7 @@ func wrapIDsInMulti(in []strfmt.UUID) []multi.Identifier {
 func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (bool, error) {
-	if err := i.validateMultiTenancy(tenant); err != nil {
-		return false, err
-	}
-
-	shardName, err := i.determineObjectShard(ctx, id, tenant)
+	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, id, tenant)
 	if err != nil {
 		switch {
 		case errors.As(err, &objects.ErrMultiTenancy{}):
