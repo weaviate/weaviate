@@ -622,3 +622,281 @@ func Test_ShardResolution_MultiTenant_DuplicateTenants(t *testing.T) {
 	require.Len(t, grouped, 1)
 	require.Len(t, grouped["tenantA"], 3)
 }
+
+func Test_ResolveShardByObjectID_SingleTenant(t *testing.T) {
+	testCases := []struct {
+		name          string
+		shards        []string
+		objectID      strfmt.UUID
+		tenant        string
+		expectedShard string
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name:          "single shard single object",
+			shards:        []string{"shard1"},
+			objectID:      strfmt.UUID(uuid.NewString()),
+			tenant:        "",
+			expectedShard: "shard1",
+		},
+		{
+			name:          "multiple shards first byte 0x00",
+			shards:        []string{"shard1", "shard2"},
+			objectID:      "00aaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+			tenant:        "",
+			expectedShard: "shard1",
+		},
+		{
+			name:          "multiple shards first byte 0x01",
+			shards:        []string{"shard1", "shard2"},
+			objectID:      "01bbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+			tenant:        "",
+			expectedShard: "shard2",
+		},
+		{
+			name:          "empty object id",
+			shards:        []string{"shard1"},
+			objectID:      "",
+			tenant:        "",
+			expectError:   true,
+			errorContains: "parse uuid",
+		},
+		{
+			name:        "invalid uuid",
+			shards:      []string{"shard1"},
+			objectID:    "do-or-do-not-there-is-no-try",
+			tenant:      "",
+			expectError: true,
+		},
+		{
+			name:          "no shards",
+			shards:        []string{},
+			objectID:      strfmt.UUID(uuid.NewString()),
+			tenant:        "",
+			expectedShard: "",
+		},
+		{
+			name:          "single tenant with tenant provided should error",
+			shards:        []string{"shard1"},
+			objectID:      strfmt.UUID(uuid.NewString()),
+			tenant:        "sometenant",
+			expectError:   true,
+			errorContains: "multi-tenancy disabled",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// GIVEN
+			schemaReader := &fakeSchemaReader{shards: tc.shards}
+			r := resolver.NewBuilder("TestClass", false, schemaReader).Build()
+
+			// WHEN
+			shard, err := r.ResolveShardByObjectID(context.Background(), tc.objectID, tc.tenant)
+
+			// THEN
+			if tc.expectError {
+				require.Error(t, err)
+				if tc.errorContains != "" {
+					require.Contains(t, err.Error(), tc.errorContains)
+				}
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.expectedShard, shard)
+			}
+		})
+	}
+}
+
+func Test_ResolveShardByObjectID_MultiTenant(t *testing.T) {
+	testCases := []struct {
+		name          string
+		tenantShards  map[string]string
+		objectID      strfmt.UUID
+		tenant        string
+		expectedShard string
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name: "valid tenant",
+			tenantShards: map[string]string{
+				"tenantA": models.TenantActivityStatusHOT,
+			},
+			objectID:      strfmt.UUID(uuid.NewString()),
+			tenant:        "tenantA",
+			expectedShard: "tenantA",
+		},
+		{
+			name: "invalid uuid doesn't matter in tenant mode",
+			tenantShards: map[string]string{
+				"tenantA": models.TenantActivityStatusHOT,
+			},
+			objectID:      "do-or-do-not-there-is-no-try",
+			tenant:        "tenantA",
+			expectedShard: "tenantA",
+		},
+		{
+			name: "empty uuid doesn't matter in tenant mode",
+			tenantShards: map[string]string{
+				"tenantA": models.TenantActivityStatusHOT,
+			},
+			objectID:      "",
+			tenant:        "tenantA",
+			expectedShard: "tenantA",
+		},
+		{
+			name: "nonexistent tenant",
+			tenantShards: map[string]string{
+				"tenantA": models.TenantActivityStatusHOT,
+			},
+			objectID:      strfmt.UUID(uuid.NewString()),
+			tenant:        "nonexistentTenant",
+			expectError:   true,
+			errorContains: "tenant not found",
+		},
+		{
+			name: "inactive tenant",
+			tenantShards: map[string]string{
+				"tenantA": models.TenantActivityStatusCOLD,
+			},
+			objectID:      strfmt.UUID(uuid.NewString()),
+			tenant:        "tenantA",
+			expectError:   true,
+			errorContains: "tenant not active",
+		},
+		{
+			name: "empty tenant in multi-tenant mode",
+			tenantShards: map[string]string{
+				"tenantA": models.TenantActivityStatusHOT,
+			},
+			objectID:      strfmt.UUID(uuid.NewString()),
+			tenant:        "",
+			expectError:   true,
+			errorContains: "multi-tenancy enabled, but request was without tenant",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// GIVEN
+			schemaReader := &fakeSchemaReader{tenantShards: tc.tenantShards}
+			r := resolver.NewBuilder("TestClass", true, schemaReader).Build()
+
+			// WHEN
+			shard, err := r.ResolveShardByObjectID(context.Background(), tc.objectID, tc.tenant)
+
+			// THEN
+			if tc.expectError {
+				require.Error(t, err)
+				if tc.errorContains != "" {
+					require.Contains(t, err.Error(), tc.errorContains)
+				}
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.expectedShard, shard)
+			}
+		})
+	}
+}
+
+func Test_ResolveShardByObjectID_ConsistencyWithResolveShard(t *testing.T) {
+	t.Run("single tenant consistency", func(t *testing.T) {
+		// GIVEN
+		schemaReader := &fakeSchemaReader{shards: []string{"shard1", "shard2", "shard3"}}
+		r := resolver.NewBuilder("TestClass", false, schemaReader).Build()
+
+		testUUIDs := []strfmt.UUID{
+			"00aaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+			"01bbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+			"02cccccc-cccc-4ccc-8ccc-cccccccccccc",
+			strfmt.UUID(uuid.NewString()),
+			strfmt.UUID(uuid.NewString()),
+		}
+
+		for _, testUUID := range testUUIDs {
+			// WHEN - using ResolveShard
+			object := newTestObject(testUUID, "")
+			targetFromResolveShard, err1 := r.ResolveShard(context.Background(), object)
+			require.NoError(t, err1)
+
+			// WHEN - using ResolveShardByObjectID
+			shardFromResolveByID, err2 := r.ResolveShardByObjectID(context.Background(), testUUID, "")
+			require.NoError(t, err2)
+
+			// THEN
+			require.Equal(t, targetFromResolveShard.Shard, shardFromResolveByID,
+				"ResolveShard and ResolveShardByObjectID should return same shard for UUID %s", testUUID)
+		}
+	})
+
+	t.Run("multi tenant consistency", func(t *testing.T) {
+		// GIVEN
+		tenantShards := map[string]string{
+			"tenantA": models.TenantActivityStatusHOT,
+			"tenantB": models.TenantActivityStatusHOT,
+		}
+		schemaReader := &fakeSchemaReader{tenantShards: tenantShards}
+		r := resolver.NewBuilder("TestClass", true, schemaReader).Build()
+
+		testCases := []struct {
+			objectID strfmt.UUID
+			tenant   string
+		}{
+			{strfmt.UUID(uuid.NewString()), "tenantA"},
+			{strfmt.UUID(uuid.NewString()), "tenantB"},
+			{"invalid-uuid-format", "tenantA"}, // UUID validity doesn't matter in multi-tenant
+			{"", "tenantB"},                    // Empty UUID doesn't matter in multi-tenant
+		}
+
+		for _, tc := range testCases {
+			// WHEN - using ResolveShard
+			object := newTestObject(tc.objectID, tc.tenant)
+			targetFromResolveShard, err1 := r.ResolveShard(context.Background(), object)
+			require.NoError(t, err1)
+
+			// WHEN - using ResolveShardByObjectID
+			shardFromResolveByID, err2 := r.ResolveShardByObjectID(context.Background(), tc.objectID, tc.tenant)
+			require.NoError(t, err2)
+
+			// THEN
+			require.Equal(t, targetFromResolveShard.Shard, shardFromResolveByID,
+				"ResolveShard and ResolveShardByObjectID should return same shard for tenant %s", tc.tenant)
+		}
+	})
+}
+
+func Test_ResolveShardByObjectID_ObjectIDCollisionAcrossTenants(t *testing.T) {
+	// GIVEN
+	tenantShards := map[string]string{
+		"company-a": models.TenantActivityStatusHOT,
+		"company-b": models.TenantActivityStatusHOT,
+		"company-c": models.TenantActivityStatusHOT,
+	}
+	schemaReader := &fakeSchemaReader{tenantShards: tenantShards}
+	r := resolver.NewBuilder("Products", true, schemaReader).Build()
+
+	objectID := strfmt.UUID("12345678-1234-4123-8123-123456789012") // Same ID for all tenants
+
+	testTenants := []string{"company-a", "company-b", "company-c"}
+	resolvedShards := make(map[string]string)
+
+	// WHEN
+	for _, tenant := range testTenants {
+		shard, err := r.ResolveShardByObjectID(context.Background(), objectID, tenant)
+		require.NoError(t, err)
+		resolvedShards[tenant] = shard
+	}
+
+	// THEN
+	require.Equal(t, "company-a", resolvedShards["company-a"])
+	require.Equal(t, "company-b", resolvedShards["company-b"])
+	require.Equal(t, "company-c", resolvedShards["company-c"])
+
+	uniqueShards := make(map[string]struct{})
+	for _, shard := range resolvedShards {
+		uniqueShards[shard] = struct{}{}
+	}
+	require.Len(t, uniqueShards, len(testTenants), "Same object ID should resolve to different shards for different tenants")
+}

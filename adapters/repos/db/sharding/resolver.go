@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/adapters/repos/db/multitenancy"
 	"github.com/weaviate/weaviate/entities/models"
@@ -115,6 +116,36 @@ type byUUIDShardResolver struct {
 	tenantValidator *multitenancy.TenantValidator
 }
 
+// ResolveShardByObjectID resolves the target shard for an object using its UUID and tenant information.
+// This method performs tenant validation to ensure single-tenant constraints,
+// then uses consistent hashing to deterministically map the UUID to a shard.
+//
+// For single-tenant collections, the tenant parameter must be empty and the objectID
+// is used for consistent hashing to determine the target shard.
+//
+// Parameters:
+//   - ctx: request context for validation operations
+//   - objectID: the UUID of the object to resolve a shard for
+//   - tenant: tenant name (must be empty for single-tenant collections)
+//
+// Returns the target shard name, or an error if validation fails or UUID parsing fails.
+func (r *byUUIDShardResolver) ResolveShardByObjectID(ctx context.Context, objectID strfmt.UUID, tenant string) (string, error) {
+	if err := r.tenantValidator.ValidateTenants(ctx, tenant); err != nil {
+		return "", err
+	}
+
+	parsedUUID, err := uuid.Parse(objectID.String())
+	if err != nil {
+		return "", fmt.Errorf("parse uuid %q: %w", objectID.String(), err)
+	}
+	uuidBytes, err := parsedUUID.MarshalBinary()
+	if err != nil {
+		return "", fmt.Errorf("marshal uuid %q: %w", objectID.String(), err)
+	}
+
+	return r.schemaReader.ShardFromUUID(r.className, uuidBytes), nil
+}
+
 // newByUUIDShardResolver creates a UUID-based shard resolver for a collection.
 // The resolver integrates single-tenant validation directly rather than injecting it,
 // since UUID-based resolution inherently requires single-tenant validation (rejecting
@@ -202,6 +233,28 @@ type byTenantShardResolver struct {
 	className       string
 	schemaReader    schemaReader
 	tenantValidator *multitenancy.TenantValidator
+}
+
+// ResolveShardByObjectID resolves the target shard for an object using tenant-based routing.
+// In multi-tenant configurations, the tenant name directly maps to the shard name,
+// providing perfect tenant isolation. The objectID parameter is not used for shard
+// resolution but is kept for interface consistency.
+//
+// Validation ensures the tenant is provided and active. Validation errors are
+// passed through unchanged to enable proper HTTP status code mapping.
+//
+// Parameters:
+//   - ctx: request context for validation operations
+//   - objectID: the UUID of the object (not used for shard resolution in multi-tenant)
+//   - tenant: tenant name which becomes the shard name
+//
+// Returns the target shard name (tenant name), or an error if validation fails.
+func (r *byTenantShardResolver) ResolveShardByObjectID(ctx context.Context, _ strfmt.UUID, tenant string) (string, error) {
+	if err := r.tenantValidator.ValidateTenants(ctx, tenant); err != nil {
+		return "", err
+	}
+
+	return tenant, nil
 }
 
 // newByTenantShardResolver creates a tenant-based shard resolver for a collection.
@@ -307,8 +360,30 @@ func (r *byTenantShardResolver) extractUniqueTenants(objects []*storobj.Object) 
 // the collection's multi-tenancy configuration. It delegates to the appropriate
 // resolution strategy (UUID-based or tenant-based) selected at construction time.
 type ShardResolver struct {
-	resolveShard  func(ctx context.Context, object *storobj.Object) (ShardTarget, error)
-	resolveShards func(ctx context.Context, objects []*storobj.Object) (ShardTargets, error)
+	resolveShard           func(ctx context.Context, object *storobj.Object) (ShardTarget, error)
+	resolveShards          func(ctx context.Context, objects []*storobj.Object) (ShardTargets, error)
+	resolveShardByObjectID func(ctx context.Context, objectID strfmt.UUID, tenant string) (string, error)
+}
+
+// ResolveShardByObjectID resolves the target shard for an object using its UUID and tenant information.
+// The resolution strategy (UUID-based or tenant-based) depends on the collection's
+// multi-tenancy configuration determined at construction time.
+//
+// For single-tenant collections, shard determination uses consistent hashing of
+// the object's UUID and the tenant parameter must be empty. For multi-tenant collections,
+// the tenant name directly maps to the shard name and the objectID is not used for resolution.
+//
+// Errors from the underlying resolution strategy are passed through unchanged
+// to preserve error context for proper handling by callers.
+//
+// Parameters:
+//   - ctx: request context for validation and schema operations
+//   - objectID: the UUID of the object to resolve a shard for
+//   - tenant: tenant name (empty for single-tenant, required for multi-tenant)
+//
+// Returns the target shard name, or an error if resolution fails.
+func (r *ShardResolver) ResolveShardByObjectID(ctx context.Context, objectID strfmt.UUID, tenant string) (string, error) {
+	return r.resolveShardByObjectID(ctx, objectID, tenant)
 }
 
 // ResolveShard resolves the target shard for a single object.
@@ -387,14 +462,16 @@ func (b *Builder) Build() *ShardResolver {
 	if b.multiTenancyEnabled {
 		resolver := newByTenantShardResolver(b.className, b.schemaReader)
 		return &ShardResolver{
-			resolveShard:  resolver.ResolveShard,
-			resolveShards: resolver.ResolveShards,
+			resolveShard:           resolver.ResolveShard,
+			resolveShards:          resolver.ResolveShards,
+			resolveShardByObjectID: resolver.ResolveShardByObjectID,
 		}
 	}
 	resolver := newByUUIDShardResolver(b.className, b.schemaReader)
 	return &ShardResolver{
-		resolveShard:  resolver.ResolveShard,
-		resolveShards: resolver.ResolveShards,
+		resolveShard:           resolver.ResolveShard,
+		resolveShards:          resolver.ResolveShards,
+		resolveShardByObjectID: resolver.ResolveShardByObjectID,
 	}
 }
 
@@ -404,6 +481,7 @@ func (b *Builder) Build() *ShardResolver {
 type resolverStrategy interface {
 	ResolveShard(ctx context.Context, object *storobj.Object) (ShardTarget, error)
 	ResolveShards(ctx context.Context, objects []*storobj.Object) (ShardTargets, error)
+	ResolveShardByObjectID(ctx context.Context, objectID strfmt.UUID, tenant string) (string, error)
 }
 
 // Interface compliance checks at compile time.
