@@ -101,8 +101,10 @@ type PrometheusMetrics struct {
 	VectorIndexMaintenanceDurations    *prometheus.SummaryVec
 	// IVF
 	VectorIndexPostings                      *prometheus.GaugeVec
+	VectorIndexPostingSize                   *prometheus.HistogramVec
 	VectorIndexPendingBackgroundOperations   *prometheus.GaugeVec
 	VectorIndexBackgroundOperationsDurations *prometheus.SummaryVec
+	VectorIndexStoreOperationsDurations      *prometheus.SummaryVec
 
 	VectorDimensionsSum *prometheus.GaugeVec
 	VectorSegmentsSum   *prometheus.GaugeVec
@@ -326,8 +328,10 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.VectorIndexMaintenanceDurations.DeletePartialMatch(labels)
 	pm.VectorIndexDurations.DeletePartialMatch(labels)
 	pm.VectorIndexPostings.DeletePartialMatch(labels)
+	pm.VectorIndexPostingSize.DeletePartialMatch(labels)
 	pm.VectorIndexPendingBackgroundOperations.DeletePartialMatch(labels)
 	pm.VectorIndexBackgroundOperationsDurations.DeletePartialMatch(labels)
+	pm.VectorIndexStoreOperationsDurations.DeletePartialMatch(labels)
 	pm.VectorIndexSize.DeletePartialMatch(labels)
 	pm.StartupProgress.DeletePartialMatch(labels)
 	pm.StartupDurations.DeletePartialMatch(labels)
@@ -374,6 +378,8 @@ var (
 	// sizeBuckets defines buckets for request/response body sizes (in bytes).
 	// TODO(kavi): Check with real data once deployed on prod and tweak accordingly.
 	sizeBuckets = []float64{1 * mb, 2.5 * mb, 5 * mb, 10 * mb, 25 * mb, 50 * mb, 100 * mb, 250 * mb}
+
+	postingSizeBuckets = []float64{10, 40, 70, 100, 130, 160, 190, 250, 500}
 
 	metrics *PrometheusMetrics = nil
 )
@@ -606,14 +612,23 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_index_postings",
 			Help: "The size of the vector index postings. Typically much lower than number of vectors.",
 		}, []string{"class_name", "shard_name"}),
+		VectorIndexPostingSize: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "vector_index_posting_size_vectors",
+			Help:    "The size of individual vectors in each posting list",
+			Buckets: postingSizeBuckets,
+		}, []string{"class_name", "shard_name"}),
 		VectorIndexPendingBackgroundOperations: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_pending_background_operations",
 			Help: "Number of background operations yet to be processed.",
-		}, []string{"class_name", "shard_name"}),
+		}, []string{"operation", "class_name", "shard_name"}),
 		VectorIndexBackgroundOperationsDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "vector_index_background_operations_durations_ms",
 			Help: "Duration of typical vector index background operations (split, merge, reassign)",
-		}, []string{"operation", "step", "class_name", "shard_name"}),
+		}, []string{"operation", "class_name", "shard_name"}),
+		VectorIndexStoreOperationsDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "vector_index_store_operations_durations_ms",
+			Help: "Duration of store operations (put, append, get)",
+		}, []string{"operation", "class_name", "shard_name"}),
 		VectorDimensionsSum: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_dimensions_sum",
 			Help: "Total dimensions in a shard",

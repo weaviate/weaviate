@@ -90,12 +90,13 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 		return nil, err
 	}
 
-	postingStore, err := NewLSMStore(store, bucketName(cfg.ID))
+	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
+
+	postingStore, err := NewLSMStore(store, metrics, bucketName(cfg.ID))
 	if err != nil {
 		return nil, err
 	}
 
-	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 	s := SPFresh{
 		logger:  cfg.Logger.WithField("component", "SPFresh"),
 		config:  cfg,
@@ -111,7 +112,7 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 		// - An empty posting sizes buffer consumes 240KB of memory
 		// - Each allocated page consumes 4MB of memory
 		// - A fully used posting sizes consumes 4GB of memory
-		PostingSizes: NewPostingSizes(1024, 1024*1024),
+		PostingSizes: NewPostingSizes(metrics, 1024, 1024*1024),
 
 		postingLocks: common.NewDefaultShardedRWLocks(),
 		// TODO: Eventually, we'll create sharded workers between all instances of SPFresh

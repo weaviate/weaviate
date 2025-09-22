@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	"fmt"
+	_ "net/http/pprof"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
@@ -33,12 +35,35 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	}
 }
 
+// Uncomment to enable pprof and prometheus metrics when running tests
+
+// func TestMain(m *testing.M) {
+// 	runtime.SetMutexProfileFraction(1)
+
+// 	go func() {
+// 		addr := "127.0.0.1:6060"
+// 		log.Printf("pprof listening at http://%s/debug/pprof/\n", addr)
+// 		_ = http.ListenAndServe(addr, nil) // DefaultServeMux has pprof handlers
+// 	}()
+
+// 	go func() {
+// 		mux := http.NewServeMux()
+// 		mux.Handle("/metrics", promhttp.Handler())
+// 		if err := http.ListenAndServe(":2112", mux); err != nil {
+// 			fmt.Printf("metrics server on %s stopped: %v\n", ":2112", err)
+// 		}
+// 	}()
+
+// 	os.Exit(m.Run())
+// }
+
 func TestSPFreshRecall(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.RNGFactor = 5.0
 	l := logrus.New()
-	// l.SetLevel(logrus.DebugLevel)
 	cfg.Logger = l
+	cfg.PrometheusMetrics = monitoring.GetMetrics()
+	cfg.PrometheusMetrics.Registerer.MustRegister()
 
 	logger, _ := test.NewNullLogger()
 
@@ -73,6 +98,10 @@ func TestSPFreshRecall(t *testing.T) {
 		if cur%1000 == 0 {
 			fmt.Printf("indexing vectors %d/%d\n", cur, vectors_size)
 			fmt.Println("background tasks: split", index.splitCh.Len(), "reassign", index.reassignCh.Len(), "merge", index.mergeCh.Len())
+		}
+		if cur%10000 == 0 {
+			err := index.Flush()
+			require.NoError(t, err)
 		}
 		err := index.Add(t.Context(), id, vectors[id])
 		require.NoError(t, err)

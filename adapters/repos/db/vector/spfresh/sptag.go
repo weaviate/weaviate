@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -133,6 +134,9 @@ func (s *BruteForceSPTAG) Quantizer() *compressionhelpers.RotationalQuantizer {
 }
 
 func (s *BruteForceSPTAG) Search(query Vector, k int) ([]SearchResult, error) {
+	start := time.Now()
+	defer s.metrics.CentroidSearchDuration(start)
+
 	s.m.RLock()
 	defer s.m.RUnlock()
 
