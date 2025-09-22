@@ -900,3 +900,35 @@ func Test_ResolveShardByObjectID_ObjectIDCollisionAcrossTenants(t *testing.T) {
 	}
 	require.Len(t, uniqueShards, len(testTenants), "Same object ID should resolve to different shards for different tenants")
 }
+
+func Test_ResolveShard_MultiTenant_EmptyTenant_SingleObject(t *testing.T) {
+	// GIVEN
+	schemaReader := &fakeSchemaReader{
+		tenantShards: map[string]string{"tenantA": models.TenantActivityStatusHOT},
+	}
+	r := resolver.NewBuilder("TestClass", true, schemaReader).Build()
+	obj := newTestObject(strfmt.UUID(uuid.NewString()), "")
+
+	// WHEN
+	_, err := r.ResolveShard(context.Background(), obj)
+
+	// THEN
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "multi-tenancy enabled, but request was without tenant")
+}
+
+func Test_ResolveShard_MultiTenant_NonexistentTenant_SingleObject(t *testing.T) {
+	// GIVEN
+	schemaReader := &fakeSchemaReader{
+		tenantShards: map[string]string{"tenantA": models.TenantActivityStatusHOT},
+	}
+	r := resolver.NewBuilder("TestClass", true, schemaReader).Build()
+	obj := newTestObject(strfmt.UUID(uuid.NewString()), "tenantB")
+
+	// WHEN
+	_, err := r.ResolveShard(context.Background(), obj)
+
+	// THEN
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tenant not found")
+}
