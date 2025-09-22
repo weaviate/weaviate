@@ -30,6 +30,8 @@ type (
 var compactionDurationBuckets = prometheus.ExponentialBuckets(0.01, 2, 18) // 0.01s → 0.02s → ... → ~163.84s
 
 type Metrics struct {
+	register prometheus.Registerer
+
 	// compaction-related metrics
 	compactionCount        *prometheus.CounterVec
 	compactionInProgress   *prometheus.GaugeVec
@@ -70,8 +72,10 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		shardName = "n/a"
 	}
 
+	register := promMetrics.Registerer
+
 	// compaction-related metrics
-	compactionCount, err := monitoring.EnsureRegisteredMetric(promMetrics.Registerer,
+	compactionCount, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -84,7 +88,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		return nil, fmt.Errorf("register lsm_bucket_compaction_count: %w", err)
 	}
 
-	compactionInProgress, err := monitoring.EnsureRegisteredMetric(promMetrics.Registerer, prometheus.NewGaugeVec(
+	compactionInProgress, err := monitoring.EnsureRegisteredMetric(register, prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: "weaviate",
 			Name:      "lsm_bucket_compaction_in_progress",
@@ -96,7 +100,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		return nil, fmt.Errorf("register lsm_bucket_compaction_in_progress: %w", err)
 	}
 
-	compactionFailureCount, err := monitoring.EnsureRegisteredMetric(promMetrics.Registerer,
+	compactionFailureCount, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -109,7 +113,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		return nil, fmt.Errorf("register lsm_bucket_compaction_failure_count: %w", err)
 	}
 
-	compactionNoOpCount, err := monitoring.EnsureRegisteredMetric(promMetrics.Registerer,
+	compactionNoOpCount, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
@@ -122,7 +126,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		return nil, fmt.Errorf("register lsm_bucket_compaction_noop_count: %w", err)
 	}
 
-	compactionDuration, err := monitoring.EnsureRegisteredMetric(promMetrics.Registerer,
+	compactionDuration, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "weaviate",
@@ -166,6 +170,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	})
 
 	return &Metrics{
+		register:            register,
 		groupClasses:        promMetrics.Group,
 		criticalBucketsOnly: promMetrics.LSMCriticalBucketsOnly,
 

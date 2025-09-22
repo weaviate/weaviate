@@ -65,6 +65,11 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
 	enableChecksumValidation bool, bm25config *models.BM25Config, writeSegmentInfoIntoFileName bool, allocChecker memwatch.AllocChecker,
 ) (*Memtable, error) {
+	memtableMetrics, err := newMemtableMetrics(metrics, filepath.Dir(path), strategy)
+	if err != nil {
+		return nil, fmt.Errorf("init memtable metrics: %w", err)
+	}
+
 	m := &Memtable{
 		key:                          &binarySearchTree{},
 		keyMulti:                     &binarySearchTreeMulti{},
@@ -78,7 +83,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		secondaryIndices:             secondaryIndices,
 		dirtyAt:                      time.Time{},
 		createdAt:                    time.Now(),
-		metrics:                      newMemtableMetrics(metrics, filepath.Dir(path), strategy),
+		metrics:                      memtableMetrics,
 		enableChecksumValidation:     enableChecksumValidation,
 		bm25config:                   bm25config,
 		writeSegmentInfoIntoFileName: writeSegmentInfoIntoFileName,
