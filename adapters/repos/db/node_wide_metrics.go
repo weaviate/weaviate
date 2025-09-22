@@ -426,7 +426,7 @@ func calculateShardDimensionMetrics(ctx context.Context, sl ShardLike) Dimension
 
 // Calculate vector dimensions for a vector index in a shard.
 func calcVectorDimensionMetrics(ctx context.Context, sl ShardLike, vecName string, vecCfg schemaConfig.VectorIndexConfig) DimensionMetrics {
-	switch category, segments := GetDimensionCategory(vecCfg); category {
+	switch category, segments := GetDimensionCategoryLegacy(vecCfg); category {
 	case DimensionCategoryPQ:
 		return DimensionMetrics{Uncompressed: 0, Compressed: sl.QuantizedDimensions(ctx, vecName, segments)}
 	case DimensionCategoryBQ:
