@@ -161,7 +161,7 @@ func (h *hnsw) restoreFromDisk() error {
 						data.Encoders,
 						h.store,
 						h.allocChecker,
-						h.id,
+						h.getName(),
 					)
 				} else {
 					h.compressor, err = compressionhelpers.RestoreHNSWPQMultiCompressor(
@@ -173,7 +173,7 @@ func (h *hnsw) restoreFromDisk() error {
 						data.Encoders,
 						h.store,
 						h.allocChecker,
-						h.id,
+						h.getName(),
 					)
 				}
 				if err != nil {
@@ -193,7 +193,7 @@ func (h *hnsw) restoreFromDisk() error {
 					data.Dimensions,
 					h.store,
 					h.allocChecker,
-					h.id,
+					h.getName(),
 				)
 			} else {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQMultiCompressor(
@@ -205,7 +205,7 @@ func (h *hnsw) restoreFromDisk() error {
 					data.Dimensions,
 					h.store,
 					h.allocChecker,
-					h.id,
+					h.getName(),
 				)
 			}
 			if err != nil {
