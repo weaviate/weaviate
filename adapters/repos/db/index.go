@@ -1422,10 +1422,6 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 func (i *Index) multiObjectByID(ctx context.Context,
 	query []multi.Identifier, tenant string,
 ) ([]*storobj.Object, error) {
-	if err := i.validateMultiTenancy(tenant); err != nil {
-		return nil, err
-	}
-
 	type idsAndPos struct {
 		ids []multi.Identifier
 		pos []int
@@ -1433,7 +1429,7 @@ func (i *Index) multiObjectByID(ctx context.Context,
 
 	byShard := map[string]idsAndPos{}
 	for pos, id := range query {
-		shardName, err := i.determineObjectShard(ctx, strfmt.UUID(id.ID), tenant)
+		shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, strfmt.UUID(id.ID), tenant)
 		if err != nil {
 			switch {
 			case errors.As(err, &objects.ErrMultiTenancy{}):
