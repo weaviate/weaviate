@@ -432,7 +432,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	for x := range processor(nWorker, jobs(desc.Shards)) {
 		desc.Chunks[x.chunk] = x.shards
 	}
-	return
+	return err
 }
 
 type chuckShards struct {

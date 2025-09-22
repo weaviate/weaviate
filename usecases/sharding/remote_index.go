@@ -537,11 +537,11 @@ func (ri *RemoteIndex) queryReplicas(
 				return resp, node, nil
 			}
 		}
-		return
+		return resp, node, err
 	}
 	first := rand.Intn(len(replicas))
 	if resp, node, err = queryUntil(replicas[first:]); err != nil && first != 0 {
 		return queryUntil(replicas[:first])
 	}
-	return
+	return resp, node, err
 }
