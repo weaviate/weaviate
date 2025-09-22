@@ -64,11 +64,14 @@ func TestUpdateIndexTenants(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-			mockSchemaGetter.On("NodeName").Return("node1")
+			mockSchemaGetter.On("NodeName").Return("node1").Maybe()
 
 			class := &models.Class{
 				Class:               "TestClass",
 				InvertedIndexConfig: &models.InvertedIndexConfig{},
+				MultiTenancyConfig: &models.MultiTenancyConfig{
+					Enabled: true,
+				},
 			}
 			if tt.getClass {
 				mockSchemaGetter.On("ReadOnlyClass", "TestClass").Return(class)
@@ -230,12 +233,15 @@ func TestUpdateIndexShards(t *testing.T) {
 			logger := logrus.New()
 
 			mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-			mockSchemaGetter.On("NodeName").Return("node1")
+			mockSchemaGetter.On("NodeName").Return("node1").Maybe()
 
 			// Create a test class
 			class := &models.Class{
 				Class:               "TestClass",
 				InvertedIndexConfig: &models.InvertedIndexConfig{},
+				MultiTenancyConfig: &models.MultiTenancyConfig{
+					Enabled: true,
+				},
 			}
 			mockSchemaGetter.On("ReadOnlyClass", "TestClass").Return(class).Maybe()
 
@@ -338,6 +344,9 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	class := &models.Class{
 		Class:               "TestClass",
 		InvertedIndexConfig: &models.InvertedIndexConfig{},
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: true,
+		},
 	}
 	mockSchemaGetter.On("ReadOnlyClass", "TestClass").Return(class).Maybe()
 
