@@ -44,14 +44,14 @@ type ShardBatches map[string][]*storobj.Object
 
 // GroupByShard groups objects by their target shard for batch processing.
 // This method enables efficient per-shard operations by collecting all objects
-// destined for the same shard into a single slice.
+// targeting the same shard into a single slice.
 //
 // The returned map is not ordered and reuses the input object pointers for
 // memory efficiency. Each shard name maps to a slice of objects that should
 // be processed by that shard.
 //
 // Returns a ShardBatches map where keys are shard names and values are
-// slices of objects for that shard.
+// slices of objects targeting that shard.
 func (t ShardTargets) GroupByShard() ShardBatches {
 	groups := make(ShardBatches)
 	for _, target := range t {
@@ -138,7 +138,7 @@ func newByUUIDShardResolver(className string, schemaReader schemaReader) *byUUID
 // This method performs tenant validation to ensure single-tenant constraints,
 // then uses consistent hashing to deterministically map the UUID to a shard.
 //
-// The UUID is parsed and converted to binary form for consistent hashing.
+// The UUID is parsed and converted to its binary form for consistent hashing.
 // Validation errors are passed through unchanged to enable mapping to specific
 // HTTP status codes, while parsing errors are wrapped with context.
 //
@@ -246,11 +246,11 @@ func (r *byTenantShardResolver) ResolveShard(ctx context.Context, object *storob
 
 // ResolveShards resolves shard targets for multiple objects using tenant-based routing.
 // This method is optimized for batch operations by extracting unique tenant names
-// and performing bulk validation, significantly reducing schema operations compared
-// to individual ResolveShard calls.
+// and performing bulk validation all tenants, significantly reducing schema operations
+// compared to individual ResolveShard calls.
 //
 // The optimization reduces both schema round trips and validation overhead:
-// - Single bulk tenant validation instead of N individual validations
+// - Single bulk tenant validation instead of multiple individual validations
 // - Efficient tenant extraction with deduplication
 //
 // Validation errors are returned unchanged while schema errors are wrapped with context.

@@ -405,7 +405,7 @@ func Test_ShardResolution_SchemaReaderError(t *testing.T) {
 }
 
 func Test_ShardResolution_TenantValidationError(t *testing.T) {
-	// GIVEN - Tenant exists but is not active
+	// GIVEN
 	schemaReader := &fakeSchemaReader{
 		tenantShards: map[string]string{
 			"tenantA": models.TenantActivityStatusCOLD,
