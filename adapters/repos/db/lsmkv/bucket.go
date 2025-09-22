@@ -1046,28 +1046,28 @@ func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 }
 
 func (b *Bucket) Count(ctx context.Context) (int, error) {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
-
-	if b.strategy != StrategyReplace {
-		panic("Count() called on strategy other than 'replace'")
+	if err := CheckExpectedStrategy(b.strategy, StrategyReplace); err != nil {
+		return 0, fmt.Errorf("Bucket::Count(): %w", err)
 	}
 
+	view := b.getConsistentView()
+	defer view.Release()
+
 	memtableCount := 0
-	if b.flushing == nil {
-		count, err := b.memtableNetCount(ctx, b.active.countStats(), nil)
+	activeCountStats := view.Active.countStats()
+	if view.Flushing == nil {
+		count, err := b.memtableNetCount(ctx, activeCountStats, nil, view.Disk)
 		if err != nil {
 			return 0, err
 		}
 		memtableCount += count
 	} else {
-		flushingCountStats := b.flushing.countStats()
-		activeCountStats := b.active.countStats()
-		deltaActive, err := b.memtableNetCount(ctx, activeCountStats, flushingCountStats)
+		flushingCountStats := view.Flushing.countStats()
+		deltaActive, err := b.memtableNetCount(ctx, activeCountStats, flushingCountStats, view.Disk)
 		if err != nil {
 			return 0, err
 		}
-		deltaFlushing, err := b.memtableNetCount(ctx, flushingCountStats, nil)
+		deltaFlushing, err := b.memtableNetCount(ctx, flushingCountStats, nil, view.Disk)
 		if err != nil {
 			return 0, err
 		}
@@ -1091,7 +1091,9 @@ func (b *Bucket) CountAsync() int {
 	return b.disk.count()
 }
 
-func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previousMemtable *countStats) (int, error) {
+func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previousMemtable *countStats,
+	segments []Segment,
+) (int, error) {
 	netCount := 0
 
 	// TODO: this uses regular get, given that this may be called quite commonly,
@@ -1101,7 +1103,7 @@ func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previo
 		if i%contextCheckInterval == 0 && ctx.Err() != nil {
 			return 0, ctx.Err()
 		}
-		if !b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
+		if !b.existsOnDiskAndPreviousMemtable(previousMemtable, key, segments) {
 			netCount++
 		}
 	}
@@ -1110,7 +1112,7 @@ func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previo
 		if i%contextCheckInterval == 0 && ctx.Err() != nil {
 			return 0, ctx.Err()
 		}
-		if b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
+		if b.existsOnDiskAndPreviousMemtable(previousMemtable, key, segments) {
 			netCount--
 		}
 	}
@@ -1118,15 +1120,24 @@ func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previo
 	return netCount, nil
 }
 
-func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byte) bool {
-	v, _ := b.disk.get(key) // current implementation can't error
-	if v == nil {
-		// not on disk, but it could still be in the previous memtable
-		return previous.hasUpsert(key)
+func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byte, segments []Segment) bool {
+	// exists in the previous memtable
+	if previous.hasUpsert(key) {
+		return true
 	}
-
-	// it exists on disk ,but it could still have been deleted in the previous memtable
-	return !previous.hasTombstone(key)
+	// deleted in the previous memtable
+	if previous.hasTombstone(key) {
+		return false
+	}
+	// check on disk
+	if _, err := b.disk.getWithSegmentList(key, segments); err != nil {
+		if errors.Is(err, lsmkv.Deleted) || errors.Is(err, lsmkv.NotFound) {
+			return false
+		}
+		// assumes it does not exist in case of error
+		return false
+	}
+	return true
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) error {
