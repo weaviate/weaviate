@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path"
@@ -3132,44 +3131,6 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 	return nil
 }
 
-// calcTargetVectorDimensionsFromStore calculates dimensions and object count for a target vector from an LSMKV store
-func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) usagetypes.Dimensionality {
-	b := store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return usagetypes.Dimensionality{}
-	}
-	return calcTargetVectorDimensionsFromBucket(ctx, b, targetVector, calcEntry)
-}
-
-// calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
-func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) usagetypes.Dimensionality {
-	c := b.MapCursor()
-	defer c.Close()
-
-	var (
-		nameLen        = len(targetVector)
-		expectedKeyLen = 4 + nameLen
-		dimensionality = usagetypes.Dimensionality{}
-	)
-
-	for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
-		// for named vectors we have to additionally check if the key is prefixed with the vector name
-		keyMatches := len(k) == expectedKeyLen && (nameLen == 4 || strings.HasPrefix(string(k), targetVector))
-		if !keyMatches {
-			continue
-		}
-
-		dimLength := int(binary.LittleEndian.Uint32(k[nameLen:]))
-		size, dim := calcEntry(dimLength, v)
-		if dimensionality.Dimensions == 0 && dim > 0 {
-			dimensionality.Dimensions = dim
-		}
-		dimensionality.Count += size
-	}
-
-	return dimensionality
-}
-
 func (i *Index) tenantDirExists(tenantName string) (bool, error) {
 	tenantPath := shardPath(i.path(), tenantName)
 	if _, err := os.Stat(tenantPath); err != nil {
@@ -3260,7 +3221,8 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 }
 
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
-func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName, targetVector string) (usagetypes.Dimensionality, error) {
+func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName, targetVector string,
+) (usagetypes.Dimensionality, error) {
 	// Obtain a lock that prevents tenant activation
 	i.shardCreateLocks.Lock(tenantName)
 	defer i.shardCreateLocks.Unlock(tenantName)
@@ -3276,25 +3238,27 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName
 		return usagetypes.Dimensionality{Count: 0, Dimensions: 0}, nil
 	}
 
+	bucketPath := shardPathDimensionsLSM(i.path(), tenantName)
+	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, DimensionsBucketPrioritizedStrategies)
+	if err != nil {
+		return usagetypes.Dimensionality{}, fmt.Errorf("determine dimensions bucket strategy: %w", err)
+	}
+
 	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
-		shardPathDimensionsLSM(i.path(), tenantName),
+		bucketPath,
 		i.path(),
 		i.logger,
 		nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
-		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
+		lsmkv.WithStrategy(strategy),
 	)
 	if err != nil {
 		return usagetypes.Dimensionality{}, err
 	}
 	defer bucket.Shutdown(ctx)
 
-	dimensionality := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
-		return len(v), dimLen
-	})
-
-	return dimensionality, nil
+	return calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
 }
 
 // CalculateUnloadedVectorsMetrics calculates vector storage size for a cold tenant without loading it into memory
@@ -3318,35 +3282,46 @@ func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName 
 
 	// For each target vector, calculate storage size using dimensions bucket and config-based compression
 	for targetVector, config := range i.GetVectorIndexConfigs() {
-		// Get dimensions and object count from the dimensions bucket
-		bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
-			shardPathDimensionsLSM(i.path(), tenantName),
-			i.path(),
-			i.logger,
-			nil,
-			cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(),
-			lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
-		)
+		err := func() error {
+			bucketPath := shardPathDimensionsLSM(i.path(), tenantName)
+			strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, DimensionsBucketPrioritizedStrategies)
+			if err != nil {
+				return fmt.Errorf("determine dimensions bucket strategy: %w", err)
+			}
+
+			// Get dimensions and object count from the dimensions bucket
+			bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
+				bucketPath,
+				i.path(),
+				i.logger,
+				nil,
+				cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(),
+				lsmkv.WithStrategy(strategy),
+			)
+			if err != nil {
+				return err
+			}
+			defer bucket.Shutdown(ctx)
+
+			dimensionality, err := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+			if err != nil {
+				return err
+			}
+
+			if dimensionality.Count != 0 && dimensionality.Dimensions != 0 {
+				// Calculate uncompressed size (float32 = 4 bytes per dimension)
+				uncompressedSize := int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
+
+				// For inactive tenants, use vector index config for dimension tracking
+				// This is similar to the original shard dimension tracking approach
+				totalSize += int64(float64(uncompressedSize) / helpers.CompressionRatioFromConfig(config, dimensionality.Dimensions))
+			}
+			return nil
+		}()
 		if err != nil {
 			return 0, err
 		}
-
-		dimensionality := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
-			return len(v), dimLen
-		})
-		bucket.Shutdown(ctx)
-
-		if dimensionality.Count == 0 || dimensionality.Dimensions == 0 {
-			continue
-		}
-
-		// Calculate uncompressed size (float32 = 4 bytes per dimension)
-		uncompressedSize := int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
-
-		// For inactive tenants, use vector index config for dimension tracking
-		// This is similar to the original shard dimension tracking approach
-		totalSize += int64(float64(uncompressedSize) * helpers.CompressionRatioFromConfig(config, dimensionality.Dimensions))
 	}
 
 	return totalSize, nil
