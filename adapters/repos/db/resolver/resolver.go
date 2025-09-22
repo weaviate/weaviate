@@ -71,14 +71,14 @@ func (t ShardTargets) GroupByShard() ShardBatches {
 // Returns a slice of unique shard names.
 func (t ShardTargets) Shards() []string {
 	seen := make(map[string]struct{})
-	var names []string
+	var shards []string
 	for _, target := range t {
 		if _, ok := seen[target.Shard]; !ok {
 			seen[target.Shard] = struct{}{}
-			names = append(names, target.Shard)
+			shards = append(shards, target.Shard)
 		}
 	}
-	return names
+	return shards
 }
 
 // Len returns the number of target shards in the batch of shard targets.
@@ -184,15 +184,15 @@ func (r *byUUIDShardResolver) ResolveShard(ctx context.Context, object *storobj.
 // Returns ShardTargets containing all successfully resolved targets, or an error
 // if any object fails validation or parsing.
 func (r *byUUIDShardResolver) ResolveShards(ctx context.Context, objects []*storobj.Object) (ShardTargets, error) {
-	targetShards := make(ShardTargets, 0, len(objects))
+	targets := make(ShardTargets, 0, len(objects))
 	for _, object := range objects {
 		targetShard, err := r.ResolveShard(ctx, object)
 		if err != nil {
 			return nil, err
 		}
-		targetShards = append(targetShards, targetShard)
+		targets = append(targets, targetShard)
 	}
-	return targetShards, nil
+	return targets, nil
 }
 
 // byTenantShardResolver implements shard resolution using tenant names as shard identifiers.
