@@ -63,7 +63,7 @@ func newSingleTenantValidator(className string) *singleTenantValidator {
 // parameters for flexible usage.
 //
 // Parameters:
-//   - ctx: request context (unused but maintained for interface compatibility)
+//   - ctx: request context for validation operations
 //   - tenants: variadic tenant names to validate
 //
 // Returns an error if any tenant is non-empty, nil if all tenants are empty.
@@ -88,7 +88,7 @@ type multiTenantValidator struct {
 }
 
 // newMultiTenantValidator creates a validator for multi-tenant collections.
-// The returned validator will check the tenant presence, existence, and activity status.
+// The returned validator will check tenant existence and activity status.
 //
 // Parameters:
 //   - className: the name of the class this validator will validate against
@@ -113,7 +113,7 @@ func newMultiTenantValidator(className string, schemaReader schemaReader) *multi
 // operations while maintaining a clean interface for callers.
 //
 // Parameters:
-//   - ctx: request context for schema operations
+//   - ctx: request context for schema operations and validation operations
 //   - tenants: variadic tenant names to validate
 //
 // Returns an error on the first validation failure, nil if all tenants are valid.
@@ -217,9 +217,9 @@ func (v *TenantValidator) ValidateTenants(ctx context.Context, tenants ...string
 	return v.validateTenants(ctx, tenants...)
 }
 
-// Builder constructs TenantValidator instances based on collection multi-tenancy settings.
-// It selects the appropriate validation strategy (single-tenant or multi-tenant) and
-// encapsulates the strategy selection logic.
+// Builder constructs TenantValidator instances based on collection multi-tenancy settings (MultiTenancyConfig).
+// It selects the appropriate validation strategy (single-tenant or multi-tenant) and encapsulates the strategy
+// selection logic.
 type Builder struct {
 	className           string
 	multiTenancyEnabled bool
@@ -229,7 +229,7 @@ type Builder struct {
 // NewBuilder creates a new Builder for constructing TenantValidator instances.
 //
 // Parameters:
-//   - className: the name of the class to validate tenants for
+//   - className: the name of the class the validator will validate against
 //   - multiTenancyEnabled: whether the class has multi-tenancy enabled
 //   - schemaReader: provides access to schema and tenant information
 //
