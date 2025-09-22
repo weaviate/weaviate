@@ -227,7 +227,7 @@ func callFuncByName(manager interface{}, funcName string, params ...interface{})
 		in[i] = reflect.ValueOf(param)
 	}
 	out = m.Call(in)
-	return
+	return out, err
 }
 
 func allExportedMethods(subject interface{}) []string {

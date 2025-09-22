@@ -90,7 +90,7 @@ func (c *Checkpoints) Get(shardID, targetVector string) (count uint64, exists bo
 		return 0, false, errors.Wrap(err, "get checkpoint")
 	}
 
-	return
+	return count, exists, err
 }
 
 func (c *Checkpoints) Update(shardID, targetVector string, id uint64) error {

@@ -139,7 +139,7 @@ func (rs SchemaReader) metaClass(class string) (meta *metaClass) {
 		}
 		return nil
 	})
-	return
+	return meta
 }
 
 // ReadOnlySchema returns a read only schema
