@@ -544,21 +544,6 @@ func (sg *SegmentGroup) addInitializedSegment(segment Segment) error {
 	return nil
 }
 
-// TODO aliszka:copy-on-read check
-func (sg *SegmentGroup) get(key []byte) ([]byte, error) {
-	beforeMaintenanceLock := time.Now()
-	segments, release := sg.getConsistentViewOfSegments()
-	defer release()
-
-	if time.Since(beforeMaintenanceLock) > 100*time.Millisecond {
-		sg.logger.WithField("duration", time.Since(beforeMaintenanceLock)).
-			WithField("action", "lsm_segment_group_get_obtain_maintenance_lock").
-			Debug("waited over 100ms to obtain maintenance lock in segment group get()")
-	}
-
-	return sg.getWithSegmentList(key, segments)
-}
-
 // not thread-safe on its own, as the assumption is that this is called from a
 // lockholder, e.g. within .get()
 func (sg *SegmentGroup) getWithSegmentList(key []byte, segments []Segment) ([]byte, error) {
