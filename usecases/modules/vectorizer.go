@@ -551,7 +551,7 @@ func (p *Provider) getModule(modConfig map[string]interface{}) (found modulecapa
 			break
 		}
 	}
-	return
+	return found
 }
 
 func (p *Provider) VectorizerName(className string) (string, error) {

@@ -16,15 +16,15 @@ func CertaintyToDistPtr(maybeCertainty *float64) (distPtr *float64) {
 		dist := (1 - *maybeCertainty) * 2
 		distPtr = &dist
 	}
-	return
+	return distPtr
 }
 
 func CertaintyToDist(certainty float64) (dist float64) {
 	dist = (1 - certainty) * 2
-	return
+	return dist
 }
 
 func DistToCertainty(dist float64) (certainty float64) {
 	certainty = 1 - (dist / 2)
-	return
+	return certainty
 }

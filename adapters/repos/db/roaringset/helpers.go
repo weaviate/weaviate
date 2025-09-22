@@ -116,5 +116,5 @@ func (bmf *BitmapFactory) GetBitmap() (cloned *sroar.Bitmap, release func()) {
 		}()
 	}
 	cloned.RemoveRange(maxId+1, prefilledMaxId+1)
-	return
+	return cloned, release
 }
