@@ -37,6 +37,8 @@ func (s Strategy) String() string {
 		return "roaringset"
 	case StrategyRoaringSetRange:
 		return "roaringsetrange"
+	case StrategyInverted:
+		return "inverted"
 	default:
 		return "n/a"
 	}

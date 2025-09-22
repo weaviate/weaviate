@@ -16,15 +16,18 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -1920,4 +1923,116 @@ func (b *Bucket) GetAveragePropertyLength() (float64, error) {
 		return 0, nil
 	}
 	return float64(propLengthSum) / float64(propLengthCount), nil
+}
+
+func DetermineUnloadedBucketStrategy(bucketPath string) (string, error) {
+	return DetermineUnloadedBucketStrategyAmong(bucketPath, prioritizedAllStrategies)
+}
+
+func DetermineUnloadedBucketStrategyAmong(bucketPath string, prioritizedStrategies []string) (string, error) {
+	if len(prioritizedStrategies) == 0 {
+		return "", fmt.Errorf("no prioritizedStrategies given")
+	}
+	defaultStrategy := prioritizedStrategies[0]
+
+	entries, err := os.ReadDir(bucketPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		return defaultStrategy, nil
+	}
+	if len(entries) == 0 {
+		return defaultStrategy, nil
+	}
+
+	// check wals only after checking all segments
+	var walEntries []os.DirEntry
+	ec := errorcompounder.New()
+	ecMismatchStrategy := errorcompounder.New()
+	bufHeader := make([]byte, segmentindex.HeaderSize)
+
+	for _, entry := range entries {
+		switch filepath.Ext(entry.Name()) {
+		case ".db":
+			info, err := entry.Info()
+			if err != nil {
+				ec.Add(fmt.Errorf("%q:%w", entry.Name(), err))
+				continue
+			}
+			if info.Size() <= 0 {
+				continue
+			}
+
+			strategy, err := func() (string, error) {
+				file, err := os.Open(filepath.Join(bucketPath, entry.Name()))
+				if err != nil {
+					return "", err
+				}
+				defer file.Close()
+
+				_, err = io.ReadFull(file, bufHeader)
+				if err != nil {
+					return "", err
+				}
+
+				header, err := segmentindex.ParseHeader(bufHeader)
+				if err != nil {
+					return "", err
+				}
+
+				return header.Strategy.String(), nil
+			}()
+			if err != nil {
+				ec.Add(fmt.Errorf("%q:%w", entry.Name(), err))
+				continue
+			}
+			if !slices.Contains(prioritizedStrategies, strategy) {
+				ecMismatchStrategy.Add(fmt.Errorf("%q:strategy %q does not match %v", entry.Name(), strategy, prioritizedStrategies))
+				continue
+			}
+			return strategy, nil
+
+		case ".wal":
+			info, err := entry.Info()
+			if err != nil {
+				ec.Add(fmt.Errorf("%q:%w", entry.Name(), err))
+				continue
+			}
+			if info.Size() <= 0 {
+				continue
+			}
+			walEntries = append(walEntries, entry)
+
+		default:
+			continue
+		}
+	}
+
+	if err := ecMismatchStrategy.ToError(); err != nil {
+		return "", err
+	}
+
+	// strategy not yet determined. proceed with wal files
+	for _, entry := range walEntries {
+		strategy, err := func() (string, error) {
+			file, err := os.Open(filepath.Join(bucketPath, entry.Name()))
+			if err != nil {
+				return "", err
+			}
+			defer file.Close()
+
+			return guessCommitLogStrategyAmong(file, prioritizedStrategies)
+		}()
+		if err != nil {
+			ec.Add(fmt.Errorf("%q:strategy %q does not match %v", entry.Name(), strategy, prioritizedStrategies))
+			continue
+		}
+		return strategy, nil
+	}
+
+	if err := ec.ToError(); err != nil {
+		return "", err
+	}
+	return defaultStrategy, nil
 }
