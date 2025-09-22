@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -70,6 +71,8 @@ type replicatedIndices struct {
 	// maintenanceModeEnabled is an experimental feature to allow the system to be
 	// put into a maintenance mode where all replicatedIndices requests just return a 418
 	maintenanceModeEnabled func() bool
+	numInProgressRequests  atomic.Int64
+	maxInProgressRequests  int64
 }
 
 var (
@@ -96,6 +99,9 @@ func NewReplicatedIndices(shards replicator, auth auth, maintenanceModeEnabled f
 		shards:                 shards,
 		auth:                   auth,
 		maintenanceModeEnabled: maintenanceModeEnabled,
+		// TODO pass in as args
+		numInProgressRequests: atomic.Int64{},
+		maxInProgressRequests: 1000,
 	}
 }
 
@@ -110,6 +116,14 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
 		}
+		numInProgressRequests := i.numInProgressRequests.Add(1)
+		defer i.numInProgressRequests.Add(-1)
+		if numInProgressRequests > i.maxInProgressRequests {
+			// TODO 429 vs other non-retryable error code? test backoff behavior more to decide unit and chaos or e2e or similar
+			http.Error(w, "429 Too Many Requests", http.StatusTooManyRequests)
+			return
+		}
+
 		// NOTE if you update any of these handler methods/paths, also update the indices_replicas_test.go
 		// TestMaintenanceModeReplicatedIndices test to include the new methods/paths.
 		switch {
