@@ -6,6 +6,7 @@ tenant_activity_write_log_level: info
 query_slow_log_enabled: true
 query_slow_log_threshold: 100ms
 inverted_sorter_disabled: false
+limit_resources: false
 # for usage module if enabled make sure that usage-gcs or usage-s3 module is enabled
 # usage_scrape_interval: 1s
 # usage_shard_jitter_interval: 50ms

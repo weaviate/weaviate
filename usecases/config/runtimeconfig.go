@@ -57,6 +57,7 @@ type WeaviateRuntimeConfig struct {
 	OIDCScopes            *runtime.DynamicValue[[]string] `yaml:"exp_oidc_scopes" json:"exp_oidc_scopes"`
 	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"exp_oidc_certificate" json:"exp_oidc_certificate"`
 	DefaultQuantization   *runtime.DynamicValue[string]   `yaml:"default_quantization" json:"default_quantization"`
+	LimitResources        *runtime.DynamicValue[bool]     `yaml:"limit_resources" json:"limit_resources"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.

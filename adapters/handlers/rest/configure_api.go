@@ -1930,6 +1930,8 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
+		// TODO
+		registered.LimitResources = configRuntime.NewDynamicValue(false)
 
 		if appState.Modules.UsageEnabled() {
 			// gcs config
@@ -1957,6 +1959,15 @@ func initRuntimeOverrides(appState *state.State) {
 
 			hooks["OIDC"] = appState.OIDC.Init
 			appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
+		}
+		// TODO
+		limitResourcesRuntimeHookIsEnabled := true
+		if limitResourcesRuntimeHookIsEnabled {
+			hooks["LimitResources"] = func() error {
+				fmt.Println("NATEE initRuntimeOverrides LimitResources runtime hook")
+				limitResources(appState)
+				return nil
+			}
 		}
 
 		cm, err := configRuntime.NewConfigManager(
