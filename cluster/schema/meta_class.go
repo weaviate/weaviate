@@ -74,12 +74,12 @@ func (m *metaClass) version() uint64 {
 
 func (m *metaClass) MultiTenancyConfig() (mc models.MultiTenancyConfig, v uint64) {
 	if m == nil {
-		return
+		return mc, v
 	}
 	m.RLock()
 	defer m.RUnlock()
 	if m.Class.MultiTenancyConfig == nil {
-		return
+		return mc, v
 	}
 
 	return *m.Class.MultiTenancyConfig, m.version()

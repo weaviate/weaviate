@@ -445,5 +445,5 @@ func getNodesStatus(t *testing.T, output, class string) (payload *models.NodesSt
 		body, clientErr := helper.Client(t).Nodes.NodesGet(params, nil)
 		payload, err = body.Payload, clientErr
 	}
-	return
+	return payload, err
 }

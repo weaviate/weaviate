@@ -37,5 +37,5 @@ func createSingleNodeEnvironment(ctx context.Context,
 		WithText2VecModel2Vec().
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }
