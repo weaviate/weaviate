@@ -509,7 +509,7 @@ func TestBucketInfoInFileName(t *testing.T) {
 		t.Run(fmt.Sprintf("%t", segmentInfo), func(t *testing.T) {
 			dirName := t.TempDir()
 			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(segmentInfo),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(segmentInfo), WithStrategy(StrategyReplace),
 			)
 			require.NoError(t, err)
 			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
@@ -540,7 +540,7 @@ func TestBucketCompactionFileName(t *testing.T) {
 		t.Run(fmt.Sprintf("firstSegment: %t", tt.firstSegment), func(t *testing.T) {
 			dirName := t.TempDir()
 			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.firstSegment),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.firstSegment), WithStrategy(StrategyReplace),
 			)
 			require.NoError(t, err)
 			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
@@ -551,7 +551,7 @@ func TestBucketCompactionFileName(t *testing.T) {
 			oldNames := verifyFileInfo(t, dirName, nil, tt.firstSegment, 0)
 
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.secondSegment),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.secondSegment), WithStrategy(StrategyReplace),
 			)
 			require.NoError(t, err)
 			require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
@@ -563,7 +563,7 @@ func TestBucketCompactionFileName(t *testing.T) {
 			oldNames = verifyFileInfo(t, dirName, oldNames, tt.secondSegment, 0)
 
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.compaction),
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.compaction), WithStrategy(StrategyReplace),
 			)
 			require.NoError(t, err)
 			compact, err := b.disk.compactOnce()
@@ -617,7 +617,7 @@ func TestBucketRecovery(t *testing.T) {
 	dirName := t.TempDir()
 	tmpDir := t.TempDir()
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 	require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
@@ -641,7 +641,7 @@ func TestBucketRecovery(t *testing.T) {
 	require.Equal(t, walFiles, 0)
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 	require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
@@ -654,7 +654,7 @@ func TestBucketRecovery(t *testing.T) {
 	require.NoError(t, os.Rename(tmpPath, oldPath))
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 	get, err := b.Get([]byte("hello1"))
@@ -668,7 +668,7 @@ func TestNetCountComputationAtInit(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 
@@ -704,7 +704,7 @@ func TestNetCountComputationAtInit(t *testing.T) {
 	require.Equal(t, 4, fileTypes[".cna"]) // cna file for new segment not yet computed
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 
