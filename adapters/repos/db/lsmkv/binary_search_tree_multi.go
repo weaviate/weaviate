@@ -220,10 +220,10 @@ func (n *binarySearchNodeMulti) get(key []byte) ([]value, error) {
 func binarySearchNodeMultiFromRB(rbNode rbtree.Node) (bsNode *binarySearchNodeMulti) {
 	if rbNode == nil {
 		bsNode = nil
-		return
+		return bsNode
 	}
 	bsNode = rbNode.(*binarySearchNodeMulti)
-	return
+	return bsNode
 }
 
 // func (n *binarySearchNodeMulti) setTombstone(key []byte) {
