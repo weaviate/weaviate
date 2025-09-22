@@ -187,7 +187,7 @@ func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err 
 
 	config.maintenanceModeEnabled = s.index.Config.MaintenanceModeEnabled
 
-	return
+	return config, err
 }
 
 func optParseInt(s string, defaultVal, minVal, maxVal int) (val int, err error) {
