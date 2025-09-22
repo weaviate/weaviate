@@ -377,13 +377,6 @@ func (s *Shard) initHashtree(ctx context.Context, config asyncReplicationConfig,
 		close(s.minimalHashtreeInitializationCh)
 	}
 
-	err = s.store.PauseCompaction(ctx)
-	if err != nil {
-		releaseInitialization()
-		return fmt.Errorf("pausing compaction: %w", err)
-	}
-	defer s.store.ResumeCompaction(ctx)
-
 	objCount := 0
 	prevProgressLogging := time.Now()
 
