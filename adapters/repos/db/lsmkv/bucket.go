@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 
@@ -38,7 +39,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -352,9 +352,45 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	return nil
 }
 
+func (b *Bucket) pauseCompaction(ctx context.Context) error {
+	return b.disk.pauseCompaction(ctx)
+}
+
+func (b *Bucket) resumeCompaction(ctx context.Context) error {
+	return b.disk.resumeCompaction(ctx)
+}
+
+// ApplyToObjectDigests iterates over all objects in the bucket, both in memtable
+// and on disk, and applies the given function to each object.
+// The afterInMemCallback is called after the in-memory memtable has been processed.
+// This allows the caller to perform actions that need to happen after the in-memory
+// objects have been processed.
+// The function f is called for each object, and if it returns an error, the
+// processing is stopped and the error is returned.
+// Note: this function pauses compaction while it is running, to ensure a consistent view of the data.
 func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 	afterInMemCallback func(), f func(object *storobj.Object) error,
 ) error {
+	err := b.pauseCompaction(ctx)
+	if err != nil {
+		afterInMemCallback()
+		return fmt.Errorf("pausing compaction: %w", err)
+	}
+	defer func() {
+		ec := errorcompounder.New()
+
+		if err != nil {
+			ec.AddWrap(err, "during ApplyToObjectDigests")
+		}
+
+		err = b.resumeCompaction(ctx)
+		if err != nil {
+			ec.AddWrap(err, "resuming compaction after ApplyToObjectDigests")
+		}
+
+		err = ec.ToError()
+	}()
+
 	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
 	onDiskCursor := b.CursorOnDisk()
 	defer onDiskCursor.Close()
@@ -362,7 +398,7 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 	inmemProcessedDocIDs := make(map[uint64]struct{})
 
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
-	err := func() error {
+	err = func() error {
 		defer afterInMemCallback()
 
 		inMemCursor := b.CursorInMem()
