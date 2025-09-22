@@ -14,6 +14,9 @@ package db
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -1041,6 +1044,226 @@ func (m *Migrator) AdjustFilterablePropSettings(ctx context.Context) error {
 		return err
 	}
 	return f2sm.switchShardsToFallbackMode(ctx)
+}
+
+func (m *Migrator) MigrateCompressedVectorBuckets(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	m.logger.
+		WithField("action", "migrate_compressed_vector_buckets").
+		Info("Checking for compressed vector bucket migration")
+
+	m.db.indexLock.Lock()
+	defer m.db.indexLock.Unlock()
+
+	for _, index := range m.db.indices {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		if err := m.migrateIndexCompressedVectorBuckets(ctx, index); err != nil {
+			return errors.Wrapf(err, "failed to migrate compressed vector buckets for index %s", index.ID())
+		}
+	}
+
+	m.logger.
+		WithField("action", "migrate_compressed_vector_buckets").
+		Info("Completed compressed vector bucket migration check")
+
+	return nil
+}
+
+func (m *Migrator) migrateIndexCompressedVectorBuckets(ctx context.Context, index *Index) error {
+	return index.ForEachShard(func(name string, shard ShardLike) error {
+		return m.migrateShardCompressedVectorBuckets(ctx, shard)
+	})
+}
+
+func (m *Migrator) migrateShardCompressedVectorBuckets(ctx context.Context, shard ShardLike) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	// Get the schema to check vector configurations
+	class := shard.Index().Config.ClassName
+	schema := m.db.schemaGetter.GetSchemaSkipAuth()
+	var targetClass *models.Class
+	for _, c := range schema.Objects.Classes {
+		if c.Class == class.String() {
+			targetClass = c
+			break
+		}
+	}
+
+	if targetClass == nil {
+		m.logger.WithField("class", class).Debug("Class not found in schema, skipping migration")
+		return nil
+	}
+
+	// Get vector configurations from the class
+	vectorConfigs := make(map[string]bool)
+
+	// Check main vector config
+	if targetClass.VectorIndexConfig != nil {
+		vectorConfigs[""] = true // Default vector (empty target name)
+	}
+
+	// Check named vectors
+	if targetClass.VectorConfig != nil {
+		for vectorName := range targetClass.VectorConfig {
+			vectorConfigs[vectorName] = true
+		}
+	}
+
+	// If no vector configs found, skip migration
+	if len(vectorConfigs) == 0 {
+		m.logger.WithField("shard", shard.ID()).Debug("No vector configurations found, skipping migration")
+		return nil
+	}
+
+	// If multiple named vectors exist, we have a data corruption issue
+	if len(vectorConfigs) > 1 {
+		m.logger.WithFields(logrus.Fields{
+			"shard":       shard.ID(),
+			"class":       class,
+			"vectorCount": len(vectorConfigs),
+		}).Error("Multiple vector configurations detected with old compressed bucket format. " +
+			"Data corruption may have occurred. Manual intervention required to rebuild compressed vectors.")
+		return nil // Don't fail the startup, but log the issue
+	}
+
+	// Get the single target vector name
+	var targetVector string
+	for vectorName := range vectorConfigs {
+		targetVector = vectorName
+		break
+	}
+
+	// Get the LSM directory path for this shard
+	store := shard.Store()
+	if store == nil {
+		return nil
+	}
+
+	// Check if old compressed bucket directory exists
+	oldBucketName := helpers.VectorsCompressedBucketLSM
+	newBucketName := helpers.GetCompressedBucketName(targetVector)
+
+	// If bucket names are the same, no migration needed
+	if oldBucketName == newBucketName {
+		return nil
+	}
+
+	lsmDir := store.GetDir()
+	oldBucketPath := filepath.Join(lsmDir, oldBucketName)
+	newBucketPath := filepath.Join(lsmDir, newBucketName)
+
+	// Check if old bucket directory exists
+	if _, err := os.Stat(oldBucketPath); os.IsNotExist(err) {
+		// No old bucket exists, no migration needed
+		return nil
+	}
+
+	// Check if new bucket directory already exists
+	if _, err := os.Stat(newBucketPath); err == nil {
+		m.logger.WithFields(logrus.Fields{
+			"shard":         shard.ID(),
+			"oldBucketPath": oldBucketPath,
+			"newBucketPath": newBucketPath,
+		}).Info("New compressed vector bucket already exists, merging data from old bucket")
+
+		// Shutdown the new bucket if it's loaded
+		if err := store.ShutdownBucket(ctx, newBucketName); err != nil {
+			m.logger.WithError(err).Warn("Failed to shutdown new bucket, continuing with migration")
+		}
+
+		// Copy contents from old bucket to new bucket
+		if err := m.copyBucketContents(oldBucketPath, newBucketPath); err != nil {
+			return errors.Wrapf(err, "failed to copy contents from %s to %s", oldBucketPath, newBucketPath)
+		}
+
+		// Remove the old bucket directory
+		if err := os.RemoveAll(oldBucketPath); err != nil {
+			m.logger.WithError(err).Warn("Failed to remove old bucket directory, but migration data copy was successful")
+		}
+
+		// Recreate/reload the new bucket
+		if err := store.CreateOrLoadBucket(ctx, newBucketName); err != nil {
+			m.logger.WithError(err).Warn("Failed to reload new bucket after migration")
+		}
+
+		m.logger.WithFields(logrus.Fields{
+			"shard":         shard.ID(),
+			"oldBucketPath": oldBucketPath,
+			"newBucketPath": newBucketPath,
+		}).Info("Successfully merged old bucket data into existing new bucket")
+
+		return nil
+	}
+
+	// Perform the migration by renaming the directory
+	m.logger.WithFields(logrus.Fields{
+		"shard":         shard.ID(),
+		"class":         class,
+		"targetVector":  targetVector,
+		"oldBucketPath": oldBucketPath,
+		"newBucketPath": newBucketPath,
+	}).Info("Migrating compressed vector bucket directory")
+
+	if err := os.Rename(oldBucketPath, newBucketPath); err != nil {
+		return errors.Wrapf(err, "failed to rename compressed vector bucket from %s to %s", oldBucketPath, newBucketPath)
+	}
+
+	m.logger.WithFields(logrus.Fields{
+		"shard":         shard.ID(),
+		"class":         class,
+		"targetVector":  targetVector,
+		"oldBucketPath": oldBucketPath,
+		"newBucketPath": newBucketPath,
+	}).Info("Successfully migrated compressed vector bucket directory")
+
+	return nil
+}
+
+func (m *Migrator) copyBucketContents(srcDir, dstDir string) error {
+	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Calculate destination path
+		relPath, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+		dstPath := filepath.Join(dstDir, relPath)
+
+		if info.IsDir() {
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+
+		// Copy file
+		return m.copyFile(path, dstPath)
+	})
+}
+
+func (m *Migrator) copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	return err
 }
 
 func (m *Migrator) WaitForStartup(ctx context.Context) error {
