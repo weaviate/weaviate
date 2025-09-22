@@ -14,6 +14,7 @@ package helpers
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/filters"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
@@ -84,30 +85,30 @@ func CompressionRatioFromConfig(config schemaConfig.VectorIndexConfig, dimension
 		if hnswConfig.PQ.Enabled {
 			// PQ compression ratio depends on segments
 			segments := hnswConfig.PQ.Segments
-			if segments > 0 {
-				return float64(dimensions*4) / float64(segments)
+			if segments == 0 {
+				segments = common.CalculateOptimalSegments(dimensions)
 			}
+			return float64(dimensions*4) / float64(segments)
 		} else if hnswConfig.BQ.Enabled {
 			// BQ compression ratio is approximately 32x
-			return 1.0 / 32.0
+			return 32
 		} else if hnswConfig.SQ.Enabled {
 			// SQ compression ratio is approximately 4x
-			return 0.25
+			return 4
 		}
 	} else if flatConfig, ok := config.(flat.UserConfig); ok {
 		// Check for different compression types in Flat config
 		if flatConfig.BQ.Enabled {
 			// BQ compression ratio is approximately 32x
-			return 1.0 / 32.0
+			return 32
 		} else if flatConfig.PQ.Enabled {
 			// PQ compression ratio depends on segments (not supported in flat but handle gracefully)
-			return 0.25
 		} else if flatConfig.SQ.Enabled {
 			// SQ compression ratio is approximately 4x
-			return 0.25
+			return 4
 		}
 	}
 
 	// Default to no compression
-	return 1.0
+	return 1
 }

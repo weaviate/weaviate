@@ -428,7 +428,8 @@ func calculateShardDimensionMetrics(ctx context.Context, sl ShardLike) Dimension
 func calcVectorDimensionMetrics(ctx context.Context, sl ShardLike, vecName string, vecCfg schemaConfig.VectorIndexConfig) DimensionMetrics {
 	switch category, segments := GetDimensionCategoryLegacy(vecCfg); category {
 	case DimensionCategoryPQ:
-		return DimensionMetrics{Uncompressed: 0, Compressed: sl.QuantizedDimensions(ctx, vecName, segments)}
+		count, _ := sl.QuantizedDimensions(ctx, vecName, segments)
+		return DimensionMetrics{Uncompressed: 0, Compressed: count}
 	case DimensionCategoryBQ:
 		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
 		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
