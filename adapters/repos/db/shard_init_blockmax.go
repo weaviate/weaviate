@@ -35,7 +35,7 @@ func (s *Shard) areAllSearchableBucketsBlockMax() bool {
 func structToMap(obj interface{}) (newMap map[string]interface{}) {
 	data, _ := json.Marshal(obj)  // Convert to a json string
 	json.Unmarshal(data, &newMap) // Convert to a map
-	return
+	return newMap
 }
 
 func updateToBlockMaxInvertedIndexConfig(ctx context.Context, sc *schema.Manager, className string) error {

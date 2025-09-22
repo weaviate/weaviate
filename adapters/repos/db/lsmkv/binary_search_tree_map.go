@@ -253,8 +253,8 @@ func sortAndDedupValues(in []MapPair) []MapPair {
 func binarySearchNodeMapFromRB(rbNode rbtree.Node) (bsNode *binarySearchNodeMap) {
 	if rbNode == nil {
 		bsNode = nil
-		return
+		return bsNode
 	}
 	bsNode = rbNode.(*binarySearchNodeMap)
-	return
+	return bsNode
 }
