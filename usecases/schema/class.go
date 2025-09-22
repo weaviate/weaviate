@@ -967,7 +967,7 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 		err = validateMT(update)
 	}
 
-	return
+	return enabled, err
 }
 
 func validateImmutableFields(initial, updated *models.Class) error {

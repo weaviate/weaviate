@@ -108,7 +108,7 @@ func (gs groups) flatten(strategy string) (out []search.Result, err error) {
 		return nil, fmt.Errorf("unrecognized grouping strategy '%s'", strategy)
 	}
 	if err != nil {
-		return
+		return out, err
 	}
 
 	gs.logger.WithField("object", "grouping_after_flatten").

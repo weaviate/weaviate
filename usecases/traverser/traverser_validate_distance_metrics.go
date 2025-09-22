@@ -63,7 +63,7 @@ func (t *Traverser) validateCrossClassDistanceCompatibility(targetVectors []stri
 		vectorConfig, assertErr := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
 		if assertErr != nil {
 			err = assertErr
-			return
+			return distType, err
 		}
 
 		if len(vectorConfig) == 0 {
@@ -76,7 +76,7 @@ func (t *Traverser) validateCrossClassDistanceCompatibility(targetVectors []stri
 
 	if len(distancerTypes) != 1 {
 		err = crossClassDistCompatError(classDistanceConfigs)
-		return
+		return distType, err
 	}
 
 	// the above check ensures that the
@@ -85,7 +85,7 @@ func (t *Traverser) validateCrossClassDistanceCompatibility(targetVectors []stri
 		distType = dt
 	}
 
-	return
+	return distType, err
 }
 
 func (t *Traverser) validateExploreDistanceParams(params ExploreParams, distType string) error {
