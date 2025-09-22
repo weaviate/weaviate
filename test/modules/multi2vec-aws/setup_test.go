@@ -55,15 +55,13 @@ func TestText2VecAWS_SingleNode(t *testing.T) {
 }
 
 func createSingleNodeEnvironment(ctx context.Context, accessKey, secretKey, sessionToken string,
-) (compose *docker.DockerCompose, err error) {
-	compose, err = composeModules(accessKey, secretKey, sessionToken).
+) (*docker.DockerCompose, error) {
+	return composeModules(accessKey, secretKey, sessionToken).
 		WithWeaviate().
 		Start(ctx)
-	return
 }
 
-func composeModules(accessKey, secretKey, sessionToken string) (composeModules *docker.Compose) {
-	composeModules = docker.New().
+func composeModules(accessKey, secretKey, sessionToken string) *docker.Compose {
+	return docker.New().
 		WithMulti2VecAWS(accessKey, secretKey, sessionToken)
-	return
 }
