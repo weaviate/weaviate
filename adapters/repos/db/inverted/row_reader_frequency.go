@@ -245,20 +245,20 @@ func (rr *RowReaderFrequency) transformToBitmap(pairs []lsmkv.MapPair) *sroar.Bi
 // equalHelper exists, because the Equal and NotEqual operators share this functionality
 func (rr *RowReaderFrequency) equalHelper(ctx context.Context) (v []lsmkv.MapPair, err error) {
 	if err = ctx.Err(); err != nil {
-		return
+		return v, err
 	}
 
 	if rr.shardVersion < 2 {
 		v, err = rr.bucket.MapList(ctx, rr.value, lsmkv.MapListAcceptDuplicates(),
 			lsmkv.MapListLegacySortingRequired())
 		if err != nil {
-			return
+			return v, err
 		}
 	} else {
 		v, err = rr.bucket.MapList(ctx, rr.value, lsmkv.MapListAcceptDuplicates())
 		if err != nil {
-			return
+			return v, err
 		}
 	}
-	return
+	return v, err
 }

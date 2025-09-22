@@ -59,7 +59,7 @@ func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCom
 	compose, err = composeModules().
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func createSingleNodeEnvironmentWithEnabledApiBasedModules(ctx context.Context) (compose *docker.DockerCompose, err error) {
@@ -67,14 +67,14 @@ func createSingleNodeEnvironmentWithEnabledApiBasedModules(ctx context.Context) 
 		WithWeaviateEnv("ENABLE_API_BASED_MODULES", "true").
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
 		WithWeaviateCluster(3).
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules() (composeModules *docker.Compose) {
@@ -97,5 +97,5 @@ func composeModules() (composeModules *docker.Compose) {
 		WithQnAOpenAI().
 		WithRerankerCohere().
 		WithRerankerVoyageAI()
-	return
+	return composeModules
 }

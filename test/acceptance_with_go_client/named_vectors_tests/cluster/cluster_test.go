@@ -51,7 +51,7 @@ func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompos
 	compose, err = test_suits.ComposeModules().
 		WithWeaviateCluster(3).
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func createClusterEnvironmentAsyncIndexing(ctx context.Context) (compose *docker.DockerCompose, err error) {
@@ -60,5 +60,5 @@ func createClusterEnvironmentAsyncIndexing(ctx context.Context) (compose *docker
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1s").
 		WithWeaviateCluster(3).
 		Start(ctx)
-	return
+	return compose, err
 }

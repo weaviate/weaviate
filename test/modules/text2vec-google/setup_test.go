@@ -48,12 +48,12 @@ func createSingleNodeEnvironment(ctx context.Context, googleApiKey string,
 		WithWeaviate().
 		WithWeaviateWithGRPC().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules(googleApiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecGoogle(googleApiKey).
 		WithGenerativeGoogle(googleApiKey)
-	return
+	return composeModules
 }

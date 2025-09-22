@@ -43,12 +43,12 @@ func createSingleNodeEnvironment(ctx context.Context, apiKey string,
 		WithWeaviateWithGRPC().
 		WithWeaviateEnv("MODULES_CLIENT_TIMEOUT", "120s").
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules(apiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecTransformers().
 		WithGenerativeXAI(apiKey)
-	return
+	return composeModules
 }

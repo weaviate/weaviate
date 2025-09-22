@@ -42,5 +42,5 @@ func ComposeModules() (composeModules *docker.Compose) {
 		WithText2VecModel2Vec().
 		WithText2VecTransformersImage("semitechnologies/model2vec-inference:minishlab-potion-base-8M-1.0.0").
 		WithWeaviateEnv("ENABLE_API_BASED_MODULES", "true")
-	return
+	return composeModules
 }

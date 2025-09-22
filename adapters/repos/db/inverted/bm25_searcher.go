@@ -312,10 +312,10 @@ func (b *BM25Searcher) wand(
 			termResult, termErr := b.createTerm(N, filterDocIds, term, termId, propNames, propertyBoosts, duplicateBoost, ctx)
 			if termErr != nil {
 				err = termErr
-				return
+				return err
 			}
 			results[termId] = termResult
-			return
+			return err
 		})
 	}
 

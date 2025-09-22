@@ -61,11 +61,11 @@ func createSingleNodeEnvironment(ctx context.Context, accessKey, secretKey, sess
 		WithWeaviate().
 		WithWeaviateWithGRPC().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules(accessKey, secretKey, sessionToken string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecAWS(accessKey, secretKey, sessionToken)
-	return
+	return composeModules
 }

@@ -193,7 +193,7 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 				return client
 			}
 
-			return
+			return client, cleanupFn, restartFn
 		}
 
 		testActivationDeactivationWithRestarts(t, composeFn)
@@ -229,7 +229,7 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 				return client
 			}
 
-			return
+			return client, cleanupFn, restartFn
 		}
 
 		testActivationDeactivationWithRestarts(t, composeFn)

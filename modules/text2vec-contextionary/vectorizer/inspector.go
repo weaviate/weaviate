@@ -248,5 +248,5 @@ func split(src string) (entries []string) {
 			entries = append(entries, strings.ToLower(string(s)))
 		}
 	}
-	return
+	return entries
 }

@@ -41,12 +41,12 @@ func createSingleNodeEnvironment(ctx context.Context, apiApiKey string,
 	compose, err = composeModules(apiApiKey).
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules(apiApiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecContextionary().
 		WithRerankerNvidia(apiApiKey)
-	return
+	return composeModules
 }

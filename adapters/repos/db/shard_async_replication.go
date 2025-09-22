@@ -187,7 +187,7 @@ func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err 
 
 	config.maintenanceModeEnabled = s.index.Config.MaintenanceModeEnabled
 
-	return
+	return config, err
 }
 
 func optParseInt(s string, defaultVal, minVal, maxVal int) (val int, err error) {
@@ -429,10 +429,9 @@ func (s *Shard) initHashtree(ctx context.Context, config asyncReplicationConfig,
 	}
 
 	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
 
 	if s.hashtree == nil {
-		s.asyncReplicationRWMux.Unlock()
-
 		s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
@@ -450,8 +449,6 @@ func (s *Shard) initHashtree(ctx context.Context, config asyncReplicationConfig,
 		WithField("object_count", objCount).
 		WithField("took", fmt.Sprintf("%v", time.Since(start))).
 		Info("hashtree successfully initialized")
-
-	s.asyncReplicationRWMux.Unlock()
 
 	s.initHashBeater(ctx, config)
 
@@ -851,7 +848,12 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 				slices.Sort(aliveHosts)
 
 				if !slices.Equal(comparedHosts, aliveHosts) {
-					propagationRequired <- struct{}{}
+					select {
+					case <-ctx.Done():
+						return
+					case propagationRequired <- struct{}{}:
+					}
+
 					s.setLastComparedNodes(aliveHosts)
 				}
 			case <-ft.C:
@@ -862,7 +864,11 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 				lastHashbeatMux.Unlock()
 
 				if shouldHashbeat {
-					propagationRequired <- struct{}{}
+					select {
+					case <-ctx.Done():
+						return
+					case propagationRequired <- struct{}{}:
+					}
 				}
 			}
 		}
