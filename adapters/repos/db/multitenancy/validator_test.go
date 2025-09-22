@@ -102,7 +102,9 @@ func Test_SingleTenantValidator(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// GIVEN
 			schemaReader := &fakeSchemaReader{classExists: true}
 			validator := multitenancy.NewBuilder("TestClass", false, schemaReader).Build()
@@ -210,7 +212,9 @@ func Test_MultiTenantValidator(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// GIVEN
 			schemaReader := &fakeSchemaReader{
 				tenantShards: tc.tenantShards,
@@ -256,7 +260,9 @@ func Test_MultiTenantValidator_SchemaErrors(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// GIVEN
 			schemaReader := &fakeSchemaReader{
 				tenantsShardErr: tc.tenantsShardErr,
@@ -314,7 +320,9 @@ func Test_TenancyValidator_Builder(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// GIVEN
 			schemaReader := &fakeSchemaReader{
 				tenantShards: map[string]string{"tenant1": models.TenantActivityStatusHOT},

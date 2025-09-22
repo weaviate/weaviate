@@ -206,7 +206,9 @@ func Test_ShardResolution_SingleTenant(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// GIVEN
 			schemaReader := &fakeSchemaReader{shards: tc.shards}
 			r := resolver.NewBuilder("TestClass", false, schemaReader).Build()
@@ -311,7 +313,9 @@ func Test_ShardResolution_MultiTenant(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// GIVEN
 			schemaReader := &fakeSchemaReader{tenantShards: tc.tenantShards}
 			r := resolver.NewBuilder("TestClass", true, schemaReader).Build()
@@ -446,7 +450,9 @@ func Test_ShardResolution_EmptyInputs(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// GIVEN
 			schemaReader := &fakeSchemaReader{
 				shards:       tc.shards,
@@ -687,7 +693,9 @@ func Test_ResolveShardByObjectID_SingleTenant(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// GIVEN
 			schemaReader := &fakeSchemaReader{shards: tc.shards}
 			r := resolver.NewBuilder("TestClass", false, schemaReader).Build()
@@ -779,7 +787,9 @@ func Test_ResolveShardByObjectID_MultiTenant(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// GIVEN
 			schemaReader := &fakeSchemaReader{tenantShards: tc.tenantShards}
 			r := resolver.NewBuilder("TestClass", true, schemaReader).Build()
@@ -803,6 +813,7 @@ func Test_ResolveShardByObjectID_MultiTenant(t *testing.T) {
 
 func Test_ResolveShardByObjectID_ConsistencyWithResolveShard(t *testing.T) {
 	t.Run("single tenant consistency", func(t *testing.T) {
+		t.Parallel()
 		// GIVEN
 		schemaReader := &fakeSchemaReader{shards: []string{"shard1", "shard2", "shard3"}}
 		r := resolver.NewBuilder("TestClass", false, schemaReader).Build()
@@ -832,6 +843,7 @@ func Test_ResolveShardByObjectID_ConsistencyWithResolveShard(t *testing.T) {
 	})
 
 	t.Run("multi tenant consistency", func(t *testing.T) {
+		t.Parallel()
 		// GIVEN
 		tenantShards := map[string]string{
 			"tenantA": models.TenantActivityStatusHOT,
