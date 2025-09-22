@@ -471,6 +471,14 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	return sg, nil
 }
 
+func (sg *SegmentGroup) pauseCompaction(ctx context.Context) error {
+	return sg.compactionCallbackCtrl.Deactivate(ctx)
+}
+
+func (sg *SegmentGroup) resumeCompaction(_ context.Context) error {
+	return sg.compactionCallbackCtrl.Activate()
+}
+
 func (sg *SegmentGroup) makeExistsOn(segments []Segment) existsOnLowerSegmentsFn {
 	return func(key []byte) (bool, error) {
 		if len(segments) == 0 {
