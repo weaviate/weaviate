@@ -53,6 +53,7 @@ func (m *Memtable) flushWAL() error {
 
 func (m *Memtable) flush() (segmentPath string, rerr error) {
 	start := time.Now()
+
 	m.metrics.incFlushingCount(m.strategy)
 	m.metrics.incFlushingInProgress(m.strategy)
 
