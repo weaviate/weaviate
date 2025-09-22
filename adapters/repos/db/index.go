@@ -2153,11 +2153,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	deletionTime time.Time, replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
-	if err := i.validateMultiTenancy(tenant); err != nil {
-		return err
-	}
-
-	shardName, err := i.determineObjectShard(ctx, id, tenant)
+	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, id, tenant)
 	if err != nil {
 		switch {
 		case errors.As(err, &objects.ErrMultiTenancy{}):
