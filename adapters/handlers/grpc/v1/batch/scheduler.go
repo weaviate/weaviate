@@ -58,7 +58,7 @@ func (s *Scheduler) Loop(ctx context.Context) {
 		case <-ctx.Done():
 			s.logger.Info("shutting down scheduler loop")
 			s.loop(s.drain)
-			// Close the internal queue so that the workers can exit once they've drained the queue
+			// Close the processing queue so that the workers can exit once they've drained the queue
 			close(s.processingQueue)
 			return
 		case <-ticker.C:

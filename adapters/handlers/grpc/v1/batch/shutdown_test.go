@@ -68,15 +68,24 @@ func TestShutdownLogic(t *testing.T) {
 			msg.GetError().GetObject() != nil
 	})).Return(nil).Maybe()
 	stream.EXPECT().Send(&pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_ShuttingDown_{
-			ShuttingDown: &pb.BatchStreamReply_ShuttingDown{},
+		Message: &pb.BatchStreamReply_ShutdownTriggered_{
+			ShutdownTriggered: &pb.BatchStreamReply_ShutdownTriggered{},
 		},
 	}).Return(nil).Once()
 	stream.EXPECT().Send(&pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_Shutdown_{
-			Shutdown: &pb.BatchStreamReply_Shutdown{},
+		Message: &pb.BatchStreamReply_ShutdownInProgress_{
+			ShutdownInProgress: &pb.BatchStreamReply_ShutdownInProgress{},
+		},
+	}).Return(nil).Maybe()
+	stream.EXPECT().Send(&pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_ShutdownFinished_{
+			ShutdownFinished: &pb.BatchStreamReply_ShutdownFinished{},
 		},
 	}).Return(nil).Once()
+	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+		time.Sleep(10 * time.Second)
+		return &pb.BatchStreamRequest{}, nil
+	}).Maybe()
 
 	shutdown := batch.NewShutdown(ctx)
 	handler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, shutdown.ShutdownFinished, writeQueues, readQueues, logger)
@@ -85,7 +94,11 @@ func TestShutdownLogic(t *testing.T) {
 
 	go func() {
 		err := handler.StreamSend(ctx, StreamId, stream)
-		require.NoError(t, err, "Expected no error when streaming")
+		require.NoError(t, err, "Expected no error when running stream send")
+	}()
+	go func() {
+		err := handler.StreamRecv(ctx, StreamId, stream)
+		require.NoError(t, err, "Expected no error when running stream recv")
 	}()
 	shutdown.Drain(logger)
 }

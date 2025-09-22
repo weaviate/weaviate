@@ -255,8 +255,8 @@ func TestHandler(t *testing.T) {
 			shutdownFinished := make(chan struct{})
 			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
 			stream.EXPECT().Send(&pb.BatchStreamReply{
-				Message: &pb.BatchStreamReply_ShuttingDown_{
-					ShuttingDown: &pb.BatchStreamReply_ShuttingDown{},
+				Message: &pb.BatchStreamReply_ShutdownTriggered_{
+					ShutdownTriggered: &pb.BatchStreamReply_ShutdownTriggered{},
 				},
 			}).RunAndReturn(func(*pb.BatchStreamReply) error {
 				// Ensure handler cancel call comes after this message has been emitted to avoid races
@@ -264,8 +264,8 @@ func TestHandler(t *testing.T) {
 				return nil
 			}).Once()
 			stream.EXPECT().Send(&pb.BatchStreamReply{
-				Message: &pb.BatchStreamReply_Shutdown_{
-					Shutdown: &pb.BatchStreamReply_Shutdown{},
+				Message: &pb.BatchStreamReply_ShutdownFinished_{
+					ShutdownFinished: &pb.BatchStreamReply_ShutdownFinished{},
 				},
 			}).Return(nil).Once()
 

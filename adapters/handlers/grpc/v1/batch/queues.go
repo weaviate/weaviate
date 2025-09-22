@@ -87,6 +87,8 @@ func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream 
 	// shuttingDown acts as a soft cancel here so we can send the shutting down message to the client.
 	// Once the workers are drained then h.shutdownFinished will be closed and we will shutdown completely
 	shuttingDown := h.shuttingDownCtx.Done()
+	ticker := time.NewTicker(POLLING_INTERVAL)
+	defer ticker.Stop()
 	for {
 		if readQueue, ok := h.readQueues.Get(streamId); ok {
 			select {
@@ -96,12 +98,12 @@ func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream 
 				}
 				return ctx.Err()
 			case <-shuttingDown:
-				if innerErr := stream.Send(newBatchShuttingDownMessage()); innerErr != nil {
+				if innerErr := stream.Send(newBatchShutdownTriggeredMessage()); innerErr != nil {
 					return innerErr
 				}
 				shuttingDown = nil
 			case <-h.shutdownFinished:
-				if innerErr := stream.Send(newBatchShutdownMessage()); innerErr != nil {
+				if innerErr := stream.Send(newBatchShutdownFinishedMessage()); innerErr != nil {
 					return innerErr
 				}
 				return h.wait(ctx)
@@ -129,23 +131,33 @@ func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream 
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
 func (h *QueuesHandler) StreamRecv(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
 	h.recvWg.Add(1)
-	defer h.recvWg.Done()
 	stopping := false
 	for {
 		if ctx.Err() != nil {
+			defer h.recvWg.Done()
 			return ctx.Err()
 		}
 		request, err := stream.Recv()
-		if h.shuttingDownCtx.Err() != nil {
+		if request.GetStop() == nil && h.shuttingDownCtx.Err() != nil {
 			// ignore any further requests as we are shutting down
 			// if users send data while we are shutting down, they will lose these writes
+			// send these objs/refs back so that the client doesn't at least lose these ones
+			err := stream.Send(newBatchShutdownInProgressMessage(request.GetObjects(), request.GetReferences()))
+			if err != nil {
+				defer h.recvWg.Done()
+				return err
+			}
+			h.recvWg.Done()
+			// block until we are fully shut down so that client cannot send any more data
 			<-h.shutdownFinished
-			return nil
+			return h.wait(ctx)
 		}
 		if errors.Is(err, io.EOF) {
+			defer h.recvWg.Done()
 			return nil
 		}
 		if err != nil {
+			defer h.recvWg.Done()
 			return err
 		}
 		objs := make([]*writeObject, 0, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues())+1)
@@ -161,10 +173,12 @@ func (h *QueuesHandler) StreamRecv(ctx context.Context, streamId string, stream 
 			objs = append(objs, &writeObject{Stop: true})
 			stopping = true
 		} else {
+			defer h.recvWg.Done()
 			return fmt.Errorf("invalid batch send request: neither objects, references nor stop signal provided")
 		}
 		if !h.writeQueues.Exists(streamId) {
 			h.logger.WithField("streamId", streamId).Error("write queue not found")
+			defer h.recvWg.Done()
 			return fmt.Errorf("write queue for stream %s not found", streamId)
 		}
 		if len(objs) > 0 {
@@ -222,20 +236,41 @@ func newBatchStopMessage() *pb.BatchStreamReply {
 	}
 }
 
-func newBatchShutdownMessage() *pb.BatchStreamReply {
+func newBatchShutdownFinishedMessage() *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_Shutdown_{
-			Shutdown: &pb.BatchStreamReply_Shutdown{},
+		Message: &pb.BatchStreamReply_ShutdownFinished_{
+			ShutdownFinished: &pb.BatchStreamReply_ShutdownFinished{},
 		},
 	}
 }
 
-func newBatchShuttingDownMessage() *pb.BatchStreamReply {
+func newBatchShutdownTriggeredMessage() *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_ShuttingDown_{
-			ShuttingDown: &pb.BatchStreamReply_ShuttingDown{},
+		Message: &pb.BatchStreamReply_ShutdownTriggered_{
+			ShutdownTriggered: &pb.BatchStreamReply_ShutdownTriggered{},
 		},
 	}
+}
+
+func newBatchShutdownInProgressMessage(objects *pb.BatchStreamRequest_Objects, references *pb.BatchStreamRequest_References) *pb.BatchStreamReply {
+	message := &pb.BatchStreamReply_ShutdownInProgress{}
+	if objects != nil {
+		message.Message = &pb.BatchStreamReply_ShutdownInProgress_Objects_{
+			Objects: &pb.BatchStreamReply_ShutdownInProgress_Objects{
+				Values: objects.Values,
+			},
+		}
+	}
+	if references != nil {
+		message.Message = &pb.BatchStreamReply_ShutdownInProgress_References_{
+			References: &pb.BatchStreamReply_ShutdownInProgress_References{
+				Values: references.Values,
+			},
+		}
+	}
+	return &pb.BatchStreamReply{Message: &pb.BatchStreamReply_ShutdownInProgress_{
+		ShutdownInProgress: message,
+	}}
 }
 
 type readObject struct {

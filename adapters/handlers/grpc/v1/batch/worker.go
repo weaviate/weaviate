@@ -18,7 +18,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -121,11 +120,9 @@ func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObje
 			ch <- &readObject{Errors: errs}
 		}
 		if len(retriable) > 0 {
-			return w.backoff(ctx, func() error {
-				return w.sendObjects(ctx, streamId, &SendObjects{
-					Values:           retriable,
-					ConsistencyLevel: req.ConsistencyLevel,
-				})
+			w.sendObjects(ctx, streamId, &SendObjects{
+				Values:           retriable,
+				ConsistencyLevel: req.ConsistencyLevel,
 			})
 		}
 	}
@@ -168,25 +165,13 @@ func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendR
 			ch <- &readObject{Errors: errs}
 		}
 		if len(retriable) > 0 {
-			return w.backoff(ctx, func() error {
-				return w.sendReferences(ctx, streamId, &SendReferences{
-					Values:           retriable,
-					ConsistencyLevel: req.ConsistencyLevel,
-				})
+			return w.sendReferences(ctx, streamId, &SendReferences{
+				Values:           retriable,
+				ConsistencyLevel: req.ConsistencyLevel,
 			})
 		}
 	}
 	return nil
-}
-
-func (w *Worker) backoff(ctx context.Context, send func() error) error {
-	return backoff.Retry(send, backoff.WithContext(
-		backoff.NewExponentialBackOff(
-			backoff.WithInitialInterval(backoff.DefaultInitialInterval),
-			backoff.WithMaxInterval(backoff.DefaultMaxInterval),
-		),
-		ctx,
-	))
 }
 
 // Loop processes objects from the write queue, sending them to the batcher and handling shutdown signals.
