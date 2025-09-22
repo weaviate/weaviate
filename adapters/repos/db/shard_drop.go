@@ -17,9 +17,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
 // IMPORTANT:
@@ -30,17 +30,19 @@ import (
 // from shard directory, it needs to be reflected as well in LazyLoadShard::drop()
 // method to keep drop behaviour consistent.
 func (s *Shard) drop() (err error) {
-	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
-
-	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
-	s.metrics.baseMetrics.StartUnloadingShard()
-	s.replicationMap.clear()
-
 	s.index.logger.WithFields(logrus.Fields{
 		"action": "drop_shard",
 		"class":  s.class.Class,
 		"shard":  s.name,
 	}).Debug("dropping shard")
+
+	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
+	s.metrics.baseMetrics.StartUnloadingShard()
+	s.replicationMap.clear()
+
+	ec := errorcompounder.New()
+
+	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 
 	s.clearDimensionMetrics() // not deleted in s.metrics.DeleteShardLabels
 
@@ -63,29 +65,7 @@ func (s *Shard) drop() (err error) {
 		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
 		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
 	).Unregister(ctx); err != nil {
-		return err
-	}
-
-	if err = s.store.Shutdown(ctx); err != nil {
-		return errors.Wrap(err, "stop lsmkv store")
-	}
-
-	if _, err = os.Stat(s.pathLSM()); err == nil {
-		err := os.RemoveAll(s.pathLSM())
-		if err != nil {
-			return errors.Wrapf(err, "remove lsm store at %s", s.pathLSM())
-		}
-	}
-	// delete indexcount
-	err = s.counter.Drop()
-	if err != nil {
-		return errors.Wrapf(err, "remove indexcount at %s", s.path())
-	}
-
-	// delete version
-	err = s.versioner.Drop()
-	if err != nil {
-		return errors.Wrapf(err, "remove version at %s", s.path())
+		ec.AddWrap(err, fmt.Sprintf("unregister cycle callbacks while dropping shard %q", s.name))
 	}
 
 	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
@@ -95,7 +75,7 @@ func (s *Shard) drop() (err error) {
 		return nil
 	})
 	if err != nil {
-		return err
+		ec.AddWrap(err, fmt.Sprintf("drop vector queue of vector at %s", s.path()))
 	}
 
 	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
@@ -105,25 +85,48 @@ func (s *Shard) drop() (err error) {
 		return nil
 	})
 	if err != nil {
-		return err
+		ec.AddWrap(err, fmt.Sprintf("remove vector index of vector at %s", s.path()))
 	}
 
 	// delete property length tracker
 	err = s.GetPropertyLengthTracker().Drop()
 	if err != nil {
-		return errors.Wrapf(err, "remove prop length tracker at %s", s.path())
+		ec.AddWrap(err, fmt.Sprintf("remove prop length tracker at %s", s.path()))
 	}
 
 	s.propertyIndicesLock.Lock()
 	err = s.propertyIndices.DropAll(ctx)
 	s.propertyIndicesLock.Unlock()
 	if err != nil {
-		return errors.Wrapf(err, "remove property specific indices at %s", s.path())
+		ec.AddWrap(err, fmt.Sprintf("remove property specific indices at %s", s.path()))
+	}
+
+	if err = s.store.Shutdown(ctx); err != nil {
+		ec.AddWrap(err, fmt.Sprintf("stop lsmkv store at %s", s.path()))
+	}
+
+	if _, err = os.Stat(s.pathLSM()); err == nil {
+		err := os.RemoveAll(s.pathLSM())
+		if err != nil {
+			ec.AddWrap(err, fmt.Sprintf("remove lsm store at %s", s.pathLSM()))
+		}
+	}
+
+	// delete indexcount
+	err = s.counter.Drop()
+	if err != nil {
+		ec.AddWrap(err, fmt.Sprintf("remove indexcount at %s", s.path()))
+	}
+
+	// delete version
+	err = s.versioner.Drop()
+	if err != nil {
+		ec.AddWrap(err, fmt.Sprintf("remove version at %s", s.path()))
 	}
 
 	// remove shard dir
 	if err := os.RemoveAll(s.path()); err != nil {
-		return fmt.Errorf("delete shard dir: %w", err)
+		ec.AddWrap(err, fmt.Sprintf("delete shard dir at %s", s.path()))
 	}
 
 	s.metrics.baseMetrics.FinishUnloadingShard()
@@ -132,7 +135,7 @@ func (s *Shard) drop() (err error) {
 		"action": "drop_shard",
 		"class":  s.class.Class,
 		"shard":  s.name,
-	}).Debug("shard successfully dropped")
+	}).Debug("shard dropped")
 
-	return nil
+	return ec.ToError()
 }
