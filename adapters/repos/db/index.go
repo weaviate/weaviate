@@ -1274,16 +1274,16 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	out := make([]error, len(refs))
 
 	for pos, ref := range refs {
-		target, err := i.shardResolver.ResolveShardByObjectID(ctx, ref.From.TargetID, ref.Tenant)
+		shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, ref.From.TargetID, ref.Tenant)
 		if err != nil {
 			out[pos] = err
 			continue
 		}
 
-		group := byShard[target]
+		group := byShard[shardName]
 		group.refs = append(group.refs, ref)
 		group.pos = append(group.pos, pos)
-		byShard[target] = group
+		byShard[shardName] = group
 	}
 
 	for shardName, group := range byShard {
