@@ -67,7 +67,7 @@ func TestCompactionCleanupBothSegmentsPresent(t *testing.T) {
 				copyFile(t, tmpDir+"/"+entriesTmp[1].Name(), testDir+"/"+entriesTmp[1].Name())
 
 				b2, err := NewBucketCreator().NewBucket(ctx, testDir, "", logger, nil,
-					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo), WithCalcCountNetAdditions(true),
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
 				)
 				if tt.expectErr {
 					require.Error(t, err)
@@ -149,7 +149,7 @@ func TestCompactionCleanupBothSegmentsPresentUpgrade(t *testing.T) {
 				copyFile(t, tmpDir+"/"+entriesTmp[1].Name(), testDir+"/"+entriesTmp[1].Name())
 
 				b2, err := NewBucketCreator().NewBucket(ctx, testDir, "", logger, nil,
-					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(fileInfo.loadingBucket), WithCalcCountNetAdditions(true),
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(fileInfo.loadingBucket), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
 				)
 				if tt.expectErr {
 					require.Error(t, err)
@@ -200,7 +200,7 @@ func TestWalFilePresent(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
 	)
 
 	// create "incomplete" segment
@@ -237,7 +237,7 @@ func TestWalFilePresent(t *testing.T) {
 
 	// incomplete segment will be deleted and memtable is reconstructed from .wal
 	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 
@@ -257,7 +257,7 @@ func TestComputeNetCountAfterCompaction(t *testing.T) {
 
 	finalTestDir := t.TempDir()
 	b, err := NewBucketCreator().NewBucket(ctx, finalTestDir, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 
@@ -297,7 +297,7 @@ func TestComputeNetCountAfterCompaction(t *testing.T) {
 
 	// recover after "crash"
 	b, err = NewBucketCreator().NewBucket(ctx, finalTestDir, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 	count, err = b.Count(ctx)
@@ -312,7 +312,7 @@ func createSegmentFiles(t *testing.T, ctx context.Context, logger logrus.FieldLo
 	}
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo[0]), WithMinWalThreshold(4096),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo[0]), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 	for i := 0; i < 10; i++ {
@@ -325,7 +325,7 @@ func createSegmentFiles(t *testing.T, ctx context.Context, logger logrus.FieldLo
 	require.NoError(t, b.Shutdown(ctx))
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo[1]), WithMinWalThreshold(4096),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo[1]), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 
