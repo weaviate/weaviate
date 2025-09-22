@@ -289,7 +289,7 @@ func (s *Shard) pathHashTree() string {
 
 func (s *Shard) vectorIndexID(targetVector string) string {
 	if targetVector != "" {
-		return fmt.Sprintf("vectors_%s", targetVector)
+		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, targetVector)
 	}
 	return "main"
 }

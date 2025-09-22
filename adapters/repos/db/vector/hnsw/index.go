@@ -24,6 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
@@ -321,11 +322,11 @@ func New(cfg Config, uc ent.UserConfig,
 		if !uc.Multivector.Enabled {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.AllocChecker, index.id)
+				cfg.AllocChecker, index.getName())
 		} else {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.AllocChecker, index.id)
+				cfg.AllocChecker, index.getName())
 		}
 		if err != nil {
 			return nil, err
@@ -356,6 +357,11 @@ func New(cfg Config, uc ent.UserConfig,
 	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	return index, nil
+}
+
+func (h *hnsw) getName() string {
+	name, _ := strings.CutPrefix(h.id, fmt.Sprintf("%s_", helpers.VectorsBucketLSM))
+	return name
 }
 
 // TODO: use this for incoming replication

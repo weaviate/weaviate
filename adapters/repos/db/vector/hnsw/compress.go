@@ -78,11 +78,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if !h.multivector.Load() {
 				h.compressor, err = compressionhelpers.NewHNSWPQCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-					h.allocChecker, h.id)
+					h.allocChecker, h.getName())
 			} else {
 				h.compressor, err = compressionhelpers.NewHNSWPQMultiCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-					h.allocChecker, h.id)
+					h.allocChecker, h.getName())
 			}
 			if err != nil {
 				h.pqConfig.Enabled = false
@@ -93,11 +93,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if !h.multivector.Load() {
 				h.compressor, err = compressionhelpers.NewHNSWSQCompressor(
 					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-					h.allocChecker, h.id)
+					h.allocChecker, h.getName())
 			} else {
 				h.compressor, err = compressionhelpers.NewHNSWSQMultiCompressor(
 					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-					h.allocChecker, h.id)
+					h.allocChecker, h.getName())
 			}
 			if err != nil {
 				h.sqConfig.Enabled = false
@@ -109,10 +109,10 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		var err error
 		if !h.multivector.Load() {
 			h.compressor, err = compressionhelpers.NewBQCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.id)
+				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.getName())
 		} else {
 			h.compressor, err = compressionhelpers.NewBQMultiCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.id)
+				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.getName())
 		}
 		if err != nil {
 			return err
