@@ -1368,11 +1368,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, addl additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*storobj.Object, error) {
-	if err := i.validateMultiTenancy(tenant); err != nil {
-		return nil, err
-	}
-
-	shardName, err := i.determineObjectShard(ctx, id, tenant)
+	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, id, tenant)
 	if err != nil {
 		switch {
 		case errors.As(err, &objects.ErrMultiTenancy{}):
