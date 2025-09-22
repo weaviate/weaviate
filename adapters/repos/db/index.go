@@ -2906,19 +2906,6 @@ func objectSearchPreallocate(limit int, shards []string) ([]*storobj.Object, []f
 	return objects, scores
 }
 
-func (i *Index) validateMultiTenancy(tenant string) error {
-	if i.partitioningEnabled && tenant == "" {
-		return objects.NewErrMultiTenancy(
-			fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", i.Config.ClassName),
-		)
-	} else if !i.partitioningEnabled && tenant != "" {
-		return objects.NewErrMultiTenancy(
-			fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", i.Config.ClassName),
-		)
-	}
-	return nil
-}
-
 // GetVectorIndexConfig returns a vector index configuration associated with targetVector.
 // In case targetVector is empty string, legacy vector configuration is returned.
 // Method expects that configuration associated with targetVector is present.
