@@ -50,16 +50,12 @@ func testGenerativeCohere(rest, grpc string) func(t *testing.T) {
 			absentModuleConfig bool
 		}{
 			{
-				name:            "command-r-plus",
-				generativeModel: "command-r-plus",
-			},
-			{
-				name:            "command-r",
-				generativeModel: "command-r",
+				name:            "command-r-08-2024",
+				generativeModel: "command-r-08-2024",
 			},
 			{
 				name:               "absent module config",
-				generativeModel:    "command-r",
+				generativeModel:    "command-a-03-2025",
 				absentModuleConfig: true,
 			},
 		}
