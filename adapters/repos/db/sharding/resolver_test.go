@@ -22,12 +22,12 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/resolver"
+	"github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// fakeSchemaReader is a single test fake that satisfies resolver.schemaReader
+// fakeSchemaReader is a single test fake that satisfies sharding.schemaReader
 // (and multitenancy.schemaReader). It can behave as:
 //   - A fixed-shard mapper: set shards = []string{"shard1"} to always return "shard1" for all UUIDs.
 //   - A hashing mapper: set shards = []string{...} to distribute UUIDs across shard using a simple hash on the first byte of the UUID.
