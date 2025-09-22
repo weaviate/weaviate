@@ -1153,39 +1153,16 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	}
 
 	byShard := map[string]objsAndPos{}
-	// get all tenants shards
-	tenants := make([]string, len(objects))
-	tenantsStatus := map[string]string{}
-	var err error
-	for _, obj := range objects {
-		if obj.Object.Tenant == "" {
-			continue
-		}
-		tenants = append(tenants, obj.Object.Tenant)
-	}
-
-	if len(tenants) > 0 {
-		tenantsStatus, err = i.getSchema.TenantsShards(ctx, i.Config.ClassName.String(), tenants...)
-		if err != nil {
-			return []error{err}
-		}
-	}
-
 	for pos, obj := range objects {
-		if err := i.validateMultiTenancy(obj.Object.Tenant); err != nil {
-			out[pos] = err
-			continue
-		}
-		shardName, err := i.determineObjectShardByStatus(ctx, obj.ID(), obj.Object.Tenant, tenantsStatus)
+		target, err := i.shardResolver.ResolveShard(ctx, obj)
 		if err != nil {
 			out[pos] = err
 			continue
 		}
-
-		group := byShard[shardName]
+		group := byShard[target.Shard]
 		group.objects = append(group.objects, obj)
 		group.pos = append(group.pos, pos)
-		byShard[shardName] = group
+		byShard[target.Shard] = group
 	}
 
 	wg := &sync.WaitGroup{}
@@ -1297,20 +1274,16 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	out := make([]error, len(refs))
 
 	for pos, ref := range refs {
-		if err := i.validateMultiTenancy(ref.Tenant); err != nil {
-			out[pos] = err
-			continue
-		}
-		shardName, err := i.determineObjectShard(ctx, ref.From.TargetID, ref.Tenant)
+		target, err := i.shardResolver.ResolveShardByObjectID(ctx, ref.From.TargetID, ref.Tenant)
 		if err != nil {
 			out[pos] = err
 			continue
 		}
 
-		group := byShard[shardName]
+		group := byShard[target]
 		group.refs = append(group.refs, ref)
 		group.pos = append(group.pos, pos)
-		byShard[shardName] = group
+		byShard[target] = group
 	}
 
 	for shardName, group := range byShard {
