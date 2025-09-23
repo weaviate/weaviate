@@ -1677,7 +1677,6 @@ func (m membership) LeaderID() string {
 // initRuntimeOverrides assumes, Configs from envs are loaded before
 // initializing runtime overrides.
 func initRuntimeOverrides(appState *state.State) {
-	// Enable runtime config manager
 	if !appState.ServerConfig.Config.RuntimeOverrides.Enabled {
 		return
 	}
