@@ -157,7 +157,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	schemaGetter := &fakeSchemaGetter{
 		schema: fakeSchema, shardState: shardState,
 	}
-	shardResolver := resolver.NewBuilder(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter).Build()
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
@@ -400,7 +400,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	schemaGetter := &fakeSchemaGetter{
 		schema: fakeSchema, shardState: shardState,
 	}
-	shardResolver := resolver.NewBuilder(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter).Build()
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
@@ -500,7 +500,7 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 	schemaGetter := &fakeSchemaGetter{
 		schema: fakeSchema, shardState: shardState,
 	}
-	shardResolver := resolver.NewBuilder(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter).Build()
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(class.Class),
@@ -600,7 +600,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	schemaGetter := &fakeSchemaGetter{
 		schema: fakeSchema, shardState: shardState,
 	}
-	shardResolver := resolver.NewBuilder(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter).Build()
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
@@ -666,7 +666,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class, shardState *sha
 	schemaGetter := &fakeSchemaGetter{
 		shardState: shardState,
 	}
-	shardResolver := resolver.NewBuilder(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter).Build()
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	idx, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:              rootDir,
 		ClassName:             schema.ClassName(class.Class),

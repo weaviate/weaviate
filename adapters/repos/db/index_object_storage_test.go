@@ -161,7 +161,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			mockRouter := types.NewMockRouter(t)
 			mockRouter.EXPECT().GetWriteReplicasLocation(tt.className, mock.Anything, tt.shardName).
 				Return(types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "110.12.15.23"}}}, nil).Maybe()
-			shardResolver := resolver.NewBuilder(class.Class, class.MultiTenancyConfig.Enabled, mockSchema).Build()
+			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 			// Create index
 			index, err := NewIndex(ctx, IndexConfig{
 				RootPath:              dirName,
@@ -324,7 +324,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	mockRouter := types.NewMockRouter(t)
 	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, tenantName).
 		Return(types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "test-node", ShardName: tenantName, HostAddr: "110.12.15.23"}}}, nil).Maybe()
-	shardResolver := resolver.NewBuilder(class.Class, class.MultiTenancyConfig.Enabled, mockSchema).Build()
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 	// Create index with lazy loading disabled to test active calculation methods
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:              dirName,

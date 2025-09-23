@@ -211,7 +211,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 					Replicas:           []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "10.14.57.56"}},
 					AdditionalReplicas: nil,
 				}, nil).Maybe()
-			shardResolver := resolver.NewBuilder(class.Class, class.MultiTenancyConfig.Enabled, mockSchema).Build()
+			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 			index, err := NewIndex(ctx, IndexConfig{
 				RootPath:              dirName,
 				ClassName:             schema.ClassName(tt.className),
@@ -493,7 +493,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 					Replicas:           []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "10.14.57.56"}},
 					AdditionalReplicas: nil,
 				}, nil).Maybe()
-			shardResolver := resolver.NewBuilder(class.Class, class.MultiTenancyConfig.Enabled, mockSchema).Build()
+			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 			index, err := NewIndex(ctx, IndexConfig{
 				RootPath:              dirName,
 				ClassName:             schema.ClassName(tt.className),
@@ -700,7 +700,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 			Replicas:           []types.Replica{{NodeName: "test-node", ShardName: tenantNamePopulated, HostAddr: "10.14.57.56"}},
 			AdditionalReplicas: nil,
 		}, nil).Maybe()
-	shardResolver := resolver.NewBuilder(class.Class, class.MultiTenancyConfig.Enabled, mockSchema).Build()
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 	// Create index with lazy loading disabled to test active calculation methods
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:              dirName,
