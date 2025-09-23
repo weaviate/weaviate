@@ -560,3 +560,101 @@ func TestSegmentGroup_Map_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	validateView(t, segments)
 	require.Greater(t, segAB.getCounter, 0, "compacted segment should have received calls on new view")
 }
+
+func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentAddition(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// initial segment
+	segmentData := map[string][]MapPair{
+		"key1": {NewMapPairFromDocIdAndTf(0, 2, 1, false)},
+	}
+	sg := &SegmentGroup{
+		segments: []Segment{newFakeInvertedSegment(segmentData)},
+	}
+
+	// control before segment changes
+	segments, release := sg.getConsistentViewOfSegments()
+	defer release()
+
+	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx, segments[0], []kv{
+		{key: []byte("key1"), values: []MapPair{NewMapPairFromDocIdAndTf(0, 2, 1, false)}},
+	}))
+
+	// append new segment (Inverted semantics: union/accumulation)
+	segment2Data := map[string][]MapPair{
+		"key1": {NewMapPairFromDocIdAndTf(1, 2, 1, false)},
+	}
+	sg.addInitializedSegment(newFakeInvertedSegment(segment2Data))
+
+	// old view remains unchanged
+	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx, segments[0], []kv{
+		{key: []byte("key1"), values: []MapPair{NewMapPairFromDocIdAndTf(0, 2, 1, false)}},
+	}))
+
+	// new readers see union from both segments
+	segments, release = sg.getConsistentViewOfSegments()
+	defer release()
+
+	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSegments(ctx, segments, []kv{
+		{key: []byte("key1"), values: []MapPair{
+			NewMapPairFromDocIdAndTf(0, 2, 1, false),
+			NewMapPairFromDocIdAndTf(1, 2, 1, false),
+		}},
+	}))
+}
+
+func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+
+	// initial two segments
+	segA := newFakeInvertedSegment(map[string][]MapPair{
+		"key1": {NewMapPairFromDocIdAndTf(0, 2, 1, false)},
+	})
+	segB := newFakeInvertedSegment(map[string][]MapPair{
+		"key1": {NewMapPairFromDocIdAndTf(1, 2, 1, false)},
+	})
+
+	sg := &SegmentGroup{
+		segments: []Segment{segA, segB},
+		logger:   logger,
+	}
+
+	// take a consistent view before switch
+	segments, release := sg.getConsistentViewOfSegments()
+	defer release()
+
+	validateView := func(t *testing.T, segments []Segment) {
+		require.NoError(t, validateMapPairListVsBlockMaxSearchFromSegments(ctx, segments, []kv{
+			{key: []byte("key1"), values: []MapPair{
+				NewMapPairFromDocIdAndTf(0, 2, 1, false),
+				NewMapPairFromDocIdAndTf(1, 2, 1, false),
+			}},
+		}))
+	}
+	validateView(t, segments)
+
+	// compacted segment containing both keys
+	segAB := newFakeInvertedSegment(map[string][]MapPair{
+		"key1": {NewMapPairFromDocIdAndTf(0, 2, 1, false), NewMapPairFromDocIdAndTf(1, 2, 1, false)},
+	})
+
+	// perform in-memory switch
+	newSegmentReplacer(sg, 0, 1, segAB).switchInMemory()
+	require.Equal(t, []Segment{segAB}, sg.segments, "segment list should now be the compacted one")
+
+	// prove the old view still works (must not require segAB)
+	validateView(t, segments)
+
+	require.Equal(t, 0, segAB.getCounter, "new segment should not have received calls on old view")
+
+	// new consistent view should hit segAB
+	segments, release = sg.getConsistentViewOfSegments()
+	defer release()
+
+	validateView(t, segments)
+	require.Greater(t, segAB.getCounter, 0, "compacted segment should have received calls on new view")
+}

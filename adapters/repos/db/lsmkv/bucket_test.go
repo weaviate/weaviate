@@ -2216,6 +2216,10 @@ func validateMapPairListVsBlockMaxSearchFromView(ctx context.Context, bucket *Bu
 }
 
 func validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx context.Context, segment Segment, expectedMultiKey []kv) error {
+	return validateMapPairListVsBlockMaxSearchFromSegments(ctx, []Segment{segment}, expectedMultiKey)
+}
+
+func validateMapPairListVsBlockMaxSearchFromSegments(ctx context.Context, segments []Segment, expectedMultiKey []kv) error {
 	for _, termPair := range expectedMultiKey {
 		expected := termPair.values
 		mapKey := termPair.key
@@ -2229,9 +2233,11 @@ func validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx context.Context, s
 		avgPropLen := 1.0
 		duplicateTextBoosts := make([]int, 1)
 		duplicateTextBoosts[0] = 1
-		bmws := newSegmentBlockMaxForFakeSegment(segment, mapKey, 0, 1, 1, nil, nil, 3, bm25config)
-
-		diskTerms := [][]*SegmentBlockMax{{bmws}}
+		diskTerms := make([][]*SegmentBlockMax, 0, len(segments))
+		for _, segment := range segments {
+			bmws := newSegmentBlockMaxForFakeSegment(segment, mapKey, 0, 1, 1, nil, nil, 3, bm25config)
+			diskTerms = append(diskTerms, []*SegmentBlockMax{bmws})
+		}
 
 		expectedSet := make(map[uint64][]*terms.DocPointerWithScore, len(expected))
 		for _, diskTerm := range diskTerms {
@@ -2288,6 +2294,8 @@ func newSegmentBlockMaxForFakeSegment(s Segment, key []byte, queryTermIndex int,
 	if !bmwd.Exhausted() {
 		bmwd.advanceOnTombstoneOrFilter()
 	}
+
+	s.(*fakeSegment).getCounter++
 
 	return bmwd
 }
