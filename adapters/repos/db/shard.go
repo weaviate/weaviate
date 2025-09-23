@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"path"
@@ -57,7 +58,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
-const IdLockPoolSize = 128
+const IdLockPoolSize uint64 = 1024
 
 var (
 	errAlreadyShutdown    = errors.New("already shut or dropped")
@@ -317,10 +318,19 @@ func (s *Shard) vectorIndexID(targetVector string) string {
 	return "main"
 }
 
-func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
-	// use the last byte of the uuid to determine which locking-pool a given object should use. The last byte is used
-	// as uuids probably often have some kind of order and the last byte will in general be the one that changes the most
-	return idBytes[15] % IdLockPoolSize
+// uuidToIdLockPoolId computes a lock pool id for a given uuid. The lock pool
+// is used to synchronize access to the same uuid. The pool size is fixed and
+// defined by IdLockPoolSize.
+// The function uses the XOR of the two halves of the UUID to ensure a good
+// distribution of UUIDs to lock pool ids. This helps to minimize lock
+// contention when multiple goroutines are accessing different UUIDs.
+// The result is then taken modulo the pool size to ensure it fits within the
+// bounds of the lock pool array.
+func (s *Shard) uuidToIdLockPoolId(uuidBytes []byte) uint {
+	lo := binary.LittleEndian.Uint64(uuidBytes[:8])
+	hi := binary.LittleEndian.Uint64(uuidBytes[8:16])
+
+	return uint((lo ^ hi) % IdLockPoolSize)
 }
 
 func (s *Shard) memtableDirtyConfig() lsmkv.BucketOption {
