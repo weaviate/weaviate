@@ -54,5 +54,5 @@ func ValidateStatus(in string) (status Status, err error) {
 		err = ErrInvalidStatus
 	}
 
-	return
+	return status, err
 }

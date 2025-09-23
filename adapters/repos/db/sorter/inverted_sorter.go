@@ -338,13 +338,13 @@ func (is *invertedSorter) extractDocIDsFromBitmap(
 			// through the ids found in this row as well as the starting offset
 			if !forbidEarlyExit && totalCountBefore+len(found) >= limit {
 				earlyExit = true
-				return
+				return found, earlyExit
 			}
 		}
 	}
 
 	earlyExit = false
-	return
+	return found, earlyExit
 }
 
 func (is *invertedSorter) startNestedSort(
