@@ -362,7 +362,7 @@ func (n *binarySearchNode) flattenInOrder() []*binarySearchNode {
 		right = n.right.flattenInOrder()
 	}
 
-	right = append([]*binarySearchNode{n}, right...)
+	right = append([]*binarySearchNode{n.shallowCopy()}, right...)
 	return append(left, right...)
 }
 
@@ -383,6 +383,22 @@ func (n *binarySearchNode) countStats(stats *countStats) {
 
 	if n.right != nil {
 		n.right.countStats(stats)
+	}
+}
+
+func (n *binarySearchNode) shallowCopy() *binarySearchNode {
+	var skeys [][]byte
+	if ln := len(n.secondaryKeys); ln > 0 {
+		skeys = make([][]byte, ln)
+		copy(skeys, n.secondaryKeys)
+	}
+
+	return &binarySearchNode{
+		key:           n.key,
+		value:         n.value,
+		tombstone:     n.tombstone,
+		colourIsRed:   n.colourIsRed,
+		secondaryKeys: skeys,
 	}
 }
 
