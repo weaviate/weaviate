@@ -23,16 +23,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type bucketTest struct {
@@ -1720,6 +1723,112 @@ func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
 	}, got)
 }
 
+func TestBucketInvertedStrategyConsistentView(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	diskSegments := &SegmentGroup{
+		segments: []Segment{
+			newFakeInvertedSegment(map[string][]MapPair{
+				"key1": {NewMapPairFromDocIdAndTf(0, 2, 1, false), NewMapPairFromDocIdAndTf(10, 10, 1, false)},
+			}),
+		},
+	}
+
+	initialMemtable := newTestMemtableInverted(map[string][]MapPair{
+		"key1": {NewMapPairFromDocIdAndTf(1, 3, 1, false)},
+	})
+
+	b := Bucket{
+		active:             initialMemtable,
+		disk:               diskSegments,
+		strategy:           StrategyInverted,
+		newSegmentBlockMax: newSegmentBlockMaxForFakeSegment,
+		logger:             logrus.New(),
+	}
+
+	err := validateMapPairListVsBlockMaxSearch(ctx, &b, []kv{
+		{
+			key: []byte("key1"),
+			values: []MapPair{
+				NewMapPairFromDocIdAndTf(0, 2, 1, false),
+				NewMapPairFromDocIdAndTf(1, 3, 1, false),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// View #1 (pre-switch): active=doc_id(0), flushing=nil, disk=doc_id(1)
+	view1 := b.getConsistentView()
+	defer view1.Release()
+
+	validateView1 := func(v BucketConsistentView) {
+		expected := []kv{
+			{
+				key: []byte("key1"),
+				values: []MapPair{
+					NewMapPairFromDocIdAndTf(0, 2, 1, false),
+					NewMapPairFromDocIdAndTf(1, 3, 1, false),
+				},
+			},
+		}
+
+		require.NoError(t, validateMapPairListVsBlockMaxSearchFromView(ctx, &b, v, expected))
+	}
+	validateView1(view1)
+
+	// Switch: move active->flushing (key2), new active with key3 -> {"a3"}
+	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
+		return newTestMemtableInverted(map[string][]MapPair{
+			"key1": {NewMapPairFromDocIdAndTf(2, 4, 1, false)},
+		}), nil
+	})
+	require.NoError(t, err)
+	require.True(t, switched)
+
+	// view1 remains unchanged
+	validateView1(view1)
+
+	// View #2 (post-switch): active=doc_id(2), flushing=doc_id(1), disk=doc_id(0)
+	view2 := b.getConsistentView()
+	defer view2.Release()
+
+	validateView2 := func(v BucketConsistentView) {
+		expected := []kv{
+			{
+				key: []byte("key1"),
+				values: []MapPair{
+					NewMapPairFromDocIdAndTf(0, 2, 1, false),
+					NewMapPairFromDocIdAndTf(1, 3, 1, false),
+					NewMapPairFromDocIdAndTf(2, 4, 1, false),
+				},
+			},
+		}
+
+		require.NoError(t, validateMapPairListVsBlockMaxSearchFromView(ctx, &b, v, expected))
+	}
+	validateView2(view2)
+
+	// Flush flushing (key2) -> disk; both views stay stable
+	seg := flushInvertedTestMemtableIntoTestSegment(b.flushing)
+	b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+	validateView1(view1)
+	validateView2(view2)
+
+	// Final view: active=doc_id(2), flushing=nil, disk has doc_id(0) & doc_id(1)
+	err = validateMapPairListVsBlockMaxSearch(ctx, &b, []kv{
+		{
+			key: []byte("key1"),
+			values: []MapPair{
+				NewMapPairFromDocIdAndTf(0, 2, 1, false),
+				NewMapPairFromDocIdAndTf(1, 3, 1, false),
+				NewMapPairFromDocIdAndTf(2, 4, 1, false),
+			},
+		},
+	})
+	require.NoError(t, err)
+}
+
 type testMemtable struct {
 	*Memtable
 	totalWriteCountIncs int
@@ -1818,6 +1927,24 @@ func newTestMemtableMap(initialData map[string][]MapPair) *testMemtable {
 	return &testMemtable{Memtable: m}
 }
 
+func newTestMemtableInverted(initialData map[string][]MapPair) *testMemtable {
+	m := &Memtable{
+		strategy:   StrategyInverted,
+		keyMap:     &binarySearchTreeMap{},
+		commitlog:  newDummyCommitLogger(),
+		metrics:    newMemtableMetrics(nil, "", ""),
+		tombstones: sroar.NewBitmap(),
+	}
+
+	for k, v := range initialData {
+		for _, mp := range v {
+			m.appendMapSorted([]byte(k), mp)
+		}
+	}
+
+	return &testMemtable{Memtable: m}
+}
+
 func flushReplaceTestMemtableIntoTestSegment(m memtable) *fakeSegment {
 	allEntries := m.(*testMemtable).key.flattenInOrder()
 	data := map[string][]byte{}
@@ -1860,9 +1987,22 @@ func flushMapTestMemtableIntoTestSegment(m memtable) *fakeSegment {
 	allEntries := m.(*testMemtable).keyMap.flattenInOrder()
 	data := map[string][]MapPair{}
 	for _, e := range allEntries {
-		data[string(e.key)] = e.values
+		valuesCopy := make([]MapPair, len(e.values))
+		copy(valuesCopy, e.values)
+		data[string(e.key)] = valuesCopy
 	}
 	return newFakeMapSegment(data)
+}
+
+func flushInvertedTestMemtableIntoTestSegment(m memtable) *fakeSegment {
+	allEntries := m.(*testMemtable).keyMap.flattenInOrder()
+	data := map[string][]MapPair{}
+	for _, e := range allEntries {
+		valuesCopy := make([]MapPair, len(e.values))
+		copy(valuesCopy, e.values)
+		data[string(e.key)] = valuesCopy
+	}
+	return newFakeInvertedSegment(data)
 }
 
 func newDummyCommitLogger() memtableCommitLogger {
@@ -1922,4 +2062,117 @@ func mapFromDocPointers(id uint64, frequency, proplength float32) MapPair {
 
 func docPointers(id uint64, frequency, proplength float32) terms.DocPointerWithScore {
 	return terms.DocPointerWithScore{Id: id, Frequency: frequency, PropLength: proplength}
+}
+
+// moved from an intregation test, so we can use it both in unit and
+// integration tests
+func NewMapPairFromDocIdAndTf(docId uint64, tf float32, propLength float32, isTombstone bool) MapPair {
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, docId)
+
+	value := make([]byte, 8)
+	binary.LittleEndian.PutUint32(value[0:4], math.Float32bits(tf))
+	binary.LittleEndian.PutUint32(value[4:8], math.Float32bits(propLength))
+
+	return MapPair{
+		Key:       key,
+		Value:     value,
+		Tombstone: isTombstone,
+	}
+}
+
+func (kv MapPair) UpdateTf(tf float32, propLength float32) {
+	kv.Value = make([]byte, 8)
+	binary.LittleEndian.PutUint32(kv.Value[0:4], math.Float32bits(tf))
+	binary.LittleEndian.PutUint32(kv.Value[4:8], math.Float32bits(propLength))
+}
+
+type kv struct {
+	key    []byte
+	values []MapPair
+}
+
+func validateMapPairListVsBlockMaxSearch(ctx context.Context, bucket *Bucket, expectedMultiKey []kv) error {
+	view := bucket.getConsistentView()
+	defer view.Release()
+	return validateMapPairListVsBlockMaxSearchFromView(ctx, bucket, view, expectedMultiKey)
+}
+
+func validateMapPairListVsBlockMaxSearchFromView(ctx context.Context, bucket *Bucket, view BucketConsistentView, expectedMultiKey []kv) error {
+	for _, termPair := range expectedMultiKey {
+		expected := termPair.values
+		mapKey := termPair.key
+		// get more results, as there may be more results than expected on the result heap
+		// during intermediate steps of insertions
+		N := len(expected) * 10
+		bm25config := schema.BM25Config{
+			K1: 1.2,
+			B:  0.75,
+		}
+		avgPropLen := 1.0
+		queries := []string{string(mapKey)}
+		duplicateTextBoosts := make([]int, 1)
+		duplicateTextBoosts[0] = 1
+		diskTerms, _, _, err := bucket.createDiskTermFromCV(ctx, view, float64(N), nil, queries, "", 1, duplicateTextBoosts, bm25config)
+		if err != nil {
+			return fmt.Errorf("failed to create disk term: %w", err)
+		}
+
+		expectedSet := make(map[uint64][]*terms.DocPointerWithScore, len(expected))
+		for _, diskTerm := range diskTerms {
+			topKHeap, err := DoBlockMaxWand(ctx, N, diskTerm, avgPropLen, true, 1, 1, bucket.logger)
+			if err != nil {
+				return fmt.Errorf("failed to execute DoBlockMaxWand for diskTerm %v: %w", diskTerm, err)
+			}
+			for topKHeap.Len() > 0 {
+				item := topKHeap.Pop()
+				expectedSet[item.ID] = item.Value
+			}
+		}
+
+		for _, val := range expected {
+			docId := binary.BigEndian.Uint64(val.Key)
+			if val.Tombstone {
+				continue
+			}
+			freq := math.Float32frombits(binary.LittleEndian.Uint32(val.Value[0:4]))
+			if _, ok := expectedSet[docId]; !ok {
+				return fmt.Errorf("expected docId %v not found in topKHeap: %v", docId, expectedSet)
+			}
+			if expectedSet[docId][0].Frequency != freq {
+				return fmt.Errorf("expected frequency %v but got %v", freq, expectedSet[docId][0].Frequency)
+			}
+
+		}
+	}
+
+	return nil
+}
+
+func newSegmentBlockMaxForFakeSegment(s Segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+	// we're taking a bit of a creative route to make this work with a fake
+	// segment. We have existing functions to create a SegmentBlockMax from a
+	// memtable which are used with real memtables. So if we convert the fake
+	// segment into a memtable, we can reuse that code
+	keys := map[string][]MapPair{}
+
+	for k, v := range s.(*fakeSegment).collectionStore {
+		mv, err := newMapDecoder().Do(v, false)
+		if err != nil {
+			panic(err)
+		}
+		keys[k] = mv
+	}
+
+	mt := newTestMemtableInverted(keys)
+	bmwd := NewSegmentBlockMaxDecoded(key, 0, propertyBoost, filterDocIds, averagePropLength, config)
+
+	fillTerm(mt, key, bmwd, filterDocIds)
+
+	bmwd.idf = idf
+	if !bmwd.Exhausted() {
+		bmwd.advanceOnTombstoneOrFilter()
+	}
+
+	return bmwd
 }

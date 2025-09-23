@@ -72,6 +72,23 @@ func newFakeMapSegment(kv map[string][]MapPair) *fakeSegment {
 	return &fakeSegment{strategy: segmentindex.StrategyMapCollection, collectionStore: store}
 }
 
+func newFakeInvertedSegment(kv map[string][]MapPair) *fakeSegment {
+	store := make(map[string][]value, len(kv))
+	for k, v := range kv {
+		values := make([]value, 0, len(v))
+		for _, single := range v {
+			mBytes, err := single.Bytes()
+			if err != nil {
+				panic(err)
+			}
+
+			values = append(values, value{value: mBytes})
+		}
+		store[k] = values
+	}
+	return &fakeSegment{strategy: segmentindex.StrategyInverted, collectionStore: store}
+}
+
 type fakeSegment struct {
 	strategy              segmentindex.Strategy
 	replaceStore          map[string][]byte
@@ -171,7 +188,17 @@ func (f *fakeSegment) getCollection(key []byte) ([]value, error) {
 }
 
 func (f *fakeSegment) getInvertedData() *segmentInvertedData {
-	panic("not implemented") // TODO: Implement
+	return &segmentInvertedData{
+		tombstones: sroar.NewBitmap(),
+		propertyLengths: map[uint64]uint32{
+			0: 3, // TODO: do we need to use real data here or is hardcoded data ok?
+			1: 3,
+		},
+		propertyLengthsLoaded:   true,
+		tombstonesLoaded:        true,
+		avgPropertyLengthsAvg:   3.0,
+		avgPropertyLengthsCount: 2,
+	}
 }
 
 func (f *fakeSegment) getSegment() *segment {
@@ -262,7 +289,12 @@ func (f *fakeSegment) quantileKeys(q int) [][]byte {
 }
 
 func (f *fakeSegment) ReadOnlyTombstones() (*sroar.Bitmap, error) {
-	panic("not implemented") // TODO: Implement
+	if f.strategy != segmentindex.StrategyInverted {
+		return nil, fmt.Errorf("tombstones only supported for inverted strategy")
+	}
+
+	// TODO: properly support deletes in test
+	return sroar.NewBitmap(), nil
 }
 
 func (f *fakeSegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
@@ -301,11 +333,20 @@ func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLay
 }
 
 func (s *fakeSegment) hasKey(key []byte) bool {
-	panic("not implemented")
+	if s.strategy != segmentindex.StrategyInverted {
+		return false
+	}
+
+	_, ok := s.collectionStore[string(key)]
+	return ok
 }
 
 func (s *fakeSegment) getDocCount(key []byte) uint64 {
-	panic("not implemented")
+	if s.strategy != segmentindex.StrategyInverted {
+		return 0
+	}
+
+	return uint64(len(s.collectionStore[string(key)]))
 }
 
 type fakeSegmentCursorReplace struct {

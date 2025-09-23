@@ -1635,41 +1635,49 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 }
 
 func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
-	release := func() {}
+	view := b.getConsistentView()
+	return b.createDiskTermFromCV(ctx, view, N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, config)
+}
 
+func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistentView, N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
 	defer func() {
 		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
 			if r := recover(); r != nil {
 				b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
 				debug.PrintStack()
-				release()
+				view.Release()
 			}
 		}
 	}()
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
-
 	averagePropLength, err := b.GetAveragePropertyLength()
 	if err != nil {
-		release()
+		view.Release()
 		return nil, nil, func() {}, err
 	}
 
-	// The lock is necessary, as data is being read from the disk during blockmax wand search.
-	// BlockMax is ran outside this function, so, the lock is returned to the caller.
-	// Panics at this level are caught and the lock is released in the defer function.
-	// The lock is released after the blockmax search is done, and panics are also handled.
-	segmentsDisk, release := b.disk.getConsistentViewOfSegments()
+	// Synchronization was reworked as part of
+	// https://github.com/weaviate/weaviate/pull/9104.
+	//
+	// Originally we would hold a maintenanceLock.RLock and pass the unlock
+	// function to the caller. This is because the actual BlockMax calcluation
+	// happens outside of this function. The lock is no longer necessary now that
+	// we support consistent views. We do still need to guarantee that the
+	// memtables, and segments do not disappear until the caller has completed.
+	// This can be done by passing the view.Release() method tot he caller.
+	//
+	// Panics at this level are caught and the view is released in the defer
+	// function. The lock is released after the blockmax search is done, and
+	// panics are also handled.
 
-	output := make([][]*SegmentBlockMax, len(segmentsDisk)+2)
+	output := make([][]*SegmentBlockMax, len(view.Disk)+2)
 	idfs := make([]float64, len(query))
 	idfCounts := make(map[string]uint64, len(query))
 	// flusing memtable
-	output[len(segmentsDisk)] = make([]*SegmentBlockMax, 0, len(query))
+	output[len(view.Disk)] = make([]*SegmentBlockMax, 0, len(query))
 
 	// active memtable
-	output[len(segmentsDisk)+1] = make([]*SegmentBlockMax, 0, len(query))
+	output[len(view.Disk)+1] = make([]*SegmentBlockMax, 0, len(query))
 
 	memTombstones := sroar.NewBitmap()
 
@@ -1681,19 +1689,18 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		flushing := NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config)
 
 		var activeTombstones *sroar.Bitmap
-		if b.active != nil {
-			memtable := b.active
-			n2, _ := fillTerm(memtable, key, active, filterDocIds)
+		if view.Active != nil {
+			n2, _ := fillTerm(view.Active, key, active, filterDocIds)
 			if active.Count() > 0 {
-				output[len(segmentsDisk)+1] = append(output[len(segmentsDisk)+1], active)
+				output[len(view.Disk)+1] = append(output[len(view.Disk)+1], active)
 			}
 			n += n2
 
 			var err error
-			activeTombstones, err = b.active.ReadOnlyTombstones()
+			activeTombstones, err = view.Active.ReadOnlyTombstones()
 			if err != nil {
-				release()
-				return nil, nil, func() {}, err
+				view.Release()
+				return nil, nil, func() {}, fmt.Errorf("active tombstones: %w", err)
 			}
 			memTombstones.Or(activeTombstones)
 
@@ -1702,18 +1709,17 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			}
 		}
 
-		if b.flushing != nil {
-			memtable := b.flushing
-			n2, _ := fillTerm(memtable, key, flushing, filterDocIds)
+		if view.Flushing != nil {
+			n2, _ := fillTerm(view.Flushing, key, flushing, filterDocIds)
 			if flushing.Count() > 0 {
-				output[len(segmentsDisk)] = append(output[len(segmentsDisk)], flushing)
+				output[len(view.Disk)] = append(output[len(view.Disk)], flushing)
 			}
 			n += n2
 
-			tombstones, err := b.flushing.ReadOnlyTombstones()
+			tombstones, err := view.Flushing.ReadOnlyTombstones()
 			if err != nil {
-				release()
-				return nil, nil, func() {}, err
+				view.Release()
+				return nil, nil, func() {}, fmt.Errorf("flushing tombstones: %w", err)
 			}
 			memTombstones.Or(tombstones)
 
@@ -1724,7 +1730,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 
 		}
 
-		for _, segment := range segmentsDisk {
+		for _, segment := range view.Disk {
 			if segment.getStrategy() == segmentindex.StrategyInverted && segment.hasKey(key) {
 				n += segment.getDocCount(key)
 			}
@@ -1743,32 +1749,32 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	}
 
 	if ctx.Err() != nil {
-		release()
+		view.Release()
 		return nil, nil, func() {}, fmt.Errorf("after memtable terms: %w", ctx.Err())
 	}
 
-	for j := len(segmentsDisk) - 1; j >= 0; j-- {
-		segment := segmentsDisk[j]
+	for j := len(view.Disk) - 1; j >= 0; j-- {
+		segment := view.Disk[j]
 		output[j] = make([]*SegmentBlockMax, 0, len(query))
 
 		allTombstones := memTombstones.Clone()
-		if j != len(segmentsDisk)-1 {
-			segTombstones, err := segmentsDisk[j+1].ReadOnlyTombstones()
+		if j != len(view.Disk)-1 {
+			segTombstones, err := view.Disk[j+1].ReadOnlyTombstones()
 			if err != nil {
-				release()
-				return nil, nil, func() {}, err
+				view.Release()
+				return nil, nil, func() {}, fmt.Errorf("read tombstones: %w", err)
 			}
 			allTombstones.Or(segTombstones)
 		}
 
 		for i, key := range query {
-			term := b.newSegmentBlockMax(segment.getSegment(), []byte(key), i, idfs[i], propertyBoost, allTombstones, filterDocIds, averagePropLength, config)
+			term := b.newSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, allTombstones, filterDocIds, averagePropLength, config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}
 		}
 	}
-	return output, idfCounts, release, nil
+	return output, idfCounts, view.Release, nil
 }
 
 func fillTerm(memtable memtable, key []byte, blockmax *SegmentBlockMax, filterDocIds helpers.AllowList) (uint64, error) {
