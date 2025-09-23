@@ -195,7 +195,6 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 					Loaded:               false,
 					ReplicationFactor:    replicationFactor,
 					NumberOfReplicas:     numberOfReplicas,
-					Compressed:           isAnyVectorIndexCompressed(shard),
 				}
 				*status = append(*status, shardStatus)
 				shardCount++
