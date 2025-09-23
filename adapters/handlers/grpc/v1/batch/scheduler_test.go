@@ -38,7 +38,7 @@ func TestScheduler(t *testing.T) {
 
 		writeQueues.Make("test-stream", nil)
 		var wg sync.WaitGroup
-		batch.StartScheduler(shutdownCtx, &wg, writeQueues, processingQueue, reportingQueue, logger)
+		batch.StartScheduler(shutdownCtx, &wg, writeQueues, processingQueue, reportingQueue, nil, logger)
 
 		queue, ok := writeQueues.GetQueue("test-stream")
 		require.True(t, ok, "Expected write queue to exist")

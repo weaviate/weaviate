@@ -22,24 +22,69 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-type Scheduler struct {
-	logger            logrus.FieldLogger
-	writeQueues       *WriteQueues
-	processingQueue   processingQueue
-	reportingQueue    reportingQueue
+type stats struct {
+	lock              sync.RWMutex
 	processingTimeEma float64
 	batchSize         int
-	batchSizeLock     sync.RWMutex
 }
 
-func NewScheduler(writeQueues *WriteQueues, processingQueue processingQueue, reportingQueue reportingQueue, logger logrus.FieldLogger) *Scheduler {
-	return &Scheduler{
-		logger:            logger,
-		writeQueues:       writeQueues,
-		processingQueue:   processingQueue,
-		reportingQueue:    reportingQueue,
+func newStats() *stats {
+	return &stats{
 		processingTimeEma: 0,
-		batchSize:         10000, // start with a high number to quickly find the optimum
+		batchSize:         10000,
+	}
+}
+
+func (s *stats) updateBatchSize(processingTime time.Duration, processingQueueLen int) {
+	ideal := 1.0 // seconds
+	// Optimum is that each worker takes at most 1s to process a batch so that shutdown does not take too long
+	alpha := 1 - math.Exp(-math.Log(2)/float64(processingQueueLen))
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.processingTimeEma = alpha*processingTime.Seconds() + (1-alpha)*s.processingTimeEma
+	s.batchSize = int(float64(s.batchSize) * (ideal / s.processingTimeEma))
+	if s.batchSize < 10 {
+		s.batchSize = 10
+	}
+	if s.batchSize > 10000 {
+		s.batchSize = 10000
+	}
+}
+
+func (s *stats) getBatchSize() int {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.batchSize
+}
+
+func (s *stats) getProcessingTimeEma() time.Duration {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return time.Duration(s.processingTimeEma * time.Second.Seconds())
+}
+
+type Scheduler struct {
+	logger          logrus.FieldLogger
+	writeQueues     *WriteQueues
+	processingQueue processingQueue
+	reportingQueue  reportingQueue
+	statsPerStream  *sync.Map // map[string]*stats
+	metrics         *BatchStreamingCallbacks
+}
+
+func (s *Scheduler) stats(streamId string) *stats {
+	st, _ := s.statsPerStream.LoadOrStore(streamId, newStats())
+	return st.(*stats)
+}
+
+func NewScheduler(writeQueues *WriteQueues, processingQueue processingQueue, reportingQueue reportingQueue, metrics *BatchStreamingCallbacks, logger logrus.FieldLogger) *Scheduler {
+	return &Scheduler{
+		logger:          logger,
+		writeQueues:     writeQueues,
+		processingQueue: processingQueue,
+		reportingQueue:  reportingQueue,
+		metrics:         metrics,
+		statsPerStream:  &sync.Map{},
 	}
 }
 
@@ -49,7 +94,11 @@ func (s *Scheduler) Loop(ctx context.Context) {
 
 	enterrors.GoWrapper(func() {
 		for workerStats := range s.reportingQueue {
-			s.updateBatchSize(workerStats)
+			stats := s.stats(workerStats.streamId)
+			stats.updateBatchSize(workerStats.processingTime, len(s.processingQueue))
+			if s.metrics != nil {
+				s.metrics.OnSchedulerReport(workerStats.streamId, stats.getBatchSize(), stats.getProcessingTimeEma())
+			}
 		}
 	}, s.logger)
 
@@ -78,9 +127,7 @@ func (s *Scheduler) loop(op func(streamId string, wq *WriteQueue)) {
 }
 
 func (s *Scheduler) drain(streamId string, wq *WriteQueue) {
-	s.batchSizeLock.RLock()
-	batchSize := s.batchSize
-	s.batchSizeLock.RUnlock()
+	batchSize := s.stats(streamId).getBatchSize()
 
 	objs := make([]*pb.BatchObject, 0, batchSize)
 	refs := make([]*pb.BatchReference, 0, batchSize)
@@ -106,9 +153,7 @@ func (s *Scheduler) drain(streamId string, wq *WriteQueue) {
 }
 
 func (s *Scheduler) schedule(streamId string, wq *WriteQueue) {
-	s.batchSizeLock.RLock()
-	batchSize := s.batchSize
-	s.batchSizeLock.RUnlock()
+	batchSize := s.stats(streamId).getBatchSize()
 
 	objs, refs, stop := s.pull(wq.queue, batchSize)
 	req := NewProcessRequest(objs, refs, streamId, false, wq.consistencyLevel)
@@ -146,24 +191,9 @@ func (s *Scheduler) pull(queue writeQueue, max int) ([]*pb.BatchObject, []*pb.Ba
 	return objs, refs, false
 }
 
-func (s *Scheduler) updateBatchSize(stats *workerStats) {
-	ideal := 1.0 // seconds
-	// Optimum is that each worker takes at most 1s to process a batch so that shutdown does not take too long
-	alpha := 1 - math.Exp(-math.Log(2)/float64(cap(s.processingQueue)))
-	s.processingTimeEma = alpha*float64(stats.processingTime.Seconds()) + (1-alpha)*s.processingTimeEma
-	s.batchSizeLock.Lock()
-	defer s.batchSizeLock.Unlock()
-	s.batchSize = int(float64(s.batchSize) * (ideal / s.processingTimeEma))
-	if s.batchSize < 10 {
-		s.batchSize = 10
-	}
-	if s.batchSize > 10000 {
-		s.batchSize = 10000
-	}
-}
-
 type workerStats struct {
 	processingTime time.Duration
+	streamId       string
 }
 
 func NewProcessRequest(objs []*pb.BatchObject, refs []*pb.BatchReference, streamId string, stop bool, consistencyLevel *pb.ConsistencyLevel) *processRequest {
@@ -186,8 +216,8 @@ func NewProcessRequest(objs []*pb.BatchObject, refs []*pb.BatchReference, stream
 	return req
 }
 
-func StartScheduler(ctx context.Context, wg *sync.WaitGroup, writeQueues *WriteQueues, processingQueue processingQueue, reportingQueue reportingQueue, logger logrus.FieldLogger) {
-	scheduler := NewScheduler(writeQueues, processingQueue, reportingQueue, logger)
+func StartScheduler(ctx context.Context, wg *sync.WaitGroup, writeQueues *WriteQueues, processingQueue processingQueue, reportingQueue reportingQueue, metrics *BatchStreamingCallbacks, logger logrus.FieldLogger) {
+	scheduler := NewScheduler(writeQueues, processingQueue, reportingQueue, metrics, logger)
 	wg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer wg.Done()

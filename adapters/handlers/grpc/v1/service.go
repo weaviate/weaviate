@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
@@ -55,6 +56,7 @@ type Service struct {
 	authenticator      *authHandler
 	batchHandler       *batch.Handler
 	batchQueuesHandler *batch.QueuesHandler
+	batchMetrics       *batch.BatchStreamingCallbacks
 }
 
 func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
@@ -62,6 +64,8 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	batchManager *objects.BatchManager, config *config.Config, authorization authorization.Authorizer,
 	logger logrus.FieldLogger, shutdown *batch.Shutdown,
 ) *Service {
+	batchMetrics := batch.NewBatchStreamingCallbacks(prometheus.DefaultRegisterer)
+
 	authenticator := NewAuthHandler(allowAnonymousAccess, authComposer)
 	numWorkers := _NUMCPU
 
@@ -71,10 +75,10 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	batchReadQueues := batch.NewBatchReadQueues()
 
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchQueuesHandler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, shutdown.ShutdownFinished, batchWriteQueues, batchReadQueues, logger)
+	batchQueuesHandler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, shutdown.ShutdownFinished, batchWriteQueues, batchReadQueues, batchMetrics, logger)
 
 	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, numWorkers, processingQueue, reportingQueue, batchReadQueues, batchHandler, logger)
-	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, batchWriteQueues, processingQueue, reportingQueue, logger)
+	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, batchWriteQueues, processingQueue, reportingQueue, batchMetrics, logger)
 
 	return &Service{
 		traverser:            traverser,
@@ -88,6 +92,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		authenticator:        authenticator,
 		batchHandler:         batchHandler,
 		batchQueuesHandler:   batchQueuesHandler,
+		batchMetrics:         batchMetrics,
 	}
 }
 
@@ -298,6 +303,9 @@ func (s *Service) BatchReferences(ctx context.Context, req *pb.BatchReferencesRe
 //
 // It should be used as part of the automatic batching process provided in clients.
 func (s *Service) BatchStream(stream pb.Weaviate_BatchStreamServer) error {
+	s.batchMetrics.OnStreamStart()
+	defer s.batchMetrics.OnStreamStop()
+
 	id, err := uuid.NewRandom()
 	if err != nil {
 		return fmt.Errorf("stream ID generation failed: %w", err)

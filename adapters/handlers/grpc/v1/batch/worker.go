@@ -98,7 +98,7 @@ func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObje
 		return err
 	}
 	// Log processing time
-	w.reportingQueue <- &workerStats{processingTime: end.Sub(start)}
+	w.reportingQueue <- &workerStats{processingTime: end.Sub(start), streamId: streamId}
 	// Handle errors
 	if len(reply.GetErrors()) > 0 {
 		retriable := make([]*pb.BatchObject, 0, len(reply.GetErrors()))
@@ -143,7 +143,7 @@ func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendR
 		return err
 	}
 	// Log processing time
-	w.reportingQueue <- &workerStats{processingTime: end.Sub(start)}
+	w.reportingQueue <- &workerStats{processingTime: end.Sub(start), streamId: streamId}
 	// Handle errors
 	if len(reply.GetErrors()) > 0 {
 		retriable := make([]*pb.BatchReference, 0, len(reply.GetErrors()))

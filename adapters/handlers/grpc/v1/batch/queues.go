@@ -35,11 +35,12 @@ type QueuesHandler struct {
 	sendWg           *sync.WaitGroup
 	shutdownFinished chan struct{}
 	stopping         atomic.Bool
+	metrics          *BatchStreamingCallbacks
 }
 
 const POLLING_INTERVAL = 100 * time.Millisecond
 
-func NewQueuesHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.WaitGroup, shutdownFinished chan struct{}, writeQueues *WriteQueues, readQueues *ReadQueues, logger logrus.FieldLogger) *QueuesHandler {
+func NewQueuesHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.WaitGroup, shutdownFinished chan struct{}, writeQueues *WriteQueues, readQueues *ReadQueues, metrics *BatchStreamingCallbacks, logger logrus.FieldLogger) *QueuesHandler {
 	// Poll until the batch logic starts shutting down
 	// Then wait for all BatchSend requests to finish and close all the write queues
 	// Scheduler will then drain the write queues expecting the channels to be closed
@@ -66,6 +67,7 @@ func NewQueuesHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.Wait
 		recvWg:           recvWg,
 		sendWg:           sendWg,
 		shutdownFinished: shutdownFinished,
+		metrics:          metrics,
 	}
 }
 
@@ -115,6 +117,7 @@ func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream 
 					return h.wait(ctx)
 				}
 				for _, err := range readObj.Errors {
+					h.metrics.OnStreamError(streamId)
 					if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
 						return innerErr
 					}
@@ -127,8 +130,8 @@ func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream 
 					if innerErr := stream.Send(&pb.BatchStreamReply{
 						Message: &pb.BatchStreamReply_Backoff_{
 							Backoff: &pb.BatchStreamReply_Backoff{
-								NextBatchSize:  writeQueue.NextBatchSize(),
-								BackoffSeconds: writeQueue.BackoffSeconds(),
+								NextBatchSize:  int32(writeQueue.NextBatchSize()),
+								BackoffSeconds: float32(writeQueue.BackoffSeconds()),
 							},
 						},
 					}); innerErr != nil {
@@ -182,9 +185,14 @@ func (h *QueuesHandler) StreamRecv(ctx context.Context, streamId string, stream 
 			h.writeQueues.Write(streamId, objs)
 		}
 		if h.stopping.Load() {
+			// Will loop back and block on stream.Recv() until io.EOF is returned
 			continue
 		}
 		h.writeQueues.UpdateBatchSize(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues()))
+		wq, ok := h.writeQueues.Get(streamId)
+		if ok {
+			h.metrics.OnStreamRequest(streamId, wq.emaQueueLen)
+		}
 	}
 }
 
@@ -353,12 +361,12 @@ type WriteQueue struct {
 	consistencyLevel *pb.ConsistencyLevel
 
 	lock        sync.RWMutex // Used when concurrently re-calculating NextBatchSize in Send method
-	emaQueueLen float32      // Exponential moving average of the queue length
+	emaQueueLen float64      // Exponential moving average of the queue length
 	buffer      int          // Buffer size for the write queue
-	alpha       float32      // Smoothing factor for EMA, typically between 0 and 1
+	alpha       float64      // Smoothing factor for EMA, typically between 0 and 1
 
-	nextBatchSize  int32   // Current batch size to be used for sending
-	backoffSeconds float32 // Current backoff time in seconds before sending the next batch
+	nextBatchSize  int64   // Current batch size to be used for sending
+	backoffSeconds float64 // Current backoff time in seconds before sending the next batch
 }
 
 // Cubic backoff function: backoff(r) = b * max(0, (r - 0.6) / 0.4) ^ 3, with b = 10s
@@ -367,18 +375,18 @@ type WriteQueue struct {
 //   - usageRatio = 0.8 -> 1.3s
 //   - usageRatio = 0.9 -> 4.22s
 //   - usageRatio = 1.0 -> 10s
-func (w *WriteQueue) thresholdCubicBackoff(usageRatio float32) float32 {
-	maximumBackoffSeconds := float32(10.0) // Adjust this value as needed, defines maximum backoff in seconds
-	return maximumBackoffSeconds * float32(math.Pow(float64(max(0, (usageRatio-0.6)/0.4)), 3))
+func (w *WriteQueue) thresholdCubicBackoff(usageRatio float64) float64 {
+	maximumBackoffSeconds := float64(10.0) // Adjust this value as needed, defines maximum backoff in seconds
+	return maximumBackoffSeconds * float64(math.Pow(float64(max(0, (usageRatio-0.6)/0.4)), 3))
 }
 
-func (w *WriteQueue) NextBatchSize() int32 {
+func (w *WriteQueue) NextBatchSize() int64 {
 	w.lock.RLock()
 	defer w.lock.RUnlock()
 	return w.nextBatchSize
 }
 
-func (w *WriteQueue) BackoffSeconds() float32 {
+func (w *WriteQueue) BackoffSeconds() float64 {
 	w.lock.RLock()
 	defer w.lock.RUnlock()
 	return w.backoffSeconds
@@ -392,20 +400,20 @@ func (w *WriteQueue) UpdateBatchSize(batchSize int) {
 	nowLen := len(w.queue)
 
 	if w.emaQueueLen == 0 {
-		w.emaQueueLen = float32(nowLen)
+		w.emaQueueLen = float64(nowLen)
 	} else {
-		w.emaQueueLen = w.alpha*float32(nowLen) + (1-w.alpha)*w.emaQueueLen
+		w.emaQueueLen = w.alpha*float64(nowLen) + (1-w.alpha)*w.emaQueueLen
 	}
-	usageRatio := w.emaQueueLen / float32(w.buffer)
+	usageRatio := w.emaQueueLen / float64(w.buffer)
 
 	// threshold linear batch size scaling
 	if usageRatio < 0.5 {
 		// If usage is lower than 50% threshold, increase by an order of magnitude and cap at 40% of the buffer size
-		w.nextBatchSize = int32(min(maxSize, batchSize*10))
+		w.nextBatchSize = int64(min(maxSize, batchSize*10))
 		w.backoffSeconds = w.thresholdCubicBackoff(usageRatio)
 	}
 
-	scaledSize := int32(float64(maxSize) * (1 - float64(usageRatio)))
+	scaledSize := int64(float64(maxSize) * (1 - float64(usageRatio)))
 	if scaledSize < 1 {
 		scaledSize = 1 // Ensure at least one object is always sent in worst-case scenario
 	}
