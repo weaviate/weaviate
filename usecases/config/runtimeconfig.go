@@ -153,16 +153,6 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
-		case *runtime.DynamicValue[int64]:
-			r.oldV = sv.Get()
-			if pf.IsNil() {
-				// Means the config is removed
-				sv.Reset()
-			} else {
-				p := pi.(*runtime.DynamicValue[int64])
-				sv.SetValue(p.Get())
-			}
-			r.newV = sv.Get()
 		case *runtime.DynamicValue[float64]:
 			r.oldV = sv.Get()
 			if pf.IsNil() {
