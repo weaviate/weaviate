@@ -15,7 +15,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
-	"fmt"
 	"io"
 	"os"
 	"time"
@@ -259,15 +258,42 @@ func (h *hnsw) restoreDocMappings() error {
 	maxNodeID := uint64(0)
 	maxDocID := uint64(0)
 	buf := make([]byte, 8)
+
+	// Get the mappings bucket - handle case where it might be nil
+	bucket := h.store.Bucket(h.id + "_mv_mappings")
+	if bucket == nil {
+		h.logger.WithField("action", "restore_doc_mappings").
+			Warn("mappings bucket not found, possibly due to corrupted state after ungraceful shutdown")
+		return nil
+	}
+
 	for _, node := range h.nodes {
 		if node == nil {
 			continue
 		}
 		binary.BigEndian.PutUint64(buf, node.id)
-		docIDBytes, err := h.store.Bucket(h.id + "_mv_mappings").Get(buf)
+		docIDBytes, err := bucket.Get(buf)
 		if err != nil {
-			return errors.Wrap(err, fmt.Sprintf("failed to get %s_mv_mappings from the bucket", h.id))
+			// If the mapping is not found (e.g., due to corrupted state after ungraceful shutdown),
+			// log a warning and skip this node instead of failing completely
+			h.logger.WithFields(map[string]interface{}{
+				"action":  "restore_doc_mappings",
+				"node_id": node.id,
+				"error":   err.Error(),
+			}).Warn("skipping node with missing doc mapping, possibly due to corrupted state")
+			continue
 		}
+
+		// Validate that we have enough bytes for a uint64 (8 bytes)
+		if len(docIDBytes) < 8 {
+			h.logger.WithFields(map[string]interface{}{
+				"action":       "restore_doc_mappings",
+				"node_id":      node.id,
+				"bytes_length": len(docIDBytes),
+			}).Warn("skipping node with invalid doc mapping data, possibly due to corrupted state")
+			continue
+		}
+
 		docID := binary.BigEndian.Uint64(docIDBytes)
 		if docID != prevDocID {
 			relativeID = 0
