@@ -49,8 +49,8 @@ type WeaviateRuntimeConfig struct {
 	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"exp_oidc_certificate" json:"exp_oidc_certificate"`
 
 	// resource limits
-	GoMaxProcs *runtime.DynamicValue[int]    `json:"go_max_procs" yaml:"go_max_procs"`
-	GoMemLimit *runtime.DynamicValue[string] `json:"go_mem_limit" yaml:"go_mem_limit"`
+	ResourceLimitGoMaxProcs *runtime.DynamicValue[int]    `json:"resource_limit_go_max_procs" yaml:"resource_limit_go_max_procs"`
+	ResourceLimitGoMemLimit *runtime.DynamicValue[string] `json:"resource_limit_go_mem_limit" yaml:"resource_limit_go_mem_limit"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.

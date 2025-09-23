@@ -10,13 +10,11 @@ import (
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	"github.com/pbnjay/memory"
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func limitResources(appState *state.State) {
-
 	if appState.ServerConfig.Config.ResourceLimits.Enabled && appState.ServerConfig.Config.ResourceLimits.EnabledDeprecated {
 		appState.Logger.Warn("Both LIMIT_RESOURCES and LIMIT_DYNAMIC_RESOURCES_ENABLED are set to true. " +
 			"LIMIT_RESOURCES is deprecated and will be ignored. Please use LIMIT_RESOURCES_DYNAMIC_ENABLED going forward.")
@@ -26,7 +24,9 @@ func limitResources(appState *state.State) {
 	if appState.ServerConfig.Config.ResourceLimits.EnabledDeprecated {
 		limitResourcesDeprecated(appState)
 	} else if appState.ServerConfig.Config.ResourceLimits.Enabled {
-		_ = applyResourceLimits(appState.ServerConfig.Config.ResourceLimits, appState.Logger, "startup")()
+		if err := applyResourceLimits(appState.ServerConfig.Config.ResourceLimits)(); err != nil {
+			appState.Logger.WithField("action", "startup").WithError(err).Warnf("Unable to parse GOMEMLIMIT: %v", err)
+		}
 	} else {
 		appState.Logger.Info("No resource limits set, weaviate will use all available memory and CPU. " +
 			"To limit resources, set LIMIT_RESOURCES_DYNAMIC_ENABLED=true")
@@ -63,47 +63,47 @@ func limitResourcesDeprecated(appState *state.State) {
 	} else {
 		appState.Logger.WithField("limit", limit).Info("Set memory limit")
 	}
-
 }
+
 func parseMemLimit(goMemLimit string) (int64, error) {
-	switch {
-	case strings.HasSuffix(goMemLimit, "GiB"):
-		limit, err := strconv.ParseInt(strings.TrimSuffix(goMemLimit, "GiB"), 10, 64)
-		if err != nil {
-			return 0, err
+	val, err := func() (int64, error) {
+		switch {
+		case strings.HasSuffix(goMemLimit, "GiB"):
+			limit, err := strconv.ParseInt(strings.TrimSuffix(goMemLimit, "GiB"), 10, 64)
+			if err != nil {
+				return 0, err
+			}
+			return limit * 1024 * 1024 * 1024, nil
+		case strings.HasSuffix(goMemLimit, "MiB"):
+			limit, err := strconv.ParseInt(strings.TrimSuffix(goMemLimit, "MiB"), 10, 64)
+			if err != nil {
+				return 0, err
+			}
+			return limit * 1024 * 1024, nil
+		default:
+			// Assume bytes if no unit is specified
+			return strconv.ParseInt(goMemLimit, 10, 64)
 		}
-		return limit * 1024 * 1024 * 1024, nil
-	case strings.HasSuffix(goMemLimit, "MiB"):
-		limit, err := strconv.ParseInt(strings.TrimSuffix(goMemLimit, "MiB"), 10, 64)
-		if err != nil {
-			return 0, err
-		}
-		return limit * 1024 * 1024, nil
-	default:
-		// Assume bytes if no unit is specified
-		return strconv.ParseInt(goMemLimit, 10, 64)
+	}()
+	if err != nil {
+		return 0, fmt.Errorf("invalid memory limit format. Acceptable values are: XXXGiB, YYYMiB or ZZZ in bytes without a unit. Got: %s: %w", goMemLimit, err)
 	}
+	return val, nil
 }
 
-func applyResourceLimits(conf config.ResourceLimits, logger logrus.FieldLogger, action string) func() error {
+func applyResourceLimits(conf config.ResourceLimits) func() error {
 	return func() error {
 		if memLimit := conf.GoMemLimit.Get(); memLimit != "" {
 			limitBytes, err := parseMemLimit(memLimit)
 			if err != nil {
-				debug.SetMemoryLimit(limitBytes)
-			} else {
-				logger.WithField("action", action).WithError(err).Warnf("Unable to parse GOMEMLIMIT: %v", err)
+				return err
 			}
-
-			logger.WithField("action", action).Info("updated GOMEMLIMIT to " + strconv.FormatInt(limitBytes, 10) + " bytes")
 			debug.SetMemoryLimit(limitBytes)
-
 		}
-		if conf.GoMaxProcs.Get() > 0 {
-			logger.WithField("action", action).Infof("updated GOMAXPROCS to %v cores", conf.GoMaxProcs.Get())
-			goruntime.GOMAXPROCS(conf.GoMaxProcs.Get())
 
-			fmt.Println(goruntime.GOMAXPROCS(0))
+		// GOMAXPROCS of <=0 means "do not change the current settings"
+		if conf.GoMaxProcs.Get() > 0 {
+			goruntime.GOMAXPROCS(conf.GoMaxProcs.Get())
 		}
 		return nil
 	}

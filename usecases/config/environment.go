@@ -414,9 +414,7 @@ func FromEnv(config *Config) error {
 	}
 	if entcfg.Enabled(os.Getenv("LIMIT_RESOURCES_DYNAMIC_ENABLED")) {
 		config.ResourceLimits.Enabled = true
-		var (
-			goMemLimit string
-		)
+		var goMemLimit string
 
 		if v := os.Getenv("GOMEMLIMIT"); v != "" {
 			goMemLimit = v

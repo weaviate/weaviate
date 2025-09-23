@@ -1710,10 +1710,10 @@ func initRuntimeOverrides(appState *state.State) {
 	}
 
 	if appState.ServerConfig.Config.ResourceLimits.Enabled {
-		registered.GoMaxProcs = appState.ServerConfig.Config.ResourceLimits.GoMaxProcs
-		registered.GoMemLimit = appState.ServerConfig.Config.ResourceLimits.GoMemLimit
+		registered.ResourceLimitGoMaxProcs = appState.ServerConfig.Config.ResourceLimits.GoMaxProcs
+		registered.ResourceLimitGoMemLimit = appState.ServerConfig.Config.ResourceLimits.GoMemLimit
 
-		hooks["RESOURCE_LIMITS"] = applyResourceLimits(appState.ServerConfig.Config.ResourceLimits, appState.Logger, "RUNTIME_CONFIG")
+		hooks["ResourceLimit"] = applyResourceLimits(appState.ServerConfig.Config.ResourceLimits)
 	}
 
 	cm, err := configRuntime.NewConfigManager(
