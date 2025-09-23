@@ -22,7 +22,7 @@ import (
 func TestBruteForceSPTAG_Search(t *testing.T) {
 	dim := 64
 	q := compressionhelpers.NewRotationalQuantizer(dim, 42, 8, distancer.NewL2SquaredProvider())
-	sptag := NewBruteForceSPTAG(NewMetrics(nil, "n/a", "n/a"))
+	sptag := NewBruteForceSPTAG(NewMetrics(nil, "n/a", "n/a"), 10, 10)
 	sptag.Init(int32(dim), distancer.NewL2SquaredProvider())
 
 	// Seed vectors
@@ -42,9 +42,7 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	// Encode and upsert
 	for id, v := range vectors {
 		encoded := q.Encode(v)
-		err := sptag.Upsert(id, &Centroid{
-			Vector: NewAnonymousCompressedVector(encoded),
-		})
+		err := sptag.Insert(id, NewAnonymousCompressedVector(encoded))
 		require.NoError(t, err)
 	}
 

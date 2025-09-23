@@ -122,9 +122,7 @@ func (s *SPFresh) ensureInitialPosting(v Vector) ([]SearchResult, error) {
 		postingID := s.IDs.Next()
 		s.PostingSizes.AllocPageFor(postingID)
 		// use the vector as the centroid and register it in the SPTAG
-		err = s.SPTAG.Upsert(postingID, &Centroid{
-			Vector: v,
-		})
+		err = s.SPTAG.Insert(postingID, v)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
 		}

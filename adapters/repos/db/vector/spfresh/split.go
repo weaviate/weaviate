@@ -86,7 +86,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		}
 	}()
 
-	if s.SPTAG.IsMarkedAsDeleted(postingID) {
+	if !s.SPTAG.Exists(postingID) {
 		return nil
 	}
 
@@ -118,10 +118,8 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		if err != nil {
 			return errors.Wrapf(err, "failed to put filtered posting %d after split operation", postingID)
 		}
-		// Note: the page associated to this posting is guaranteed to exist in the
-		// postingSizes. Update the size only after successful persist.
-		s.PostingSizes.Set(postingID, uint32(lf))
 
+		s.PostingSizes.Set(postingID, uint32(lf))
 		return nil
 	}
 
@@ -192,9 +190,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		s.PostingSizes.Set(newPostingID, uint32(result[i].Posting.Len()))
 
 		// add the new centroid to the SPTAG index
-		err = s.SPTAG.Upsert(newPostingID, &Centroid{
-			Vector: NewAnonymousCompressedVector(result[i].Centroid),
-		})
+		err = s.SPTAG.Insert(newPostingID, NewAnonymousCompressedVector(result[i].Centroid))
 		if err != nil {
 			return errors.Wrapf(err, "failed to upsert new centroid %d after split operation", newPostingID)
 		}

@@ -77,7 +77,12 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	s.logger.WithField("postingID", postingID).Debug("Merging posting")
 
 	var markedAsDone bool
-	s.postingLocks.Lock(postingID)
+	if !s.postingLocks.TryLock(postingID) {
+		// another merge operation is in progress for this posting
+		// re-enqueue the operation to be processed later
+		s.mergeList.done(postingID) // remove from the in-progress list
+		return s.enqueueMerge(s.ctx, postingID)
+	}
 	defer func() {
 		if !markedAsDone {
 			s.postingLocks.Unlock(postingID)
@@ -106,10 +111,6 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 
 	// garbage collect the deleted vectors
 	newPosting := p.GarbageCollect(s.VersionMap)
-	vectorSet := make(map[uint64]struct{})
-	for _, v := range p.Iter() {
-		vectorSet[v.ID()] = struct{}{}
-	}
 	prevLen := newPosting.Len()
 
 	// skip if the posting is big enough
@@ -134,6 +135,11 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		s.PostingSizes.Set(postingID, uint32(prevLen))
 
 		return nil
+	}
+
+	vectorSet := make(map[uint64]struct{})
+	for _, v := range p.Iter() {
+		vectorSet[v.ID()] = struct{}{}
 	}
 
 	// get posting centroid

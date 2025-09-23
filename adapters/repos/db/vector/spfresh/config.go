@@ -62,15 +62,12 @@ func DefaultConfig() *Config {
 		Distancer: distancer.NewL2SquaredProvider(),
 		// TODO: make the MaxPostingSize dynamic and dependent on the
 		// vector size and compression method
-		MaxPostingSize: 128,
-		MinPostingSize: 10,
-		// Use 2x the number of CPUs as default for workers.
-		// Workers are mostly idle waiting for I/O, so having
-		// more workers than CPUs makes sense.
-		SplitWorkers:              w * 2,
-		ReassignWorkers:           w * 2,
+		MaxPostingSize:            144,
+		MinPostingSize:            40,
+		SplitWorkers:              w,
+		ReassignWorkers:           w,
 		InternalPostingCandidates: 64,
-		ReassignNeighbors:         64,
+		ReassignNeighbors:         8,
 		Replicas:                  8,
 		RNGFactor:                 10.0,
 		MaxDistanceRatio:          10_000,
