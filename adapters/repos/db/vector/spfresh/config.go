@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	"io"
+	"runtime"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -50,6 +51,8 @@ func (c *Config) Validate() error {
 }
 
 func DefaultConfig() *Config {
+	w := runtime.GOMAXPROCS(0)
+
 	return &Config{
 		Logger:    logrus.New(),
 		Distancer: distancer.NewL2SquaredProvider(),
@@ -57,11 +60,11 @@ func DefaultConfig() *Config {
 		// vector size and compression method
 		MaxPostingSize: 128,
 		MinPostingSize: 10,
-		// TODO: the number of goroutines is way too big,
-		// create unbounded channels to avoid having to create
-		// too many workers.
-		SplitWorkers:              64,
-		ReassignWorkers:           128,
+		// Use 2x the number of CPUs as default for workers.
+		// Workers are mostly idle waiting for I/O, so having
+		// more workers than CPUs makes sense.
+		SplitWorkers:              w * 2,
+		ReassignWorkers:           w * 2,
 		InternalPostingCandidates: 64,
 		ReassignNeighbors:         64,
 		Replicas:                  8,

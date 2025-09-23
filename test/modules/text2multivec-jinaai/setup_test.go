@@ -44,11 +44,11 @@ func createSingleNodeEnvironment(ctx context.Context, jinaApiKey string,
 		WithWeaviate().
 		WithWeaviateWithGRPC().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules(jinaApiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2MultivecJinaAI(jinaApiKey)
-	return
+	return composeModules
 }

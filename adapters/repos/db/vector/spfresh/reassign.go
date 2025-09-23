@@ -36,13 +36,7 @@ func (s *SPFresh) enqueueReassign(ctx context.Context, postingID uint64, vector 
 	}
 
 	// Enqueue the operation to the channel
-	select {
-	case s.reassignCh <- reassignOperation{PostingID: postingID, Vector: vector}:
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-s.ctx.Done():
-		return s.ctx.Err()
-	}
+	s.reassignCh.Push(reassignOperation{PostingID: postingID, Vector: vector})
 
 	return nil
 }
@@ -50,7 +44,7 @@ func (s *SPFresh) enqueueReassign(ctx context.Context, postingID uint64, vector 
 func (s *SPFresh) reassignWorker() {
 	defer s.wg.Done()
 
-	for op := range s.reassignCh {
+	for op := range s.reassignCh.Out() {
 		if s.ctx.Err() != nil {
 			return
 		}

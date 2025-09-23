@@ -30,7 +30,7 @@ func TestQuantileKeysSingleSegment(t *testing.T) {
 
 	b, err := NewBucketCreator().NewBucket(
 		ctx, dir, "", logger, nil, cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(), WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 
 	importConsecutiveKeys(t, b, 0, 1000)
@@ -72,7 +72,7 @@ func TestQuantileKeysMultipleSegmentsUniqueEntries(t *testing.T) {
 
 	b, err := NewBucketCreator().NewBucket(
 		ctx, dir, "", logger, nil, cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(), WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 
 	importConsecutiveKeys(t, b, 0, 1000)
