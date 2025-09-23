@@ -160,7 +160,6 @@ func (s *Scheduler) updateBatchSize(stats *workerStats) {
 	if s.batchSize > 10000 {
 		s.batchSize = 10000
 	}
-	s.logger.Infof("updated batch size to %d (processing time EMA: %.2fs)", s.batchSize, s.processingTimeEma)
 }
 
 type workerStats struct {

@@ -81,26 +81,25 @@ func NewShutdown(ctx context.Context) *Shutdown {
 // The gRPC shutdown is then considered complete as every queue has been drained successfully so the server
 // can move onto switching off the HTTP handlers and shutting itself down completely.
 func (s *Shutdown) Drain(logger logrus.FieldLogger) {
+	log := logger.WithField("workflow", "batch shutdown")
 	// stop handlers first
 	s.HandlersCancel()
-	logger.Info("shutting down grpc batch handlers")
-	// wait for all send requests to finish
-	logger.Info("draining in-flight BatchSend methods")
-	s.RecvWg.Wait()
+	log.Info("shutting down grpc batch handlers")
 	// stop the scheduler
 	s.SchedulerCancel()
-	logger.Info("shutting down grpc batch scheduler")
+	log.Info("shutting down grpc batch scheduler")
 	// wait for all objs in write queues to be added to internal queue
 	s.SchedulerWg.Wait()
 	// stop the workers now
 	s.WorkersCancel()
-	logger.Info("shutting down grpc batch workers")
+	log.Info("shutting down grpc batch workers")
 	// wait for all the objects to be processed from the internal queue
 	s.WorkersWg.Wait()
-	logger.Info("finished draining the internal queues")
+	log.Info("finished draining the internal queues")
 	// signal that shutdown is complete
 	close(s.ShutdownFinished)
-	logger.Info("waiting for all streams to exit")
+	log.Info("waiting for all streams to exit")
 	// wait for all streams to exit, i.e. be hungup by their clients
 	s.SendWg.Wait()
+	s.RecvWg.Wait()
 }

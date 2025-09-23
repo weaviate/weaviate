@@ -13,6 +13,9 @@ package test
 
 import (
 	"context"
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -110,6 +113,10 @@ func TestGRPC_Batching(t *testing.T) {
 
 		// Read the error message
 		errMsg, err := stream.Recv()
+		if errMsg.GetBackoff() != nil {
+			// if we got a backoff message, read the next message which should be the error
+			errMsg, err = stream.Recv()
+		}
 		require.NoError(t, err, "BatchStream should return a response")
 		require.NotNil(t, errMsg, "Error message should not be nil")
 		require.Equal(t, "class Article has multi-tenancy disabled, but request was with tenant", errMsg.GetError().Error)
@@ -142,6 +149,10 @@ func TestGRPC_Batching(t *testing.T) {
 
 		// Read the error message
 		errMsg, err := stream.Recv()
+		if errMsg.GetBackoff() != nil {
+			// if we got a backoff message, read the next message which should be the error
+			errMsg, err = stream.Recv()
+		}
 		require.NoError(t, err, "BatchStream should return a response")
 		require.NotNil(t, errMsg, "Error message should not be nil")
 		require.Equal(t, "property hasParagraphss does not exist for class Article", errMsg.GetError().Error)
@@ -198,16 +209,19 @@ func TestGRPCCluster_Batching(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 
+	// Point client at node-0
 	helper.SetupClient(compose.GetWeaviate().URI())
 	grpcClient, _ := client(t, compose.GetWeaviate().GrpcURI())
 
 	clsA := articles.ArticlesClass()
 	clsA.ReplicationConfig = &models.ReplicationConfig{
-		Factor: 3,
+		Factor:       3,
+		AsyncEnabled: true,
 	}
 	clsP := articles.ParagraphsClass()
 	clsP.ReplicationConfig = &models.ReplicationConfig{
-		Factor: 3,
+		Factor:       3,
+		AsyncEnabled: true,
 	}
 
 	setupClasses := func() func() {
@@ -259,6 +273,113 @@ func TestGRPCCluster_Batching(t *testing.T) {
 			require.Len(ct, listP.Objects, 2, "Number of paragraphs created should match the number sent")
 		}, 30*time.Second, 3*time.Second, "Objects not replicated within time")
 	})
+
+	t.Run("test client/server behaviour when reconnecting between nodes due to shutdown", func(t *testing.T) {
+		defer setupClasses()()
+		firstNode := 2
+		secondNode := 1
+
+		helper.SetupClient(compose.GetWeaviateNode(firstNode).URI())
+		grpcClient, _ = client(t, compose.GetWeaviateNode(firstNode).GrpcURI())
+		stream := start(ctx, t, grpcClient)
+
+		var shuttingDown atomic.Bool
+		var shutdown atomic.Bool
+		var stopped atomic.Bool
+		var wg sync.WaitGroup
+
+		// start a goroutine that continuously sends objects
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			batch := make([]*pb.BatchObject, 0, 1000)
+			for i := 0; i < 100000; i++ {
+				if stopped.Load() {
+					// stop sending if we received a stop from the server
+					fmt.Printf("%s Stopping sending objects as we received a stop from the server\n", time.Now().Format("15:04:05"))
+					return
+				}
+				for shuttingDown.Load() {
+					fmt.Printf("%s Can't send, server is shutting down\n", time.Now().Format("15:04:05"))
+					time.Sleep(1 * time.Second)
+					continue
+				}
+				if shutdown.Load() {
+					fmt.Printf("%s Shutdown completed, reconnecting to node-0\n", time.Now().Format("15:04:05"))
+					// reconnect to different node if shutdown completed
+					grpcClient, _ = client(t, compose.GetWeaviateNode(secondNode).GrpcURI())
+					stream = start(ctx, t, grpcClient)
+					shutdown.Store(false)
+				}
+				batch = append(batch, &pb.BatchObject{
+					Collection: clsA.Class,
+					Uuid:       helper.IntToUUID(uint64(i)).String(),
+				})
+				if len(batch) == 1000 {
+					sendObjects(t, stream, batch)
+					time.Sleep(10 * time.Millisecond) // wait a bit before sending the next batch
+					batch = make([]*pb.BatchObject, 0, 1000)
+				}
+			}
+			fmt.Printf("%s Done sending objects\n", time.Now().Format("15:04:05"))
+			// Send stop message
+			stream.Send(&pb.BatchStreamRequest{
+				Message: &pb.BatchStreamRequest_Stop_{Stop: &pb.BatchStreamRequest_Stop{}},
+			})
+		}()
+
+		// start a goroutine that continuously reads messages
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				resp, err := stream.Recv()
+				if err != nil {
+					return
+				}
+				if resp.GetError() != nil {
+					fmt.Printf("%s Received unexpected error from server: %v\n", time.Now().Format("15:04:05"), resp.GetError())
+				}
+				if resp.GetShutdownTriggered() != nil {
+					fmt.Printf("%s Shutdown triggered\n", time.Now().Format("15:04:05"))
+					shuttingDown.Store(true)
+				}
+				if resp.GetShutdownFinished() != nil {
+					fmt.Printf("%s Shutdown finished\n", time.Now().Format("15:04:05"))
+					shuttingDown.Store(false)
+					shutdown.Store(true)
+				}
+				if resp.GetStop() != nil {
+					fmt.Printf("%s Received stop from server\n", time.Now().Format("15:04:05"))
+					stopped.Store(true)
+					return
+				}
+			}
+		}()
+
+		// Restart node-firstNode
+		t.Logf("Stopping node %v...", firstNode)
+		common.StopNodeAt(ctx, t, compose, firstNode-1)
+		t.Logf("Restarting node %v...", firstNode)
+		common.StartNodeAt(ctx, t, compose, firstNode-1)
+
+		helper.SetupClient(compose.GetWeaviateNode(secondNode).URI())
+		grpcClient, _ = client(t, compose.GetWeaviateNode(secondNode).GrpcURI())
+
+		t.Log("Waiting for goroutines to finish...")
+		wg.Wait()
+
+		// Verify that all objects are present
+		t.Log("Verifying that all objects are present...")
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			res, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
+				Collection:   clsA.Class,
+				ObjectsCount: true,
+			})
+			require.NoError(t, err, "Aggregate should not return an error")
+			require.GreaterOrEqual(ct, *res.GetSingleResult().ObjectsCount, int64(100000), "Number of articles created should match the number sent")
+		}, 300*time.Second, 5*time.Second, "Objects not replicated within time")
+	})
 }
 
 func start(ctx context.Context, t *testing.T, grpcClient pb.WeaviateClient) pb.Weaviate_BatchStreamClient {
@@ -289,12 +410,6 @@ func sendObjects(t *testing.T, stream pb.Weaviate_BatchStreamClient, message []*
 		Message: &pb.BatchStreamRequest_Objects_{Objects: &pb.BatchStreamRequest_Objects{Values: message}},
 	})
 	require.NoError(t, err, "sending Objects over the stream should not return an error")
-
-	// Read backoff back
-	resp, err := stream.Recv()
-	require.NoError(t, err, "BatchStream should return a response")
-	backoff := resp.GetBackoff()
-	require.NotNil(t, backoff, "Backoff message should not be nil", resp.GetMessage())
 }
 
 func sendReferences(t *testing.T, stream pb.Weaviate_BatchStreamClient, message []*pb.BatchReference) {
@@ -303,12 +418,6 @@ func sendReferences(t *testing.T, stream pb.Weaviate_BatchStreamClient, message 
 		Message: &pb.BatchStreamRequest_References_{References: &pb.BatchStreamRequest_References{Values: message}},
 	})
 	require.NoError(t, err, "sending References over the stream should not return an error")
-
-	// Read backoff back
-	resp, err := stream.Recv()
-	require.NoError(t, err, "BatchStream should return a response")
-	backoff := resp.GetBackoff()
-	require.NotNil(t, backoff, "Backoff message should not be nil")
 }
 
 func sendStop(t *testing.T, stream pb.Weaviate_BatchStreamClient) {
@@ -316,11 +425,11 @@ func sendStop(t *testing.T, stream pb.Weaviate_BatchStreamClient) {
 	err := stream.Send(&pb.BatchStreamRequest{
 		Message: &pb.BatchStreamRequest_Stop_{Stop: &pb.BatchStreamRequest_Stop{}},
 	})
-	require.NoError(nil, err, "sending Stop over the stream should not return an error")
+	require.NoError(t, err, "sending Stop over the stream should not return an error")
 
 	// Read the stop message
 	resp, err := stream.Recv()
-	require.NoError(t, err, "BatchStream should return a response")
+	require.NoError(t, err, "Expected no error when reading Stop from stream; got %v", err)
 	end := resp.GetStop()
 	require.NotNil(t, end, "End message should not be nil")
 }

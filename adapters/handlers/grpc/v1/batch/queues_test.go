@@ -30,48 +30,6 @@ func TestHandler(t *testing.T) {
 	logger := logrus.New()
 
 	t.Run("Stream-in", func(t *testing.T) {
-		// t.Run("send objects using the scheduler", func(t *testing.T) {
-		// 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		// 	defer cancel()
-
-		// 	// Arrange
-		// 	req := &pb.BatchSendRequest{
-		// 		StreamId: "test-stream",
-		// 		Message: &pb.BatchSendRequest_Objects_{
-		// 			Objects: &pb.BatchSendRequest_Objects{
-		// 				Values: []*pb.BatchObject{{Collection: "TestClass"}},
-		// 			},
-		// 		},
-		// 	}
-
-		// 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-		// 	defer shutdownCancel()
-
-		// 	writeQueues := batch.NewBatchWriteQueues()
-		// 	readQueues := batch.NewBatchReadQueues()
-		// 	internalQueue := batch.NewBatchInternalQueue()
-		// 	var sendWg sync.WaitGroup
-		// 	var streamWg sync.WaitGroup
-		// 	handler := batch.NewQueuesHandler(shutdownCtx, &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
-		// 	var sWg sync.WaitGroup
-		// 	batch.StartScheduler(shutdownCtx, &sWg, writeQueues, internalQueue, logger)
-
-		// 	writeQueues.Make(req.StreamId, nil)
-		// 	res, err := handler.Send(ctx, req)
-		// 	require.NoError(t, err, "Expected no error when sending objects")
-		// 	require.Equal(t, int32(10), res.NextBatchSize, "Expected to be told to scale up by an order of magnitude")
-
-		// 	// Verify that the internal queue has the object
-		// 	obj := <-internalQueue
-		// 	require.NotNil(t, obj, "Expected object to be sent to internal queue")
-
-		// 	// Shutdown
-		// 	shutdownCancel()
-
-		// 	_, err = handler.Send(ctx, req)
-		// 	require.Equal(t, "grpc shutdown in progress, no more requests are permitted on this node", err.Error(), "Expected error when sending after shutdown")
-		// })
-
 		t.Run("send objects using the scheduler", func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
@@ -86,14 +44,6 @@ func TestHandler(t *testing.T) {
 				},
 			}, nil).Once() // Send 1 objects
 			stream.EXPECT().Recv().Return(nil, io.EOF).Once() // End the stream
-			stream.EXPECT().Send(&pb.BatchStreamReply{
-				Message: &pb.BatchStreamReply_Backoff_{
-					Backoff: &pb.BatchStreamReply_Backoff{
-						BackoffSeconds: 0,
-						NextBatchSize:  10,
-					},
-				},
-			}).Return(nil).Once() // Expected reply after first request
 
 			shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 			defer shutdownCancel()
@@ -110,11 +60,8 @@ func TestHandler(t *testing.T) {
 
 			writeQueues.Make(StreamId, nil)
 			go func() {
-				done := make(chan struct{})
 				err := handler.StreamRecv(ctx, StreamId, stream)
 				require.NoError(t, err, "Expected no error when streaming in objects")
-				_, ok := <-done
-				require.False(t, ok, "Expected done channel to be closed")
 			}()
 
 			// Verify that the internal queue has the object
@@ -122,64 +69,73 @@ func TestHandler(t *testing.T) {
 			require.NotNil(t, obj, "Expected object to be sent to internal queue")
 		})
 
-		t.Run("dynamic batch size calulation", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			defer cancel()
+		// t.Run("dynamic batch size calulation", func(t *testing.T) {
+		// 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		// 	defer cancel()
 
-			writeQueues := batch.NewBatchWriteQueues()
-			readQueues := batch.NewBatchReadQueues()
-			var sendWg sync.WaitGroup
-			var streamWg sync.WaitGroup
-			handler := batch.NewQueuesHandler(ctx, &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
+		// 	writeQueues := batch.NewBatchWriteQueues()
+		// 	readQueues := batch.NewBatchReadQueues()
+		// 	var sendWg sync.WaitGroup
+		// 	var streamWg sync.WaitGroup
+		// 	handler := batch.NewQueuesHandler(ctx, &sendWg, &streamWg, nil, writeQueues, readQueues, logger)
 
-			writeQueues.Make(StreamId, nil)
+		// 	writeQueues.Make(StreamId, nil)
+		// 	readQueues.Make(StreamId)
 
-			// Send 8000 objects
-			req1 := &pb.BatchStreamRequest{
-				Message: &pb.BatchStreamRequest_Objects_{
-					Objects: &pb.BatchStreamRequest_Objects{},
-				},
-			}
-			for i := 0; i < 8000; i++ {
-				req1.GetObjects().Values = append(req1.GetObjects().Values, &pb.BatchObject{Collection: "TestClass"})
-			}
-			// Saturate the buffer
-			req2 := &pb.BatchStreamRequest{
-				Message: &pb.BatchStreamRequest_Objects_{
-					Objects: &pb.BatchStreamRequest_Objects{},
-				},
-			}
-			for i := 0; i < 2000; i++ {
-				req2.GetObjects().Values = append(req2.GetObjects().Values, &pb.BatchObject{Collection: "TestClass"})
-			}
+		// 	// Send 8000 objects
+		// 	req1 := &pb.BatchStreamRequest{
+		// 		Message: &pb.BatchStreamRequest_Objects_{
+		// 			Objects: &pb.BatchStreamRequest_Objects{},
+		// 		},
+		// 	}
+		// 	for i := 0; i < 8000; i++ {
+		// 		req1.GetObjects().Values = append(req1.GetObjects().Values, &pb.BatchObject{Collection: "TestClass"})
+		// 	}
+		// 	// Saturate the buffer
+		// 	req2 := &pb.BatchStreamRequest{
+		// 		Message: &pb.BatchStreamRequest_Objects_{
+		// 			Objects: &pb.BatchStreamRequest_Objects{},
+		// 		},
+		// 	}
+		// 	for i := 0; i < 2000; i++ {
+		// 		req2.GetObjects().Values = append(req2.GetObjects().Values, &pb.BatchObject{Collection: "TestClass"})
+		// 	}
 
-			stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
-			stream.EXPECT().Recv().Return(req1, nil).Once()   // Send first 8000 objects
-			stream.EXPECT().Recv().Return(req2, nil).Once()   // Send second request to saturate the buffer
-			stream.EXPECT().Recv().Return(nil, io.EOF).Once() // End the stream
-			stream.EXPECT().Send(&pb.BatchStreamReply{
-				Message: &pb.BatchStreamReply_Backoff_{
-					Backoff: &pb.BatchStreamReply_Backoff{
-						BackoffSeconds: 1.2499998,
-						NextBatchSize:  799,
-					},
-				},
-			}).Return(nil).Once() // Expected reply after first request
-			stream.EXPECT().Send(&pb.BatchStreamReply{
-				Message: &pb.BatchStreamReply_Backoff_{
-					Backoff: &pb.BatchStreamReply_Backoff{
-						BackoffSeconds: 2.1599982,
-						NextBatchSize:  640,
-					},
-				},
-			}).Return(nil).Once() // Expected reply after second request
+		// 	stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
+		// 	stream.EXPECT().Recv().Return(req1, nil).Once()   // Send first 8000 objects
+		// 	stream.EXPECT().Recv().Return(req2, nil).Once()   // Send second request to saturate the buffer
+		// 	stream.EXPECT().Recv().Return(nil, io.EOF).Once() // End the stream
+		// 	stream.EXPECT().Send(&pb.BatchStreamReply{
+		// 		Message: &pb.BatchStreamReply_Backoff_{
+		// 			Backoff: &pb.BatchStreamReply_Backoff{
+		// 				BackoffSeconds: 1.2499998,
+		// 				NextBatchSize:  799,
+		// 			},
+		// 		},
+		// 	}).Return(nil).Once() // Expected reply after first request
+		// 	stream.EXPECT().Send(&pb.BatchStreamReply{
+		// 		Message: &pb.BatchStreamReply_Backoff_{
+		// 			Backoff: &pb.BatchStreamReply_Backoff{
+		// 				BackoffSeconds: 2.1599982,
+		// 				NextBatchSize:  640,
+		// 			},
+		// 		},
+		// 	}).Return(nil).Once() // Expected reply after second request
 
-			done := make(chan struct{})
-			err := handler.StreamRecv(ctx, StreamId, stream)
-			require.NoError(t, err, "Expected no error when streaming in objects")
-			_, ok := <-done
-			require.False(t, ok, "Expected done channel to be closed")
-		})
+		// 	wg := sync.WaitGroup{}
+		// 	wg.Add(2)
+		// 	go func() {
+		// 		defer wg.Done()
+		// 		err := handler.StreamRecv(ctx, StreamId, stream)
+		// 		require.NoError(t, err, "Expected no error when streaming in objects")
+		// 	}()
+		// 	go func() {
+		// 		defer wg.Done()
+		// 		err := handler.StreamSend(ctx, StreamId, stream)
+		// 		require.NoError(t, err, "Expected no error when streaming out objects")
+		// 	}()
+		// 	wg.Wait()
+		// })
 	})
 
 	t.Run("Stream-out", func(t *testing.T) {

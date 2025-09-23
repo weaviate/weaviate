@@ -13,6 +13,7 @@ package batch_test
 
 import (
 	"context"
+	"io"
 	"testing"
 	"time"
 
@@ -37,8 +38,6 @@ func TestShutdownLogic(t *testing.T) {
 	readQueues.Make(StreamId)
 	writeQueues := batch.NewBatchWriteQueues()
 	writeQueues.Make(StreamId, nil)
-	wq, ok := writeQueues.GetQueue(StreamId)
-	require.Equal(t, true, ok, "write queue should exist")
 	processingQueue := batch.NewBatchProcessingQueue(1)
 	reportingQueue := batch.NewBatchReportingQueue(1)
 
@@ -58,11 +57,24 @@ func TestShutdownLogic(t *testing.T) {
 		}, nil
 	}).Maybe()
 
+	objs := make([]*pb.BatchObject, 0, howManyObjs)
 	for i := 0; i < howManyObjs; i++ {
-		wq <- batch.NewWriteObject(&pb.BatchObject{})
+		objs = append(objs, &pb.BatchObject{})
 	}
 
 	stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
+	stream.EXPECT().Recv().Return(&pb.BatchStreamRequest{
+		Message: &pb.BatchStreamRequest_Objects_{
+			Objects: &pb.BatchStreamRequest_Objects{
+				Values: objs,
+			},
+		},
+	}, nil).Once()
+	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+		// simulate ending the stream from the client side
+		<-ctx.Done()
+		return nil, io.EOF
+	}).Once()
 	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetError().GetError() == "some error" &&
 			msg.GetError().GetObject() != nil
@@ -73,8 +85,8 @@ func TestShutdownLogic(t *testing.T) {
 		},
 	}).Return(nil).Once()
 	stream.EXPECT().Send(&pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_ShutdownInProgress_{
-			ShutdownInProgress: &pb.BatchStreamReply_ShutdownInProgress{},
+		Message: &pb.BatchStreamReply_Backoff_{
+			Backoff: &pb.BatchStreamReply_Backoff{},
 		},
 	}).Return(nil).Maybe()
 	stream.EXPECT().Send(&pb.BatchStreamReply{
@@ -82,10 +94,6 @@ func TestShutdownLogic(t *testing.T) {
 			ShutdownFinished: &pb.BatchStreamReply_ShutdownFinished{},
 		},
 	}).Return(nil).Once()
-	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
-		time.Sleep(10 * time.Second)
-		return &pb.BatchStreamRequest{}, nil
-	}).Maybe()
 
 	shutdown := batch.NewShutdown(ctx)
 	handler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, shutdown.ShutdownFinished, writeQueues, readQueues, logger)

@@ -18,6 +18,7 @@ import (
 	"io"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -33,6 +34,7 @@ type QueuesHandler struct {
 	recvWg           *sync.WaitGroup
 	sendWg           *sync.WaitGroup
 	shutdownFinished chan struct{}
+	stopping         atomic.Bool
 }
 
 const POLLING_INTERVAL = 100 * time.Millisecond
@@ -48,9 +50,7 @@ func NewQueuesHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.Wait
 		for {
 			select {
 			case <-shuttingDownCtx.Done():
-				logger.Info("shutting down batch queues handler, waiting for in-flight requests to finish")
-				recvWg.Wait()
-				logger.Info("all in-flight requests finished, closing write queues")
+				logger.Info("closing write queues")
 				writeQueues.Close()
 				logger.Info("write queues closed, exiting handlers shutdown listener")
 				return
@@ -87,7 +87,7 @@ func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream 
 	// shuttingDown acts as a soft cancel here so we can send the shutting down message to the client.
 	// Once the workers are drained then h.shutdownFinished will be closed and we will shutdown completely
 	shuttingDown := h.shuttingDownCtx.Done()
-	ticker := time.NewTicker(POLLING_INTERVAL)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
 		if readQueue, ok := h.readQueues.Get(streamId); ok {
@@ -119,6 +119,22 @@ func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream 
 						return innerErr
 					}
 				}
+			case <-ticker.C:
+				if h.stopping.Load() {
+					continue
+				}
+				if writeQueue, ok := h.writeQueues.Get(streamId); ok {
+					if innerErr := stream.Send(&pb.BatchStreamReply{
+						Message: &pb.BatchStreamReply_Backoff_{
+							Backoff: &pb.BatchStreamReply_Backoff{
+								NextBatchSize:  writeQueue.NextBatchSize(),
+								BackoffSeconds: writeQueue.BackoffSeconds(),
+							},
+						},
+					}); innerErr != nil {
+						return innerErr
+					}
+				}
 			}
 		} else {
 			// This should never happen, but if it does, we log it
@@ -131,33 +147,16 @@ func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream 
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
 func (h *QueuesHandler) StreamRecv(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
 	h.recvWg.Add(1)
-	stopping := false
+	defer h.recvWg.Done()
 	for {
 		if ctx.Err() != nil {
-			defer h.recvWg.Done()
 			return ctx.Err()
 		}
 		request, err := stream.Recv()
-		if request.GetStop() == nil && h.shuttingDownCtx.Err() != nil {
-			// ignore any further requests as we are shutting down
-			// if users send data while we are shutting down, they will lose these writes
-			// send these objs/refs back so that the client doesn't at least lose these ones
-			err := stream.Send(newBatchShutdownInProgressMessage(request.GetObjects(), request.GetReferences()))
-			if err != nil {
-				defer h.recvWg.Done()
-				return err
-			}
-			h.recvWg.Done()
-			// block until we are fully shut down so that client cannot send any more data
-			<-h.shutdownFinished
-			return h.wait(ctx)
-		}
 		if errors.Is(err, io.EOF) {
-			defer h.recvWg.Done()
 			return nil
 		}
 		if err != nil {
-			defer h.recvWg.Done()
 			return err
 		}
 		objs := make([]*writeObject, 0, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues())+1)
@@ -171,31 +170,21 @@ func (h *QueuesHandler) StreamRecv(ctx context.Context, streamId string, stream 
 			}
 		} else if request.GetStop() != nil {
 			objs = append(objs, &writeObject{Stop: true})
-			stopping = true
+			h.stopping.Store(true)
 		} else {
-			defer h.recvWg.Done()
 			return fmt.Errorf("invalid batch send request: neither objects, references nor stop signal provided")
 		}
 		if !h.writeQueues.Exists(streamId) {
 			h.logger.WithField("streamId", streamId).Error("write queue not found")
-			defer h.recvWg.Done()
 			return fmt.Errorf("write queue for stream %s not found", streamId)
 		}
 		if len(objs) > 0 {
 			h.writeQueues.Write(streamId, objs)
 		}
-		if stopping {
+		if h.stopping.Load() {
 			continue
 		}
-		batchSize, backoffSeconds := h.writeQueues.NextBatch(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues()))
-		stream.Send(&pb.BatchStreamReply{
-			Message: &pb.BatchStreamReply_Backoff_{
-				Backoff: &pb.BatchStreamReply_Backoff{
-					NextBatchSize:  batchSize,
-					BackoffSeconds: backoffSeconds,
-				},
-			},
-		})
+		h.writeQueues.UpdateBatchSize(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues()))
 	}
 }
 
@@ -388,6 +377,9 @@ type WriteQueue struct {
 	emaQueueLen float32      // Exponential moving average of the queue length
 	buffer      int          // Buffer size for the write queue
 	alpha       float32      // Smoothing factor for EMA, typically between 0 and 1
+
+	nextBatchSize  int32   // Current batch size to be used for sending
+	backoffSeconds float32 // Current backoff time in seconds before sending the next batch
 }
 
 // Cubic backoff function: backoff(r) = b * max(0, (r - 0.6) / 0.4) ^ 3, with b = 10s
@@ -401,7 +393,19 @@ func (w *WriteQueue) thresholdCubicBackoff(usageRatio float32) float32 {
 	return maximumBackoffSeconds * float32(math.Pow(float64(max(0, (usageRatio-0.6)/0.4)), 3))
 }
 
-func (w *WriteQueue) NextBatch(batchSize int) (int32, float32) {
+func (w *WriteQueue) NextBatchSize() int32 {
+	w.lock.RLock()
+	defer w.lock.RUnlock()
+	return w.nextBatchSize
+}
+
+func (w *WriteQueue) BackoffSeconds() float32 {
+	w.lock.RLock()
+	defer w.lock.RUnlock()
+	return w.backoffSeconds
+}
+
+func (w *WriteQueue) UpdateBatchSize(batchSize int) {
 	w.lock.Lock()
 	defer w.lock.Unlock()
 
@@ -418,14 +422,17 @@ func (w *WriteQueue) NextBatch(batchSize int) (int32, float32) {
 	// threshold linear batch size scaling
 	if usageRatio < 0.5 {
 		// If usage is lower than 50% threshold, increase by an order of magnitude and cap at 40% of the buffer size
-		return int32(min(maxSize, batchSize*10)), w.thresholdCubicBackoff(usageRatio)
+		w.nextBatchSize = int32(min(maxSize, batchSize*10))
+		w.backoffSeconds = w.thresholdCubicBackoff(usageRatio)
 	}
+
 	scaledSize := int32(float64(maxSize) * (1 - float64(usageRatio)))
 	if scaledSize < 1 {
 		scaledSize = 1 // Ensure at least one object is always sent in worst-case scenario
 	}
 
-	return scaledSize, w.thresholdCubicBackoff(usageRatio)
+	w.nextBatchSize = scaledSize
+	w.backoffSeconds = w.thresholdCubicBackoff(usageRatio)
 }
 
 type WriteQueues struct {
@@ -440,12 +447,12 @@ func (w *WriteQueues) Uuids() []string {
 	return w.uuids
 }
 
-func (w *WriteQueues) NextBatch(streamId string, batchSize int) (int32, float32) {
+func (w *WriteQueues) UpdateBatchSize(streamId string, batchSize int) {
 	wq, ok := w.Get(streamId)
 	if !ok {
-		return 0, 0
+		return
 	}
-	return wq.NextBatch(batchSize)
+	wq.UpdateBatchSize(batchSize)
 }
 
 func (w *WriteQueues) Get(streamId string) (*WriteQueue, bool) {

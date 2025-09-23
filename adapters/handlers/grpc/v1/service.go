@@ -281,7 +281,7 @@ func (s *Service) BatchReferences(ctx context.Context, req *pb.BatchReferencesRe
 // 	return result, errInner
 // }
 
-// BatchStream defines a UnaryStream gRPC method whereby the server streams messages back to the client in order to
+// BatchStream defines a StreamStream gRPC method whereby the server streams messages back to the client in order to
 // asynchronously report on any errors that have occurred during the automatic batching process.
 //
 // The initial request contains the consistency level that is desired when batch inserting in this processing context.
@@ -317,7 +317,11 @@ func (s *Service) BatchStream(stream pb.Weaviate_BatchStreamServer) error {
 	s.batchQueuesHandler.Setup(streamId, startReq)
 	defer s.batchQueuesHandler.Teardown(streamId)
 
-	g, ctx := enterrors.NewErrorGroupWithContextWrapper(s.logger, stream.Context())
+	// Ensure that internal goroutines are cancelled when the stream exits for any reason
+	ctx, cancel := context.WithCancel(stream.Context())
+	defer cancel()
+
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(s.logger, ctx)
 	g.Go(func() error { return s.batchQueuesHandler.StreamRecv(ctx, streamId, stream) })
 	g.Go(func() error { return s.batchQueuesHandler.StreamSend(ctx, streamId, stream) })
 
