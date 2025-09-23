@@ -22,7 +22,7 @@ import (
 
 // DynamicType represents different types that is supported in runtime configs
 type DynamicType interface {
-	~int | ~float64 | ~bool | time.Duration | ~string | []string
+	~int | ~float64 | ~bool | time.Duration | ~string | []string | int64
 }
 
 // DynamicValue represents any runtime config value. It's zero value is

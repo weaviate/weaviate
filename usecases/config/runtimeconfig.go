@@ -47,6 +47,10 @@ type WeaviateRuntimeConfig struct {
 	OIDCGroupsClaim       *runtime.DynamicValue[string]   `yaml:"exp_oidc_groups_claim" json:"exp_oidc_groups_claim"`
 	OIDCScopes            *runtime.DynamicValue[[]string] `yaml:"exp_oidc_scopes" json:"exp_oidc_scopes"`
 	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"exp_oidc_certificate" json:"exp_oidc_certificate"`
+
+	// resource limits
+	GoMaxProcs *runtime.DynamicValue[int]    `json:"go_max_procs" yaml:"go_max_procs"`
+	GoMemLimit *runtime.DynamicValue[string] `json:"go_mem_limit" yaml:"go_mem_limit"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.
@@ -146,6 +150,16 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[int])
+				sv.SetValue(p.Get())
+			}
+			r.newV = sv.Get()
+		case *runtime.DynamicValue[int64]:
+			r.oldV = sv.Get()
+			if pf.IsNil() {
+				// Means the config is removed
+				sv.Reset()
+			} else {
+				p := pi.(*runtime.DynamicValue[int64])
 				sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()

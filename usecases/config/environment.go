@@ -409,6 +409,23 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if entcfg.Enabled(os.Getenv("LIMIT_RESOURCES")) {
+		config.ResourceLimits.EnabledDeprecated = true
+	}
+	if entcfg.Enabled(os.Getenv("LIMIT_RESOURCES_DYNAMIC_ENABLED")) {
+		config.ResourceLimits.Enabled = true
+		var (
+			goMemLimit string
+		)
+
+		if v := os.Getenv("GOMEMLIMIT"); v != "" {
+			goMemLimit = v
+		}
+		config.ResourceLimits.GoMemLimit = runtime.NewDynamicValue(goMemLimit)
+
+		parsePositiveInt("GOMAXPROCS", func(val int) { config.ResourceLimits.GoMaxProcs = runtime.NewDynamicValue(val) }, 0)
+	}
+
 	parsePositiveFloat("REINDEXER_GOROUTINES_FACTOR",
 		func(val float64) { config.ReindexerGoroutinesFactor = val },
 		DefaultReindexerGoroutinesFactor)

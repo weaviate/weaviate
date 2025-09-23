@@ -95,6 +95,13 @@ type SchemaHandlerConfig struct {
 	MaximumAllowedCollectionsCount *runtime.DynamicValue[int] `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 }
 
+type ResourceLimits struct {
+	Enabled           bool                          `json:"enabled" yaml:"enabled"`
+	EnabledDeprecated bool                          `json:"enabled_deprecated" yaml:"enabled_deprecated"`
+	GoMemLimit        *runtime.DynamicValue[string] `json:"go_mem_limit" yaml:"go_mem_limit"`
+	GoMaxProcs        *runtime.DynamicValue[int]    `json:"go_max_procs" yaml:"go_max_procs"`
+}
+
 type RuntimeOverrides struct {
 	Enabled      bool          `json:"enabled"`
 	Path         string        `json:"path" yaml:"path"`
@@ -152,6 +159,7 @@ type Config struct {
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
 	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
+	ResourceLimits                      ResourceLimits           `json:"resource_limits" yaml:"resource_limits"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
