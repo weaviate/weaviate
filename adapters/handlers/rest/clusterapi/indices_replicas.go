@@ -268,7 +268,6 @@ func (i *replicatedIndices) waitToAcquireWorkerSlot(ctx context.Context) (succes
 	case <-ctx.Done():
 		return false, func() {}
 	}
-
 }
 
 func (i *replicatedIndices) executeCommitPhase() http.Handler {
