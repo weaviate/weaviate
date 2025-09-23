@@ -401,7 +401,7 @@ func (p *bitmapBufPoolWithCounter) Get(minCap int) (buf []byte, put func()) {
 func (p *bitmapBufPoolWithCounter) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
 	buf, put := p.Get(bm.LenInBytes())
 	cloned = bm.CloneToBuf(buf)
-	return
+	return cloned, put
 }
 
 func (p *bitmapBufPoolWithCounter) InUseCounter() int {

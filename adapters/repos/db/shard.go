@@ -145,7 +145,7 @@ type ShardLike interface {
 	Dimensions(ctx context.Context, targetVector string) (int, error)
 	// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
 	DimensionsUsage(ctx context.Context, targetVector string) (usagetypes.Dimensionality, error)
-	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
+	QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error)
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
 	resetDimensionsLSM(ctx context.Context) error
@@ -447,9 +447,10 @@ func (s *Shard) VectorStorageSize(ctx context.Context) (int64, error) {
 	// Iterate over all vector indexes to calculate storage size for both default and targeted vectors
 	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// Get dimensions and object count from the dimensions bucket for this specific target vector
-		dimensionality := calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
-			return len(v), dimLen
-		})
+		dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector)
+		if err != nil {
+			return err
+		}
 
 		if dimensionality.Count == 0 || dimensionality.Dimensions == 0 {
 			return nil
