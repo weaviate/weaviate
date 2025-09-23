@@ -547,8 +547,9 @@ func (sg *SegmentGroup) addInitializedSegment(segment Segment) error {
 // not thread-safe on its own, as the assumption is that this is called from a
 // lockholder, e.g. within .get()
 func (sg *SegmentGroup) getWithSegmentList(key []byte, segments []Segment) ([]byte, error) {
-	// TODO aliszka:copy-on-read add strategy check?
-	// assumes "replace" strategy
+	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
+		return nil, fmt.Errorf("SegmentGroup::getWithSegmentList(): %w", err)
+	}
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
@@ -580,8 +581,9 @@ func (sg *SegmentGroup) getWithSegmentList(key []byte, segments []Segment) ([]by
 func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffer []byte,
 	segments []Segment,
 ) ([]byte, []byte, []byte, error) {
-	// TODO aliszka:copy-on-read add strategy check?
-	// assumes "replace" strategy
+	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
+		return nil, nil, nil, fmt.Errorf("SegmentGroup::getWithSegmentList(): %w", err)
+	}
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence

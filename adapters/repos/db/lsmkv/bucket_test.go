@@ -761,6 +761,7 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	t.Parallel()
 
 	diskSegments := &SegmentGroup{
+		strategy: StrategyReplace,
 		segments: []Segment{
 			newFakeReplaceSegment(map[string][]byte{
 				"key1": []byte("value1"),
@@ -887,7 +888,10 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 		active: newTestMemtableReplace(map[string][]byte{
 			"key1": []byte("value1"),
 		}),
-		disk: &SegmentGroup{segments: []Segment{}},
+		disk: &SegmentGroup{
+			strategy: StrategyReplace,
+			segments: []Segment{},
+		},
 	}
 
 	active, freeRefs := b.getActiveMemtableForWrite()
