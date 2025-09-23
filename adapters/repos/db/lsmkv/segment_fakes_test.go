@@ -300,6 +300,14 @@ func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLay
 	return nil
 }
 
+func (s *fakeSegment) hasKey(key []byte) bool {
+	panic("not implemented")
+}
+
+func (s *fakeSegment) getDocCount(key []byte) uint64 {
+	panic("not implemented")
+}
+
 type fakeSegmentCursorReplace struct {
 	keys   [][]byte
 	values [][]byte

@@ -74,6 +74,10 @@ type Segment interface {
 	replaceStratParseData(in []byte) ([]byte, []byte, error)
 	roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (roaringset.BitmapLayer, func(), error)
 	roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool) error
+
+	// map/bmw specific
+	hasKey(key []byte) bool
+	getDocCount(key []byte) uint64
 }
 
 type segment struct {

@@ -173,6 +173,9 @@ type Bucket struct {
 	writeSegmentInfoIntoFileName bool
 
 	bm25Config *models.BM25Config
+	// newSegmentBlockMax typically points to NewSegmentBlockMax, but can be
+	// overridden for testing.
+	newSegmentBlockMax SegmentBlockMaxConstructor
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -216,6 +219,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		calcCountNetAdditions:        false,
 		haltedFlushTimer:             interval.NewBackoffTimer(),
 		writeSegmentInfoIntoFileName: false,
+		newSegmentBlockMax:           NewSegmentBlockMax,
 	}
 
 	for _, opt := range opts {
@@ -1721,9 +1725,8 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		}
 
 		for _, segment := range segmentsDisk {
-			sgm := segment.getSegment()
-			if segment.getStrategy() == segmentindex.StrategyInverted && sgm.hasKey(key) {
-				n += sgm.getDocCount(key)
+			if segment.getStrategy() == segmentindex.StrategyInverted && segment.hasKey(key) {
+				n += segment.getDocCount(key)
 			}
 		}
 
@@ -1759,7 +1762,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		}
 
 		for i, key := range query {
-			term := NewSegmentBlockMax(segment.getSegment(), []byte(key), i, idfs[i], propertyBoost, allTombstones, filterDocIds, averagePropLength, config)
+			term := b.newSegmentBlockMax(segment.getSegment(), []byte(key), i, idfs[i], propertyBoost, allTombstones, filterDocIds, averagePropLength, config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}

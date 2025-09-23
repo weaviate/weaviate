@@ -313,3 +313,13 @@ func (s *lazySegment) getRefs() int {
 	s.mustLoad()
 	return s.segment.getRefs()
 }
+
+func (s *lazySegment) hasKey(key []byte) bool {
+	s.mustLoad()
+	return s.segment.hasKey(key)
+}
+
+func (s *lazySegment) getDocCount(key []byte) uint64 {
+	s.mustLoad()
+	return s.segment.getDocCount(key)
+}
