@@ -472,6 +472,14 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	return sg, nil
 }
 
+func (sg *SegmentGroup) pauseCompaction(ctx context.Context) error {
+	return sg.compactionCallbackCtrl.Deactivate(ctx)
+}
+
+func (sg *SegmentGroup) resumeCompaction(_ context.Context) error {
+	return sg.compactionCallbackCtrl.Activate()
+}
+
 func (sg *SegmentGroup) makeExistsOn(segments []Segment) existsOnLowerSegmentsFn {
 	return func(key []byte) (bool, error) {
 		if len(segments) == 0 {
@@ -651,7 +659,7 @@ func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []b
 				return nil, nil, nil, nil
 			}
 
-			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v", err))
+			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v for segment %s", err, segments[i].getPath()))
 		}
 
 		return k, v, allocatedBuff, nil

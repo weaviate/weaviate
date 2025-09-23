@@ -240,7 +240,7 @@ func (c *Classifier) validateFilters(ctx context.Context, principal *models.Prin
 		}
 	}
 
-	return
+	return err
 }
 
 func (c *Classifier) validateFilter(ctx context.Context, principal *models.Principal, filter *libfilters.LocalFilter) error {
