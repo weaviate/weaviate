@@ -18,8 +18,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"regexp"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -76,6 +78,9 @@ type replicatedIndices struct {
 	// maintenanceModeEnabled is an experimental feature to allow the system to be
 	// put into a maintenance mode where all replicatedIndices requests just return a 418
 	maintenanceModeEnabled func() bool
+
+	bufferSlots     chan struct{}
+	inProgressSlots chan struct{}
 }
 
 var (
@@ -100,11 +105,15 @@ var (
 )
 
 func NewReplicatedIndices(shards replicator, scaler localScaler, auth auth, maintenanceModeEnabled func() bool) *replicatedIndices {
+	maxNumInProgress := runtime.GOMAXPROCS(0) * 2
 	return &replicatedIndices{
 		shards:                 shards,
 		scaler:                 scaler,
 		auth:                   auth,
 		maintenanceModeEnabled: maintenanceModeEnabled,
+		// TODO what sizes to choose here?
+		bufferSlots:     make(chan struct{}, int(math.Max(1000, float64(maxNumInProgress)))),
+		inProgressSlots: make(chan struct{}, maxNumInProgress),
 	}
 }
 
@@ -119,6 +128,24 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
 		}
+
+		// TODO observability
+		success, releaseBufferSlot := i.tryToAcquireBufferSlot()
+		if !success {
+			// TODO retryable?
+			http.Error(w, "too many buffered requests", http.StatusTeapot)
+			return
+		}
+		defer releaseBufferSlot()
+
+		success, releaseWorkerSlot := i.waitToAcquireWorkerSlot(r.Context())
+		if !success {
+			// TODO retryable?
+			http.Error(w, "request cancelled before starting work", http.StatusRequestTimeout)
+			return
+		}
+		defer releaseWorkerSlot()
+
 		// NOTE if you update any of these handler methods/paths, also update the indices_replicas_test.go
 		// TestMaintenanceModeReplicatedIndices test to include the new methods/paths.
 		switch {
@@ -222,6 +249,26 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			return
 		}
 	}
+}
+
+func (i *replicatedIndices) tryToAcquireBufferSlot() (success bool, releaseBufferSlot func()) {
+	select {
+	case i.bufferSlots <- struct{}{}:
+		// Successfully acquired buffer slot
+		return true, func() { <-i.bufferSlots }
+	default:
+		return false, func() {}
+	}
+}
+
+func (i *replicatedIndices) waitToAcquireWorkerSlot(ctx context.Context) (success bool, releaseWorkerSlot func()) {
+	select {
+	case i.inProgressSlots <- struct{}{}:
+		return true, func() { <-i.inProgressSlots }
+	case <-ctx.Done():
+		return false, func() {}
+	}
+
 }
 
 func (i *replicatedIndices) executeCommitPhase() http.Handler {
