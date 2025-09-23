@@ -27,7 +27,7 @@ import (
 
 func limitResources(appState *state.State) {
 	if appState.ServerConfig.Config.ResourceLimits.Enabled && appState.ServerConfig.Config.ResourceLimits.EnabledDeprecated {
-		appState.Logger.Warn("Both LIMIT_RESOURCES and LIMIT_DYNAMIC_RESOURCES_ENABLED are set to true. " +
+		appState.Logger.Warn("Both LIMIT_RESOURCES and LIMIT_RESOURCES_DYNAMIC_ENABLED are set to true. " +
 			"LIMIT_RESOURCES is deprecated and will be ignored. Please use LIMIT_RESOURCES_DYNAMIC_ENABLED going forward.")
 		appState.ServerConfig.Config.ResourceLimits.EnabledDeprecated = false
 	}
