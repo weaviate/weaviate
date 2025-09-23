@@ -161,7 +161,7 @@ func newByUUIDShardResolver(className string, schemaReader schemaReader) *byUUID
 	return &byUUIDShardResolver{
 		className:       className,
 		schemaReader:    schemaReader,
-		tenantValidator: multitenancy.NewBuilder(className, false, schemaReader).Build(),
+		tenantValidator: multitenancy.NewTenantValidator(className, false, schemaReader),
 	}
 }
 
@@ -272,7 +272,7 @@ func newByTenantShardResolver(className string, schemaReader schemaReader) *byTe
 	return &byTenantShardResolver{
 		className:       className,
 		schemaReader:    schemaReader,
-		tenantValidator: multitenancy.NewBuilder(className, true, schemaReader).Build(),
+		tenantValidator: multitenancy.NewTenantValidator(className, true, schemaReader),
 	}
 }
 
@@ -433,23 +433,7 @@ type Builder struct {
 	schemaReader        schemaReader
 }
 
-// NewBuilder creates a new Builder for constructing ShardResolver instances.
-//
-// Parameters:
-//   - className: the name of the class to resolve shards for
-//   - multiTenancyEnabled: whether the class has multi-tenancy enabled
-//   - schemaReader: provides access to schema operations
-//
-// Returns a configured Builder.
-func NewBuilder(className string, multiTenancyEnabled bool, schemaReader schemaReader) *Builder {
-	return &Builder{
-		className:           className,
-		multiTenancyEnabled: multiTenancyEnabled,
-		schemaReader:        schemaReader,
-	}
-}
-
-// Build constructs a ShardResolver with the appropriate resolution strategy
+// NewShardResolver constructs a ShardResolver with the appropriate resolution strategy
 // based on the collection's multi-tenancy configuration.
 //
 // If multi-tenancy is enabled, a tenant-based strategy is used where objects
@@ -457,17 +441,22 @@ func NewBuilder(className string, multiTenancyEnabled bool, schemaReader schemaR
 // strategy is used where objects are mapped to shards using consistent hashing
 // of their UUID.
 //
+// Parameters:
+//   - className: the name of the class to resolve shards for
+//   - multiTenancyEnabled: whether the class has multi-tenancy enabled
+//   - schemaReader: provides access to schema operations
+//
 // Returns a configured ShardResolver that uses the appropriate strategy.
-func (b *Builder) Build() *ShardResolver {
-	if b.multiTenancyEnabled {
-		resolver := newByTenantShardResolver(b.className, b.schemaReader)
+func NewShardResolver(className string, multiTenancyEnabled bool, schemaReader schemaReader) *ShardResolver {
+	if multiTenancyEnabled {
+		resolver := newByTenantShardResolver(className, schemaReader)
 		return &ShardResolver{
 			resolveShard:           resolver.ResolveShard,
 			resolveShards:          resolver.ResolveShards,
 			resolveShardByObjectID: resolver.ResolveShardByObjectID,
 		}
 	}
-	resolver := newByUUIDShardResolver(b.className, b.schemaReader)
+	resolver := newByUUIDShardResolver(className, schemaReader)
 	return &ShardResolver{
 		resolveShard:           resolver.ResolveShard,
 		resolveShards:          resolver.ResolveShards,

@@ -226,35 +226,27 @@ type Builder struct {
 	schemaReader        schemaReader
 }
 
-// NewBuilder creates a new Builder for constructing TenantValidator instances.
-//
-// Parameters:
-//   - className: the name of the class the validator will validate against
-//   - multiTenancyEnabled: whether the class has multi-tenancy enabled
-//   - schemaReader: provides access to schema and tenant information
-//
-// Returns a configured Builder.
-func NewBuilder(className string, multiTenancyEnabled bool, schemaReader schemaReader) *Builder {
-	return &Builder{
-		className:           className,
-		multiTenancyEnabled: multiTenancyEnabled,
-		schemaReader:        schemaReader,
-	}
-}
-
-// Build constructs a TenantValidator with the appropriate validation strategy
+// NewTenantValidator constructs a TenantValidator with the appropriate validation strategy
 // based on the collection's multi-tenancy configuration.
 //
-// Returns a configured TenantValidator that uses either single-tenant or
-// multi-tenant validation strategy as appropriate.
-func (b *Builder) Build() *TenantValidator {
-	if b.multiTenancyEnabled {
-		validator := newMultiTenantValidator(b.className, b.schemaReader)
+// If multi-tenancy is enabled, a multi-tenant validation strategy is used that
+// validates tenant existence and status. Otherwise, a single-tenant validation
+// strategy is used that rejects any tenant parameters.
+//
+// Parameters:
+//   - className: the name of the class to validate tenants for
+//   - multiTenancyEnabled: whether the class has multi-tenancy enabled
+//   - schemaReader: provides access to schema operations for tenant validation
+//
+// Returns a configured TenantValidator that uses the appropriate validation strategy.
+func NewTenantValidator(className string, multiTenancyEnabled bool, schemaReader schemaReader) *TenantValidator {
+	if multiTenancyEnabled {
+		validator := newMultiTenantValidator(className, schemaReader)
 		return &TenantValidator{
 			validateTenants: validator.ValidateTenants,
 		}
 	}
-	validator := newSingleTenantValidator(b.className)
+	validator := newSingleTenantValidator(className)
 	return &TenantValidator{
 		validateTenants: validator.ValidateTenants,
 	}
