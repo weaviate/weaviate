@@ -217,15 +217,6 @@ func (v *TenantValidator) ValidateTenants(ctx context.Context, tenants ...string
 	return v.validateTenants(ctx, tenants...)
 }
 
-// Builder constructs TenantValidator instances based on collection multi-tenancy settings (MultiTenancyConfig).
-// It selects the appropriate validation strategy (single-tenant or multi-tenant) and encapsulates the strategy
-// selection logic.
-type Builder struct {
-	className           string
-	multiTenancyEnabled bool
-	schemaReader        schemaReader
-}
-
 // NewTenantValidator constructs a TenantValidator with the appropriate validation strategy
 // based on the collection's multi-tenancy configuration.
 //

@@ -424,15 +424,6 @@ func (r *ShardResolver) ResolveShards(ctx context.Context, objects []*storobj.Ob
 	return r.resolveShards(ctx, objects)
 }
 
-// Builder constructs ShardResolver instances based on collection multi-tenancy settings.
-// It encapsulates the strategy selection logic and provides a clean construction API
-// that hides the complexity of choosing between UUID-based and tenant-based resolution.
-type Builder struct {
-	className           string
-	multiTenancyEnabled bool
-	schemaReader        schemaReader
-}
-
 // NewShardResolver constructs a ShardResolver with the appropriate resolution strategy
 // based on the collection's multi-tenancy configuration.
 //
