@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/pkg/errors"
