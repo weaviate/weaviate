@@ -37,6 +37,7 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentAddition(t *testing.T) 
 		"key1": []byte("value1"),
 	}
 	sg := &SegmentGroup{
+		strategy: StrategyReplace,
 		segments: []Segment{newFakeReplaceSegment(segmentData)},
 	}
 
@@ -78,6 +79,7 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 		"key2": []byte("value2"),
 	})
 	sg := &SegmentGroup{
+		strategy: StrategyReplace,
 		segments: []Segment{segA, segB},
 		logger:   logger,
 	}
