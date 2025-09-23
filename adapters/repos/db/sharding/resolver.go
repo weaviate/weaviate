@@ -37,7 +37,7 @@ type ShardTarget struct {
 // ShardTargets represents a collection of shard targets for batch processing.
 // It provides utility methods for grouping and manipulation of shard resolution
 // results.
-type ShardTargets []ShardTarget
+type ShardTargets []*ShardTarget
 
 // ShardBatches groups objects by their target shard for efficient batch processing.
 // The map keys are shard names, and values are slices of objects assigned to that shard.
@@ -179,23 +179,23 @@ func newByUUIDShardResolver(className string, schemaReader schemaReader) *byUUID
 //
 // Returns the ShardTarget containing the shard name and object, or an error
 // if validation fails or UUID parsing fails.
-func (r *byUUIDShardResolver) ResolveShard(ctx context.Context, object *storobj.Object) (ShardTarget, error) {
+func (r *byUUIDShardResolver) ResolveShard(ctx context.Context, object *storobj.Object) (*ShardTarget, error) {
 	tenant := object.Object.Tenant
 	if err := r.tenantValidator.ValidateTenants(ctx, tenant); err != nil {
-		return ShardTarget{}, err
+		return nil, err
 	}
 
 	id := object.ID()
 	parsedUUID, err := uuid.Parse(id.String())
 	if err != nil {
-		return ShardTarget{}, fmt.Errorf("parse uuid %q: %w", id.String(), err)
+		return nil, fmt.Errorf("parse uuid %q: %w", id.String(), err)
 	}
 	uuidBytes, err := parsedUUID.MarshalBinary()
 	if err != nil {
-		return ShardTarget{}, fmt.Errorf("marshal uuid %q: %w", id.String(), err)
+		return nil, fmt.Errorf("marshal uuid %q: %w", id.String(), err)
 	}
 
-	return ShardTarget{
+	return &ShardTarget{
 		Shard:  r.schemaReader.ShardFromUUID(r.className, uuidBytes),
 		Object: object,
 	}, nil
@@ -289,12 +289,12 @@ func newByTenantShardResolver(className string, schemaReader schemaReader) *byTe
 //
 // Returns the ShardTarget with tenant name as shard name, or an error if
 // validation fails.
-func (r *byTenantShardResolver) ResolveShard(ctx context.Context, object *storobj.Object) (ShardTarget, error) {
+func (r *byTenantShardResolver) ResolveShard(ctx context.Context, object *storobj.Object) (*ShardTarget, error) {
 	tenant := object.Object.Tenant
 	if err := r.tenantValidator.ValidateTenants(ctx, tenant); err != nil {
-		return ShardTarget{}, err
+		return nil, err
 	}
-	return ShardTarget{Shard: tenant, Object: object}, nil
+	return &ShardTarget{Shard: tenant, Object: object}, nil
 }
 
 // ResolveShards resolves shard targets for multiple objects using tenant-based routing.
@@ -326,7 +326,7 @@ func (r *byTenantShardResolver) ResolveShards(ctx context.Context, objects []*st
 
 	targets := make(ShardTargets, 0, len(objects))
 	for _, object := range objects {
-		targets = append(targets, ShardTarget{
+		targets = append(targets, &ShardTarget{
 			Shard:  object.Object.Tenant,
 			Object: object,
 		})
@@ -360,7 +360,7 @@ func (r *byTenantShardResolver) extractUniqueTenants(objects []*storobj.Object) 
 // the collection's multi-tenancy configuration. It delegates to the appropriate
 // resolution strategy (UUID-based or tenant-based) selected at construction time.
 type ShardResolver struct {
-	resolveShard           func(ctx context.Context, object *storobj.Object) (ShardTarget, error)
+	resolveShard           func(ctx context.Context, object *storobj.Object) (*ShardTarget, error)
 	resolveShards          func(ctx context.Context, objects []*storobj.Object) (ShardTargets, error)
 	resolveShardByObjectID func(ctx context.Context, objectID strfmt.UUID, tenant string) (string, error)
 }
@@ -403,7 +403,7 @@ func (r *ShardResolver) ResolveShardByObjectID(ctx context.Context, objectID str
 //
 // Returns the ShardTarget containing the resolved shard name and object,
 // or an error if resolution fails.
-func (r *ShardResolver) ResolveShard(ctx context.Context, object *storobj.Object) (ShardTarget, error) {
+func (r *ShardResolver) ResolveShard(ctx context.Context, object *storobj.Object) (*ShardTarget, error) {
 	return r.resolveShard(ctx, object)
 }
 
@@ -468,7 +468,7 @@ func NewShardResolver(className string, multiTenancyEnabled bool, schemaReader s
 // This interface ensures consistency across different resolution approaches and enables
 // compile-time verification of strategy implementations.
 type resolverStrategy interface {
-	ResolveShard(ctx context.Context, object *storobj.Object) (ShardTarget, error)
+	ResolveShard(ctx context.Context, object *storobj.Object) (*ShardTarget, error)
 	ResolveShards(ctx context.Context, objects []*storobj.Object) (ShardTargets, error)
 	ResolveShardByObjectID(ctx context.Context, objectID strfmt.UUID, tenant string) (string, error)
 }
