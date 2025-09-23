@@ -68,9 +68,9 @@ type SPFresh struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	splitCh    chan splitOperation    // Channel for split operations
-	mergeCh    chan mergeOperation    // Channel for merge operations
-	reassignCh chan reassignOperation // Channel for reassign operations
+	splitCh    *common.UnboundedChannel[uint64]            // Channel for split operations
+	mergeCh    *common.UnboundedChannel[uint64]            // Channel for merge operations
+	reassignCh *common.UnboundedChannel[reassignOperation] // Channel for reassign operations
 	wg         sync.WaitGroup
 
 	splitList *deduplicator // Prevents duplicate split operations
@@ -112,13 +112,11 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 		PostingSizes: NewPostingSizes(1024, 1024*1024),
 
 		postingLocks: common.NewDefaultShardedRWLocks(),
-		// TODO: the following buffer sizes are completely arbitrary and not fined tuned at all
-		// We'll replace them with unbounded channels and proper back-pressure.
-		// Eventually, we'll create sharded workers between all instances of SPFresh
+		// TODO: Eventually, we'll create sharded workers between all instances of SPFresh
 		// to minimize the number of goroutines while still maximizing CPU usage and I/O throughput.
-		splitCh:    make(chan splitOperation, cfg.SplitWorkers*100),           // TODO: fine-tune buffer size
-		mergeCh:    make(chan mergeOperation, 1024),                           // TODO: fine-tune buffer size
-		reassignCh: make(chan reassignOperation, cfg.ReassignWorkers*500_000), // TODO: fine-tune buffer size
+		splitCh:    common.MakeUnboundedChannel[uint64](),
+		mergeCh:    common.MakeUnboundedChannel[uint64](),
+		reassignCh: common.MakeUnboundedChannel[reassignOperation](),
 		splitList:  newDeduplicator(),
 		mergeList:  newDeduplicator(),
 		// TODO: choose a better starting size since we can predict the max number of
@@ -185,9 +183,9 @@ func (s *SPFresh) Shutdown(ctx context.Context) error {
 	s.cancel()
 
 	// Close the split channel to signal workers to stop
-	close(s.splitCh)
-	close(s.mergeCh)
-	close(s.reassignCh)
+	s.splitCh.Close(ctx)
+	s.reassignCh.Close(ctx)
+	s.mergeCh.Close(ctx)
 
 	s.wg.Wait() // Wait for all workers to finish
 	return nil
