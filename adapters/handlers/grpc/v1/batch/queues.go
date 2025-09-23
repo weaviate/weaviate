@@ -241,27 +241,6 @@ func newBatchShutdownTriggeredMessage() *pb.BatchStreamReply {
 	}
 }
 
-func newBatchShutdownInProgressMessage(objects *pb.BatchStreamRequest_Objects, references *pb.BatchStreamRequest_References) *pb.BatchStreamReply {
-	message := &pb.BatchStreamReply_ShutdownInProgress{}
-	if objects != nil {
-		message.Message = &pb.BatchStreamReply_ShutdownInProgress_Objects_{
-			Objects: &pb.BatchStreamReply_ShutdownInProgress_Objects{
-				Values: objects.Values,
-			},
-		}
-	}
-	if references != nil {
-		message.Message = &pb.BatchStreamReply_ShutdownInProgress_References_{
-			References: &pb.BatchStreamReply_ShutdownInProgress_References{
-				Values: references.Values,
-			},
-		}
-	}
-	return &pb.BatchStreamReply{Message: &pb.BatchStreamReply_ShutdownInProgress_{
-		ShutdownInProgress: message,
-	}}
-}
-
 type readObject struct {
 	Errors []*pb.BatchStreamReply_Error
 }

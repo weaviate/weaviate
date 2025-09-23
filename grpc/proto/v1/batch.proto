@@ -42,21 +42,9 @@ message BatchStreamRequest {
 message BatchStreamReply {
   message Stop {
   }
-  message ShutdownTriggered {
-  }
   message ShutdownFinished {
   }
-  message ShutdownInProgress {
-    message Objects {
-      repeated BatchObject values = 1;
-    }
-    message References {
-      repeated BatchReference values = 1;
-    }
-    oneof message {
-      Objects objects = 1;
-      References references = 2;
-    }
+  message ShutdownTriggered {
   }
   message Error {
     string error = 1;
@@ -74,8 +62,7 @@ message BatchStreamReply {
     Stop stop = 2;
     ShutdownFinished shutdown_finished = 3;
     ShutdownTriggered shutdown_triggered = 4;
-    ShutdownInProgress shutdown_in_progress = 5;
-    Backoff backoff = 6;
+    Backoff backoff = 5;
   }
 }
 
