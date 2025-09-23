@@ -1829,6 +1829,72 @@ func TestBucketInvertedStrategyConsistentView(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	b := Bucket{
+		active: newTestMemtableInverted(map[string][]MapPair{
+			"key1": {NewMapPairFromDocIdAndTf(0, 3, 1, false)},
+		}),
+		disk:     &SegmentGroup{segments: []Segment{}},
+		strategy: StrategyInverted,
+	}
+
+	active, freeRefs := b.getActiveMemtableForWrite()
+	err := active.appendMapSorted([]byte("key1"),
+		NewMapPairFromDocIdAndTf(1, 2, 1, false),
+	)
+	require.NoError(t, err)
+
+	switchDone := make(chan struct{})
+	flushDone := make(chan struct{})
+
+	go func() {
+		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
+			return newTestMemtableInverted(nil), nil
+		})
+		require.NoError(t, err)
+		require.True(t, switched)
+		close(switchDone)
+
+		b.waitForZeroWriters(b.flushing)
+
+		seg := flushInvertedTestMemtableIntoTestSegment(b.flushing)
+		b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+		close(flushDone)
+	}()
+
+	<-switchDone
+
+	// Second write (post-switch) through the old active reference
+	err = active.appendMapSorted([]byte("key1"),
+		NewMapPairFromDocIdAndTf(2, 2, 1, false),
+	)
+	require.NoError(t, err)
+
+	// Release and let flush proceed
+	freeRefs()
+	<-flushDone
+
+	// Validate disk now has all 3 writes
+	view := b.getConsistentView()
+	defer view.Release()
+
+	require.Len(t, view.Disk, 1, "there should be exactly one disk segment")
+	expected := []kv{
+		{
+			key: []byte("key1"),
+			values: []MapPair{
+				NewMapPairFromDocIdAndTf(0, 3, 1, false),
+				NewMapPairFromDocIdAndTf(1, 2, 1, false),
+				NewMapPairFromDocIdAndTf(2, 2, 1, false),
+			},
+		},
+	}
+	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx, view.Disk[0], expected))
+}
+
 type testMemtable struct {
 	*Memtable
 	totalWriteCountIncs int
@@ -2146,6 +2212,55 @@ func validateMapPairListVsBlockMaxSearchFromView(ctx context.Context, bucket *Bu
 		}
 	}
 
+	return nil
+}
+
+func validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx context.Context, segment Segment, expectedMultiKey []kv) error {
+	for _, termPair := range expectedMultiKey {
+		expected := termPair.values
+		mapKey := termPair.key
+		// get more results, as there may be more results than expected on the result heap
+		// during intermediate steps of insertions
+		N := len(expected) * 10
+		bm25config := schema.BM25Config{
+			K1: 1.2,
+			B:  0.75,
+		}
+		avgPropLen := 1.0
+		duplicateTextBoosts := make([]int, 1)
+		duplicateTextBoosts[0] = 1
+		bmws := newSegmentBlockMaxForFakeSegment(segment, mapKey, 0, 1, 1, nil, nil, 3, bm25config)
+
+		diskTerms := [][]*SegmentBlockMax{{bmws}}
+
+		expectedSet := make(map[uint64][]*terms.DocPointerWithScore, len(expected))
+		for _, diskTerm := range diskTerms {
+			topKHeap, err := DoBlockMaxWand(ctx, N, diskTerm, avgPropLen, true, 1, 1, nil)
+			if err != nil {
+				return fmt.Errorf("failed to execute DoBlockMaxWand for diskTerm %v: %w", diskTerm, err)
+			}
+			for topKHeap.Len() > 0 {
+				item := topKHeap.Pop()
+				expectedSet[item.ID] = item.Value
+			}
+		}
+
+		for _, val := range expected {
+			docId := binary.BigEndian.Uint64(val.Key)
+			if val.Tombstone {
+				continue
+			}
+			freq := math.Float32frombits(binary.LittleEndian.Uint32(val.Value[0:4]))
+			if _, ok := expectedSet[docId]; !ok {
+				return fmt.Errorf("expected docId %v not found in topKHeap: %v", docId, expectedSet)
+			}
+			if expectedSet[docId][0].Frequency != freq {
+				return fmt.Errorf("expected frequency %v but got %v", freq, expectedSet[docId][0].Frequency)
+			}
+
+		}
+
+	}
 	return nil
 }
 
