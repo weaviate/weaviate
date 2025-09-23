@@ -15,7 +15,7 @@ import (
 	"testing"
 )
 
-func TestParseMemLimit_TableDriven(t *testing.T) {
+func TestParseMemLimit(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   string
