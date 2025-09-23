@@ -244,7 +244,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		shardCount++
 		return nil
 	})
-	return
+	return totalCount, shardCount
 }
 
 func getShardReplicationDetails(i *Index, shardName string) (int64, int64) {

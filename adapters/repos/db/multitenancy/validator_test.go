@@ -102,10 +102,12 @@ func Test_SingleTenantValidator(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// GIVEN
 			schemaReader := &fakeSchemaReader{classExists: true}
-			validator := multitenancy.NewBuilder("TestClass", false, schemaReader).Build()
+			validator := multitenancy.NewTenantValidator("TestClass", false, schemaReader)
 
 			// WHEN
 			err := validator.ValidateTenants(context.Background(), tc.tenants...)
@@ -210,13 +212,15 @@ func Test_MultiTenantValidator(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// GIVEN
 			schemaReader := &fakeSchemaReader{
 				tenantShards: tc.tenantShards,
 				classExists:  tc.classExists,
 			}
-			validator := multitenancy.NewBuilder("TestClass", true, schemaReader).Build()
+			validator := multitenancy.NewTenantValidator("TestClass", true, schemaReader)
 
 			// WHEN
 			err := validator.ValidateTenants(context.Background(), tc.tenants...)
@@ -256,13 +260,15 @@ func Test_MultiTenantValidator_SchemaErrors(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// GIVEN
 			schemaReader := &fakeSchemaReader{
 				tenantsShardErr: tc.tenantsShardErr,
 				classExists:     true,
 			}
-			validator := multitenancy.NewBuilder("TestClass", true, schemaReader).Build()
+			validator := multitenancy.NewTenantValidator("TestClass", true, schemaReader)
 
 			// WHEN
 			err := validator.ValidateTenants(context.Background(), "tenant1")
@@ -314,13 +320,15 @@ func Test_TenancyValidator_Builder(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// GIVEN
 			schemaReader := &fakeSchemaReader{
 				tenantShards: map[string]string{"tenant1": models.TenantActivityStatusHOT},
 				classExists:  true,
 			}
-			validator := multitenancy.NewBuilder("TestClass", tc.multiTenancyEnabled, schemaReader).Build()
+			validator := multitenancy.NewTenantValidator("TestClass", tc.multiTenancyEnabled, schemaReader)
 
 			// WHEN
 			err := validator.ValidateTenants(context.Background(), tc.validateWithTenant)

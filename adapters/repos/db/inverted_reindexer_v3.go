@@ -208,7 +208,7 @@ func (r *shardReindexerV3) RunBeforeLsmInit(_ context.Context, shard *Shard) (er
 		ec.Add(r.tasks[i].OnBeforeLsmInit(mergedCtx, shard))
 	}
 	err = ec.ToError()
-	return
+	return err
 }
 
 func (r *shardReindexerV3) RunAfterLsmInit(_ context.Context, shard *Shard) (err error) {
@@ -240,7 +240,7 @@ func (r *shardReindexerV3) RunAfterLsmInit(_ context.Context, shard *Shard) (err
 		ec.Add(r.tasks[i].OnAfterLsmInit(mergedCtx, shard))
 	}
 	err = ec.ToError()
-	return
+	return err
 }
 
 func (r *shardReindexerV3) RunAfterLsmInitAsync(_ context.Context, shard *Shard) (err error) {
@@ -307,7 +307,7 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 
 	if err = ctx.Err(); err != nil {
 		err = fmt.Errorf("context check (1): %w / %w", ctx.Err(), context.Cause(ctx))
-		return
+		return err
 	}
 
 	index := r.getIndex(schema.ClassName(collectionName))
@@ -320,7 +320,7 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 			}
 		})
 		err = fmt.Errorf("index for shard '%s' of collection '%s' not found", shardName, collectionName)
-		return
+		return err
 	}
 	shard, release, err := index.GetShard(ctx, shardName)
 	if err != nil {
@@ -330,7 +330,7 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 			}
 		})
 		err = fmt.Errorf("not loaded '%s' of collection '%s': %w", shardName, collectionName, err)
-		return
+		return err
 	}
 
 	rerunAt, reloadShard, err := func() (time.Time, bool, error) {
@@ -372,13 +372,13 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 			r.scheduleTasks(key, tasks, rerunAt)
 			logger.WithField("task", tasks[0].Name()).Debug("task executed partially, rerun scheduled")
 		})
-		return
+		return err
 	}
 
 	// do not reload if error occurred. schedule tasks using shard's individual context
 	if !reloadShard || err != nil || ctx.Err() != nil {
 		err = scheduleNextTasks(ctx, err)
-		return
+		return err
 	}
 
 	// reload uninterrupted by context. shard's context will be cancelled by shutdown anyway
@@ -387,7 +387,7 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 	}
 	// schedule tasks using global context
 	err = scheduleNextTasks(r.ctx, err)
-	return
+	return err
 }
 
 func (r *shardReindexerV3) scheduleTasks(key string, tasks []ShardReindexTaskV3, runAt time.Time) error {
