@@ -225,7 +225,7 @@ func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
 	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondaryIntoMemory(0, container.Buff8, container.Buff)
+		GetBySecondaryWithBuffer(0, container.Buff8, container.Buff)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +248,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
 	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondaryIntoMemory(0, container.Buff8, container.Buff)
+		GetBySecondaryWithBuffer(0, container.Buff8, container.Buff)
 	if err != nil {
 		return nil, err
 	}

@@ -44,10 +44,16 @@ func (c *cursorRoaringSet) Close() {
 	c.unlock()
 }
 
+// CursorRoaringSet behaves like [Cursor], but for the RoaringSet strategy. It
+// needs to be closed using .Close() to free references to the underlying
+// segments.
 func (b *Bucket) CursorRoaringSet() CursorRoaringSet {
 	return b.cursorRoaringSet(false)
 }
 
+// CursorRoaringSetKey is the equivalent of [CursorRoaringSet], but only
+// returns keys. See [Cursor] for details on snapshot isolation. Needs to be
+// closed using .Close() to free references to the underlying disk segments.
 func (b *Bucket) CursorRoaringSetKeyOnly() CursorRoaringSet {
 	return b.cursorRoaringSet(true)
 }
@@ -56,12 +62,14 @@ func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSet)
 
 	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
 
 	innerCursors, unlockSegmentGroup := b.disk.newRoaringSetCursors()
 
-	// we have a flush-RLock, so we have the guarantee that the flushing state
-	// will not change for the lifetime of the cursor, thus there can only be two
-	// states: either a flushing memtable currently exists - or it doesn't
+	// we hold a flush-lock during initialzation, but we release it before
+	// returning to the caller. However, `*memtable.newCursor` creates a deep
+	// copy of the entire content, so this cursor will remain valid even after we
+	// release the lock
 	if b.flushing != nil {
 		innerCursors = append(innerCursors, b.flushing.newRoaringSetCursor())
 	}
@@ -73,7 +81,6 @@ func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 		combinedCursor: roaringset.NewCombinedCursor(innerCursors, keyOnly),
 		unlock: func() {
 			unlockSegmentGroup()
-			b.flushLock.RUnlock()
 		},
 	}
 }

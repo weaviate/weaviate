@@ -31,8 +31,7 @@ import (
 type compactorReplace struct {
 	// c1 is always the older segment, so when there is a conflict c2 wins
 	// (because of the replace strategy)
-	c1 *segmentCursorReplace
-	c2 *segmentCursorReplace
+	c1, c2 innerCursorReplaceAllKeys
 
 	// the level matching those of the cursors
 	currentLevel uint16
@@ -54,7 +53,7 @@ type compactorReplace struct {
 }
 
 func newCompactorReplace(w io.WriteSeeker,
-	c1, c2 *segmentCursorReplace, level, secondaryIndexCount uint16,
+	c1, c2 innerCursorReplaceAllKeys, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
 ) *compactorReplace {

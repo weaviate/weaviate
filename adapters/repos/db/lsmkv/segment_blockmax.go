@@ -186,7 +186,11 @@ func generateSingleFilter(tombstones *sroar.Bitmap, filterDocIds helpers.AllowLi
 	return tombstones, filterSroar
 }
 
-func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+type SegmentBlockMaxConstructor func(s Segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax
+
+func NewSegmentBlockMax(si Segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+	s := si.getSegment()
+
 	node, err := s.index.Get(key)
 	if err != nil {
 		return nil

@@ -46,7 +46,7 @@ func (b *Bucket) QuantileKeys(q int) [][]byte {
 }
 
 func (sg *SegmentGroup) quantileKeys(q int) [][]byte {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
 
 	var keys [][]byte
