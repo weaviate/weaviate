@@ -263,7 +263,6 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			return
 		}
 		wg.Wait()
-
 	}
 }
 
