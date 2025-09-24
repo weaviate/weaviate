@@ -143,7 +143,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 			}
 
 			// Check shard status without forcing load
-			if shard.GetStatus() == storagestate.StatusLoading {
+			if shard.GetStatus() == storagestate.StatusLoading || shard.GetStatus() == storagestate.StatusLazyLoading {
 				shardUsage, err := calculateUnloadedShardUsage(ctx, index, shardName, collection.VectorConfig)
 				if err != nil {
 					return err
