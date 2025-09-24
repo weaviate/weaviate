@@ -1278,14 +1278,21 @@ func (m *Migrator) migrateShardCompressedVectorBuckets(ctx context.Context, shar
 			m.logger.WithField("action", "migrate_compressed_vector_buckets").WithError(err).Warn("Failed to shutdown new bucket, continuing with migration")
 		}
 
-		// Copy contents from old bucket to new bucket
-		if err := m.copyBucketContents(oldBucketPath, newBucketPath); err != nil {
-			return errors.Wrapf(err, "failed to copy contents from %s to %s", oldBucketPath, newBucketPath)
+		// Shutdown the new bucket if it's loaded
+		if err := store.ShutdownBucket(ctx, oldBucketName); err != nil {
+			m.logger.WithField("action", "migrate_compressed_vector_buckets").WithError(err).Warn("Failed to shutdown old bucket, continuing with migration")
 		}
 
-		// Remove the old bucket directory
-		if err := os.RemoveAll(oldBucketPath); err != nil {
-			m.logger.WithField("action", "migrate_compressed_vector_buckets").WithError(err).Warn("Failed to remove old bucket directory, but migration data copy was successful")
+		// Remove the new bucket directory (assuming it's empty or contains data we're willing to lose)
+		if err := os.RemoveAll(newBucketPath); err != nil {
+			m.logger.WithField("action", "migrate_compressed_vector_buckets").WithError(err).Error("Failed to remove existing new bucket")
+			return errors.Wrapf(err, "failed to remove existing new bucket directory %s", newBucketPath)
+		}
+
+		// Rename old bucket to new bucket
+		if err := os.Rename(oldBucketPath, newBucketPath); err != nil {
+			m.logger.WithField("action", "migrate_compressed_vector_buckets").WithError(err).Error("Failed to rename existing old bucket to new bucket")
+			return errors.Wrapf(err, "failed to rename old bucket from %s to %s", oldBucketPath, newBucketPath)
 		}
 
 		// Recreate/reload the new bucket
