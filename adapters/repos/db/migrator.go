@@ -1098,7 +1098,10 @@ func (m *Migrator) migrateShardCompressedVectorBuckets(ctx context.Context, shar
 	}
 
 	if targetClass == nil {
-		m.logger.WithField("class", class).Debug("Class not found in schema, skipping migration")
+		m.logger.WithFields(logrus.Fields{
+			"action": "migrate_compressed_vector_buckets",
+			"class":  class,
+		}).Debug("Class not found in schema, skipping migration")
 		return nil
 	}
 
@@ -1119,13 +1122,17 @@ func (m *Migrator) migrateShardCompressedVectorBuckets(ctx context.Context, shar
 
 	// If no vector configs found, skip migration
 	if len(vectorConfigs) == 0 {
-		m.logger.WithField("shard", shard.ID()).Debug("No vector configurations found, skipping migration")
+		m.logger.WithFields(logrus.Fields{
+			"action": "migrate_compressed_vector_buckets",
+			"shard":  shard.ID(),
+		}).Debug("No vector configurations found, skipping migration")
 		return nil
 	}
 
 	// If multiple named vectors exist, Copy old bucket data to all new target vector buckets
 	if len(vectorConfigs) > 1 {
 		m.logger.WithFields(logrus.Fields{
+			"action":      "migrate_compressed_vector_buckets",
 			"shard":       shard.ID(),
 			"class":       class,
 			"vectorCount": len(vectorConfigs),
@@ -1162,6 +1169,7 @@ func (m *Migrator) migrateShardCompressedVectorBuckets(ctx context.Context, shar
 			// Check if new bucket directory already exists
 			if _, err := os.Stat(newBucketPath); err == nil {
 				m.logger.WithFields(logrus.Fields{
+					"action":        "migrate_compressed_vector_buckets",
 					"shard":         shard.ID(),
 					"targetVector":  targetVector,
 					"oldBucketPath": oldBucketPath,
@@ -1170,12 +1178,13 @@ func (m *Migrator) migrateShardCompressedVectorBuckets(ctx context.Context, shar
 
 				// Shutdown the new bucket if it's loaded
 				if err := store.ShutdownBucket(ctx, newBucketName); err != nil {
-					m.logger.WithError(err).Warn("Failed to shutdown target vector bucket, continuing with migration")
+					m.logger.WithField("action", "migrate_compressed_vector_buckets").WithError(err).Warn("Failed to shutdown target vector bucket, continuing with migration")
 				}
 
 				// Copy contents from old bucket to new bucket
 				if err := m.copyBucketContents(oldBucketPath, newBucketPath); err != nil {
 					m.logger.WithFields(logrus.Fields{
+						"action":       "migrate_compressed_vector_buckets",
 						"shard":        shard.ID(),
 						"targetVector": targetVector,
 						"error":        err,
@@ -1185,12 +1194,13 @@ func (m *Migrator) migrateShardCompressedVectorBuckets(ctx context.Context, shar
 
 				// Recreate/reload the new bucket
 				if err := store.CreateOrLoadBucket(ctx, newBucketName); err != nil {
-					m.logger.WithError(err).Warn("Failed to reload target vector bucket after migration")
+					m.logger.WithField("action", "migrate_compressed_vector_buckets").WithError(err).Warn("Failed to reload target vector bucket after migration")
 				}
 			} else {
 				// Copy old bucket to new target vector bucket
 				if err := m.copyBucketContents(oldBucketPath, newBucketPath); err != nil {
 					m.logger.WithFields(logrus.Fields{
+						"action":       "migrate_compressed_vector_buckets",
 						"shard":        shard.ID(),
 						"targetVector": targetVector,
 						"error":        err,
@@ -1200,6 +1210,7 @@ func (m *Migrator) migrateShardCompressedVectorBuckets(ctx context.Context, shar
 			}
 
 			m.logger.WithFields(logrus.Fields{
+				"action":        "migrate_compressed_vector_buckets",
 				"shard":         shard.ID(),
 				"targetVector":  targetVector,
 				"oldBucketPath": oldBucketPath,
@@ -1209,9 +1220,10 @@ func (m *Migrator) migrateShardCompressedVectorBuckets(ctx context.Context, shar
 
 		// Remove the old bucket directory after all copies are complete
 		if err := os.RemoveAll(oldBucketPath); err != nil {
-			m.logger.WithError(err).Warn("Failed to remove old bucket directory after copying to all target vectors")
+			m.logger.WithField("action", "migrate_compressed_vector_buckets").WithError(err).Warn("Failed to remove old bucket directory after copying to all target vectors")
 		} else {
 			m.logger.WithFields(logrus.Fields{
+				"action":        "migrate_compressed_vector_buckets",
 				"shard":         shard.ID(),
 				"oldBucketPath": oldBucketPath,
 			}).Info("Successfully removed old compressed vector bucket after migration to multiple targets")
@@ -1255,6 +1267,7 @@ func (m *Migrator) migrateShardCompressedVectorBuckets(ctx context.Context, shar
 	// Check if new bucket directory already exists
 	if _, err := os.Stat(newBucketPath); err == nil {
 		m.logger.WithFields(logrus.Fields{
+			"action":        "migrate_compressed_vector_buckets",
 			"shard":         shard.ID(),
 			"oldBucketPath": oldBucketPath,
 			"newBucketPath": newBucketPath,
@@ -1262,7 +1275,7 @@ func (m *Migrator) migrateShardCompressedVectorBuckets(ctx context.Context, shar
 
 		// Shutdown the new bucket if it's loaded
 		if err := store.ShutdownBucket(ctx, newBucketName); err != nil {
-			m.logger.WithError(err).Warn("Failed to shutdown new bucket, continuing with migration")
+			m.logger.WithField("action", "migrate_compressed_vector_buckets").WithError(err).Warn("Failed to shutdown new bucket, continuing with migration")
 		}
 
 		// Copy contents from old bucket to new bucket
@@ -1272,15 +1285,16 @@ func (m *Migrator) migrateShardCompressedVectorBuckets(ctx context.Context, shar
 
 		// Remove the old bucket directory
 		if err := os.RemoveAll(oldBucketPath); err != nil {
-			m.logger.WithError(err).Warn("Failed to remove old bucket directory, but migration data copy was successful")
+			m.logger.WithField("action", "migrate_compressed_vector_buckets").WithError(err).Warn("Failed to remove old bucket directory, but migration data copy was successful")
 		}
 
 		// Recreate/reload the new bucket
 		if err := store.CreateOrLoadBucket(ctx, newBucketName); err != nil {
-			m.logger.WithError(err).Warn("Failed to reload new bucket after migration")
+			m.logger.WithField("action", "migrate_compressed_vector_buckets").WithError(err).Warn("Failed to reload new bucket after migration")
 		}
 
 		m.logger.WithFields(logrus.Fields{
+			"action":        "migrate_compressed_vector_buckets",
 			"shard":         shard.ID(),
 			"oldBucketPath": oldBucketPath,
 			"newBucketPath": newBucketPath,
@@ -1291,6 +1305,7 @@ func (m *Migrator) migrateShardCompressedVectorBuckets(ctx context.Context, shar
 
 	// Perform the migration by renaming the directory
 	m.logger.WithFields(logrus.Fields{
+		"action":        "migrate_compressed_vector_buckets",
 		"shard":         shard.ID(),
 		"class":         class,
 		"targetVector":  targetVector,
@@ -1303,6 +1318,7 @@ func (m *Migrator) migrateShardCompressedVectorBuckets(ctx context.Context, shar
 	}
 
 	m.logger.WithFields(logrus.Fields{
+		"action":        "migrate_compressed_vector_buckets",
 		"shard":         shard.ID(),
 		"class":         class,
 		"targetVector":  targetVector,
