@@ -186,10 +186,12 @@ type hnsw struct {
 	visitedListPoolMaxSize int
 
 	// only used for multivector mode
-	multivector  atomic.Bool
-	docIDVectors map[uint64][]uint64
-	vecIDcounter uint64
-	maxDocID     uint64
+	multivector     atomic.Bool
+	docIDVectors    map[uint64][]uint64
+	vecIDcounter    uint64
+	maxDocID        uint64
+	MinMMapSize     int64
+	MaxWalReuseSize int64
 }
 
 type CommitLogger interface {
@@ -311,7 +313,9 @@ func New(cfg Config, uc ent.UserConfig,
 		allocChecker:           cfg.AllocChecker,
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
 
-		docIDVectors: make(map[uint64][]uint64),
+		docIDVectors:    make(map[uint64][]uint64),
+		MinMMapSize:     cfg.MinMMapSize,
+		MaxWalReuseSize: cfg.MaxWalReuseSize,
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
@@ -322,11 +326,11 @@ func New(cfg Config, uc ent.UserConfig,
 		if !uc.Multivector.Enabled {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.AllocChecker, index.getName())
+				cfg.MinMMapSize, cfg.MaxWalReuseSize, cfg.AllocChecker, index.getName())
 		} else {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.AllocChecker, index.getName())
+				cfg.MinMMapSize, cfg.MaxWalReuseSize, cfg.AllocChecker, index.getName())
 		}
 		if err != nil {
 			return nil, err

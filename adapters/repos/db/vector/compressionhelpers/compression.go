@@ -78,6 +78,9 @@ type quantizedVectorsCompressor[T byte | uint64] struct {
 	loadId          func([]byte) uint64
 	logger          logrus.FieldLogger
 	targetVector    string
+	minMMapSize     int64
+	maxWalReuseSize int64
+	allocChecker    memwatch.AllocChecker
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Drop() error {
@@ -253,7 +256,13 @@ func (compressor *quantizedVectorsCompressor[T]) NewBag() CompressionDistanceBag
 }
 
 func (compressor *quantizedVectorsCompressor[T]) initCompressedStore() error {
-	err := compressor.compressedStore.CreateOrLoadBucket(context.Background(), helpers.GetCompressedBucketName(compressor.targetVector))
+	err := compressor.compressedStore.CreateOrLoadBucket(
+		context.Background(),
+		helpers.GetCompressedBucketName(compressor.targetVector),
+		lsmkv.WithAllocChecker(compressor.allocChecker),
+		lsmkv.WithMinMMapSize(compressor.minMMapSize),
+		lsmkv.WithMinWalThreshold(compressor.maxWalReuseSize),
+	)
 	if err != nil {
 		return errors.Wrapf(err, "Create or load bucket (compressed vectors store)")
 	}
@@ -372,6 +381,8 @@ func NewHNSWPQCompressor(
 	logger logrus.FieldLogger,
 	data [][]float32,
 	store *lsmkv.Store,
+	minMMapSize int64,
+	maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -386,6 +397,9 @@ func NewHNSWPQCompressor(
 		loadId:          binary.LittleEndian.Uint64,
 		logger:          logger,
 		targetVector:    targetVector,
+		minMMapSize:     minMMapSize,
+		maxWalReuseSize: maxWalReuseSize,
+		allocChecker:    allocChecker,
 	}
 	pqVectorsCompressor.initCompressedStore()
 	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(
@@ -407,6 +421,8 @@ func RestoreHNSWPQCompressor(
 	logger logrus.FieldLogger,
 	encoders []PQEncoder,
 	store *lsmkv.Store,
+	minMMapSize int64,
+	maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -421,6 +437,9 @@ func RestoreHNSWPQCompressor(
 		loadId:          binary.LittleEndian.Uint64,
 		logger:          logger,
 		targetVector:    targetVector,
+		minMMapSize:     minMMapSize,
+		maxWalReuseSize: maxWalReuseSize,
+		allocChecker:    allocChecker,
 	}
 	pqVectorsCompressor.initCompressedStore()
 	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(
@@ -437,6 +456,8 @@ func NewHNSWPQMultiCompressor(
 	logger logrus.FieldLogger,
 	data [][]float32,
 	store *lsmkv.Store,
+	minMMapSize int64,
+	maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -451,6 +472,9 @@ func NewHNSWPQMultiCompressor(
 		loadId:          binary.LittleEndian.Uint64,
 		logger:          logger,
 		targetVector:    targetVector,
+		minMMapSize:     minMMapSize,
+		maxWalReuseSize: maxWalReuseSize,
+		allocChecker:    allocChecker,
 	}
 	pqVectorsCompressor.initCompressedStore()
 	pqVectorsCompressor.cache = cache.NewShardedMultiByteLockCache(
@@ -472,6 +496,8 @@ func RestoreHNSWPQMultiCompressor(
 	logger logrus.FieldLogger,
 	encoders []PQEncoder,
 	store *lsmkv.Store,
+	minMMapSize int64,
+	maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -486,6 +512,9 @@ func RestoreHNSWPQMultiCompressor(
 		loadId:          binary.LittleEndian.Uint64,
 		logger:          logger,
 		targetVector:    targetVector,
+		minMMapSize:     minMMapSize,
+		maxWalReuseSize: maxWalReuseSize,
+		allocChecker:    allocChecker,
 	}
 	pqVectorsCompressor.initCompressedStore()
 	pqVectorsCompressor.cache = cache.NewShardedMultiByteLockCache(
@@ -499,6 +528,8 @@ func NewBQCompressor(
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,
 	store *lsmkv.Store,
+	minMMapSize int64,
+	maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -510,6 +541,9 @@ func NewBQCompressor(
 		loadId:          binary.BigEndian.Uint64,
 		logger:          logger,
 		targetVector:    targetVector,
+		minMMapSize:     minMMapSize,
+		maxWalReuseSize: maxWalReuseSize,
+		allocChecker:    allocChecker,
 	}
 	bqVectorsCompressor.initCompressedStore()
 	bqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(
@@ -523,6 +557,8 @@ func NewBQMultiCompressor(
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,
 	store *lsmkv.Store,
+	minMMapSize int64,
+	maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -534,6 +570,9 @@ func NewBQMultiCompressor(
 		loadId:          binary.BigEndian.Uint64,
 		logger:          logger,
 		targetVector:    targetVector,
+		minMMapSize:     minMMapSize,
+		maxWalReuseSize: maxWalReuseSize,
+		allocChecker:    allocChecker,
 	}
 	bqVectorsCompressor.initCompressedStore()
 	bqVectorsCompressor.cache = cache.NewShardedMultiUInt64LockCache(
@@ -548,6 +587,8 @@ func NewHNSWSQCompressor(
 	logger logrus.FieldLogger,
 	data [][]float32,
 	store *lsmkv.Store,
+	minMMapSize int64,
+	maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -559,6 +600,9 @@ func NewHNSWSQCompressor(
 		loadId:          binary.BigEndian.Uint64,
 		logger:          logger,
 		targetVector:    targetVector,
+		minMMapSize:     minMMapSize,
+		maxWalReuseSize: maxWalReuseSize,
+		allocChecker:    allocChecker,
 	}
 	sqVectorsCompressor.initCompressedStore()
 	sqVectorsCompressor.cache = cache.NewShardedByteLockCache(
@@ -575,6 +619,8 @@ func RestoreHNSWSQCompressor(
 	a, b float32,
 	dimensions uint16,
 	store *lsmkv.Store,
+	minMMapSize int64,
+	maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -589,6 +635,9 @@ func RestoreHNSWSQCompressor(
 		loadId:          binary.BigEndian.Uint64,
 		logger:          logger,
 		targetVector:    targetVector,
+		minMMapSize:     minMMapSize,
+		maxWalReuseSize: maxWalReuseSize,
+		allocChecker:    allocChecker,
 	}
 	sqVectorsCompressor.initCompressedStore()
 	sqVectorsCompressor.cache = cache.NewShardedByteLockCache(
@@ -603,6 +652,8 @@ func NewHNSWSQMultiCompressor(
 	logger logrus.FieldLogger,
 	data [][]float32,
 	store *lsmkv.Store,
+	minMMapSize int64,
+	maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -614,6 +665,9 @@ func NewHNSWSQMultiCompressor(
 		loadId:          binary.BigEndian.Uint64,
 		logger:          logger,
 		targetVector:    targetVector,
+		minMMapSize:     minMMapSize,
+		maxWalReuseSize: maxWalReuseSize,
+		allocChecker:    allocChecker,
 	}
 	sqVectorsCompressor.initCompressedStore()
 	sqVectorsCompressor.cache = cache.NewShardedMultiByteLockCache(
@@ -630,6 +684,8 @@ func RestoreHNSWSQMultiCompressor(
 	a, b float32,
 	dimensions uint16,
 	store *lsmkv.Store,
+	minMMapSize int64,
+	maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
 	targetVector string,
 ) (VectorCompressor, error) {
@@ -644,6 +700,9 @@ func RestoreHNSWSQMultiCompressor(
 		loadId:          binary.BigEndian.Uint64,
 		logger:          logger,
 		targetVector:    targetVector,
+		minMMapSize:     minMMapSize,
+		maxWalReuseSize: maxWalReuseSize,
+		allocChecker:    allocChecker,
 	}
 	sqVectorsCompressor.initCompressedStore()
 	sqVectorsCompressor.cache = cache.NewShardedMultiByteLockCache(

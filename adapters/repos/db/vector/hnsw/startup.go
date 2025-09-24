@@ -160,6 +160,8 @@ func (h *hnsw) restoreFromDisk() error {
 						h.logger,
 						data.Encoders,
 						h.store,
+						h.MinMMapSize,
+						h.MaxWalReuseSize,
 						h.allocChecker,
 						h.getName(),
 					)
@@ -172,6 +174,8 @@ func (h *hnsw) restoreFromDisk() error {
 						h.logger,
 						data.Encoders,
 						h.store,
+						h.MinMMapSize,
+						h.MaxWalReuseSize,
 						h.allocChecker,
 						h.getName(),
 					)
@@ -192,6 +196,8 @@ func (h *hnsw) restoreFromDisk() error {
 					data.B,
 					data.Dimensions,
 					h.store,
+					h.MinMMapSize,
+					h.MaxWalReuseSize,
 					h.allocChecker,
 					h.getName(),
 				)
@@ -204,6 +210,8 @@ func (h *hnsw) restoreFromDisk() error {
 					data.B,
 					data.Dimensions,
 					h.store,
+					h.MinMMapSize,
+					h.MaxWalReuseSize,
 					h.allocChecker,
 					h.getName(),
 				)
