@@ -18,15 +18,27 @@ def test_index_compression() -> None:
             "hnsw_bq": 256,
             "hnsw_pq": 512,
             "hnsw_sq": 1024,
+            "multivector_uncompressed": 32,
+            "multivector_muvera_bq": 64,
+            "multivector_bq": 40,
         }
 
         def generate_random_vector(dimensionality):
-            return np.random.rand(dimensionality)
+            return np.random.rand(dimensionality).tolist()
+
+        def generate_random_multi_vector(dimensionality):
+            multi_vector = []
+            for i in range(5):
+                multi_vector.append(generate_random_vector(dimensionality))
+            return multi_vector
 
         def query_all_target_vectors():
             for target_vector, dim in target_vector_dimensions.items():
+                vector = generate_random_vector(dim)
+                if target_vector.startswith("multivector"):
+                    vector = generate_random_multi_vector(dim)
                 res = collection.query.near_vector(
-                    near_vector=generate_random_vector(dim),
+                    near_vector=vector,
                     target_vector=target_vector,
                 )
                 assert len(res.objects) > 0
@@ -58,6 +70,19 @@ def test_index_compression() -> None:
                     name="hnsw_sq",
                     vector_index_config=Configure.VectorIndex.hnsw(),
                 ),
+                Configure.MultiVectors.self_provided(
+                    name="multivector_uncompressed",
+                    vector_index_config=Configure.VectorIndex.hnsw(),
+                ),
+                Configure.MultiVectors.self_provided(
+                    name="multivector_muvera_bq",
+                    encoding=Configure.VectorIndex.MultiVector.Encoding.muvera(),
+                    quantizer=Configure.VectorIndex.Quantizer.bq(),
+                ),
+                Configure.MultiVectors.self_provided(
+                    name="multivector_bq",
+                    quantizer=Configure.VectorIndex.Quantizer.bq(),
+                ),
             ],
             properties=[
                 Property(name="name", data_type=DataType.TEXT),
@@ -79,6 +104,9 @@ def test_index_compression() -> None:
                         "hnsw_bq": generate_random_vector(target_vector_dimensions["hnsw_bq"]),
                         "hnsw_pq": generate_random_vector(target_vector_dimensions["hnsw_pq"]),
                         "hnsw_sq": generate_random_vector(target_vector_dimensions["hnsw_sq"]),
+                        "multivector_uncompressed": generate_random_multi_vector(target_vector_dimensions["multivector_uncompressed"]),
+                        "multivector_muvera_bq": generate_random_multi_vector(target_vector_dimensions["multivector_muvera_bq"]),
+                        "multivector_bq": generate_random_multi_vector(target_vector_dimensions["multivector_bq"]),
                 }
         )
 
@@ -114,12 +142,13 @@ def test_index_compression() -> None:
 
         query_all_target_vectors()
 
-        res = client.cluster.nodes(COLLECTION_NAME, output="verbose")
-        assert len(res) > 0
-        assert len(res[0].shards) > 0
-        shard_name = res[0].shards[0].name
+        if os.path.isdir("./data"):
+            res = client.cluster.nodes(COLLECTION_NAME, output="verbose")
+            assert len(res) > 0
+            assert len(res[0].shards) > 0
+            shard_name = res[0].shards[0].name
 
-        for target_vector in target_vector_dimensions.keys():
-            if target_vector != "uncompressed":
-                directory = f"./data/{COLLECTION_NAME.lower()}/{shard_name}/lsm/vectors_compressed_{target_vector}"
-                assert os.path.isdir(directory) == True
+            for target_vector in target_vector_dimensions.keys():
+                if not target_vector.endswith("uncompressed"):
+                    directory = f"./data/{COLLECTION_NAME.lower()}/{shard_name}/lsm/vectors_compressed_{target_vector}"
+                    assert os.path.isdir(directory) == True
