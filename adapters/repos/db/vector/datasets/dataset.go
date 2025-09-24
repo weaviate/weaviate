@@ -24,7 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var defaultBatchSize = 1000
+const defaultBatchSize = 1000
 
 func convertBinaryToFloat32(data []byte) ([]float32, error) {
 	if len(data)%4 != 0 {
@@ -97,6 +97,15 @@ func (h *HubDataset) parquetMetadata(pqFile *parquet.File) (map[string]int, int)
 	return columnIndices, numRows
 }
 
+func (h *HubDataset) validateColumns(columnIndices map[string]int, requiredColumns ...string) error {
+	for _, col := range requiredColumns {
+		if _, exists := columnIndices[col]; !exists {
+			return fmt.Errorf("required column '%s' not found", col)
+		}
+	}
+	return nil
+}
+
 func (h *HubDataset) LoadTrainingData() (ids []uint64, vectors [][]float32, err error) {
 	localFile, err := h.downloadParquetFile("train")
 	if err != nil {
@@ -126,6 +135,11 @@ func (h *HubDataset) LoadTrainingData() (ids []uint64, vectors [][]float32, err 
 	}
 
 	columnIndices, numRows := h.parquetMetadata(pqFile)
+
+	// Validate required columns exist
+	if err := h.validateColumns(columnIndices, "embedding", "id"); err != nil {
+		return nil, nil, err
+	}
 
 	// Create reader for the parquet file
 	reader := parquet.NewReader(pqFile)
@@ -236,6 +250,11 @@ func (h *HubDataset) LoadTestData() (neighbors [][]uint64, vectors [][]float32, 
 	}
 
 	columnIndices, numRows := h.parquetMetadata(pqFile)
+
+	// Validate required columns exist
+	if err := h.validateColumns(columnIndices, "embedding", "neighbors"); err != nil {
+		return nil, nil, err
+	}
 
 	// Create reader for the parquet file
 	reader := parquet.NewReader(pqFile)
