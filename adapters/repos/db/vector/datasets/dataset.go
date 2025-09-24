@@ -17,6 +17,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"time"
 
 	"github.com/gomlx/go-huggingface/hub"
 	"github.com/parquet-go/parquet-go"
@@ -64,7 +65,20 @@ func NewHubDataset(datasetID string, subset string, logger logrus.FieldLogger) *
 
 func (h *HubDataset) downloadParquetFile(name string) (string, error) {
 	filePath := fmt.Sprintf("%s/%s/%s.parquet", h.subset, name, name)
-	return h.repo.DownloadFile(filePath)
+
+	h.logger.Infof("Starting download of %s", filePath)
+	startTime := time.Now()
+
+	localPath, err := h.repo.DownloadFile(filePath)
+
+	duration := time.Since(startTime)
+	if err != nil {
+		h.logger.Errorf("Failed to download %s after %v: %v", filePath, duration, err)
+		return "", err
+	}
+
+	h.logger.Infof("Successfully downloaded %s in %v", filePath, duration)
+	return localPath, nil
 }
 
 func (h *HubDataset) parquetMetadata(pqFile *parquet.File) (map[string]int, int) {
