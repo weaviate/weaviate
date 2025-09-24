@@ -95,6 +95,9 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 		v, err = sg.getWithSegmentList([]byte("key2"), segments)
 		require.NoError(t, err)
 		require.Equal(t, []byte("value2"), v, "k==v on initial state")
+
+		n := sg.countWithSegmentList(segments)
+		require.Equal(t, 2, n)
 	}
 	validateView(t, segments)
 

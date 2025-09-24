@@ -526,6 +526,7 @@ func getFileTypeCount(t *testing.T, path string) map[string]int {
 // writes and flushes can proceed without disturbing existing views.
 func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	diskSegments := &SegmentGroup{
 		strategy: StrategyReplace,
@@ -541,8 +542,9 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	})
 
 	b := Bucket{
-		active: initialMemtable,
-		disk:   diskSegments,
+		active:   initialMemtable,
+		disk:     diskSegments,
+		strategy: StrategyReplace,
 	}
 
 	// validate initial data before making any changes
@@ -552,6 +554,9 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	value, err = b.Get([]byte("key2"))
 	require.NoError(t, err)
 	require.Equal(t, []byte("value2"), value)
+	n, err := b.Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 2, n)
 
 	// open a consistent view
 	view := b.getConsistentView()
@@ -571,6 +576,11 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 		v, err = b.disk.getWithSegmentList([]byte("key1"), view.Disk)
 		require.NoError(t, err)
 		require.Equal(t, []byte("value1"), v)
+
+		// count across all
+		n, err := b.countFromCV(ctx, view)
+		require.NoError(t, err)
+		require.Equal(t, 2, n)
 	}
 	validateOriginalView(view)
 
@@ -603,6 +613,11 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 		v, err = b.disk.getWithSegmentList([]byte("key1"), view.Disk)
 		require.NoError(t, err)
 		require.Equal(t, []byte("value1"), v)
+
+		// count across all
+		n, err := b.countFromCV(ctx, view)
+		require.NoError(t, err)
+		require.Equal(t, 3, n)
 	}
 	validateSecondView(view2)
 
@@ -631,6 +646,11 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	v, err = b.disk.getWithSegmentList([]byte("key2"), view3.Disk)
 	require.NoError(t, err)
 	require.Equal(t, []byte("value2"), v)
+
+	// count across all
+	n, err = b.countFromCV(ctx, view3)
+	require.NoError(t, err)
+	require.Equal(t, 3, n)
 }
 
 // TestBucketReplaceStrategyWriteVsFlush verifies that writes remain consistent
@@ -659,6 +679,7 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 			strategy: StrategyReplace,
 			segments: []Segment{},
 		},
+		strategy: StrategyReplace,
 	}
 
 	active, freeRefs := b.getActiveMemtableForWrite()
@@ -708,6 +729,10 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, expectedV, v)
 	}
+
+	n, err := b.countFromCV(context.Background(), view)
+	require.NoError(t, err)
+	require.Equal(t, 3, n)
 }
 
 // TestBucketRoaringSetStrategyConsistentView behaves like

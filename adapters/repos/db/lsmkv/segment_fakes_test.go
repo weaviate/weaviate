@@ -202,7 +202,7 @@ func (f *fakeSegment) getInvertedData() *segmentInvertedData {
 }
 
 func (f *fakeSegment) getSegment() *segment {
-	panic("not implemented") // TODO: Implement
+	panic("getSegment called in a test. missing an interface somewhere?")
 }
 
 func (f *fakeSegment) isLoaded() bool {
@@ -347,6 +347,18 @@ func (s *fakeSegment) getDocCount(key []byte) uint64 {
 	}
 
 	return uint64(len(s.collectionStore[string(key)]))
+}
+
+func (s *fakeSegment) getCountNetAdditions() int {
+	// NOTE: This oversimplified fake implementation ignores deletes and updates,
+	// it pretends every write is a unique insert.
+	if s.strategy != segmentindex.StrategyReplace {
+		panic("getCountNetAdditions only supported for replace strategy")
+	}
+
+	s.getCounter++
+
+	return len(s.replaceStore)
 }
 
 type fakeSegmentCursorReplace struct {

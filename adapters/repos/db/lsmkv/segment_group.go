@@ -716,9 +716,13 @@ func (sg *SegmentGroup) count() int {
 	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
 
+	return sg.countWithSegmentList(segments)
+}
+
+func (sg *SegmentGroup) countWithSegmentList(segments []Segment) int {
 	count := 0
 	for _, seg := range segments {
-		count += seg.getSegment().getCountNetAdditions()
+		count += seg.getCountNetAdditions()
 	}
 
 	return count

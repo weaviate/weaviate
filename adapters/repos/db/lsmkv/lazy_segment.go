@@ -323,3 +323,8 @@ func (s *lazySegment) getDocCount(key []byte) uint64 {
 	s.mustLoad()
 	return s.segment.getDocCount(key)
 }
+
+func (s *lazySegment) getCountNetAdditions() int {
+	s.mustLoad()
+	return s.segment.getCountNetAdditions()
+}

@@ -1089,12 +1089,16 @@ func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 }
 
 func (b *Bucket) Count(ctx context.Context) (int, error) {
+	view := b.getConsistentView()
+	defer view.Release()
+
+	return b.countFromCV(ctx, view)
+}
+
+func (b *Bucket) countFromCV(ctx context.Context, view BucketConsistentView) (int, error) {
 	if err := CheckExpectedStrategy(b.strategy, StrategyReplace); err != nil {
 		return 0, fmt.Errorf("Bucket::Count(): %w", err)
 	}
-
-	view := b.getConsistentView()
-	defer view.Release()
 
 	memtableCount := 0
 	activeCountStats := view.Active.countStats()
@@ -1118,7 +1122,7 @@ func (b *Bucket) Count(ctx context.Context) (int, error) {
 		memtableCount = deltaActive + deltaFlushing
 	}
 
-	diskCount := b.disk.count()
+	diskCount := b.disk.countWithSegmentList(view.Disk)
 
 	if b.monitorCount {
 		b.metrics.ObjectCount(memtableCount + diskCount)

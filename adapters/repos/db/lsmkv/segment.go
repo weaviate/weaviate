@@ -78,6 +78,9 @@ type Segment interface {
 	// map/bmw specific
 	hasKey(key []byte) bool
 	getDocCount(key []byte) uint64
+
+	// replace specific
+	getCountNetAdditions() int
 }
 
 type segment struct {
