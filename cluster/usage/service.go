@@ -13,16 +13,17 @@ package usage
 
 import (
 	"context"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	backupent "github.com/weaviate/weaviate/entities/backup"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -73,6 +74,14 @@ func (s *service) addJitter() {
 // Usage service collects usage metrics for the node and shall return error in case of any error
 // to avoid reporting partial data
 func (m *service) Usage(ctx context.Context) (*types.Report, error) {
+	defer func() {
+		if !entcfg.Enabled(os.Getenv("RECOVERY_IN_USAGE_MODULE_DISABLED")) {
+			if r := recover(); r != nil {
+				m.logger.Warn("Could not collect usage data")
+			}
+		}
+	}()
+
 	schema := m.schemaManager.GetSchemaSkipAuth().Objects
 	collections := schema.Classes
 	usage := &types.Report{
@@ -143,7 +152,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 			}
 
 			// Check shard status without forcing load
-			if shard.GetStatus() == storagestate.StatusLoading {
+			if shard.GetStatus() == storagestate.StatusLoading || shard.GetStatus() == storagestate.StatusLazyLoading {
 				shardUsage, err := calculateUnloadedShardUsage(ctx, index, shardName, collection.VectorConfig)
 				if err != nil {
 					return err
