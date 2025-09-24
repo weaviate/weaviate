@@ -67,7 +67,7 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 
 	results, err = sptag.Search(NewAnonymousCompressedVector(encodedQuery), 2)
 	require.NoError(t, err)
-	require.NotContains(t, results, uint64(2))
+	require.NotContains(t, results.data, uint64(2))
 
 	// Ensure other vectors are still present
 	require.Equal(t, uint64(1), results.data[0].ID)

@@ -13,13 +13,12 @@ package spfresh
 
 import (
 	"iter"
-	"math/bits"
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
@@ -35,7 +34,7 @@ type BruteForceSPTAG struct {
 	metrics   *Metrics
 
 	centroidsLock sync.Mutex
-	centroids     *PagedArray[atomic.Pointer[Centroid]]
+	centroids     *common.PagedArray[atomic.Pointer[Centroid]]
 	idLock        sync.RWMutex
 	ids           []uint64
 	counter       atomic.Int32
@@ -44,7 +43,7 @@ type BruteForceSPTAG struct {
 func NewBruteForceSPTAG(metrics *Metrics, pages, pageSize uint64) *BruteForceSPTAG {
 	return &BruteForceSPTAG{
 		metrics:   metrics,
-		centroids: NewPagedArray[atomic.Pointer[Centroid]](pages, pageSize),
+		centroids: common.NewPagedArray[atomic.Pointer[Centroid]](pages, pageSize),
 	}
 }
 
@@ -59,7 +58,7 @@ func (s *BruteForceSPTAG) Init(dims int32, distancer distancer.Provider) {
 }
 
 func (s *BruteForceSPTAG) Get(id uint64) *Centroid {
-	page, _, slot := s.centroids.GetPageFor(id)
+	page, slot := s.centroids.GetPageFor(id)
 	if page == nil {
 		return nil
 	}
@@ -68,13 +67,13 @@ func (s *BruteForceSPTAG) Get(id uint64) *Centroid {
 }
 
 func (s *BruteForceSPTAG) Insert(id uint64, vector Vector) error {
-	page, _, slot := s.centroids.GetPageFor(id)
+	page, slot := s.centroids.GetPageFor(id)
 	if page == nil {
 		s.centroidsLock.Lock()
-		page, _, slot = s.centroids.GetPageFor(id)
+		page, slot = s.centroids.GetPageFor(id)
 		if page == nil {
 			s.centroids.AllocPageFor(id)
-			page, _, slot = s.centroids.GetPageFor(id)
+			page, slot = s.centroids.GetPageFor(id)
 		}
 		s.centroidsLock.Unlock()
 	}
@@ -94,7 +93,7 @@ func (s *BruteForceSPTAG) Insert(id uint64, vector Vector) error {
 
 func (s *BruteForceSPTAG) MarkAsDeleted(id uint64) error {
 	for {
-		page, _, slot := s.centroids.GetPageFor(id)
+		page, slot := s.centroids.GetPageFor(id)
 		if page == nil {
 			return nil
 		}
@@ -144,6 +143,10 @@ func (s *BruteForceSPTAG) Search(query Vector, k int) (*ResultSet, error) {
 	start := time.Now()
 	defer s.metrics.CentroidSearchDuration(start)
 
+	if k == 0 {
+		return nil, nil
+	}
+
 	ids := idsPool.Get().([]uint64)
 	ids = ids[:0]
 	defer idsPool.Put(ids)
@@ -171,129 +174,6 @@ func (s *BruteForceSPTAG) Search(query Vector, k int) (*ResultSet, error) {
 	}
 
 	return q, nil
-}
-
-// PagedArray is a array that stores elements in pages of a fixed size.
-// It is optimized for concurrent access patterns where multiple goroutines may read and write to different pages simultaneously.
-// The thread-safety is delegated to the caller, a typical pattern is to use an exclusive lock when allocating pages
-// and atomic operations for reading and writing individual elements within a page.
-type PagedArray[T any] struct {
-	buf      [][]T
-	pageSize uint64 // Size of each page
-	pageBits uint8  // log2(pageSize)
-	pageMask uint64 // pageSize - 1
-}
-
-// NewPagedArray creates a new PagedArray with the given page size.
-// It will round up to the next power of 2 and enforce a minimum size of 64.
-func NewPagedArray[T any](pages, pageSize uint64) *PagedArray[T] {
-	if pageSize < 64 {
-		pageSize = 64
-	}
-	pageSize = nextPow2(pageSize)
-
-	return &PagedArray[T]{
-		pageSize: pageSize,
-		pageBits: uint8(bits.TrailingZeros64(pageSize)),
-		pageMask: pageSize - 1,
-		buf:      make([][]T, pages),
-	}
-}
-
-func nextPow2(v uint64) uint64 {
-	if v == 0 {
-		return 1
-	}
-	if (v & (v - 1)) == 0 {
-		return v
-	}
-	return 1 << bits.Len64(v)
-}
-
-// Get returns the element at the given index.
-// If the page does not exist, it returns both zero value and false.
-func (p *PagedArray[T]) Get(id uint64) T {
-	pageID := id >> p.pageBits
-	slotID := id & p.pageMask
-
-	if int(pageID) >= len(p.buf) {
-		var zero T
-		return zero
-	}
-
-	ptr := unsafe.Pointer(&p.buf[pageID])
-	loadedPtr := (*[]T)(atomic.LoadPointer((*unsafe.Pointer)(ptr)))
-	if loadedPtr == nil {
-		var zero T
-		return zero
-	}
-
-	return (*loadedPtr)[slotID]
-}
-
-// GetPageFor takes an ID and returns the associated page and its index.
-// If the page does not exist, it returns nil.
-// It doesn't return a copy of the page, so modifications to the returned slice will affect the original data.
-func (p *PagedArray[T]) GetPageFor(id uint64) ([]T, uint64, int) {
-	pageID := id >> p.pageBits
-
-	if int(pageID) >= len(p.buf) {
-		return nil, 0, -1
-	}
-
-	ptr := unsafe.Pointer(&p.buf[pageID])
-	loadedPtr := (*[]T)(atomic.LoadPointer((*unsafe.Pointer)(ptr)))
-	if loadedPtr == nil {
-		return nil, 0, -1
-	}
-
-	slotID := id & p.pageMask
-
-	return (*loadedPtr), pageID, int(slotID)
-}
-
-// Set stores the element at the given index, assuming the page exists.
-// Callers need to ensure the page is allocated before calling this method.
-func (p *PagedArray[T]) Set(id uint64, value T) {
-	pageID := id >> p.pageBits
-	slotID := id & p.pageMask
-
-	ptr := unsafe.Pointer(&p.buf[pageID])
-	loadedPtr := (*[]T)(atomic.LoadPointer((*unsafe.Pointer)(ptr)))
-
-	(*loadedPtr)[slotID] = value
-}
-
-// Delete sets the element to zero value.
-// If the page does not exist, it does nothing and returns false.
-func (p *PagedArray[T]) Delete(id uint64) bool {
-	pageID := id >> p.pageBits
-	slotID := id & p.pageMask
-
-	if int(pageID) >= len(p.buf) || p.buf[pageID] == nil {
-		return false
-	}
-
-	var zero T
-	p.buf[pageID][slotID] = zero
-	return true
-}
-
-// AllocPageFor allocates a page for the given ID if it does not already exist.
-func (p *PagedArray[T]) AllocPageFor(id uint64) {
-	pageID := id >> p.pageBits
-	ptr := unsafe.Pointer(&p.buf[pageID])
-	loadedPtr := (*[]T)(atomic.LoadPointer((*unsafe.Pointer)(ptr)))
-
-	if loadedPtr == nil {
-		newPage := make([]T, p.pageSize)
-		atomic.CompareAndSwapPointer((*unsafe.Pointer)(ptr), nil, unsafe.Pointer(&newPage))
-	}
-}
-
-// Len returns the number of pages allocated.
-func (p *PagedArray[T]) Len() int {
-	return len(p.buf)
 }
 
 type Result struct {

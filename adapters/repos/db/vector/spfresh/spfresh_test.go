@@ -65,7 +65,7 @@ func TestMain(m *testing.M) {
 func TestSPFreshRecall(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.RNGFactor = 5.0
-	cfg.MaxPostingSize = 176
+	cfg.MaxPostingSize = 178
 	cfg.MinPostingSize = 40
 	l := logrus.New()
 	cfg.Logger = l
@@ -122,14 +122,7 @@ func TestSPFreshRecall(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	fmt.Printf("all background tasks done,took: %s\n Running warmup queries...\n", time.Since(before))
-
-	compressionhelpers.Concurrently(logger, 50, func(i uint64) {
-		recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
-		fmt.Println(recall, latency)
-	})
-
-	fmt.Println("Running real queries...")
+	fmt.Println("Running queries...")
 
 	recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
 	fmt.Println(recall, latency)

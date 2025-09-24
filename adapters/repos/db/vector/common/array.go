@@ -13,6 +13,8 @@ package common
 
 import (
 	"math/bits"
+	"sync/atomic"
+	"unsafe"
 )
 
 // PagedArray is a array that stores elements in pages of a fixed size.
@@ -58,12 +60,19 @@ func (p *PagedArray[T]) Get(id uint64) T {
 	pageID := id >> p.pageBits
 	slotID := id & p.pageMask
 
-	if int(pageID) >= len(p.buf) || p.buf[pageID] == nil {
+	if int(pageID) >= len(p.buf) {
 		var zero T
 		return zero
 	}
 
-	return p.buf[pageID][slotID]
+	ptr := unsafe.Pointer(&p.buf[pageID])
+	loadedPtr := (*[]T)(atomic.LoadPointer((*unsafe.Pointer)(ptr)))
+	if loadedPtr == nil {
+		var zero T
+		return zero
+	}
+
+	return (*loadedPtr)[slotID]
 }
 
 // GetPageFor takes an ID and returns the associated page and its index.
@@ -71,12 +80,20 @@ func (p *PagedArray[T]) Get(id uint64) T {
 // It doesn't return a copy of the page, so modifications to the returned slice will affect the original data.
 func (p *PagedArray[T]) GetPageFor(id uint64) ([]T, int) {
 	pageID := id >> p.pageBits
-	if int(pageID) >= len(p.buf) || p.buf[pageID] == nil {
+
+	if int(pageID) >= len(p.buf) {
 		return nil, -1
 	}
+
+	ptr := unsafe.Pointer(&p.buf[pageID])
+	loadedPtr := (*[]T)(atomic.LoadPointer((*unsafe.Pointer)(ptr)))
+	if loadedPtr == nil {
+		return nil, -1
+	}
+
 	slotID := id & p.pageMask
 
-	return p.buf[pageID], int(slotID)
+	return (*loadedPtr), int(slotID)
 }
 
 // Set stores the element at the given index, assuming the page exists.
@@ -85,7 +102,10 @@ func (p *PagedArray[T]) Set(id uint64, value T) {
 	pageID := id >> p.pageBits
 	slotID := id & p.pageMask
 
-	p.buf[pageID][slotID] = value
+	ptr := unsafe.Pointer(&p.buf[pageID])
+	loadedPtr := (*[]T)(atomic.LoadPointer((*unsafe.Pointer)(ptr)))
+
+	(*loadedPtr)[slotID] = value
 }
 
 // Delete sets the element to zero value.
@@ -106,14 +126,18 @@ func (p *PagedArray[T]) Delete(id uint64) bool {
 // AllocPageFor allocates a page for the given ID if it does not already exist.
 func (p *PagedArray[T]) AllocPageFor(id uint64) {
 	pageID := id >> p.pageBits
-	if p.buf[pageID] == nil {
-		p.buf[pageID] = make([]T, p.pageSize)
+	ptr := unsafe.Pointer(&p.buf[pageID])
+	loadedPtr := (*[]T)(atomic.LoadPointer((*unsafe.Pointer)(ptr)))
+
+	if loadedPtr == nil {
+		newPage := make([]T, p.pageSize)
+		atomic.CompareAndSwapPointer((*unsafe.Pointer)(ptr), nil, unsafe.Pointer(&newPage))
 	}
 }
 
 // Grow ensures the buffer has space for `newPageCount` pages.
 // It does not zero or allocate the individual pages unless needed.
-func (p *PagedArray[T]) Grow(newPageCount uint64) {
+func (p *PagedArray[T]) Grow(newPageCount int) {
 	if int(newPageCount) <= len(p.buf) {
 		return
 	}

@@ -62,7 +62,7 @@ func DefaultConfig() *Config {
 		Distancer: distancer.NewL2SquaredProvider(),
 		// TODO: make the MaxPostingSize dynamic and dependent on the
 		// vector size and compression method
-		MaxPostingSize:            144,
+		MaxPostingSize:            178,
 		MinPostingSize:            40,
 		SplitWorkers:              w,
 		ReassignWorkers:           w,
