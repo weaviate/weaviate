@@ -105,10 +105,12 @@ func (s *Scheduler) Loop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Info("shutting down scheduler loop")
+			log := s.logger.WithField("workflow", "batch stream scheduler")
+			log.Info("shutting down scheduler loop")
 			s.loop(s.drain)
 			// Close the processing queue so that the workers can exit once they've drained the queue
 			close(s.processingQueue)
+			log.Info("processing queue closed, exiting scheduler loop")
 			return
 		case <-ticker.C:
 			s.loop(s.schedule)

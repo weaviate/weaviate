@@ -59,6 +59,7 @@ func TestHandler(t *testing.T) {
 			batch.StartScheduler(shutdownCtx, &sWg, writeQueues, processingQueue, reportingQueue, nil, logger)
 
 			writeQueues.Make(StreamId, nil)
+			handler.RecvWgAdd()
 			go func() {
 				err := handler.StreamRecv(ctx, StreamId, stream)
 				require.NoError(t, err, "Expected no error when streaming in objects")
@@ -159,6 +160,7 @@ func TestHandler(t *testing.T) {
 			writeQueues.Make(StreamId, nil)
 			readQueues.Make(StreamId)
 			done := make(chan struct{})
+			handler.SendWgAdd()
 			err := handler.StreamSend(ctx, StreamId, stream)
 			require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 			select {
@@ -199,6 +201,7 @@ func TestHandler(t *testing.T) {
 				close(ch)
 			}()
 
+			handler.SendWgAdd()
 			err := handler.StreamSend(ctx, StreamId, stream)
 			require.NoError(t, err, "Expected no error when streaming")
 		})
@@ -236,6 +239,7 @@ func TestHandler(t *testing.T) {
 
 			shutdownHandlersCancel() // Trigger shutdown of handlers, which emits the shutting down message
 
+			handler.SendWgAdd()
 			err := handler.StreamSend(ctx, StreamId, stream)
 			require.NoError(t, err, "Expected no error when streaming")
 		})
@@ -277,6 +281,7 @@ func TestHandler(t *testing.T) {
 			}()
 
 			readQueues.Make(StreamId)
+			handler.SendWgAdd()
 			err := handler.StreamSend(ctx, StreamId, stream)
 			require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 			_, ok = <-done
@@ -321,6 +326,7 @@ func TestHandler(t *testing.T) {
 			}()
 
 			readQueues.Make(StreamId)
+			handler.SendWgAdd()
 			err := handler.StreamSend(ctx, StreamId, stream)
 			require.NoError(t, err, "Expected error when processing")
 			_, ok = <-done

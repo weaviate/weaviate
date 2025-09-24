@@ -18,7 +18,6 @@ import (
 	"io"
 	"math"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -34,33 +33,13 @@ type QueuesHandler struct {
 	recvWg           *sync.WaitGroup
 	sendWg           *sync.WaitGroup
 	shutdownFinished chan struct{}
-	stopping         atomic.Bool
+	stopping         *sync.Map // map[string]bool
 	metrics          *BatchStreamingCallbacks
 }
 
 const POLLING_INTERVAL = 100 * time.Millisecond
 
 func NewQueuesHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.WaitGroup, shutdownFinished chan struct{}, writeQueues *WriteQueues, readQueues *ReadQueues, metrics *BatchStreamingCallbacks, logger logrus.FieldLogger) *QueuesHandler {
-	// Poll until the batch logic starts shutting down
-	// Then wait for all BatchSend requests to finish and close all the write queues
-	// Scheduler will then drain the write queues expecting the channels to be closed
-
-	enterrors.GoWrapper(func() {
-		ticker := time.NewTicker(POLLING_INTERVAL)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-shuttingDownCtx.Done():
-				logger.Info("waiting for all StreamRecv requests to finish")
-				recvWg.Wait()
-				logger.Info("closing write queues")
-				writeQueues.Close()
-				logger.Info("write queues closed, exiting handlers shutdown listener")
-				return
-			case <-ticker.C:
-			}
-		}
-	}, logger)
 	return &QueuesHandler{
 		shuttingDownCtx:  shuttingDownCtx,
 		logger:           logger,
@@ -70,6 +49,7 @@ func NewQueuesHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.Wait
 		sendWg:           sendWg,
 		shutdownFinished: shutdownFinished,
 		metrics:          metrics,
+		stopping:         &sync.Map{},
 	}
 }
 
@@ -85,8 +65,15 @@ func (h *QueuesHandler) wait(ctx context.Context) error {
 	}
 }
 
-func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
+func (h *QueuesHandler) RecvWgAdd() {
+	h.recvWg.Add(1)
+}
+
+func (h *QueuesHandler) SendWgAdd() {
 	h.sendWg.Add(1)
+}
+
+func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
 	defer h.sendWg.Done()
 	// shuttingDown acts as a soft cancel here so we can send the shutting down message to the client.
 	// Once the workers are drained then h.shutdownFinished will be closed and we will shutdown completely
@@ -134,7 +121,7 @@ func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream 
 					}
 				}
 			case <-ticker.C:
-				if h.stopping.Load() {
+				if stopping, ok := h.stopping.Load(streamId); ok && stopping.(bool) {
 					continue
 				}
 				if writeQueue, ok := h.writeQueues.Get(streamId); ok {
@@ -158,24 +145,54 @@ func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream 
 	}
 }
 
+var errTimeout = errors.New("timeout waiting for client request")
+
+func (h *QueuesHandler) recv(stream pb.Weaviate_BatchStreamServer) (*pb.BatchStreamRequest, error) {
+	reqCh := make(chan *pb.BatchStreamRequest, 1)
+	errCh := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		req, err := stream.Recv()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		reqCh <- req
+	}, h.logger)
+	select {
+	case req := <-reqCh:
+		return req, nil
+	case err := <-errCh:
+		return nil, err
+	case <-time.After(1 * time.Second):
+		return nil, errTimeout
+	}
+}
+
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
 func (h *QueuesHandler) StreamRecv(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
-	h.recvWg.Add(1)
+	defer h.recvWg.Done()
+	close := func() { h.writeQueues.Close(streamId) }
 	for {
 		if ctx.Err() != nil {
-			defer h.recvWg.Done()
 			return ctx.Err()
 		}
-		request, err := stream.Recv()
+		request, err := h.recv(stream)
+		if errors.Is(err, errTimeout) {
+			if h.shuttingDownCtx.Err() != nil {
+				close()
+				return h.wait(ctx)
+			}
+			continue
+		}
 		if errors.Is(err, io.EOF) {
-			defer h.recvWg.Done()
+			close()
 			return nil
 		}
 		if err != nil {
 			h.logger.WithField("streamId", streamId).WithError(err).Error("failed to receive batch stream request")
 			// Tell the scheduler to stop processing this stream because of a client hangup error
 			h.writeQueues.Write(streamId, []*writeObject{{Stop: true}})
-			defer h.recvWg.Done()
+			close()
 			return err
 		}
 		objs := make([]*writeObject, 0, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues())+1)
@@ -189,22 +206,22 @@ func (h *QueuesHandler) StreamRecv(ctx context.Context, streamId string, stream 
 			}
 		} else if request.GetStop() != nil {
 			objs = append(objs, &writeObject{Stop: true})
-			h.stopping.Store(true)
+			h.stopping.Store(stream, true)
 		} else {
-			defer h.recvWg.Done()
+			close()
 			return fmt.Errorf("invalid batch send request: neither objects, references nor stop signal provided")
 		}
 		if !h.writeQueues.Exists(streamId) {
 			h.logger.WithField("streamId", streamId).Error("write queue not found")
-			defer h.recvWg.Done()
+			close()
 			return fmt.Errorf("write queue for stream %s not found", streamId)
 		}
 		if len(objs) > 0 {
 			h.writeQueues.Write(streamId, objs)
 		}
-		if h.stopping.Load() {
+		if stopping, ok := h.stopping.Load(streamId); ok && stopping.(bool) {
 			// Will loop back and block on stream.Recv() until io.EOF is returned
-			h.recvWg.Done()
+			close()
 			continue
 		}
 		h.writeQueues.UpdateBatchSize(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues()))
@@ -515,10 +532,10 @@ func (w *WriteQueues) Delete(streamId string) {
 	}
 }
 
-func (w *WriteQueues) Close() {
+func (w *WriteQueues) Close(streamId string) {
 	w.lock.Lock()
 	defer w.lock.Unlock()
-	for _, queue := range w.queues {
+	if queue, ok := w.queues[streamId]; ok {
 		close(queue.queue)
 	}
 }

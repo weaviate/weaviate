@@ -98,7 +98,7 @@ func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObje
 		return err
 	}
 	// Log processing time
-	w.reportingQueue <- &workerStats{processingTime: end.Sub(start), streamId: streamId}
+	w.reportStats(streamId, end.Sub(start))
 	// Handle errors
 	if len(reply.GetErrors()) > 0 {
 		retriable := make([]*pb.BatchObject, 0, len(reply.GetErrors()))
@@ -141,7 +141,7 @@ func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendR
 		return err
 	}
 	// Log processing time
-	w.reportingQueue <- &workerStats{processingTime: end.Sub(start), streamId: streamId}
+	w.reportStats(streamId, end.Sub(start))
 	// Handle errors
 	if len(reply.GetErrors()) > 0 {
 		retriable := make([]*pb.BatchReference, 0, len(reply.GetErrors()))
@@ -175,10 +175,23 @@ func (w *Worker) reportErrors(streamId string, errs []*pb.BatchStreamReply_Error
 		for {
 			select {
 			case ch <- &readObject{Errors: errs}:
+				return
 			case <-time.After(1 * time.Second):
 				w.logger.WithField("streamId", streamId).Warn("timed out sending errors to read queue, maybe the client disconnected?")
 				return
 			}
+		}
+	}
+}
+
+func (w *Worker) reportStats(streamId string, processingTime time.Duration) {
+	for {
+		select {
+		case w.reportingQueue <- &workerStats{processingTime: processingTime, streamId: streamId}:
+			return
+		case <-time.After(1 * time.Second):
+			w.logger.WithField("streamId", streamId).Warn("timed out sending stats to read queue, maybe the client disconnected?")
+			return
 		}
 	}
 }

@@ -332,7 +332,9 @@ func (s *Service) BatchStream(stream pb.Weaviate_BatchStreamServer) error {
 	defer cancel()
 
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(s.logger, ctx)
+	s.batchQueuesHandler.RecvWgAdd()
 	g.Go(func() error { return s.batchQueuesHandler.StreamRecv(ctx, streamId, stream) })
+	s.batchQueuesHandler.SendWgAdd()
 	g.Go(func() error { return s.batchQueuesHandler.StreamSend(ctx, streamId, stream) })
 
 	if err := g.Wait(); err != nil {
