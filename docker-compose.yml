@@ -28,7 +28,8 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
-      - '--web.enable-remote-write-receiver'
+      # TODO do we want remote write or not?
+      # - '--web.enable-remote-write-receiver'
     ports:
       - "9090:9090"
   grafana:
@@ -50,6 +51,29 @@ services:
       - "3200:3200"   # tempo
       - "4317:4317"   # OTLP gRPC
       - "4318:4318"   # OTLP HTTP
+    # depends_on:
+    #   tempo-s3:
+    #     condition: service_healthy
+    restart: on-failure
+  # TODO
+  # tempo-s3:
+  #   image: minio/minio
+  #   ports:
+  #     - "9000:9000"
+  #     - "9001:9001"
+  #   volumes:
+  #     - ./tempo-s3:/data
+  #   environment:
+  #     MINIO_ROOT_USER: aws_access_key
+  #     MINIO_ROOT_PASSWORD: aws_secret_key
+  #   entrypoint: sh
+  #   command: -c 'mkdir -p /data/tempo-s3 && minio server /data --console-address ":9001"'
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+  #     interval: 5s
+  #     timeout: 60s
+  #     retries: 3
+  #     start_period: 10s
   keycloak:
     image: jboss/keycloak:5.0.0
     environment:

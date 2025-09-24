@@ -13,6 +13,7 @@ package monitoring
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -32,6 +33,7 @@ import (
 // HTTPTracingMiddleware creates a middleware that adds OpenTelemetry tracing to HTTP requests
 func HTTPTracingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("NATEE HTTP TRACING MIDDLEWARE", r.Method, r.URL.Path)
 		if !opentelemetry.IsEnabled() {
 			next.ServeHTTP(w, r)
 			return
@@ -75,7 +77,7 @@ func HTTPTracingMiddleware(next http.Handler) http.Handler {
 		if wrappedWriter.statusCode >= 400 {
 			span.SetStatus(codes.Error, "HTTP "+strconv.Itoa(wrappedWriter.statusCode))
 		} else {
-			span.SetStatus(codes.Ok, "")
+			span.SetStatus(codes.Ok, "HTTP OK")
 		}
 
 		// Add events for important milestones

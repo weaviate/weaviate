@@ -253,7 +253,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	initRuntimeOverrides(appState)
 
 	// Initialize OpenTelemetry tracing
-	if err := initOpenTelemetry(appState); err != nil {
+	if err := opentelemetry.Init(appState.Logger); err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
 			Fatal("failed to initialize OpenTelemetry")
@@ -1972,10 +1972,4 @@ func initRuntimeOverrides(appState *state.State) {
 			}
 		}, appState.Logger)
 	}
-}
-
-// initOpenTelemetry initializes the OpenTelemetry tracing provider
-func initOpenTelemetry(appState *state.State) error {
-	// Initialize OpenTelemetry from environment variables
-	return opentelemetry.Init(appState.Logger)
 }

@@ -1,3 +1,4 @@
+# TODO look over this config more
 server:
   http_listen_port: 3200
 
@@ -18,17 +19,34 @@ compactor:
   compaction:
     block_retention: 1h
 
-metrics_generator:
-  registry:
-    external_labels:
-      source: tempo
-      cluster: docker-compose
-  storage:
-    path: /tmp/tempo/generator/wal
-    remote_write:
-      - url: http://prometheus:9090/api/v1/write
-        send_exemplars: true
+# TODO do we want this?
+# metrics_generator:
+#   registry:
+#     external_labels:
+#       source: tempo
+#       cluster: docker-compose
+#   storage:
+#     path: /tmp/tempo/generator/wal
+#     remote_write:
+#       - url: http://prometheus:9090/api/v1/write
+#         send_exemplars: true
 
+# TODO S3 storage configuration or can we just use remote write?
+# https://grafana.com/docs/tempo/latest/configuration/hosted-storage/s3/
+# storage:
+#   trace:
+#     backend: s3
+#     s3:
+#       bucket: tempo-s3
+#       endpoint: tempo-s3:9000
+#       access_key: aws_access_key
+#       secret_key: aws_secret_key
+#       force_path_style: true
+#       region: us-east-1
+#     wal:
+#       path: /tmp/tempo/wal
+
+# Local storage configuration
 storage:
   trace:
     backend: local
@@ -37,7 +55,7 @@ storage:
     local:
       path: /tmp/tempo/blocks
 
-overrides:
-  defaults:
-    metrics_generator:
-      processors: [service-graphs, span-metrics] 
+# overrides:
+#   defaults:
+#     metrics_generator:
+#       processors: [service-graphs, span-metrics] 

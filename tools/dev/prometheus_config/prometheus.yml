@@ -26,4 +26,4 @@ scrape_configs:
   - job_name: 'tempo'
     static_configs:
       - targets: ['tempo:3200']
-    scrape_interval: 15s
+    scrape_interval: 5s

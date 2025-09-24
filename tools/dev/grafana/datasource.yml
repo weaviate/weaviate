@@ -19,3 +19,11 @@ datasources:
     version: 1
     # <bool> allow users to edit datasources from the UI.
     editable: false
+  # - name: Tempo
+  #   type: tempo
+  #   access: proxy
+  #   orgId: 1
+  #   uid: Tempo
+  #   url: http://tempo:3200
+  #   version: 1
+  #   editable: false

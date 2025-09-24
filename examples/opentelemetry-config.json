@@ -1,13 +1,13 @@
-{
-  "name": "weaviate-with-tracing",
-  "opentelemetry": {
-    "enabled": true,
-    "service_name": "weaviate",
-    "environment": "production",
-    "exporter_endpoint": "http://localhost:4317",
-    "exporter_protocol": "http",
-    "sampling_rate": 0.1,
-    "batch_timeout": "5s",
-    "max_export_batch_size": 512
-  }
-} 
+// {
+//   "name": "weaviate-with-tracing",
+//   "opentelemetry": {
+//     "enabled": true,
+//     "service_name": "weaviate",
+//     "environment": "production",
+//     "exporter_endpoint": "http://localhost:4317",
+//     "exporter_protocol": "http",
+//     "sampling_rate": 0.1,
+//     "batch_timeout": "5s",
+//     "max_export_batch_size": 512
+//   }
+// } 
