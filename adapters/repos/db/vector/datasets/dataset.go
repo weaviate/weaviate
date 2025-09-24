@@ -13,6 +13,7 @@ package datasets
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -164,7 +165,7 @@ func (h *HubDataset) LoadTrainingData() (ids []uint64, vectors [][]float32, err 
 			currentBatchSize = remaining
 		}
 		n, err := reader.ReadRows(rows[:currentBatchSize])
-		if err != nil && err != io.EOF {
+		if err != nil && !errors.Is(err, io.EOF) {
 			return nil, nil, fmt.Errorf("failed to read rows: %w", err)
 		}
 
@@ -178,13 +179,13 @@ func (h *HubDataset) LoadTrainingData() (ids []uint64, vectors [][]float32, err 
 
 			// Use Row.Range to properly handle columns
 			row.Range(func(columnIndex int, columnValues []parquet.Value) bool {
-				switch {
-				case columnIndex == idColIndex:
+				switch columnIndex {
+				case idColIndex:
 					// Extract ID
 					if len(columnValues) > 0 && columnValues[0].Kind() == parquet.Int64 {
 						ids = append(ids, uint64(columnValues[0].Int64()))
 					}
-				case columnIndex == embeddingColIndex:
+				case embeddingColIndex:
 					// Extract embedding
 					if len(columnValues) > 0 {
 						binaryData := columnValues[0].ByteArray()
@@ -208,7 +209,7 @@ func (h *HubDataset) LoadTrainingData() (ids []uint64, vectors [][]float32, err 
 		}
 
 		// Break if we got EOF or read fewer rows than expected
-		if err != nil && err == io.EOF {
+		if err != nil && errors.Is(err, io.EOF) {
 			break
 		}
 	}
@@ -281,7 +282,7 @@ func (h *HubDataset) LoadTestData() (neighbors [][]uint64, vectors [][]float32, 
 		}
 
 		n, err := reader.ReadRows(rows[:currentBatchSize])
-		if err != nil && err != io.EOF {
+		if err != nil && !errors.Is(err, io.EOF) {
 			return nil, nil, fmt.Errorf("failed to read rows: %w", err)
 		}
 
@@ -296,8 +297,8 @@ func (h *HubDataset) LoadTestData() (neighbors [][]uint64, vectors [][]float32, 
 
 			// Use Row.Range to properly handle columns
 			row.Range(func(columnIndex int, columnValues []parquet.Value) bool {
-				switch {
-				case columnIndex == embeddingColIndex:
+				switch columnIndex {
+				case embeddingColIndex:
 					// Extract embedding
 					if len(columnValues) > 0 {
 						binaryData := columnValues[0].ByteArray()
@@ -309,7 +310,7 @@ func (h *HubDataset) LoadTestData() (neighbors [][]uint64, vectors [][]float32, 
 							vectors = append(vectors, convertedVector)
 						}
 					}
-				case columnIndex == neighborsColIndex:
+				case neighborsColIndex:
 					// Extract all neighbor values for this row
 					for _, value := range columnValues {
 						if value.Kind() == parquet.Int64 {
@@ -331,7 +332,7 @@ func (h *HubDataset) LoadTestData() (neighbors [][]uint64, vectors [][]float32, 
 		}
 
 		// Break if we got EOF or read fewer rows than expected
-		if err != nil && err == io.EOF {
+		if err != nil && errors.Is(err, io.EOF) {
 			break
 		}
 	}
