@@ -154,15 +154,16 @@ func (h *HubDataset) LoadTrainingData() (ids []uint64, vectors [][]float32, err 
 	batchSize := defaultBatchSize
 	totalRead := 0
 
+	// Allocate rows slice once outside the loop
+	rows := make([]parquet.Row, batchSize)
+
 	for totalRead < numRows {
 		remaining := numRows - totalRead
 		currentBatchSize := batchSize
 		if remaining < batchSize {
 			currentBatchSize = remaining
 		}
-
-		rows := make([]parquet.Row, currentBatchSize)
-		n, err := reader.ReadRows(rows)
+		n, err := reader.ReadRows(rows[:currentBatchSize])
 		if err != nil && err != io.EOF {
 			return nil, nil, fmt.Errorf("failed to read rows: %w", err)
 		}
@@ -269,6 +270,9 @@ func (h *HubDataset) LoadTestData() (neighbors [][]uint64, vectors [][]float32, 
 	batchSize := defaultBatchSize
 	totalRead := 0
 
+	// Allocate rows slice once outside the loop
+	rows := make([]parquet.Row, batchSize)
+
 	for totalRead < numRows {
 		remaining := numRows - totalRead
 		currentBatchSize := batchSize
@@ -276,8 +280,7 @@ func (h *HubDataset) LoadTestData() (neighbors [][]uint64, vectors [][]float32, 
 			currentBatchSize = remaining
 		}
 
-		rows := make([]parquet.Row, currentBatchSize)
-		n, err := reader.ReadRows(rows)
+		n, err := reader.ReadRows(rows[:currentBatchSize])
 		if err != nil && err != io.EOF {
 			return nil, nil, fmt.Errorf("failed to read rows: %w", err)
 		}
