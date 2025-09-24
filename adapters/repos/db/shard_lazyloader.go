@@ -165,6 +165,9 @@ func (l *LazyLoadShard) NotifyReady() {
 }
 
 func (l *LazyLoadShard) GetStatus() storagestate.Status {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
 	if l.loaded {
 		return l.shard.GetStatus()
 	}
