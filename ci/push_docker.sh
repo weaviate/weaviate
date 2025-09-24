@@ -28,7 +28,8 @@ function release() {
     docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
   fi
 
-  docker buildx create --use
+  # Reuse existing builder if exists
+  docker buildx inspect >/dev/null 2>&1 || docker buildx create --use
 
   # nightly tag was added to be pushed on merges to main branch, latest tag is used to get latest released version
   tag_latest="${DOCKER_REPO}:latest"
@@ -88,6 +89,19 @@ function release() {
     fi
   fi
 
+  # BuildKit cache (GHA): use explicit scopes to avoid cache collisions.
+  # Per-arch scopes (weaviate-amd64/arm64); use "weaviate-multi" for multi-arch.
+  # GHA restores caches from the current ref, its base branch, and the default branch.
+  # Flags: --cache-from=type=gha,scope=... restores;
+  #        --cache-to=type=gha,scope=...,mode=max exports all layers (incl. intermediates).
+  # Result: layers are cached per-arch and reused across eligible refs, improving cache
+  # hit rate.
+  cache_scope="weaviate-multi"
+  if [ -n "$arch" ]; then
+    cache_scope="weaviate-$arch"
+  fi
+  echo "Using BuildKit cache scope: ${cache_scope}"
+
   args=("--build-arg=GIT_REVISION=$git_revision"
         "--build-arg=GIT_BRANCH=$git_branch"
         "--build-arg=BUILD_USER=$build_user"
@@ -95,7 +109,11 @@ function release() {
         "--build-arg=CGO_ENABLED=0" # Force-disable CGO for cross-compilation - Fixes segmentation faults on arm64 (https://docs.docker.com/docker-hub/image-library/trusted-content/#alpine-images)
         "--platform=$build_platform"
         "--target=weaviate"
-        "--push")
+        "--push"
+        "--cache-from=type=gha,scope=weaviate-multi,ignore-error=true"
+        "--cache-from=type=gha,scope=weaviate-amd64,ignore-error=true"
+        "--cache-from=type=gha,scope=weaviate-arm64,ignore-error=true"
+        "--cache-to=type=gha,scope=${cache_scope},mode=max,ignore-error=true")
 
   if [ -n "$tag_exact" ]; then
     # exact tag on main

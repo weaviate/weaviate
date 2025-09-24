@@ -558,7 +558,11 @@ func GetQuantizedDimensionsFromRepo(ctx context.Context, repo *DB, className str
 	index := repo.GetIndex(schema.ClassName(className))
 	sum := 0
 	index.ForEachShard(func(name string, shard ShardLike) error {
-		sum += shard.QuantizedDimensions(ctx, "", segments)
+		qdim, err := shard.QuantizedDimensions(ctx, "", segments)
+		if err != nil {
+			return err
+		}
+		sum += qdim
 		return nil
 	})
 	return sum

@@ -113,7 +113,7 @@ func (v *Vectorizer) findReferenceObject(ctx context.Context, beacon strfmt.URI,
 		}
 		err = fmt.Errorf("find object with beacon %q': %w", beacon, err)
 	}
-	return
+	return res, err
 }
 
 func beaconsForVectorization(allProps map[string]interface{},

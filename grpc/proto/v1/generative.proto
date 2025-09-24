@@ -91,6 +91,8 @@ message GenerativeCohere{
   optional double presence_penalty = 7;
   optional TextArray stop_sequences = 8;
   optional double temperature = 9;
+  optional TextArray images = 10;
+  optional TextArray image_properties = 11;
 }
 
 message GenerativeDummy{
