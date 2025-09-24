@@ -23,9 +23,11 @@ import (
 	"regexp"
 	"runtime"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -79,8 +81,7 @@ type replicatedIndices struct {
 	// put into a maintenance mode where all replicatedIndices requests just return a 418
 	maintenanceModeEnabled func() bool
 
-	bufferSlots     chan struct{}
-	inProgressSlots chan struct{}
+	workQueue chan workItem
 }
 
 var (
@@ -104,17 +105,142 @@ var (
 		`\/shards\/(` + sh + `):(commit|abort)`)
 )
 
+func (i *replicatedIndices) doWork(workItem workItem) {
+	defer workItem.wg.Done()
+	r := workItem.r
+	w := workItem.w
+	path := r.URL.Path
+
+	// NOTE if you update any of these handler methods/paths, also update the indices_replicas_test.go
+	// TestMaintenanceModeReplicatedIndices test to include the new methods/paths.
+	switch {
+	case regxObjectsDigest.MatchString(path):
+		if r.Method == http.MethodGet {
+			i.getObjectsDigest().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regexObjectsDigestsInRange.MatchString(path):
+		if r.Method == http.MethodPost {
+			i.getObjectsDigestsInRange().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regxHashTreeLevel.MatchString(path):
+		if r.Method == http.MethodPost {
+			i.getHashTreeLevel().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regxOverwriteObjects.MatchString(path):
+		if r.Method == http.MethodPut {
+			i.putOverwriteObjects().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regxObject.MatchString(path):
+		if r.Method == http.MethodDelete {
+			i.deleteObject().ServeHTTP(w, r)
+			return
+		}
+
+		if r.Method == http.MethodPatch {
+			i.patchObject().ServeHTTP(w, r)
+			return
+		}
+
+		if r.Method == http.MethodGet {
+			i.getObject().ServeHTTP(w, r)
+			return
+		}
+
+		if regxReferences.MatchString(path) {
+			if r.Method == http.MethodPost {
+				i.postRefs().ServeHTTP(w, r)
+				return
+			}
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+
+	case regxObjects.MatchString(path):
+		if r.Method == http.MethodGet {
+			i.getObjectsMulti().ServeHTTP(w, r)
+			return
+		}
+
+		if r.Method == http.MethodPost {
+			i.postObject().ServeHTTP(w, r)
+			return
+		}
+
+		if r.Method == http.MethodDelete {
+			i.deleteObjects().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+
+	case regxIncreaseRepFactor.MatchString(path):
+		if r.Method == http.MethodPut {
+			i.increaseReplicationFactor().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+
+	case regxCommitPhase.MatchString(path):
+		if r.Method == http.MethodPost {
+			i.executeCommitPhase().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+
+	default:
+		http.NotFound(w, r)
+		return
+	}
+}
+
 func NewReplicatedIndices(shards replicator, scaler localScaler, auth auth, maintenanceModeEnabled func() bool) *replicatedIndices {
-	maxNumInProgress := runtime.GOMAXPROCS(0) * 2
-	return &replicatedIndices{
+	// TODO what sizes to choose here?
+	numWorkers := runtime.GOMAXPROCS(0) * 2
+	i := &replicatedIndices{
 		shards:                 shards,
 		scaler:                 scaler,
 		auth:                   auth,
 		maintenanceModeEnabled: maintenanceModeEnabled,
-		// TODO what sizes to choose here?
-		bufferSlots:     make(chan struct{}, int(math.Max(1000, float64(maxNumInProgress)))),
-		inProgressSlots: make(chan struct{}, maxNumInProgress),
+		workQueue:              make(chan workItem, int(math.Max(1000, float64(numWorkers)))),
 	}
+
+	// TODO stop/wait for workers?
+	for j := 0; j < numWorkers; j++ {
+		enterrors.GoWrapper(func() {
+			for workItem := range i.workQueue {
+				i.doWork(workItem)
+			}
+		}, logrus.New()) // TODO logger
+	}
+	return i
+}
+
+type workItem struct {
+	r  *http.Request
+	w  http.ResponseWriter
+	wg *sync.WaitGroup
 }
 
 func (i *replicatedIndices) Indices() http.Handler {
@@ -123,150 +249,21 @@ func (i *replicatedIndices) Indices() http.Handler {
 
 func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
 		if i.maintenanceModeEnabled() {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
 		}
-
-		// TODO observability
-		success, releaseBufferSlot := i.tryToAcquireBufferSlot()
-		if !success {
-			// TODO retryable?
-			http.Error(w, "too many buffered requests", http.StatusTeapot)
-			return
-		}
-		defer releaseBufferSlot()
-
-		success, releaseWorkerSlot := i.waitToAcquireWorkerSlot(r.Context())
-		if !success {
-			// TODO retryable?
-			http.Error(w, "request cancelled before starting work", http.StatusRequestTimeout)
-			return
-		}
-		defer releaseWorkerSlot()
-
-		// NOTE if you update any of these handler methods/paths, also update the indices_replicas_test.go
-		// TestMaintenanceModeReplicatedIndices test to include the new methods/paths.
-		switch {
-		case regxObjectsDigest.MatchString(path):
-			if r.Method == http.MethodGet {
-				i.getObjectsDigest().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-		case regexObjectsDigestsInRange.MatchString(path):
-			if r.Method == http.MethodPost {
-				i.getObjectsDigestsInRange().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-		case regxHashTreeLevel.MatchString(path):
-			if r.Method == http.MethodPost {
-				i.getHashTreeLevel().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-		case regxOverwriteObjects.MatchString(path):
-			if r.Method == http.MethodPut {
-				i.putOverwriteObjects().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-		case regxObject.MatchString(path):
-			if r.Method == http.MethodDelete {
-				i.deleteObject().ServeHTTP(w, r)
-				return
-			}
-
-			if r.Method == http.MethodPatch {
-				i.patchObject().ServeHTTP(w, r)
-				return
-			}
-
-			if r.Method == http.MethodGet {
-				i.getObject().ServeHTTP(w, r)
-				return
-			}
-
-			if regxReferences.MatchString(path) {
-				if r.Method == http.MethodPost {
-					i.postRefs().ServeHTTP(w, r)
-					return
-				}
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-
-		case regxObjects.MatchString(path):
-			if r.Method == http.MethodGet {
-				i.getObjectsMulti().ServeHTTP(w, r)
-				return
-			}
-
-			if r.Method == http.MethodPost {
-				i.postObject().ServeHTTP(w, r)
-				return
-			}
-
-			if r.Method == http.MethodDelete {
-				i.deleteObjects().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-
-		case regxIncreaseRepFactor.MatchString(path):
-			if r.Method == http.MethodPut {
-				i.increaseReplicationFactor().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-
-		case regxCommitPhase.MatchString(path):
-			if r.Method == http.MethodPost {
-				i.executeCommitPhase().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		select {
+		case i.workQueue <- workItem{r: r, w: w, wg: &wg}:
 		default:
-			http.NotFound(w, r)
+			http.Error(w, "too many buffered requests", http.StatusTooManyRequests)
+			wg.Done()
 			return
 		}
-	}
-}
+		wg.Wait()
 
-func (i *replicatedIndices) tryToAcquireBufferSlot() (success bool, releaseBufferSlot func()) {
-	select {
-	case i.bufferSlots <- struct{}{}:
-		// Successfully acquired buffer slot
-		return true, func() { <-i.bufferSlots }
-	default:
-		return false, func() {}
-	}
-}
-
-func (i *replicatedIndices) waitToAcquireWorkerSlot(ctx context.Context) (success bool, releaseWorkerSlot func()) {
-	select {
-	case i.inProgressSlots <- struct{}{}:
-		return true, func() { <-i.inProgressSlots }
-	case <-ctx.Done():
-		return false, func() {}
 	}
 }
 
