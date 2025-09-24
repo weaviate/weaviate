@@ -32,6 +32,12 @@ var compactionDurationBuckets = prometheus.ExponentialBuckets(0.01, 2, 18) // 0.
 type Metrics struct {
 	register prometheus.Registerer
 
+	// wal recovery metrics
+	walRecoveryCount        *prometheus.CounterVec
+	walRecoveryInProgress   *prometheus.GaugeVec
+	walRecoveryFailureCount *prometheus.CounterVec
+	walRecoveryDuration     *prometheus.HistogramVec
+
 	// compaction-related metrics
 	compactionCount        *prometheus.CounterVec
 	compactionInProgress   *prometheus.GaugeVec
@@ -73,6 +79,59 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	}
 
 	register := promMetrics.Registerer
+
+	// wal recovery metrics
+	walRecoveryCount, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_wal_recovery_count",
+				Help:      "Total number of LSM bucket WAL recoveries requested, labeled by segment strategy",
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_wal_recovery_count: %w", err)
+	}
+
+	walRecoveryInProgress, err := monitoring.EnsureRegisteredMetric(register, prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "weaviate",
+			Name:      "lsm_bucket_wal_recovery_in_progress",
+			Help:      "Number of LSM bucket WAL recoveries currently in progress",
+		},
+		[]string{"strategy"},
+	))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_wal_recovery_in_progress: %w", err)
+	}
+
+	walRecoveryFailureCount, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_wal_recovery_failure_count",
+				Help:      "Number of failed LSM bucket WAL recoveries, labeled by segment strategy",
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_wal_recovery_failure_count: %w", err)
+	}
+
+	walRecoveryDuration, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_wal_recovery_duration_seconds",
+				Help:      "Duration of LSM bucket WAL recovery in seconds, labeled by segment strategy",
+				Buckets:   compactionDurationBuckets,
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_wal_recovery_duration_seconds: %w", err)
+	}
 
 	// compaction-related metrics
 	compactionCount, err := monitoring.EnsureRegisteredMetric(register,
@@ -174,6 +233,13 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		groupClasses:        promMetrics.Group,
 		criticalBucketsOnly: promMetrics.LSMCriticalBucketsOnly,
 
+		// wal recovery metrics
+		walRecoveryCount:        walRecoveryCount,
+		walRecoveryInProgress:   walRecoveryInProgress,
+		walRecoveryFailureCount: walRecoveryFailureCount,
+		walRecoveryDuration:     walRecoveryDuration,
+
+		// compaction-related metrics
 		compactionNoOpCount:    compactionNoOpCount,
 		compactionCount:        compactionCount,
 		compactionInProgress:   compactionInProgress,
@@ -242,8 +308,43 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	}, nil
 }
 
-// compaction metrics
+// wal recovery metrics
+func (m *Metrics) IncWalRecoveryCount(strategy string) {
+	if m == nil {
+		return
+	}
+	m.walRecoveryCount.WithLabelValues(strategy).Inc()
+}
 
+func (m *Metrics) IncWalRecoveryInProgress(strategy string) {
+	if m == nil {
+		return
+	}
+	m.walRecoveryInProgress.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) DecWalRecoveryInProgress(strategy string) {
+	if m == nil {
+		return
+	}
+	m.walRecoveryInProgress.WithLabelValues(strategy).Dec()
+}
+
+func (m *Metrics) IncWalRecoveryFailureCount(strategy string) {
+	if m == nil {
+		return
+	}
+	m.walRecoveryFailureCount.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) ObserveWalRecoveryDuration(strategy string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	m.walRecoveryDuration.WithLabelValues(strategy).Observe(duration.Seconds())
+}
+
+// compaction metrics
 func (m *Metrics) IncCompactionCount(strategy string) {
 	if m == nil {
 		return
@@ -380,15 +481,6 @@ func (m *Metrics) TrackStartupBucket(start time.Time) {
 
 	took := float64(time.Since(start)) / float64(time.Millisecond)
 	m.startupDurations.With(prometheus.Labels{"operation": "lsm_startup_bucket"}).Observe(took)
-}
-
-func (m *Metrics) TrackStartupBucketRecovery(start time.Time) {
-	if m == nil {
-		return
-	}
-
-	took := float64(time.Since(start)) / float64(time.Millisecond)
-	m.startupDurations.With(prometheus.Labels{"operation": "lsm_startup_bucket_recovery"}).Observe(took)
 }
 
 func (m *Metrics) ObjectCount(count int) {
