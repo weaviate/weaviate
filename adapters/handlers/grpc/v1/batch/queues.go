@@ -283,9 +283,10 @@ func NewBatchWriteQueue(bufferSize int) writeQueue {
 	return make(writeQueue, bufferSize)
 }
 
-func NewBatchWriteQueues() *WriteQueues {
+func NewBatchWriteQueues(numWorkers int) *WriteQueues {
 	return &WriteQueues{
-		queues: make(map[string]*WriteQueue),
+		numWorkers: numWorkers,
+		queues:     make(map[string]*WriteQueue),
 	}
 }
 
@@ -423,9 +424,10 @@ func (w *WriteQueue) UpdateBatchSize(batchSize int) {
 }
 
 type WriteQueues struct {
-	lock   sync.RWMutex
-	queues map[string]*WriteQueue
-	uuids  []string
+	lock       sync.RWMutex
+	numWorkers int
+	queues     map[string]*WriteQueue
+	uuids      []string
 }
 
 func (w *WriteQueues) Uuids() []string {
@@ -505,7 +507,13 @@ func (w *WriteQueues) Close() {
 func (w *WriteQueues) Make(streamId string, consistencyLevel *pb.ConsistencyLevel) {
 	w.lock.Lock()
 	defer w.lock.Unlock()
-	buffer := 10000 // Default buffer size
+	buffer := 1000 * w.numWorkers
+	// Ensure buffer is at least 1000 and at most 10000
+	if buffer < 1000 {
+		buffer = 1000
+	} else if buffer > 10000 {
+		buffer = 10000
+	}
 	if _, ok := w.queues[streamId]; !ok {
 		w.queues[streamId] = &WriteQueue{
 			queue:            NewBatchWriteQueue(buffer),

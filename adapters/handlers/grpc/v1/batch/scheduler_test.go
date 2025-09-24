@@ -32,7 +32,7 @@ func TestScheduler(t *testing.T) {
 		shutdownCtx, shutdownCancel := context.WithCancel(ctx)
 		defer shutdownCancel()
 
-		writeQueues := batch.NewBatchWriteQueues()
+		writeQueues := batch.NewBatchWriteQueues(1)
 		processingQueue := batch.NewBatchProcessingQueue(1)
 		reportingQueue := batch.NewBatchReportingQueue(1)
 

@@ -48,7 +48,7 @@ func TestHandler(t *testing.T) {
 			shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 			defer shutdownCancel()
 
-			writeQueues := batch.NewBatchWriteQueues()
+			writeQueues := batch.NewBatchWriteQueues(1)
 			readQueues := batch.NewBatchReadQueues()
 			processingQueue := batch.NewBatchProcessingQueue(1)
 			reportingQueue := batch.NewBatchReportingQueue(1)
@@ -150,7 +150,7 @@ func TestHandler(t *testing.T) {
 				},
 			}).Return(nil).Once()
 
-			writeQueues := batch.NewBatchWriteQueues()
+			writeQueues := batch.NewBatchWriteQueues(1)
 			readQueues := batch.NewBatchReadQueues()
 			var sendWg sync.WaitGroup
 			var streamWg sync.WaitGroup
@@ -185,7 +185,7 @@ func TestHandler(t *testing.T) {
 				return nil
 			}).Once()
 
-			writeQueues := batch.NewBatchWriteQueues()
+			writeQueues := batch.NewBatchWriteQueues(1)
 			readQueues := batch.NewBatchReadQueues()
 			var sendWg sync.WaitGroup
 			var streamWg sync.WaitGroup
@@ -225,7 +225,7 @@ func TestHandler(t *testing.T) {
 				},
 			}).Return(nil).Once()
 
-			writeQueues := batch.NewBatchWriteQueues()
+			writeQueues := batch.NewBatchWriteQueues(1)
 			readQueues := batch.NewBatchReadQueues()
 			var sendWg sync.WaitGroup
 			var streamWg sync.WaitGroup
@@ -262,7 +262,7 @@ func TestHandler(t *testing.T) {
 				return nil
 			}).Once()
 
-			writeQueues := batch.NewBatchWriteQueues()
+			writeQueues := batch.NewBatchWriteQueues(1)
 			readQueues := batch.NewBatchReadQueues()
 			var sendWg sync.WaitGroup
 			var streamWg sync.WaitGroup
@@ -305,7 +305,7 @@ func TestHandler(t *testing.T) {
 				return nil
 			}).Once()
 
-			writeQueues := batch.NewBatchWriteQueues()
+			writeQueues := batch.NewBatchWriteQueues(1)
 			readQueues := batch.NewBatchReadQueues()
 			var sendWg sync.WaitGroup
 			var streamWg sync.WaitGroup

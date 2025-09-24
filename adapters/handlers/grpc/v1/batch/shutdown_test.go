@@ -36,7 +36,7 @@ func TestShutdownLogic(t *testing.T) {
 
 	readQueues := batch.NewBatchReadQueues()
 	readQueues.Make(StreamId)
-	writeQueues := batch.NewBatchWriteQueues()
+	writeQueues := batch.NewBatchWriteQueues(1)
 	writeQueues.Make(StreamId, nil)
 	processingQueue := batch.NewBatchProcessingQueue(1)
 	reportingQueue := batch.NewBatchReportingQueue(1)

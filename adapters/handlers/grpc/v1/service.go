@@ -71,7 +71,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 
 	processingQueue := batch.NewBatchProcessingQueue(numWorkers)
 	reportingQueue := batch.NewBatchReportingQueue(numWorkers)
-	batchWriteQueues := batch.NewBatchWriteQueues()
+	batchWriteQueues := batch.NewBatchWriteQueues(numWorkers)
 	batchReadQueues := batch.NewBatchReadQueues()
 
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
