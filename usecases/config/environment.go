@@ -813,7 +813,7 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		func(val []string) { cfg.Join = val },
 		// Default RAFT_JOIN must be the configured node name and the configured raft port. This allows us to have a one-node raft cluster
 		// able to bootstrap itself if the user doesn't pass any raft parameter.
-		[]string{fmt.Sprintf("%s:%d", hostname, cfg.InternalRPCPort)},
+		[]string{fmt.Sprintf("%s:%d", hostname, DefaultRaftPort)},
 	)
 	if err := parsePositiveInt(
 		"RAFT_BOOTSTRAP_TIMEOUT",
