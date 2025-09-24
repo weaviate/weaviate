@@ -333,28 +333,29 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 	if err != nil {
 		return errors.Wrapf(err, "failed to search for nearest centroids for reassign after split for posting %d", oldPostingID)
 	}
+	defer nearest.Release()
 
 	seen := make(map[uint64]struct{})
 	for _, id := range newPostingIDs {
 		seen[id] = struct{}{}
 	}
 	// for each neighboring centroid, check if any of its vectors is closer to one of the new centroids
-	for _, neighbor := range nearest {
-		_, exists := seen[neighbor.ID]
+	for neighborID := range nearest.Iter() {
+		_, exists := seen[neighborID]
 		if exists {
 			continue
 		}
-		seen[neighbor.ID] = struct{}{}
+		seen[neighborID] = struct{}{}
 
-		p, err := s.Store.Get(s.ctx, neighbor.ID)
+		p, err := s.Store.Get(s.ctx, neighborID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
-				s.logger.WithField("postingID", neighbor.ID).
+				s.logger.WithField("postingID", neighborID).
 					Debug("Posting not found, skipping reassign after split")
 				continue // Skip if the posting is not found
 			}
 
-			return errors.Wrapf(err, "failed to get posting %d for reassign after split", neighbor.ID)
+			return errors.Wrapf(err, "failed to get posting %d for reassign after split", neighborID)
 		}
 
 		for _, v := range p.Iter() {
@@ -365,9 +366,9 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 				continue
 			}
 
-			distNeighbor, err := s.SPTAG.Get(neighbor.ID).Vector.Distance(s.distancer, v)
+			distNeighbor, err := s.SPTAG.Get(neighborID).Vector.Distance(s.distancer, v)
 			if err != nil {
-				return errors.Wrapf(err, "failed to compute distance for vector %d in neighbor posting %d", vid, neighbor.ID)
+				return errors.Wrapf(err, "failed to compute distance for vector %d in neighbor posting %d", vid, neighborID)
 			}
 
 			distOld, err := oldCentroid.Vector.Distance(s.distancer, v)
@@ -397,7 +398,7 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 			}
 
 			// the vector is closer to one of the new centroids, it needs to be reassigned
-			err = s.enqueueReassign(s.ctx, neighbor.ID, v)
+			err = s.enqueueReassign(s.ctx, neighborID, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to enqueue reassign for vector %d after split", vid)
 			}

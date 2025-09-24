@@ -13,7 +13,6 @@ package spfresh
 
 import (
 	"iter"
-	"math"
 	"math/bits"
 	"sync"
 	"sync/atomic"
@@ -24,11 +23,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
-
-type SearchResult struct {
-	ID       uint64
-	Distance float32
-}
 
 type Centroid struct {
 	Vector  Vector
@@ -65,7 +59,7 @@ func (s *BruteForceSPTAG) Init(dims int32, distancer distancer.Provider) {
 }
 
 func (s *BruteForceSPTAG) Get(id uint64) *Centroid {
-	page, slot := s.centroids.GetPageFor(id)
+	page, _, slot := s.centroids.GetPageFor(id)
 	if page == nil {
 		return nil
 	}
@@ -74,13 +68,13 @@ func (s *BruteForceSPTAG) Get(id uint64) *Centroid {
 }
 
 func (s *BruteForceSPTAG) Insert(id uint64, vector Vector) error {
-	page, slot := s.centroids.GetPageFor(id)
+	page, _, slot := s.centroids.GetPageFor(id)
 	if page == nil {
 		s.centroidsLock.Lock()
-		page, slot = s.centroids.GetPageFor(id)
+		page, _, slot = s.centroids.GetPageFor(id)
 		if page == nil {
 			s.centroids.AllocPageFor(id)
-			page, slot = s.centroids.GetPageFor(id)
+			page, _, slot = s.centroids.GetPageFor(id)
 		}
 		s.centroidsLock.Unlock()
 	}
@@ -100,7 +94,7 @@ func (s *BruteForceSPTAG) Insert(id uint64, vector Vector) error {
 
 func (s *BruteForceSPTAG) MarkAsDeleted(id uint64) error {
 	for {
-		page, slot := s.centroids.GetPageFor(id)
+		page, _, slot := s.centroids.GetPageFor(id)
 		if page == nil {
 			return nil
 		}
@@ -146,24 +140,9 @@ var idsPool = sync.Pool{
 	},
 }
 
-var qPool = sync.Pool{
-	New: func() any {
-		return NewKSmallest(128)
-	},
-}
-
-func (s *BruteForceSPTAG) Search(query Vector, k int) ([]SearchResult, error) {
+func (s *BruteForceSPTAG) Search(query Vector, k int) (*ResultSet, error) {
 	start := time.Now()
 	defer s.metrics.CentroidSearchDuration(start)
-
-	// if quantizer is null, the index is empty
-	if s.quantizer == nil {
-		return nil, nil
-	}
-
-	if k == 0 {
-		return nil, nil
-	}
 
 	ids := idsPool.Get().([]uint64)
 	ids = ids[:0]
@@ -174,22 +153,11 @@ func (s *BruteForceSPTAG) Search(query Vector, k int) ([]SearchResult, error) {
 	s.idLock.RUnlock()
 
 	max := uint64(len(ids))
-	var id uint64
-	var counter uint64
-	q := qPool.Get().(*KSmallest)
-	q.Reset(k)
-	defer func() {
-		qPool.Put(q)
-	}()
 
-	for {
-		if counter >= max {
-			break
-		}
-		id = ids[counter]
-		counter++
+	q := NewResultSet(k)
 
-		c := s.Get(id)
+	for i := range max {
+		c := s.Get(ids[i])
 		if c == nil || c.Deleted {
 			continue
 		}
@@ -199,18 +167,10 @@ func (s *BruteForceSPTAG) Search(query Vector, k int) ([]SearchResult, error) {
 			return nil, err
 		}
 
-		q.Insert(id, dist)
+		q.Insert(ids[i], dist)
 	}
 
-	results := make([]SearchResult, q.Size())
-
-	i := 0
-	for id, dist := range q.Iter() {
-		results[i] = SearchResult{ID: id, Distance: dist}
-		i++
-	}
-
-	return results, nil
+	return q, nil
 }
 
 // PagedArray is a array that stores elements in pages of a fixed size.
@@ -274,22 +234,22 @@ func (p *PagedArray[T]) Get(id uint64) T {
 // GetPageFor takes an ID and returns the associated page and its index.
 // If the page does not exist, it returns nil.
 // It doesn't return a copy of the page, so modifications to the returned slice will affect the original data.
-func (p *PagedArray[T]) GetPageFor(id uint64) ([]T, int) {
+func (p *PagedArray[T]) GetPageFor(id uint64) ([]T, uint64, int) {
 	pageID := id >> p.pageBits
 
 	if int(pageID) >= len(p.buf) {
-		return nil, -1
+		return nil, 0, -1
 	}
 
 	ptr := unsafe.Pointer(&p.buf[pageID])
 	loadedPtr := (*[]T)(atomic.LoadPointer((*unsafe.Pointer)(ptr)))
 	if loadedPtr == nil {
-		return nil, -1
+		return nil, 0, -1
 	}
 
 	slotID := id & p.pageMask
 
-	return (*loadedPtr), int(slotID)
+	return (*loadedPtr), pageID, int(slotID)
 }
 
 // Set stores the element at the given index, assuming the page exists.
@@ -336,39 +296,51 @@ func (p *PagedArray[T]) Len() int {
 	return len(p.buf)
 }
 
-type KSmallestItem struct {
-	ID   uint64
-	Dist float32
+type Result struct {
+	ID       uint64
+	Distance float32
 }
 
-// KSmallest maintains the k smallest elements by distance in a sorted array
-type KSmallest struct {
-	data []KSmallestItem
+// ResultSet maintains the k smallest elements by distance in a sorted array.
+type ResultSet struct {
+	data []Result
 	k    int
 }
 
-func NewKSmallest(k int) *KSmallest {
-	return &KSmallest{
-		data: make([]KSmallestItem, 0, k),
-		k:    k,
-	}
+var qPool = sync.Pool{
+	New: func() any {
+		return &ResultSet{
+			data: make([]Result, 0, 64),
+		}
+	},
+}
+
+func NewResultSet(k int) *ResultSet {
+	ks := qPool.Get().(*ResultSet)
+	ks.Reset(k)
+
+	return ks
+}
+
+func (ks *ResultSet) Release() {
+	qPool.Put(ks)
 }
 
 // Insert adds a new element, maintaining only k smallest elements by distance
-func (ks *KSmallest) Insert(id uint64, dist float32) {
-	item := KSmallestItem{ID: id, Dist: dist}
+func (ks *ResultSet) Insert(id uint64, dist float32) {
+	item := Result{ID: id, Distance: dist}
 
 	// If array isn't full yet, just insert in sorted position
 	if len(ks.data) < ks.k {
 		pos := ks.searchByDistance(dist)
-		ks.data = append(ks.data, KSmallestItem{})
+		ks.data = append(ks.data, Result{})
 		copy(ks.data[pos+1:], ks.data[pos:])
 		ks.data[pos] = item
 		return
 	}
 
 	// If array is full, only insert if distance is smaller than max (last element)
-	if dist < ks.data[ks.k-1].Dist {
+	if dist < ks.data[ks.k-1].Distance {
 		pos := ks.searchByDistance(dist)
 		// Shift elements to the right and insert
 		copy(ks.data[pos+1:], ks.data[pos:ks.k-1])
@@ -377,11 +349,11 @@ func (ks *KSmallest) Insert(id uint64, dist float32) {
 }
 
 // searchByDistance finds the insertion position for a given distance
-func (ks *KSmallest) searchByDistance(dist float32) int {
+func (ks *ResultSet) searchByDistance(dist float32) int {
 	left, right := 0, len(ks.data)
 	for left < right {
 		mid := (left + right) / 2
-		if ks.data[mid].Dist < dist {
+		if ks.data[mid].Distance < dist {
 			left = mid + 1
 		} else {
 			right = mid
@@ -390,84 +362,24 @@ func (ks *KSmallest) searchByDistance(dist float32) int {
 	return left
 }
 
-// Max returns the maximum distance element among the k smallest (last element)
-func (ks *KSmallest) Max() float32 {
-	if len(ks.data) == 0 {
-		return math.MaxFloat32
-	}
-	item := ks.data[len(ks.data)-1]
-	return item.Dist
-}
-
-// Size returns current number of elements
-func (ks *KSmallest) Size() int {
+func (ks *ResultSet) Len() int {
 	return len(ks.data)
 }
 
-// IsFull returns true if we have k elements
-func (ks *KSmallest) IsFull() bool {
-	return len(ks.data) == ks.k
-}
-
-// GetAll returns a copy of all elements (sorted by distance)
-func (ks *KSmallest) GetAll() []KSmallestItem {
-	result := make([]KSmallestItem, len(ks.data))
-	copy(result, ks.data)
-	return result
-}
-
-// GetIDs returns all IDs in distance order
-func (ks *KSmallest) GetIDs() []uint64 {
-	ids := make([]uint64, len(ks.data))
-	for i, item := range ks.data {
-		ids[i] = item.ID
-	}
-	return ids
-}
-
-// GetDistances returns all distances in order
-func (ks *KSmallest) GetDistances() []float32 {
-	dists := make([]float32, len(ks.data))
-	for i, item := range ks.data {
-		dists[i] = item.Dist
-	}
-	return dists
-}
-
-// Contains checks if an ID exists in the k smallest elements
-func (ks *KSmallest) Contains(id uint64) bool {
-	for _, item := range ks.data {
-		if item.ID == id {
-			return true
-		}
-	}
-	return false
-}
-
-func (ks *KSmallest) Iter() iter.Seq2[uint64, float32] {
+func (ks *ResultSet) Iter() iter.Seq2[uint64, float32] {
 	return func(yield func(uint64, float32) bool) {
 		for _, item := range ks.data {
-			if !yield(item.ID, item.Dist) {
+			if !yield(item.ID, item.Distance) {
 				break
 			}
 		}
 	}
 }
 
-// RemoveMin removes and returns the minimum distance element
-func (ks *KSmallest) RemoveMin() (uint64, float32, bool) {
-	if len(ks.data) == 0 {
-		return 0, 0, false
-	}
-	min := ks.data[0]
-	ks.data = ks.data[1:]
-	return min.ID, min.Dist, true
-}
-
-func (ks *KSmallest) Reset(k int) {
+func (ks *ResultSet) Reset(k int) {
 	ks.data = ks.data[:0]
 	if cap(ks.data) < k {
-		ks.data = make([]KSmallestItem, 0, k)
+		ks.data = make([]Result, 0, k)
 	}
 	ks.k = k
 }

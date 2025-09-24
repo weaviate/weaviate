@@ -40,20 +40,21 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 	if err != nil {
 		return nil, nil, err
 	}
+	defer centroids.Release()
 
 	q := priorityqueue.NewMax[any](k)
 
 	// compute the max distance to filter out candidates that are too far away
-	maxDist := centroids[0].Distance * s.config.MaxDistanceRatio
+	maxDist := centroids.data[0].Distance * s.config.MaxDistanceRatio
 
 	// filter out candidates that are too far away or have no vectors
 	selected = make([]uint64, 0, candidateNum)
-	for i := 0; i < len(centroids) && len(selected) < candidateNum; i++ {
-		if (maxDist > pruningMinMaxDistance && centroids[i].Distance > maxDist) || s.PostingSizes.Get(centroids[i].ID) == 0 {
+	for i := 0; i < len(centroids.data) && len(selected) < candidateNum; i++ {
+		if (maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist) || s.PostingSizes.Get(centroids.data[i].ID) == 0 {
 			continue
 		}
 
-		selected = append(selected, centroids[i].ID)
+		selected = append(selected, centroids.data[i].ID)
 	}
 
 	// read all the selected postings

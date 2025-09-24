@@ -55,11 +55,11 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 
 	results, err := sptag.Search(NewAnonymousCompressedVector(encodedQuery), 2)
 	require.NoError(t, err)
-	require.True(t, len(results) >= 1)
+	require.True(t, len(results.data) >= 1)
 
 	// Vector 2 should be one of the closest
-	require.Equal(t, uint64(2), results[0].ID)
-	require.NotZero(t, results[0].Distance)
+	require.Equal(t, uint64(2), results.data[0].ID)
+	require.NotZero(t, results.data[0].Distance)
 
 	// Delete vector 2 and search again
 	err = sptag.MarkAsDeleted(2)
@@ -70,8 +70,8 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	require.NotContains(t, results, uint64(2))
 
 	// Ensure other vectors are still present
-	require.Equal(t, uint64(1), results[0].ID)
-	require.Equal(t, uint64(3), results[1].ID)
+	require.Equal(t, uint64(1), results.data[0].ID)
+	require.Equal(t, uint64(3), results.data[1].ID)
 
 	// Test with an empty search
 	results, err = sptag.Search(NewAnonymousCompressedVector(encodedQuery), 0)

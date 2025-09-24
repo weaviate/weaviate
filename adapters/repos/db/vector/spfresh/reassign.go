@@ -89,6 +89,8 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	if !needsReassign {
 		return nil
 	}
+	defer replicas.Release()
+
 	// check again if the version is still valid
 	version = s.VersionMap.Get(op.Vector.ID())
 	if version.Deleted() || version.Version() > op.Vector.Version().Version() {
@@ -109,7 +111,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	newVector := NewCompressedVector(op.Vector.ID(), version, op.Vector.(CompressedVector).Data())
 
 	// append the vector to each replica
-	for _, replica := range replicas {
+	for id := range replicas.Iter() {
 		version = s.VersionMap.Get(newVector.ID())
 		if version.Deleted() || version.Version() > newVector.Version().Version() {
 			s.logger.WithField("vectorID", op.Vector.ID()).
@@ -117,7 +119,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 			return nil
 		}
 
-		added, err := s.append(s.ctx, newVector, replica, true)
+		added, err := s.append(s.ctx, newVector, id, true)
 		if err != nil {
 			return err
 		}
