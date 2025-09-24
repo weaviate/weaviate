@@ -151,7 +151,7 @@ func TestImplicitActivation(t *testing.T) {
 			require.Nil(t, err)
 		}
 
-		return
+		return client, cleanupFn
 	}
 
 	t.Run("without replication", func(t *testing.T) {

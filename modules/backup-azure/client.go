@@ -334,7 +334,7 @@ func (a *azureClient) Write(ctx context.Context, backupID, key, overrideBucket, 
 		err = fmt.Errorf("upload stream %q: %w", path, err)
 	}
 
-	return
+	return written, err
 }
 
 func (a *azureClient) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
@@ -378,5 +378,5 @@ type reader struct {
 func (r *reader) Read(p []byte) (n int, err error) {
 	n, err = r.src.Read(p)
 	r.count += n
-	return
+	return n, err
 }

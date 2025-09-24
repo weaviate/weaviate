@@ -30,14 +30,14 @@ type MeteredWriter struct {
 func (m *MeteredWriter) Write(p []byte) (n int, err error) {
 	n, err = m.w.Write(p)
 	if err != nil {
-		return
+		return n, err
 	}
 
 	if m.cb != nil {
 		m.cb(int64(n))
 	}
 
-	return
+	return n, err
 }
 
 func (m *MeteredWriter) Seek(offset int64, whence int) (int64, error) {

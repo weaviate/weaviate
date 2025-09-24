@@ -469,6 +469,14 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	return sg, nil
 }
 
+func (sg *SegmentGroup) pauseCompaction(ctx context.Context) error {
+	return sg.compactionCallbackCtrl.Deactivate(ctx)
+}
+
+func (sg *SegmentGroup) resumeCompaction(_ context.Context) error {
+	return sg.compactionCallbackCtrl.Activate()
+}
+
 // TODO aliszka:copy-on-read should method be using fixed list of segments?
 func (sg *SegmentGroup) makeExistsOn(segments []Segment) existsOnLowerSegmentsFn {
 	return func(key []byte) (bool, error) {

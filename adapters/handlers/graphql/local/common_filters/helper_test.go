@@ -103,7 +103,7 @@ func (m *mockResolver) ReportArgs(params mockParams, args map[string]interface{}
 		}
 	}
 
-	return
+	return result, err
 }
 
 func (m *mockResolver) ReportFilters(filter *filters.LocalFilter) (interface{}, error) {

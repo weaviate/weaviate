@@ -49,17 +49,17 @@ func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCom
 	compose, err = composeModules().
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
 		WithWeaviateCluster(3).
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules() (composeModules *docker.Compose) {
 	composeModules = docker.New().WithText2VecOllama()
-	return
+	return composeModules
 }

@@ -113,7 +113,7 @@ func populateBucket(b *testing.B, bucket *Bucket) (keys [][]byte) {
 	}
 	wg.Wait()
 
-	return
+	return keys
 }
 
 func testCtxB() context.Context {

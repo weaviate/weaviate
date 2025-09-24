@@ -397,7 +397,7 @@ type searchShardResp struct {
 
 func (r *searchShardResp) decode(data []byte) (err error) {
 	r.Objects, r.Distributions, err = clusterapi.IndicesPayloads.SearchResults.Unmarshal(data)
-	return
+	return err
 }
 
 type aggregateResp struct {
@@ -406,7 +406,7 @@ type aggregateResp struct {
 
 func (r *aggregateResp) decode(data []byte) (err error) {
 	r.Result, err = clusterapi.IndicesPayloads.AggregationResult.Unmarshal(data)
-	return
+	return err
 }
 
 func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,

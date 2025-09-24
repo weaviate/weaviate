@@ -295,7 +295,9 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 		res = grouped
 	}
 
-	if e.modulesProvider != nil {
+	// This operation cannot be performed with hybrid search.
+	// In case of hybrid it needs to be done later with combined results from vector and keyword search
+	if e.modulesProvider != nil && params.HybridSearch == nil {
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
 			params.AdditionalProperties.ModuleParams, searchVectors[0], params.ModuleParams)
 		if err != nil {
@@ -754,25 +756,25 @@ func ExtractDistanceFromParams(params dto.GetParams) (distance float64, withDist
 	if params.NearVector != nil {
 		distance = params.NearVector.Distance
 		withDistance = params.NearVector.WithDistance
-		return
+		return distance, withDistance
 	}
 
 	if params.NearObject != nil {
 		distance = params.NearObject.Distance
 		withDistance = params.NearObject.WithDistance
-		return
+		return distance, withDistance
 	}
 
 	if params.HybridSearch != nil {
 		if params.HybridSearch.NearTextParams != nil {
 			distance = params.HybridSearch.NearTextParams.Distance
 			withDistance = params.HybridSearch.NearTextParams.WithDistance
-			return
+			return distance, withDistance
 		}
 		if params.HybridSearch.NearVectorParams != nil {
 			distance = params.HybridSearch.NearVectorParams.Distance
 			withDistance = params.HybridSearch.NearVectorParams.WithDistance
-			return
+			return distance, withDistance
 		}
 	}
 
@@ -780,64 +782,64 @@ func ExtractDistanceFromParams(params dto.GetParams) (distance float64, withDist
 		distance, withDistance = extractDistanceFromModuleParams(params.ModuleParams)
 	}
 
-	return
+	return distance, withDistance
 }
 
 func ExtractCertaintyFromParams(params dto.GetParams) (certainty float64) {
 	if params.NearVector != nil {
 		certainty = params.NearVector.Certainty
-		return
+		return certainty
 	}
 
 	if params.NearObject != nil {
 		certainty = params.NearObject.Certainty
-		return
+		return certainty
 	}
 
 	if len(params.ModuleParams) == 1 {
 		certainty = extractCertaintyFromModuleParams(params.ModuleParams)
-		return
+		return certainty
 	}
 
-	return
+	return certainty
 }
 
 func extractCertaintyFromExploreParams(params ExploreParams) (certainty float64) {
 	if params.NearVector != nil {
 		certainty = params.NearVector.Certainty
-		return
+		return certainty
 	}
 
 	if params.NearObject != nil {
 		certainty = params.NearObject.Certainty
-		return
+		return certainty
 	}
 
 	if len(params.ModuleParams) == 1 {
 		certainty = extractCertaintyFromModuleParams(params.ModuleParams)
 	}
 
-	return
+	return certainty
 }
 
 func extractDistanceFromExploreParams(params ExploreParams) (distance float64, withDistance bool) {
 	if params.NearVector != nil {
 		distance = params.NearVector.Distance
 		withDistance = params.NearVector.WithDistance
-		return
+		return distance, withDistance
 	}
 
 	if params.NearObject != nil {
 		distance = params.NearObject.Distance
 		withDistance = params.NearObject.WithDistance
-		return
+		return distance, withDistance
 	}
 
 	if len(params.ModuleParams) == 1 {
 		distance, withDistance = extractDistanceFromModuleParams(params.ModuleParams)
 	}
 
-	return
+	return distance, withDistance
 }
 
 func extractCertaintyFromModuleParams(moduleParams map[string]interface{}) float64 {
@@ -860,15 +862,15 @@ func extractDistanceFromModuleParams(moduleParams map[string]interface{}) (dista
 			if nearParam.SimilarityMetricProvided() {
 				if certainty := nearParam.GetCertainty(); certainty != 0 {
 					distance, withDistance = 0, false
-					return
+					return distance, withDistance
 				}
 				distance, withDistance = nearParam.GetDistance(), true
-				return
+				return distance, withDistance
 			}
 		}
 	}
 
-	return
+	return distance, withDistance
 }
 
 func (e *Explorer) trackUsageGet(res search.Results, params dto.GetParams) {

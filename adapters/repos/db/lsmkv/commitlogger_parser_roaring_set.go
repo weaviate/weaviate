@@ -36,47 +36,56 @@ type commitlogParserRoaringSet struct {
 
 func (prs *commitlogParserRoaringSet) parse() error {
 	for {
-		var commitType CommitType
-
-		err := binary.Read(prs.parser.checksumReader, binary.LittleEndian, &commitType)
-		if errors.Is(err, io.EOF) {
+		if ok, err := prs.parseOnce(); err != nil {
+			return err
+		} else if !ok {
 			break
 		}
-		if err != nil {
-			return errors.Wrap(err, "read commit type")
-		}
+	}
+	return nil
+}
 
-		if !CommitTypeRoaringSet.Is(commitType) && !CommitTypeRoaringSetList.Is(commitType) {
-			return errors.Errorf("found a %s commit on a roaringset bucket", commitType.String())
-		}
+func (prs *commitlogParserRoaringSet) parseOnce() (ok bool, err error) {
+	var commitType CommitType
 
-		var version uint8
-
-		err = binary.Read(prs.parser.checksumReader, binary.LittleEndian, &version)
-		if err != nil {
-			return errors.Wrap(err, "read commit version")
-		}
-
-		switch version {
-		case 0:
-			{
-				err = prs.parseNodeV0()
-			}
-		case 1:
-			{
-				err = prs.parseNodeV1(commitType)
-			}
-		default:
-			{
-				return fmt.Errorf("unsupported commit version %d", version)
-			}
-		}
-		if err != nil {
-			return err
-		}
+	err = binary.Read(prs.parser.checksumReader, binary.LittleEndian, &commitType)
+	if errors.Is(err, io.EOF) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.Wrap(err, "read commit type")
 	}
 
-	return nil
+	if !CommitTypeRoaringSet.Is(commitType) && !CommitTypeRoaringSetList.Is(commitType) {
+		return false, errors.Errorf("found a %s commit on a roaringset bucket", commitType.String())
+	}
+
+	var version uint8
+
+	err = binary.Read(prs.parser.checksumReader, binary.LittleEndian, &version)
+	if err != nil {
+		return false, errors.Wrap(err, "read commit version")
+	}
+
+	switch version {
+	case 0:
+		{
+			err = prs.parseNodeV0()
+		}
+	case 1:
+		{
+			err = prs.parseNodeV1(commitType)
+		}
+	default:
+		{
+			return false, fmt.Errorf("unsupported commit version %d", version)
+		}
+	}
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func (prs *commitlogParserRoaringSet) parseNodeV0() error {

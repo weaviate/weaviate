@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -261,10 +262,16 @@ func (s *Shard) createDimensionsBucket(ctx context.Context, name string) error {
 		return err
 	}
 
-	err := s.store.CreateOrLoadBucket(ctx,
+	bucketPath := filepath.Join(s.pathLSM(), helpers.DimensionsBucketLSM)
+	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, DimensionsBucketPrioritizedStrategies)
+	if err != nil {
+		return fmt.Errorf("determine dimensions bucket strategy: %w", err)
+	}
+
+	err = s.store.CreateOrLoadBucket(ctx,
 		name,
 		s.memtableDirtyConfig(),
-		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
+		lsmkv.WithStrategy(strategy),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),

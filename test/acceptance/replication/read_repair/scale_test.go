@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -36,6 +37,7 @@ func (suite *ReplicationTestSuite) TestReplicationFactorIncrease() {
 	compose, err := docker.New().
 		With3NodeCluster().
 		WithText2VecContextionary().
+		WithWeaviateEnv("RAFT_TIMEOUTS_MULTIPLIER", "5").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {

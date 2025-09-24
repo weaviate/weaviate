@@ -242,13 +242,13 @@ func (n *binarySearchNode) insert(key, value []byte, secondaryKeys [][]byte) (ne
 		n.secondaryKeys = secondaryKeys
 
 		newRoot = nil // tree root does not change when replacing node
-		return
+		return netAdditions, newRoot, previousSecondaryKeys
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
 		if n.left != nil {
 			netAdditions, newRoot, previousSecondaryKeys = n.left.insert(key, value, secondaryKeys)
-			return
+			return netAdditions, newRoot, previousSecondaryKeys
 		} else {
 			n.left = &binarySearchNode{
 				key:           key,
@@ -259,12 +259,12 @@ func (n *binarySearchNode) insert(key, value []byte, secondaryKeys [][]byte) (ne
 			}
 			newRoot = binarySearchNodeFromRB(rbtree.Rebalance(n.left))
 			netAdditions = len(key) + len(value)
-			return
+			return netAdditions, newRoot, previousSecondaryKeys
 		}
 	} else {
 		if n.right != nil {
 			netAdditions, newRoot, previousSecondaryKeys = n.right.insert(key, value, secondaryKeys)
-			return
+			return netAdditions, newRoot, previousSecondaryKeys
 		} else {
 			n.right = &binarySearchNode{
 				key:           key,
@@ -275,7 +275,7 @@ func (n *binarySearchNode) insert(key, value []byte, secondaryKeys [][]byte) (ne
 			}
 			netAdditions = len(key) + len(value)
 			newRoot = binarySearchNodeFromRB(rbtree.Rebalance(n.right))
-			return
+			return netAdditions, newRoot, previousSecondaryKeys
 		}
 	}
 }
@@ -405,8 +405,8 @@ func (n *binarySearchNode) shallowCopy() *binarySearchNode {
 func binarySearchNodeFromRB(rbNode rbtree.Node) (bsNode *binarySearchNode) {
 	if rbNode == nil {
 		bsNode = nil
-		return
+		return bsNode
 	}
 	bsNode = rbNode.(*binarySearchNode)
-	return
+	return bsNode
 }
