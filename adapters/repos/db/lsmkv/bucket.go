@@ -1427,10 +1427,36 @@ func (b *Bucket) FlushAndSwitch() error {
 	case StrategyInverted:
 		if !tombstones.IsEmpty() {
 			if err = func() error {
-				b.disk.maintenanceLock.RLock()
-				defer b.disk.maintenanceLock.RUnlock()
+				// As part of the discussions for
+				// https://github.com/weaviate/weaviate/pull/9104 we disocvered that
+				// there is a potential, non-critical bug in this logic. There can
+				// essentially be a race:
+				//
+				//   1. Imagine two segments A+B.
+				//   2. A compaction is started which merges A+B into AB
+				//   3. A flush happens while the compaction is ongoing, we extend A+B
+				//      with tombstones
+				//   4. The compaction finishes, A+B are replaced with AB, which does
+				//      not have the tombstones
+				//
+				// However, we deem the situation non-critical because any deleted
+				// object would be filtered out at the end of the search, so we're
+				// "only" wasting some CPU cycles on scoring objects that are already
+				// deleted. In addition, on the next restart the tombstones would be
+				// applied in a consistent fashion again, so this does not lead to
+				// permanent data loss; only a temporary non-critical divergence of
+				// in-memory vs on-disk state.
+				//
+				// As part of #9104, we have accepted this bug (as it is independent of
+				// the work done in 9104) and may revisit this logic at a a later
+				// point. #9104 simply changes from a maintenance RLock to a segment
+				// view which does not alter the behavior, but does help reduce lock
+				// contention.
+				segments, release := b.disk.getConsistentViewOfSegments()
+				defer release()
+
 				// add flushing memtable tombstones to all segments
-				for _, seg := range b.disk.segments {
+				for _, seg := range segments {
 					if _, err := seg.MergeTombstones(tombstones); err != nil {
 						return fmt.Errorf("merge tombstones: %w", err)
 					}
