@@ -51,6 +51,8 @@ func NewQueuesHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.Wait
 		for {
 			select {
 			case <-shuttingDownCtx.Done():
+				logger.Info("waiting for all StreamRecv requests to finish")
+				recvWg.Wait()
 				logger.Info("closing write queues")
 				writeQueues.Close()
 				logger.Info("write queues closed, exiting handlers shutdown listener")
@@ -95,30 +97,39 @@ func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream 
 		if readQueue, ok := h.readQueues.Get(streamId); ok {
 			select {
 			case <-ctx.Done():
+				// Context cancelled, send stop message to client
 				if innerErr := stream.Send(newBatchStopMessage()); innerErr != nil {
+					h.logger.WithField("streamId", streamId).WithError(innerErr).Error("failed to send stop message")
 					return innerErr
 				}
 				return ctx.Err()
 			case <-shuttingDown:
 				if innerErr := stream.Send(newBatchShutdownTriggeredMessage()); innerErr != nil {
+					h.logger.WithField("streamId", streamId).WithError(innerErr).Error("failed to send shutdown triggered message")
 					return innerErr
 				}
 				shuttingDown = nil
 			case <-h.shutdownFinished:
 				if innerErr := stream.Send(newBatchShutdownFinishedMessage()); innerErr != nil {
+					h.logger.WithField("streamId", streamId).WithError(innerErr).Error("failed to send shutdown finished message")
 					return innerErr
 				}
 				return h.wait(ctx)
 			case readObj, ok := <-readQueue:
+				// readQueue is closed when all the workers are done processing for this stream
 				if !ok {
 					if innerErr := stream.Send(newBatchStopMessage()); innerErr != nil {
+						h.logger.WithField("streamId", streamId).WithError(innerErr).Error("failed to send stop message")
 						return innerErr
 					}
 					return h.wait(ctx)
 				}
 				for _, err := range readObj.Errors {
-					h.metrics.OnStreamError(streamId)
+					if h.metrics != nil {
+						h.metrics.OnStreamError(streamId)
+					}
 					if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
+						h.logger.WithField("streamId", streamId).WithError(innerErr).Error("failed to send error message")
 						return innerErr
 					}
 				}
@@ -150,16 +161,21 @@ func (h *QueuesHandler) StreamSend(ctx context.Context, streamId string, stream 
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
 func (h *QueuesHandler) StreamRecv(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
 	h.recvWg.Add(1)
-	defer h.recvWg.Done()
 	for {
 		if ctx.Err() != nil {
+			defer h.recvWg.Done()
 			return ctx.Err()
 		}
 		request, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
+			defer h.recvWg.Done()
 			return nil
 		}
 		if err != nil {
+			h.logger.WithField("streamId", streamId).WithError(err).Error("failed to receive batch stream request")
+			// Tell the scheduler to stop processing this stream because of a client hangup error
+			h.writeQueues.Write(streamId, []*writeObject{{Stop: true}})
+			defer h.recvWg.Done()
 			return err
 		}
 		objs := make([]*writeObject, 0, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues())+1)
@@ -175,10 +191,12 @@ func (h *QueuesHandler) StreamRecv(ctx context.Context, streamId string, stream 
 			objs = append(objs, &writeObject{Stop: true})
 			h.stopping.Store(true)
 		} else {
+			defer h.recvWg.Done()
 			return fmt.Errorf("invalid batch send request: neither objects, references nor stop signal provided")
 		}
 		if !h.writeQueues.Exists(streamId) {
 			h.logger.WithField("streamId", streamId).Error("write queue not found")
+			defer h.recvWg.Done()
 			return fmt.Errorf("write queue for stream %s not found", streamId)
 		}
 		if len(objs) > 0 {
@@ -186,12 +204,13 @@ func (h *QueuesHandler) StreamRecv(ctx context.Context, streamId string, stream 
 		}
 		if h.stopping.Load() {
 			// Will loop back and block on stream.Recv() until io.EOF is returned
+			h.recvWg.Done()
 			continue
 		}
 		h.writeQueues.UpdateBatchSize(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues()))
 		wq, ok := h.writeQueues.Get(streamId)
-		if ok {
-			h.metrics.OnStreamRequest(streamId, wq.emaQueueLen)
+		if ok && h.metrics != nil {
+			h.metrics.OnStreamRequest(streamId, wq.emaQueueLen/float64(wq.buffer))
 		}
 	}
 }

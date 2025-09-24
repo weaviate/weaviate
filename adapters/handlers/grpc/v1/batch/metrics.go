@@ -54,7 +54,7 @@ func (b *BatchStreamingCallbacksBuilder) WithStreamStop(callback func()) *BatchS
 	return b
 }
 
-func (b *BatchStreamingCallbacksBuilder) WithStreamRequest(callback func(streamId string, queueLen float64)) *BatchStreamingCallbacksBuilder {
+func (b *BatchStreamingCallbacksBuilder) WithStreamRequest(callback func(streamId string, ratio float64)) *BatchStreamingCallbacksBuilder {
 	b.callbacks.onStreamRequest = callback
 	return b
 }
@@ -81,8 +81,8 @@ func (m *BatchStreamingCallbacks) OnStreamStop() {
 	m.onStreamStop()
 }
 
-func (m *BatchStreamingCallbacks) OnStreamRequest(streamId string, queueLen float64) {
-	m.onStreamRequest(streamId, queueLen)
+func (m *BatchStreamingCallbacks) OnStreamRequest(streamId string, ratio float64) {
+	m.onStreamRequest(streamId, ratio)
 }
 
 func (m *BatchStreamingCallbacks) OnStreamError(streamId string) {
@@ -100,10 +100,10 @@ func NewBatchStreamingCallbacks(reg prometheus.Registerer) *BatchStreamingCallba
 		Help:      "Number of currently open batch streaming connections",
 	}, []string{})
 
-	streamWriteQueueSizeEma := promauto.With(reg).NewHistogramVec(prometheus.HistogramOpts{
+	streamWriteQueueUtilization := promauto.With(reg).NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "weaviate",
-		Name:      "batch_streaming_write_queue_size_ema",
-		Help:      "Exponential moving average of the write queue size per stream",
+		Name:      "batch_streaming_write_queue_utilization",
+		Help:      "Relative utilization of the write queue for each stream (0.0 - 1.0)",
 	}, []string{"stream_id"})
 
 	streamTotalErrors := promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
@@ -133,8 +133,8 @@ func NewBatchStreamingCallbacks(reg prometheus.Registerer) *BatchStreamingCallba
 		WithStreamStop(func() {
 			openStreams.WithLabelValues().Dec()
 		}).
-		WithStreamRequest(func(streamId string, queueLen float64) {
-			streamWriteQueueSizeEma.WithLabelValues(streamId).Observe(queueLen)
+		WithStreamRequest(func(streamId string, ratio float64) {
+			streamWriteQueueUtilization.WithLabelValues(streamId).Observe(ratio)
 		}).
 		WithStreamError(func(streamId string) {
 			streamTotalErrors.WithLabelValues(streamId).Inc()

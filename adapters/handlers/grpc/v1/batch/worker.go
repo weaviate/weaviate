@@ -116,9 +116,7 @@ func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObje
 				Detail: &pb.BatchStreamReply_Error_Object{Object: req.Values[err.Index]},
 			})
 		}
-		if ch, ok := w.readQueues.Get(streamId); ok {
-			ch <- &readObject{Errors: errs}
-		}
+		w.reportErrors(streamId, errs)
 		if len(retriable) > 0 {
 			w.sendObjects(ctx, streamId, &SendObjects{
 				Values:           retriable,
@@ -161,9 +159,7 @@ func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendR
 				Detail: &pb.BatchStreamReply_Error_Reference{Reference: req.Values[err.Index]},
 			})
 		}
-		if ch, ok := w.readQueues.Get(streamId); ok {
-			ch <- &readObject{Errors: errs}
-		}
+		w.reportErrors(streamId, errs)
 		if len(retriable) > 0 {
 			return w.sendReferences(ctx, streamId, &SendReferences{
 				Values:           retriable,
@@ -172,6 +168,19 @@ func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendR
 		}
 	}
 	return nil
+}
+
+func (w *Worker) reportErrors(streamId string, errs []*pb.BatchStreamReply_Error) {
+	if ch, ok := w.readQueues.Get(streamId); ok {
+		for {
+			select {
+			case ch <- &readObject{Errors: errs}:
+			case <-time.After(1 * time.Second):
+				w.logger.WithField("streamId", streamId).Warn("timed out sending errors to read queue, maybe the client disconnected?")
+				return
+			}
+		}
+	}
 }
 
 // Loop processes objects from the write queue, sending them to the batcher and handling shutdown signals.

@@ -303,8 +303,10 @@ func (s *Service) BatchReferences(ctx context.Context, req *pb.BatchReferencesRe
 //
 // It should be used as part of the automatic batching process provided in clients.
 func (s *Service) BatchStream(stream pb.Weaviate_BatchStreamServer) error {
-	s.batchMetrics.OnStreamStart()
-	defer s.batchMetrics.OnStreamStop()
+	if s.batchMetrics != nil {
+		s.batchMetrics.OnStreamStart()
+		defer s.batchMetrics.OnStreamStop()
+	}
 
 	id, err := uuid.NewRandom()
 	if err != nil {
