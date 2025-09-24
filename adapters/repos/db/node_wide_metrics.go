@@ -24,6 +24,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/tenantactivity"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -59,13 +60,12 @@ func newNodeWideMetricsObserver(db *DB) *nodeWideMetricsObserver {
 // if metric aggregation (PROMETHEUS_MONITORING_GROUP) is enabled.
 // Only start this service if DB has Prometheus enabled.
 func (o *nodeWideMetricsObserver) Start() {
-	// Prometheus metrics are redundant with Usage Module is enabled
-	if o.db.config.TrackVectorDimensions && !o.db.config.UsageEnabled {
-		o.observeDimensionMetrics()
+	if o.db.config.TrackVectorDimensions {
+		enterrors.GoWrapper(o.observeDimensionMetrics, o.db.logger)
 	}
 
 	if o.db.promMetrics.Group {
-		o.observeShards()
+		enterrors.GoWrapper(o.observeShards, o.db.logger)
 	}
 }
 
@@ -74,29 +74,27 @@ func (o *nodeWideMetricsObserver) Shutdown() {
 }
 
 func (o *nodeWideMetricsObserver) observeShards() {
-	enterrors.GoWrapper(func() {
-		// make sure we start with a warm state, otherwise we delay the initial
-		// update. This only applies to tenant activity, other metrics wait
-		// for shard-readiness anyway.
-		o.observeActivity()
+	// make sure we start with a warm state, otherwise we delay the initial
+	// update. This only applies to tenant activity, other metrics wait
+	// for shard-readiness anyway.
+	o.observeActivity()
 
-		t30 := time.NewTicker(30 * time.Second)
-		defer t30.Stop()
+	t30 := time.NewTicker(30 * time.Second)
+	defer t30.Stop()
 
-		t10 := time.NewTicker(10 * time.Second)
-		defer t10.Stop()
+	t10 := time.NewTicker(10 * time.Second)
+	defer t10.Stop()
 
-		for {
-			select {
-			case <-o.shutdown:
-				return
-			case <-t10.C:
-				o.observeActivity()
-			case <-t30.C:
-				o.observeObjectCount()
-			}
+	for {
+		select {
+		case <-o.shutdown:
+			return
+		case <-t10.C:
+			o.observeActivity()
+		case <-t30.C:
+			o.observeObjectCount()
 		}
-	}, o.db.logger)
+	}
 }
 
 // Collect and publish aggregated object_count metric iff all indices report allShardsReady=true.
@@ -327,32 +325,30 @@ func (o *nodeWideMetricsObserver) Usage(filter tenantactivity.UsageFilter) tenan
 // If vector dimension tracking is disabled, this method is a no-op: no goroutine will
 // be started and the "done" channel stays nil.
 func (o *nodeWideMetricsObserver) observeDimensionMetrics() {
-	enterrors.GoWrapper(func() {
-		interval := config.DefaultTrackVectorDimensionsInterval
-		if o.db.config.TrackVectorDimensionsInterval > 0 { // duration must be > 0, or time.Timer will panic
-			interval = o.db.config.TrackVectorDimensionsInterval
+	interval := config.DefaultTrackVectorDimensionsInterval
+	if o.db.config.TrackVectorDimensionsInterval > 0 { // duration must be > 0, or time.Timer will panic
+		interval = o.db.config.TrackVectorDimensionsInterval
+	}
+
+	// This is a low-priority background process, which is not time-sensitive.
+	// Some downstream calls require a context, so we create one, but we needn't
+	// manage it beyond making sure it doesn't leak.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	o.publishVectorMetrics(ctx)
+
+	tick := time.NewTicker(interval)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-o.shutdown:
+			return
+		case <-tick.C:
+			o.publishVectorMetrics(ctx)
 		}
-
-		// This is a low-priority background process, which is not time-sensitive.
-		// Some downstream calls require a context, so we create one, but we needn't
-		// manage it beyond making sure it doesn't leak.
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		o.publishVectorMetrics(ctx)
-
-		tick := time.NewTicker(interval)
-		defer tick.Stop()
-
-		for {
-			select {
-			case <-o.shutdown:
-				return
-			case <-tick.C:
-				o.publishVectorMetrics(ctx)
-			}
-		}
-	}, o.db.logger)
+	}
 }
 
 func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
@@ -379,10 +375,11 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 
 	for _, index := range indices {
 		index.closeLock.RLock()
-		if index.closed {
+		closed := index.closed
+		index.closeLock.RUnlock()
+		if closed {
 			continue
 		}
-		index.closeLock.RUnlock()
 
 		className := index.Config.ClassName.String()
 
@@ -428,9 +425,10 @@ func calculateShardDimensionMetrics(ctx context.Context, sl ShardLike) Dimension
 
 // Calculate vector dimensions for a vector index in a shard.
 func calcVectorDimensionMetrics(ctx context.Context, sl ShardLike, vecName string, vecCfg schemaConfig.VectorIndexConfig) DimensionMetrics {
-	switch category, segments := GetDimensionCategory(vecCfg); category {
+	switch category, segments := GetDimensionCategoryLegacy(vecCfg); category {
 	case DimensionCategoryPQ:
-		return DimensionMetrics{Uncompressed: 0, Compressed: sl.QuantizedDimensions(ctx, vecName, segments)}
+		count, _ := sl.QuantizedDimensions(ctx, vecName, segments)
+		return DimensionMetrics{Uncompressed: 0, Compressed: count}
 	case DimensionCategoryBQ:
 		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
 		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
@@ -439,6 +437,22 @@ func calcVectorDimensionMetrics(ctx context.Context, sl ShardLike, vecName strin
 		count, _ := sl.Dimensions(ctx, vecName)
 		bytes := (count + 63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
 		return DimensionMetrics{Uncompressed: 0, Compressed: bytes}
+	case DimensionCategoryRQ:
+		// RQ: bits per dimension, where bits can be 1 or 8
+		// For bits=1: equivalent to BQ (1 bit per dimension, packed in uint64 blocks)
+		// For bits=8: 8 bits per dimension (1 byte per dimension)
+		count, _ := sl.Dimensions(ctx, vecName)
+		bits := enthnsw.GetRQBits(vecCfg)
+		// RQ 8 Bit : DimensionMetrics{Uncompressed: bytes, Compressed: 0}
+		// RQ 1 Bit : DimensionMetrics{Uncompressed: 0, Compressed: bytes}
+		// this because of legacy vector_dimensions_sum is uncompressed and vector_segments_sum is compressed
+		if bits == 1 {
+			// bits=1: same as BQ - 1 bit per dimension, packed in uint64 blocks
+			return DimensionMetrics{Uncompressed: 0, Compressed: (count + 63) / 64 * 8}
+		}
+
+		// bits=8: 8 bits per dimension (1 byte per dimension)
+		return DimensionMetrics{Uncompressed: count, Compressed: 0}
 	default:
 		count, _ := sl.Dimensions(ctx, vecName)
 		return DimensionMetrics{Uncompressed: count, Compressed: 0}

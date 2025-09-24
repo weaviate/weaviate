@@ -18,7 +18,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -75,23 +74,4 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 // Alias support
 func (m *BatchManager) resolveAlias(class string) (className, aliasName string) {
 	return alias.ResolveAlias(m.schemaManager, class)
-}
-
-func (m *BatchManager) batchDeleteWithAlias(batchDeleteResponse *BatchDeleteResponse, aliasName string) *BatchDeleteResponse {
-	if batchDeleteResponse != nil {
-		if batchDeleteResponse.Match != nil {
-			batchDeleteResponse.Match.Class = aliasName
-		}
-		batchDeleteResponse.Params.ClassName = schema.ClassName(aliasName)
-	}
-	return batchDeleteResponse
-}
-
-func (m *BatchManager) batchInsertWithAliases(batchObjects BatchObjects, classAlias map[string]string) BatchObjects {
-	if len(classAlias) > 0 {
-		for i := range batchObjects {
-			batchObjects[i].Object = alias.ClassNameToAlias(batchObjects[i].Object, classAlias[batchObjects[i].Object.Class])
-		}
-	}
-	return batchObjects
 }

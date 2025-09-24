@@ -12,6 +12,8 @@
 package monitoring
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -46,7 +48,6 @@ type PrometheusMetrics struct {
 	BatchCount                          *prometheus.CounterVec
 	BatchCountBytes                     *prometheus.CounterVec
 	ObjectsTime                         *prometheus.SummaryVec
-	LSMBloomFilters                     *prometheus.SummaryVec
 	AsyncOperations                     *prometheus.GaugeVec
 	LSMSegmentCount                     *prometheus.GaugeVec
 	LSMObjectsBucketSegmentCount        *prometheus.GaugeVec
@@ -298,7 +299,6 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.ObjectCount.DeletePartialMatch(labels)
 	pm.QueriesFilteredVectorDurations.DeletePartialMatch(labels)
 	pm.AsyncOperations.DeletePartialMatch(labels)
-	pm.LSMBloomFilters.DeletePartialMatch(labels)
 	pm.LSMMemtableDurations.DeletePartialMatch(labels)
 	pm.LSMMemtableSize.DeletePartialMatch(labels)
 	pm.LSMMemtableDurations.DeletePartialMatch(labels)
@@ -383,6 +383,24 @@ func InitConfig(cfg Config) {
 
 func GetMetrics() *PrometheusMetrics {
 	return metrics
+}
+
+// EnsureRegisteredMetric tries to register the given metric with the given
+// registerer. If the metric is already registered, it returns the existing
+// metric.
+func EnsureRegisteredMetric[T prometheus.Collector](reg prometheus.Registerer, metric T) (T, error) {
+	if err := reg.Register(metric); err != nil {
+		var alreadyRegistered prometheus.AlreadyRegisteredError
+		if errors.As(err, &alreadyRegistered) {
+			existing, ok := alreadyRegistered.ExistingCollector.(T)
+			if !ok {
+				return metric, fmt.Errorf("metric already registered but not as expected type: %T", metric)
+			}
+			return existing, nil
+		}
+		return metric, err
+	}
+	return metric, nil
 }
 
 func newPrometheusMetrics() *PrometheusMetrics {
@@ -474,10 +492,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "lsm_compressed_vecs_bucket_segment_count",
 			Help: "Number of segments per shard in the vectors_compressed bucket",
 		}, []string{"strategy", "class_name", "shard_name", "path"}),
-		LSMBloomFilters: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "lsm_bloom_filters_duration_ms",
-			Help: "Duration of bloom filter operations",
-		}, []string{"operation", "strategy", "class_name", "shard_name"}),
 		LSMSegmentObjects: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_segment_objects",
 			Help: "Number of objects/entries of segment by level",

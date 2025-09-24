@@ -721,7 +721,6 @@ case $CONFIG in
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./${PERSISTENCE_DATA_PATH}-weaviate-0" \
-      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-s3,offload-s3" \
       BACKUP_S3_BUCKET="weaviate-backups" \
@@ -749,7 +748,6 @@ case $CONFIG in
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./${PERSISTENCE_DATA_PATH}-weaviate-1" \
-      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-1" \
       BACKUP_S3_BUCKET="weaviate-backups" \
       BACKUP_S3_USE_SSL="false" \
       BACKUP_S3_ENDPOINT="localhost:9000" \
@@ -783,7 +781,6 @@ case $CONFIG in
         CONTEXTIONARY_URL=localhost:9999 \
         AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
         PERSISTENCE_DATA_PATH="./${PERSISTENCE_DATA_PATH}-weaviate-2" \
-        BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-2" \
         BACKUP_S3_BUCKET="weaviate-backups" \
         BACKUP_S3_USE_SSL="false" \
         BACKUP_S3_ENDPOINT="localhost:9000" \
@@ -941,7 +938,7 @@ create-s3-bucket)
       AWS_SECRET_ACCESS_KEY=aws_secret_key \
       aws --endpoint-url=http://localhost:9000 s3 mb s3://weaviate-usage
       AWS_ACCESS_KEY_ID=aws_access_key \
-      AWS_SECRET_ACCESS_KEY=aws_secret_key \      
+      AWS_SECRET_ACCESS_KEY=aws_secret_key \
       aws --endpoint-url=http://localhost:9000 s3 mb s3://weaviate-backups
       ;;
 
@@ -1008,6 +1005,17 @@ local-usage-s3)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-voyageai \
       ENABLE_MODULES="text2vec-voyageai" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+  local-morph)
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-morph \
+      ENABLE_MODULES="text2vec-morph" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \

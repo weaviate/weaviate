@@ -16,6 +16,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/schema"
 	txt2vecmodels "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 type fakeClient struct {
@@ -89,5 +90,9 @@ func (f fakeClassConfig) TargetVector() string {
 }
 
 func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
+}
+
+func (f fakeClassConfig) Config() *config.Config {
 	return nil
 }

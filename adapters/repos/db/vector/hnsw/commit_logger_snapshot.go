@@ -40,6 +40,7 @@ const (
 	snapshotConcurrency   = 8 // number of goroutines handling snapshot's checkpoints reading
 	snapshotDirSuffix     = ".hnsw.snapshot.d"
 	snapshotCheckInterval = 10 * time.Minute
+	maxExpectedConns      = 4096 * 4
 )
 
 const (
@@ -47,6 +48,7 @@ const (
 	SnapshotCompressionTypeSQ
 	SnapshotEncoderTypeMuvera
 	SnapshotCompressionTypeRQ
+	SnapshotCompressionTypeBRQ
 )
 
 // version of the snapshot file format
@@ -70,6 +72,9 @@ func snapshotDirectory(rootPath, name string) string {
 
 // Loads state of last available snapshot. Returns nil if no snaphshot was found.
 func (l *hnswCommitLogger) LoadSnapshot() (state *DeserializationResult, createdAt int64, err error) {
+	l.snapshotLock.Lock()
+	defer l.snapshotLock.Unlock()
+
 	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "load_snapshot"})
 	defer func() { onFinish(err) }()
 
@@ -95,6 +100,9 @@ func (l *hnswCommitLogger) LoadSnapshot() (state *DeserializationResult, created
 // or from the entire commit log if there is no previous snapshot.
 // The snapshot state contains all but last commitlog (may still be in use and mutable).
 func (l *hnswCommitLogger) CreateSnapshot() (created bool, createdAt int64, err error) {
+	l.snapshotLock.Lock()
+	defer l.snapshotLock.Unlock()
+
 	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "create_snapshot"})
 	defer func() { onFinish(err) }()
 
@@ -106,6 +114,9 @@ func (l *hnswCommitLogger) CreateSnapshot() (created bool, createdAt int64, err 
 // last snapshot. It is used at startup to automatically create a snapshot
 // while loading the commit log, to avoid having to load the commit log again.
 func (l *hnswCommitLogger) CreateAndLoadSnapshot() (state *DeserializationResult, createdAt int64, err error) {
+	l.snapshotLock.Lock()
+	defer l.snapshotLock.Unlock()
+
 	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "create_and_load_snapshot"})
 	defer func() { onFinish(err) }()
 
@@ -534,7 +545,19 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 	tmpSnapshotFileName := fmt.Sprintf("%s.tmp", filename)
 	checkPointsFileName := fmt.Sprintf("%s.checkpoints", filename)
 
-	snap, err := os.OpenFile(tmpSnapshotFileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	// check if checkpoints with the same name already exist
+	if _, err := os.Stat(checkPointsFileName); err == nil {
+		l.logger.WithField("action", "write_snapshot").
+			WithField("path", checkPointsFileName).
+			Info("writing new snapshot with same name as last snapshot, deleting checkpoints file")
+
+		err = os.Remove(checkPointsFileName)
+		if err != nil {
+			return errors.Wrap(err, "remove existing checkpoints file")
+		}
+	}
+
+	snap, err := os.OpenFile(tmpSnapshotFileName, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return errors.Wrapf(err, "create snapshot file %q", tmpSnapshotFileName)
 	}
@@ -852,6 +875,57 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 			}
 		}
 
+	} else if state.Compressed && state.CompressionBRQData != nil { // BRQ
+		// first byte is the compression type
+		if err := writeByte(w, byte(SnapshotCompressionTypeBRQ)); err != nil {
+			return 0, err
+		}
+		offset += writeByteSize
+
+		if err := writeUint32(w, state.CompressionBRQData.InputDim); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		if err := writeUint32(w, state.CompressionBRQData.Rotation.OutputDim); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		if err := writeUint32(w, state.CompressionBRQData.Rotation.Rounds); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		for _, swap := range state.CompressionBRQData.Rotation.Swaps {
+			for _, dim := range swap {
+				if err := writeUint16(w, dim.I); err != nil {
+					return 0, err
+				}
+				offset += writeUint16Size
+
+				if err := writeUint16(w, dim.J); err != nil {
+					return 0, err
+				}
+				offset += writeUint16Size
+			}
+		}
+
+		for _, sign := range state.CompressionBRQData.Rotation.Signs {
+			for _, dim := range sign {
+				if err := writeFloat32(w, dim); err != nil {
+					return 0, err
+				}
+				offset += writeFloat32Size
+			}
+		}
+
+		for _, rounding := range state.CompressionBRQData.Rounding {
+			if err := writeFloat32(w, rounding); err != nil {
+				return 0, err
+			}
+			offset += writeFloat32Size
+		}
 	}
 
 	isEncoded := state.MuveraEnabled
@@ -1146,6 +1220,78 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 					Signs:     signs,
 				},
 			}
+		case SnapshotCompressionTypeBRQ:
+			res.Compressed = true
+			_, err = ReadAndHash(r, hasher, b[:4]) // BRQData.InputDim
+			if err != nil {
+				return nil, errors.Wrapf(err, "read BRQData.InputDim")
+			}
+			inputDim := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // BRQData.Rotation.OutputDim
+			if err != nil {
+				return nil, errors.Wrapf(err, "read BRQData.Rotation.OutputDim")
+			}
+			outputDim := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // BRQData.Rotation.Rounds
+			if err != nil {
+				return nil, errors.Wrapf(err, "read BRQData.Rotation.Rounds")
+			}
+			rounds := binary.LittleEndian.Uint32(b[:4])
+
+			swaps := make([][]compressionhelpers.Swap, rounds)
+
+			for i := uint32(0); i < rounds; i++ {
+				swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+				for j := uint32(0); j < outputDim/2; j++ {
+					_, err = ReadAndHash(r, hasher, b[:2]) // BRQData.Rotation.Swaps[i][j].I
+					if err != nil {
+						return nil, errors.Wrapf(err, "read BRQData.Rotation.Swaps[i][j].I")
+					}
+					swaps[i][j].I = binary.LittleEndian.Uint16(b[:2])
+
+					_, err = ReadAndHash(r, hasher, b[:2]) // BRQData.Rotation.Swaps[i][j].J
+					if err != nil {
+						return nil, errors.Wrapf(err, "read BRQData.Rotation.Swaps[i][j].J")
+					}
+					swaps[i][j].J = binary.LittleEndian.Uint16(b[:2])
+				}
+			}
+
+			signs := make([][]float32, rounds)
+
+			for i := uint32(0); i < rounds; i++ {
+				signs[i] = make([]float32, outputDim)
+				for j := uint32(0); j < outputDim; j++ {
+					_, err = ReadAndHash(r, hasher, b[:4]) // BRQData.Rotation.Signs[i][j]
+					if err != nil {
+						return nil, errors.Wrapf(err, "read BRQData.Rotation.Signs[i][j]")
+					}
+					signs[i][j] = math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
+				}
+			}
+
+			rounding := make([]float32, outputDim)
+
+			for i := uint32(0); i < outputDim; i++ {
+				_, err = ReadAndHash(r, hasher, b[:4]) // BRQData.Rounding[i]
+				if err != nil {
+					return nil, errors.Wrapf(err, "read BRQData.Rounding[i]")
+				}
+				rounding[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
+			}
+
+			res.CompressionBRQData = &compressionhelpers.BRQData{
+				InputDim: inputDim,
+				Rotation: compressionhelpers.FastRotation{
+					OutputDim: outputDim,
+					Rounds:    rounds,
+					Swaps:     swaps,
+					Signs:     signs,
+				},
+				Rounding: rounding,
+			}
 		default:
 			return nil, fmt.Errorf("unsupported compression type %d", b[0])
 		}
@@ -1339,6 +1485,9 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 							connCountAtLevel := uint64(binary.LittleEndian.Uint32(b[:4]))
 
 							if connCountAtLevel > 0 {
+								if connCountAtLevel > maxExpectedConns {
+									return fmt.Errorf("node %d has too many connections: %v", node.id, connCountAtLevel)
+								}
 								for c := uint64(0); c < connCountAtLevel; c++ {
 									n, err = io.ReadFull(r, b[:8]) // connection at level
 									if err != nil {
@@ -1407,7 +1556,7 @@ type Checkpoint struct {
 }
 
 func writeCheckpoints(fileName string, checkpoints []Checkpoint) error {
-	checkpointFile, err := os.OpenFile(fileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	checkpointFile, err := os.OpenFile(fileName, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return fmt.Errorf("open new checkpoint file for writing: %w", err)
 	}

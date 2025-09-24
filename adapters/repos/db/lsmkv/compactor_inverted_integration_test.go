@@ -74,16 +74,18 @@ func validateMapPairListVsBlockMaxSearch(ctx context.Context, bucket *Bucket, ex
 		queries := []string{string(mapKey)}
 		duplicateTextBoosts := make([]int, 1)
 		diskTerms, _, release, err := bucket.CreateDiskTerm(float64(N), nil, queries, "", 1, duplicateTextBoosts, bm25config, ctx)
-
+		if err != nil {
+			return fmt.Errorf("failed to create disk term: %w", err)
+		}
 		defer func() {
 			release()
 		}()
 
 		expectedSet := make(map[uint64][]*terms.DocPointerWithScore, len(expected))
 		for _, diskTerm := range diskTerms {
-			topKHeap := DoBlockMaxWand(ctx, N, diskTerm, avgPropLen, true, 1, 1, bucket.logger)
+			topKHeap, err := DoBlockMaxWand(ctx, N, diskTerm, avgPropLen, true, 1, 1, bucket.logger)
 			if err != nil {
-				return fmt.Errorf("failed to create disk term: %w", err)
+				return fmt.Errorf("failed to execute DoBlockMaxWand for diskTerm %v: %w", diskTerm, err)
 			}
 			for topKHeap.Len() > 0 {
 				item := topKHeap.Pop()
@@ -265,7 +267,7 @@ func validateMapPairListVsWandSearch(ctx context.Context, bucket *Bucket, expect
 			Count: 1,
 		}
 
-		topKHeap := DoWand(N, terms, avgPropLen, true, 1)
+		topKHeap := DoWand(ctx, N, terms, avgPropLen, true, 1)
 
 		for topKHeap.Len() > 0 {
 			item := topKHeap.Pop()

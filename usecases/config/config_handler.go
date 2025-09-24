@@ -119,7 +119,7 @@ type Config struct {
 	DefaultVectorizerModule             string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
 	DefaultVectorDistanceMetric         string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
 	EnableModules                       string                   `json:"enable_modules" yaml:"enable_modules"`
-	EnableApiBasedModules               bool                     `json:"enable_api_based_modules" yaml:"enable_api_based_modules"`
+	EnableApiBasedModules               bool                     `json:"api_based_modules_disabled" yaml:"api_based_modules_disabled"`
 	ModulesPath                         string                   `json:"modules_path" yaml:"modules_path"`
 	ModuleHttpClientTimeout             time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
 	AutoSchema                          AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
@@ -201,6 +201,9 @@ type Config struct {
 	QuerySlowLogEnabled   *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
 	QuerySlowLogThreshold *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
 
+	// New classes will be created with the default quantization
+	DefaultQuantization *runtime.DynamicValue[string] `json:"default_quantization" yaml:"default_quantization"`
+
 	QueryBitmapBufsMaxMemory  int `json:"query_bitmap_bufs_max_memory" yaml:"query_bitmap_bufs_max_memory"`
 	QueryBitmapBufsMaxBufSize int `json:"query_bitmap_bufs_max_buf_size" yaml:"query_bitmap_bufs_max_buf_size"`
 
@@ -219,6 +222,9 @@ type Config struct {
 
 	// Usage configuration for the usage module
 	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
+
+	// The minimum timeout for the server to wait before it returns an error
+	MinimumInternalTimeout time.Duration `json:"minimum_internal_timeout" yaml:"minimum_internal_timeout"`
 }
 
 type MapToBlockamaxConfig struct {

@@ -26,21 +26,17 @@ func TestText2VecModel2Vec(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	endpoint := compose.GetWeaviate().URI()
+	rest := compose.GetWeaviate().URI()
+	grpc := compose.GetWeaviate().GrpcURI()
 
-	t.Run("tests", testText2VecModel2Vec(endpoint))
+	t.Run("tests", testText2VecModel2Vec(rest, grpc))
 }
 
 func createSingleNodeEnvironment(ctx context.Context,
 ) (compose *docker.DockerCompose, err error) {
-	compose, err = composeModules().
-		WithWeaviate().
+	compose, err = docker.New().
+		WithText2VecModel2Vec().
+		WithWeaviateWithGRPC().
 		Start(ctx)
-	return
-}
-
-func composeModules() (composeModules *docker.Compose) {
-	composeModules = docker.New().
-		WithText2VecModel2Vec()
-	return
+	return compose, err
 }

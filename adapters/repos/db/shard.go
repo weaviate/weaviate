@@ -65,18 +65,17 @@ var (
 )
 
 type ShardLike interface {
-	Index() *Index                  // Get the parent index
-	Name() string                   // Get the shard name
-	Store() *lsmkv.Store            // Get the underlying store
-	NotifyReady()                   // Set shard status to ready
-	GetStatus() storagestate.Status // Return the shard status
-	GetStatusNoLoad() storagestate.Status
-	UpdateStatus(status string) error                                                   // Set shard status
+	Index() *Index                                                                      // Get the parent index
+	Name() string                                                                       // Get the shard name
+	Store() *lsmkv.Store                                                                // Get the underlying store
+	NotifyReady()                                                                       // Set shard status to ready
+	GetStatus() storagestate.Status                                                     // Return the shard status
+	UpdateStatus(status, reason string) error                                           // Set shard status
 	SetStatusReadonly(reason string) error                                              // Set shard status to readonly with reason
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) // Search and return document ids
 
 	Counter() *indexcounter.Counter
-	ObjectCount() int
+	ObjectCount(ctx context.Context) (int, error)
 	ObjectCountAsync(ctx context.Context) (int64, error)
 	ObjectStorageSize(ctx context.Context) (int64, error)
 	VectorStorageSize(ctx context.Context) (int64, error)
@@ -146,10 +145,10 @@ type ShardLike interface {
 	Dimensions(ctx context.Context, targetVector string) (int, error)
 	// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
 	DimensionsUsage(ctx context.Context, targetVector string) (usagetypes.Dimensionality, error)
-	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
+	QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error)
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
-	resetDimensionsLSM() error
+	resetDimensionsLSM(ctx context.Context) error
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
@@ -347,7 +346,8 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 		return err
 	}
 
-	err := s.SetStatusReadonly("UpdateVectorIndexConfig")
+	reason := "UpdateVectorIndexConfig"
+	err := s.SetStatusReadonly(reason)
 	if err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
@@ -358,7 +358,7 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 	}
 
 	return index.UpdateUserConfig(updated, func() {
-		s.UpdateStatus(storagestate.StatusReady.String())
+		s.UpdateStatus(storagestate.StatusReady.String(), reason)
 	})
 }
 
@@ -366,7 +366,15 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
-	if err := s.SetStatusReadonly("UpdateVectorIndexConfig"); err != nil {
+
+	i := 0
+	targetVecs := make([]string, len(updated))
+	for targetVec := range updated {
+		targetVecs[i] = targetVec
+		i++
+	}
+	reason := fmt.Sprintf("UpdateVectorIndexConfigs: %v", targetVecs)
+	if err := s.SetStatusReadonly(reason); err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
 
@@ -388,7 +396,7 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 
 	f := func() {
 		wg.Wait()
-		s.UpdateStatus(storagestate.StatusReady.String())
+		s.UpdateStatus(storagestate.StatusReady.String(), reason)
 	}
 	enterrors.GoWrapper(f, s.index.logger)
 
@@ -396,13 +404,13 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 }
 
 // ObjectCount returns the exact count at any moment
-func (s *Shard) ObjectCount() int {
+func (s *Shard) ObjectCount(ctx context.Context) (int, error) {
 	b := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
-		return 0
+		return 0, errors.New("object bucket does not exist")
 	}
 
-	return b.Count()
+	return b.Count(ctx)
 }
 
 // ObjectCountAsync returns the eventually consistent "async" count which is
@@ -439,9 +447,10 @@ func (s *Shard) VectorStorageSize(ctx context.Context) (int64, error) {
 	// Iterate over all vector indexes to calculate storage size for both default and targeted vectors
 	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// Get dimensions and object count from the dimensions bucket for this specific target vector
-		dimensionality := calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
-			return len(v), dimLen
-		})
+		dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector)
+		if err != nil {
+			return err
+		}
 
 		if dimensionality.Count == 0 || dimensionality.Dimensions == 0 {
 			return nil

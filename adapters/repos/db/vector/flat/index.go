@@ -221,6 +221,7 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 		lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
 		lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
 		lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 
 		// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
 		// was simply missing. Now we want to explicitly set it to false for
@@ -244,6 +245,7 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 			lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
 			lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
 			lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+			lsmkv.WithStrategy(lsmkv.StrategyReplace),
 
 			// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
 			// was simply missing. Now we want to explicitly set it to false for
@@ -332,9 +334,11 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 			index.bq = compressionhelpers.NewBinaryQuantizer(nil)
 		}
 	})
-	if len(vector) != int(index.dims) {
-		return errors.Errorf("insert called with a vector of the wrong size")
+
+	if err := index.ValidateBeforeInsert(vector); err != nil {
+		return err
 	}
+
 	vector = index.normalized(vector)
 	slice := make([]byte, len(vector)*4)
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
@@ -777,7 +781,24 @@ func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, er
 	return files, nil
 }
 
-func (i *flat) ValidateBeforeInsert(vector []float32) error {
+func (index *flat) GetKeys(id uint64) (uint64, uint64, error) {
+	return 0, 0, errors.Errorf("GetKeys is not supported for flat index")
+}
+
+func (index *flat) ValidateBeforeInsert(vector []float32) error {
+	dims := int(atomic.LoadInt32(&index.dims))
+
+	// no vectors exist
+	if dims == 0 {
+		return nil
+	}
+
+	// check if vector length is the same as existing nodes
+	if dims != len(vector) {
+		return errors.Errorf("insert called with a vector of the wrong size: %d. Saved length: %d, path: %s",
+			len(vector), dims, index.rootPath)
+	}
+
 	return nil
 }
 

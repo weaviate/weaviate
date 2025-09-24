@@ -35,7 +35,7 @@ const (
 	FilterStrategySweeping = "sweeping"
 	FilterStrategyAcorn    = "acorn"
 
-	DefaultFilterStrategy = FilterStrategySweeping
+	DefaultFilterStrategy = FilterStrategyAcorn
 
 	// Fail validation if those criteria are not met
 	MinmumMaxConnections  = 4
@@ -45,23 +45,25 @@ const (
 
 // UserConfig bundles all values settable by a user in the per-class settings
 type UserConfig struct {
-	Skip                   bool              `json:"skip"`
-	CleanupIntervalSeconds int               `json:"cleanupIntervalSeconds"`
-	MaxConnections         int               `json:"maxConnections"`
-	EFConstruction         int               `json:"efConstruction"`
-	EF                     int               `json:"ef"`
-	DynamicEFMin           int               `json:"dynamicEfMin"`
-	DynamicEFMax           int               `json:"dynamicEfMax"`
-	DynamicEFFactor        int               `json:"dynamicEfFactor"`
-	VectorCacheMaxObjects  int               `json:"vectorCacheMaxObjects"`
-	FlatSearchCutoff       int               `json:"flatSearchCutoff"`
-	Distance               string            `json:"distance"`
-	PQ                     PQConfig          `json:"pq"`
-	BQ                     BQConfig          `json:"bq"`
-	SQ                     SQConfig          `json:"sq"`
-	RQ                     RQConfig          `json:"rq"`
-	FilterStrategy         string            `json:"filterStrategy"`
-	Multivector            MultivectorConfig `json:"multivector"`
+	Skip                     bool              `json:"skip"`
+	CleanupIntervalSeconds   int               `json:"cleanupIntervalSeconds"`
+	MaxConnections           int               `json:"maxConnections"`
+	EFConstruction           int               `json:"efConstruction"`
+	EF                       int               `json:"ef"`
+	DynamicEFMin             int               `json:"dynamicEfMin"`
+	DynamicEFMax             int               `json:"dynamicEfMax"`
+	DynamicEFFactor          int               `json:"dynamicEfFactor"`
+	VectorCacheMaxObjects    int               `json:"vectorCacheMaxObjects"`
+	FlatSearchCutoff         int               `json:"flatSearchCutoff"`
+	Distance                 string            `json:"distance"`
+	PQ                       PQConfig          `json:"pq"`
+	BQ                       BQConfig          `json:"bq"`
+	SQ                       SQConfig          `json:"sq"`
+	RQ                       RQConfig          `json:"rq"`
+	FilterStrategy           string            `json:"filterStrategy"`
+	Multivector              MultivectorConfig `json:"multivector"`
+	SkipDefaultQuantization  bool              `json:"skipDefaultQuantization"`
+	TrackDefaultQuantization bool              `json:"trackDefaultQuantization"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -115,10 +117,10 @@ func (u *UserConfig) SetDefaults() {
 		Bits:         DefaultRQBits,
 		RescoreLimit: DefaultRQRescoreLimit,
 	}
-	if strategy := os.Getenv("HNSW_DEFAULT_FILTER_STRATEGY"); strategy == FilterStrategyAcorn {
-		u.FilterStrategy = FilterStrategyAcorn
-	} else {
+	if strategy := os.Getenv("HNSW_DEFAULT_FILTER_STRATEGY"); strategy == FilterStrategySweeping {
 		u.FilterStrategy = FilterStrategySweeping
+	} else {
+		u.FilterStrategy = FilterStrategyAcorn
 	}
 	u.Multivector = MultivectorConfig{
 		Aggregation: DefaultMultivectorAggregation,
@@ -239,6 +241,18 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.Vecto
 		return uc, err
 	}
 
+	if err := vectorIndexCommon.OptionalBoolFromMap(asMap, "skipDefaultQuantization", func(v bool) {
+		uc.SkipDefaultQuantization = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorIndexCommon.OptionalBoolFromMap(asMap, "trackDefaultQuantization", func(v bool) {
+		uc.TrackDefaultQuantization = v
+	}); err != nil {
+		return uc, err
+	}
+
 	return uc, uc.validate()
 }
 
@@ -289,6 +303,11 @@ func (u *UserConfig) validate() error {
 	}
 	if enabled > 1 {
 		return fmt.Errorf("invalid hnsw config: more than a single compression methods enabled")
+	}
+
+	err := ValidateRQConfig(u.RQ)
+	if err != nil {
+		return err
 	}
 
 	if u.Multivector.MuveraConfig.Enabled && u.Multivector.MuveraConfig.KSim > 10 {

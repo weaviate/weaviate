@@ -89,6 +89,15 @@ func WithReader(reader io.Reader) SegmentFileOption {
 	}
 }
 
+// WithReader sets the desired segment file reader.
+// This will typically be the segment *os.File.
+func WithReaderCustomBufferSize(reader io.Reader, size int) SegmentFileOption {
+	return func(segmentFile *SegmentFile) {
+		segmentFile.reader = bufio.NewReaderSize(reader, size)
+		segmentFile.checksumReader = integrity.NewCRC32Reader(reader)
+	}
+}
+
 // WithChecksumsDisabled configures the segment file
 // to be written without checksums
 func WithChecksumsDisabled(disable bool) SegmentFileOption {

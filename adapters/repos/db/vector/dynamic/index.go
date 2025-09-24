@@ -43,7 +43,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-const composerUpgradedKey = "upgraded"
+const (
+	composerUpgradedKey = "upgraded"
+	batchSize           = 500
+)
 
 var dynamicBucket = []byte("dynamic")
 
@@ -502,30 +505,11 @@ func (dynamic *dynamic) doUpgrade() error {
 		return err
 	}
 
-	bucket := dynamic.store.Bucket(dynamic.getBucketName())
-
-	cursor := bucket.Cursor()
-
-	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		if dynamic.ctx.Err() != nil {
-			cursor.Close()
-			// context was cancelled, stop processing
-			dynamic.RUnlock()
-			return dynamic.ctx.Err()
-		}
-
-		id := binary.BigEndian.Uint64(k)
-		vc := make([]float32, len(v)/4)
-		float32SliceFromByteSlice(v, vc)
-
-		err := index.Add(dynamic.ctx, id, vc)
-		if err != nil {
-			dynamic.logger.WithField("id", id).WithError(err).Error("failed to add vector")
-			continue
-		}
+	err = dynamic.copyToVectorIndex(index)
+	if err != nil {
+		dynamic.RUnlock()
+		return err
 	}
-
-	cursor.Close()
 
 	// end of read-only zone
 	dynamic.RUnlock()
@@ -575,6 +559,63 @@ func (dynamic *dynamic) doUpgrade() error {
 	}
 	if len(errs) > 0 {
 		dynamic.logger.Warn(simpleErrors.Join(errs...))
+	}
+
+	return nil
+}
+
+// Loop over the store and add each vector to the HNSW.
+// This can take a while, so we use short-lived cursors to not block
+// other operations on the KV store (e.g. flush)
+func (dynamic *dynamic) copyToVectorIndex(index VectorIndex) error {
+	bucket := dynamic.store.Bucket(dynamic.getBucketName())
+
+	var k, v []byte
+
+	var ids []uint64
+	var vectors [][]float32
+
+	for {
+		ids = ids[:0]
+		vectors = vectors[:0]
+
+		cursor := bucket.Cursor()
+
+		if len(k) == 0 {
+			k, v = cursor.First()
+		} else {
+			k, v = cursor.Seek(k)
+		}
+
+		var i int
+		for k != nil && i < batchSize {
+			if err := dynamic.ctx.Err(); err != nil {
+				cursor.Close()
+				// context was cancelled, stop processing
+				return err
+			}
+
+			id := binary.BigEndian.Uint64(k)
+			vc := make([]float32, len(v)/4)
+			float32SliceFromByteSlice(v, vc)
+
+			ids = append(ids, id)
+			vectors = append(vectors, vc)
+
+			k, v = cursor.Next()
+			i++
+		}
+
+		cursor.Close()
+
+		err := index.AddBatch(dynamic.ctx, ids, vectors)
+		if err != nil {
+			dynamic.logger.WithError(err).Error("failed to add vectors")
+		}
+
+		if k == nil {
+			break
+		}
 	}
 
 	return nil

@@ -22,7 +22,7 @@ import (
 )
 
 func TestGetIndex(t *testing.T) {
-	db := testDB(t.TempDir(), []*models.Class{}, make(map[string]*sharding.State))
+	db := testDB(t, t.TempDir(), []*models.Class{}, make(map[string]*sharding.State))
 
 	// empty indices
 	db.indices = map[string]*Index{}
