@@ -1123,15 +1123,101 @@ func (m *Migrator) migrateShardCompressedVectorBuckets(ctx context.Context, shar
 		return nil
 	}
 
-	// If multiple named vectors exist, we have a data corruption issue
+	// If multiple named vectors exist, Copy old bucket data to all new target vector buckets
 	if len(vectorConfigs) > 1 {
 		m.logger.WithFields(logrus.Fields{
 			"shard":       shard.ID(),
 			"class":       class,
 			"vectorCount": len(vectorConfigs),
-		}).Error("Multiple vector configurations detected with old compressed bucket format. " +
-			"Data corruption may have occurred. Manual intervention required to rebuild compressed vectors.")
-		return nil // Don't fail the startup, but log the issue
+		}).Info("Multiple vector configurations detected with old compressed bucket format. " +
+			"Copying old bucket data to all new target vector buckets.")
+
+		// Get the LSM directory path for this shard
+		store := shard.Store()
+		if store == nil {
+			return nil
+		}
+
+		oldBucketName := helpers.VectorsCompressedBucketLSM
+		lsmDir := store.GetDir()
+		oldBucketPath := filepath.Join(lsmDir, oldBucketName)
+
+		// Check if old bucket directory exists
+		if _, err := os.Stat(oldBucketPath); os.IsNotExist(err) {
+			// No old bucket exists, no migration needed
+			return nil
+		}
+
+		// Copy old bucket to each target vector bucket
+		for targetVector := range vectorConfigs {
+			newBucketName := helpers.GetCompressedBucketName(targetVector)
+
+			// Skip if bucket names are the same (shouldn't happen with multiple configs)
+			if oldBucketName == newBucketName {
+				continue
+			}
+
+			newBucketPath := filepath.Join(lsmDir, newBucketName)
+
+			// Check if new bucket directory already exists
+			if _, err := os.Stat(newBucketPath); err == nil {
+				m.logger.WithFields(logrus.Fields{
+					"shard":         shard.ID(),
+					"targetVector":  targetVector,
+					"oldBucketPath": oldBucketPath,
+					"newBucketPath": newBucketPath,
+				}).Info("Target vector bucket already exists, merging data from old bucket")
+
+				// Shutdown the new bucket if it's loaded
+				if err := store.ShutdownBucket(ctx, newBucketName); err != nil {
+					m.logger.WithError(err).Warn("Failed to shutdown target vector bucket, continuing with migration")
+				}
+
+				// Copy contents from old bucket to new bucket
+				if err := m.copyBucketContents(oldBucketPath, newBucketPath); err != nil {
+					m.logger.WithFields(logrus.Fields{
+						"shard":        shard.ID(),
+						"targetVector": targetVector,
+						"error":        err,
+					}).Error("Failed to copy contents to target vector bucket")
+					continue
+				}
+
+				// Recreate/reload the new bucket
+				if err := store.CreateOrLoadBucket(ctx, newBucketName); err != nil {
+					m.logger.WithError(err).Warn("Failed to reload target vector bucket after migration")
+				}
+			} else {
+				// Copy old bucket to new target vector bucket
+				if err := m.copyBucketContents(oldBucketPath, newBucketPath); err != nil {
+					m.logger.WithFields(logrus.Fields{
+						"shard":        shard.ID(),
+						"targetVector": targetVector,
+						"error":        err,
+					}).Error("Failed to copy old bucket to target vector bucket")
+					continue
+				}
+			}
+
+			m.logger.WithFields(logrus.Fields{
+				"shard":         shard.ID(),
+				"targetVector":  targetVector,
+				"oldBucketPath": oldBucketPath,
+				"newBucketPath": newBucketPath,
+			}).Info("Successfully copied old bucket data to target vector bucket")
+		}
+
+		// Remove the old bucket directory after all copies are complete
+		if err := os.RemoveAll(oldBucketPath); err != nil {
+			m.logger.WithError(err).Warn("Failed to remove old bucket directory after copying to all target vectors")
+		} else {
+			m.logger.WithFields(logrus.Fields{
+				"shard":         shard.ID(),
+				"oldBucketPath": oldBucketPath,
+			}).Info("Successfully removed old compressed vector bucket after migration to multiple targets")
+		}
+
+		return nil
 	}
 
 	// Get the single target vector name
