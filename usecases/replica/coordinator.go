@@ -23,6 +23,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -187,22 +188,27 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 	level := writeRoutingPlan.IntConsistencyLevel
+	backgroundCtx := context.Background()
+	// Preserve tracing metadata from original context
+	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
+		backgroundCtx = trace.ContextWithSpan(backgroundCtx, span)
+	}
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 20*time.Second)
+	ctxWithTimeout, _ := context.WithTimeout(backgroundCtx, 20*time.Second)
 	c.log.WithFields(logrus.Fields{
 		"action":   "coordinator_push",
 		"duration": 20 * time.Second,
 		"level":    level,
 	}).Debug("context.WithTimeout")
 	nodeCh := c.broadcast(ctxWithTimeout, writeRoutingPlan.HostAddresses(), ask, level)
-	commitCh := c.commitAll(context.Background(), nodeCh, com)
+	commitCh := c.commitAll(backgroundCtx, nodeCh, com)
 
 	// if there are additional hosts, we do a "best effort" write to them
 	// where we don't wait for a response because they are not part of the
 	// replicas used to reach level consistency
 	if len(writeRoutingPlan.AdditionalHostAddresses()) > 0 {
 		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, writeRoutingPlan.AdditionalHostAddresses(), ask, len(writeRoutingPlan.AdditionalHostAddresses()))
-		c.commitAll(context.Background(), additionalHostsBroadcast, com)
+		c.commitAll(backgroundCtx, additionalHostsBroadcast, com)
 	}
 	return commitCh, level, nil
 }

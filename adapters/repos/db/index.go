@@ -2094,8 +2094,23 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	// Start custom trace span for search operation
+	// ctx, span := otel.Tracer("weaviate-search").Start(ctx, "index.IncomingSearch",
+	// 	trace.WithSpanKind(trace.SpanKindInternal),
+	// 	trace.WithAttributes(
+	// 		attribute.String("weaviate.index.name", i.Config.ClassName.String()),
+	// 		attribute.String("weaviate.shard.name", shardName),
+	// 		attribute.Int("weaviate.search.vector_count", len(searchVectors)),
+	// 		attribute.Int("weaviate.search.limit", limit),
+	// 		attribute.Float64("weaviate.search.distance", float64(distance)),
+	// 		attribute.StringSlice("weaviate.search.target_vectors", targetVectors),
+	// 	),
+	// )
+	// defer span.End()
+
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
+		// span.SetStatus(codes.Error, err.Error())
 		return nil, nil, err
 	}
 	defer release()
@@ -2110,30 +2125,42 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	// load, therefore we only call GetStatusNoLoad if replication is enabled -> another replica will be able to answer
 	// the request and we want to exit early
 	if i.replicationEnabled() && shard.GetStatus() == storagestate.StatusLoading {
-		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+		err := enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+		// span.SetStatus(codes.Error, err.Error())
+		return nil, nil, err
 	} else {
 		if shard.GetStatus() == storagestate.StatusLoading {
 			// This effectively never happens with lazy loaded shard as GetStatus will wait for the lazy shard to load
 			// and then status will never be "StatusLoading"
-			return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+			err := enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+			// span.SetStatus(codes.Error, err.Error())
+			return nil, nil, err
 		}
 	}
 
 	if len(searchVectors) == 0 {
+		// span.SetAttributes(attribute.String("weaviate.search.type", "object_search"))
 		res, scores, err := shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties)
 		if err != nil {
+			// span.SetStatus(codes.Error, err.Error())
 			return nil, nil, err
 		}
 
+		// span.SetAttributes(attribute.Int("weaviate.search.result_count", len(res)))
+		// span.SetStatus(codes.Ok, "")
 		return res, scores, nil
 	}
 
+	// span.SetAttributes(attribute.String("weaviate.search.type", "vector_search"))
 	res, resDists, err := shard.ObjectVectorSearch(
 		ctx, searchVectors, targetVectors, distance, limit, filters, sort, groupBy, additional, targetCombination, properties)
 	if err != nil {
+		// span.SetStatus(codes.Error, err.Error())
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
 
+	// span.SetAttributes(attribute.Int("weaviate.search.result_count", len(res)))
+	// span.SetStatus(codes.Ok, "")
 	return res, resDists, nil
 }
 

@@ -20,7 +20,7 @@ with weaviate.connect_to_local() as client:
         ),
     )
     my_col = my_collection.with_consistency_level(weaviate.classes.config.ConsistencyLevel.ALL)
-    for i in range(20):
+    for i in range(1):
         o = my_col.data.insert(
             properties={
                 'my_property': f'blue elephant {i}',

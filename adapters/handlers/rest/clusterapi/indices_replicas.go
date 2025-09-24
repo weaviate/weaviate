@@ -340,7 +340,6 @@ func (i *replicatedIndices) patchObject() http.Handler {
 
 func (i *replicatedIndices) getObjectsDigest() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("NATEE replicatedIndices getObjectsDigest")
 		args := regxObjectsDigest.FindStringSubmatch(r.URL.Path)
 		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)

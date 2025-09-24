@@ -317,7 +317,7 @@ func (c *replicationClient) FindUUIDs(ctx context.Context, hostName, indexName,
 
 // Commit asks a host to commit and stores the response in the value pointed to by resp
 func (c *replicationClient) Commit(ctx context.Context, host, index, shard string, requestID string, resp interface{}) error {
-	req, err := newHttpReplicaCMD(host, "commit", index, shard, requestID, nil)
+	req, err := newHttpReplicaCMD(ctx, host, "commit", index, shard, requestID, nil)
 	if err != nil {
 		return fmt.Errorf("create http request: %w", err)
 	}
@@ -328,7 +328,7 @@ func (c *replicationClient) Commit(ctx context.Context, host, index, shard strin
 func (c *replicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (
 	resp replica.SimpleResponse, err error,
 ) {
-	req, err := newHttpReplicaCMD(host, "abort", index, shard, requestID, nil)
+	req, err := newHttpReplicaCMD(ctx, host, "abort", index, shard, requestID, nil)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -358,11 +358,15 @@ func newHttpReplicaRequest(ctx context.Context, method, host, index, shard, requ
 	return http.NewRequestWithContext(ctx, method, u.String(), body)
 }
 
-func newHttpReplicaCMD(host, cmd, index, shard, requestId string, body io.Reader) (*http.Request, error) {
+func newHttpReplicaCMD(ctx context.Context, host, cmd, index, shard, requestId string, body io.Reader) (*http.Request, error) {
 	path := fmt.Sprintf("/replicas/indices/%s/shards/%s:%s", index, shard, cmd)
 	q := url.Values{replica.RequestKey: []string{requestId}}.Encode()
 	url := url.URL{Scheme: "http", Host: host, Path: path, RawQuery: q}
-	return http.NewRequest(http.MethodPost, url.String(), body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), body)
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+	return req, nil
 }
 
 func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {

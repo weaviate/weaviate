@@ -321,6 +321,11 @@ func (r *Replicator) AddReferences(ctx context.Context,
 // simpleCommit generate commit function for the coordinator
 func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
 	return func(ctx context.Context, host, requestID string) (SimpleResponse, error) {
+		// fmt.Printf("NATEE simpleCommit: context has trace: %v\n", trace.SpanFromContext(ctx).SpanContext().IsValid())
+		// if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
+		// 	fmt.Printf("NATEE simpleCommit: traceID=%s spanID=%s\n",
+		// 		span.SpanContext().TraceID().String(), span.SpanContext().SpanID().String())
+		// }
 		resp := SimpleResponse{}
 		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
 		if err == nil {

@@ -13,7 +13,6 @@ package monitoring
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -33,7 +32,6 @@ import (
 // HTTPTracingMiddleware creates a middleware that adds OpenTelemetry tracing to HTTP requests
 func HTTPTracingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("NATEE HTTP TRACING MIDDLEWARE", r.Method, r.URL.Path)
 		if !opentelemetry.IsEnabled() {
 			next.ServeHTTP(w, r)
 			return
@@ -296,6 +294,57 @@ func AddTracingToHTTPMiddleware(next http.Handler, logger logrus.FieldLogger) ht
 
 	logger.Info("Adding OpenTelemetry HTTP tracing middleware")
 	return HTTPTracingMiddleware(next)
+}
+
+// NewTracingTransport creates an HTTP transport that injects OpenTelemetry trace context
+func NewTracingTransport(base http.RoundTripper) http.RoundTripper {
+	return &tracingTransport{base: base}
+}
+
+type tracingTransport struct {
+	base http.RoundTripper
+}
+
+func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if !opentelemetry.IsEnabled() {
+		return t.base.RoundTrip(req)
+	}
+
+	// TODO do we want to track client vs server on these? add if we want both send/receive side
+	// Start client span
+	// ctx, span := otel.Tracer("weaviate-http-client").Start(req.Context(), req.Method+" "+req.URL.Path,
+	// 	trace.WithSpanKind(trace.SpanKindClient),
+	// 	trace.WithAttributes(
+	// 		attribute.String("http.method", req.Method),
+	// 		attribute.String("http.url", req.URL.String()),
+	// 		attribute.String("net.peer.name", req.URL.Hostname()),
+	// 		attribute.String("http.target", req.URL.Path),
+	// 	),
+	// )
+	// defer span.End()
+
+	// Inject trace context into headers
+	ctx := req.Context()
+	propagator := otel.GetTextMapPropagator()
+	carrier := propagationHeaderCarrier(req.Header)
+	propagator.Inject(ctx, carrier)
+
+	// Execute the request
+	resp, err := t.base.RoundTrip(req.WithContext(ctx))
+	if err != nil {
+		// span.SetStatus(codes.Error, err.Error())
+		return resp, err
+	}
+
+	// Set span attributes based on response
+	// span.SetAttributes(attribute.Int("http.status_code", resp.StatusCode))
+	// if resp.StatusCode >= 400 {
+	// 	span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", resp.StatusCode))
+	// } else {
+	// 	span.SetStatus(codes.Ok, "")
+	// }
+
+	return resp, err
 }
 
 // AddTracingToGRPCOptions adds tracing interceptors to gRPC server options
