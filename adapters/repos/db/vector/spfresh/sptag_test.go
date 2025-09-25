@@ -22,7 +22,7 @@ import (
 func TestBruteForceSPTAG_Search(t *testing.T) {
 	dim := 64
 	q := compressionhelpers.NewRotationalQuantizer(dim, 42, 8, distancer.NewL2SquaredProvider())
-	sptag := NewBruteForceSPTAG()
+	sptag := NewBruteForceSPTAG(NewMetrics(nil, "n/a", "n/a"))
 	sptag.Init(int32(dim), distancer.NewL2SquaredProvider())
 
 	// Seed vectors

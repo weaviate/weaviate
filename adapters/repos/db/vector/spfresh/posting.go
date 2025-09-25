@@ -283,6 +283,14 @@ func (v *VersionMap) IsDeleted(id uint64) bool {
 
 // AllocPageFor ensures that the version map has a page allocated for the given ID.
 func (v *VersionMap) AllocPageFor(id uint64) {
+	v.locks.RLock(id)
+	page, _ := v.versions.GetPageFor(id)
+	if page != nil {
+		// page already exists
+		v.locks.RUnlock(id)
+		return
+	}
+	v.locks.RUnlock(id)
 	v.locks.Lock(id)
 	v.versions.AllocPageFor(id)
 	v.locks.Unlock(id)
@@ -290,13 +298,15 @@ func (v *VersionMap) AllocPageFor(id uint64) {
 
 // PostingSizes keeps track of the number of vectors in each posting.
 type PostingSizes struct {
-	m     sync.RWMutex // Ensures pages are allocated atomically
-	sizes *common.PagedArray[uint32]
+	m       sync.RWMutex // Ensures pages are allocated atomically
+	sizes   *common.PagedArray[uint32]
+	metrics *Metrics
 }
 
-func NewPostingSizes(pages, pageSize uint64) *PostingSizes {
+func NewPostingSizes(metrics *Metrics, pages, pageSize uint64) *PostingSizes {
 	return &PostingSizes{
-		sizes: common.NewPagedArray[uint32](pages, pageSize),
+		sizes:   common.NewPagedArray[uint32](pages, pageSize),
+		metrics: metrics,
 	}
 }
 
@@ -312,13 +322,16 @@ func (v *PostingSizes) Set(postingID uint64, newSize uint32) {
 	page, slot := v.sizes.GetPageFor(postingID)
 	v.m.RUnlock()
 	atomic.StoreUint32(&page[slot], newSize)
+	v.metrics.ObservePostingSize(float64(newSize))
 }
 
 func (v *PostingSizes) Inc(postingID uint64, delta uint32) uint32 {
 	v.m.RLock()
 	page, slot := v.sizes.GetPageFor(postingID)
 	v.m.RUnlock()
-	return atomic.AddUint32(&page[slot], delta)
+	res := atomic.AddUint32(&page[slot], delta)
+	v.metrics.ObservePostingSize(float64(res))
+	return res
 }
 
 // AllocPageFor ensures the array has a page allocated for the given IDs.
