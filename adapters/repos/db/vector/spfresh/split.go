@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	"context"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -39,6 +40,8 @@ func (s *SPFresh) enqueueSplit(ctx context.Context, postingID uint64) error {
 	// Enqueue the operation to the channel
 	s.splitCh.Push(postingID)
 
+	s.metrics.EnqueueSplitTask()
+
 	return nil
 }
 
@@ -50,13 +53,15 @@ func (s *SPFresh) splitWorker() {
 			return
 		}
 
+		s.metrics.DequeueSplitTask()
+
 		err := s.doSplit(postingID, true)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				continue
 			}
 
-			s.Logger.WithError(err).
+			s.logger.WithError(err).
 				WithField("postingID", postingID).
 				Error("Failed to process split operation")
 			continue // Log the error and continue processing other operations
@@ -68,6 +73,9 @@ func (s *SPFresh) splitWorker() {
 // If reassign is true, it will enqueue reassign operations for vectors that
 // may need to be moved to other postings after the split.
 func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
+	start := time.Now()
+	defer s.metrics.SplitDuration(start)
+
 	s.postingLocks.Lock(postingID)
 
 	var markedAsDone bool
@@ -86,7 +94,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	p, err := s.Store.Get(s.ctx, postingID)
 	if err != nil {
 		if errors.Is(err, ErrPostingNotFound) {
-			s.Logger.WithField("postingID", postingID).
+			s.logger.WithField("postingID", postingID).
 				Debug("Posting not found, skipping split operation")
 			return nil
 		}
@@ -99,7 +107,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	filtered := p.GarbageCollect(s.VersionMap)
 
 	// skip if the filtered posting is now too small
-	if lf := filtered.Len(); lf < int(s.Config.MaxPostingSize) {
+	if lf := filtered.Len(); lf < int(s.config.MaxPostingSize) {
 		if lf == lp {
 			// no changes, just return
 			return nil
@@ -126,7 +134,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 
 		// If the split fails because the posting contains identical vectors,
 		// we override the posting with a single vector
-		s.Logger.WithField("postingID", postingID).
+		s.logger.WithField("postingID", postingID).
 			WithError(err).
 			Debug("Cannot split posting: contains identical vectors, keeping only one vector")
 
@@ -157,7 +165,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 			}
 
 			if dist < splitReuseEpsilon {
-				s.Logger.WithField("postingID", postingID).
+				s.logger.WithField("postingID", postingID).
 					Debug("Reusing existing posting for split operation")
 				postingReused = true
 				newPostingIDs[i] = postingID
@@ -191,7 +199,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 			return errors.Wrapf(err, "failed to upsert new centroid %d after split operation", newPostingID)
 		}
 
-		s.Logger.WithField("oldPostingID", postingID).
+		s.logger.WithField("oldPostingID", postingID).
 			WithField("postingID", newPostingID).
 			Debug("Created new posting for split operation")
 	}
@@ -203,7 +211,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 			return errors.Wrapf(err, "failed to delete old centroid %d after split operation", postingID)
 		}
 		s.PostingSizes.Set(postingID, 0)
-		s.Logger.WithField("postingID", postingID).
+		s.logger.WithField("postingID", postingID).
 			Debug("Old posting deleted after split operation")
 	}
 
@@ -320,12 +328,12 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 
 	// second check: if a vector from a neighboring centroid is closer to one of the new posting centroids than the old centroid,
 	// we need to reassign it.
-	if s.Config.ReassignNeighbors <= 0 {
+	if s.config.ReassignNeighbors <= 0 {
 		return nil
 	}
 
 	// search for neighboring centroids
-	nearest, err := s.SPTAG.Search(oldCentroid.Vector, s.Config.ReassignNeighbors)
+	nearest, err := s.SPTAG.Search(oldCentroid.Vector, s.config.ReassignNeighbors)
 	if err != nil {
 		return errors.Wrapf(err, "failed to search for nearest centroids for reassign after split for posting %d", oldPostingID)
 	}
@@ -345,7 +353,7 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 		p, err := s.Store.Get(s.ctx, neighbor.ID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
-				s.Logger.WithField("postingID", neighbor.ID).
+				s.logger.WithField("postingID", neighbor.ID).
 					Debug("Posting not found, skipping reassign after split")
 				continue // Skip if the posting is not found
 			}

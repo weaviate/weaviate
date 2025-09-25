@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	"context"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -38,6 +39,8 @@ func (s *SPFresh) enqueueMerge(ctx context.Context, postingID uint64) error {
 	// Enqueue the operation to the channel
 	s.mergeCh.Push(postingID)
 
+	s.metrics.EnqueueMergeTask()
+
 	return nil
 }
 
@@ -49,13 +52,15 @@ func (s *SPFresh) mergeWorker() {
 			return // Exit if the context is cancelled
 		}
 
+		s.metrics.DequeueMergeTask()
+
 		err := s.doMerge(postingID)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				continue
 			}
 
-			s.Logger.WithError(err).
+			s.logger.WithError(err).
 				WithField("postingID", postingID).
 				Error("Failed to process merge operation")
 			continue // Log the error and continue processing other operations
@@ -64,9 +69,12 @@ func (s *SPFresh) mergeWorker() {
 }
 
 func (s *SPFresh) doMerge(postingID uint64) error {
+	start := time.Now()
+	defer s.metrics.MergeDuration(start)
+
 	defer s.mergeList.done(postingID)
 
-	s.Logger.WithField("postingID", postingID).Debug("Merging posting")
+	s.logger.WithField("postingID", postingID).Debug("Merging posting")
 
 	var markedAsDone bool
 	s.postingLocks.Lock(postingID)
@@ -78,7 +86,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 
 	// Ensure the posting exists in the index
 	if !s.SPTAG.Exists(postingID) {
-		s.Logger.WithField("postingID", postingID).
+		s.logger.WithField("postingID", postingID).
 			Debug("Posting not found, skipping merge operation")
 		return nil // Nothing to merge
 	}
@@ -86,7 +94,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	p, err := s.Store.Get(s.ctx, postingID)
 	if err != nil {
 		if errors.Is(err, ErrPostingNotFound) {
-			s.Logger.WithField("postingID", postingID).
+			s.logger.WithField("postingID", postingID).
 				Debug("Posting not found, skipping merge operation")
 			return nil
 		}
@@ -105,11 +113,11 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	prevLen := newPosting.Len()
 
 	// skip if the posting is big enough
-	if prevLen >= int(s.Config.MinPostingSize) {
-		s.Logger.
+	if prevLen >= int(s.config.MinPostingSize) {
+		s.logger.
 			WithField("postingID", postingID).
 			WithField("size", prevLen).
-			WithField("min", s.Config.MinPostingSize).
+			WithField("min", s.config.MinPostingSize).
 			Debug("Posting is big enough, skipping merge operation")
 
 		if prevLen == initialLen {
@@ -135,13 +143,13 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	}
 
 	// search for the closest centroids
-	nearest, err := s.SPTAG.Search(oldCentroid.Vector, s.Config.InternalPostingCandidates)
+	nearest, err := s.SPTAG.Search(oldCentroid.Vector, s.config.InternalPostingCandidates)
 	if err != nil {
 		return errors.Wrapf(err, "failed to search for nearest centroid for posting %d", postingID)
 	}
 
 	if len(nearest) <= 1 {
-		s.Logger.WithField("postingID", postingID).
+		s.logger.WithField("postingID", postingID).
 			Debug("No candidates found for merge operation, skipping")
 
 		// persist the gc'ed posting
@@ -159,7 +167,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	for i := 1; i < len(nearest); i++ {
 		// check if the combined size of the postings is within limits
 		count := s.PostingSizes.Get(nearest[i].ID)
-		if int(count)+prevLen > int(s.Config.MaxPostingSize) || s.mergeList.contains(nearest[i].ID) {
+		if int(count)+prevLen > int(s.config.MaxPostingSize) || s.mergeList.contains(nearest[i].ID) {
 			continue // Skip this candidate
 		}
 
