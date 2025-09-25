@@ -3046,7 +3046,7 @@
       "name": "Weaviate",
       "url": "https://github.com/weaviate"
     },
-    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Want more documentation? \nFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://weaviate.io/developers/weaviate).",
+    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Want more documentation? \nFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate",
     "version": "1.33.0"
   },
@@ -8863,7 +8863,7 @@
     },
     {
       "name": "schema",
-      "description": "Operate on the database schema. <br/><br/>Note an 'Object class' in Weaviate is being renamed to a 'collection'. <br/><br/>See <a href='https://weaviate.io/developers/weaviate/manage-data/collections'>this page</a> for client code examples."
+      "description": "Operate on the database schema. <br/><br/>Note an 'Object class' in Weaviate is being renamed to a 'collection'. <br/><br/>See <a href='https://docs.weaviate.io/weaviate/manage-data/collections'>this page</a> for client code examples."
     },
     {
       "name": "objects",
@@ -8875,7 +8875,7 @@
     },
     {
       "name": "backups",
-      "description": "Create, restore and check the status of backups. <br/><br/>See the [backups page](https://weaviate.io/developers/weaviate/configuration/backups) for a general introduction, configuration, and tech background of backups."
+      "description": "Create, restore and check the status of backups. <br/><br/>See the [backups page](https://docs.weaviate.io/weaviate/configuration/backups) for a general introduction, configuration, and tech background of backups."
     },
     {
       "name": "meta",
@@ -8895,7 +8895,7 @@
     },
     {
       "name": "graphql",
-      "description": "Query data using the GraphQL query language. See the [Weaviate GraphQL documentation](https://weaviate.io/developers/weaviate/api/graphql) for query syntax details."
+      "description": "Query data using the GraphQL query language. See the [Weaviate GraphQL documentation](https://docs.weaviate.io/weaviate/api/graphql) for query syntax details."
     },
     {
       "name": "classifications",
