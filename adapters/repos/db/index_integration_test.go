@@ -129,7 +129,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
+		}, nil, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 
@@ -190,7 +190,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
 			schema:     fakeSchema,
 			shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
+		}, nil, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 
@@ -319,6 +319,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		Logger:  logger,
 		Workers: 1,
 	})
+
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
@@ -327,7 +328,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
+		}, nil, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 
@@ -414,7 +415,7 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil,
+		}, nil, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 
@@ -489,7 +490,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil,
+		}, nil, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 
@@ -549,7 +550,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 	}, shardState, inverted.ConfigFromModel(invertedConfig()),
 		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
 			shardState: shardState,
-		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
+		}, nil, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.Nil(t, err)
 	return idx

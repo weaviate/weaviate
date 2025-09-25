@@ -225,11 +225,12 @@ type Index struct {
 	Config                  IndexConfig
 	globalreplicationConfig *replication.GlobalConfig
 
-	getSchema  schemaUC.SchemaGetter
-	logger     logrus.FieldLogger
-	remote     *sharding.RemoteIndex
-	stopwords  *stopwords.Detector
-	replicator *replica.Replicator
+	getSchema    schemaUC.SchemaGetter
+	schemaReader schemaUC.SchemaReader
+	logger       logrus.FieldLogger
+	remote       *sharding.RemoteIndex
+	stopwords    *stopwords.Detector
+	replicator   *replica.Replicator
 
 	vectorIndexUserConfigLock sync.Mutex
 	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
@@ -307,7 +308,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
 	vectorIndexUserConfig schemaConfig.VectorIndexConfig,
 	vectorIndexUserConfigs map[string]schemaConfig.VectorIndexConfig,
-	router router.Router, sg schemaUC.SchemaGetter,
+	router router.Router, sg schemaUC.SchemaGetter, schemaReader schemaUC.SchemaReader,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
@@ -341,6 +342,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		Config:                  cfg,
 		globalreplicationConfig: globalReplicationConfig,
 		getSchema:               sg,
+		schemaReader:            schemaReader,
 		logger:                  logger,
 		classSearcher:           cs,
 		vectorIndexUserConfig:   vectorIndexUserConfig,
