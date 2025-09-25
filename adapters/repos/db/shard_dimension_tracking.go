@@ -13,15 +13,19 @@ package db
 
 import (
 	"context"
-	"time"
+	"encoding/binary"
+	"fmt"
+	"strings"
 
-	"github.com/sirupsen/logrus"
-
+	"github.com/pkg/errors"
+	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/cluster/usage/types"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -35,6 +39,12 @@ const (
 	DimensionCategorySQ
 	DimensionCategoryRQ
 )
+
+// since v1.34 StrategyRoaringSet will be default strategy for dimensions bucket
+var DimensionsBucketPrioritizedStrategies = []string{
+	lsmkv.StrategyMapCollection,
+	lsmkv.StrategyRoaringSet,
+}
 
 func (c DimensionCategory) String() string {
 	switch c {
@@ -53,108 +63,33 @@ func (c DimensionCategory) String() string {
 
 // DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
 func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (types.Dimensionality, error) {
-	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
-		return len(v), dimLength
-	})
-	if err != nil {
-		return types.Dimensionality{}, err
-	}
-	return dimensionality, nil
+	return s.calcTargetVectorDimensions(ctx, targetVector)
 }
 
 // Dimensions returns the total number of dimensions for a given vector
 func (s *Shard) Dimensions(ctx context.Context, targetVector string) (int, error) {
-	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
-		return dimLength * len(v), dimLength
-	})
+	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector)
 	if err != nil {
 		return 0, err
 	}
-	return dimensionality.Count, nil
+	return dimensionality.Count * dimensionality.Dimensions, nil
 }
 
-func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
-	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
-		return len(v), dimLength
-	})
+func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error) {
+	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector)
 	if err != nil {
-		return 0
+		return 0, err
 	}
-
-	return dimensionality.Count * correctEmptySegments(segments, dimensionality.Dimensions)
+	return dimensionality.Count * correctEmptySegments(segments, dimensionality.Dimensions), nil
 }
 
-func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) (types.Dimensionality, error) {
-	return calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, calcEntry), nil
-}
-
-func (s *Shard) initDimensionTracking() {
-	// do not use the context passed from NewShard, as that one is only meant for
-	// initialization. However, this goroutine keeps running forever, so if the
-	// startup context expires, this would error.
-	// https://github.com/weaviate/weaviate/issues/5091
-	rootCtx := context.Background()
-	if s.index.Config.TrackVectorDimensions {
-		s.dimensionTrackingInitialized.Store(true)
-
-		// The timeout is rather arbitrary, it's just meant to prevent a context
-		// leak. The actual work should be much faster.
-		ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
-		defer cancel()
-		s.index.logger.WithFields(logrus.Fields{
-			"action":   "init_dimension_tracking",
-			"duration": 30 * time.Minute,
-		}).Debug("context.WithTimeout")
-
-		// always send vector dimensions at startup if tracking is enabled
-		s.publishDimensionMetrics(ctx)
-		// start tracking vector dimensions goroutine only when tracking is enabled
-		f := func() {
-			t := time.NewTicker(5 * time.Minute)
-			defer t.Stop()
-			for {
-				select {
-				case <-s.stopDimensionTracking:
-					s.dimensionTrackingInitialized.Store(false)
-					return
-				case <-t.C:
-					func() {
-						// The timeout is rather arbitrary, it's just meant to prevent a context
-						// leak. The actual work should be much faster.
-						ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
-						defer cancel()
-						s.index.logger.WithFields(logrus.Fields{
-							"action":   "init_dimension_tracking",
-							"duration": 30 * time.Minute,
-						}).Debug("context.WithTimeout")
-						s.publishDimensionMetrics(ctx)
-					}()
-				}
-			}
-		}
-		enterrors.GoWrapper(f, s.index.logger)
+func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string,
+) (types.Dimensionality, error) {
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return types.Dimensionality{}, errors.Errorf("calcTargetVectorDimensions: no bucket dimensions")
 	}
-}
-
-func (s *Shard) publishDimensionMetrics(ctx context.Context) {
-	if s.promMetrics != nil {
-		var (
-			className = s.index.Config.ClassName.String()
-			configs   = s.index.GetVectorIndexConfigs()
-
-			sumSegments   = 0
-			sumDimensions = 0
-		)
-
-		for targetVector, config := range configs {
-			metrics := s.calcDimensionMetrics(ctx, config, targetVector)
-			sumDimensions += metrics.Uncompressed
-			sumSegments += metrics.Compressed
-		}
-
-		sendVectorSegmentsMetric(s.promMetrics, className, s.name, sumSegments)
-		sendVectorDimensionsMetric(s.promMetrics, className, s.name, sumDimensions)
-	}
+	return calcTargetVectorDimensionsFromBucket(ctx, b, targetVector)
 }
 
 // DimensionMetrics represents the dimension tracking metrics for a vector.
@@ -173,64 +108,46 @@ type DimensionMetrics struct {
 	Compressed   int // Compressed dimensions count (for PQ/BQ vectors)
 }
 
-func (s *Shard) calcDimensionMetrics(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig, vecName string) DimensionMetrics {
-	switch category, segments := GetDimensionCategory(vecCfg); category {
-	case DimensionCategoryPQ:
-		return DimensionMetrics{Uncompressed: 0, Compressed: s.QuantizedDimensions(ctx, vecName, segments)}
-	case DimensionCategoryBQ:
-		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
-		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
-		// Roundup is required because BQ packs bits into uint64 blocks - you can't have
-		// a partial uint64 block. Even 1 dimension needs a full 8-byte uint64 block.
-		count, _ := s.Dimensions(ctx, vecName)
-		bytes := (count + 63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
-		return DimensionMetrics{Uncompressed: 0, Compressed: bytes}
-	default:
-		count, _ := s.Dimensions(ctx, vecName)
-		return DimensionMetrics{Uncompressed: count, Compressed: 0}
+// Add creates a new DimensionMetrics instance with total values summed pairwise.
+func (dm DimensionMetrics) Add(add DimensionMetrics) DimensionMetrics {
+	return DimensionMetrics{
+		Uncompressed: dm.Uncompressed + add.Uncompressed,
+		Compressed:   dm.Compressed + add.Compressed,
 	}
 }
 
+// Set shard's vector_dimensions_sum and vector_segments_sum metrics to 0.
 func (s *Shard) clearDimensionMetrics() {
-	clearDimensionMetrics(s.promMetrics, s.index.Config.ClassName.String(), s.name)
+	if s.promMetrics == nil {
+		return
+	}
+	clearDimensionMetrics(s.index.Config, s.promMetrics, s.index.Config.ClassName.String(), s.name)
 }
 
-func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics, className, shardName string) {
-	if promMetrics != nil {
-		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
-		sendVectorSegmentsMetric(promMetrics, className, shardName, 0)
+// Set shard's vector_dimensions_sum and vector_segments_sum metrics to 0.
+//
+// Vector dimension metrics are collected on the node level and
+// are normally _polled_ from each shard. Shard dimension metrics
+// should only be updated on the shard level iff it is being shut
+// down or dropped and metrics grouping is disabled.
+// If metrics grouping is enabled, the difference is eventually
+// accounted for the next time nodeWideMetricsObserver recalculates
+// total vector dimensions, because only _active_ shards are considered.
+func clearDimensionMetrics(cfg IndexConfig, promMetrics *monitoring.PrometheusMetrics, className, shardName string) {
+	if !cfg.TrackVectorDimensions || promMetrics.Group {
+		return
+	}
+	if g, err := promMetrics.VectorDimensionsSum.
+		GetMetricWithLabelValues(className, shardName); err == nil {
+		g.Set(0)
+	}
+	if g, err := promMetrics.VectorSegmentsSum.
+		GetMetricWithLabelValues(className, shardName); err == nil {
+		g.Set(0)
 	}
 }
 
-func sendVectorSegmentsMetric(promMetrics *monitoring.PrometheusMetrics,
-	className, shardName string, count int,
-) {
-	metric, err := promMetrics.VectorSegmentsSum.
-		GetMetricWithLabelValues(className, shardName)
-	if err == nil {
-		metric.Set(float64(count))
-	}
-}
-
-func sendVectorDimensionsMetric(promMetrics *monitoring.PrometheusMetrics,
-	className, shardName string, count int,
-) {
-	// Important: Never group classes/shards for this metric. We need the
-	// granularity here as this tracks an absolute value per shard that changes
-	// independently over time.
-	//
-	// If we need to reduce metrics further, an alternative could be to not
-	// make dimension tracking shard-centric, but rather make it node-centric.
-	// Then have a single metric that aggregates all dimensions first, then
-	// observes only the sum
-	metric, err := promMetrics.VectorDimensionsSum.
-		GetMetricWithLabelValues(className, shardName)
-	if err == nil {
-		metric.Set(float64(count))
-	}
-}
-
-func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
+func GetDimensionCategoryLegacy(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
 	// We have special dimension tracking for BQ and PQ to represent reduced costs
 	// these are published under the separate vector_segments_dimensions metric
 	if hnswUserConfig, ok := cfg.(hnswent.UserConfig); ok {
@@ -250,6 +167,60 @@ func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory
 	return DimensionCategoryStandard, 0
 }
 
+func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
+	// We have special dimension tracking for BQ and PQ to represent reduced costs
+	// these are published under the separate vector_segments_dimensions metric
+	switch config := cfg.(type) {
+	case hnswent.UserConfig:
+		return getHNSWCompression(config)
+	case flatent.UserConfig:
+		return getFlatCompression(config)
+	case dynamicent.UserConfig:
+		return getDynamicCompression(config)
+	default:
+		return DimensionCategoryStandard, 0
+	}
+}
+
+// getHNSWCompression extracts compression info from HNSW configuration
+func getHNSWCompression(config hnswent.UserConfig) (DimensionCategory, int) {
+	if config.PQ.Enabled {
+		return DimensionCategoryPQ, config.PQ.Segments
+	}
+	if config.BQ.Enabled {
+		return DimensionCategoryBQ, 0
+	}
+	if config.SQ.Enabled {
+		return DimensionCategorySQ, 0
+	}
+	if config.RQ.Enabled {
+		return DimensionCategoryRQ, 0
+	}
+	return DimensionCategoryStandard, 0
+}
+
+// getFlatCompression extracts compression info from Flat configuration
+func getFlatCompression(config flatent.UserConfig) (DimensionCategory, int) {
+	if config.BQ.Enabled {
+		return DimensionCategoryBQ, 0
+	}
+	// Note: Flat indices only support BQ compression currently
+	return DimensionCategoryStandard, 0
+}
+
+// getDynamicCompression extracts compression info from Dynamic configuration
+// Dynamic indices can switch between HNSW and Flat based on data size.
+// For metrics purposes, we check both configurations and return the first enabled compression.
+func getDynamicCompression(config dynamicent.UserConfig) (DimensionCategory, int) {
+	// Check HNSW configuration first (higher priority for dynamic indices)
+	if category, segments := getHNSWCompression(config.HnswUC); category != DimensionCategoryStandard {
+		return category, segments
+	}
+
+	// Fall back to Flat configuration
+	return getFlatCompression(config.FlatUC)
+}
+
 func correctEmptySegments(segments int, dimensions int) int {
 	// If segments is 0 (unset), in this case PQ will calculate the number of segments
 	// based on the number of dimensions
@@ -257,4 +228,125 @@ func correctEmptySegments(segments int, dimensions int) int {
 		return segments
 	}
 	return common.CalculateOptimalSegments(dimensions)
+}
+
+// calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
+func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string,
+) (types.Dimensionality, error) {
+	dimensionality := types.Dimensionality{}
+
+	if err := lsmkv.CheckExpectedStrategy(b.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyRoaringSet); err != nil {
+		return dimensionality, fmt.Errorf("calcTargetVectorDimensionsFromBucket: %w", err)
+	}
+
+	nameLen := len(targetVector)
+	expectedKeyLen := nameLen + 4 // vector name + uint32
+	var k []byte
+
+	switch b.Strategy() {
+	case lsmkv.StrategyMapCollection:
+		// Since weaviate 1.34 default dimension bucket strategy is StrategyRoaringSet.
+		// For backward compatibility StrategyMapCollection is still supported.
+
+		c := b.MapCursor()
+		defer c.Close()
+
+		var v []lsmkv.MapPair
+		if nameLen == 0 {
+			k, v = c.First(ctx)
+		} else {
+			k, v = c.Seek(ctx, []byte(targetVector))
+		}
+		for ; k != nil; k, v = c.Next(ctx) {
+			// for named vectors we have to additionally check if the key is prefixed with the vector name
+			if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
+				break
+			}
+
+			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
+			if dimLength > 0 && (dimensionality.Dimensions == 0 || dimensionality.Count == 0) {
+				dimensionality.Dimensions = int(dimLength)
+				dimensionality.Count = len(v)
+			}
+		}
+	default:
+		c := b.CursorRoaringSet()
+		defer c.Close()
+
+		var v *sroar.Bitmap
+		if nameLen == 0 {
+			k, v = c.First()
+		} else {
+			k, v = c.Seek([]byte(targetVector))
+		}
+		for ; k != nil; k, v = c.Next() {
+			// for named vectors we have to additionally check if the key is prefixed with the vector name
+			if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
+				break
+			}
+
+			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
+			if dimLength > 0 && (dimensionality.Dimensions == 0 || dimensionality.Count == 0) {
+				dimensionality.Dimensions = int(dimLength)
+				dimensionality.Count = v.GetCardinality()
+			}
+		}
+	}
+
+	return dimensionality, nil
+}
+
+func (s *Shard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {
+	return s.addToDimensionBucket(dimLength, docID, targetVector, false)
+}
+
+// Key (target vector name and dimensionality) | Value Doc IDs
+// targetVector,128 | 1,2,4,5,17
+// targetVector,128 | 1,2,4,5,17, Tombstone 4,
+func (s *Shard) removeDimensionsLSM(dimLength int, docID uint64, targetVector string) error {
+	return s.addToDimensionBucket(dimLength, docID, targetVector, true)
+}
+
+func (s *Shard) addToDimensionBucket(dimLength int, docID uint64, vecName string, tombstone bool) error {
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return errors.Errorf("add dimension bucket: no bucket dimensions")
+	}
+
+	if err := lsmkv.CheckExpectedStrategy(b.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyRoaringSet); err != nil {
+		return fmt.Errorf("addToDimensionBucket: %w", err)
+	}
+
+	vecNameBytes := []byte(vecName)
+	nameLen := len(vecNameBytes)
+	dim := uint32(dimLength)
+
+	switch b.Strategy() {
+	case lsmkv.StrategyMapCollection:
+		// Since weaviate 1.34 default dimension bucket strategy is StrategyRoaringSet.
+		// For backward compatibility StrategyMapCollection is still supported.
+
+		// 8 bytes for doc id (map key)
+		// 4 bytes for dim count (row key)
+		// len(vecName) bytes for vector name (prefix of row key)
+		buf := make([]byte, 12+nameLen)
+		binary.LittleEndian.PutUint64(buf[:8], docID)
+		binary.LittleEndian.PutUint32(buf[8+nameLen:], dim)
+		copy(buf[8:], vecNameBytes)
+
+		return b.MapSet(buf[8:], lsmkv.MapPair{
+			Key:       buf[:8],
+			Value:     []byte{},
+			Tombstone: tombstone,
+		})
+	default:
+		key := make([]byte, nameLen+4) // 4 for uint32 dimLength
+		copy(key[:nameLen], vecNameBytes)
+		binary.LittleEndian.PutUint32(key[nameLen:], dim)
+
+		if tombstone {
+			return b.RoaringSetRemoveOne(key, docID)
+		}
+		return b.RoaringSetAddOne(key, docID)
+	}
 }

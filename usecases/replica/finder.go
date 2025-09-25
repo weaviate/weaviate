@@ -19,14 +19,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
-
-	"github.com/go-openapi/strfmt"
-	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -68,8 +68,6 @@ type Finder struct {
 	// control the op backoffs in the coordinator's Pull
 	coordinatorPullBackoffInitialInterval time.Duration
 	coordinatorPullBackoffMaxElapsedTime  time.Duration
-
-	rand *rand.Rand // random number generator for shufflings
 }
 
 // NewFinder constructs a new finder instance
@@ -77,6 +75,7 @@ func NewFinder(className string,
 	router router,
 	nodeName string,
 	client RClient,
+	metrics *Metrics,
 	l logrus.FieldLogger,
 	coordinatorPullBackoffInitialInterval time.Duration,
 	coordinatorPullBackoffMaxElapsedTime time.Duration,
@@ -91,13 +90,13 @@ func NewFinder(className string,
 				class:               className,
 				getDeletionStrategy: getDeletionStrategy,
 				client:              cl,
+				metrics:             metrics,
 				logger:              l,
 			},
 			log: l,
 		},
 		coordinatorPullBackoffInitialInterval: coordinatorPullBackoffInitialInterval,
 		coordinatorPullBackoffMaxElapsedTime:  coordinatorPullBackoffMaxElapsedTime,
-		rand:                                  rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -322,10 +321,8 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
 	targetNodeOverrides []additional.AsyncReplicationTargetNodeOverride,
 ) (diffReader *ShardDifferenceReader, err error) {
-	routingPlan, err := f.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
-		Shard:            shardName,
-		ConsistencyLevel: types.ConsistencyLevelOne,
-	})
+	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
+	routingPlan, err := f.router.BuildReadRoutingPlan(options)
 	if err != nil {
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
@@ -403,7 +400,9 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 	// shuffle the replicas to randomize the order in which we look for differences
 	if len(replicasHostAddrs) > 1 {
-		f.rand.Shuffle(len(replicasHostAddrs), func(i, j int) {
+		// Use the global rand package which is thread-safe
+		rand.Shuffle(len(replicasHostAddrs), func(i, j int) {
+			replicaNodeNames[i], replicaNodeNames[j] = replicaNodeNames[j], replicaNodeNames[i]
 			replicasHostAddrs[i], replicasHostAddrs[j] = replicasHostAddrs[j], replicasHostAddrs[i]
 		})
 	}

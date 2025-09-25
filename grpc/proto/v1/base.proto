@@ -15,7 +15,9 @@ enum ConsistencyLevel {
 }
 
 message NumberArrayProperties {
-  repeated double values = 1 [deprecated = true];  // will be removed in the future, use vector_bytes
+  // will be removed in the future, use vector_bytes
+  // go client 5.4.1 depends on this field. Only remove after go client is deprecated
+  repeated double values = 1 [deprecated = true];
   string prop_name = 2;
   bytes values_bytes = 3;
 }
@@ -89,6 +91,8 @@ message Filters {
     OPERATOR_IS_NULL = 11;
     OPERATOR_CONTAINS_ANY = 12;
     OPERATOR_CONTAINS_ALL = 13;
+    OPERATOR_CONTAINS_NONE = 14;
+    OPERATOR_NOT = 15;
   }
 
   Operator operator = 1;

@@ -51,7 +51,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	// request internally, we can pass it to an external geo index
 	if pv.operator == filters.OperatorWithinGeoRange {
 		bm, err = s.docBitmapGeo(ctx, pv)
-		return
+		return bm, err
 	}
 	strategy = b.Strategy()
 
@@ -72,7 +72,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 		return docBitmap{}, fmt.Errorf("property '%s' is neither filterable nor searchable nor rangeable", pv.prop)
 	}
 
-	return
+	return bm, err
 }
 
 func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Bucket,
@@ -86,7 +86,8 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.OrConc(docIDs, concurrency.SROAR_MERGE)
+			concurrencyBudget := concurrency.BudgetFromCtx(ctx, concurrency.SROAR_MERGE)
+			out.docIDs.OrConc(docIDs, concurrencyBudget)
 			release()
 		}
 
@@ -144,7 +145,8 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.OrConc(ids, concurrency.SROAR_MERGE)
+			concurrencyBudget := concurrency.BudgetFromCtx(ctx, concurrency.SROAR_MERGE)
+			out.docIDs.OrConc(ids, concurrencyBudget)
 			release()
 		}
 
@@ -181,7 +183,8 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.OrConc(ids, concurrency.SROAR_MERGE)
+			concurrencyBudget := concurrency.BudgetFromCtx(ctx, concurrency.SROAR_MERGE)
+			out.docIDs.OrConc(ids, concurrencyBudget)
 			release()
 		}
 

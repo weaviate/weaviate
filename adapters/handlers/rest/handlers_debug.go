@@ -23,6 +23,8 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -30,57 +32,6 @@ import (
 
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
-
-	http.HandleFunc(
-		"/debug/async-replication/remove-target-overrides",
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			collectionName := r.URL.Query().Get("collection")
-			if collectionName == "" {
-				http.Error(w, "collection is required", http.StatusBadRequest)
-				return
-			}
-			shardNamesStr := r.URL.Query().Get("shardNames")
-			if shardNamesStr == "" {
-				http.Error(w, "shardNames is required", http.StatusBadRequest)
-				return
-			}
-			shardNames := strings.Split(shardNamesStr, ",")
-			if len(shardNames) == 0 {
-				http.Error(w, "shardNames len > 0 is required", http.StatusBadRequest)
-				return
-			}
-			timeoutStr := r.URL.Query().Get("timeout")
-			timeoutDuration := time.Hour
-			var err error
-			if timeoutStr != "" {
-				timeoutDuration, err = time.ParseDuration(timeoutStr)
-				if err != nil {
-					http.Error(w, "timeout duration has invalid format", http.StatusBadRequest)
-					return
-				}
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), timeoutDuration)
-			defer cancel()
-
-			idx := appState.DB.GetIndex(schema.ClassName(collectionName))
-			if idx == nil {
-				logger.WithField("collection", collectionName).Error("collection not found")
-				http.Error(w, "collection not found", http.StatusNotFound)
-				return
-			}
-			for _, shardName := range shardNames {
-				err = idx.IncomingRemoveAllAsyncReplicationTargetNodes(ctx, shardName)
-				if err != nil {
-					logger.WithError(err).WithField("collection", collectionName).WithField("shard", shardName).
-						Warn("debug endpoint failed to remove all async replication target nodes")
-					http.Error(w, "failed to remove all async replication target nodes", http.StatusInternalServerError)
-					return
-				}
-				logger.WithField("collection", collectionName).WithField("shard", shardName).
-					Info("debug endpoint removed all async replication target nodes")
-			}
-			w.WriteHeader(http.StatusAccepted)
-		}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")
@@ -128,27 +79,48 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/suspend", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("paused.mig", false, logger, appState, r, w)
+		changeFile("paused.mig", false, nil, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/resume", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("paused.mig", true, logger, appState, r, w)
+		changeFile("paused.mig", true, nil, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/rollback", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("rollback.mig", false, logger, appState, r, w)
+		changeFile("rollback.mig", false, nil, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/unrollback", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("rollback.mig", true, logger, appState, r, w)
+		changeFile("rollback.mig", true, nil, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/start", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("start.mig", false, logger, appState, r, w)
+		changeFile("start.mig", false, nil, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/unstart", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		changeFile("start.mig", true, logger, appState, r, w)
+		changeFile("start.mig", true, nil, logger, appState, r, w)
+	}))
+
+	http.HandleFunc("/debug/index/rebuild/inverted/reset", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		changeFile("reset.mig", false, nil, logger, appState, r, w)
+	}))
+
+	http.HandleFunc("/debug/index/rebuild/inverted/unreset", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		changeFile("reset.mig", true, nil, logger, appState, r, w)
+	}))
+
+	http.HandleFunc("/debug/index/rebuild/inverted/setProperties", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		propertiesToMigrateString := strings.TrimSpace(r.URL.Query().Get("properties"))
+
+		if propertiesToMigrateString == "" {
+			http.Error(w, "properties is required", http.StatusBadRequest)
+			return
+		}
+		propertiesToMigrate := strings.Split(propertiesToMigrateString, ",")
+		props := []byte(strings.Join(propertiesToMigrate, ","))
+
+		changeFile("properties.mig", false, props, logger, appState, r, w)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/reload", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -188,7 +160,7 @@ func setupDebugHandlers(appState *state.State) {
 						logger.WithField("shard", shardName).Error("failed to reinit shard " + err.Error())
 						output[shardName] = map[string]string{
 							"shard":       shardName,
-							"shardStatus": shard.GetStatusNoLoad().String(),
+							"shardStatus": shard.GetStatus().String(),
 							"status":      "error",
 							"message":     "failed to reinit shard",
 							"error":       err.Error(),
@@ -197,14 +169,14 @@ func setupDebugHandlers(appState *state.State) {
 					}
 					output[shardName] = map[string]string{
 						"shard":       shardName,
-						"shardStatus": shard.GetStatusNoLoad().String(),
+						"shardStatus": shard.GetStatus().String(),
 						"status":      "reinit",
 						"message":     "reinit shard started",
 					}
 				} else {
 					output[shardName] = map[string]string{
 						"shard":       shardName,
-						"shardStatus": shard.GetStatusNoLoad().String(),
+						"shardStatus": shard.GetStatus().String(),
 						"status":      "skipped",
 						"message":     fmt.Sprintf("shard %s not selected", shardName),
 					}
@@ -265,7 +237,7 @@ func setupDebugHandlers(appState *state.State) {
 					shardPath := rootPath + "/" + classNameString + "/" + shardName + "/lsm/"
 					paths[shardName] = shardPath
 					output[shardName] = map[string]interface{}{
-						"shardStatus": shard.GetStatusNoLoad().String(),
+						"shardStatus": shard.GetStatus().String(),
 						"status":      "unknown",
 					}
 					return nil
@@ -562,6 +534,26 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
+	http.HandleFunc("/debug/usage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		service := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, appState.Cluster.LocalName(), appState.Logger)
+
+		stats, err := service.Usage(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		jsonBytes, err := json.Marshal(stats)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write(jsonBytes)
+	}))
+
 	http.HandleFunc("/debug/index/rebuild/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !config.Enabled(os.Getenv("ASYNC_INDEXING")) {
 			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
@@ -691,7 +683,13 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		stats, err := vidx.Stats()
+		h, ok := vidx.(hnswStats)
+		if !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		stats, err := h.Stats()
 		if err != nil {
 			logger.Error(err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -740,4 +738,8 @@ func setupDebugHandlers(appState *state.State) {
 
 type MaintenanceMode struct {
 	Enabled bool `json:"enabled"`
+}
+
+type hnswStats interface {
+	Stats() (*hnsw.HnswStats, error)
 }

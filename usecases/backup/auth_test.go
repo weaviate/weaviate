@@ -60,7 +60,7 @@ func Test_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "Restore",
-			additionalArgs:   []interface{}{req},
+			additionalArgs:   []interface{}{req, false},
 			expectedVerb:     authorization.CREATE,
 			expectedResource: authorization.Backups("ABC")[0],
 			classes:          []string{"ABC"},
@@ -188,7 +188,7 @@ func callFuncByName(manager interface{}, funcName string, params ...interface{})
 		in[i] = reflect.ValueOf(param)
 	}
 	out = m.Call(in)
-	return
+	return out, err
 }
 
 func allExportedMethods(subject interface{}) []string {

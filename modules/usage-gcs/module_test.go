@@ -20,11 +20,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	clusterusage "github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -180,8 +182,8 @@ func TestModule_Init_ConfigurationParsing(t *testing.T) {
 			Hostname: "test-node",
 		},
 		Usage: usagetypes.UsageConfig{
-			ScrapeInterval: runtime.NewDynamicValue(5 * time.Minute), // existing config takes priority
-			PolicyVersion:  runtime.NewDynamicValue("2025-01-01"),    // existing config takes priority
+			ScrapeInterval: runtime.NewDynamicValue(5 * time.Minute), // env vars take priority
+			PolicyVersion:  runtime.NewDynamicValue("2025-01-01"),    // env vars take priority
 		},
 	}
 
@@ -197,13 +199,13 @@ func TestModule_Init_ConfigurationParsing(t *testing.T) {
 	err := m.Init(context.Background(), params)
 	require.NoError(t, err)
 
-	// Verify that existing config values are preserved (have priority over env vars)
+	// Verify that environment variables take priority over existing config values
 	// GCS bucket and prefix will use env vars since config has no existing values for them
 	assert.Equal(t, "env-bucket", config.Usage.GCSBucket.Get())
 	assert.Equal(t, "env-prefix", config.Usage.GCSPrefix.Get())
-	// Scrape interval and policy version preserve existing config values
-	assert.Equal(t, 5*time.Minute, config.Usage.ScrapeInterval.Get())
-	assert.Equal(t, "2025-01-01", config.Usage.PolicyVersion.Get())
+	// Environment variables take priority over existing config values
+	assert.Equal(t, 10*time.Minute, config.Usage.ScrapeInterval.Get())
+	assert.Equal(t, "2025-06-01", config.Usage.PolicyVersion.Get())
 }
 
 func TestModule_SetUsageService(t *testing.T) {
@@ -214,7 +216,6 @@ func TestModule_SetUsageService(t *testing.T) {
 
 	mod := New()
 	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
 
 	// Initialize module first
 	testConfig := config.Config{
@@ -237,6 +238,8 @@ func TestModule_SetUsageService(t *testing.T) {
 
 	// Test with valid service after initialization
 	usageService := clusterusage.NewMockService(t)
+	usageService.EXPECT().SetJitterInterval(mock.Anything).Return()
+
 	assert.NotPanics(t, func() {
 		mod.SetUsageService(usageService)
 	})
@@ -357,8 +360,8 @@ func TestParseGCSConfig(t *testing.T) {
 			},
 			existingGCSBucket: "existing-bucket",
 			existingGCSPrefix: "existing-prefix",
-			expectedGCSBucket: "existing-bucket", // existing config takes priority
-			expectedGCSPrefix: "existing-prefix", // existing config takes priority
+			expectedGCSBucket: "env-bucket", // env vars take priority
+			expectedGCSPrefix: "env-prefix", // env vars take priority
 		},
 		{
 			name:              "no environment variables, empty config",
@@ -384,8 +387,8 @@ func TestParseGCSConfig(t *testing.T) {
 			},
 			existingGCSBucket: "existing-bucket",
 			existingGCSPrefix: "existing-prefix",
-			expectedGCSBucket: "existing-bucket", // existing config takes priority
-			expectedGCSPrefix: "existing-prefix", // existing config takes priority
+			expectedGCSBucket: "env-bucket",      // env var takes priority
+			expectedGCSPrefix: "existing-prefix", // no env var, use existing config
 		},
 		{
 			name: "environment variables with no existing config",
@@ -405,9 +408,9 @@ func TestParseGCSConfig(t *testing.T) {
 				"USAGE_GCS_PREFIX": "env-prefix",
 			},
 			existingGCSBucket: "existing-bucket",
-			existingGCSPrefix: "",                // no existing prefix
-			expectedGCSBucket: "existing-bucket", // existing config takes priority
-			expectedGCSPrefix: "env-prefix",      // no existing config, use env var
+			existingGCSPrefix: "",           // no existing prefix
+			expectedGCSBucket: "env-bucket", // env var takes priority
+			expectedGCSPrefix: "env-prefix", // env var takes priority
 		},
 	}
 
@@ -468,8 +471,8 @@ func TestParseCommonUsageConfig(t *testing.T) {
 			},
 			existingInterval: 5 * time.Minute,
 			existingVersion:  "2025-01-01",
-			expectedInterval: 5 * time.Minute, // existing config takes priority
-			expectedVersion:  "2025-01-01",    // existing config takes priority
+			expectedInterval: 2 * time.Hour, // env vars take priority
+			expectedVersion:  "2025-06-01",  // env vars take priority
 		},
 		{
 			name:             "no environment variables, preserve existing values",
@@ -485,7 +488,7 @@ func TestParseCommonUsageConfig(t *testing.T) {
 			existingInterval: 0,
 			existingVersion:  "",
 			expectedInterval: common.DefaultCollectionInterval, // use default
-			expectedVersion:  common.DefaultPolicyVersion,      // use default
+			expectedVersion:  build.Version,                    // use default
 		},
 		{
 			name: "environment variables with no existing values",
@@ -512,9 +515,9 @@ func TestParseCommonUsageConfig(t *testing.T) {
 				"USAGE_POLICY_VERSION":  "2025-06-01",
 			},
 			existingInterval: 5 * time.Minute,
-			existingVersion:  "",              // no existing version
-			expectedInterval: 5 * time.Minute, // existing config takes priority
-			expectedVersion:  "2025-06-01",    // no existing config, use env var
+			existingVersion:  "",            // no existing version
+			expectedInterval: 3 * time.Hour, // env var takes priority
+			expectedVersion:  "2025-06-01",  // no existing config, use env var
 		},
 	}
 

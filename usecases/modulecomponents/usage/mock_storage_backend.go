@@ -134,9 +134,9 @@ func (_c *MockStorageBackend_UpdateConfig_Call) RunAndReturn(run func(StorageCon
 	return _c
 }
 
-// UploadUsageData provides a mock function with given fields: ctx, usage
-func (_m *MockStorageBackend) UploadUsageData(ctx context.Context, usage *types.Report) error {
-	ret := _m.Called(ctx, usage)
+// UploadUsageData provides a mock function with given fields: ctx, _a1
+func (_m *MockStorageBackend) UploadUsageData(ctx context.Context, _a1 *types.Report) error {
+	ret := _m.Called(ctx, _a1)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UploadUsageData")
@@ -144,7 +144,7 @@ func (_m *MockStorageBackend) UploadUsageData(ctx context.Context, usage *types.
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, *types.Report) error); ok {
-		r0 = rf(ctx, usage)
+		r0 = rf(ctx, _a1)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -159,12 +159,12 @@ type MockStorageBackend_UploadUsageData_Call struct {
 
 // UploadUsageData is a helper method to define mock.On call
 //   - ctx context.Context
-//   - usage *types.Report
-func (_e *MockStorageBackend_Expecter) UploadUsageData(ctx interface{}, usage interface{}) *MockStorageBackend_UploadUsageData_Call {
-	return &MockStorageBackend_UploadUsageData_Call{Call: _e.mock.On("UploadUsageData", ctx, usage)}
+//   - _a1 *types.Report
+func (_e *MockStorageBackend_Expecter) UploadUsageData(ctx interface{}, _a1 interface{}) *MockStorageBackend_UploadUsageData_Call {
+	return &MockStorageBackend_UploadUsageData_Call{Call: _e.mock.On("UploadUsageData", ctx, _a1)}
 }
 
-func (_c *MockStorageBackend_UploadUsageData_Call) Run(run func(ctx context.Context, usage *types.Report)) *MockStorageBackend_UploadUsageData_Call {
+func (_c *MockStorageBackend_UploadUsageData_Call) Run(run func(ctx context.Context, _a1 *types.Report)) *MockStorageBackend_UploadUsageData_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(*types.Report))
 	})

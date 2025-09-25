@@ -62,22 +62,45 @@ func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
 	return payload, nil
 }
 
-func (m *Manager) GetRolesForUser(req *cmd.QueryRequest) ([]byte, error) {
+func (m *Manager) GetUsersOrGroupsWithRoles(req *cmd.QueryRequest) ([]byte, error) {
 	if m.authZ == nil {
-		return json.Marshal(cmd.QueryGetRolesForUserResponse{})
+		payload, _ := json.Marshal(cmd.QueryGetAllUsersOrGroupsWithRolesResponse{})
+		return payload, nil
 	}
-
-	subCommand := cmd.QueryGetRolesForUserRequest{}
+	subCommand := cmd.QueryGetAllUsersOrGroupsWithRolesRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	roles, err := m.authZ.GetRolesForUser(subCommand.User, subCommand.UserType)
+	usersOrGroups, err := m.authZ.GetUsersOrGroupsWithRoles(subCommand.IsGroup, subCommand.AuthType)
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	response := cmd.QueryGetRolesForUserResponse{Roles: roles}
+	response := cmd.QueryGetAllUsersOrGroupsWithRolesResponse{UsersOrGroups: usersOrGroups}
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
+}
+
+func (m *Manager) GetRolesForUserOrGroup(req *cmd.QueryRequest) ([]byte, error) {
+	if m.authZ == nil {
+		payload, _ := json.Marshal(cmd.QueryGetRolesForUserOrGroupResponse{})
+		return payload, nil
+	}
+	subCommand := cmd.QueryGetRolesForUserOrGroupRequest{}
+	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	roles, err := m.authZ.GetRolesForUserOrGroup(subCommand.User, subCommand.UserType, subCommand.IsGroup)
+	if err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	response := cmd.QueryGetRolesForUserOrGroupResponse{Roles: roles}
 	payload, err := json.Marshal(response)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
@@ -95,7 +118,7 @@ func (m *Manager) GetUsersForRole(req *cmd.QueryRequest) ([]byte, error) {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	users, err := m.authZ.GetUsersForRole(subCommand.Role, subCommand.UserType)
+	users, err := m.authZ.GetUsersOrGroupForRole(subCommand.Role, subCommand.UserType, subCommand.IsGroup)
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}

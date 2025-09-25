@@ -50,11 +50,11 @@ func createSingleNodeEnvironment(ctx context.Context, googleApiKey string,
 	compose, err = composeModules(googleApiKey).
 		WithWeaviate().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules(googleApiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithMulti2VecGoogle(googleApiKey)
-	return
+	return composeModules
 }

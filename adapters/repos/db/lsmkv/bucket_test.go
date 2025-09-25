@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"testing"
 	"time"
 
@@ -258,11 +260,14 @@ func TestBucket_MemtableCountWithFlushing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actualActive := b.memtableNetCount(tt.current, tt.previous)
+			actualActive, err := b.memtableNetCount(context.Background(), tt.current, tt.previous)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedNetActive, actualActive)
 
 			if tt.previous != nil {
-				actualPrevious := b.memtableNetCount(tt.previous, nil)
+				actualPrevious, err := b.memtableNetCount(context.Background(), tt.previous, nil)
+				require.NoError(t, err)
+
 				assert.Equal(t, tt.expectedNetPrevious, actualPrevious)
 
 				assert.Equal(t, tt.expectedNetTotal, actualPrevious+actualActive)
@@ -310,180 +315,179 @@ func TestBucketGetBySecondary(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestBucketWalReload(t *testing.T) {
-	for _, strategy := range []string{StrategyReplace, StrategySetCollection, StrategyMapCollection, StrategyRoaringSet, StrategyRoaringSetRange} {
-		t.Run(strategy, func(t *testing.T) {
-			ctx := context.Background()
+func TestBucketInfoInFileName(t *testing.T) {
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+
+	for _, segmentInfo := range []bool{true, false} {
+		t.Run(fmt.Sprintf("%t", segmentInfo), func(t *testing.T) {
 			dirName := t.TempDir()
-
-			logger, _ := test.NewNullLogger()
-
-			secondaryIndicesCount := uint16(0)
-			if strategy == StrategyReplace {
-				secondaryIndicesCount = 1
-			}
-
-			// initial bucket, always create segment, even if it is just a single entry
 			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096))
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(segmentInfo), WithStrategy(StrategyReplace),
+			)
 			require.NoError(t, err)
-
-			if strategy == StrategyReplace {
-				require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
-			} else if strategy == StrategySetCollection {
-				require.NoError(t, b.SetAdd([]byte("hello1"), [][]byte{[]byte("world1")}))
-			} else if strategy == StrategyRoaringSet {
-				require.NoError(t, b.RoaringSetAddOne([]byte("hello1"), uint64(1)))
-			} else if strategy == StrategyMapCollection {
-				require.NoError(t, b.MapSet([]byte("hello1"), MapPair{Key: []byte("hello1"), Value: []byte("world1")}))
-			} else if strategy == StrategyRoaringSetRange {
-				require.NoError(t, b.RoaringSetRangeAdd(uint64(1), uint64(1)))
-			} else {
-				require.Fail(t, "unknown strategy %s", strategy)
-			}
-			testBucketContent(t, strategy, b, 2)
-
-			require.NoError(t, b.Shutdown(ctx))
-
-			entries, err := os.ReadDir(dirName)
-			require.NoError(t, err)
-			require.Len(t, entries, 1, "single wal file should be created")
-
-			testBucketContent(t, strategy, b, 2)
-
-			// start fresh with a new memtable, new entries will stay in wal until size is reached
-			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096))
-			require.NoError(t, err)
-
-			if strategy == StrategyReplace {
-				require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
-			} else if strategy == StrategySetCollection {
-				require.NoError(t, b.SetAdd([]byte("hello2"), [][]byte{[]byte("world2")}))
-			} else if strategy == StrategyRoaringSet {
-				require.NoError(t, b.RoaringSetAddOne([]byte("hello2"), uint64(2)))
-			} else if strategy == StrategyMapCollection {
-				require.NoError(t, b.MapSet([]byte("hello2"), MapPair{Key: []byte("hello2"), Value: []byte("world2")}))
-			} else if strategy == StrategyRoaringSetRange {
-				require.NoError(t, b.RoaringSetRangeAdd(uint64(2), uint64(2)))
-			}
-			require.NoError(t, b.Shutdown(ctx))
-
-			entries, err = os.ReadDir(dirName)
-			require.NoError(t, err)
-			fileTypes := map[string]int{}
-			for _, entry := range entries {
-				fileTypes[filepath.Ext(entry.Name())] += 1
-			}
-			require.Equal(t, 0, fileTypes[".db"], "no segment file")
-			require.Equal(t, 1, fileTypes[".wal"], "single wal file")
-
-			// will load wal and reuse memtable
-			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(1), WithMinWalThreshold(4096))
-			require.NoError(t, err)
-
-			testBucketContent(t, strategy, b, 3)
-
-			if strategy == StrategyReplace {
-				require.NoError(t, b.Put([]byte("hello3"), []byte("world3"), WithSecondaryKey(0, []byte("bonjour3"))))
-			} else if strategy == StrategySetCollection {
-				require.NoError(t, b.SetAdd([]byte("hello3"), [][]byte{[]byte("world3")}))
-			} else if strategy == StrategyRoaringSet {
-				require.NoError(t, b.RoaringSetAddOne([]byte("hello3"), uint64(3)))
-			} else if strategy == StrategyMapCollection {
-				require.NoError(t, b.MapSet([]byte("hello3"), MapPair{Key: []byte("hello3"), Value: []byte("world3")}))
-			} else if strategy == StrategyRoaringSetRange {
-				require.NoError(t, b.RoaringSetRangeAdd(uint64(3), uint64(3)))
-				require.NoError(t, err)
-			}
-			require.NoError(t, b.Shutdown(ctx))
-
-			entries, err = os.ReadDir(dirName)
-			require.NoError(t, err)
-			clear(fileTypes)
-			for _, entry := range entries {
-				fileTypes[filepath.Ext(entry.Name())] += 1
-			}
-			require.Equal(t, 0, fileTypes[".db"], "no segment file")
-			require.Equal(t, 1, fileTypes[".wal"], "single wal file")
-
-			// now add a lot of entries to hit .wal file limit
-			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096))
-			require.NoError(t, err)
-
-			testBucketContent(t, strategy, b, 4)
-
-			for i := 4; i < 120; i++ { // larger than min .wal threshold
-				if strategy == StrategyReplace {
-					require.NoError(t, b.Put([]byte(fmt.Sprintf("hello%d", i)), []byte(fmt.Sprintf("world%d", i)), WithSecondaryKey(0, []byte(fmt.Sprintf("bonjour%d", i)))))
-				} else if strategy == StrategySetCollection {
-					require.NoError(t, b.SetAdd([]byte(fmt.Sprintf("hello%d", i)), [][]byte{[]byte(fmt.Sprintf("world%d", i))}))
-				} else if strategy == StrategyRoaringSet {
-					require.NoError(t, b.RoaringSetAddOne([]byte(fmt.Sprintf("hello%d", i)), uint64(i)))
-				} else if strategy == StrategyMapCollection {
-					require.NoError(t, b.MapSet([]byte(fmt.Sprintf("hello%d", i)), MapPair{Key: []byte(fmt.Sprintf("hello%d", i)), Value: []byte(fmt.Sprintf("world%d", i))}))
-				} else if strategy == StrategyRoaringSetRange {
-					require.NoError(t, b.RoaringSetRangeAdd(uint64(4), uint64(4)))
-				}
-			}
-			testBucketContent(t, strategy, b, 120)
-
-			require.NoError(t, b.Shutdown(ctx))
-
-			entries, err = os.ReadDir(dirName)
-			require.NoError(t, err)
-			clear(fileTypes)
-			for _, entry := range entries {
-				fileTypes[filepath.Ext(entry.Name())] += 1
-			}
-			require.Equal(t, 1, fileTypes[".db"], "no segment file")
-			require.Equal(t, 0, fileTypes[".wal"], "single wal file")
-
-			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096))
-			require.NoError(t, err)
-
-			testBucketContent(t, strategy, b, 120)
+			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
+			require.NoError(t, b.FlushMemtable())
+			dbFiles, _ := countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 1)
 		})
 	}
 }
 
-func testBucketContent(t *testing.T, strategy string, b *Bucket, maxObject int) {
-	t.Helper()
+func TestBucketCompactionFileName(t *testing.T) {
 	ctx := context.Background()
-	for i := 1; i < maxObject; i++ {
-		key := []byte(fmt.Sprintf("hello%d", i))
-		val := []byte(fmt.Sprintf("world%d", i))
-		if strategy == StrategyReplace {
-			get, err := b.Get(key)
-			require.NoError(t, err)
-			require.Equal(t, val, get)
+	logger, _ := test.NewNullLogger()
 
-			secondary, err := b.GetBySecondary(0, []byte(fmt.Sprintf("bonjour%d", i)))
+	tests := []struct {
+		firstSegment  bool
+		secondSegment bool
+		compaction    bool
+	}{
+		{firstSegment: false, secondSegment: false, compaction: true},
+		{firstSegment: false, secondSegment: true, compaction: true},
+		{firstSegment: true, secondSegment: false, compaction: true},
+		{firstSegment: true, secondSegment: true, compaction: true},
+		{firstSegment: true, secondSegment: true, compaction: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("firstSegment: %t", tt.firstSegment), func(t *testing.T) {
+			dirName := t.TempDir()
+			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.firstSegment), WithStrategy(StrategyReplace),
+			)
 			require.NoError(t, err)
-			require.Equal(t, val, secondary)
-		} else if strategy == StrategySetCollection {
-			get, err := b.SetList(key)
+			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
+			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.Shutdown(ctx))
+			dbFiles, _ := countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 1)
+			oldNames := verifyFileInfo(t, dirName, nil, tt.firstSegment, 0)
+
+			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.secondSegment), WithStrategy(StrategyReplace),
+			)
 			require.NoError(t, err)
-			require.Equal(t, val, get[0])
-		} else if strategy == StrategyRoaringSet {
-			get, err := b.RoaringSetGet(key)
+			require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
+			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.Shutdown(ctx))
+
+			dbFiles, _ = countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 2)
+			oldNames = verifyFileInfo(t, dirName, oldNames, tt.secondSegment, 0)
+
+			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.compaction), WithStrategy(StrategyReplace),
+			)
 			require.NoError(t, err)
-			require.True(t, get.Contains(uint64(i)))
-		} else if strategy == StrategyRoaringSetRange {
-			//_, err :=  b.Rang
-			//require.NoError(t,err)
-		} else if strategy == StrategyMapCollection {
-			get, err := b.MapList(ctx, key)
+			compact, err := b.disk.compactOnce()
 			require.NoError(t, err)
-			require.Equal(t, val, get[0].Value)
+			require.True(t, compact)
+			dbFiles, _ = countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 1)
+			verifyFileInfo(t, dirName, oldNames, tt.compaction, 1)
+		})
+	}
+}
+
+func countDbAndWalFiles(t *testing.T, path string) (int, int) {
+	t.Helper()
+	fileTypes := map[string]int{}
+	entries, err := os.ReadDir(path)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		fileTypes[filepath.Ext(entry.Name())] += 1
+	}
+	return fileTypes[".db"], fileTypes[".wal"]
+}
+
+func verifyFileInfo(t *testing.T, path string, oldEntries []string, segmentInfo bool, level int) []string {
+	t.Helper()
+	entries, err := os.ReadDir(path)
+	require.NoError(t, err)
+	fileNames := []string{}
+	for _, entry := range entries {
+		fileNames = append(fileNames, entry.Name())
+		if oldEntries != nil && slices.Contains(oldEntries, entry.Name()) {
+			continue
+		}
+		if filepath.Ext(entry.Name()) == ".db" {
+			if segmentInfo {
+				require.Contains(t, entry.Name(), fmt.Sprintf(".l%d.", level))
+				require.Contains(t, entry.Name(), ".s0.")
+			} else {
+				require.NotRegexp(t, regexp.MustCompile(`\.l\d+\.`), entry.Name())
+				require.NotContains(t, entry.Name(), ".s0.")
+			}
 		}
 	}
+	return fileNames
+}
+
+func TestNetCountComputationAtInit(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	ctx := context.Background()
+	dirName := t.TempDir()
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
+	)
+	require.NoError(t, err)
+
+	// create separate segments for each entry
+	require.NoError(t, b.Put([]byte("hello1"), []byte("world1")))
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Put([]byte("hello2"), []byte("world2")))
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Put([]byte("hello3"), []byte("world3")))
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Put([]byte("hello4"), []byte("world4")))
+	require.NoError(t, b.FlushMemtable())
+
+	count, err := b.Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 4, count)
+
+	fileTypes := getFileTypeCount(t, dirName)
+	require.Equal(t, 4, fileTypes[".db"])
+	require.Equal(t, 0, fileTypes[".wal"])
+	require.Equal(t, 4, fileTypes[".cna"])
+
+	// Create a single segment with all deletions - shutdown so the cna files are not written right away, but at startup
+	require.NoError(t, b.Delete([]byte("hello1")))
+	require.NoError(t, b.Delete([]byte("hello2")))
+	require.NoError(t, b.Delete([]byte("hello3")))
+	require.NoError(t, b.Delete([]byte("hello4")))
+	require.NoError(t, b.Shutdown(ctx))
+
+	fileTypes = getFileTypeCount(t, dirName)
+	require.Equal(t, 5, fileTypes[".db"])
+	require.Equal(t, 0, fileTypes[".wal"])
+	require.Equal(t, 4, fileTypes[".cna"]) // cna file for new segment not yet computed
+
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
+	)
+	require.NoError(t, err)
+
+	fileTypes = getFileTypeCount(t, dirName)
+	require.Equal(t, 5, fileTypes[".db"])
+	require.Equal(t, 0, fileTypes[".wal"])
+	require.Equal(t, 5, fileTypes[".cna"]) // now computed after startup
+
+	count, err = b.Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 0, count)
+}
+
+func getFileTypeCount(t *testing.T, path string) map[string]int {
+	t.Helper()
+	fileTypes := map[string]int{}
+	entries, err := os.ReadDir(path)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		fileTypes[filepath.Ext(entry.Name())] += 1
+	}
+	return fileTypes
 }

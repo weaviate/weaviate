@@ -43,11 +43,11 @@ func createSingleNodeEnvironment(ctx context.Context, apiKey string,
 		WithWeaviate().
 		WithWeaviateWithGRPC().
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules(apiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecVoyageAI(apiKey)
-	return
+	return composeModules
 }

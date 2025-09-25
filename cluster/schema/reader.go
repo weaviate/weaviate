@@ -68,7 +68,8 @@ func (rs SchemaReader) ClassInfo(class string) (ci ClassInfo) {
 // ClassEqual returns the name of an existing class with a similar name, and "" otherwise
 // strings.EqualFold is used to compare classes
 func (rs SchemaReader) ClassEqual(name string) string {
-	return rs.schema.ClassEqual(name)
+	x, _ := rs.schema.ClassEqual(name)
+	return x
 }
 
 func (rs SchemaReader) MultiTenancy(class string) models.MultiTenancyConfig {
@@ -88,6 +89,25 @@ func (rs SchemaReader) Read(class string, reader func(*models.Class, *sharding.S
 	})
 }
 
+func (rs SchemaReader) Shards(class string) ([]string, error) {
+	var shards []string
+	err := rs.Read(class, func(class *models.Class, state *sharding.State) error {
+		shards = state.AllPhysicalShards()
+		return nil
+	})
+
+	return shards, err
+}
+
+func (rs SchemaReader) LocalShards(class string) ([]string, error) {
+	var shards []string
+	err := rs.Read(class, func(class *models.Class, state *sharding.State) error {
+		shards = state.AllLocalPhysicalShards()
+		return nil
+	})
+	return shards, err
+}
+
 // ReadOnlyClass returns a shallow copy of a class.
 // The copy is read-only and should not be modified.
 func (rs SchemaReader) ReadOnlyClass(class string) (cls *models.Class) {
@@ -96,6 +116,10 @@ func (rs SchemaReader) ReadOnlyClass(class string) (cls *models.Class) {
 
 	res, _ := rs.ReadOnlyClassWithVersion(context.TODO(), class, 0)
 	return res
+}
+
+func (rs SchemaReader) GetAliasesForClass(class string) []*models.Alias {
+	return rs.schema.GetAliasesForClass(class)
 }
 
 // ReadOnlyVersionedClass returns a shallow copy of a class along with its version.
@@ -115,7 +139,7 @@ func (rs SchemaReader) metaClass(class string) (meta *metaClass) {
 		}
 		return nil
 	})
-	return
+	return meta
 }
 
 // ReadOnlySchema returns a read only schema
@@ -176,14 +200,6 @@ func (rs SchemaReader) TenantsShards(class string, tenants ...string) (map[strin
 	defer t.ObserveDuration()
 
 	return rs.TenantsShardsWithVersion(context.TODO(), 0, class, tenants...)
-}
-
-func (rs SchemaReader) CopyShardingState(class string) (ss *sharding.State) {
-	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("CopyShardingState"))
-	defer t.ObserveDuration()
-
-	res, _ := rs.CopyShardingStateWithVersion(context.TODO(), class, 0)
-	return res
 }
 
 func (rs SchemaReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {

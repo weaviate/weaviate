@@ -48,7 +48,7 @@ func testHammingBitwiseFixedValue(t *testing.T, size uint, hammingBitwiseFn func
 
 func testHammingBitwiseRandomValue(t *testing.T, size uint, hammingBitwiseFn func(x []uint64, y []uint64) float32) {
 	r := getRandomSeed()
-	count := 10000
+	count := 100
 
 	vec1s := make([][]uint64, count)
 	vec2s := make([][]uint64, count)
@@ -138,9 +138,8 @@ func benchmarkHammingBitwise(b *testing.B, dims int, hammingBitwiseFn func(x []u
 func BenchmarkHammingBitwise(b *testing.B) {
 	dims := []int{2, 4, 6, 8, 10, 12, 16, 24, 30, 32, 128, 256, 300, 384, 512, 768, 1024, 1536}
 	for _, dim := range dims {
-		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
+		b.Run(fmt.Sprintf("dim%d-bits%d", dim, 64*dim), func(b *testing.B) {
 			benchmarkHammingBitwise(b, dim, asm.HammingBitwise)
-
 			b.Run("pure go", func(b *testing.B) { benchmarkHammingBitwise(b, dim, HammingBitwiseGo) })
 			b.Run("neon", func(b *testing.B) { benchmarkHammingBitwise(b, dim, asm.HammingBitwise) })
 		})

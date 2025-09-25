@@ -262,16 +262,33 @@ func TestRbacWithOIDCGroups(t *testing.T) {
 			defer helper.DeleteRole(t, tokenAdmin, createSchemaRoleName)
 			helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))
 
+			roles := helper.GetRolesForGroup(t, tokenAdmin, "custom-group", false)
+			require.Len(t, roles, 0)
+
 			// custom-user does not have any roles/permissions
 			err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
 			require.Error(t, err)
 			var forbidden *clschema.SchemaObjectsCreateForbidden
 			require.True(t, errors.As(err, &forbidden))
 
+			ownInfo := helper.GetInfoForOwnUser(t, tokenCustom)
+			require.Contains(t, ownInfo.Groups, "custom-group")
+			require.Len(t, ownInfo.Roles, 0)
+
 			// assigning role to group and now user has permission
 			helper.AssignRoleToGroup(t, tokenAdmin, createSchemaRoleName, "custom-group")
 			err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
 			require.NoError(t, err)
+
+			ownInfo = helper.GetInfoForOwnUser(t, tokenCustom)
+			require.Contains(t, ownInfo.Groups, "custom-group")
+			require.Len(t, ownInfo.Roles, 1)
+			require.Equal(t, *ownInfo.Roles[0].Name, createSchemaRoleName)
+
+			rolesWithRoles := helper.GetRolesForGroup(t, tokenAdmin, "custom-group", true)
+			require.Len(t, rolesWithRoles, 1)
+			require.Equal(t, *rolesWithRoles[0].Name, createSchemaRoleName)
+			require.Len(t, rolesWithRoles[0].Permissions, 2)
 
 			// delete class to test again after revocation
 			helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))
@@ -353,12 +370,20 @@ func TestRbacWithOIDCViewerGroups(t *testing.T) {
 	// can list collection
 	classes := helper.GetClassAuth(t, className, tokenCustom)
 	require.Equal(t, classes.Class, className)
+
+	// cannot modify assignment
+	_, err = helper.Client(t).Authz.RevokeRoleFromGroup(
+		authz.NewRevokeRoleFromGroupParams().WithID("custom-group").WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{"read-only"}}),
+		helper.CreateAuth(tokenAdmin),
+	)
+	require.Error(t, err)
 }
 
 const AuthCode = "auth"
 
 // This test starts an oidc mock server with the same settings as the containerized one. Helpful if you want to know
 // why a OIDC request fails
+// use docker.GetTokensFromMockOIDCWithHelperManualTest(t, "127.0.0.1:48001") to get the tokens
 func TestRbacWithOIDCManual(t *testing.T) {
 	t.Skip("This is for testing/debugging only")
 	rsaKey, _ := rsa.GenerateKey(rand.Reader, 2048)
@@ -369,91 +394,22 @@ func TestRbacWithOIDCManual(t *testing.T) {
 	m.ClientSecret = "Secret"
 	m.ClientID = "mock-oidc-test"
 
-	admin := &mockoidc.MockUser{Subject: "admin-user"}
-	m.QueueUser(admin)
-	m.QueueCode(AuthCode)
+	// allow many runs without restart
+	for i := 0; i < 1000; i++ {
+		admin := &mockoidc.MockUser{Subject: "admin-user"}
+		m.QueueUser(admin)
+		m.QueueCode(AuthCode)
 
-	custom := &mockoidc.MockUser{Subject: "custom-user", Groups: []string{"custom-group"}}
-	m.QueueUser(custom)
-	m.QueueCode(AuthCode)
+		custom := &mockoidc.MockUser{Subject: "custom-user", Groups: []string{"custom-group"}}
+		m.QueueUser(custom)
+		m.QueueCode(AuthCode)
+	}
 
 	// this should just run until we are done with testing
 	for {
 		fmt.Println(m.Issuer())
 		fmt.Println(m.TokenEndpoint())
 		time.Sleep(time.Second)
-	}
-}
-
-func TestRbacWithOIDCAssignRevokeGroups(t *testing.T) {
-	ctx := context.Background()
-	tests := []struct {
-		name  string
-		image *docker.Compose
-	}{
-		{
-			name:  "without certificate",
-			image: docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user"),
-		},
-		{
-			name:  "with certificate",
-			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacRoots("admin-user"),
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			compose, err := test.image.Start(ctx)
-			require.NoError(t, err)
-			defer func() {
-				require.NoError(t, compose.Terminate(ctx))
-			}()
-			helper.SetupClient(compose.GetWeaviate().URI())
-			defer helper.ResetClient()
-
-			// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
-			// description for details
-			tokenAdmin, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
-			tokenCustom, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
-
-			role := models.Role{Name: String("test-role"), Permissions: []*models.Permission{helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).Permission()}}
-			helper.CreateRole(t, tokenAdmin, &role)
-
-			assign := func(key string) error {
-				_, err = helper.Client(t).Authz.AssignRoleToGroup(authz.NewAssignRoleToGroupParams().WithBody(authz.AssignRoleToGroupBody{Roles: []string{*role.Name}}).WithID("custom-group"), helper.CreateAuth(key))
-				return err
-			}
-			revoke := func(key string) error {
-				_, err = helper.Client(t).Authz.RevokeRoleFromGroup(authz.NewRevokeRoleFromGroupParams().WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{*role.Name}}).WithID("custom-group"), helper.CreateAuth(key))
-				return err
-			}
-
-			// non-root users cannot assign roles to groups
-			err = assign(tokenCustom)
-			require.Error(t, err)
-			var forbiddenAssign *authz.AssignRoleToGroupForbidden
-			require.True(t, errors.As(err, &forbiddenAssign))
-
-			// root users can assign roles to groups
-			err = assign(tokenAdmin)
-			if errors.As(err, &forbiddenAssign) {
-				t.Log(forbiddenAssign.Payload.Error[0].Message)
-			}
-			require.NoError(t, err)
-
-			// non-root users cannot revoke roles from groups
-			err = revoke(tokenCustom)
-			require.Error(t, err)
-			var forbiddenRevoke *authz.RevokeRoleFromGroupForbidden
-			require.True(t, errors.As(err, &forbiddenRevoke))
-
-			// root users can revoke roles from groups
-			err = revoke(tokenAdmin)
-			require.NoError(t, err)
-
-			// check that revoking the final group is a no-op
-			err = revoke(tokenAdmin)
-			require.NoError(t, err)
-		})
 	}
 }
 

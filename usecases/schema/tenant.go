@@ -74,18 +74,18 @@ func (h *Handler) AddTenants(ctx context.Context,
 func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated []*models.Tenant, err error) {
 	if !allowOverHundred && len(tenants) > 100 {
 		err = uco.NewErrInvalidUserInput(ErrMsgMaxAllowedTenants)
-		return
+		return validated, err
 	}
 	uniq := make(map[string]*models.Tenant)
 	for i, requested := range tenants {
 		if errMsg := schema.ValidateTenantName(requested.Name); errMsg != nil {
 			err = uco.NewErrInvalidUserInput("tenant name at index %d: %s", i, errMsg.Error())
-			return
+			return validated, err
 		}
 		_, found := uniq[requested.Name]
 		if found {
 			err = uco.NewErrInvalidUserInput("tenant name %s existed multiple times", requested.Name)
-			return
+			return validated, err
 		}
 		uniq[requested.Name] = requested
 	}
@@ -95,7 +95,7 @@ func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated
 		validated[i] = tenant
 		i++
 	}
-	return
+	return validated, err
 }
 
 func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*models.Tenant,
@@ -219,6 +219,11 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 	var allTenants []*models.Tenant
 	var err error
 
+	// support getting tenants via alias
+	class = schema.UppercaseClassName(class)
+	if rclass := h.schemaReader.ResolveAlias(class); rclass != "" {
+		class = rclass
+	}
 	if consistency {
 		allTenants, _, err = h.schemaManager.QueryTenants(class, tenants)
 	} else {

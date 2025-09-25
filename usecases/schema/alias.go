@@ -13,8 +13,10 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	cschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -26,6 +28,10 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 	if className != "" {
 		name := schema.UppercaseClassName(className)
 		class = h.schemaReader.ReadOnlyClass(name)
+		if class == nil {
+			// Optional class Filter not found. So return empty aliases list
+			return []*models.Alias{}, nil
+		}
 	}
 	aliases, err := h.schemaManager.GetAliases(ctx, alias, class)
 	if err != nil {
@@ -39,18 +45,32 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 		aliases,
 		authorization.READ,
 		func(alias *models.Alias) string {
-			return authorization.Aliases(className, alias.Alias)[0]
+			class := className
+			if class == "" {
+				class = alias.Class
+			}
+			return authorization.Aliases(class, alias.Alias)[0]
 		},
 	)
 
 	return filteredAliases, nil
 }
 
-func (h *Handler) GetAlias(ctx context.Context, principal *models.Principal, alias string) ([]*models.Alias, error) {
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.Aliases("", alias)...); err != nil {
+func (h *Handler) GetAlias(ctx context.Context, principal *models.Principal, alias string) (*models.Alias, error) {
+	alias = schema.UppercaseClassName(alias)
+	a, err := h.schemaManager.GetAlias(ctx, alias)
+	if err != nil {
+		if errors.Is(err, cschema.ErrAliasNotFound) {
+			return nil, fmt.Errorf("alias %s not found: %w", alias, ErrNotFound)
+		}
 		return nil, err
 	}
-	return h.GetAliases(ctx, principal, alias, "")
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.Aliases(a.Class, a.Alias)...); err != nil {
+		return nil, err
+	}
+
+	return a, nil
 }
 
 func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
@@ -58,10 +78,19 @@ func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
 ) (*models.Alias, uint64, error) {
 	alias.Class = schema.UppercaseClassName(alias.Class)
 	alias.Alias = schema.UppercaseClassName(alias.Alias)
+
 	err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Aliases(alias.Class, alias.Alias)...)
 	if err != nil {
 		return nil, 0, err
 	}
+
+	// alias should have same validation as collection.
+	al, err := schema.ValidateAliasName(alias.Alias)
+	if err != nil {
+		return nil, 0, err
+	}
+	alias.Alias = al
+
 	class := h.schemaReader.ReadOnlyClass(alias.Class)
 	version, err := h.schemaManager.CreateAlias(ctx, alias.Alias, class)
 	if err != nil {
@@ -101,17 +130,18 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 
 func (h *Handler) DeleteAlias(ctx context.Context, principal *models.Principal, aliasName string) error {
 	aliasName = schema.UppercaseClassName(aliasName)
-	err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Aliases("", aliasName)...)
+
+	a, err := h.schemaManager.GetAlias(ctx, aliasName)
 	if err != nil {
+		if errors.Is(err, cschema.ErrAliasNotFound) {
+			return fmt.Errorf("alias %s not found: %w", aliasName, ErrNotFound)
+		}
 		return err
 	}
 
-	aliases, err := h.schemaManager.GetAliases(ctx, aliasName, nil)
+	err = h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Aliases(a.Class, a.Alias)...)
 	if err != nil {
 		return err
-	}
-	if len(aliases) == 0 {
-		return fmt.Errorf("alias not found: %w", ErrNotFound)
 	}
 
 	if _, err = h.schemaManager.DeleteAlias(ctx, aliasName); err != nil {

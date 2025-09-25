@@ -18,7 +18,7 @@ jobs:
     name: buf-checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: bufbuild/buf-setup-action@v1
         with:
           github_token: ${{ github.token }}
@@ -34,9 +34,9 @@ jobs:
     name: run-swagger
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -60,7 +60,7 @@ jobs:
       PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Run locally Docker build
         run: docker build -t weaviate:${{ github.sha }} .
       - name: Run Orca Container Image Scan
@@ -85,7 +85,7 @@ jobs:
       PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Run Orca SAST Scan
         id: orcasecurity_container_sast_action
         uses: orcasecurity/shiftleft-sast-action@v1
@@ -101,9 +101,9 @@ jobs:
     name: unit-tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -125,9 +125,9 @@ jobs:
           "--integration-without-vector-package"
         ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -156,9 +156,9 @@ jobs:
           "--only-module-text2vec-model2vec"
         ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -183,7 +183,7 @@ jobs:
     outputs:
       run_pipeline: ${{ steps.check.outputs.run_pipeline }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 2
       - id: check
@@ -214,9 +214,9 @@ jobs:
           "--only-module-reranker-transformers"
         ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -250,9 +250,9 @@ jobs:
           "--only-module-many-generative"
         ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -274,7 +274,7 @@ jobs:
     name: modules-acceptance-tests-api
     runs-on: ubuntu-latest
     needs: [Modules-On-Demand-Tests-Check]
-    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork && !startsWith(github.ref, 'refs/tags') }}  # no PRs from fork
     strategy:
       fail-fast: false
       matrix:
@@ -291,13 +291,15 @@ jobs:
           "--only-module-multi2vec-jinaai",
           "--only-module-text2multivec-jinaai",
           "--only-module-multi2multivec-jinaai",
+          "--only-module-multi2vec-aws",
+          "--only-module-text2vec-openai",
         ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 2
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -314,7 +316,7 @@ jobs:
             echo "run_pipeline=false" >> $GITHUB_ENV
           fi
       - name: configure gcp
-        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' }}
         id: creds-gcp
         env:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
@@ -325,9 +327,9 @@ jobs:
           echo "::add-mask::$google_apikey"
           echo "google_apikey=$google_apikey" >> "$GITHUB_OUTPUT"
       - name: configure aws
-        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' }}
         id: creds-aws
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -337,7 +339,7 @@ jobs:
           role-skip-session-tagging: true
           output-credentials: true
       - name: Acceptance tests (modules)
-        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' }}
         env:
           GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
           GOOGLE_APIKEY: ${{ steps.creds-gcp.outputs.google_apikey }}
@@ -369,9 +371,9 @@ jobs:
           "--acceptance-only-python",
         ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -394,9 +396,9 @@ jobs:
       matrix:
         test: ["--acceptance-go-client-named-vectors-single-node", "--acceptance-go-client-named-vectors-cluster", "--acceptance-lsmkv"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -429,18 +431,18 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'main') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Download coverage artifacts integration
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: coverage-report-unit
       - name: Download coverage integration without vector package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: coverage-report-integration--integration-without-vector-package
           path: coverage-integration-without-vector-package.txt
       - name: Download coverage integration vector package only
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: coverage-report-integration--integration-vector-package-only
           path: coverage-integration-vector-package-only.txt
@@ -454,9 +456,9 @@ jobs:
     name: compile-and-upload-binaries
     runs-on: DB-ubuntu-24.04-4-cores
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -507,13 +509,13 @@ jobs:
       RAFT_JOIN: node1
       GRPC_PORT: 50052
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Download binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binaries-windows-amd64
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache: true
@@ -534,7 +536,7 @@ jobs:
     timeout-minutes: 30
     runs-on: DB-ubuntu-24.04-8-cores
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -568,7 +570,7 @@ jobs:
       preview-tags-arm64: ${{ steps.set-outputs.outputs.preview-tags-arm64 }}
       semver-tags-arm64: ${{ steps.set-outputs.outputs.semver-tags-arm64 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -590,7 +592,7 @@ jobs:
     name: generate-docker-report
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Combine tags
         run: |
           # Collect all architecture-specific outputs

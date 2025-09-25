@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -26,16 +27,20 @@ type (
 	TimeObserver       func(start time.Time)
 )
 
+var compactionDurationBuckets = prometheus.ExponentialBuckets(0.01, 2, 18) // 0.01s → 0.02s → ... → ~163.84s
+
 type Metrics struct {
-	CompactionReplace            *prometheus.GaugeVec
-	CompactionSet                *prometheus.GaugeVec
-	CompactionMap                *prometheus.GaugeVec
-	CompactionRoaringSet         *prometheus.GaugeVec
-	CompactionRoaringSetRange    *prometheus.GaugeVec
+	// compaction-related metrics
+	compactionCount        *prometheus.CounterVec
+	compactionInProgress   *prometheus.GaugeVec
+	compactionFailureCount *prometheus.CounterVec
+	compactionNoOpCount    *prometheus.CounterVec
+	compactionDuration     *prometheus.HistogramVec
+
+	// old-style metrics, to be migrated
 	ActiveSegments               *prometheus.GaugeVec
 	ObjectsBucketSegments        *prometheus.GaugeVec
 	CompressedVecsBucketSegments *prometheus.GaugeVec
-	bloomFilters                 prometheus.ObserverVec
 	SegmentObjects               *prometheus.GaugeVec
 	SegmentSize                  *prometheus.GaugeVec
 	SegmentCount                 *prometheus.GaugeVec
@@ -59,41 +64,79 @@ type Metrics struct {
 
 func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	shardName string,
-) *Metrics {
+) (*Metrics, error) {
 	if promMetrics.Group {
 		className = "n/a"
 		shardName = "n/a"
 	}
 
-	replace := promMetrics.AsyncOperations.MustCurryWith(prometheus.Labels{
-		"operation":  "compact_lsm_segments_stratreplace",
-		"class_name": className,
-		"shard_name": shardName,
-	})
+	// compaction-related metrics
+	compactionCount, err := monitoring.EnsureRegisteredMetric(promMetrics.Registerer,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_compaction_count",
+				Help:      "Total number of LSM bucket compactions requested, labeled by segment strategy",
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_compaction_count: %w", err)
+	}
 
-	set := promMetrics.AsyncOperations.MustCurryWith(prometheus.Labels{
-		"operation":  "compact_lsm_segments_stratset",
-		"class_name": className,
-		"shard_name": shardName,
-	})
+	compactionInProgress, err := monitoring.EnsureRegisteredMetric(promMetrics.Registerer, prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "weaviate",
+			Name:      "lsm_bucket_compaction_in_progress",
+			Help:      "Number of LSM bucket compactions currently in progress, labeled by segment strategy",
+		},
+		[]string{"strategy"},
+	))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_compaction_in_progress: %w", err)
+	}
 
-	roaringSet := promMetrics.AsyncOperations.MustCurryWith(prometheus.Labels{
-		"operation":  "compact_lsm_segments_stratroaringset",
-		"class_name": className,
-		"shard_name": shardName,
-	})
+	compactionFailureCount, err := monitoring.EnsureRegisteredMetric(promMetrics.Registerer,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_compaction_failure_count",
+				Help:      "Number of failed LSM bucket compactions, labeled by segment strategy",
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_compaction_failure_count: %w", err)
+	}
 
-	roaringSetRange := promMetrics.AsyncOperations.MustCurryWith(prometheus.Labels{
-		"operation":  "compact_lsm_segments_stratroaringsetrange",
-		"class_name": className,
-		"shard_name": shardName,
-	})
+	compactionNoOpCount, err := monitoring.EnsureRegisteredMetric(promMetrics.Registerer,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_compaction_noop_count",
+				Help:      "Number of times the periodic LSM bucket compaction task ran but found nothing to compact, labeled by segment strategy",
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_compaction_noop_count: %w", err)
+	}
 
-	stratMap := promMetrics.AsyncOperations.MustCurryWith(prometheus.Labels{
-		"operation":  "compact_lsm_segments_stratmap",
-		"class_name": className,
-		"shard_name": shardName,
-	})
+	compactionDuration, err := monitoring.EnsureRegisteredMetric(promMetrics.Registerer,
+		prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_compaction_duration_seconds",
+				Help:      "Duration of LSM bucket compaction in seconds, labeled by segment strategy",
+				Buckets:   compactionDurationBuckets,
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_compaction_duration_seconds: %w", err)
+	}
+
+	// old-style metrics, to be migrated
 
 	lazySegmentInit := monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
 		"operation":  "lazySegmentInit",
@@ -123,13 +166,16 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	})
 
 	return &Metrics{
-		groupClasses:              promMetrics.Group,
-		criticalBucketsOnly:       promMetrics.LSMCriticalBucketsOnly,
-		CompactionReplace:         replace,
-		CompactionSet:             set,
-		CompactionMap:             stratMap,
-		CompactionRoaringSet:      roaringSet,
-		CompactionRoaringSetRange: roaringSetRange,
+		groupClasses:        promMetrics.Group,
+		criticalBucketsOnly: promMetrics.LSMCriticalBucketsOnly,
+
+		compactionNoOpCount:    compactionNoOpCount,
+		compactionCount:        compactionCount,
+		compactionInProgress:   compactionInProgress,
+		compactionFailureCount: compactionFailureCount,
+		compactionDuration:     compactionDuration,
+
+		// old-style metrics, to be migrated
 		ActiveSegments: promMetrics.LSMSegmentCount.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
@@ -139,10 +185,6 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"shard_name": shardName,
 		}),
 		CompressedVecsBucketSegments: promMetrics.LSMCompressedVecsBucketSegmentCount.MustCurryWith(prometheus.Labels{
-			"class_name": className,
-			"shard_name": shardName,
-		}),
-		bloomFilters: promMetrics.LSMBloomFilters.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
 		}),
@@ -192,11 +234,51 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		LazySegmentClose:  lazySegmentClose,
 		LazySegmentInit:   lazySegmentInit,
 		LazySegmentUnLoad: lazySegmentUnload,
-	}
+	}, nil
 }
 
-func noOpTimeObserver(start time.Time) {
-	// do nothing
+// compaction metrics
+
+func (m *Metrics) IncCompactionCount(strategy string) {
+	if m == nil {
+		return
+	}
+	m.compactionCount.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) IncCompactionInProgress(strategy string) {
+	if m == nil {
+		return
+	}
+	m.compactionInProgress.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) DecCompactionInProgress(strategy string) {
+	if m == nil {
+		return
+	}
+	m.compactionInProgress.WithLabelValues(strategy).Dec()
+}
+
+func (m *Metrics) IncCompactionNoOp(strategy string) {
+	if m == nil {
+		return
+	}
+	m.compactionNoOpCount.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) IncCompactionFailureCount(strategy string) {
+	if m == nil {
+		return
+	}
+	m.compactionFailureCount.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) ObserveCompactionDuration(strategy string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	m.compactionDuration.WithLabelValues(strategy).Observe(duration.Seconds())
 }
 
 func noOpNsObserver(startNs int64) {
@@ -273,21 +355,6 @@ func (m *Metrics) MemtableSizeSetter(path, strategy string) Setter {
 
 	return func(size uint64) {
 		curried.Set(float64(size))
-	}
-}
-
-func (m *Metrics) BloomFilterObserver(strategy, operation string) TimeObserver {
-	if m == nil {
-		return noOpTimeObserver
-	}
-
-	curried := m.bloomFilters.With(prometheus.Labels{
-		"strategy":  strategy,
-		"operation": operation,
-	})
-
-	return func(before time.Time) {
-		curried.Observe(float64(time.Since(before)) / float64(time.Millisecond))
 	}
 }
 

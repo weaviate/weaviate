@@ -42,5 +42,6 @@ func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) transfo
 		InferenceURL:        settings.InferenceURL(),
 		PassageInferenceURL: settings.PassageInferenceURL(),
 		QueryInferenceURL:   settings.QueryInferenceURL(),
+		Dimensions:          settings.Dimensions(),
 	}
 }

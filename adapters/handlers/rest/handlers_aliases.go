@@ -63,9 +63,13 @@ func (s *aliasesHandlers) getAlias(params schema.AliasesGetAliasParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	aliases, err := s.manager.GetAlias(ctx, principal, params.AliasName)
+	alias, err := s.manager.GetAlias(ctx, principal, params.AliasName)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
+		if errors.Is(err, schemaUC.ErrNotFound) {
+			return schema.NewAliasesGetAliasNotFound()
+		}
+
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewAliasesGetAliasForbidden().
@@ -75,21 +79,9 @@ func (s *aliasesHandlers) getAlias(params schema.AliasesGetAliasParams,
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
-	if len(aliases) == 0 {
-		return schema.NewAliasesGetAliasNotFound()
-	}
-	if len(aliases) > 1 {
-		return schema.NewAliasesGetAliasInternalServerError().WithPayload(&models.ErrorResponse{
-			Error: []*models.ErrorResponseErrorItems0{
-				{
-					Message: "get alias returned more than one alias",
-				},
-			},
-		})
-	}
 
 	s.metricRequestsTotal.logOk("")
-	return schema.NewAliasesGetAliasOK().WithPayload(aliases[0])
+	return schema.NewAliasesGetAliasOK().WithPayload(alias)
 }
 
 func (s *aliasesHandlers) addAlias(params schema.AliasesCreateParams,

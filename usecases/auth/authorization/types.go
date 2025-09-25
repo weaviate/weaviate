@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -35,10 +37,11 @@ const (
 	ROLE_SCOPE_ALL   = "ALL"
 	ROLE_SCOPE_MATCH = "MATCH"
 
-	USER_ASSIGN_AND_REVOKE = "A"
+	USER_AND_GROUP_ASSIGN_AND_REVOKE = "A"
 )
 
 const (
+	GroupsDomain      = "groups"
 	UsersDomain       = "users"
 	RolesDomain       = "roles"
 	ClusterDomain     = "cluster"
@@ -71,6 +74,10 @@ var (
 		Verbosity:  String(verbosity.OutputVerbose),
 		Collection: All,
 	}
+	AllOIDCGroups = &models.PermissionGroups{
+		Group:     All,
+		GroupType: models.GroupTypeOidc,
+	}
 	AllRoles = &models.PermissionRoles{
 		Role:  All,
 		Scope: String(models.PermissionRolesScopeAll),
@@ -102,6 +109,9 @@ var (
 
 	ReadCluster = "read_cluster"
 	ReadNodes   = "read_nodes"
+
+	AssignAndRevokeGroups = "assign_and_revoke_groups"
+	ReadGroups            = "read_groups"
 
 	AssignAndRevokeUsers = "assign_and_revoke_users"
 	CreateUsers          = "create_users"
@@ -156,6 +166,10 @@ var (
 		// Cluster domain
 		ReadCluster,
 
+		// Groups domain
+		AssignAndRevokeGroups,
+		ReadGroups,
+
 		// Nodes domain
 		ReadNodes,
 
@@ -192,19 +206,24 @@ var (
 )
 
 var (
-	Viewer       = "viewer"
-	Admin        = "admin"
+	// build-in roles that can be assigned via API
+	Viewer = "viewer"
+	Admin  = "admin"
+	// build-in roles that can be assigned via env vars and cannot be changed via APIS
 	Root         = "root"
-	BuiltInRoles = []string{Viewer, Admin, Root}
+	ReadOnly     = "read-only"
+	BuiltInRoles = []string{Viewer, Admin, Root, ReadOnly}
 
 	// viewer : can view everything , roles, users, schema, data
 	// editor : can create/read/update everything , roles, users, schema, data
 	// Admin : aka basically super Admin or root
 	BuiltInPermissions = map[string][]*models.Permission{
-		Viewer: viewerPermissions(),
-		Admin:  adminPermissions(),
-		Root:   adminPermissions(),
+		Viewer:   viewerPermissions(),
+		Admin:    adminPermissions(),
+		Root:     adminPermissions(),
+		ReadOnly: viewerPermissions(),
 	}
+	EnvVarRoles = []string{ReadOnly, Root}
 )
 
 type Policy struct {
@@ -244,6 +263,31 @@ func Nodes(verbosity string, classes ...string) []string {
 		} else {
 			resources[idx] = nodes(verbosity, classes[idx])
 		}
+	}
+
+	return resources
+}
+
+// Groups generates a list of user resource strings based on the provided group names.
+// If no group names are provided, it returns a default user resource string "groups/*".
+//
+// Parameters:
+//
+//	groups - A variadic parameter representing the group names.
+//
+// Returns:
+//
+//	A slice of strings where each string is a formatted user resource string.
+func Groups(groupType authentication.AuthType, groups ...string) []string {
+	if len(groups) == 0 || (len(groups) == 1 && (groups[0] == "" || groups[0] == "*")) {
+		return []string{
+			fmt.Sprintf("%s/%s/*", GroupsDomain, groupType),
+		}
+	}
+
+	resources := make([]string, len(groups))
+	for idx := range groups {
+		resources[idx] = fmt.Sprintf("%s/%s/%s", GroupsDomain, groupType, groups[idx])
 	}
 
 	return resources
@@ -524,6 +568,7 @@ func viewerPermissions() []*models.Permission {
 			Tenants:     AllTenants,
 			Users:       AllUsers,
 			Aliases:     AllAliases,
+			Groups:      AllOIDCGroups,
 		})
 	}
 
@@ -545,6 +590,7 @@ func adminPermissions() []*models.Permission {
 			Tenants:     AllTenants,
 			Users:       AllUsers,
 			Aliases:     AllAliases,
+			Groups:      AllOIDCGroups,
 		})
 	}
 

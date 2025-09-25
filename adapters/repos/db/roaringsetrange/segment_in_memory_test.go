@@ -240,6 +240,14 @@ func TestSegmentInMemoryReader(t *testing.T) {
 				name:     "contains all",
 				operator: filters.ContainsAll,
 			},
+			{
+				name:     "contains none",
+				operator: filters.ContainsNone,
+			},
+			{
+				name:     "not",
+				operator: filters.OperatorNot,
+			},
 		}
 
 		for _, tc := range testCases {
@@ -393,7 +401,7 @@ func (p *bitmapBufPoolWithCounter) Get(minCap int) (buf []byte, put func()) {
 func (p *bitmapBufPoolWithCounter) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
 	buf, put := p.Get(bm.LenInBytes())
 	cloned = bm.CloneToBuf(buf)
-	return
+	return cloned, put
 }
 
 func (p *bitmapBufPoolWithCounter) InUseCounter() int {

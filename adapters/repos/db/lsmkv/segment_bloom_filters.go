@@ -65,7 +65,6 @@ func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool, existingFil
 			}
 		}
 	}
-	s.bloomFilterMetrics = newBloomFilterMetrics(metrics)
 	return nil
 }
 
@@ -128,57 +127,6 @@ func (s *segment) computeAndStoreBloomFilter(path string) error {
 	if err := s.storeBloomFilterOnDisk(path); err != nil {
 		return fmt.Errorf("store bloom filter on disk: %w", err)
 	}
-
-	return nil
-}
-
-func (s *segment) precomputeBloomFilters() ([]string, error) {
-	out := []string{}
-
-	if err := s.precomputeBloomFilter(); err != nil {
-		return nil, fmt.Errorf("precompute bloom filter for primary index: %w", err)
-	}
-	out = append(out, fmt.Sprintf("%s.tmp", s.bloomFilterPath()))
-
-	if s.secondaryIndexCount > 0 {
-		s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
-		for i := range s.secondaryBloomFilters {
-			if err := s.precomputeSecondaryBloomFilter(i); err != nil {
-				return nil, fmt.Errorf("precompute bloom filter for secondary index at %d: %w", i, err)
-			}
-			out = append(out, fmt.Sprintf("%s.tmp", s.bloomFilterSecondaryPath(i)))
-		}
-	}
-	return out, nil
-}
-
-func (s *segment) precomputeBloomFilter() error {
-	before := time.Now()
-
-	path := fmt.Sprintf("%s.tmp", s.bloomFilterPath())
-	ok, err := fileExists(path)
-	if err != nil {
-		return err
-	}
-
-	if ok {
-		s.logger.WithField("action", "lsm_precompute_disk_segment_build_bloom_filter_primary").
-			WithField("path", path).
-			Debugf("temp bloom filter already exists - deleting")
-		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("delete existing primary temp bloom filter %s: %w", path, err)
-		}
-	}
-
-	if err := s.computeAndStoreBloomFilter(path); err != nil {
-		return err
-	}
-
-	took := time.Since(before)
-	s.logger.WithField("action", "lsm_precompute_disk_segment_build_bloom_filter_primary").
-		WithField("path", s.path).
-		WithField("took", took).
-		Debugf("building bloom filter took %s\n", took)
 
 	return nil
 }
@@ -272,38 +220,6 @@ func (s *segment) computeAndStoreSecondaryBloomFilter(path string, pos int) erro
 		return fmt.Errorf("store secondary bloom filter on disk: %w", err)
 	}
 
-	return nil
-}
-
-func (s *segment) precomputeSecondaryBloomFilter(pos int) error {
-	before := time.Now()
-	path := fmt.Sprintf("%s.tmp", s.bloomFilterSecondaryPath(pos))
-
-	ok, err := fileExists(path)
-	if err != nil {
-		return err
-	}
-
-	if ok {
-		s.logger.WithField("action", "lsm_precompute_disk_segment_build_bloom_filter_secondary").
-			WithField("secondary_index_position", pos).
-			WithField("path", path).
-			Debugf("temp bloom filter already exists - deleting")
-		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("delete existing secondary temp bloom filter %s: %w", path, err)
-		}
-	}
-
-	if err := s.computeAndStoreSecondaryBloomFilter(path, pos); err != nil {
-		return err
-	}
-
-	took := time.Since(before)
-	s.logger.WithField("action", "lsm_precompute_disk_segment_build_bloom_filter_secondary").
-		WithField("secondary_index_position", pos).
-		WithField("path", s.path).
-		WithField("took", took).
-		Debugf("building bloom filter took %s\n", took)
 	return nil
 }
 

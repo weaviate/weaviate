@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/google/uuid"
@@ -35,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -81,8 +83,9 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	className schema.ClassName, properties []string,
 	disableInvertedSorter *runtime.DynamicValue[bool],
 ) ([]*storobj.Object, error) {
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesNUMCPU(2))
 	beforeFilters := time.Now()
-	allowList, err := s.docIDs(ctx, filter, additional, className, limit)
+	allowList, err := s.docIDs(ctx, filter, className, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -150,6 +153,23 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		PropertyPaths: propertyPaths,
 	}
 
+	deletedIds := sroar.NewBitmap()
+	deletedCount := 0
+	handleDeletedId := func(id uint64) {
+		if deletedIds.Set(id) {
+			if deletedCount++; deletedCount >= 1024 {
+				s.bitmapFactory.Remove(deletedIds)
+				deletedIds = sroar.NewBitmap().CloneToBuf(deletedIds.ToBuffer())
+				deletedCount = 0
+			}
+		}
+	}
+	defer func() {
+		if deletedCount > 0 {
+			s.bitmapFactory.Remove(deletedIds)
+		}
+	}()
+
 	i := 0
 	loop := 0
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
@@ -165,6 +185,7 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		}
 
 		if res == nil {
+			handleDeletedId(docID)
 			continue
 		}
 
@@ -202,35 +223,31 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	return s.docIDs(ctx, filter, additional, className, 0)
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesNUMCPU(2))
+	return s.docIDs(ctx, filter, className, 0)
 }
 
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
-	additional additional.Properties, className schema.ClassName,
-	limit int,
+	className schema.ClassName, limit int,
 ) (helpers.AllowList, error) {
-	pv, err := s.extractPropValuePair(filter.Root, className)
+	pv, err := s.extractPropValuePair(ctx, filter.Root, className)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := pv.fetchDocIDs(ctx, s, limit); err != nil {
-		return nil, fmt.Errorf("fetch doc ids for prop/value pair: %w", err)
-	}
-
-	beforeMerge := time.Now()
-	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_merge_len", len(pv.children))
-	dbm, err := pv.mergeDocIDs()
+	beforeResolve := time.Now()
+	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_len", len(pv.children))
+	dbm, err := pv.resolveDocIDs(ctx, s, limit)
 	if err != nil {
-		return nil, fmt.Errorf("merge doc ids by operator: %w", err)
+		return nil, fmt.Errorf("resolve doc ids for prop/value pair: %w", err)
 	}
-	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_merge_took", time.Since(beforeMerge))
+	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_took", time.Since(beforeResolve))
 
 	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
 }
 
-func (s *Searcher) extractPropValuePair(filter *filters.Clause,
-	className schema.ClassName,
+func (s *Searcher) extractPropValuePair(
+	ctx context.Context, filter *filters.Clause, className schema.ClassName,
 ) (*propValuePair, error) {
 	class := s.getClass(className.String())
 	if class == nil {
@@ -242,7 +259,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 	if filter.Operands != nil {
 		// nested filter
-		children, err := s.extractPropValuePairs(filter.Operands, className)
+		children, err := s.extractPropValuePairs(ctx, filter.Operands, className)
 		if err != nil {
 			return nil, err
 		}
@@ -251,8 +268,11 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 		return out, nil
 	}
 
-	if filter.Operator == filters.ContainsAny || filter.Operator == filters.ContainsAll {
-		return s.extractContains(filter.On, filter.Value.Type, filter.Value.Value, filter.Operator, class)
+	switch filter.Operator {
+	case filters.ContainsAll, filters.ContainsAny, filters.ContainsNone:
+		return s.extractContains(ctx, filter.On, filter.Value.Type, filter.Value.Value, filter.Operator, class)
+	default:
+		// proceed
 	}
 
 	// on value or non-nested filter
@@ -310,17 +330,21 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	return s.extractPrimitiveProp(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
 }
 
-func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className schema.ClassName) ([]*propValuePair, error) {
+func (s *Searcher) extractPropValuePairs(ctx context.Context,
+	operands []filters.Clause, className schema.ClassName,
+) ([]*propValuePair, error) {
 	children := make([]*propValuePair, len(operands))
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
-	// prevent unbounded concurrency, see
-	// https://github.com/weaviate/weaviate/issues/3179 for details
-	eg.SetLimit(2 * _NUMCPU)
+	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.NUMCPU)
+	eg.SetLimit(outerConcurrencyLimit)
+
+	concurrencyReductionFactor := min(len(operands), outerConcurrencyLimit)
 
 	for i, clause := range operands {
 		i, clause := i, clause
 		eg.Go(func() error {
-			child, err := s.extractPropValuePair(&clause, className)
+			ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.NUMCPU)
+			child, err := s.extractPropValuePair(ctx, &clause, className)
 			if err != nil {
 				return fmt.Errorf("nested clause at pos %d: %w", i, err)
 			}
@@ -576,9 +600,9 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		// if the operator is like, we cannot apply the regular text-splitting
 		// logic as it would remove all wildcard symbols
 		if operator == filters.OperatorLike {
-			terms = helpers.TokenizeWithWildcards(prop.Tokenization, valueString)
+			terms = tokenizer.TokenizeWithWildcards(prop.Tokenization, valueString)
 		} else {
-			terms = helpers.Tokenize(prop.Tokenization, valueString)
+			terms = tokenizer.Tokenize(prop.Tokenization, valueString)
 		}
 	default:
 		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
@@ -672,7 +696,8 @@ func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.Da
 	}, nil
 }
 
-func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType, value interface{},
+func (s *Searcher) extractContains(ctx context.Context,
+	path *filters.Path, propType schema.DataType, value interface{},
 	operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
 	var operands []filters.Clause
@@ -711,7 +736,7 @@ func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType,
 		return nil, fmt.Errorf("unsupported type '%T' for '%v' operator", propType, operator)
 	}
 
-	children, err := s.extractPropValuePairs(operands, schema.ClassName(class.Class))
+	children, err := s.extractPropValuePairs(ctx, operands, schema.ClassName(class.Class))
 	if err != nil {
 		return nil, err
 	}
@@ -719,13 +744,29 @@ func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType,
 	if err != nil {
 		return nil, fmt.Errorf("new prop value pair: %w", err)
 	}
+
 	out.children = children
-	// filters.ContainsAny
-	out.operator = filters.OperatorOr
-	if operator == filters.ContainsAll {
-		out.operator = filters.OperatorAnd
-	}
 	out.Class = class
+
+	switch operator {
+	case filters.ContainsAll:
+		out.operator = filters.OperatorAnd
+	case filters.ContainsAny:
+		out.operator = filters.OperatorOr
+	case filters.ContainsNone:
+		out.operator = filters.OperatorOr
+
+		parent, err := newPropValuePair(class)
+		if err != nil {
+			return nil, fmt.Errorf("new prop value pair: %w", err)
+		}
+		parent.operator = filters.OperatorNot
+		parent.children = []*propValuePair{out}
+		parent.Class = class
+		out = parent
+	default:
+		return nil, fmt.Errorf("unknown contains operator %v", operator)
+	}
 	return out, nil
 }
 

@@ -35,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 	"github.com/weaviate/weaviate/usecases/modules"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type ClassIndexCheck interface {
@@ -210,10 +209,6 @@ func (f *fakeSchemaGetter) ReadOnlyClass(className string) *models.Class {
 	return f.schema.GetClass(className)
 }
 
-func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
-	panic("not implemented")
-}
-
 func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error) {
 	return shard, nil
 }
@@ -261,6 +256,10 @@ func (f *fakeSchemaGetter) Statistics() map[string]any {
 
 func (f *fakeSchemaGetter) ResolveAlias(string) string {
 	return ""
+}
+
+func (f *fakeSchemaGetter) GetAliasesForClass(string) []*models.Alias {
+	return nil
 }
 
 type fakeInterpretation struct{}

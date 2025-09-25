@@ -17,7 +17,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router"
+	"github.com/weaviate/weaviate/usecases/multitenancy"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -56,20 +57,22 @@ type processor interface {
 }
 
 type Migrator struct {
-	db      *DB
-	cloud   modulecapabilities.OffloadCloud
-	logger  logrus.FieldLogger
-	cluster processor
-	nodeId  string
+	db            *DB
+	cloud         modulecapabilities.OffloadCloud
+	logger        logrus.FieldLogger
+	cluster       processor
+	nodeId        string
+	localNodeName string
 
 	classLocks *esync.KeyLocker
 }
 
-func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
+func NewMigrator(db *DB, logger logrus.FieldLogger, localNodeName string) *Migrator {
 	return &Migrator{
-		db:         db,
-		logger:     logger,
-		classLocks: esync.NewKeyLocker(),
+		db:            db,
+		logger:        logger,
+		classLocks:    esync.NewKeyLocker(),
+		localNodeName: localNodeName,
 	}
 }
 
@@ -90,9 +93,7 @@ func (m *Migrator) SetOffloadProvider(provider provider, moduleName string) {
 	m.logger.Info(fmt.Sprintf("module %s is enabled", moduleName))
 }
 
-func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
-	shardState *sharding.State,
-) error {
+func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	if err := replica.ValidateConfig(class, m.db.config.Replication); err != nil {
 		return fmt.Errorf("replication config: %w", err)
 	}
@@ -107,10 +108,10 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
-	shardingState := m.db.schemaGetter.CopyShardingState(class.Class)
+	collection := schema.ClassName(class.Class).String()
 	indexRouter := router.NewBuilder(
-		schema.ClassName(class.Class).String(),
-		shardingState.PartitioningEnabled,
+		collection,
+		multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		m.db.nodeSelector,
 		m.db.schemaGetter,
 		m.db.schemaReader,
@@ -131,6 +132,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			MemtablesMaxActiveSeconds:                    m.db.config.MemtablesMaxActiveSeconds,
 			MinMMapSize:                                  m.db.config.MinMMapSize,
 			LazySegmentsDisabled:                         m.db.config.LazySegmentsDisabled,
+			SegmentInfoIntoFileNameEnabled:               m.db.config.SegmentInfoIntoFileNameEnabled,
+			WriteMetadataFilesEnabled:                    m.db.config.WriteMetadataFilesEnabled,
 			MaxReuseWalSize:                              m.db.config.MaxReuseWalSize,
 			SegmentsCleanupIntervalSeconds:               m.db.config.SegmentsCleanupIntervalSeconds,
 			SeparateObjectsCompactions:                   m.db.config.SeparateObjectsCompactions,
@@ -138,6 +141,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			IndexRangeableInMemory:                       m.db.config.IndexRangeableInMemory,
 			MaxSegmentSize:                               m.db.config.MaxSegmentSize,
 			TrackVectorDimensions:                        m.db.config.TrackVectorDimensions,
+			TrackVectorDimensionsInterval:                m.db.config.TrackVectorDimensionsInterval,
+			UsageEnabled:                                 m.db.config.UsageEnabled,
 			AvoidMMap:                                    m.db.config.AvoidMMap,
 			DisableLazyLoadShards:                        m.db.config.DisableLazyLoadShards,
 			ForceFullReplicasSearch:                      m.db.config.ForceFullReplicasSearch,
@@ -160,16 +165,16 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			QuerySlowLogEnabled:                          m.db.config.QuerySlowLogEnabled,
 			QuerySlowLogThreshold:                        m.db.config.QuerySlowLogThreshold,
 			InvertedSorterDisabled:                       m.db.config.InvertedSorterDisabled,
+			MaintenanceModeEnabled:                       m.db.config.MaintenanceModeEnabled,
 		},
-		shardState,
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
-		indexRouter, m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
+		indexRouter, m.db.schemaGetter, m.db.schemaReader, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
-		m.db.memMonitor, m.db.reindexer)
+		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -257,7 +262,7 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 
 	{ // add index if missing
 		if idx == nil {
-			if err := m.AddClass(ctx, incomingClass, incomingSS); err != nil {
+			if err := m.AddClass(ctx, incomingClass); err != nil {
 				return fmt.Errorf(
 					"add missing class %s during update index: %w",
 					incomingClass.Class, err)
@@ -479,7 +484,13 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 		return errors.Errorf("cannot update shard status to a non-existing index for %s", className)
 	}
 
-	return idx.updateShardStatus(ctx, shardName, targetStatus, schemaVersion)
+	tenantName := ""
+	if idx.partitioningEnabled {
+		// If partitioning is enable it means the collection is multi tenant and the shard name must match the tenant name
+		// otherwise the tenant name is expected to be empty.
+		tenantName = shardName
+	}
+	return idx.updateShardStatus(ctx, tenantName, shardName, targetStatus, schemaVersion)
 }
 
 // NewTenants creates new partitions
@@ -644,8 +655,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	return ec.ToError()
 }
 
-// DeleteTenants deletes tenants
-// CAUTION: will not delete inactive tenants (shard files will not be removed)
+// DeleteTenants deletes tenant from the database and data from the disk, no matter the current status of the tenant
 func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
 	indexID := indexID(schema.ClassName(class))
 
@@ -735,7 +745,7 @@ func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]sche
 ) error {
 	for vecName := range old {
 		if err := m.ValidateVectorIndexConfigUpdate(old[vecName], updated[vecName]); err != nil {
-			return fmt.Errorf("vector %q", vecName)
+			return fmt.Errorf("invalid update for vector %q: %w", vecName, err)
 		}
 	}
 	return nil
@@ -798,7 +808,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
 		err := index.ForEachShard(func(name string, shard ShardLike) error {
-			return shard.resetDimensionsLSM()
+			return shard.resetDimensionsLSM(ctx)
 		})
 		if err != nil {
 			m.logger.WithField("action", "reindex").WithError(err).Warn("could not reset vector dimensions")

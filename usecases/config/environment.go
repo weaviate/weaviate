@@ -52,6 +52,8 @@ const (
 	DefaultReplicationEngineFileCopyWorkers = 10
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
+
+	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -89,10 +91,30 @@ func FromEnv(config *Config) error {
 		config.TrackVectorDimensions = true
 	}
 
-	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
-		if config.TrackVectorDimensions {
-			config.ReindexVectorDimensionsAtStartup = true
+	timeout := 30 * time.Second
+	opt := os.Getenv("MINIMUM_INTERNAL_TIMEOUT")
+	if opt != "" {
+		if parsed, err := time.ParseDuration(opt); err == nil {
+			timeout = parsed
+		} else {
+			return fmt.Errorf("parse MINIMUM_INTERNAL_TIMEOUT as duration: %w", err)
 		}
+	}
+
+	config.MinimumInternalTimeout = timeout
+
+	if v := os.Getenv("TRACK_VECTOR_DIMENSIONS_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse TRACK_VECTOR_DIMENSIONS_INTERVAL as duration: %w", err)
+		}
+		config.TrackVectorDimensionsInterval = interval
+	} else {
+		config.TrackVectorDimensionsInterval = DefaultTrackVectorDimensionsInterval
+	}
+
+	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
+		config.ReindexVectorDimensionsAtStartup = true
 	}
 
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
@@ -175,6 +197,7 @@ func FromEnv(config *Config) error {
 			userClaim       string
 			groupsClaim     string
 			certificate     string
+			jwksUrl         string
 		)
 
 		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
@@ -205,6 +228,10 @@ func FromEnv(config *Config) error {
 			certificate = v
 		}
 
+		if v := os.Getenv("AUTHENTICATION_OIDC_JWKS_URL"); v != "" {
+			jwksUrl = v
+		}
+
 		config.Authentication.OIDC.SkipClientIDCheck = runtime.NewDynamicValue(skipClientCheck)
 		config.Authentication.OIDC.Issuer = runtime.NewDynamicValue(issuer)
 		config.Authentication.OIDC.ClientID = runtime.NewDynamicValue(clientID)
@@ -212,6 +239,7 @@ func FromEnv(config *Config) error {
 		config.Authentication.OIDC.UsernameClaim = runtime.NewDynamicValue(userClaim)
 		config.Authentication.OIDC.GroupsClaim = runtime.NewDynamicValue(groupsClaim)
 		config.Authentication.OIDC.Certificate = runtime.NewDynamicValue(certificate)
+		config.Authentication.OIDC.JWKSUrl = runtime.NewDynamicValue(jwksUrl)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
@@ -281,12 +309,12 @@ func FromEnv(config *Config) error {
 
 		viewerGroupString, ok := os.LookupEnv("AUTHORIZATION_RBAC_READONLY_GROUPS")
 		if ok {
-			config.Authorization.Rbac.ViewerGroups = strings.Split(viewerGroupString, ",")
+			config.Authorization.Rbac.ReadOnlyGroups = strings.Split(viewerGroupString, ",")
 		} else {
 			// delete this after 1.30.11 + 1.31.3 is the minimum version in WCD
 			viewerGroupString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_ROOT_GROUPS")
 			if ok {
-				config.Authorization.Rbac.ViewerGroups = strings.Split(viewerGroupString, ",")
+				config.Authorization.Rbac.ReadOnlyGroups = strings.Split(viewerGroupString, ",")
 			}
 		}
 
@@ -351,6 +379,18 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("PERSISTENCE_LAZY_SEGMENTS_DISABLED")) {
 		config.Persistence.LazySegmentsDisabled = true
+	}
+
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_SEGMENT_INFO_FROM_FILE_DISABLED")) {
+		config.Persistence.SegmentInfoIntoFileNameEnabled = false
+	} else {
+		config.Persistence.SegmentInfoIntoFileNameEnabled = true
+	}
+
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_WRITE_METADATA_FILES_ENABLED")) {
+		config.Persistence.WriteMetadataFilesEnabled = true
+	} else {
+		config.Persistence.WriteMetadataFilesEnabled = false
 	}
 
 	if v := os.Getenv("PERSISTENCE_MAX_REUSE_WAL_SIZE"); v != "" {
@@ -418,6 +458,12 @@ func FromEnv(config *Config) error {
 		return err
 	}
 	// ---- HNSW snapshots ----
+
+	defaultQuantization := ""
+	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
+		defaultQuantization = strings.ToLower(v)
+	}
+	config.DefaultQuantization = runtime.NewDynamicValue(defaultQuantization)
 
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
@@ -626,7 +672,9 @@ func FromEnv(config *Config) error {
 		config.EnableModules = v
 	}
 
-	if entcfg.Enabled(os.Getenv("ENABLE_API_BASED_MODULES")) {
+	if entcfg.Enabled(os.Getenv("API_BASED_MODULES_DISABLED")) {
+		config.EnableApiBasedModules = false
+	} else {
 		config.EnableApiBasedModules = true
 	}
 
@@ -857,6 +905,26 @@ func FromEnv(config *Config) error {
 		querySlowLogThreshold = threshold
 	}
 	config.QuerySlowLogThreshold = runtime.NewDynamicValue(querySlowLogThreshold)
+
+	envName := "QUERY_BITMAP_BUFS_MAX_MEMORY"
+	config.QueryBitmapBufsMaxMemory = DefaultQueryBitmapBufsMaxMemory
+	if v := os.Getenv(envName); v != "" {
+		bytes, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("%s: %w", envName, err)
+		}
+		config.QueryBitmapBufsMaxMemory = int(bytes)
+	}
+
+	envName = "QUERY_BITMAP_BUFS_MAX_BUF_SIZE"
+	config.QueryBitmapBufsMaxBufSize = DefaultQueryBitmapBufsMaxBufSize
+	if v := os.Getenv(envName); v != "" {
+		bytes, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("%s: %w", envName, err)
+		}
+		config.QueryBitmapBufsMaxBufSize = int(bytes)
+	}
 
 	invertedSorterDisabled := false
 	if v := os.Getenv("INVERTED_SORTER_DISABLED"); v != "" {
@@ -1195,6 +1263,9 @@ const (
 	DefaultQueryNestedCrossReferenceLimit = int64(100000)
 	// DefaultQueryCrossReferenceDepthLimit describes the max depth of nested crossrefs in a query
 	DefaultQueryCrossReferenceDepthLimit = 5
+
+	DefaultQueryBitmapBufsMaxBufSize = 1 << 25 // 32MB
+	DefaultQueryBitmapBufsMaxMemory  = 1 << 27 // 128MB (2x 32MB, 2x 16MB, 2x 8MB, 2x 4MB, 4x 2MB)
 )
 
 const (

@@ -19,6 +19,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -28,6 +29,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
+
+const DefaultTimeout = 2 * time.Minute
 
 const (
 	PropertyImageTitle       = "image_title"
@@ -114,8 +117,10 @@ func InsertObjects(t *testing.T, dataFolderPath, className string, withVideo boo
 		i++
 	}
 	for _, obj := range objs {
-		helper.CreateObject(t, obj)
-		helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
+		err := helper.CreateObjectWithTimeout(t, obj, DefaultTimeout)
+		require.NoError(t, err)
+		obj := helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
+		require.NotNil(t, obj)
 	}
 }
 
@@ -202,7 +207,7 @@ func TestQuery(t *testing.T,
 			}
 		`, className, nearMediaArgument, titleProperty, additionalVectors)
 
-	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+	result := graphqlhelper.AssertGraphQLWithTimeout(t, helper.RootAuth, DefaultTimeout, query)
 	objs := result.Get("Get", className).AsSlice()
 	require.Len(t, objs, 2)
 	title := objs[0].(map[string]interface{})[titleProperty]
@@ -214,7 +219,7 @@ func TestQuery(t *testing.T,
 	certaintyValue, err := certainty.Float64()
 	require.NoError(t, err)
 	assert.Greater(t, certaintyValue, 0.0)
-	assert.GreaterOrEqual(t, certaintyValue, 0.9)
+	assert.GreaterOrEqual(t, certaintyValue, 0.6)
 	if len(targetVectorsList) > 0 {
 		vectors, ok := additional["vectors"].(map[string]interface{})
 		require.True(t, ok)

@@ -20,6 +20,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
@@ -188,54 +189,6 @@ func TestInitStateWithZeroReplicationFactor(t *testing.T) {
 
 	_, err = InitState("index-zero", cfg, nodes.LocalName(), nodes.StorageCandidates(), 0, false)
 	require.Errorf(t, err, "replication factor zero is not allowed")
-}
-
-func TestAdjustReplicas(t *testing.T) {
-	t.Run("1->3", func(t *testing.T) {
-		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
-		shard := Physical{BelongsToNodes: []string{"N1"}}
-		require.Nil(t, shard.AdjustReplicas(3, nodes))
-		assert.ElementsMatch(t, []string{"N1", "N2", "N3"}, shard.BelongsToNodes)
-	})
-
-	t.Run("2->3", func(t *testing.T) {
-		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
-		shard := Physical{BelongsToNodes: []string{"N2", "N3"}}
-		require.Nil(t, shard.AdjustReplicas(3, nodes))
-		assert.ElementsMatch(t, []string{"N1", "N2", "N3"}, shard.BelongsToNodes)
-	})
-
-	t.Run("3->3", func(t *testing.T) {
-		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
-		shard := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
-		require.Nil(t, shard.AdjustReplicas(3, nodes))
-		assert.ElementsMatch(t, []string{"N1", "N2", "N3"}, shard.BelongsToNodes)
-	})
-
-	t.Run("3->2", func(t *testing.T) {
-		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3")
-		shard := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
-		require.Nil(t, shard.AdjustReplicas(2, nodes))
-		assert.ElementsMatch(t, []string{"N1", "N2"}, shard.BelongsToNodes)
-	})
-
-	t.Run("Min", func(t *testing.T) {
-		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3")
-		shard := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
-		require.NotNil(t, shard.AdjustReplicas(-1, nodes))
-	})
-	t.Run("Max", func(t *testing.T) {
-		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3")
-		shard := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
-		require.NotNil(t, shard.AdjustReplicas(4, nodes))
-	})
-	t.Run("Bug", func(t *testing.T) {
-		names := []string{"N1", "N2", "N3", "N4"}
-		nodes := mocks.NewMockNodeSelector(names...) // bug
-		shard := Physical{BelongsToNodes: []string{"N1", "N1", "N1", "N2", "N2"}}
-		require.Nil(t, shard.AdjustReplicas(4, nodes)) // correct
-		require.ElementsMatch(t, names, shard.BelongsToNodes)
-	})
 }
 
 func TestGetPartitions(t *testing.T) {
@@ -696,4 +649,141 @@ func TestShardReplicationFactor(t *testing.T) {
 		copied.ReplicationFactor = 4
 		require.Equal(t, int64(2), original.ReplicationFactor)
 	})
+}
+
+func TestState_NumberOfReplicas(t *testing.T) {
+	tests := []struct {
+		name          string
+		setupState    func() *State
+		shardName     string
+		expectedCount int64
+		expectedError bool
+		errorContains string
+	}{
+		{
+			name: "uninitialized state - nil Physical map",
+			setupState: func() *State {
+				return &State{
+					Physical: nil,
+				}
+			},
+			shardName:     "nonexistent-shard",
+			expectedCount: 0,
+			expectedError: true,
+			errorContains: "could not find shard nonexistent-shard",
+		},
+		{
+			name: "uninitialized state - empty Physical map",
+			setupState: func() *State {
+				return &State{
+					Physical: make(map[string]Physical),
+				}
+			},
+			shardName:     "nonexistent-shard",
+			expectedCount: 0,
+			expectedError: true,
+			errorContains: "could not find shard nonexistent-shard",
+		},
+		{
+			name: "shard not found in initialized state",
+			setupState: func() *State {
+				nodes := mocks.NewMockNodeSelector("N1", "N2", "N3")
+				cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(2)}, 2)
+				require.NoError(t, err)
+				state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
+				require.NoError(t, err)
+				return state
+			},
+			shardName:     "nonexistent-shard",
+			expectedCount: 0,
+			expectedError: true,
+			errorContains: "could not find shard nonexistent-shard",
+		},
+		{
+			name: "valid shard with single replica",
+			setupState: func() *State {
+				nodes := mocks.NewMockNodeSelector("N1", "N2", "N3")
+				cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(2)}, 2)
+				require.NoError(t, err)
+				state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
+				require.NoError(t, err)
+				return state
+			},
+			shardName:     "", // Will be set to first shard in test
+			expectedCount: 1,
+			expectedError: false,
+		},
+		{
+			name: "valid shard with multiple replicas",
+			setupState: func() *State {
+				nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
+				cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
+				require.NoError(t, err)
+				state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 3, false)
+				require.NoError(t, err)
+				return state
+			},
+			shardName:     "", // Will be set to first shard in test
+			expectedCount: 3,
+			expectedError: false,
+		},
+		{
+			name: "shard with empty BelongsToNodes",
+			setupState: func() *State {
+				return &State{
+					Physical: map[string]Physical{
+						"test-shard": {
+							BelongsToNodes: []string{},
+						},
+					},
+				}
+			},
+			shardName:     "test-shard",
+			expectedCount: 0,
+			expectedError: false,
+		},
+		{
+			name: "shard with nil BelongsToNodes",
+			setupState: func() *State {
+				return &State{
+					Physical: map[string]Physical{
+						"test-shard": {
+							BelongsToNodes: nil,
+						},
+					},
+				}
+			},
+			shardName:     "test-shard",
+			expectedCount: 0,
+			expectedError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := tt.setupState()
+
+			// For tests that need a real shard name, get the first shard
+			shardName := tt.shardName
+			if shardName == "" && len(state.Physical) > 0 {
+				for name := range state.Physical {
+					shardName = name
+					break
+				}
+			}
+
+			count, err := state.NumberOfReplicas(shardName)
+
+			if tt.expectedError {
+				assert.Error(t, err)
+				assert.Equal(t, tt.expectedCount, count)
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedCount, count)
+			}
+		})
+	}
 }
