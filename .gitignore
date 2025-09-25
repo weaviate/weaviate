@@ -123,3 +123,6 @@ weaviate-server
 
 # weaviate querier
 exp/query/testdata/lsmroot/lsm/meta.db
+
+# config overrides standard path
+config/overrides.yaml
