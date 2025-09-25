@@ -187,8 +187,7 @@ func (m *Metrics) InsertVector(start time.Time) {
 		return
 	}
 
-	took := float64(time.Since(start)) / float64(time.Millisecond)
-	m.insertTime.Observe(took)
+	m.insertTime.Observe(float64(time.Since(start).Milliseconds()))
 	m.insert.Inc()
 }
 
@@ -197,8 +196,7 @@ func (m *Metrics) DeleteVector(start time.Time) {
 		return
 	}
 
-	took := float64(time.Since(start)) / float64(time.Millisecond)
-	m.deleteTime.Observe(took)
+	m.deleteTime.Observe(float64(time.Since(start).Milliseconds()))
 	m.delete.Inc()
 }
 
@@ -239,8 +237,7 @@ func (m *Metrics) SplitDuration(start time.Time) {
 		return
 	}
 
-	took := float64(time.Since(start)) / float64(time.Millisecond)
-	m.split.Observe(took)
+	m.split.Observe(float64(time.Since(start).Milliseconds()))
 }
 
 func (m *Metrics) EnqueueMergeTask() {
@@ -264,8 +261,7 @@ func (m *Metrics) MergeDuration(start time.Time) {
 		return
 	}
 
-	took := float64(time.Since(start)) / float64(time.Millisecond)
-	m.merge.Observe(took)
+	m.merge.Observe(float64(time.Since(start).Milliseconds()))
 }
 
 func (m *Metrics) EnqueueReassignTask() {
@@ -289,8 +285,7 @@ func (m *Metrics) ReassignDuration(start time.Time) {
 		return
 	}
 
-	took := float64(time.Since(start)) / float64(time.Millisecond)
-	m.reassign.Observe(took)
+	m.reassign.Observe(float64(time.Since(start).Milliseconds()))
 }
 
 func (m *Metrics) CentroidSearchDuration(start time.Time) {
@@ -298,8 +293,7 @@ func (m *Metrics) CentroidSearchDuration(start time.Time) {
 		return
 	}
 
-	took := float64(time.Since(start)) / float64(time.Millisecond)
-	m.centroids.Observe(took)
+	m.centroids.Observe(float64(time.Since(start).Milliseconds()))
 }
 
 func (m *Metrics) StoreGetDuration(start time.Time) {
@@ -307,8 +301,7 @@ func (m *Metrics) StoreGetDuration(start time.Time) {
 		return
 	}
 
-	took := float64(time.Since(start)) / float64(time.Millisecond)
-	m.storeGet.Observe(took)
+	m.storeGet.Observe(float64(time.Since(start).Milliseconds()))
 }
 
 func (m *Metrics) StoreAppendDuration(start time.Time) {
@@ -316,8 +309,7 @@ func (m *Metrics) StoreAppendDuration(start time.Time) {
 		return
 	}
 
-	took := float64(time.Since(start)) / float64(time.Millisecond)
-	m.storeAppend.Observe(took)
+	m.storeAppend.Observe(float64(time.Since(start).Milliseconds()))
 }
 
 func (m *Metrics) StorePutDuration(start time.Time) {
@@ -325,6 +317,5 @@ func (m *Metrics) StorePutDuration(start time.Time) {
 		return
 	}
 
-	took := float64(time.Since(start)) / float64(time.Millisecond)
-	m.storePut.Observe(took)
+	m.storePut.Observe(float64(time.Since(start).Milliseconds()))
 }
