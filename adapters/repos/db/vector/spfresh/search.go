@@ -16,7 +16,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -42,7 +41,8 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 	}
 	defer centroids.Release()
 
-	q := priorityqueue.NewMax[any](k)
+	q := NewResultSet(k)
+	defer q.Release()
 
 	// compute the max distance to filter out candidates that are too far away
 	maxDist := centroids.data[0].Distance * s.config.MaxDistanceRatio
@@ -100,10 +100,6 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 			}
 
 			q.Insert(id, dist)
-
-			if q.Len() > k {
-				q.Pop()
-			}
 		}
 
 		// if the posting size is lower than the configured minimum,
@@ -118,12 +114,11 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 
 	ids := make([]uint64, q.Len())
 	dists := make([]float32, q.Len())
-	i := len(dists) - 1
-	for q.Len() > 0 {
-		item := q.Pop()
-		ids[i] = item.ID
-		dists[i] = item.Dist
-		i--
+	i := 0
+	for id, dist := range q.Iter() {
+		ids[i] = id
+		dists[i] = dist
+		i++
 	}
 
 	return ids, dists, nil

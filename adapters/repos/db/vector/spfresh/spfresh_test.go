@@ -122,7 +122,7 @@ func TestSPFreshRecall(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	fmt.Println("Running queries...")
+	fmt.Println("all background tasks done, took: ", time.Since(before))
 
 	recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
 	fmt.Println(recall, latency)

@@ -135,7 +135,8 @@ func (s *BruteForceSPTAG) Quantizer() *compressionhelpers.RotationalQuantizer {
 
 var idsPool = sync.Pool{
 	New: func() any {
-		return make([]uint64, 0, 1024)
+		buf := make([]uint64, 0, 1024)
+		return &buf
 	},
 }
 
@@ -147,9 +148,9 @@ func (s *BruteForceSPTAG) Search(query Vector, k int) (*ResultSet, error) {
 		return nil, nil
 	}
 
-	ids := idsPool.Get().([]uint64)
+	ids := *(idsPool.Get().(*[]uint64))
 	ids = ids[:0]
-	defer idsPool.Put(ids)
+	defer idsPool.Put(&ids)
 
 	s.idLock.RLock()
 	ids = append(ids, s.ids...) // copy to avoid races
