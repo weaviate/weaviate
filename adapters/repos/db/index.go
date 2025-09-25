@@ -3112,10 +3112,6 @@ func (i *Index) tenantDirExists(tenantName string) (bool, error) {
 
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
 func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (usagetypes.ObjectUsage, error) {
-	// Obtain a lock that prevents tenant activation
-	i.shardCreateLocks.Lock(tenantName)
-	defer i.shardCreateLocks.Unlock(tenantName)
-
 	// check if created in the meantime by concurrent call
 	if shard := i.shards.Loaded(tenantName); shard != nil {
 		size, err := shard.ObjectStorageSize(ctx)
@@ -3190,10 +3186,6 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
 func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName, targetVector string,
 ) (usagetypes.Dimensionality, error) {
-	// Obtain a lock that prevents tenant activation
-	i.shardCreateLocks.Lock(tenantName)
-	defer i.shardCreateLocks.Unlock(tenantName)
-
 	// check if created in the meantime by concurrent call
 	if shard := i.shards.Loaded(tenantName); shard != nil {
 		return shard.DimensionsUsage(ctx, targetVector)
@@ -3230,10 +3222,6 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName
 
 // CalculateUnloadedVectorsMetrics calculates vector storage size for a cold tenant without loading it into memory
 func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) (int64, error) {
-	// Obtain a lock that prevents tenant activation
-	i.shardCreateLocks.Lock(tenantName)
-	defer i.shardCreateLocks.Unlock(tenantName)
-
 	// check if created in the meantime by concurrent call
 	if shard := i.shards.Loaded(tenantName); shard != nil {
 		return shard.VectorStorageSize(ctx)
