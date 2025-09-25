@@ -287,6 +287,7 @@ func TestGRPCCluster_Batching(t *testing.T) {
 		var shutdown atomic.Bool
 		var stopped atomic.Bool
 		var wg sync.WaitGroup
+		var streamRestartLock sync.Mutex
 
 		// start a goroutine that continuously sends objects
 		wg.Add(1)
@@ -308,7 +309,9 @@ func TestGRPCCluster_Batching(t *testing.T) {
 					fmt.Printf("%s Shutdown completed, reconnecting to node-0\n", time.Now().Format("15:04:05"))
 					// reconnect to different node if shutdown completed
 					grpcClient, _ = client(t, compose.GetWeaviateNode(secondNode).GrpcURI())
+					streamRestartLock.Lock()
 					stream = start(ctx, t, grpcClient)
+					streamRestartLock.Unlock()
 					shutdown.Store(false)
 				}
 				batch = append(batch, &pb.BatchObject{
@@ -333,7 +336,9 @@ func TestGRPCCluster_Batching(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for {
+				streamRestartLock.Lock()
 				resp, err := stream.Recv()
+				streamRestartLock.Unlock()
 				if err != nil {
 					return
 				}
@@ -429,7 +434,11 @@ func sendStop(t *testing.T, stream pb.Weaviate_BatchStreamClient) {
 
 	// Read the stop message
 	resp, err := stream.Recv()
+	for resp.GetBackoff() != nil {
+		// if we got a backoff message, read the next message which should be the stop
+		resp, err = stream.Recv()
+	}
 	require.NoError(t, err, "Expected no error when reading Stop from stream; got %v", err)
-	end := resp.GetStop()
-	require.NotNil(t, end, "End message should not be nil")
+	stop := resp.GetStop()
+	require.NotNil(t, stop, "Stop message should not be nil, got %v", resp.GetMessage())
 }
