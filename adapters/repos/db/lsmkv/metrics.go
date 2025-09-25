@@ -27,10 +27,17 @@ type (
 	TimeObserver       func(start time.Time)
 )
 
-var compactionDurationBuckets = prometheus.ExponentialBuckets(0.01, 2, 18) // 0.01s → 0.02s → ... → ~163.84s
+var (
+	segmentSizeBuckets        = prometheus.ExponentialBuckets(100*1024, 2, 20) // 100KB → 200KB → 400KB → ... → ~52GB
+	compactionDurationBuckets = prometheus.ExponentialBuckets(0.01, 2, 18)     // 0.01s → 0.02s → ... → ~163.84s
+)
 
 type Metrics struct {
 	register prometheus.Registerer
+
+	// segment metrics
+	segmentTotalByStrategy *prometheus.GaugeVec
+	segmentSizeByStrategy  *prometheus.HistogramVec
 
 	// wal recovery metrics
 	walRecoveryCount        *prometheus.CounterVec
@@ -79,6 +86,34 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	}
 
 	register := promMetrics.Registerer
+
+	// segment metrics
+	segmentTotalByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_segment_total",
+				Help:      "Total number of LSM bucket segments, labeled by segment strategy",
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_segment_total: %w", err)
+	}
+
+	segmentSizeByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_segment_size_bytes",
+				Help:      "Size of LSM bucket segments in bytes, labeled by segment strategy",
+				Buckets:   segmentSizeBuckets,
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_segment_size_bytes: %w", err)
+	}
 
 	// wal recovery metrics
 	walRecoveryCount, err := monitoring.EnsureRegisteredMetric(register,
@@ -233,6 +268,10 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		groupClasses:        promMetrics.Group,
 		criticalBucketsOnly: promMetrics.LSMCriticalBucketsOnly,
 
+		// segment metrics
+		segmentTotalByStrategy: segmentTotalByStrategy,
+		segmentSizeByStrategy:  segmentSizeByStrategy,
+
 		// wal recovery metrics
 		walRecoveryCount:        walRecoveryCount,
 		walRecoveryInProgress:   walRecoveryInProgress,
@@ -306,6 +345,29 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		LazySegmentInit:   lazySegmentInit,
 		LazySegmentUnLoad: lazySegmentUnload,
 	}, nil
+}
+
+// segment metrics
+
+func (m *Metrics) IncSegmentTotalByStrategy(strategy string) {
+	if m == nil {
+		return
+	}
+	m.segmentTotalByStrategy.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) DecSegmentTotalByStrategy(strategy string) {
+	if m == nil {
+		return
+	}
+	m.segmentTotalByStrategy.WithLabelValues(strategy).Dec()
+}
+
+func (m *Metrics) ObserveSegmentSize(strategy string, sizeBytes int64) {
+	if m == nil {
+		return
+	}
+	m.segmentSizeByStrategy.WithLabelValues(strategy).Observe(float64(sizeBytes))
 }
 
 // wal recovery metrics
