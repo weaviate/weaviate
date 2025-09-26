@@ -453,7 +453,7 @@ func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) 
 		case <-ctx.Done():
 			// Graceful timeout expired - log and continue with cleanup
 			s.Logf("Timeout waiting for HTTP server %d shutdown after %v", len(servers)-i, s.GracefulTimeout)
-			break
+			return
 		}
 	}
 }
