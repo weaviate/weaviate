@@ -25,7 +25,6 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
@@ -814,12 +813,13 @@ func parseVotersNames(cfg config.Raft) (m map[string]struct{}) {
 	return m
 }
 
-func (s *Server) configureAPI(api *operations.WeaviateAPI) http.Handler {
+func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
 
 	appState := MakeAppState(ctx, connectorOptionGroup)
+	shutdownCoordinator := NewShutdownCoordinator(appState.Logger)
 
 	appState.Logger.WithFields(logrus.Fields{
 		"server_version": config.ServerVersion,
@@ -910,16 +910,15 @@ func (s *Server) configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}, appState.Logger)
 	}
 
-	grpcShutdownTracker := &shutdownGRPCTracker{logger: appState.Logger}
-	appState.SetShutdownRestTracker(s)
-	appState.SetShutdownGrpcTracker(grpcShutdownTracker)
+	appState.SetShutdownRestTracker(shutdownCoordinator)
+	appState.SetShutdownGrpcTracker(shutdownCoordinator)
 
 	api.PreServerShutdown = func() {
 		appState.Logger.Info("pre-shutdown phase initiated")
 
-		grpcShutdownTracker.NotifyShutdown()
-		grpcHealthServer.SetServingStatus("gRPC server", grpc_health_v1.HealthCheckResponse_SERVING)
-		appState.Logger.Debug("notified gRPC server as shut down")
+		shutdownCoordinator.NotifyShutdown()
+		grpcHealthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+		appState.Logger.Debug("notified shutdown coordinator and marked gRPC as unhealthy")
 
 		// NOTE: give health checks and readiness probes time to detect the shutdown without excessive delay
 		appState.Logger.Debug("wait for health check propagation")
@@ -983,33 +982,6 @@ func (s *Server) configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 	startGrpcServer(grpcServer, appState)
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
-}
-
-// shutdownGRPCTracker provides a minimal, thread-safe shutdown flag for the gRPC
-// server that can be queried by the readiness probe via state.IsShuttingDown().
-//
-// Concurrency:
-//
-//	The flag is an int32 guarded by atomic operations and is safe for
-//	concurrent reads/writes.
-type shutdownGRPCTracker struct {
-	shuttingDown int32 // 0 = running, 1 = shutting down
-	logger       *logrus.Logger
-}
-
-// IsShuttingDown reports whether a shutdown has been initiated.
-// It is safe for concurrent use.
-func (g *shutdownGRPCTracker) IsShuttingDown() bool {
-	return atomic.LoadInt32(&g.shuttingDown) == 1
-}
-
-// NotifyShutdown marks the gRPC server as shutting down so that subsequent
-// readiness checks can fail fast (503) and LBs stop routing new traffic.
-// It is safe for concurrent use.
-//
-// Note: CAS is used to avoid redundant writes.
-func (g *shutdownGRPCTracker) NotifyShutdown() {
-	atomic.CompareAndSwapInt32(&g.shuttingDown, 0, 1)
 }
 
 func startBackupScheduler(appState *state.State) *backup.Scheduler {
