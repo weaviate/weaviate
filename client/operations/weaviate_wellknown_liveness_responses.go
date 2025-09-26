@@ -38,7 +38,7 @@ func (o *WeaviateWellknownLivenessReader) ReadResponse(response runtime.ClientRe
 		}
 		return result, nil
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /.well-known/live] weaviate.wellknown.liveness", response, response.Code())
 	}
 }
 
@@ -52,8 +52,7 @@ WeaviateWellknownLivenessOK describes a response with status code 200, with defa
 
 The application is able to respond to HTTP requests
 */
-type WeaviateWellknownLivenessOK struct {
-}
+type WeaviateWellknownLivenessOK struct{}
 
 // IsSuccess returns true when this weaviate wellknown liveness o k response has a 2xx status code
 func (o *WeaviateWellknownLivenessOK) IsSuccess() bool {
@@ -86,14 +85,13 @@ func (o *WeaviateWellknownLivenessOK) Code() int {
 }
 
 func (o *WeaviateWellknownLivenessOK) Error() string {
-	return fmt.Sprintf("[GET /.well-known/live][%d] weaviateWellknownLivenessOK ", 200)
+	return fmt.Sprintf("[GET /.well-known/live][%d] weaviateWellknownLivenessOK", 200)
 }
 
 func (o *WeaviateWellknownLivenessOK) String() string {
-	return fmt.Sprintf("[GET /.well-known/live][%d] weaviateWellknownLivenessOK ", 200)
+	return fmt.Sprintf("[GET /.well-known/live][%d] weaviateWellknownLivenessOK", 200)
 }
 
 func (o *WeaviateWellknownLivenessOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }

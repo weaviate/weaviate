@@ -29,7 +29,6 @@ import (
 //
 // swagger:model ClusterStatisticsResponse
 type ClusterStatisticsResponse struct {
-
 	// statistics
 	Statistics []*Statistics `json:"statistics"`
 
@@ -92,10 +91,13 @@ func (m *ClusterStatisticsResponse) ContextValidate(ctx context.Context, formats
 }
 
 func (m *ClusterStatisticsResponse) contextValidateStatistics(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.Statistics); i++ {
-
 		if m.Statistics[i] != nil {
+
+			if swag.IsZero(m.Statistics[i]) { // not required
+				return nil
+			}
+
 			if err := m.Statistics[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("statistics" + "." + strconv.Itoa(i))
@@ -105,7 +107,6 @@ func (m *ClusterStatisticsResponse) contextValidateStatistics(ctx context.Contex
 				return err
 			}
 		}
-
 	}
 
 	return nil

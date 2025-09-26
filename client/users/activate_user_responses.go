@@ -17,6 +17,7 @@ package users
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -83,7 +84,7 @@ func (o *ActivateUserReader) ReadResponse(response runtime.ClientResponse, consu
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /users/db/{user_id}/activate] activateUser", response, response.Code())
 	}
 }
 
@@ -97,8 +98,7 @@ ActivateUserOK describes a response with status code 200, with default header va
 
 User successfully activated
 */
-type ActivateUserOK struct {
-}
+type ActivateUserOK struct{}
 
 // IsSuccess returns true when this activate user o k response has a 2xx status code
 func (o *ActivateUserOK) IsSuccess() bool {
@@ -131,15 +131,14 @@ func (o *ActivateUserOK) Code() int {
 }
 
 func (o *ActivateUserOK) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserOK ", 200)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserOK", 200)
 }
 
 func (o *ActivateUserOK) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserOK ", 200)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserOK", 200)
 }
 
 func (o *ActivateUserOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -188,11 +187,13 @@ func (o *ActivateUserBadRequest) Code() int {
 }
 
 func (o *ActivateUserBadRequest) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserBadRequest %s", 400, payload)
 }
 
 func (o *ActivateUserBadRequest) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserBadRequest %s", 400, payload)
 }
 
 func (o *ActivateUserBadRequest) GetPayload() *models.ErrorResponse {
@@ -200,7 +201,6 @@ func (o *ActivateUserBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ActivateUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -221,8 +221,7 @@ ActivateUserUnauthorized describes a response with status code 401, with default
 
 Unauthorized or invalid credentials.
 */
-type ActivateUserUnauthorized struct {
-}
+type ActivateUserUnauthorized struct{}
 
 // IsSuccess returns true when this activate user unauthorized response has a 2xx status code
 func (o *ActivateUserUnauthorized) IsSuccess() bool {
@@ -255,15 +254,14 @@ func (o *ActivateUserUnauthorized) Code() int {
 }
 
 func (o *ActivateUserUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserUnauthorized ", 401)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserUnauthorized", 401)
 }
 
 func (o *ActivateUserUnauthorized) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserUnauthorized ", 401)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserUnauthorized", 401)
 }
 
 func (o *ActivateUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -312,11 +310,13 @@ func (o *ActivateUserForbidden) Code() int {
 }
 
 func (o *ActivateUserForbidden) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserForbidden %s", 403, payload)
 }
 
 func (o *ActivateUserForbidden) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserForbidden %s", 403, payload)
 }
 
 func (o *ActivateUserForbidden) GetPayload() *models.ErrorResponse {
@@ -324,7 +324,6 @@ func (o *ActivateUserForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ActivateUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -345,8 +344,7 @@ ActivateUserNotFound describes a response with status code 404, with default hea
 
 user not found
 */
-type ActivateUserNotFound struct {
-}
+type ActivateUserNotFound struct{}
 
 // IsSuccess returns true when this activate user not found response has a 2xx status code
 func (o *ActivateUserNotFound) IsSuccess() bool {
@@ -379,15 +377,14 @@ func (o *ActivateUserNotFound) Code() int {
 }
 
 func (o *ActivateUserNotFound) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserNotFound ", 404)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserNotFound", 404)
 }
 
 func (o *ActivateUserNotFound) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserNotFound ", 404)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserNotFound", 404)
 }
 
 func (o *ActivateUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -401,8 +398,7 @@ ActivateUserConflict describes a response with status code 409, with default hea
 
 user already activated
 */
-type ActivateUserConflict struct {
-}
+type ActivateUserConflict struct{}
 
 // IsSuccess returns true when this activate user conflict response has a 2xx status code
 func (o *ActivateUserConflict) IsSuccess() bool {
@@ -435,15 +431,14 @@ func (o *ActivateUserConflict) Code() int {
 }
 
 func (o *ActivateUserConflict) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserConflict ", 409)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserConflict", 409)
 }
 
 func (o *ActivateUserConflict) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserConflict ", 409)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserConflict", 409)
 }
 
 func (o *ActivateUserConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -492,11 +487,13 @@ func (o *ActivateUserUnprocessableEntity) Code() int {
 }
 
 func (o *ActivateUserUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ActivateUserUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ActivateUserUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -504,7 +501,6 @@ func (o *ActivateUserUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ActivateUserUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -560,11 +556,13 @@ func (o *ActivateUserInternalServerError) Code() int {
 }
 
 func (o *ActivateUserInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserInternalServerError %s", 500, payload)
 }
 
 func (o *ActivateUserInternalServerError) String() string {
-	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /users/db/{user_id}/activate][%d] activateUserInternalServerError %s", 500, payload)
 }
 
 func (o *ActivateUserInternalServerError) GetPayload() *models.ErrorResponse {
@@ -572,7 +570,6 @@ func (o *ActivateUserInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ActivateUserInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

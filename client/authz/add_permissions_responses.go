@@ -18,6 +18,7 @@ package authz
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -82,7 +83,7 @@ func (o *AddPermissionsReader) ReadResponse(response runtime.ClientResponse, con
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /authz/roles/{id}/add-permissions] addPermissions", response, response.Code())
 	}
 }
 
@@ -96,8 +97,7 @@ AddPermissionsOK describes a response with status code 200, with default header 
 
 Permissions added successfully
 */
-type AddPermissionsOK struct {
-}
+type AddPermissionsOK struct{}
 
 // IsSuccess returns true when this add permissions o k response has a 2xx status code
 func (o *AddPermissionsOK) IsSuccess() bool {
@@ -130,15 +130,14 @@ func (o *AddPermissionsOK) Code() int {
 }
 
 func (o *AddPermissionsOK) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsOK ", 200)
+	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsOK", 200)
 }
 
 func (o *AddPermissionsOK) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsOK ", 200)
+	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsOK", 200)
 }
 
 func (o *AddPermissionsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -187,11 +186,13 @@ func (o *AddPermissionsBadRequest) Code() int {
 }
 
 func (o *AddPermissionsBadRequest) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsBadRequest %s", 400, payload)
 }
 
 func (o *AddPermissionsBadRequest) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsBadRequest %s", 400, payload)
 }
 
 func (o *AddPermissionsBadRequest) GetPayload() *models.ErrorResponse {
@@ -199,7 +200,6 @@ func (o *AddPermissionsBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AddPermissionsBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -220,8 +220,7 @@ AddPermissionsUnauthorized describes a response with status code 401, with defau
 
 Unauthorized or invalid credentials.
 */
-type AddPermissionsUnauthorized struct {
-}
+type AddPermissionsUnauthorized struct{}
 
 // IsSuccess returns true when this add permissions unauthorized response has a 2xx status code
 func (o *AddPermissionsUnauthorized) IsSuccess() bool {
@@ -254,15 +253,14 @@ func (o *AddPermissionsUnauthorized) Code() int {
 }
 
 func (o *AddPermissionsUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsUnauthorized", 401)
 }
 
 func (o *AddPermissionsUnauthorized) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsUnauthorized", 401)
 }
 
 func (o *AddPermissionsUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -311,11 +309,13 @@ func (o *AddPermissionsForbidden) Code() int {
 }
 
 func (o *AddPermissionsForbidden) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsForbidden %s", 403, payload)
 }
 
 func (o *AddPermissionsForbidden) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsForbidden %s", 403, payload)
 }
 
 func (o *AddPermissionsForbidden) GetPayload() *models.ErrorResponse {
@@ -323,7 +323,6 @@ func (o *AddPermissionsForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AddPermissionsForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -344,8 +343,7 @@ AddPermissionsNotFound describes a response with status code 404, with default h
 
 no role found
 */
-type AddPermissionsNotFound struct {
-}
+type AddPermissionsNotFound struct{}
 
 // IsSuccess returns true when this add permissions not found response has a 2xx status code
 func (o *AddPermissionsNotFound) IsSuccess() bool {
@@ -378,15 +376,14 @@ func (o *AddPermissionsNotFound) Code() int {
 }
 
 func (o *AddPermissionsNotFound) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsNotFound ", 404)
+	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsNotFound", 404)
 }
 
 func (o *AddPermissionsNotFound) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsNotFound ", 404)
+	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsNotFound", 404)
 }
 
 func (o *AddPermissionsNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -435,11 +432,13 @@ func (o *AddPermissionsUnprocessableEntity) Code() int {
 }
 
 func (o *AddPermissionsUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsUnprocessableEntity %s", 422, payload)
 }
 
 func (o *AddPermissionsUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsUnprocessableEntity %s", 422, payload)
 }
 
 func (o *AddPermissionsUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -447,7 +446,6 @@ func (o *AddPermissionsUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AddPermissionsUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -503,11 +501,13 @@ func (o *AddPermissionsInternalServerError) Code() int {
 }
 
 func (o *AddPermissionsInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsInternalServerError %s", 500, payload)
 }
 
 func (o *AddPermissionsInternalServerError) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/add-permissions][%d] addPermissionsInternalServerError %s", 500, payload)
 }
 
 func (o *AddPermissionsInternalServerError) GetPayload() *models.ErrorResponse {
@@ -515,7 +515,6 @@ func (o *AddPermissionsInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AddPermissionsInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -531,7 +530,6 @@ AddPermissionsBody add permissions body
 swagger:model AddPermissionsBody
 */
 type AddPermissionsBody struct {
-
 	// permissions to be added to the role
 	// Required: true
 	Permissions []*models.Permission `json:"permissions"`
@@ -552,7 +550,6 @@ func (o *AddPermissionsBody) Validate(formats strfmt.Registry) error {
 }
 
 func (o *AddPermissionsBody) validatePermissions(formats strfmt.Registry) error {
-
 	if err := validate.Required("body"+"."+"permissions", "body", o.Permissions); err != nil {
 		return err
 	}
@@ -593,10 +590,13 @@ func (o *AddPermissionsBody) ContextValidate(ctx context.Context, formats strfmt
 }
 
 func (o *AddPermissionsBody) contextValidatePermissions(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(o.Permissions); i++ {
-
 		if o.Permissions[i] != nil {
+
+			if swag.IsZero(o.Permissions[i]) { // not required
+				return nil
+			}
+
 			if err := o.Permissions[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("body" + "." + "permissions" + "." + strconv.Itoa(i))
@@ -606,7 +606,6 @@ func (o *AddPermissionsBody) contextValidatePermissions(ctx context.Context, for
 				return err
 			}
 		}
-
 	}
 
 	return nil

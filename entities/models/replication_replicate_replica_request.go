@@ -30,7 +30,6 @@ import (
 //
 // swagger:model ReplicationReplicateReplicaRequest
 type ReplicationReplicateReplicaRequest struct {
-
 	// The name of the collection to which the target shard belongs.
 	// Required: true
 	Collection *string `json:"collection"`
@@ -48,7 +47,7 @@ type ReplicationReplicateReplicaRequest struct {
 	TargetNode *string `json:"targetNode"`
 
 	// Specifies the type of replication operation to perform. 'COPY' creates a new replica on the target node while keeping the source replica. 'MOVE' creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.
-	// Enum: [COPY MOVE]
+	// Enum: ["COPY","MOVE"]
 	Type *string `json:"type,omitempty"`
 }
 
@@ -83,7 +82,6 @@ func (m *ReplicationReplicateReplicaRequest) Validate(formats strfmt.Registry) e
 }
 
 func (m *ReplicationReplicateReplicaRequest) validateCollection(formats strfmt.Registry) error {
-
 	if err := validate.Required("collection", "body", m.Collection); err != nil {
 		return err
 	}
@@ -92,7 +90,6 @@ func (m *ReplicationReplicateReplicaRequest) validateCollection(formats strfmt.R
 }
 
 func (m *ReplicationReplicateReplicaRequest) validateShard(formats strfmt.Registry) error {
-
 	if err := validate.Required("shard", "body", m.Shard); err != nil {
 		return err
 	}
@@ -101,7 +98,6 @@ func (m *ReplicationReplicateReplicaRequest) validateShard(formats strfmt.Regist
 }
 
 func (m *ReplicationReplicateReplicaRequest) validateSourceNode(formats strfmt.Registry) error {
-
 	if err := validate.Required("sourceNode", "body", m.SourceNode); err != nil {
 		return err
 	}
@@ -110,7 +106,6 @@ func (m *ReplicationReplicateReplicaRequest) validateSourceNode(formats strfmt.R
 }
 
 func (m *ReplicationReplicateReplicaRequest) validateTargetNode(formats strfmt.Registry) error {
-
 	if err := validate.Required("targetNode", "body", m.TargetNode); err != nil {
 		return err
 	}

@@ -30,7 +30,6 @@ import (
 //
 // swagger:model PatchDocumentAction
 type PatchDocumentAction struct {
-
 	// A string containing a JSON Pointer value.
 	From string `json:"from,omitempty"`
 
@@ -39,7 +38,7 @@ type PatchDocumentAction struct {
 
 	// The operation to be performed.
 	// Required: true
-	// Enum: [add remove replace move copy test]
+	// Enum: ["add","remove","replace","move","copy","test"]
 	Op *string `json:"op"`
 
 	// A JSON-Pointer.
@@ -133,7 +132,6 @@ func (m *PatchDocumentAction) validateOpEnum(path, location string, value string
 }
 
 func (m *PatchDocumentAction) validateOp(formats strfmt.Registry) error {
-
 	if err := validate.Required("op", "body", m.Op); err != nil {
 		return err
 	}
@@ -147,7 +145,6 @@ func (m *PatchDocumentAction) validateOp(formats strfmt.Registry) error {
 }
 
 func (m *PatchDocumentAction) validatePath(formats strfmt.Registry) error {
-
 	if err := validate.Required("path", "body", m.Path); err != nil {
 		return err
 	}
@@ -170,8 +167,12 @@ func (m *PatchDocumentAction) ContextValidate(ctx context.Context, formats strfm
 }
 
 func (m *PatchDocumentAction) contextValidateMerge(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Merge != nil {
+
+		if swag.IsZero(m.Merge) { // not required
+			return nil
+		}
+
 		if err := m.Merge.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("merge")

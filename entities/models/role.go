@@ -30,7 +30,6 @@ import (
 //
 // swagger:model Role
 type Role struct {
-
 	// role name
 	// Required: true
 	Name *string `json:"name"`
@@ -59,7 +58,6 @@ func (m *Role) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Role) validateName(formats strfmt.Registry) error {
-
 	if err := validate.Required("name", "body", m.Name); err != nil {
 		return err
 	}
@@ -68,7 +66,6 @@ func (m *Role) validateName(formats strfmt.Registry) error {
 }
 
 func (m *Role) validatePermissions(formats strfmt.Registry) error {
-
 	if err := validate.Required("permissions", "body", m.Permissions); err != nil {
 		return err
 	}
@@ -109,10 +106,13 @@ func (m *Role) ContextValidate(ctx context.Context, formats strfmt.Registry) err
 }
 
 func (m *Role) contextValidatePermissions(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.Permissions); i++ {
-
 		if m.Permissions[i] != nil {
+
+			if swag.IsZero(m.Permissions[i]) { // not required
+				return nil
+			}
+
 			if err := m.Permissions[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("permissions" + "." + strconv.Itoa(i))
@@ -122,7 +122,6 @@ func (m *Role) contextValidatePermissions(ctx context.Context, formats strfmt.Re
 				return err
 			}
 		}
-
 	}
 
 	return nil

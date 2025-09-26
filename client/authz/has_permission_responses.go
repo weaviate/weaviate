@@ -17,6 +17,7 @@ package authz
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *HasPermissionReader) ReadResponse(response runtime.ClientResponse, cons
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /authz/roles/{id}/has-permission] hasPermission", response, response.Code())
 	}
 }
 
@@ -120,11 +121,13 @@ func (o *HasPermissionOK) Code() int {
 }
 
 func (o *HasPermissionOK) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionOK %s", 200, payload)
 }
 
 func (o *HasPermissionOK) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionOK %s", 200, payload)
 }
 
 func (o *HasPermissionOK) GetPayload() bool {
@@ -132,7 +135,6 @@ func (o *HasPermissionOK) GetPayload() bool {
 }
 
 func (o *HasPermissionOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -186,11 +188,13 @@ func (o *HasPermissionBadRequest) Code() int {
 }
 
 func (o *HasPermissionBadRequest) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionBadRequest %s", 400, payload)
 }
 
 func (o *HasPermissionBadRequest) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionBadRequest %s", 400, payload)
 }
 
 func (o *HasPermissionBadRequest) GetPayload() *models.ErrorResponse {
@@ -198,7 +202,6 @@ func (o *HasPermissionBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *HasPermissionBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -219,8 +222,7 @@ HasPermissionUnauthorized describes a response with status code 401, with defaul
 
 Unauthorized or invalid credentials.
 */
-type HasPermissionUnauthorized struct {
-}
+type HasPermissionUnauthorized struct{}
 
 // IsSuccess returns true when this has permission unauthorized response has a 2xx status code
 func (o *HasPermissionUnauthorized) IsSuccess() bool {
@@ -253,15 +255,14 @@ func (o *HasPermissionUnauthorized) Code() int {
 }
 
 func (o *HasPermissionUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionUnauthorized", 401)
 }
 
 func (o *HasPermissionUnauthorized) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionUnauthorized", 401)
 }
 
 func (o *HasPermissionUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -310,11 +311,13 @@ func (o *HasPermissionForbidden) Code() int {
 }
 
 func (o *HasPermissionForbidden) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionForbidden %s", 403, payload)
 }
 
 func (o *HasPermissionForbidden) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionForbidden %s", 403, payload)
 }
 
 func (o *HasPermissionForbidden) GetPayload() *models.ErrorResponse {
@@ -322,7 +325,6 @@ func (o *HasPermissionForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *HasPermissionForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -378,11 +380,13 @@ func (o *HasPermissionUnprocessableEntity) Code() int {
 }
 
 func (o *HasPermissionUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionUnprocessableEntity %s", 422, payload)
 }
 
 func (o *HasPermissionUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionUnprocessableEntity %s", 422, payload)
 }
 
 func (o *HasPermissionUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -390,7 +394,6 @@ func (o *HasPermissionUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *HasPermissionUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -446,11 +449,13 @@ func (o *HasPermissionInternalServerError) Code() int {
 }
 
 func (o *HasPermissionInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionInternalServerError %s", 500, payload)
 }
 
 func (o *HasPermissionInternalServerError) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionInternalServerError %s", 500, payload)
 }
 
 func (o *HasPermissionInternalServerError) GetPayload() *models.ErrorResponse {
@@ -458,7 +463,6 @@ func (o *HasPermissionInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *HasPermissionInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

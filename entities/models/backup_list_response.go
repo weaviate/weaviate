@@ -65,8 +65,12 @@ func (m BackupListResponse) ContextValidate(ctx context.Context, formats strfmt.
 	var res []error
 
 	for i := 0; i < len(m); i++ {
-
 		if m[i] != nil {
+
+			if swag.IsZero(m[i]) { // not required
+				return nil
+			}
+
 			if err := m[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName(strconv.Itoa(i))
@@ -76,7 +80,6 @@ func (m BackupListResponse) ContextValidate(ctx context.Context, formats strfmt.
 				return err
 			}
 		}
-
 	}
 
 	if len(res) > 0 {
@@ -89,7 +92,6 @@ func (m BackupListResponse) ContextValidate(ctx context.Context, formats strfmt.
 //
 // swagger:model BackupListResponseItems0
 type BackupListResponseItems0 struct {
-
 	// The list of classes for which the existed backup process
 	Classes []string `json:"classes"`
 
@@ -105,7 +107,7 @@ type BackupListResponseItems0 struct {
 	StartedAt strfmt.DateTime `json:"startedAt,omitempty"`
 
 	// status of backup process
-	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED CANCELED]
+	// Enum: ["STARTED","TRANSFERRING","TRANSFERRED","SUCCESS","FAILED","CANCELED"]
 	Status string `json:"status,omitempty"`
 }
 

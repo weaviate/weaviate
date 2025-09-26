@@ -17,6 +17,7 @@ package users
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -59,7 +60,7 @@ func (o *ListAllUsersReader) ReadResponse(response runtime.ClientResponse, consu
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /users/db] listAllUsers", response, response.Code())
 	}
 }
 
@@ -108,11 +109,13 @@ func (o *ListAllUsersOK) Code() int {
 }
 
 func (o *ListAllUsersOK) Error() string {
-	return fmt.Sprintf("[GET /users/db][%d] listAllUsersOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /users/db][%d] listAllUsersOK %s", 200, payload)
 }
 
 func (o *ListAllUsersOK) String() string {
-	return fmt.Sprintf("[GET /users/db][%d] listAllUsersOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /users/db][%d] listAllUsersOK %s", 200, payload)
 }
 
 func (o *ListAllUsersOK) GetPayload() []*models.DBUserInfo {
@@ -120,7 +123,6 @@ func (o *ListAllUsersOK) GetPayload() []*models.DBUserInfo {
 }
 
 func (o *ListAllUsersOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -139,8 +141,7 @@ ListAllUsersUnauthorized describes a response with status code 401, with default
 
 Unauthorized or invalid credentials.
 */
-type ListAllUsersUnauthorized struct {
-}
+type ListAllUsersUnauthorized struct{}
 
 // IsSuccess returns true when this list all users unauthorized response has a 2xx status code
 func (o *ListAllUsersUnauthorized) IsSuccess() bool {
@@ -173,15 +174,14 @@ func (o *ListAllUsersUnauthorized) Code() int {
 }
 
 func (o *ListAllUsersUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /users/db][%d] listAllUsersUnauthorized ", 401)
+	return fmt.Sprintf("[GET /users/db][%d] listAllUsersUnauthorized", 401)
 }
 
 func (o *ListAllUsersUnauthorized) String() string {
-	return fmt.Sprintf("[GET /users/db][%d] listAllUsersUnauthorized ", 401)
+	return fmt.Sprintf("[GET /users/db][%d] listAllUsersUnauthorized", 401)
 }
 
 func (o *ListAllUsersUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -230,11 +230,13 @@ func (o *ListAllUsersForbidden) Code() int {
 }
 
 func (o *ListAllUsersForbidden) Error() string {
-	return fmt.Sprintf("[GET /users/db][%d] listAllUsersForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /users/db][%d] listAllUsersForbidden %s", 403, payload)
 }
 
 func (o *ListAllUsersForbidden) String() string {
-	return fmt.Sprintf("[GET /users/db][%d] listAllUsersForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /users/db][%d] listAllUsersForbidden %s", 403, payload)
 }
 
 func (o *ListAllUsersForbidden) GetPayload() *models.ErrorResponse {
@@ -242,7 +244,6 @@ func (o *ListAllUsersForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ListAllUsersForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -298,11 +299,13 @@ func (o *ListAllUsersInternalServerError) Code() int {
 }
 
 func (o *ListAllUsersInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /users/db][%d] listAllUsersInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /users/db][%d] listAllUsersInternalServerError %s", 500, payload)
 }
 
 func (o *ListAllUsersInternalServerError) String() string {
-	return fmt.Sprintf("[GET /users/db][%d] listAllUsersInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /users/db][%d] listAllUsersInternalServerError %s", 500, payload)
 }
 
 func (o *ListAllUsersInternalServerError) GetPayload() *models.ErrorResponse {
@@ -310,7 +313,6 @@ func (o *ListAllUsersInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ListAllUsersInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

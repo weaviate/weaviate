@@ -17,6 +17,7 @@ package objects
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -77,7 +78,7 @@ func (o *ObjectsClassReferencesPutReader) ReadResponse(response runtime.ClientRe
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[PUT /objects/{className}/{id}/references/{propertyName}] objects.class.references.put", response, response.Code())
 	}
 }
 
@@ -91,8 +92,7 @@ ObjectsClassReferencesPutOK describes a response with status code 200, with defa
 
 Successfully replaced all the references.
 */
-type ObjectsClassReferencesPutOK struct {
-}
+type ObjectsClassReferencesPutOK struct{}
 
 // IsSuccess returns true when this objects class references put o k response has a 2xx status code
 func (o *ObjectsClassReferencesPutOK) IsSuccess() bool {
@@ -125,15 +125,14 @@ func (o *ObjectsClassReferencesPutOK) Code() int {
 }
 
 func (o *ObjectsClassReferencesPutOK) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutOK ", 200)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutOK", 200)
 }
 
 func (o *ObjectsClassReferencesPutOK) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutOK ", 200)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutOK", 200)
 }
 
 func (o *ObjectsClassReferencesPutOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -182,11 +181,13 @@ func (o *ObjectsClassReferencesPutBadRequest) Code() int {
 }
 
 func (o *ObjectsClassReferencesPutBadRequest) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutBadRequest %s", 400, payload)
 }
 
 func (o *ObjectsClassReferencesPutBadRequest) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutBadRequest %s", 400, payload)
 }
 
 func (o *ObjectsClassReferencesPutBadRequest) GetPayload() *models.ErrorResponse {
@@ -194,7 +195,6 @@ func (o *ObjectsClassReferencesPutBadRequest) GetPayload() *models.ErrorResponse
 }
 
 func (o *ObjectsClassReferencesPutBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -215,8 +215,7 @@ ObjectsClassReferencesPutUnauthorized describes a response with status code 401,
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassReferencesPutUnauthorized struct {
-}
+type ObjectsClassReferencesPutUnauthorized struct{}
 
 // IsSuccess returns true when this objects class references put unauthorized response has a 2xx status code
 func (o *ObjectsClassReferencesPutUnauthorized) IsSuccess() bool {
@@ -249,15 +248,14 @@ func (o *ObjectsClassReferencesPutUnauthorized) Code() int {
 }
 
 func (o *ObjectsClassReferencesPutUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnauthorized", 401)
 }
 
 func (o *ObjectsClassReferencesPutUnauthorized) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnauthorized", 401)
 }
 
 func (o *ObjectsClassReferencesPutUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -306,11 +304,13 @@ func (o *ObjectsClassReferencesPutForbidden) Code() int {
 }
 
 func (o *ObjectsClassReferencesPutForbidden) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutForbidden %s", 403, payload)
 }
 
 func (o *ObjectsClassReferencesPutForbidden) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutForbidden %s", 403, payload)
 }
 
 func (o *ObjectsClassReferencesPutForbidden) GetPayload() *models.ErrorResponse {
@@ -318,7 +318,6 @@ func (o *ObjectsClassReferencesPutForbidden) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsClassReferencesPutForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -339,8 +338,7 @@ ObjectsClassReferencesPutNotFound describes a response with status code 404, wit
 
 Source object doesn't exist.
 */
-type ObjectsClassReferencesPutNotFound struct {
-}
+type ObjectsClassReferencesPutNotFound struct{}
 
 // IsSuccess returns true when this objects class references put not found response has a 2xx status code
 func (o *ObjectsClassReferencesPutNotFound) IsSuccess() bool {
@@ -373,15 +371,14 @@ func (o *ObjectsClassReferencesPutNotFound) Code() int {
 }
 
 func (o *ObjectsClassReferencesPutNotFound) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutNotFound ", 404)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutNotFound", 404)
 }
 
 func (o *ObjectsClassReferencesPutNotFound) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutNotFound ", 404)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutNotFound", 404)
 }
 
 func (o *ObjectsClassReferencesPutNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -430,11 +427,13 @@ func (o *ObjectsClassReferencesPutUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsClassReferencesPutUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsClassReferencesPutUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsClassReferencesPutUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -442,7 +441,6 @@ func (o *ObjectsClassReferencesPutUnprocessableEntity) GetPayload() *models.Erro
 }
 
 func (o *ObjectsClassReferencesPutUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -498,11 +496,13 @@ func (o *ObjectsClassReferencesPutInternalServerError) Code() int {
 }
 
 func (o *ObjectsClassReferencesPutInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsClassReferencesPutInternalServerError) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsClassReferencesPutInternalServerError) GetPayload() *models.ErrorResponse {
@@ -510,7 +510,6 @@ func (o *ObjectsClassReferencesPutInternalServerError) GetPayload() *models.Erro
 }
 
 func (o *ObjectsClassReferencesPutInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

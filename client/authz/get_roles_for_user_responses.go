@@ -17,6 +17,7 @@ package authz
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -77,7 +78,7 @@ func (o *GetRolesForUserReader) ReadResponse(response runtime.ClientResponse, co
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /authz/users/{id}/roles/{userType}] getRolesForUser", response, response.Code())
 	}
 }
 
@@ -126,11 +127,13 @@ func (o *GetRolesForUserOK) Code() int {
 }
 
 func (o *GetRolesForUserOK) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserOK %s", 200, payload)
 }
 
 func (o *GetRolesForUserOK) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserOK %s", 200, payload)
 }
 
 func (o *GetRolesForUserOK) GetPayload() models.RolesListResponse {
@@ -138,7 +141,6 @@ func (o *GetRolesForUserOK) GetPayload() models.RolesListResponse {
 }
 
 func (o *GetRolesForUserOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -192,11 +194,13 @@ func (o *GetRolesForUserBadRequest) Code() int {
 }
 
 func (o *GetRolesForUserBadRequest) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserBadRequest %s", 400, payload)
 }
 
 func (o *GetRolesForUserBadRequest) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserBadRequest %s", 400, payload)
 }
 
 func (o *GetRolesForUserBadRequest) GetPayload() *models.ErrorResponse {
@@ -204,7 +208,6 @@ func (o *GetRolesForUserBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetRolesForUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -225,8 +228,7 @@ GetRolesForUserUnauthorized describes a response with status code 401, with defa
 
 Unauthorized or invalid credentials.
 */
-type GetRolesForUserUnauthorized struct {
-}
+type GetRolesForUserUnauthorized struct{}
 
 // IsSuccess returns true when this get roles for user unauthorized response has a 2xx status code
 func (o *GetRolesForUserUnauthorized) IsSuccess() bool {
@@ -259,15 +261,14 @@ func (o *GetRolesForUserUnauthorized) Code() int {
 }
 
 func (o *GetRolesForUserUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserUnauthorized", 401)
 }
 
 func (o *GetRolesForUserUnauthorized) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserUnauthorized", 401)
 }
 
 func (o *GetRolesForUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -316,11 +317,13 @@ func (o *GetRolesForUserForbidden) Code() int {
 }
 
 func (o *GetRolesForUserForbidden) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserForbidden %s", 403, payload)
 }
 
 func (o *GetRolesForUserForbidden) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserForbidden %s", 403, payload)
 }
 
 func (o *GetRolesForUserForbidden) GetPayload() *models.ErrorResponse {
@@ -328,7 +331,6 @@ func (o *GetRolesForUserForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetRolesForUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -349,8 +351,7 @@ GetRolesForUserNotFound describes a response with status code 404, with default 
 
 no role found for user
 */
-type GetRolesForUserNotFound struct {
-}
+type GetRolesForUserNotFound struct{}
 
 // IsSuccess returns true when this get roles for user not found response has a 2xx status code
 func (o *GetRolesForUserNotFound) IsSuccess() bool {
@@ -383,15 +384,14 @@ func (o *GetRolesForUserNotFound) Code() int {
 }
 
 func (o *GetRolesForUserNotFound) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserNotFound", 404)
 }
 
 func (o *GetRolesForUserNotFound) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserNotFound", 404)
 }
 
 func (o *GetRolesForUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -440,11 +440,13 @@ func (o *GetRolesForUserUnprocessableEntity) Code() int {
 }
 
 func (o *GetRolesForUserUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserUnprocessableEntity %s", 422, payload)
 }
 
 func (o *GetRolesForUserUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserUnprocessableEntity %s", 422, payload)
 }
 
 func (o *GetRolesForUserUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -452,7 +454,6 @@ func (o *GetRolesForUserUnprocessableEntity) GetPayload() *models.ErrorResponse 
 }
 
 func (o *GetRolesForUserUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -508,11 +509,13 @@ func (o *GetRolesForUserInternalServerError) Code() int {
 }
 
 func (o *GetRolesForUserInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserInternalServerError %s", 500, payload)
 }
 
 func (o *GetRolesForUserInternalServerError) String() string {
-	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/users/{id}/roles/{userType}][%d] getRolesForUserInternalServerError %s", 500, payload)
 }
 
 func (o *GetRolesForUserInternalServerError) GetPayload() *models.ErrorResponse {
@@ -520,7 +523,6 @@ func (o *GetRolesForUserInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *GetRolesForUserInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

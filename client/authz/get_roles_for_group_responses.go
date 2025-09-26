@@ -17,6 +17,7 @@ package authz
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -77,7 +78,7 @@ func (o *GetRolesForGroupReader) ReadResponse(response runtime.ClientResponse, c
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /authz/groups/{id}/roles/{groupType}] getRolesForGroup", response, response.Code())
 	}
 }
 
@@ -126,11 +127,13 @@ func (o *GetRolesForGroupOK) Code() int {
 }
 
 func (o *GetRolesForGroupOK) Error() string {
-	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupOK %s", 200, payload)
 }
 
 func (o *GetRolesForGroupOK) String() string {
-	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupOK %s", 200, payload)
 }
 
 func (o *GetRolesForGroupOK) GetPayload() models.RolesListResponse {
@@ -138,7 +141,6 @@ func (o *GetRolesForGroupOK) GetPayload() models.RolesListResponse {
 }
 
 func (o *GetRolesForGroupOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -192,11 +194,13 @@ func (o *GetRolesForGroupBadRequest) Code() int {
 }
 
 func (o *GetRolesForGroupBadRequest) Error() string {
-	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupBadRequest %s", 400, payload)
 }
 
 func (o *GetRolesForGroupBadRequest) String() string {
-	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupBadRequest %s", 400, payload)
 }
 
 func (o *GetRolesForGroupBadRequest) GetPayload() *models.ErrorResponse {
@@ -204,7 +208,6 @@ func (o *GetRolesForGroupBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetRolesForGroupBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -225,8 +228,7 @@ GetRolesForGroupUnauthorized describes a response with status code 401, with def
 
 Unauthorized or invalid credentials.
 */
-type GetRolesForGroupUnauthorized struct {
-}
+type GetRolesForGroupUnauthorized struct{}
 
 // IsSuccess returns true when this get roles for group unauthorized response has a 2xx status code
 func (o *GetRolesForGroupUnauthorized) IsSuccess() bool {
@@ -259,15 +261,14 @@ func (o *GetRolesForGroupUnauthorized) Code() int {
 }
 
 func (o *GetRolesForGroupUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupUnauthorized", 401)
 }
 
 func (o *GetRolesForGroupUnauthorized) String() string {
-	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupUnauthorized", 401)
 }
 
 func (o *GetRolesForGroupUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -316,11 +317,13 @@ func (o *GetRolesForGroupForbidden) Code() int {
 }
 
 func (o *GetRolesForGroupForbidden) Error() string {
-	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupForbidden %s", 403, payload)
 }
 
 func (o *GetRolesForGroupForbidden) String() string {
-	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupForbidden %s", 403, payload)
 }
 
 func (o *GetRolesForGroupForbidden) GetPayload() *models.ErrorResponse {
@@ -328,7 +331,6 @@ func (o *GetRolesForGroupForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetRolesForGroupForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -349,8 +351,7 @@ GetRolesForGroupNotFound describes a response with status code 404, with default
 
 The specified group was not found.
 */
-type GetRolesForGroupNotFound struct {
-}
+type GetRolesForGroupNotFound struct{}
 
 // IsSuccess returns true when this get roles for group not found response has a 2xx status code
 func (o *GetRolesForGroupNotFound) IsSuccess() bool {
@@ -383,15 +384,14 @@ func (o *GetRolesForGroupNotFound) Code() int {
 }
 
 func (o *GetRolesForGroupNotFound) Error() string {
-	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupNotFound", 404)
 }
 
 func (o *GetRolesForGroupNotFound) String() string {
-	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupNotFound", 404)
 }
 
 func (o *GetRolesForGroupNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -440,11 +440,13 @@ func (o *GetRolesForGroupUnprocessableEntity) Code() int {
 }
 
 func (o *GetRolesForGroupUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupUnprocessableEntity %s", 422, payload)
 }
 
 func (o *GetRolesForGroupUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupUnprocessableEntity %s", 422, payload)
 }
 
 func (o *GetRolesForGroupUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -452,7 +454,6 @@ func (o *GetRolesForGroupUnprocessableEntity) GetPayload() *models.ErrorResponse
 }
 
 func (o *GetRolesForGroupUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -508,11 +509,13 @@ func (o *GetRolesForGroupInternalServerError) Code() int {
 }
 
 func (o *GetRolesForGroupInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupInternalServerError %s", 500, payload)
 }
 
 func (o *GetRolesForGroupInternalServerError) String() string {
-	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{id}/roles/{groupType}][%d] getRolesForGroupInternalServerError %s", 500, payload)
 }
 
 func (o *GetRolesForGroupInternalServerError) GetPayload() *models.ErrorResponse {
@@ -520,7 +523,6 @@ func (o *GetRolesForGroupInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *GetRolesForGroupInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

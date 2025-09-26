@@ -18,6 +18,7 @@ package authz
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -74,7 +75,7 @@ func (o *RevokeRoleFromGroupReader) ReadResponse(response runtime.ClientResponse
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /authz/groups/{id}/revoke] revokeRoleFromGroup", response, response.Code())
 	}
 }
 
@@ -88,8 +89,7 @@ RevokeRoleFromGroupOK describes a response with status code 200, with default he
 
 Role revoked successfully
 */
-type RevokeRoleFromGroupOK struct {
-}
+type RevokeRoleFromGroupOK struct{}
 
 // IsSuccess returns true when this revoke role from group o k response has a 2xx status code
 func (o *RevokeRoleFromGroupOK) IsSuccess() bool {
@@ -122,15 +122,14 @@ func (o *RevokeRoleFromGroupOK) Code() int {
 }
 
 func (o *RevokeRoleFromGroupOK) Error() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupOK ", 200)
+	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupOK", 200)
 }
 
 func (o *RevokeRoleFromGroupOK) String() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupOK ", 200)
+	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupOK", 200)
 }
 
 func (o *RevokeRoleFromGroupOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -179,11 +178,13 @@ func (o *RevokeRoleFromGroupBadRequest) Code() int {
 }
 
 func (o *RevokeRoleFromGroupBadRequest) Error() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupBadRequest %s", 400, payload)
 }
 
 func (o *RevokeRoleFromGroupBadRequest) String() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupBadRequest %s", 400, payload)
 }
 
 func (o *RevokeRoleFromGroupBadRequest) GetPayload() *models.ErrorResponse {
@@ -191,7 +192,6 @@ func (o *RevokeRoleFromGroupBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *RevokeRoleFromGroupBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -212,8 +212,7 @@ RevokeRoleFromGroupUnauthorized describes a response with status code 401, with 
 
 Unauthorized or invalid credentials.
 */
-type RevokeRoleFromGroupUnauthorized struct {
-}
+type RevokeRoleFromGroupUnauthorized struct{}
 
 // IsSuccess returns true when this revoke role from group unauthorized response has a 2xx status code
 func (o *RevokeRoleFromGroupUnauthorized) IsSuccess() bool {
@@ -246,15 +245,14 @@ func (o *RevokeRoleFromGroupUnauthorized) Code() int {
 }
 
 func (o *RevokeRoleFromGroupUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupUnauthorized", 401)
 }
 
 func (o *RevokeRoleFromGroupUnauthorized) String() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupUnauthorized", 401)
 }
 
 func (o *RevokeRoleFromGroupUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -303,11 +301,13 @@ func (o *RevokeRoleFromGroupForbidden) Code() int {
 }
 
 func (o *RevokeRoleFromGroupForbidden) Error() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupForbidden %s", 403, payload)
 }
 
 func (o *RevokeRoleFromGroupForbidden) String() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupForbidden %s", 403, payload)
 }
 
 func (o *RevokeRoleFromGroupForbidden) GetPayload() *models.ErrorResponse {
@@ -315,7 +315,6 @@ func (o *RevokeRoleFromGroupForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *RevokeRoleFromGroupForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -336,8 +335,7 @@ RevokeRoleFromGroupNotFound describes a response with status code 404, with defa
 
 role or group is not found.
 */
-type RevokeRoleFromGroupNotFound struct {
-}
+type RevokeRoleFromGroupNotFound struct{}
 
 // IsSuccess returns true when this revoke role from group not found response has a 2xx status code
 func (o *RevokeRoleFromGroupNotFound) IsSuccess() bool {
@@ -370,15 +368,14 @@ func (o *RevokeRoleFromGroupNotFound) Code() int {
 }
 
 func (o *RevokeRoleFromGroupNotFound) Error() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupNotFound ", 404)
+	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupNotFound", 404)
 }
 
 func (o *RevokeRoleFromGroupNotFound) String() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupNotFound ", 404)
+	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupNotFound", 404)
 }
 
 func (o *RevokeRoleFromGroupNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -427,11 +424,13 @@ func (o *RevokeRoleFromGroupInternalServerError) Code() int {
 }
 
 func (o *RevokeRoleFromGroupInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupInternalServerError %s", 500, payload)
 }
 
 func (o *RevokeRoleFromGroupInternalServerError) String() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/groups/{id}/revoke][%d] revokeRoleFromGroupInternalServerError %s", 500, payload)
 }
 
 func (o *RevokeRoleFromGroupInternalServerError) GetPayload() *models.ErrorResponse {
@@ -439,7 +438,6 @@ func (o *RevokeRoleFromGroupInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *RevokeRoleFromGroupInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -455,7 +453,6 @@ RevokeRoleFromGroupBody revoke role from group body
 swagger:model RevokeRoleFromGroupBody
 */
 type RevokeRoleFromGroupBody struct {
-
 	// group type
 	GroupType models.GroupType `json:"groupType,omitempty"`
 
@@ -509,6 +506,9 @@ func (o *RevokeRoleFromGroupBody) ContextValidate(ctx context.Context, formats s
 }
 
 func (o *RevokeRoleFromGroupBody) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
+	if swag.IsZero(o.GroupType) { // not required
+		return nil
+	}
 
 	if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {

@@ -17,6 +17,7 @@ package classifications
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *ClassificationsPostReader) ReadResponse(response runtime.ClientResponse
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /classifications/] classifications.post", response, response.Code())
 	}
 }
 
@@ -114,11 +115,13 @@ func (o *ClassificationsPostCreated) Code() int {
 }
 
 func (o *ClassificationsPostCreated) Error() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostCreated  %+v", 201, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostCreated %s", 201, payload)
 }
 
 func (o *ClassificationsPostCreated) String() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostCreated  %+v", 201, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostCreated %s", 201, payload)
 }
 
 func (o *ClassificationsPostCreated) GetPayload() *models.Classification {
@@ -126,7 +129,6 @@ func (o *ClassificationsPostCreated) GetPayload() *models.Classification {
 }
 
 func (o *ClassificationsPostCreated) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Classification)
 
 	// response payload
@@ -182,11 +184,13 @@ func (o *ClassificationsPostBadRequest) Code() int {
 }
 
 func (o *ClassificationsPostBadRequest) Error() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostBadRequest %s", 400, payload)
 }
 
 func (o *ClassificationsPostBadRequest) String() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostBadRequest %s", 400, payload)
 }
 
 func (o *ClassificationsPostBadRequest) GetPayload() *models.ErrorResponse {
@@ -194,7 +198,6 @@ func (o *ClassificationsPostBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ClassificationsPostBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -215,8 +218,7 @@ ClassificationsPostUnauthorized describes a response with status code 401, with 
 
 Unauthorized or invalid credentials.
 */
-type ClassificationsPostUnauthorized struct {
-}
+type ClassificationsPostUnauthorized struct{}
 
 // IsSuccess returns true when this classifications post unauthorized response has a 2xx status code
 func (o *ClassificationsPostUnauthorized) IsSuccess() bool {
@@ -249,15 +251,14 @@ func (o *ClassificationsPostUnauthorized) Code() int {
 }
 
 func (o *ClassificationsPostUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostUnauthorized ", 401)
+	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostUnauthorized", 401)
 }
 
 func (o *ClassificationsPostUnauthorized) String() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostUnauthorized ", 401)
+	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostUnauthorized", 401)
 }
 
 func (o *ClassificationsPostUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -306,11 +307,13 @@ func (o *ClassificationsPostForbidden) Code() int {
 }
 
 func (o *ClassificationsPostForbidden) Error() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostForbidden %s", 403, payload)
 }
 
 func (o *ClassificationsPostForbidden) String() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostForbidden %s", 403, payload)
 }
 
 func (o *ClassificationsPostForbidden) GetPayload() *models.ErrorResponse {
@@ -318,7 +321,6 @@ func (o *ClassificationsPostForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ClassificationsPostForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -374,11 +376,13 @@ func (o *ClassificationsPostInternalServerError) Code() int {
 }
 
 func (o *ClassificationsPostInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostInternalServerError %s", 500, payload)
 }
 
 func (o *ClassificationsPostInternalServerError) String() string {
-	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostInternalServerError %s", 500, payload)
 }
 
 func (o *ClassificationsPostInternalServerError) GetPayload() *models.ErrorResponse {
@@ -386,7 +390,6 @@ func (o *ClassificationsPostInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *ClassificationsPostInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

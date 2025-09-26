@@ -29,7 +29,6 @@ import (
 //
 // swagger:model NodesStatusResponse
 type NodesStatusResponse struct {
-
 	// nodes
 	Nodes []*NodeStatus `json:"nodes"`
 }
@@ -89,10 +88,13 @@ func (m *NodesStatusResponse) ContextValidate(ctx context.Context, formats strfm
 }
 
 func (m *NodesStatusResponse) contextValidateNodes(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.Nodes); i++ {
-
 		if m.Nodes[i] != nil {
+
+			if swag.IsZero(m.Nodes[i]) { // not required
+				return nil
+			}
+
 			if err := m.Nodes[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("nodes" + "." + strconv.Itoa(i))
@@ -102,7 +104,6 @@ func (m *NodesStatusResponse) contextValidateNodes(ctx context.Context, formats 
 				return err
 			}
 		}
-
 	}
 
 	return nil

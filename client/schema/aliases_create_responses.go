@@ -17,6 +17,7 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *AliasesCreateReader) ReadResponse(response runtime.ClientResponse, cons
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /aliases] aliases.create", response, response.Code())
 	}
 }
 
@@ -114,11 +115,13 @@ func (o *AliasesCreateOK) Code() int {
 }
 
 func (o *AliasesCreateOK) Error() string {
-	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateOK %s", 200, payload)
 }
 
 func (o *AliasesCreateOK) String() string {
-	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateOK %s", 200, payload)
 }
 
 func (o *AliasesCreateOK) GetPayload() *models.Alias {
@@ -126,7 +129,6 @@ func (o *AliasesCreateOK) GetPayload() *models.Alias {
 }
 
 func (o *AliasesCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Alias)
 
 	// response payload
@@ -147,8 +149,7 @@ AliasesCreateUnauthorized describes a response with status code 401, with defaul
 
 Unauthorized or invalid credentials.
 */
-type AliasesCreateUnauthorized struct {
-}
+type AliasesCreateUnauthorized struct{}
 
 // IsSuccess returns true when this aliases create unauthorized response has a 2xx status code
 func (o *AliasesCreateUnauthorized) IsSuccess() bool {
@@ -181,15 +182,14 @@ func (o *AliasesCreateUnauthorized) Code() int {
 }
 
 func (o *AliasesCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateUnauthorized", 401)
 }
 
 func (o *AliasesCreateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateUnauthorized", 401)
 }
 
 func (o *AliasesCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -238,11 +238,13 @@ func (o *AliasesCreateForbidden) Code() int {
 }
 
 func (o *AliasesCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateForbidden %s", 403, payload)
 }
 
 func (o *AliasesCreateForbidden) String() string {
-	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateForbidden %s", 403, payload)
 }
 
 func (o *AliasesCreateForbidden) GetPayload() *models.ErrorResponse {
@@ -250,7 +252,6 @@ func (o *AliasesCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AliasesCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -306,11 +307,13 @@ func (o *AliasesCreateUnprocessableEntity) Code() int {
 }
 
 func (o *AliasesCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *AliasesCreateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *AliasesCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -318,7 +321,6 @@ func (o *AliasesCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AliasesCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -374,11 +376,13 @@ func (o *AliasesCreateInternalServerError) Code() int {
 }
 
 func (o *AliasesCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateInternalServerError %s", 500, payload)
 }
 
 func (o *AliasesCreateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /aliases][%d] aliasesCreateInternalServerError %s", 500, payload)
 }
 
 func (o *AliasesCreateInternalServerError) GetPayload() *models.ErrorResponse {
@@ -386,7 +390,6 @@ func (o *AliasesCreateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AliasesCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

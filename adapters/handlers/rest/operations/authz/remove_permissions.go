@@ -63,7 +63,7 @@ func (o *RemovePermissions) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewRemovePermissionsParams()
+	Params := NewRemovePermissionsParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -84,14 +84,12 @@ func (o *RemovePermissions) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }
 
 // RemovePermissionsBody remove permissions body
 //
 // swagger:model RemovePermissionsBody
 type RemovePermissionsBody struct {
-
 	// permissions to remove from the role
 	// Required: true
 	Permissions []*models.Permission `json:"permissions" yaml:"permissions"`
@@ -112,7 +110,6 @@ func (o *RemovePermissionsBody) Validate(formats strfmt.Registry) error {
 }
 
 func (o *RemovePermissionsBody) validatePermissions(formats strfmt.Registry) error {
-
 	if err := validate.Required("body"+"."+"permissions", "body", o.Permissions); err != nil {
 		return err
 	}
@@ -153,10 +150,13 @@ func (o *RemovePermissionsBody) ContextValidate(ctx context.Context, formats str
 }
 
 func (o *RemovePermissionsBody) contextValidatePermissions(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(o.Permissions); i++ {
-
 		if o.Permissions[i] != nil {
+
+			if swag.IsZero(o.Permissions[i]) { // not required
+				return nil
+			}
+
 			if err := o.Permissions[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("body" + "." + "permissions" + "." + strconv.Itoa(i))
@@ -166,7 +166,6 @@ func (o *RemovePermissionsBody) contextValidatePermissions(ctx context.Context, 
 				return err
 			}
 		}
-
 	}
 
 	return nil

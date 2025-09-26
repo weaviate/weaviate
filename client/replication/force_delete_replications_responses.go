@@ -17,6 +17,7 @@ package replication
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *ForceDeleteReplicationsReader) ReadResponse(response runtime.ClientResp
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /replication/replicate/force-delete] forceDeleteReplications", response, response.Code())
 	}
 }
 
@@ -120,11 +121,13 @@ func (o *ForceDeleteReplicationsOK) Code() int {
 }
 
 func (o *ForceDeleteReplicationsOK) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsOK %s", 200, payload)
 }
 
 func (o *ForceDeleteReplicationsOK) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsOK %s", 200, payload)
 }
 
 func (o *ForceDeleteReplicationsOK) GetPayload() *models.ReplicationReplicateForceDeleteResponse {
@@ -132,7 +135,6 @@ func (o *ForceDeleteReplicationsOK) GetPayload() *models.ReplicationReplicateFor
 }
 
 func (o *ForceDeleteReplicationsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ReplicationReplicateForceDeleteResponse)
 
 	// response payload
@@ -188,11 +190,13 @@ func (o *ForceDeleteReplicationsBadRequest) Code() int {
 }
 
 func (o *ForceDeleteReplicationsBadRequest) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsBadRequest %s", 400, payload)
 }
 
 func (o *ForceDeleteReplicationsBadRequest) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsBadRequest %s", 400, payload)
 }
 
 func (o *ForceDeleteReplicationsBadRequest) GetPayload() *models.ErrorResponse {
@@ -200,7 +204,6 @@ func (o *ForceDeleteReplicationsBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ForceDeleteReplicationsBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -221,8 +224,7 @@ ForceDeleteReplicationsUnauthorized describes a response with status code 401, w
 
 Unauthorized or invalid credentials.
 */
-type ForceDeleteReplicationsUnauthorized struct {
-}
+type ForceDeleteReplicationsUnauthorized struct{}
 
 // IsSuccess returns true when this force delete replications unauthorized response has a 2xx status code
 func (o *ForceDeleteReplicationsUnauthorized) IsSuccess() bool {
@@ -255,15 +257,14 @@ func (o *ForceDeleteReplicationsUnauthorized) Code() int {
 }
 
 func (o *ForceDeleteReplicationsUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsUnauthorized ", 401)
+	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsUnauthorized", 401)
 }
 
 func (o *ForceDeleteReplicationsUnauthorized) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsUnauthorized ", 401)
+	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsUnauthorized", 401)
 }
 
 func (o *ForceDeleteReplicationsUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -312,11 +313,13 @@ func (o *ForceDeleteReplicationsForbidden) Code() int {
 }
 
 func (o *ForceDeleteReplicationsForbidden) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsForbidden %s", 403, payload)
 }
 
 func (o *ForceDeleteReplicationsForbidden) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsForbidden %s", 403, payload)
 }
 
 func (o *ForceDeleteReplicationsForbidden) GetPayload() *models.ErrorResponse {
@@ -324,7 +327,6 @@ func (o *ForceDeleteReplicationsForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ForceDeleteReplicationsForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -380,11 +382,13 @@ func (o *ForceDeleteReplicationsUnprocessableEntity) Code() int {
 }
 
 func (o *ForceDeleteReplicationsUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ForceDeleteReplicationsUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ForceDeleteReplicationsUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -392,7 +396,6 @@ func (o *ForceDeleteReplicationsUnprocessableEntity) GetPayload() *models.ErrorR
 }
 
 func (o *ForceDeleteReplicationsUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -448,11 +451,13 @@ func (o *ForceDeleteReplicationsInternalServerError) Code() int {
 }
 
 func (o *ForceDeleteReplicationsInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsInternalServerError %s", 500, payload)
 }
 
 func (o *ForceDeleteReplicationsInternalServerError) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsInternalServerError %s", 500, payload)
 }
 
 func (o *ForceDeleteReplicationsInternalServerError) GetPayload() *models.ErrorResponse {
@@ -460,7 +465,6 @@ func (o *ForceDeleteReplicationsInternalServerError) GetPayload() *models.ErrorR
 }
 
 func (o *ForceDeleteReplicationsInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

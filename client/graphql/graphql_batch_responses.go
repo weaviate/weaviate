@@ -17,6 +17,7 @@ package graphql
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *GraphqlBatchReader) ReadResponse(response runtime.ClientResponse, consu
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /graphql/batch] graphql.batch", response, response.Code())
 	}
 }
 
@@ -114,11 +115,13 @@ func (o *GraphqlBatchOK) Code() int {
 }
 
 func (o *GraphqlBatchOK) Error() string {
-	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchOK %s", 200, payload)
 }
 
 func (o *GraphqlBatchOK) String() string {
-	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchOK %s", 200, payload)
 }
 
 func (o *GraphqlBatchOK) GetPayload() models.GraphQLResponses {
@@ -126,7 +129,6 @@ func (o *GraphqlBatchOK) GetPayload() models.GraphQLResponses {
 }
 
 func (o *GraphqlBatchOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -145,8 +147,7 @@ GraphqlBatchUnauthorized describes a response with status code 401, with default
 
 Unauthorized or invalid credentials.
 */
-type GraphqlBatchUnauthorized struct {
-}
+type GraphqlBatchUnauthorized struct{}
 
 // IsSuccess returns true when this graphql batch unauthorized response has a 2xx status code
 func (o *GraphqlBatchUnauthorized) IsSuccess() bool {
@@ -179,15 +180,14 @@ func (o *GraphqlBatchUnauthorized) Code() int {
 }
 
 func (o *GraphqlBatchUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchUnauthorized ", 401)
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchUnauthorized", 401)
 }
 
 func (o *GraphqlBatchUnauthorized) String() string {
-	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchUnauthorized ", 401)
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchUnauthorized", 401)
 }
 
 func (o *GraphqlBatchUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -236,11 +236,13 @@ func (o *GraphqlBatchForbidden) Code() int {
 }
 
 func (o *GraphqlBatchForbidden) Error() string {
-	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchForbidden %s", 403, payload)
 }
 
 func (o *GraphqlBatchForbidden) String() string {
-	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchForbidden %s", 403, payload)
 }
 
 func (o *GraphqlBatchForbidden) GetPayload() *models.ErrorResponse {
@@ -248,7 +250,6 @@ func (o *GraphqlBatchForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlBatchForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -304,11 +305,13 @@ func (o *GraphqlBatchUnprocessableEntity) Code() int {
 }
 
 func (o *GraphqlBatchUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchUnprocessableEntity %s", 422, payload)
 }
 
 func (o *GraphqlBatchUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchUnprocessableEntity %s", 422, payload)
 }
 
 func (o *GraphqlBatchUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -316,7 +319,6 @@ func (o *GraphqlBatchUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlBatchUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -372,11 +374,13 @@ func (o *GraphqlBatchInternalServerError) Code() int {
 }
 
 func (o *GraphqlBatchInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchInternalServerError %s", 500, payload)
 }
 
 func (o *GraphqlBatchInternalServerError) String() string {
-	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchInternalServerError %s", 500, payload)
 }
 
 func (o *GraphqlBatchInternalServerError) GetPayload() *models.ErrorResponse {
@@ -384,7 +388,6 @@ func (o *GraphqlBatchInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlBatchInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

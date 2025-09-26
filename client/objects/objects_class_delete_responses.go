@@ -17,6 +17,7 @@ package objects
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -77,7 +78,7 @@ func (o *ObjectsClassDeleteReader) ReadResponse(response runtime.ClientResponse,
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[DELETE /objects/{className}/{id}] objects.class.delete", response, response.Code())
 	}
 }
 
@@ -91,8 +92,7 @@ ObjectsClassDeleteNoContent describes a response with status code 204, with defa
 
 Successfully deleted.
 */
-type ObjectsClassDeleteNoContent struct {
-}
+type ObjectsClassDeleteNoContent struct{}
 
 // IsSuccess returns true when this objects class delete no content response has a 2xx status code
 func (o *ObjectsClassDeleteNoContent) IsSuccess() bool {
@@ -125,15 +125,14 @@ func (o *ObjectsClassDeleteNoContent) Code() int {
 }
 
 func (o *ObjectsClassDeleteNoContent) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteNoContent ", 204)
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteNoContent", 204)
 }
 
 func (o *ObjectsClassDeleteNoContent) String() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteNoContent ", 204)
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteNoContent", 204)
 }
 
 func (o *ObjectsClassDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -182,11 +181,13 @@ func (o *ObjectsClassDeleteBadRequest) Code() int {
 }
 
 func (o *ObjectsClassDeleteBadRequest) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteBadRequest %s", 400, payload)
 }
 
 func (o *ObjectsClassDeleteBadRequest) String() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteBadRequest %s", 400, payload)
 }
 
 func (o *ObjectsClassDeleteBadRequest) GetPayload() *models.ErrorResponse {
@@ -194,7 +195,6 @@ func (o *ObjectsClassDeleteBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsClassDeleteBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -215,8 +215,7 @@ ObjectsClassDeleteUnauthorized describes a response with status code 401, with d
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassDeleteUnauthorized struct {
-}
+type ObjectsClassDeleteUnauthorized struct{}
 
 // IsSuccess returns true when this objects class delete unauthorized response has a 2xx status code
 func (o *ObjectsClassDeleteUnauthorized) IsSuccess() bool {
@@ -249,15 +248,14 @@ func (o *ObjectsClassDeleteUnauthorized) Code() int {
 }
 
 func (o *ObjectsClassDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteUnauthorized", 401)
 }
 
 func (o *ObjectsClassDeleteUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteUnauthorized", 401)
 }
 
 func (o *ObjectsClassDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -306,11 +304,13 @@ func (o *ObjectsClassDeleteForbidden) Code() int {
 }
 
 func (o *ObjectsClassDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteForbidden %s", 403, payload)
 }
 
 func (o *ObjectsClassDeleteForbidden) String() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteForbidden %s", 403, payload)
 }
 
 func (o *ObjectsClassDeleteForbidden) GetPayload() *models.ErrorResponse {
@@ -318,7 +318,6 @@ func (o *ObjectsClassDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsClassDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -339,8 +338,7 @@ ObjectsClassDeleteNotFound describes a response with status code 404, with defau
 
 Successful query result but no resource was found.
 */
-type ObjectsClassDeleteNotFound struct {
-}
+type ObjectsClassDeleteNotFound struct{}
 
 // IsSuccess returns true when this objects class delete not found response has a 2xx status code
 func (o *ObjectsClassDeleteNotFound) IsSuccess() bool {
@@ -373,15 +371,14 @@ func (o *ObjectsClassDeleteNotFound) Code() int {
 }
 
 func (o *ObjectsClassDeleteNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteNotFound ", 404)
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteNotFound", 404)
 }
 
 func (o *ObjectsClassDeleteNotFound) String() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteNotFound ", 404)
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteNotFound", 404)
 }
 
 func (o *ObjectsClassDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -430,11 +427,13 @@ func (o *ObjectsClassDeleteUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsClassDeleteUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsClassDeleteUnprocessableEntity) String() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsClassDeleteUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -442,7 +441,6 @@ func (o *ObjectsClassDeleteUnprocessableEntity) GetPayload() *models.ErrorRespon
 }
 
 func (o *ObjectsClassDeleteUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -498,11 +496,13 @@ func (o *ObjectsClassDeleteInternalServerError) Code() int {
 }
 
 func (o *ObjectsClassDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsClassDeleteInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsClassDeleteInternalServerError) GetPayload() *models.ErrorResponse {
@@ -510,7 +510,6 @@ func (o *ObjectsClassDeleteInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *ObjectsClassDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
