@@ -412,3 +412,49 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 
 	return nil
 }
+
+// Requantize ensures the quantized vectors are consistent with the LSM store.
+// It goes through the LSM store and reencodes any vector, and
+// it also removes any indexed vector that is not in the LSM store.
+// It it safe to call or interrupt this method at any time.
+func (s *Shard) RequantizeIndex(ctx context.Context, targetVector string) error {
+
+	start := time.Now()
+
+	vectorIndex, ok := s.GetVectorIndex(targetVector)
+	if !ok {
+		s.index.logger.WithField("targetVector", targetVector).WithField("action", "requantize").Warn("requantize index: vector index not found")
+		// shard was never initialized, possibly because of a failed shard
+		// initialization. No op.
+		return nil
+	}
+
+	total := 0
+
+	if vectorIndex.Multivector() {
+		return errors.New("multi-vector not supported")
+	} else {
+		// add non-indexed vectors to the queue
+		err := s.iterateOnLSMVectors(ctx, 0, targetVector, func(docID uint64, vector []float32) error {
+			vectorIndex.Preload(docID, vector)
+			total += 1
+			if total%100000 == 0 {
+				s.index.logger.WithField("action", "requantize").WithField("target_vector", targetVector).Infof("requantization completed %d vectors", total)
+			}
+			return nil
+		})
+		if err != nil {
+			return errors.Wrap(err, "iterate on LSM vectors")
+		}
+	}
+
+	s.index.logger.
+		WithField("total", total).
+		WithField("shard_id", s.ID()).
+		WithField("took", time.Since(start)).
+		WithField("action", "requantize").
+		WithField("target_vector", targetVector).
+		Info("requantized vector index")
+
+	return nil
+}
