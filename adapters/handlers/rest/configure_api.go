@@ -948,19 +948,19 @@ func (s *Server) configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}, appState.Logger)
 	}
 
-	grpcShutdownChecker := &shutdownGRPCObserver{logger: appState.Logger}
+	grpcShutdownTracker := &shutdownGRPCTracker{logger: appState.Logger}
 	appState.SetShutdownRestChecker(s)
-	appState.SetShutdownGrpcChecker(grpcShutdownChecker)
+	appState.SetShutdownGrpcChecker(grpcShutdownTracker)
 
 	api.PreServerShutdown = func() {
 		appState.Logger.Info("pre-shutdown phase initiated")
 
-		grpcShutdownChecker.NotifyShutdown()
+		grpcShutdownTracker.NotifyShutdown()
 		grpcHealthServer.SetServingStatus("gRPC server", grpc_health_v1.HealthCheckResponse_SERVING)
 		appState.Logger.Debug("notified gRPC server as shut down")
 
 		// NOTE: give health checks and readiness probes time to detect the shutdown without excessive delay
-		appState.Logger.Info("wait for health check propagation")
+		appState.Logger.Debug("wait for health check propagation")
 		time.Sleep(ReadinessProbeLeadTime)
 
 		// CHANGE: Start draining gRPC connections after health checks are updated
@@ -1033,21 +1033,21 @@ func (s *Server) configureAPI(api *operations.WeaviateAPI) http.Handler {
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 
-// shutdownGRPCObserver provides a minimal, thread-safe shutdown flag for the gRPC
+// shutdownGRPCTracker provides a minimal, thread-safe shutdown flag for the gRPC
 // server that can be queried by the readiness probe via state.IsShuttingDown().
 //
 // Concurrency:
 //
 //	The flag is an int32 guarded by atomic operations and is safe for
 //	concurrent reads/writes.
-type shutdownGRPCObserver struct {
+type shutdownGRPCTracker struct {
 	shuttingDown int32 // 0 = running, 1 = shutting down
 	logger       *logrus.Logger
 }
 
 // IsShuttingDown reports whether a shutdown has been initiated.
 // It is safe for concurrent use.
-func (g *shutdownGRPCObserver) IsShuttingDown() bool {
+func (g *shutdownGRPCTracker) IsShuttingDown() bool {
 	return atomic.LoadInt32(&g.shuttingDown) == 1
 }
 
@@ -1056,7 +1056,7 @@ func (g *shutdownGRPCObserver) IsShuttingDown() bool {
 // It is safe for concurrent use.
 //
 // Note: CAS is used to avoid redundant writes.
-func (g *shutdownGRPCObserver) NotifyShutdown() {
+func (g *shutdownGRPCTracker) NotifyShutdown() {
 	atomic.CompareAndSwapInt32(&g.shuttingDown, 0, 1)
 }
 
