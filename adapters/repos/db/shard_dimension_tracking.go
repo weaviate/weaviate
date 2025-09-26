@@ -15,12 +15,11 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -39,12 +38,6 @@ const (
 	DimensionCategorySQ
 	DimensionCategoryRQ
 )
-
-// since v1.34 StrategyRoaringSet will be default strategy for dimensions bucket
-var DimensionsBucketPrioritizedStrategies = []string{
-	lsmkv.StrategyMapCollection,
-	lsmkv.StrategyRoaringSet,
-}
 
 func (c DimensionCategory) String() string {
 	switch c {
@@ -89,7 +82,7 @@ func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector str
 	if b == nil {
 		return types.Dimensionality{}, errors.Errorf("calcTargetVectorDimensions: no bucket dimensions")
 	}
-	return calcTargetVectorDimensionsFromBucket(ctx, b, targetVector)
+	return shardusage.CalcTargetVectorDimensionsFromBucket(ctx, b, targetVector)
 }
 
 // DimensionMetrics represents the dimension tracking metrics for a vector.
@@ -228,72 +221,6 @@ func correctEmptySegments(segments int, dimensions int) int {
 		return segments
 	}
 	return common.CalculateOptimalSegments(dimensions)
-}
-
-// calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
-func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string,
-) (types.Dimensionality, error) {
-	dimensionality := types.Dimensionality{}
-
-	if err := lsmkv.CheckExpectedStrategy(b.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyRoaringSet); err != nil {
-		return dimensionality, fmt.Errorf("calcTargetVectorDimensionsFromBucket: %w", err)
-	}
-
-	nameLen := len(targetVector)
-	expectedKeyLen := nameLen + 4 // vector name + uint32
-	var k []byte
-
-	switch b.Strategy() {
-	case lsmkv.StrategyMapCollection:
-		// Since weaviate 1.34 default dimension bucket strategy is StrategyRoaringSet.
-		// For backward compatibility StrategyMapCollection is still supported.
-
-		c := b.MapCursor()
-		defer c.Close()
-
-		var v []lsmkv.MapPair
-		if nameLen == 0 {
-			k, v = c.First(ctx)
-		} else {
-			k, v = c.Seek(ctx, []byte(targetVector))
-		}
-		for ; k != nil; k, v = c.Next(ctx) {
-			// for named vectors we have to additionally check if the key is prefixed with the vector name
-			if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
-				break
-			}
-
-			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
-			if dimLength > 0 && (dimensionality.Dimensions == 0 || dimensionality.Count == 0) {
-				dimensionality.Dimensions = int(dimLength)
-				dimensionality.Count = len(v)
-			}
-		}
-	default:
-		c := b.CursorRoaringSet()
-		defer c.Close()
-
-		var v *sroar.Bitmap
-		if nameLen == 0 {
-			k, v = c.First()
-		} else {
-			k, v = c.Seek([]byte(targetVector))
-		}
-		for ; k != nil; k, v = c.Next() {
-			// for named vectors we have to additionally check if the key is prefixed with the vector name
-			if len(k) != expectedKeyLen || !strings.HasPrefix(string(k), targetVector) {
-				break
-			}
-
-			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
-			if dimLength > 0 && (dimensionality.Dimensions == 0 || dimensionality.Count == 0) {
-				dimensionality.Dimensions = int(dimLength)
-				dimensionality.Count = v.GetCardinality()
-			}
-		}
-	}
-
-	return dimensionality, nil
 }
 
 func (s *Shard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {

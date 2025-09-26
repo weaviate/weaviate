@@ -13,21 +13,14 @@ package db
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/cluster/usage/types"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -238,14 +231,14 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard ShardLike) 
 
 func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName string) (*types.ShardUsage, error) {
 	// Cold tenant: calculate from disk without loading
-	objectUsage, err := CalculateUnloadedObjectsMetrics(i.logger, i.path(), tenantName)
+	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(i.logger, i.path(), tenantName)
 	if err != nil {
 		return nil, err
 	}
 
 	vectorIndexConfigs := i.GetVectorIndexConfigs()
 
-	vectorStorageSize, err := CalculateUnloadedVectorsMetrics(ctx, i.logger, i.path(), tenantName, vectorIndexConfigs)
+	vectorStorageSize, err := shardusage.CalculateUnloadedVectorsMetrics(ctx, i.logger, i.path(), tenantName, vectorIndexConfigs)
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +267,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName stri
 		vectorUsage.Bits = enthnsw.GetRQBits(vectorIndexConfig)
 		vectorUsage.IsDynamic = common.IsDynamic(common.IndexType(vectorUsage.VectorIndexType))
 		// Why is this a list? There should be one dimensionality per named vector
-		dimensionalities, err := CalculateUnloadedDimensionsUsage(ctx, i.logger, i.path(), tenantName, targetVector)
+		dimensionalities, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, i.logger, i.path(), tenantName, targetVector)
 		if err != nil {
 			return nil, err
 		}
@@ -283,131 +276,6 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName stri
 		shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
 	}
 	return shardUsage, err
-}
-
-// CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
-func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLogger, path, tenantName, targetVector string) (types.Dimensionality, error) {
-	bucketPath := shardPathDimensionsLSM(path, tenantName)
-	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, DimensionsBucketPrioritizedStrategies)
-	if err != nil {
-		return types.Dimensionality{}, fmt.Errorf("determine dimensions bucket strategy: %w", err)
-	}
-
-	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
-		bucketPath,
-		path,
-		logger,
-		nil,
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(),
-		lsmkv.WithStrategy(strategy),
-	)
-	if err != nil {
-		return types.Dimensionality{}, err
-	}
-	defer bucket.Shutdown(ctx)
-
-	return calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
-}
-
-// CalculateUnloadedVectorsMetrics calculates vector storage size for a cold tenant without loading it into memory
-func CalculateUnloadedVectorsMetrics(ctx context.Context, logger logrus.FieldLogger, path, tenantName string, vectorConfig map[string]schemaConfig.VectorIndexConfig) (int64, error) {
-	totalSize := int64(0)
-
-	// For each target vector, calculate storage size using dimensions bucket and config-based compression
-	for targetVector, config := range vectorConfig {
-		err := func() error {
-			bucketPath := shardPathDimensionsLSM(path, tenantName)
-			strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, DimensionsBucketPrioritizedStrategies)
-			if err != nil {
-				return fmt.Errorf("determine dimensions bucket strategy: %w", err)
-			}
-
-			// Get dimensions and object count from the dimensions bucket
-			bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
-				bucketPath,
-				path,
-				logger,
-				nil,
-				cyclemanager.NewCallbackGroupNoop(),
-				cyclemanager.NewCallbackGroupNoop(),
-				lsmkv.WithStrategy(strategy),
-			)
-			if err != nil {
-				return err
-			}
-			defer bucket.Shutdown(ctx)
-
-			dimensionality, err := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
-			if err != nil {
-				return err
-			}
-
-			if dimensionality.Count != 0 && dimensionality.Dimensions != 0 {
-				// Calculate uncompressed size (float32 = 4 bytes per dimension)
-				uncompressedSize := int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
-
-				// For inactive tenants, use vector index config for dimension tracking
-				// This is similar to the original shard dimension tracking approach
-				totalSize += int64(float64(uncompressedSize) / helpers.CompressionRatioFromConfig(config, dimensionality.Dimensions))
-			}
-			return nil
-		}()
-		if err != nil {
-			return 0, err
-		}
-	}
-
-	return totalSize, nil
-}
-
-// CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
-func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, tenantName string) (types.ObjectUsage, error) {
-	// Parse all .cna files in the object store and sum them up
-	totalObjectCount := int64(0)
-	totalDiskSize := int64(0)
-
-	// Use a single walk to avoid multiple filepath.Walk calls and reduce file descriptors
-	if err := filepath.Walk(shardPathObjectsLSM(path, tenantName), func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Only count files, not directories
-		if !info.IsDir() {
-			totalDiskSize += info.Size()
-
-			// Look for .cna files (net count additions)
-			if strings.HasSuffix(info.Name(), lsmkv.CountNetAdditionsFileSuffix) {
-				count, err := lsmkv.ReadCountNetAdditionsFile(path)
-				if err != nil {
-					logger.WithField("path", path).WithError(err).Warn("failed to read .cna file")
-					return err
-				}
-				totalObjectCount += count
-			}
-
-			// Look for .metadata files (bloom filters + count net additions)
-			if strings.HasSuffix(info.Name(), lsmkv.MetadataFileSuffix) {
-				count, err := lsmkv.ReadObjectCountFromMetadataFile(path)
-				if err != nil {
-					logger.WithField("path", path).WithError(err).Warn("failed to read .metadata file")
-					return err
-				}
-				totalObjectCount += count
-			}
-		}
-
-		return nil
-	}); err != nil {
-		return types.ObjectUsage{}, err
-	}
-
-	// If we can't determine object count, return the disk size as fallback
-	return types.ObjectUsage{
-		Count:        totalObjectCount,
-		StorageBytes: totalDiskSize,
-	}, nil
 }
 
 func emptyShardUsageWithNameAndActivity(shardName, activity string) *types.ShardUsage {
