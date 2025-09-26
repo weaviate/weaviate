@@ -22,7 +22,7 @@ import (
 func TestBruteForceSPTAG_Search(t *testing.T) {
 	dim := 64
 	q := compressionhelpers.NewRotationalQuantizer(dim, 42, 8, distancer.NewL2SquaredProvider())
-	sptag := NewBruteForceSPTAG(NewMetrics(nil, "n/a", "n/a"))
+	sptag := NewBruteForceSPTAG(NewMetrics(nil, "n/a", "n/a"), 10, 10)
 	sptag.Init(int32(dim), distancer.NewL2SquaredProvider())
 
 	// Seed vectors
@@ -42,9 +42,7 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	// Encode and upsert
 	for id, v := range vectors {
 		encoded := q.Encode(v)
-		err := sptag.Upsert(id, &Centroid{
-			Vector: NewAnonymousCompressedVector(encoded),
-		})
+		err := sptag.Insert(id, NewAnonymousCompressedVector(encoded))
 		require.NoError(t, err)
 	}
 
@@ -57,11 +55,11 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 
 	results, err := sptag.Search(NewAnonymousCompressedVector(encodedQuery), 2)
 	require.NoError(t, err)
-	require.True(t, len(results) >= 1)
+	require.True(t, len(results.data) >= 1)
 
 	// Vector 2 should be one of the closest
-	require.Equal(t, uint64(2), results[0].ID)
-	require.NotZero(t, results[0].Distance)
+	require.Equal(t, uint64(2), results.data[0].ID)
+	require.NotZero(t, results.data[0].Distance)
 
 	// Delete vector 2 and search again
 	err = sptag.MarkAsDeleted(2)
@@ -69,11 +67,11 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 
 	results, err = sptag.Search(NewAnonymousCompressedVector(encodedQuery), 2)
 	require.NoError(t, err)
-	require.NotContains(t, results, uint64(2))
+	require.NotContains(t, results.data, uint64(2))
 
 	// Ensure other vectors are still present
-	require.Equal(t, uint64(1), results[0].ID)
-	require.Equal(t, uint64(3), results[1].ID)
+	require.Equal(t, uint64(1), results.data[0].ID)
+	require.Equal(t, uint64(3), results.data[1].ID)
 
 	// Test with an empty search
 	results, err = sptag.Search(NewAnonymousCompressedVector(encodedQuery), 0)
