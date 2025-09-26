@@ -222,12 +222,14 @@ func (s *SPFresh) ValidateBeforeInsert(vector []float32) error {
 func computeMaxPostingSize(dims int, compressed bool) uint32 {
 	bytesPerDim := 4
 	maxBytes := 48 * 1024 // default to float32 budget
+	metadata := 4 + 1     // id + version
 	if compressed {
 		bytesPerDim = 1
-		maxBytes = 12 * 1024 // compressed budget
+		maxBytes = 12 * 1024                          // compressed budget
+		metadata += compressionhelpers.RQMetadataSize // RQ metadata
 	}
 
-	vBytes := dims*bytesPerDim + 4 + 1 + compressionhelpers.RQMetadataSize // id + version + RQ metadata
+	vBytes := dims*bytesPerDim + metadata
 
 	return uint32(maxBytes / vBytes)
 }
