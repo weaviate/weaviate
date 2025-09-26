@@ -25,7 +25,8 @@ func (b *Bucket) DebugLockSegmentGroup() error {
 
 // DEBUG METHOD: don't use in any real production use-case
 // - This method is designed to simulate a segment group maintenance unlock in the bucket
-func (b *Bucket) DebugUnlockSegmentGroup() (output bool) {
+func (b *Bucket) DebugUnlockSegmentGroup() bool {
+	output := false
 	if b.disk != nil {
 		if b.disk.maintenanceLock.TryLock() {
 			b.disk.maintenanceLock.Unlock()
@@ -35,7 +36,7 @@ func (b *Bucket) DebugUnlockSegmentGroup() (output bool) {
 			output = true
 		}
 	}
-	return
+	return output
 }
 
 // DEBUG METHOD: don't use in any real production use-case

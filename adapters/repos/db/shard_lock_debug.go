@@ -28,8 +28,8 @@ func (s *Shard) DebugLockDocIds() error {
 
 // DEBUG METHOD: don't use in any real production use-case
 // - This method is designed to simulate document ID unlocks in the shard
-func (s *Shard) DebugUnlockDocIds() (output bool) {
-	output = false
+func (s *Shard) DebugUnlockDocIds() bool {
+	output := false
 	for i := range s.docIdLock {
 		l := &s.docIdLock[i]
 		if l.TryLock() {
@@ -39,7 +39,7 @@ func (s *Shard) DebugUnlockDocIds() (output bool) {
 			output = true
 		}
 	}
-	return
+	return output
 }
 
 // DEBUG METHOD: don't use in any real production use-case
