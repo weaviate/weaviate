@@ -39,11 +39,10 @@ const (
 	DimensionCategoryBQ
 )
 
-// since v1.34 StrategyRoaringSet is default strategy for dimensions bucket,
-// StrategyMapCollection is left as backward compatibility for buckets created earlier
+// since v1.34 StrategyRoaringSet will be default strategy for dimensions bucket
 var DimensionsBucketPrioritizedStrategies = []string{
-	lsmkv.StrategyRoaringSet,
 	lsmkv.StrategyMapCollection,
+	lsmkv.StrategyRoaringSet,
 }
 
 func (s *Shard) Dimensions(ctx context.Context, targetVector string) int {
