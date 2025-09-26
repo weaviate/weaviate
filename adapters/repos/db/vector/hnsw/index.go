@@ -326,11 +326,11 @@ func New(cfg Config, uc ent.UserConfig,
 		if !uc.Multivector.Enabled {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MinMMapSize, cfg.MaxWalReuseSize, cfg.AllocChecker, index.getName())
+				cfg.MinMMapSize, cfg.MaxWalReuseSize, cfg.AllocChecker, index.getTargetVector())
 		} else {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MinMMapSize, cfg.MaxWalReuseSize, cfg.AllocChecker, index.getName())
+				cfg.MinMMapSize, cfg.MaxWalReuseSize, cfg.AllocChecker, index.getTargetVector())
 		}
 		if err != nil {
 			return nil, err
@@ -370,9 +370,12 @@ func New(cfg Config, uc ent.UserConfig,
 	return index, nil
 }
 
-func (h *hnsw) getName() string {
-	name, _ := strings.CutPrefix(h.id, fmt.Sprintf("%s_", helpers.VectorsBucketLSM))
-	return name
+func (h *hnsw) getTargetVector() string {
+	if name, found := strings.CutPrefix(h.id, fmt.Sprintf("%s_", helpers.VectorsBucketLSM)); found {
+		return name
+	}
+	// legacy vector index
+	return ""
 }
 
 // TODO: use this for incoming replication

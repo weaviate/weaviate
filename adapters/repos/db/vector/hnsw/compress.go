@@ -78,11 +78,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if !h.multivector.Load() {
 				h.compressor, err = compressionhelpers.NewHNSWPQCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getName())
+					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getTargetVector())
 			} else {
 				h.compressor, err = compressionhelpers.NewHNSWPQMultiCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getName())
+					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getTargetVector())
 			}
 			if err != nil {
 				h.pqConfig.Enabled = false
@@ -93,11 +93,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if !h.multivector.Load() {
 				h.compressor, err = compressionhelpers.NewHNSWSQCompressor(
 					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getName())
+					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getTargetVector())
 			} else {
 				h.compressor, err = compressionhelpers.NewHNSWSQMultiCompressor(
 					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getName())
+					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getTargetVector())
 			}
 			if err != nil {
 				h.sqConfig.Enabled = false
@@ -110,11 +110,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		if !h.multivector.Load() {
 			h.compressor, err = compressionhelpers.NewBQCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store, h.MinMMapSize,
-				h.MaxWalReuseSize, h.allocChecker, h.getName())
+				h.MaxWalReuseSize, h.allocChecker, h.getTargetVector())
 		} else {
 			h.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store, h.MinMMapSize,
-				h.MaxWalReuseSize, h.allocChecker, h.getName())
+				h.MaxWalReuseSize, h.allocChecker, h.getTargetVector())
 		}
 		if err != nil {
 			return err

@@ -15,7 +15,6 @@ import (
 	acceptance_with_go_client "acceptance_tests_with_client"
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -60,24 +59,9 @@ func testCompressedDynamicVectorIndex(host string) func(t *testing.T) {
 			},
 		}
 
-		generateRandomVector := func(dimensionality int) []float32 {
-			if dimensionality <= 0 {
-				return nil
-			}
-
-			src := rand.NewSource(time.Now().UnixNano())
-			r := rand.New(src)
-
-			slice := make([]float32, dimensionality)
-			for i := range slice {
-				slice[i] = r.Float32()
-			}
-			return slice
-		}
-
 		insertObjects := func(t *testing.T, n int) {
 			objs := []*models.Object{}
-			for i := 0; i < n; i++ {
+			for i := range n {
 				obj := &models.Object{
 					Class: className,
 					ID:    strfmt.UUID(uuid.NewString()),
