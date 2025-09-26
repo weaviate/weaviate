@@ -427,6 +427,9 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		}).Error("failed to delete file already marked for deletion")
 	}
 
+	sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
+	sg.metrics.ObserveSegmentSize(sg.strategy, seg.Size())
+
 	return nil
 }
 
