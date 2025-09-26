@@ -35,7 +35,7 @@ const (
 	FilterStrategySweeping = "sweeping"
 	FilterStrategyAcorn    = "acorn"
 
-	DefaultFilterStrategy = FilterStrategySweeping
+	DefaultFilterStrategy = FilterStrategyAcorn
 
 	// Fail validation if those criteria are not met
 	MinmumMaxConnections  = 4
@@ -117,10 +117,10 @@ func (u *UserConfig) SetDefaults() {
 		Bits:         DefaultRQBits,
 		RescoreLimit: DefaultRQRescoreLimit,
 	}
-	if strategy := os.Getenv("HNSW_DEFAULT_FILTER_STRATEGY"); strategy == FilterStrategyAcorn {
-		u.FilterStrategy = FilterStrategyAcorn
-	} else {
+	if strategy := os.Getenv("HNSW_DEFAULT_FILTER_STRATEGY"); strategy == FilterStrategySweeping {
 		u.FilterStrategy = FilterStrategySweeping
+	} else {
+		u.FilterStrategy = FilterStrategyAcorn
 	}
 	u.Multivector = MultivectorConfig{
 		Aggregation: DefaultMultivectorAggregation,
@@ -303,6 +303,11 @@ func (u *UserConfig) validate() error {
 	}
 	if enabled > 1 {
 		return fmt.Errorf("invalid hnsw config: more than a single compression methods enabled")
+	}
+
+	err := ValidateRQConfig(u.RQ)
+	if err != nil {
+		return err
 	}
 
 	if u.Multivector.MuveraConfig.Enabled && u.Multivector.MuveraConfig.KSim > 10 {

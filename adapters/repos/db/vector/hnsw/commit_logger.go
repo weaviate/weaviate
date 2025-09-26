@@ -53,6 +53,7 @@ type hnswCommitLogger struct {
 
 	allocChecker memwatch.AllocChecker
 
+	snapshotLock   sync.Mutex
 	snapshotLogger logrus.FieldLogger
 	// whether snapshots are disabled
 	snapshotDisabled bool

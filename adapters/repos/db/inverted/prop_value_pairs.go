@@ -55,6 +55,10 @@ func newPropValuePair(class *models.Class) (*propValuePair, error) {
 }
 
 func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if pv.operator.OnValue() {
 		return pv.fetchDocIDs(ctx, s, limit)
 	}
@@ -134,11 +138,11 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 				}
 
 				ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.NUMCPU)
-				dbm, err2 := child.resolveDocIDs(ctx, s, limit)
-				if err2 != nil {
-					err2 = errors.Wrapf(err2, "nested child %d", i)
-					ec.Add(err2)
-					return err2
+				dbm, err := child.resolveDocIDs(ctx, s, limit)
+				if err != nil {
+					err = errors.Wrapf(err, "nested child %d", i)
+					ec.Add(err)
+					return err
 				}
 				dbmCh <- dbm
 				return nil
@@ -148,8 +152,13 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 				break
 			}
 		}
-		eg.Wait()
+		errWait := eg.Wait()
 		err = ec.ToError()
+		if err == nil {
+			// if parent context gets expired/cancelled groupcontext might prevent execution of any goroutine,
+			// making error compounder empty. in that case take potencial error (context related) from wait
+			err = errWait
+		}
 	}
 
 	close(dbmCh)

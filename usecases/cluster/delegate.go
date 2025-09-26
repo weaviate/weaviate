@@ -88,15 +88,15 @@ func (d *spaceMsg) marshal() (data []byte, err error) {
 func (d *spaceMsg) unmarshal(data []byte) (err error) {
 	rd := bytes.NewReader(data)
 	if err = binary.Read(rd, binary.BigEndian, &d.header); err != nil {
-		return
+		return err
 	}
 	if err = binary.Read(rd, binary.BigEndian, &d.DiskUsage); err != nil {
-		return
+		return err
 	}
 
 	// decode node name start by its length
 	if d.NodeLen, err = rd.ReadByte(); err != nil {
-		return
+		return err
 	}
 	begin := len(data) - rd.Len()
 	end := begin + int(d.NodeLen)

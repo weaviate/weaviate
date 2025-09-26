@@ -18,6 +18,17 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/replication"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
+
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/usecases/cluster"
 
@@ -30,7 +41,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/objects"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func TestNodesAPI_Journey(t *testing.T) {
@@ -43,7 +53,12 @@ func TestNodesAPI_Journey(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -98,7 +113,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	}
 
 	require.Nil(t,
-		migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+		migrator.AddClass(context.Background(), class))
 
 	schemaGetter.schema.Objects = &models.Schema{
 		Classes: []*models.Class{class},
@@ -157,4 +172,97 @@ func TestNodesAPI_Journey(t *testing.T) {
 	assert.Equal(t, "READY", nodeStatus.Shards[0].VectorIndexingStatus)
 	assert.Equal(t, int64(0), nodeStatus.Shards[0].VectorQueueLength)
 	assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
+}
+
+func TestLazyLoadedShards(t *testing.T) {
+	ctx := context.Background()
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	className := "TestClass"
+	tenantNamePopulated := "test-tenant"
+
+	// Create test class
+	class := &models.Class{
+		Class:               className,
+		InvertedIndexConfig: &models.InvertedIndexConfig{},
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: true,
+		},
+	}
+
+	// Create fake schema
+	fakeSchema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	// Create sharding state
+	shardState := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			tenantNamePopulated: {
+				Name:           tenantNamePopulated,
+				BelongsToNodes: []string{"test-node"},
+				Status:         models.TenantActivityStatusHOT,
+			},
+		},
+		PartitioningEnabled: true,
+	}
+	shardState.SetLocalName("test-node")
+
+	scheduler := queue.NewScheduler(queue.SchedulerOptions{
+		Logger:  logger,
+		Workers: 1,
+	})
+
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readerFunc func(*models.Class, *sharding.State) error) error {
+		return readerFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
+
+	// Create mock schema getter
+	mockSchema := schemaUC.NewMockSchemaGetter(t)
+	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
+	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
+	mockSchema.EXPECT().TenantsShards(ctx, className, tenantNamePopulated).Maybe().
+		Return(map[string]string{tenantNamePopulated: models.TenantActivityStatusHOT}, nil)
+
+	mockRouter := types.NewMockRouter(t)
+	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, tenantNamePopulated).
+		Return(types.WriteReplicaSet{
+			Replicas:           []types.Replica{{NodeName: "test-node", ShardName: tenantNamePopulated, HostAddr: "10.14.57.56"}},
+			AdditionalReplicas: nil,
+		}, nil).Maybe()
+	// Create index with lazy loading disabled to test active calculation methods
+	schemaGetter := &fakeSchemaGetter{
+		schema: fakeSchema, shardState: shardState,
+	}
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
+	index, err := NewIndex(ctx, IndexConfig{
+		RootPath:              dirName,
+		ClassName:             schema.ClassName(className),
+		ReplicationFactor:     1,
+		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		DisableLazyLoadShards: false, // we have to make sure lazyload shard disabled to load directly
+
+	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
+		enthnsw.UserConfig{
+			VectorCacheMaxObjects: 1000,
+		}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+	require.NoError(t, err)
+
+	// make sure that getting the node status does not trigger loading of lazy shards
+	status := &[]*models.NodeShardStatus{}
+	index.getShardsNodeStatus(ctx, status, "")
+	status2 := &[]*models.NodeShardStatus{}
+	index.getShardsNodeStatus(ctx, status2, "")
+	require.Equal(t, status, status2)
+	require.Len(t, *status, 1)
+	require.False(t, (*status)[0].Loaded)
 }

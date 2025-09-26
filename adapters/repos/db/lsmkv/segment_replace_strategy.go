@@ -15,7 +15,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -26,30 +25,18 @@ func (s *segment) get(key []byte) ([]byte, error) {
 		return nil, fmt.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
 
-	before := time.Now()
-
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
-		s.bloomFilterMetrics.trueNegative(before)
 		return nil, lsmkv.NotFound
 	}
 
 	node, err := s.index.Get(key)
 	if err != nil {
 		if errors.Is(err, lsmkv.NotFound) {
-			if s.useBloomFilter {
-				s.bloomFilterMetrics.falsePositive(before)
-			}
 			return nil, lsmkv.NotFound
 		} else {
 			return nil, err
 		}
 	}
-
-	defer func() {
-		if s.useBloomFilter {
-			s.bloomFilterMetrics.truePositive(before)
-		}
-	}()
 
 	// We need to copy the data we read from the segment exactly once in this
 	// place. This means that future processing can share this memory as much as
@@ -155,25 +142,16 @@ func (s *segment) exists(key []byte) (bool, error) {
 		return false, fmt.Errorf("exists only possible for strategy %q", StrategyReplace)
 	}
 
-	before := time.Now()
-
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
-		s.bloomFilterMetrics.trueNegative(before)
 		return false, nil
 	}
 
 	_, err := s.index.Get(key)
 
 	if err == nil {
-		if s.useBloomFilter {
-			s.bloomFilterMetrics.truePositive(before)
-		}
 		return true, nil
 	}
 	if errors.Is(err, lsmkv.NotFound) {
-		if s.useBloomFilter {
-			s.bloomFilterMetrics.falsePositive(before)
-		}
 		return false, nil
 	}
 	return false, err
