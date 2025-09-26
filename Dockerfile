@@ -27,8 +27,7 @@ ARG EXTRA_BUILD_ARGS=""
 ARG CGO_ENABLED=1
 ENV CGO_ENABLED=$CGO_ENABLED
 COPY . .
-RUN --mount=type=cache,id=gobuild-${TARGETARCH},target=/root/.cache/go-build,sharing=locked \
-    GOOS=linux GOARCH=${TARGETARCH} \
+RUN GOOS=linux GOARCH=${TARGETARCH} \
     go build $EXTRA_BUILD_ARGS -trimpath \
       -ldflags="-s -w -extldflags '-static' \
         -X github.com/weaviate/weaviate/usecases/build.Branch=${GIT_BRANCH} \
@@ -41,10 +40,7 @@ RUN go_ego_dir=/go/pkg/mod/github.com/go-ego && \
     if [ -d "$go_ego_dir" ]; then cp -a "$go_ego_dir/." /runtime/go-ego/; fi
 
 
-
-
 ###############################################################################
-
 # This creates an image that can be used to fake an api for telemetry acceptance test purposes
 FROM build_base AS telemetry_mock_api
 COPY . .
