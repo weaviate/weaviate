@@ -15,7 +15,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/usage"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardusage"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/cluster/usage/types"

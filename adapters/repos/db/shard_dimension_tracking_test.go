@@ -124,53 +124,67 @@ func Test_Migration(t *testing.T) {
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer repo.Shutdown(context.Background())
 
 	migrator := NewMigrator(repo, logger)
 
-	t.Run("set schema", func(t *testing.T) {
-		class := &models.Class{
-			Class:               "Test",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: invertedConfig(),
-		}
-		schema := schema.Schema{
-			Objects: &models.Schema{
-				Classes: []*models.Class{class},
-			},
-		}
+	class := &models.Class{
+		Class:               "Test",
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+	}
+	schema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
 
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+	require.Nil(t,
+		migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 
-		schemaGetter.schema = schema
-	})
+	schemaGetter.schema = schema
 
 	repo.config.TrackVectorDimensions = false
 
-	t.Run("import objects with d=128", func(t *testing.T) {
-		dim := 128
-		for i := 0; i < 100; i++ {
-			vec := make([]float32, dim)
-			for j := range vec {
-				vec[j] = r.Float32()
-			}
-
-			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
-			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
-			require.Nil(t, err)
+	// import with dim=128
+	dim := 128
+	for i := 0; i < 100; i++ {
+		vec := make([]float32, dim)
+		for j := range vec {
+			vec[j] = r.Float32()
 		}
-		dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
-		require.Equal(t, 0, dimAfter, "dimensions should not have been calculated")
-	})
+
+		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+		obj := &models.Object{Class: "Test", ID: id}
+		err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
+		require.Nil(t, err)
+	}
+	dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
+	require.Equal(t, 0, dimAfter, "dimensions should not have been calculated")
 
 	dimBefore := getDimensionsFromRepo(context.Background(), repo, "Test")
 	require.Equal(t, 0, dimBefore, "dimensions should not have been calculated")
 	repo.config.TrackVectorDimensions = true
 	migrator.RecalculateVectorDimensions(context.TODO())
-	dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
-	require.Equal(t, 12800, dimAfter, "dimensions should be counted now")
+	dimAfterRecalculation := getDimensionsFromRepo(context.Background(), repo, "Test")
+	require.Equal(t, 12800, dimAfterRecalculation, "dimensions should be counted now")
+
+	// shut down and test calculation from unloaded shard with enw repo
+	require.NoError(t, repo.Shutdown(context.Background()))
+	repoNew, err := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       1000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+		DisableLazyLoadShards:     false,
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil)
+	require.Nil(t, err)
+	defer repoNew.Shutdown(context.Background())
+	repoNew.SetSchemaGetter(schemaGetter)
+
+	require.Nil(t, repoNew.WaitForStartup(testCtx()))
+
+	dimUnloadedAfter := getDimensionsFromRepo(context.Background(), repoNew, "Test")
+	require.Equal(t, 12800, dimUnloadedAfter, "dimensions should be counted now")
 }
 
 func Test_DimensionTracking(t *testing.T) {
