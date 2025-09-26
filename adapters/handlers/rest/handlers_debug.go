@@ -636,7 +636,7 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		err := idx.DebugRepairIndex(context.Background(), shardName, targetVector)
+		err := idx.DebugRequantizeIndex(context.Background(), shardName, targetVector)
 		if err != nil {
 			logger.
 				WithField("shard", shardName).
