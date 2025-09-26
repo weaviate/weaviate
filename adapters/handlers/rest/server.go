@@ -439,7 +439,7 @@ func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) 
 			if err := server.Shutdown(ctx); err != nil {
 				// Graceful shutdown failed, force close the server as fallback
 				_ = server.Close()
-				s.Logf("HTTP server shutdown failed: %v", err)
+				s.Logf("http server shutdown failed: %v", err)
 			}
 			shutdownChan <- true // Signal completion regardless of success/failure
 		}()
@@ -452,7 +452,7 @@ func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) 
 			// Server completed shutdown attempt with success or failure
 		case <-ctx.Done():
 			// Graceful timeout expired - log and continue with cleanup
-			s.Logf("Timeout waiting for HTTP server %d shutdown after %v", len(servers)-i, s.GracefulTimeout)
+			s.Logf("timeout waiting for HTTP server %d shutdown after %v", len(servers)-i, s.GracefulTimeout)
 			return
 		}
 	}
