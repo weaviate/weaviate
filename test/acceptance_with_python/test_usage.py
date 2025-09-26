@@ -1,3 +1,4 @@
+import random
 from typing import Union, List, Optional
 
 import pytest
@@ -8,6 +9,7 @@ from weaviate.collections.classes.config_vector_index import (
     _RQConfigCreate,
     _PQConfigCreate,
     _VectorIndexConfigCreate,
+    _QuantizerConfigUpdate,
 )
 from weaviate.collections.classes.config_vectorizers import _VectorizerConfigCreate
 from weaviate.collections.classes.config_vectors import _VectorConfigCreate
@@ -123,3 +125,76 @@ def test_usage_mt(
                 elif isinstance(vector_index_config.quantizer, _PQConfigCreate):
                     assert named_vector.compression == _PQConfigCreate.quantizer_name()
                     # PQ compression is only enabled after training
+
+
+@pytest.mark.parametrize(
+    "quantizer_config",
+    [
+        wvc.config.Reconfigure.VectorIndex.Quantizer.bq(enabled=True),
+        wvc.config.Reconfigure.VectorIndex.Quantizer.rq(enabled=True),
+        wvc.config.Reconfigure.VectorIndex.Quantizer.sq(enabled=True, training_limit=50),
+    ],
+)
+def test_usage_enabling_compression(
+    collection_factory: CollectionFactory, quantizer_config: _QuantizerConfigUpdate
+) -> None:
+    collection = collection_factory(vector_config=vectors.self_provided(name=vector_names[0]))
+
+    # add 1000 objects
+    for i in range(10):
+        collection.data.insert_many(
+            [
+                wvc.data.DataObject(
+                    properties={}, vector={vector_names[0]: [random.random() for _ in range(150)]}
+                )
+                for _ in range(100)
+            ]
+        )
+
+    usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
+    assert usage_collection is not None
+    assert usage_collection.name == collection.name
+    assert len(usage_collection.shards) == 1
+    shard = usage_collection.shards[0]
+    assert shard.objects_count == 1000
+    assert len(shard.named_vectors) == 1
+    named_vector = shard.named_vectors[0]
+    assert named_vector.name == vector_names[0]
+    assert len(named_vector.dimensionalities) == 1
+    dimensionality = named_vector.dimensionalities[0]
+    assert dimensionality.dimensions == 150
+    assert dimensionality.count == 1000
+    assert named_vector.vector_index_type == "hnsw"
+    assert named_vector.compression == "standard"
+
+    # enable compression
+    collection.config.update(
+        vector_config=wvc.config.Reconfigure.Vectors.update(
+            name=vector_names[0],
+            vector_index_config=wvc.config.Reconfigure.VectorIndex.hnsw(quantizer=quantizer_config),
+        )
+    )
+
+    usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
+    assert usage_collection is not None
+    assert usage_collection.name == collection.name
+    assert len(usage_collection.shards) == 1
+    shard = usage_collection.shards[0]
+    assert shard.objects_count == 1000
+    assert len(shard.named_vectors) == 1
+    named_vector = shard.named_vectors[0]
+    assert named_vector.name == vector_names[0]
+    assert len(named_vector.dimensionalities) == 1
+    dimensionality = named_vector.dimensionalities[0]
+    assert dimensionality.dimensions == 150
+    assert dimensionality.count == 1000
+    assert named_vector.vector_index_type == "hnsw"
+    if quantizer_config.quantizer_name() == "bq":
+        assert named_vector.compression == "bq"
+        assert named_vector.vector_compression_ratio == 32
+    elif quantizer_config.quantizer_name() == "rq":
+        assert named_vector.compression == "rq"
+        assert named_vector.vector_compression_ratio != 1  # not constant
+    elif quantizer_config.quantizer_name() == "sq":
+        assert named_vector.compression == "sq"
+        assert named_vector.vector_compression_ratio != 1  # not constant

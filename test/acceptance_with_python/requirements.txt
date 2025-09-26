@@ -1,4 +1,4 @@
-weaviate-client==4.16.9
+weaviate-client==4.17.0
 pytest>=8.0.1,<9.0.0
 pytest-xdist==3.6.1
 pytest-benchmark==4.0.0
