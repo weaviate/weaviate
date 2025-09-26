@@ -28,7 +28,7 @@ import (
 
 type Service interface {
 	SetJitterInterval(interval time.Duration)
-	Usage(ctx context.Context) (*types.Report, error)
+	Usage(ctx context.Context, exactObjectCount bool) (*types.Report, error)
 }
 type service struct {
 	schemaManager  schema.SchemaGetter
@@ -54,18 +54,9 @@ func (s *service) SetJitterInterval(interval time.Duration) {
 	s.logger.WithFields(logrus.Fields{"jitter_interval": interval.String()}).Info("shard jitter interval updated")
 }
 
-// addJitter adds a small random delay if jitter interval is set
-func (s *service) addJitter() {
-	if s.jitterInterval <= 0 {
-		return // No jitter if interval is 0 or negative
-	}
-	jitter := time.Duration(time.Now().UnixNano() % int64(s.jitterInterval))
-	time.Sleep(jitter)
-}
-
 // Usage service collects usage metrics for the node and shall return error in case of any error
 // to avoid reporting partial data
-func (s *service) Usage(ctx context.Context) (*types.Report, error) {
+func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Report, error) {
 	defer func() {
 		if !entcfg.Enabled(os.Getenv("RECOVERY_IN_USAGE_MODULE_DISABLED")) {
 			if r := recover(); r != nil {
@@ -85,7 +76,7 @@ func (s *service) Usage(ctx context.Context) (*types.Report, error) {
 
 	// Collect usage for each collection
 	for _, collection := range collections {
-		collectionUsage, err := s.db.UsageForIndex(ctx, entschema.ClassName(collection.Class))
+		collectionUsage, err := s.db.UsageForIndex(ctx, entschema.ClassName(collection.Class), s.jitterInterval, exactObjectCount)
 		if err != nil {
 			return nil, err
 		}

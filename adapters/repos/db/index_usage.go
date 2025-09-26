@@ -13,7 +13,9 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/shardusage"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -21,11 +23,12 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName) (*types.CollectionUsage, error) {
+func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, jitterInterval time.Duration, exactObjectCount bool) (*types.CollectionUsage, error) {
 	var (
 		index  *Index
 		exists bool
@@ -48,10 +51,10 @@ func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName) (*t
 		index.dropIndex.RUnlock()
 	}()
 
-	return index.usageForCollection(ctx)
+	return index.usageForCollection(ctx, jitterInterval, exactObjectCount)
 }
 
-func (i *Index) usageForCollection(ctx context.Context) (*types.CollectionUsage, error) {
+func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Duration, exactObjectCount bool) (*types.CollectionUsage, error) {
 	var uniqueShardCount int
 
 	collectionUsage := &types.CollectionUsage{
@@ -72,11 +75,11 @@ func (i *Index) usageForCollection(ctx context.Context) (*types.CollectionUsage,
 				defer i.shardCreateLocks.Unlock(shardName)
 
 				// there are 5 different states we need to handle here:
-				// 1. newly created tenant (empty)- no files on disk yet but present in sharding state. Just return 0 usage
-				// 2. cold tenant - handle without loading
-				// 3. offloaded tenants - handle without loading, return 0 usage
-				// 3. hot, unloaded lazy tenant - handle without loading
-				// 4. hot, loaded lazy tenant or non-lazy tenant - handle normally
+				// 1. newly created shard (empty)- no files on disk yet but present in sharding state. Just return 0 usage
+				// 2. cold shard (only MT) - handle without loading
+				// 3. offloaded shards - handle without loading, return 0 usage
+				// 3. hot, unloaded lazy shard - handle without loading
+				// 4. hot, loaded lazy shard or non-lazy shard - handle normally
 
 				uniqueShardCount++
 
@@ -90,13 +93,13 @@ func (i *Index) usageForCollection(ctx context.Context) (*types.CollectionUsage,
 					return nil
 				}
 
+				// Add jitter between tenant processing to not overload the system if there are many shards
+				if len(collectionUsage.Shards) > 0 {
+					addJitter(jitterInterval)
+				}
+
 				// case 2: cold tenant
 				if physical.ActivityStatus() == models.TenantActivityStatusCOLD {
-					//// Add jitter between cold tenant processing (except for the first one)
-					//if len(collectionUsage.Shards) > 0 {
-					//	jitter()
-					//}
-
 					shardUsage, err := i.calculateUnloadedShardUsage(ctx, shardName)
 					if err != nil {
 						return err
@@ -129,7 +132,7 @@ func (i *Index) usageForCollection(ctx context.Context) (*types.CollectionUsage,
 				}
 
 				// case 3: hot, loaded lazy tenant or non-lazy tenant
-				shardUsage, err := i.calculateLoadedShardUsage(ctx, shard)
+				shardUsage, err := i.calculateLoadedShardUsage(ctx, shard, exactObjectCount)
 				if err != nil {
 					return err
 				}
@@ -151,14 +154,23 @@ func (i *Index) usageForCollection(ctx context.Context) (*types.CollectionUsage,
 	return collectionUsage, nil
 }
 
-func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard ShardLike) (*types.ShardUsage, error) {
+func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard ShardLike, exactCount bool) (*types.ShardUsage, error) {
 	objectStorageSize, err := shard.ObjectStorageSize(ctx)
 	if err != nil {
 		return nil, err
 	}
-	objectCount, err := shard.ObjectCountAsync(ctx)
-	if err != nil {
-		return nil, err
+	var objectCount int64
+	if exactCount {
+		objectCountInt, err := shard.ObjectCount(ctx)
+		if err != nil {
+			return nil, err
+		}
+		objectCount = int64(objectCountInt)
+	} else {
+		objectCount, err = shard.ObjectCountAsync(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	vectorStorageSize, err := shard.VectorStorageSize(ctx)
@@ -166,7 +178,7 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard ShardLike) 
 		return nil, err
 	}
 
-	vectorconfigs := i.GetVectorIndexConfigs()
+	vectorConfigs := i.GetVectorIndexConfigs()
 
 	shardUsage := &types.ShardUsage{
 		Name:                shard.Name(),
@@ -177,39 +189,35 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard ShardLike) 
 	}
 	// Get vector usage for each named vector
 	if err = shard.ForEachVectorIndex(func(targetVector string, vectorIndex VectorIndex) error {
-		category := DimensionCategoryStandard // Default category
-		indexType := ""
-		var bits int16
-
-		// Check if this is a named vector configuration
-		if vectorIndexConfig, exists := vectorconfigs[targetVector]; exists {
-			// Use the named vector's configuration
-			category, _ = GetDimensionCategory(vectorIndexConfig)
-			indexType = vectorIndexConfig.IndexType()
-			bits = enthnsw.GetRQBits(vectorIndexConfig)
-		} else if vectorIndexConfig, exists := vectorconfigs[""]; exists {
-			// Fall back to legacy single vector configuration
-			category, _ = GetDimensionCategory(vectorIndexConfig)
-			indexType = vectorIndexConfig.IndexType()
-			bits = enthnsw.GetRQBits(vectorIndexConfig)
+		var vectorIndexConfig schemaConfig.VectorIndexConfig
+		if vecCfg, exists := vectorConfigs[targetVector]; exists {
+			vectorIndexConfig = vecCfg
+		} else if vecCfg, exists := vectorConfigs[""]; exists {
+			vectorIndexConfig = vecCfg
+		} else {
+			return fmt.Errorf("vector index %s not found in config", targetVector)
 		}
-
-		dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
-		if err != nil {
-			return err
-		}
+		category, _ := GetDimensionCategory(vectorIndexConfig)
+		indexType := vectorIndexConfig.IndexType()
+		bits := enthnsw.GetRQBits(vectorIndexConfig)
 
 		// For dynamic indexes, get the actual underlying index type
 		if dynamicIndex, ok := vectorIndex.(dynamic.Index); ok {
 			indexType = dynamicIndex.UnderlyingIndex().String()
 		}
+		dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
+		if err != nil {
+			return err
+		}
+
+		compressionRatio := vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions)
 
 		vectorUsage := &types.VectorUsage{
 			Name:                   targetVector,
 			Compression:            category.String(),
 			VectorIndexType:        indexType,
 			IsDynamic:              common.IsDynamic(common.IndexType(indexType)),
-			VectorCompressionRatio: vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions),
+			VectorCompressionRatio: compressionRatio,
 			Bits:                   bits,
 		}
 
@@ -276,6 +284,15 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName stri
 		shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
 	}
 	return shardUsage, err
+}
+
+// addJitter adds a small random delay if jitter interval is set
+func addJitter(jitterInterval time.Duration) {
+	if jitterInterval <= 0 {
+		return // No jitter if interval is 0 or negative
+	}
+	jitter := time.Duration(time.Now().UnixNano() % int64(jitterInterval))
+	time.Sleep(jitter)
 }
 
 func emptyShardUsageWithNameAndActivity(shardName, activity string) *types.ShardUsage {

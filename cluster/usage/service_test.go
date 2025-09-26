@@ -106,7 +106,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	logger, _ := logrus.NewNullLogger()
 	service := NewService(mockSchemaGetter, repo, mockBackupProvider, logger)
 
-	result, err := service.Usage(ctx)
+	result, err := service.Usage(ctx, false)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -212,7 +212,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	logger, _ := logrus.NewNullLogger()
 	service := NewService(mockSchema, repo, mockBackupProvider, logger)
 
-	result, err := service.Usage(ctx)
+	result, err := service.Usage(ctx, false)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -312,7 +312,7 @@ func TestService_Usage_WithBackups(t *testing.T) {
 	logger, _ := logrus.NewNullLogger()
 	service := NewService(mockSchema, repo, mockBackupProvider, logger)
 
-	result, err := service.Usage(ctx)
+	result, err := service.Usage(ctx, false)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
