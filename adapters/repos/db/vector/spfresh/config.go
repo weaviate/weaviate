@@ -17,6 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // UserConfig defines the configuration options for the SPFresh index.
@@ -29,6 +30,9 @@ type Config struct {
 	RootPath                  string
 	ID                        string
 	TargetVector              string
+	ShardName                 string
+	ClassName                 string
+	PrometheusMetrics         *monitoring.PrometheusMetrics
 	MaxPostingSize            uint32  `json:"maxPostingSize,omitempty"`            // Maximum number of vectors in a posting
 	MinPostingSize            uint32  `json:"minPostingSize,omitempty"`            // Minimum number of vectors in a posting
 	SplitWorkers              int     `json:"splitWorkers,omitempty"`              // Number of concurrent workers for split operations
