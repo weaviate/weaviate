@@ -445,9 +445,16 @@ func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) 
 		}()
 	}
 
-	// Wait for all servers to complete shutdown attempts
-	for range servers {
-		<-shutdownChan
+	// Wait for all servers to complete shutdown attempts with timeout protection (GracefulTimeout)
+	for i := 0; i < len(servers); i++ {
+		select {
+		case <-shutdownChan:
+			// Server completed shutdown attempt with success or failure
+		case <-ctx.Done():
+			// Graceful timeout expired - log and continue with cleanup
+			s.Logf("Timeout waiting for HTTP server %d shutdown after %v", len(servers)-i, s.GracefulTimeout)
+			break
+		}
 	}
 }
 
