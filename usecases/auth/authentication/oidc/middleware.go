@@ -36,7 +36,6 @@ import (
 // used with the goswagger API
 type Client struct {
 	Config   config.OIDC
-	provider *oidc.Provider
 	verifier *oidc.IDTokenVerifier
 	logger   logrus.FieldLogger
 }
@@ -80,21 +79,30 @@ func (c *Client) Init() error {
 		c.logger.WithField("action", "oidc_init").Info("configured OIDC client with custom certificate")
 	}
 
-	provider, err := oidc.NewProvider(ctx, c.Config.Issuer.Get())
-	if err != nil {
-		return fmt.Errorf("could not setup provider: %w", err)
+	if c.Config.JWKSUrl.Get() != "" {
+		keySet := oidc.NewRemoteKeySet(ctx, c.Config.JWKSUrl.Get())
+		verifier := oidc.NewVerifier(c.Config.Issuer.Get(), keySet, &oidc.Config{
+			ClientID:          c.Config.ClientID.Get(),
+			SkipClientIDCheck: c.Config.SkipClientIDCheck.Get(),
+		})
+		c.verifier = verifier
+		c.logger.WithField("action", "oidc_init").WithField("jwks_url", c.Config.JWKSUrl.Get()).Info("configured OIDC verifier")
+	} else {
+		provider, err := oidc.NewProvider(ctx, c.Config.Issuer.Get())
+		if err != nil {
+			return fmt.Errorf("could not setup provider: %w", err)
+		}
+		c.logger.WithField("action", "oidc_init").Info("configured OIDC provider")
+
+		// oauth2
+
+		verifier := provider.Verifier(&oidc.Config{
+			ClientID:          c.Config.ClientID.Get(),
+			SkipClientIDCheck: c.Config.SkipClientIDCheck.Get(),
+		})
+		c.verifier = verifier
+		c.logger.WithField("action", "oidc_init").Info("configured OIDC verifier")
 	}
-	c.provider = provider
-	c.logger.WithField("action", "oidc_init").Info("configured OIDC provider")
-
-	// oauth2
-
-	verifier := provider.Verifier(&oidc.Config{
-		ClientID:          c.Config.ClientID.Get(),
-		SkipClientIDCheck: c.Config.SkipClientIDCheck.Get(),
-	})
-	c.verifier = verifier
-	c.logger.WithField("action", "oidc_init").Info("configured OIDC verifier")
 
 	return nil
 }
@@ -188,6 +196,10 @@ func (c *Client) extractGroups(claims map[string]interface{}) []string {
 
 	groupsSlice, ok := groupsUntyped.([]interface{})
 	if !ok {
+		groupAsString, ok := groupsUntyped.(string)
+		if ok {
+			return []string{groupAsString}
+		}
 		return groups
 	}
 

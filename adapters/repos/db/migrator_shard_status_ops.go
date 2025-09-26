@@ -39,17 +39,12 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec *
 	eg.SetLimit(_NUMCPU * 2)
 
 	for _, name := range frozen {
-		name := name
 		eg.Go(func() error {
-			shard, release, err := idx.getOrInitShard(ctx, name)
-			if err != nil {
-				ec.Add(err)
-				return nil
-			}
+			idx.shardCreateLocks.Lock(name)
+			defer idx.shardCreateLocks.Unlock(name)
 
-			defer release()
-
-			if shard == nil {
+			shard, ok := idx.shards.LoadAndDelete(name)
+			if !ok {
 				// shard already does not exist or inactive, so remove local files if exists
 				// this pass will happen if the shard was COLD for example
 				if err := os.RemoveAll(fmt.Sprintf("%s/%s", idx.path(), name)); err != nil {
@@ -59,11 +54,6 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec *
 				}
 				return nil
 			}
-
-			idx.shardCreateLocks.Lock(name)
-			defer idx.shardCreateLocks.Unlock(name)
-
-			idx.shards.LoadAndDelete(name)
 
 			if err := shard.drop(); err != nil {
 				ec.Add(err)

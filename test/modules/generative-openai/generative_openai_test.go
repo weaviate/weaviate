@@ -13,6 +13,7 @@ package tests
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,9 +37,9 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 		class := planets.BaseClass("PlanetsGenerativeTest")
 		class.VectorConfig = map[string]models.VectorConfig{
 			"description": {
-				Vectorizer: map[string]interface{}{
-					"text2vec-transformers": map[string]interface{}{
-						"properties":         []interface{}{"description"},
+				Vectorizer: map[string]any{
+					"text2vec-transformers": map[string]any{
+						"properties":         []any{"description"},
 						"vectorizeClassName": false,
 					},
 				},
@@ -50,6 +51,7 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 			generativeModel    string
 			absentModuleConfig bool
 			withImages         bool
+			withModuleConfig   map[string]any
 		}{
 			{
 				name:            "gpt-3.5-turbo",
@@ -69,16 +71,37 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 				generativeModel: "gpt-4o-mini",
 				withImages:      true,
 			},
+			{
+				name:            "gpt-5",
+				generativeModel: "gpt-5",
+				withImages:      true,
+			},
+			{
+				name:            "gpt-5-mini",
+				generativeModel: "gpt-5-mini",
+				withImages:      true,
+			},
+			{
+				name:            "gpt-5-nano with reasoningEffort and verbosity",
+				generativeModel: "gpt-5-nano",
+				withModuleConfig: map[string]any{
+					"reasoningEffort": "minimal",
+					"verbosity":       "low",
+				},
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				if tt.absentModuleConfig {
 					t.Log("skipping adding module config configuration to class")
 				} else {
-					class.ModuleConfig = map[string]interface{}{
-						"generative-openai": map[string]interface{}{
-							"model": tt.generativeModel,
-						},
+					settings := map[string]any{}
+					if tt.withModuleConfig != nil {
+						settings = tt.withModuleConfig
+					}
+					settings["model"] = tt.generativeModel
+					class.ModuleConfig = map[string]any{
+						"generative-openai": settings,
 					}
 				}
 				// create schema
@@ -109,9 +132,9 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 					planets.CreateTweetTest(t, class.Class)
 				})
 				t.Run("create a tweet with params", func(t *testing.T) {
-					params := "openai:{temperature:0.1}"
+					params := "openai:{temperature:1.0}"
 					if tt.absentModuleConfig {
-						params = fmt.Sprintf("openai:{temperature:0.1 model:\"%s\" baseURL:\"https://api.openai.com\" isAzure:false}", tt.generativeModel)
+						params = fmt.Sprintf("openai:{temperature:1.0 model:\"%s\" baseURL:\"https://api.openai.com\" isAzure:false}", tt.generativeModel)
 					}
 					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
@@ -121,13 +144,28 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 
 				params := func() *pb.GenerativeOpenAI {
 					params := &pb.GenerativeOpenAI{
-						MaxTokens:        grpchelper.ToPtr(int64(90)),
-						Model:            grpchelper.ToPtr(tt.generativeModel),
-						Temperature:      grpchelper.ToPtr(0.9),
-						N:                grpchelper.ToPtr(int64(90)),
-						TopP:             grpchelper.ToPtr(0.9),
-						FrequencyPenalty: grpchelper.ToPtr(0.9),
-						PresencePenalty:  grpchelper.ToPtr(0.9),
+						Model:       grpchelper.ToPtr(tt.generativeModel),
+						MaxTokens:   grpchelper.ToPtr(int64(2000)),
+						Temperature: grpchelper.ToPtr(1.0),
+						N:           grpchelper.ToPtr(int64(8)),
+					}
+					if !strings.HasPrefix(tt.generativeModel, "gpt-5") {
+						// gpt-5 models don't support topP, presencePenalty and frequencyPenalty parameters
+						params.TopP = grpchelper.ToPtr(0.9)
+						params.PresencePenalty = grpchelper.ToPtr(0.9)
+						params.FrequencyPenalty = grpchelper.ToPtr(0.9)
+					} else {
+						if tt.generativeModel == "gpt-5" {
+							params.Verbosity = pb.GenerativeOpenAI_VERBOSITY_LOW.Enum()
+							params.ReasoningEffort = pb.GenerativeOpenAI_REASONING_EFFORT_MINIMAL.Enum()
+						} else {
+							params.Verbosity = pb.GenerativeOpenAI_VERBOSITY_MEDIUM.Enum()
+							params.ReasoningEffort = pb.GenerativeOpenAI_REASONING_EFFORT_LOW.Enum()
+						}
+					}
+					if strings.HasPrefix(tt.generativeModel, "gpt-4o") {
+						// increase the max tokens
+						params.MaxTokens = grpchelper.ToPtr(int64(5000))
 					}
 					if tt.absentModuleConfig {
 						params.BaseUrl = grpchelper.ToPtr("https://api.openai.com")

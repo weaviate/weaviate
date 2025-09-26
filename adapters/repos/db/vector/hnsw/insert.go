@@ -20,7 +20,9 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
@@ -31,13 +33,20 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 
 	// no vectors exist
 	if dims == 0 {
+		if err := h.validatePQSegments(len(vector)); err != nil {
+			return err
+		}
 		return nil
 	}
 
 	// check if vector length is the same as existing nodes
 	if dims != len(vector) {
-		return fmt.Errorf("new node has a vector with length %v. "+
+		return errors.Wrapf(common.ErrWrongDimensions, "new node has a vector with length %v. "+
 			"Existing nodes have vectors with length %v", len(vector), dims)
+	}
+
+	if err := h.validatePQSegments(dims); err != nil {
+		return err
 	}
 
 	return nil
@@ -45,10 +54,6 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 
 func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 	dims := int(atomic.LoadInt32(&h.dims))
-
-	if h.muvera.Load() {
-		return nil
-	}
 
 	// no vectors exist
 	if dims == 0 {
@@ -59,7 +64,14 @@ func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 		if len(vecDimensions) > 1 {
 			return fmt.Errorf("multi vector array consists of vectors with varying dimensions")
 		}
+		if err := h.validatePQSegments(len(vector[0])); err != nil {
+			return err
+		}
 		return nil
+	}
+
+	if h.muvera.Load() {
+		dims = h.muveraEncoder.Dimensions()
 	}
 
 	// check if vector length is the same as existing nodes
@@ -70,6 +82,17 @@ func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 		}
 	}
 
+	if err := h.validatePQSegments(dims); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (h *hnsw) validatePQSegments(dims int) error {
+	if h.pqConfig.Enabled && h.pqConfig.Segments != 0 && dims%h.pqConfig.Segments != 0 {
+		return fmt.Errorf("pq segments must be a divisor of the vector dimensions")
+	}
 	return nil
 }
 
@@ -112,8 +135,12 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 				h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
 
 			if err == nil {
+				h.Lock()
+				defer h.Unlock()
 				h.compressed.Store(true)
-				h.cache.Drop()
+				if h.cache != nil {
+					h.cache.Drop()
+				}
 				h.cache = nil
 				h.compressor.PersistCompression(h.commitLog)
 			}
@@ -254,7 +281,6 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 					})
 				h.compressed.Store(true)
 				h.cache.Drop()
-				h.cache = nil
 				h.compressor.PersistCompression(h.commitLog)
 				h.Unlock()
 			}

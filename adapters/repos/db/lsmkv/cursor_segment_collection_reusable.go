@@ -109,6 +109,7 @@ func (c *cacheReader) loadDataIntoCache(readLength int) error {
 	if err != nil {
 		return err
 	}
+	defer at.Release()
 
 	// Restore the original buffer capacity before reading
 	c.readCache = c.readCache[:cap(c.readCache)]

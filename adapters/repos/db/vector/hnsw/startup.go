@@ -17,13 +17,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func (h *hnsw) init(cfg Config) error {
@@ -135,7 +135,6 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 			h.muvera.Store(true)
 		}
 	}
-
 	if state.Compressed {
 		h.compressed.Store(state.Compressed)
 		h.cache.Drop()
@@ -206,41 +205,11 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 				return errors.Wrap(err, "Restoring compressed data.")
 			}
 		} else if state.CompressionRQData != nil {
-			data := state.CompressionRQData
-			if !h.multivector.Load() || h.muvera.Load() {
-				h.trackRQOnce.Do(func() {
-					h.compressor, err = compressionhelpers.RestoreRQCompressor(
-						h.distancerProvider,
-						1e12,
-						h.logger,
-						int(data.InputDim),
-						int(data.Bits),
-						int(data.Rotation.OutputDim),
-						int(data.Rotation.Rounds),
-						data.Rotation.Swaps,
-						data.Rotation.Signs,
-						h.store,
-						h.allocChecker,
-					)
-				})
-			} else {
-				h.trackRQOnce.Do(func() {
-					h.compressor, err = compressionhelpers.RestoreRQMultiCompressor(
-						h.distancerProvider,
-						1e12,
-						h.logger,
-						int(data.InputDim),
-						int(data.Bits),
-						int(data.Rotation.OutputDim),
-						int(data.Rotation.Rounds),
-						data.Rotation.Swaps,
-						data.Rotation.Signs,
-						h.store,
-						h.allocChecker,
-					)
-				})
+			if err := h.restoreRotationalQuantization(state.CompressionRQData); err != nil {
+				return errors.Wrap(err, "Restoring compressed data.")
 			}
-			if err != nil {
+		} else if state.CompressionBRQData != nil {
+			if err := h.restoreBinaryRotationalQuantization(state.CompressionBRQData); err != nil {
 				return errors.Wrap(err, "Restoring compressed data.")
 			}
 		} else {
@@ -260,6 +229,8 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 				h.dims = int32(len(vec))
 			}
 		}
+	} else {
+		h.compressor.GrowCache(uint64(len(h.nodes)))
 	}
 
 	if h.compressed.Load() && h.multivector.Load() && !h.muvera.Load() {
@@ -275,6 +246,87 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	h.pools.visitedLists = visited.NewPool(1, len(h.nodes)+512, h.visitedListPoolMaxSize)
 
 	return nil
+}
+
+func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) error {
+	var err error
+	if !h.multivector.Load() || h.muvera.Load() {
+		h.trackRQOnce.Do(func() {
+			h.compressor, err = compressionhelpers.RestoreRQCompressor(
+				h.distancerProvider,
+				1e12,
+				h.logger,
+				int(data.InputDim),
+				int(data.Bits),
+				int(data.Rotation.OutputDim),
+				int(data.Rotation.Rounds),
+				data.Rotation.Swaps,
+				data.Rotation.Signs,
+				nil,
+				h.store,
+				h.allocChecker,
+			)
+		})
+	} else {
+		h.trackRQOnce.Do(func() {
+			h.compressor, err = compressionhelpers.RestoreRQMultiCompressor(
+				h.distancerProvider,
+				1e12,
+				h.logger,
+				int(data.InputDim),
+				int(data.Bits),
+				int(data.Rotation.OutputDim),
+				int(data.Rotation.Rounds),
+				data.Rotation.Swaps,
+				data.Rotation.Signs,
+				nil,
+				h.store,
+				h.allocChecker,
+			)
+		})
+	}
+
+	return err
+}
+
+func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQData) error {
+	var err error
+	if !h.multivector.Load() || h.muvera.Load() {
+		h.trackRQOnce.Do(func() {
+			h.compressor, err = compressionhelpers.RestoreRQCompressor(
+				h.distancerProvider,
+				1e12,
+				h.logger,
+				int(data.InputDim),
+				1,
+				int(data.Rotation.OutputDim),
+				int(data.Rotation.Rounds),
+				data.Rotation.Swaps,
+				data.Rotation.Signs,
+				data.Rounding,
+				h.store,
+				h.allocChecker,
+			)
+		})
+	} else {
+		h.trackRQOnce.Do(func() {
+			h.compressor, err = compressionhelpers.RestoreRQMultiCompressor(
+				h.distancerProvider,
+				1e12,
+				h.logger,
+				int(data.InputDim),
+				1,
+				int(data.Rotation.OutputDim),
+				int(data.Rotation.Rounds),
+				data.Rotation.Swaps,
+				data.Rotation.Signs,
+				data.Rounding,
+				h.store,
+				h.allocChecker,
+			)
+		})
+	}
+	return err
 }
 
 func (h *hnsw) restoreDocMappings() error {
@@ -405,7 +457,7 @@ func (h *hnsw) prefillCache() {
 		limit = int(h.cache.CopyMaxSize())
 	}
 
-	f := func() {
+	prefillCacheFunc := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 		defer cancel()
 
@@ -435,12 +487,12 @@ func (h *hnsw) prefillCache() {
 			"action":                 "hnsw_prefill_cache_sync",
 			"wait_for_cache_prefill": true,
 		}).Info("waiting for vector cache prefill to complete")
-		f()
+		prefillCacheFunc()
 	} else {
 		h.logger.WithFields(logrus.Fields{
 			"action":                 "hnsw_prefill_cache_async",
 			"wait_for_cache_prefill": false,
 		}).Info("not waiting for vector cache prefill, running in background")
-		enterrors.GoWrapper(f, h.logger)
+		enterrors.GoWrapper(prefillCacheFunc, h.logger)
 	}
 }

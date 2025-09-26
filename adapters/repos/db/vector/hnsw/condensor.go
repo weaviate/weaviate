@@ -50,7 +50,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	}
 
 	newLogFile, err := os.OpenFile(fmt.Sprintf("%s.condensed", fileName),
-		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+		os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return errors.Wrap(err, "open new commit log file for writing")
 	}
@@ -71,6 +71,10 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		} else if res.CompressionRQData != nil {
 			if err := c.AddRQCompression(*res.CompressionRQData); err != nil {
 				return fmt.Errorf("write rq data: %w", err)
+			}
+		} else if res.CompressionBRQData != nil {
+			if err := c.AddBRQCompression(*res.CompressionBRQData); err != nil {
+				return fmt.Errorf("write brq data: %w", err)
 			}
 		} else {
 			return errors.Wrap(err, "unavailable compression data")
@@ -155,6 +159,10 @@ func (c *MemoryCondensor) Do(fileName string) error {
 
 	if err := c.newLog.Flush(); err != nil {
 		return errors.Wrap(err, "close new commit log")
+	}
+
+	if err := newLogFile.Sync(); err != nil {
+		return errors.Wrap(err, "fsync new commit log")
 	}
 
 	if err := c.newLogFile.Close(); err != nil {
@@ -419,6 +427,39 @@ func (c *MemoryCondensor) AddMuvera(data multivector.MuveraData) error {
 				i++
 			}
 		}
+	}
+
+	_, err := c.newLog.Write(buf.Bytes())
+	return err
+}
+
+func (c *MemoryCondensor) AddBRQCompression(data compressionhelpers.BRQData) error {
+	swapSize := 2 * data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 2
+	signSize := 4 * data.Rotation.Rounds * data.Rotation.OutputDim
+	roundingSize := 4 * data.Rotation.OutputDim
+	var buf bytes.Buffer
+	buf.Grow(13 + int(swapSize) + int(signSize) + int(roundingSize))
+
+	buf.WriteByte(byte(AddBRQ))                                      // 1
+	binary.Write(&buf, binary.LittleEndian, data.InputDim)           // 4 input dim
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4 rotation - output dim
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4 rotation - rounds
+
+	for _, swap := range data.Rotation.Swaps {
+		for _, dim := range swap {
+			binary.Write(&buf, binary.LittleEndian, dim.I)
+			binary.Write(&buf, binary.LittleEndian, dim.J)
+		}
+	}
+
+	for _, sign := range data.Rotation.Signs {
+		for _, dim := range sign {
+			binary.Write(&buf, binary.LittleEndian, dim)
+		}
+	}
+
+	for _, rounding := range data.Rounding {
+		binary.Write(&buf, binary.LittleEndian, rounding)
 	}
 
 	_, err := c.newLog.Write(buf.Bytes())

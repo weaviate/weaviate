@@ -224,6 +224,7 @@ type CommitLogger interface {
 	AddSQCompression(compressionhelpers.SQData) error
 	AddMuvera(multivector.MuveraData) error
 	AddRQCompression(compressionhelpers.RQData) error
+	AddBRQCompression(compressionhelpers.BRQData) error
 	InitMaintenance()
 
 	CreateSnapshot() (bool, int64, error)
@@ -269,7 +270,13 @@ func New(cfg Config, uc ent.UserConfig,
 	} else {
 		if uc.Multivector.MuveraConfig.Enabled {
 			muveraEncoder = multivector.NewMuveraEncoder(uc.Multivector.MuveraConfig, store)
-			err := store.CreateOrLoadBucket(context.Background(), cfg.ID+"_muvera_vectors", lsmkv.WithStrategy(lsmkv.StrategyReplace))
+			err := store.CreateOrLoadBucket(
+				context.Background(),
+				cfg.ID+"_muvera_vectors",
+				lsmkv.WithStrategy(lsmkv.StrategyReplace),
+				lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
+				lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (muvera store)")
 			}
@@ -380,7 +387,14 @@ func New(cfg Config, uc ent.UserConfig,
 	if uc.Multivector.Enabled {
 		index.multiDistancerProvider = distancer.NewDotProductProvider()
 		if !uc.Multivector.MuveraConfig.Enabled {
-			err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments))
+			err := index.store.CreateOrLoadBucket(
+				context.Background(),
+				cfg.ID+"_mv_mappings",
+				lsmkv.WithStrategy(lsmkv.StrategyReplace),
+				lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
+				lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
+				lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
 			}
@@ -727,10 +741,6 @@ func (h *hnsw) Entrypoint() uint64 {
 	return h.entryPointID
 }
 
-func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, error) {
-	return h.distancerProvider.SingleDist(x, y)
-}
-
 func (h *hnsw) ContainsDoc(docID uint64) bool {
 	if h.Multivector() && !h.muvera.Load() {
 		h.RLock()
@@ -813,10 +823,6 @@ func (h *hnsw) iterateMulti(fn func(docID uint64) bool) {
 	}
 }
 
-func (h *hnsw) DistancerProvider() distancer.Provider {
-	return h.distancerProvider
-}
-
 func (h *hnsw) ShouldUpgrade() (bool, int) {
 	if h.sqConfig.Enabled {
 		return h.sqConfig.Enabled, h.sqConfig.TrainingLimit
@@ -852,11 +858,6 @@ func (h *hnsw) Upgraded() bool {
 
 func (h *hnsw) AlreadyIndexed() uint64 {
 	return uint64(h.cache.CountVectors())
-}
-
-func (h *hnsw) GetKeys(id uint64) (uint64, uint64, error) {
-	docID, relativeID := h.cache.GetKeys(id)
-	return docID, relativeID, nil
 }
 
 func (h *hnsw) normalizeVec(vec []float32) []float32 {
@@ -967,7 +968,7 @@ func (s *HnswStats) IndexType() common.IndexType {
 	return common.IndexTypeHNSW
 }
 
-func (h *hnsw) Stats() (common.IndexStats, error) {
+func (h *hnsw) Stats() (*HnswStats, error) {
 	h.RLock()
 	defer h.RUnlock()
 	distributionLayers := map[int]uint{}
@@ -1011,6 +1012,10 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 	stats.CompressionType = stats.CompressorStats.CompressionType()
 
 	return &stats, nil
+}
+
+func (h *hnsw) Type() common.IndexType {
+	return common.IndexTypeHNSW
 }
 
 func (h *hnsw) CompressionStats() compressionhelpers.CompressionStats {

@@ -80,12 +80,6 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	start := time.Now()
 	defer func() {
 		s.index.metrics.ObserveUpdateShardStatus(storagestate.StatusShutdown.String(), time.Since(start))
-
-		if err != nil {
-			return
-		}
-
-		s.UpdateStatus(storagestate.StatusShutdown.String())
 	}()
 
 	s.reindexer.Stop(s, fmt.Errorf("shard shutdown"))
@@ -143,6 +137,8 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	})
 
 	if s.store != nil {
+		s.UpdateStatus(storagestate.StatusShutdown.String(), "shutdown")
+
 		// store would be nil if loading the objects bucket failed, as we would
 		// only return the store on success from s.initLSMStore()
 		err = s.store.Shutdown(ctx)
@@ -152,13 +148,6 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	if s.dynamicVectorIndexDB != nil {
 		err = s.dynamicVectorIndexDB.Close()
 		ec.AddWrap(err, "stop dynamic vector index db")
-	}
-
-	if s.dimensionTrackingInitialized.Load() {
-		// tracking vector dimensions goroutine only works when tracking is enabled
-		// _and_ when initialization completed, that's why we are trying to stop it
-		// only in this case
-		s.stopDimensionTracking <- struct{}{}
 	}
 
 	return ec.ToError()

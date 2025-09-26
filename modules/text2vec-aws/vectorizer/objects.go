@@ -14,9 +14,11 @@ package vectorizer
 import (
 	"context"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-aws/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
@@ -34,9 +36,9 @@ func New(client Client) *Vectorizer {
 
 type Client interface {
 	Vectorize(ctx context.Context, input []string,
-		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
+		config ent.VectorizationConfig) (*modulecomponents.VectorizationResult[[]float32], error)
 	VectorizeQuery(ctx context.Context, input []string,
-		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
+		config ent.VectorizationConfig) (*modulecomponents.VectorizationResult[[]float32], error)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -61,7 +63,11 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg modu
 func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	icheck := NewClassSettings(cfg)
-	text := v.objectVectorizer.Texts(ctx, object, icheck)
+	text, isEmpty := v.objectVectorizer.Texts(ctx, object, icheck)
+	if isEmpty {
+		// don't vectorize empty text
+		return nil, nil
+	}
 
 	res, err := v.client.Vectorize(ctx, []string{text}, ent.VectorizationConfig{
 		Service:       icheck.Service(),
@@ -74,6 +80,8 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 	if err != nil {
 		return nil, err
 	}
-
-	return res.Vector, nil
+	if len(res.Vector) == 0 {
+		return nil, errors.New("empty vector")
+	}
+	return res.Vector[0], nil
 }

@@ -43,24 +43,19 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-const composerUpgradedKey = "upgraded"
+const (
+	composerUpgradedKey = "upgraded"
+	batchSize           = 500
+)
 
 var dynamicBucket = []byte("dynamic")
 
-type MultiVectorIndex interface {
-	AddMulti(ctx context.Context, docId uint64, vector [][]float32) error
-	AddMultiBatch(ctx context.Context, docIds []uint64, vectors [][][]float32) error
-	DeleteMulti(id ...uint64) error
-	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
-	SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, targetDistance float32,
-		maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error)
-	GetKeys(id uint64) (uint64, uint64, error)
-	ValidateMultiBeforeInsert(vector [][]float32) error
+type Index interface {
+	// UnderlyingIndex returns the underlying index type (flat or hnsw)
+	UnderlyingIndex() common.IndexType
 }
 
 type VectorIndex interface {
-	MultiVectorIndex
-	Dump(labels ...string)
 	Add(ctx context.Context, id uint64, vector []float32) error
 	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
 	Delete(id ...uint64) error
@@ -77,53 +72,52 @@ type VectorIndex interface {
 	Compressed() bool
 	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
-	DistanceBetweenVectors(x, y []float32) (float32, error)
 	ContainsDoc(docID uint64) bool
-	DistancerProvider() distancer.Provider
-	AlreadyIndexed() uint64
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
-	QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer
 	// Iterate over all indexed document ids in the index.
 	// Consistency or order is not guaranteed, as the index may be concurrently modified.
 	// If the callback returns false, the iteration will stop.
 	Iterate(fn func(docID uint64) bool)
-	Stats() (common.IndexStats, error)
+	Type() common.IndexType
 }
 
 type upgradableIndexer interface {
 	Upgraded() bool
 	Upgrade(callback func()) error
 	ShouldUpgrade() (bool, int)
+	AlreadyIndexed() uint64
 }
 
 type dynamic struct {
 	sync.RWMutex
-	id                      string
-	targetVector            string
-	store                   *lsmkv.Store
-	logger                  logrus.FieldLogger
-	rootPath                string
-	shardName               string
-	className               string
-	prometheusMetrics       *monitoring.PrometheusMetrics
-	vectorForIDThunk        common.VectorForID[float32]
-	tempVectorForIDThunk    common.TempVectorForID[float32]
-	distanceProvider        distancer.Provider
-	makeCommitLoggerThunk   hnsw.MakeCommitLogger
-	threshold               uint64
-	index                   VectorIndex
-	upgraded                atomic.Bool
-	upgradeOnce             sync.Once
-	tombstoneCallbacks      cyclemanager.CycleCallbackGroup
-	hnswUC                  hnswent.UserConfig
-	db                      *bbolt.DB
-	ctx                     context.Context
-	cancel                  context.CancelFunc
-	hnswDisableSnapshots    bool
-	hnswSnapshotOnStartup   bool
-	hnswWaitForCachePrefill bool
-	LazyLoadSegments        bool
-	flatBQ                  bool
+	id                           string
+	targetVector                 string
+	store                        *lsmkv.Store
+	logger                       logrus.FieldLogger
+	rootPath                     string
+	shardName                    string
+	className                    string
+	prometheusMetrics            *monitoring.PrometheusMetrics
+	vectorForIDThunk             common.VectorForID[float32]
+	tempVectorForIDThunk         common.TempVectorForID[float32]
+	distanceProvider             distancer.Provider
+	makeCommitLoggerThunk        hnsw.MakeCommitLogger
+	threshold                    uint64
+	index                        VectorIndex
+	upgraded                     atomic.Bool
+	upgradeOnce                  sync.Once
+	tombstoneCallbacks           cyclemanager.CycleCallbackGroup
+	hnswUC                       hnswent.UserConfig
+	db                           *bbolt.DB
+	ctx                          context.Context
+	cancel                       context.CancelFunc
+	hnswDisableSnapshots         bool
+	hnswSnapshotOnStartup        bool
+	hnswWaitForCachePrefill      bool
+	LazyLoadSegments             bool
+	flatBQ                       bool
+	WriteSegmentInfoIntoFileName bool
+	WriteMetadataFilesEnabled    bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -142,43 +136,47 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	}
 
 	flatConfig := flat.Config{
-		ID:               cfg.ID,
-		RootPath:         cfg.RootPath,
-		TargetVector:     cfg.TargetVector,
-		Logger:           cfg.Logger,
-		DistanceProvider: cfg.DistanceProvider,
-		MinMMapSize:      cfg.MinMMapSize,
-		MaxWalReuseSize:  cfg.MaxWalReuseSize,
-		LazyLoadSegments: cfg.LazyLoadSegments,
-		AllocChecker:     cfg.AllocChecker,
+		ID:                           cfg.ID,
+		RootPath:                     cfg.RootPath,
+		TargetVector:                 cfg.TargetVector,
+		Logger:                       cfg.Logger,
+		DistanceProvider:             cfg.DistanceProvider,
+		MinMMapSize:                  cfg.MinMMapSize,
+		MaxWalReuseSize:              cfg.MaxWalReuseSize,
+		LazyLoadSegments:             cfg.LazyLoadSegments,
+		AllocChecker:                 cfg.AllocChecker,
+		WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
+		WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	index := &dynamic{
-		id:                      cfg.ID,
-		targetVector:            cfg.TargetVector,
-		logger:                  logger,
-		rootPath:                cfg.RootPath,
-		shardName:               cfg.ShardName,
-		className:               cfg.ClassName,
-		prometheusMetrics:       cfg.PrometheusMetrics,
-		vectorForIDThunk:        cfg.VectorForIDThunk,
-		tempVectorForIDThunk:    cfg.TempVectorForIDThunk,
-		distanceProvider:        cfg.DistanceProvider,
-		makeCommitLoggerThunk:   cfg.MakeCommitLoggerThunk,
-		store:                   store,
-		threshold:               uc.Threshold,
-		tombstoneCallbacks:      cfg.TombstoneCallbacks,
-		hnswUC:                  uc.HnswUC,
-		db:                      cfg.SharedDB,
-		ctx:                     ctx,
-		cancel:                  cancel,
-		hnswDisableSnapshots:    cfg.HNSWDisableSnapshots,
-		hnswSnapshotOnStartup:   cfg.HNSWSnapshotOnStartup,
-		hnswWaitForCachePrefill: cfg.HNSWWaitForCachePrefill,
-		LazyLoadSegments:        cfg.LazyLoadSegments,
-		flatBQ:                  uc.FlatUC.BQ.Enabled,
+		id:                           cfg.ID,
+		targetVector:                 cfg.TargetVector,
+		logger:                       logger,
+		rootPath:                     cfg.RootPath,
+		shardName:                    cfg.ShardName,
+		className:                    cfg.ClassName,
+		prometheusMetrics:            cfg.PrometheusMetrics,
+		vectorForIDThunk:             cfg.VectorForIDThunk,
+		tempVectorForIDThunk:         cfg.TempVectorForIDThunk,
+		distanceProvider:             cfg.DistanceProvider,
+		makeCommitLoggerThunk:        cfg.MakeCommitLoggerThunk,
+		store:                        store,
+		threshold:                    uc.Threshold,
+		tombstoneCallbacks:           cfg.TombstoneCallbacks,
+		hnswUC:                       uc.HnswUC,
+		db:                           cfg.SharedDB,
+		ctx:                          ctx,
+		cancel:                       cancel,
+		hnswDisableSnapshots:         cfg.HNSWDisableSnapshots,
+		hnswSnapshotOnStartup:        cfg.HNSWSnapshotOnStartup,
+		hnswWaitForCachePrefill:      cfg.HNSWWaitForCachePrefill,
+		LazyLoadSegments:             cfg.LazyLoadSegments,
+		flatBQ:                       uc.FlatUC.BQ.Enabled,
+		WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
+		WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
 	}
 
 	err := cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
@@ -210,20 +208,22 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		index.upgraded.Store(true)
 		hnsw, err := hnsw.New(
 			hnsw.Config{
-				Logger:                index.logger,
-				RootPath:              index.rootPath,
-				ID:                    index.id,
-				ShardName:             index.shardName,
-				ClassName:             index.className,
-				PrometheusMetrics:     index.prometheusMetrics,
-				VectorForIDThunk:      index.vectorForIDThunk,
-				TempVectorForIDThunk:  index.tempVectorForIDThunk,
-				DistanceProvider:      index.distanceProvider,
-				MakeCommitLoggerThunk: index.makeCommitLoggerThunk,
-				DisableSnapshots:      index.hnswDisableSnapshots,
-				SnapshotOnStartup:     index.hnswSnapshotOnStartup,
-				LazyLoadSegments:      index.LazyLoadSegments,
-				WaitForCachePrefill:   index.hnswWaitForCachePrefill,
+				Logger:                       index.logger,
+				RootPath:                     index.rootPath,
+				ID:                           index.id,
+				ShardName:                    index.shardName,
+				ClassName:                    index.className,
+				PrometheusMetrics:            index.prometheusMetrics,
+				VectorForIDThunk:             index.vectorForIDThunk,
+				TempVectorForIDThunk:         index.tempVectorForIDThunk,
+				DistanceProvider:             index.distanceProvider,
+				MakeCommitLoggerThunk:        index.makeCommitLoggerThunk,
+				DisableSnapshots:             index.hnswDisableSnapshots,
+				SnapshotOnStartup:            index.hnswSnapshotOnStartup,
+				LazyLoadSegments:             index.LazyLoadSegments,
+				WaitForCachePrefill:          index.hnswWaitForCachePrefill,
+				WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
+				WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
 			},
 			index.hnswUC,
 			index.tombstoneCallbacks,
@@ -242,6 +242,10 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	}
 
 	return index, nil
+}
+
+func (dynamic *dynamic) Type() common.IndexType {
+	return common.IndexTypeDynamic
 }
 
 func (dynamic *dynamic) dbKey() []byte {
@@ -291,22 +295,10 @@ func (dynamic *dynamic) AddBatch(ctx context.Context, ids []uint64, vectors [][]
 	return dynamic.index.AddBatch(ctx, ids, vectors)
 }
 
-func (dynamic *dynamic) AddMultiBatch(ctx context.Context, ids []uint64, vectors [][][]float32) error {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.AddMultiBatch(ctx, ids, vectors)
-}
-
 func (dynamic *dynamic) Add(ctx context.Context, id uint64, vector []float32) error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.Add(ctx, id, vector)
-}
-
-func (dynamic *dynamic) AddMulti(ctx context.Context, docId uint64, vectors [][]float32) error {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.AddMulti(ctx, docId, vectors)
 }
 
 func (dynamic *dynamic) Delete(ids ...uint64) error {
@@ -315,34 +307,16 @@ func (dynamic *dynamic) Delete(ids ...uint64) error {
 	return dynamic.index.Delete(ids...)
 }
 
-func (dynamic *dynamic) DeleteMulti(ids ...uint64) error {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.DeleteMulti(ids...)
-}
-
 func (dynamic *dynamic) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.SearchByVector(ctx, vector, k, allow)
 }
 
-func (dynamic *dynamic) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.SearchByMultiVector(ctx, vectors, k, allow)
-}
-
 func (dynamic *dynamic) SearchByVectorDistance(ctx context.Context, vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.SearchByVectorDistance(ctx, vector, targetDistance, maxLimit, allow)
-}
-
-func (dynamic *dynamic) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.SearchByMultiVectorDistance(ctx, vector, targetDistance, maxLimit, allow)
 }
 
 func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error {
@@ -362,12 +336,6 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 		dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
 	}
 	return nil
-}
-
-func (dynamic *dynamic) GetKeys(id uint64) (uint64, uint64, error) {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.GetKeys(id)
 }
 
 func (dynamic *dynamic) Drop(ctx context.Context) error {
@@ -432,22 +400,10 @@ func (dynamic *dynamic) ValidateBeforeInsert(vector []float32) error {
 	return dynamic.index.ValidateBeforeInsert(vector)
 }
 
-func (dynamic *dynamic) ValidateMultiBeforeInsert(vector [][]float32) error {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.ValidateMultiBeforeInsert(vector)
-}
-
 func (dynamic *dynamic) PostStartup() {
 	dynamic.Lock()
 	defer dynamic.Unlock()
 	dynamic.index.PostStartup()
-}
-
-func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, error) {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.DistanceBetweenVectors(x, y)
 }
 
 func (dynamic *dynamic) ContainsDoc(docID uint64) bool {
@@ -459,25 +415,13 @@ func (dynamic *dynamic) ContainsDoc(docID uint64) bool {
 func (dynamic *dynamic) AlreadyIndexed() uint64 {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.AlreadyIndexed()
-}
-
-func (dynamic *dynamic) DistancerProvider() distancer.Provider {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.DistancerProvider()
+	return (dynamic.index).(upgradableIndexer).AlreadyIndexed()
 }
 
 func (dynamic *dynamic) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.QueryVectorDistancer(queryVector)
-}
-
-func (dynamic *dynamic) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.QueryMultiVectorDistancer(queryVector)
 }
 
 func (dynamic *dynamic) ShouldUpgrade() (bool, int) {
@@ -536,19 +480,21 @@ func (dynamic *dynamic) doUpgrade() error {
 
 	index, err := hnsw.New(
 		hnsw.Config{
-			Logger:                dynamic.logger,
-			RootPath:              dynamic.rootPath,
-			ID:                    dynamic.id,
-			ShardName:             dynamic.shardName,
-			ClassName:             dynamic.className,
-			PrometheusMetrics:     dynamic.prometheusMetrics,
-			VectorForIDThunk:      dynamic.vectorForIDThunk,
-			TempVectorForIDThunk:  dynamic.tempVectorForIDThunk,
-			DistanceProvider:      dynamic.distanceProvider,
-			MakeCommitLoggerThunk: dynamic.makeCommitLoggerThunk,
-			DisableSnapshots:      dynamic.hnswDisableSnapshots,
-			SnapshotOnStartup:     dynamic.hnswSnapshotOnStartup,
-			WaitForCachePrefill:   dynamic.hnswWaitForCachePrefill,
+			Logger:                       dynamic.logger,
+			RootPath:                     dynamic.rootPath,
+			ID:                           dynamic.id,
+			ShardName:                    dynamic.shardName,
+			ClassName:                    dynamic.className,
+			PrometheusMetrics:            dynamic.prometheusMetrics,
+			VectorForIDThunk:             dynamic.vectorForIDThunk,
+			TempVectorForIDThunk:         dynamic.tempVectorForIDThunk,
+			DistanceProvider:             dynamic.distanceProvider,
+			MakeCommitLoggerThunk:        dynamic.makeCommitLoggerThunk,
+			DisableSnapshots:             dynamic.hnswDisableSnapshots,
+			SnapshotOnStartup:            dynamic.hnswSnapshotOnStartup,
+			WaitForCachePrefill:          dynamic.hnswWaitForCachePrefill,
+			WriteSegmentInfoIntoFileName: dynamic.WriteSegmentInfoIntoFileName,
+			WriteMetadataFilesEnabled:    dynamic.WriteMetadataFilesEnabled,
 		},
 		dynamic.hnswUC,
 		dynamic.tombstoneCallbacks,
@@ -559,30 +505,11 @@ func (dynamic *dynamic) doUpgrade() error {
 		return err
 	}
 
-	bucket := dynamic.store.Bucket(dynamic.getBucketName())
-
-	cursor := bucket.Cursor()
-
-	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		if dynamic.ctx.Err() != nil {
-			cursor.Close()
-			// context was cancelled, stop processing
-			dynamic.RUnlock()
-			return dynamic.ctx.Err()
-		}
-
-		id := binary.BigEndian.Uint64(k)
-		vc := make([]float32, len(v)/4)
-		float32SliceFromByteSlice(v, vc)
-
-		err := index.Add(dynamic.ctx, id, vc)
-		if err != nil {
-			dynamic.logger.WithField("id", id).WithError(err).Error("failed to add vector")
-			continue
-		}
+	err = dynamic.copyToVectorIndex(index)
+	if err != nil {
+		dynamic.RUnlock()
+		return err
 	}
-
-	cursor.Close()
 
 	// end of read-only zone
 	dynamic.RUnlock()
@@ -637,14 +564,80 @@ func (dynamic *dynamic) doUpgrade() error {
 	return nil
 }
 
+// Loop over the store and add each vector to the HNSW.
+// This can take a while, so we use short-lived cursors to not block
+// other operations on the KV store (e.g. flush)
+func (dynamic *dynamic) copyToVectorIndex(index VectorIndex) error {
+	bucket := dynamic.store.Bucket(dynamic.getBucketName())
+
+	var k, v []byte
+
+	var ids []uint64
+	var vectors [][]float32
+
+	for {
+		ids = ids[:0]
+		vectors = vectors[:0]
+
+		cursor := bucket.Cursor()
+
+		if len(k) == 0 {
+			k, v = cursor.First()
+		} else {
+			k, v = cursor.Seek(k)
+		}
+
+		var i int
+		for k != nil && i < batchSize {
+			if err := dynamic.ctx.Err(); err != nil {
+				cursor.Close()
+				// context was cancelled, stop processing
+				return err
+			}
+
+			id := binary.BigEndian.Uint64(k)
+			vc := make([]float32, len(v)/4)
+			float32SliceFromByteSlice(v, vc)
+
+			ids = append(ids, id)
+			vectors = append(vectors, vc)
+
+			k, v = cursor.Next()
+			i++
+		}
+
+		cursor.Close()
+
+		err := index.AddBatch(dynamic.ctx, ids, vectors)
+		if err != nil {
+			dynamic.logger.WithError(err).Error("failed to add vectors")
+		}
+
+		if k == nil {
+			break
+		}
+	}
+
+	return nil
+}
+
 func (dynamic *dynamic) Iterate(fn func(id uint64) bool) {
 	dynamic.index.Iterate(fn)
 }
 
-func (dynamic *dynamic) Stats() (common.IndexStats, error) {
+type hnswStats interface {
+	Stats() (*hnsw.HnswStats, error)
+}
+
+func (dynamic *dynamic) Stats() (*hnsw.HnswStats, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.Stats()
+
+	h, ok := dynamic.index.(hnswStats)
+	if !ok {
+		return nil, errors.New("index is not hnsw")
+	}
+	return h.Stats()
 }
 
 func (dynamic *dynamic) CompressionStats() compressionhelpers.CompressionStats {
@@ -660,8 +653,13 @@ func (dynamic *dynamic) CompressionStats() compressionhelpers.CompressionStats {
 	return compressionhelpers.UncompressedStats{}
 }
 
-type DynamicStats struct{}
-
-func (s *DynamicStats) IndexType() common.IndexType {
-	return common.IndexTypeDynamic
+// UnderlyingIndex returns the underlying index type (flat or hnsw)
+// for dynamic indexes.
+func (dynamic *dynamic) UnderlyingIndex() common.IndexType {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.Type()
 }
+
+// to make sure the dynamic index satisfies the Index interface
+var _ = Index(&dynamic{})

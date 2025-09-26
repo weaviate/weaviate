@@ -20,17 +20,20 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/usage/types"
+	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // BaseStorage provides common functionality for all storage backends
 type BaseStorage struct {
-	BucketName string
-	Prefix     string
-	NodeID     string
-	Logger     logrus.FieldLogger
-	Metrics    *Metrics
+	BucketName        string
+	Prefix            string
+	NodeID            string
+	VerifyPermissions bool
+	Logger            logrus.FieldLogger
+	Metrics           *Metrics
 }
 
 // NewBaseStorage creates a new base storage instance
@@ -42,10 +45,8 @@ func NewBaseStorage(logger logrus.FieldLogger, metrics *Metrics) *BaseStorage {
 }
 
 // ConstructObjectKey creates the full object key path for storage
-func (b *BaseStorage) ConstructObjectKey() string {
-	now := time.Now().UTC()
-	timestamp := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), 0, 0, time.UTC).Format("2006-01-02T15-04-05Z")
-	filename := fmt.Sprintf("%s.json", timestamp)
+func (b *BaseStorage) ConstructObjectKey(collectionTime string) string {
+	filename := fmt.Sprintf("%s.json", collectionTime)
 
 	objectKey := fmt.Sprintf("%s/%s", b.NodeID, filename)
 	if b.Prefix != "" {
@@ -56,7 +57,7 @@ func (b *BaseStorage) ConstructObjectKey() string {
 
 // MarshalUsageData converts usage data to JSON
 func (b *BaseStorage) MarshalUsageData(usage *types.Report) ([]byte, error) {
-	data, err := json.MarshalIndent(usage, "", "  ")
+	data, err := json.Marshal(usage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal usage data: %w", err)
 	}
@@ -84,6 +85,15 @@ func (b *BaseStorage) UpdateCommonConfig(config StorageConfig) bool {
 			"new_prefix": config.Prefix,
 		}).Info("upload prefix updated")
 		b.Prefix = config.Prefix
+		changed = true
+	}
+
+	if b.VerifyPermissions != config.VerifyPermissions {
+		b.Logger.WithFields(logrus.Fields{
+			"old_verify_permissions": b.VerifyPermissions,
+			"new_verify_permissions": config.VerifyPermissions,
+		}).Info("verify permissions updated")
+		b.VerifyPermissions = config.VerifyPermissions
 		changed = true
 	}
 
@@ -142,24 +152,46 @@ func (b *BaseStorage) RecordUploadMetrics(dataSize int) {
 func ParseCommonUsageConfig(config *config.Config) error {
 	// Parse common environment variables that both S3 and GCS modules use
 	scrapeInterval := DefaultCollectionInterval
-	if config.Usage.ScrapeInterval != nil {
-		scrapeInterval = config.Usage.ScrapeInterval.Get()
-	} else if v := os.Getenv("USAGE_SCRAPE_INTERVAL"); v != "" {
+	if v := os.Getenv("USAGE_SCRAPE_INTERVAL"); v != "" {
 		duration, err := time.ParseDuration(v)
 		if err != nil {
 			return fmt.Errorf("invalid %s: %w", "USAGE_SCRAPE_INTERVAL", err)
 		}
 		scrapeInterval = duration
+	} else if config.Usage.ScrapeInterval != nil {
+		scrapeInterval = config.Usage.ScrapeInterval.Get()
 	}
 	config.Usage.ScrapeInterval = runtime.NewDynamicValue(scrapeInterval)
 
-	policyVersion := DefaultPolicyVersion
-	if config.Usage.PolicyVersion != nil {
-		policyVersion = config.Usage.PolicyVersion.Get()
-	} else if v := os.Getenv("USAGE_POLICY_VERSION"); v != "" {
+	policyVersion := build.Version
+	if v := os.Getenv("USAGE_POLICY_VERSION"); v != "" {
 		policyVersion = v
+	} else if config.Usage.PolicyVersion != nil {
+		policyVersion = config.Usage.PolicyVersion.Get()
 	}
 	config.Usage.PolicyVersion = runtime.NewDynamicValue(policyVersion)
+
+	// Parse shard jitter interval environment variable
+	shardJitterInterval := DefaultShardJitterInterval
+	if v := os.Getenv("USAGE_SHARD_JITTER_INTERVAL"); v != "" {
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid %s: %w", "USAGE_SHARD_JITTER_INTERVAL", err)
+		}
+		shardJitterInterval = duration
+	} else if config.Usage.ShardJitterInterval != nil {
+		shardJitterInterval = config.Usage.ShardJitterInterval.Get()
+	}
+	config.Usage.ShardJitterInterval = runtime.NewDynamicValue(shardJitterInterval)
+
+	// Parse verify permissions setting
+	verifyPermissions := false
+	if v := os.Getenv("USAGE_VERIFY_PERMISSIONS"); v != "" {
+		verifyPermissions = entcfg.Enabled(v)
+	} else if config.Usage.VerifyPermissions != nil {
+		verifyPermissions = config.Usage.VerifyPermissions.Get()
+	}
+	config.Usage.VerifyPermissions = runtime.NewDynamicValue(verifyPermissions)
 
 	return nil
 }

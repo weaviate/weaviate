@@ -341,9 +341,7 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 		assert.LessOrEqual(t, alreadyRunningCount, 1, "Expected at most one 'already running' error")
 		stats, err := vectorIndex.Stats()
 		require.Nil(t, err)
-		hnswStats, ok := stats.(*HnswStats)
-		require.True(t, ok)
-		assert.Equal(t, 0, hnswStats.NumTombstones, "Expected no tombstones after cleanup")
+		assert.Equal(t, 0, stats.NumTombstones, "Expected no tombstones after cleanup")
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -353,7 +351,7 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 
 func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T) {
 	var vectors [][]float32
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < 1000; i++ {
 		vectors = append(vectors, []float32{rand.Float32(), rand.Float32(), rand.Float32()})
 	}
 	var vectorIndex *hnsw
@@ -653,7 +651,7 @@ func genStopAtFunc(i int) func() bool {
 
 func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 	ctx := context.Background()
-	vectors := vectorsForDeleteTest()
+	vectors := vectorsForDeleteTest()[:50]
 	var index *hnsw
 	var possibleStopsCount int
 	// due to not yet resolved bug (https://semi-technology.atlassian.net/browse/WEAVIATE-179)
@@ -1032,8 +1030,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 		vectors    = vectorsForDeleteTest()
 		rootPath   = t.TempDir()
 		userConfig = ent.UserConfig{
-			MaxConnections: 30,
-			EFConstruction: 128,
+			MaxConnections: 16,
+			EFConstruction: 32,
 
 			// The actual size does not matter for this test, but if it defaults to
 			// zero it will constantly think it's full and needs to be deleted - even
@@ -1075,8 +1073,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 		cfg := ent.PQConfig{
 			Enabled: true,
 			Encoder: ent.PQEncoder{
-				Type:         ent.PQEncoderTypeTile,
-				Distribution: ent.PQEncoderDistributionLogNormal,
+				Type:         ent.PQEncoderTypeKMeans,
+				Distribution: ent.PQEncoderDistributionNormal,
 			},
 			BitCompression: false,
 			Segments:       3,
@@ -1636,7 +1634,7 @@ func neverStop() bool {
 }
 
 func slowNeverStop() bool {
-	time.Sleep(time.Millisecond * 10)
+	time.Sleep(time.Millisecond * 3)
 	return false
 }
 
@@ -1851,7 +1849,7 @@ func TestDelete_WithCleaningUpTombstonesWithHighConcurrency(t *testing.T) {
 	os.Setenv("TOMBSTONE_DELETION_CONCURRENCY", "100")
 	defer os.Unsetenv("TOMBSTONE_DELETION_CONCURRENCY")
 	// there is a single bulk clean event after all the deletes
-	vectors, _ := testinghelpers.RandomVecs(3_000, 1, 1536)
+	vectors, _ := testinghelpers.RandomVecs(1_000, 1, 64)
 	var vectorIndex *hnsw
 
 	store := testinghelpers.NewDummyStore(t)

@@ -12,10 +12,11 @@
 package lsmkv
 
 import (
-	"bytes"
 	"fmt"
-	"io"
+	"regexp"
+	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/weaviate/sroar"
 
@@ -25,12 +26,20 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 )
 
+var (
+	levelRegEx    = regexp.MustCompile(`\.l(\d+)\.`)
+	strategyRegEx = regexp.MustCompile(`\.s(\d+)\.`)
+)
+
 type lazySegment struct {
 	path        string
 	logger      logrus.FieldLogger
 	metrics     *Metrics
 	existsLower existsOnLowerSegmentsFn
 	cfg         segmentConfig
+
+	level    atomic.Pointer[uint16]
+	strategy atomic.Pointer[segmentindex.Strategy]
 
 	segment *segment
 	mux     sync.Mutex
@@ -87,6 +96,17 @@ func (s *lazySegment) setPath(path string) {
 }
 
 func (s *lazySegment) getStrategy() segmentindex.Strategy {
+	ptr := s.strategy.Load()
+	if ptr != nil {
+		return *ptr
+	}
+
+	strategy, found := s.numberFromPath(strategyRegEx)
+	if found {
+		strtg := segmentindex.Strategy(strategy)
+		s.strategy.Store(&strtg)
+		return strtg
+	}
 	s.mustLoad()
 	return s.segment.getStrategy()
 }
@@ -96,12 +116,19 @@ func (s *lazySegment) getSecondaryIndexCount() uint16 {
 	return s.segment.getSecondaryIndexCount()
 }
 
-func (s *lazySegment) getCountNetAdditions() int {
-	s.mustLoad()
-	return s.segment.getCountNetAdditions()
-}
-
 func (s *lazySegment) getLevel() uint16 {
+	ptr := s.level.Load()
+	if ptr != nil {
+		return *ptr
+	}
+
+	level, found := s.numberFromPath(levelRegEx)
+	if found {
+		lvl := uint16(level)
+		s.level.Store(&lvl)
+		return lvl
+	}
+
 	s.mustLoad()
 	return s.segment.getLevel()
 }
@@ -116,11 +143,6 @@ func (s *lazySegment) setSize(size int64) {
 	s.segment.setSize(size)
 }
 
-func (s *lazySegment) getIndexSize() int {
-	s.mustLoad()
-	return s.segment.getIndexSize()
-}
-
 func (s *lazySegment) PayloadSize() int {
 	s.mustLoad()
 	return s.segment.PayloadSize()
@@ -129,26 +151,6 @@ func (s *lazySegment) PayloadSize() int {
 func (s *lazySegment) Size() int {
 	s.mustLoad()
 	return s.segment.Size()
-}
-
-func (s *lazySegment) bloomFilterPath() string {
-	s.mustLoad()
-	return s.segment.bloomFilterPath()
-}
-
-func (s *lazySegment) bloomFilterSecondaryPath(pos int) string {
-	s.mustLoad()
-	return s.segment.bloomFilterSecondaryPath(pos)
-}
-
-func (s *lazySegment) bufferedReaderAt(offset uint64, operation string) (io.Reader, error) {
-	s.mustLoad()
-	return s.segment.bufferedReaderAt(offset, operation)
-}
-
-func (s *lazySegment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
-	s.mustLoad()
-	return s.segment.bytesReaderFrom(in)
 }
 
 func (s *lazySegment) close() error {
@@ -165,46 +167,6 @@ func (s *lazySegment) close() error {
 		s.metrics.LazySegmentUnLoad.Inc()
 	}
 	return s.segment.close()
-}
-
-func (s *lazySegment) collectionStratParseData(in []byte) ([]value, error) {
-	s.mustLoad()
-	return s.segment.collectionStratParseData(in)
-}
-
-func (s *lazySegment) computeAndStoreBloomFilter(path string) error {
-	s.mustLoad()
-	return s.segment.computeAndStoreBloomFilter(path)
-}
-
-func (s *lazySegment) computeAndStoreSecondaryBloomFilter(path string, pos int) error {
-	s.mustLoad()
-	return s.segment.computeAndStoreSecondaryBloomFilter(path, pos)
-}
-
-func (s *lazySegment) copyNode(b []byte, offset nodeOffset) error {
-	s.mustLoad()
-	return s.segment.copyNode(b, offset)
-}
-
-func (s *lazySegment) countNetPath() string {
-	s.mustLoad()
-	return s.segment.countNetPath()
-}
-
-func (s *lazySegment) dropImmediately() error {
-	s.mustLoad()
-	return s.segment.dropImmediately()
-}
-
-func (s *lazySegment) dropMarked() error {
-	s.mustLoad()
-	return s.segment.dropMarked()
-}
-
-func (s *lazySegment) exists(key []byte) (bool, error) {
-	s.mustLoad()
-	return s.segment.exists(key)
 }
 
 func (s *lazySegment) get(key []byte) ([]byte, error) {
@@ -237,21 +199,6 @@ func (s *lazySegment) isLoaded() bool {
 	defer s.mux.Unlock()
 
 	return s.segment != nil
-}
-
-func (s *lazySegment) loadBloomFilterFromDisk() error {
-	s.mustLoad()
-	return s.segment.loadBloomFilterFromDisk()
-}
-
-func (s *lazySegment) loadBloomFilterSecondaryFromDisk(pos int) error {
-	s.mustLoad()
-	return s.segment.loadBloomFilterSecondaryFromDisk(pos)
-}
-
-func (s *lazySegment) loadCountNetFromDisk() error {
-	s.mustLoad()
-	return s.segment.loadCountNetFromDisk()
 }
 
 func (s *lazySegment) markForDeletion() error {
@@ -309,26 +256,6 @@ func (s *lazySegment) newRoaringSetRangeReader() *roaringsetrange.SegmentReader 
 	return s.segment.newRoaringSetRangeReader()
 }
 
-func (s *lazySegment) precomputeBloomFilter() error {
-	s.mustLoad()
-	return s.segment.precomputeBloomFilter()
-}
-
-func (s *lazySegment) precomputeBloomFilters() ([]string, error) {
-	s.mustLoad()
-	return s.segment.precomputeBloomFilters()
-}
-
-func (s *lazySegment) precomputeCountNetAdditions(updatedCountNetAdditions int) ([]string, error) {
-	s.mustLoad()
-	return s.segment.precomputeCountNetAdditions(updatedCountNetAdditions)
-}
-
-func (s *lazySegment) precomputeSecondaryBloomFilter(pos int) error {
-	s.mustLoad()
-	return s.segment.precomputeSecondaryBloomFilter(pos)
-}
-
 func (s *lazySegment) quantileKeys(q int) [][]byte {
 	s.mustLoad()
 	return s.segment.quantileKeys(q)
@@ -344,27 +271,25 @@ func (s *lazySegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	return s.segment.replaceStratParseData(in)
 }
 
-func (s *lazySegment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
+func (s *lazySegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool,
+) (roaringset.BitmapLayer, func(), error) {
 	s.mustLoad()
-	return s.segment.roaringSetGet(key)
+	return s.segment.roaringSetGet(key, bitmapBufPool)
 }
 
-func (s *lazySegment) segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentNode, bool, error) {
+func (s *lazySegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool,
+) error {
 	s.mustLoad()
-	return s.segment.segmentNodeFromBuffer(offset)
+	return s.segment.roaringSetMergeWith(key, input, bitmapBufPool)
 }
 
-func (s *lazySegment) storeBloomFilterOnDisk(path string) error {
-	s.mustLoad()
-	return s.segment.storeBloomFilterOnDisk(path)
-}
-
-func (s *lazySegment) storeBloomFilterSecondaryOnDisk(path string, pos int) error {
-	s.mustLoad()
-	return s.segment.storeBloomFilterSecondaryOnDisk(path, pos)
-}
-
-func (s *lazySegment) storeCountNetOnDisk() error {
-	s.mustLoad()
-	return s.segment.storeCountNetOnDisk()
+func (s *lazySegment) numberFromPath(re *regexp.Regexp) (int, bool) {
+	match := re.FindStringSubmatch(s.path)
+	if len(match) > 1 {
+		num, err := strconv.Atoi(match[1])
+		if err == nil {
+			return num, true
+		}
+	}
+	return 0, false
 }

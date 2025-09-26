@@ -365,6 +365,18 @@ func TestNodesApi_Compression_AsyncIndexing(t *testing.T) {
 }
 
 func TestNodesApi_Compression_SyncIndexing(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().
+		WithWeaviate().
+		WithText2VecContextionary().
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
+	helper.SetupClient(compose.GetWeaviate().URI())
 	t.Run("validate flat compression status", func(t *testing.T) {
 		booksClass := books.ClassContextionaryVectorizer()
 		booksClass.VectorIndexType = "flat"
@@ -445,5 +457,5 @@ func getNodesStatus(t *testing.T, output, class string) (payload *models.NodesSt
 		body, clientErr := helper.Client(t).Nodes.NodesGet(params, nil)
 		payload, err = body.Payload, clientErr
 	}
-	return
+	return payload, err
 }

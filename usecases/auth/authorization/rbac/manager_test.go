@@ -15,11 +15,12 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
@@ -44,7 +45,7 @@ func TestSnapshotAndRestore(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("admin"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", authentication.AuthTypeDb), conv.PrefixRoleName("admin"))
 				return err
 			},
 		},
@@ -60,11 +61,11 @@ func TestSnapshotAndRestore(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("admin"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", authentication.AuthTypeDb), conv.PrefixRoleName("admin"))
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("editor"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", authentication.AuthTypeDb), conv.PrefixRoleName("editor"))
 				return err
 			},
 		},
@@ -210,7 +211,7 @@ func TestRestoreEmptyData(t *testing.T) {
 
 	policies, err := m.casbin.GetPolicy()
 	require.NoError(t, err)
-	require.Len(t, policies, 4)
+	require.Len(t, policies, 5)
 
 	err = m.Restore([]byte{})
 	require.NoError(t, err)
@@ -218,7 +219,7 @@ func TestRestoreEmptyData(t *testing.T) {
 	// nothing overwritten
 	policies, err = m.casbin.GetPolicy()
 	require.NoError(t, err)
-	require.Len(t, policies, 4)
+	require.Len(t, policies, 5)
 }
 
 func TestSnapshotAndRestoreUpgrade(t *testing.T) {
@@ -238,6 +239,7 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 				{"role:some_role", "users/.*", "A", "users"},
 				// build-in roles are added after restore
 				{"role:viewer", "*", authorization.READ, "*"},
+				{"role:read-only", "*", authorization.READ, "*"},
 				{"role:admin", "*", conv.VALID_VERBS, "*"},
 				{"role:root", "*", conv.VALID_VERBS, "*"},
 			},
@@ -250,6 +252,7 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 			},
 			policiesExpected: [][]string{
 				{"role:viewer", "*", "R", "*"},
+				{"role:read-only", "*", "R", "*"},
 				{"role:admin", "*", conv.VALID_VERBS, "*"},
 				// build-in roles are added after restore
 				{"role:root", "*", conv.VALID_VERBS, "*"},
@@ -264,6 +267,7 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 				{"role:admin", "*", "(C)|(R)|(U)|(D)|(A)", "*"},
 				// build-in roles are added after restore
 				{"role:viewer", "*", authorization.READ, "*"},
+				{"role:read-only", "*", authorization.READ, "*"},
 				{"role:root", "*", conv.VALID_VERBS, "*"},
 			},
 			groupingsInput: [][]string{

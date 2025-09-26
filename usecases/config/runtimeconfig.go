@@ -44,7 +44,9 @@ type WeaviateRuntimeConfig struct {
 	UsageS3Bucket                   *runtime.DynamicValue[string]        `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`
 	UsageS3Prefix                   *runtime.DynamicValue[string]        `json:"usage_s3_prefix" yaml:"usage_s3_prefix"`
 	UsageScrapeInterval             *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
+	UsageShardJitterInterval        *runtime.DynamicValue[time.Duration] `json:"usage_shard_jitter_interval" yaml:"usage_shard_jitter_interval"`
 	UsagePolicyVersion              *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
+	UsageVerifyPermissions          *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
 
 	// Experimental configs. Will be removed in the future.
 	OIDCIssuer            *runtime.DynamicValue[string]   `json:"exp_oidc_issuer" yaml:"exp_oidc_issuer"`
@@ -54,6 +56,7 @@ type WeaviateRuntimeConfig struct {
 	OIDCGroupsClaim       *runtime.DynamicValue[string]   `yaml:"exp_oidc_groups_claim" json:"exp_oidc_groups_claim"`
 	OIDCScopes            *runtime.DynamicValue[[]string] `yaml:"exp_oidc_scopes" json:"exp_oidc_scopes"`
 	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"exp_oidc_certificate" json:"exp_oidc_certificate"`
+	DefaultQuantization   *runtime.DynamicValue[string]   `yaml:"default_quantization" json:"default_quantization"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.

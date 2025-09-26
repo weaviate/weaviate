@@ -17,7 +17,7 @@ type Config struct {
 	Enabled           bool     `json:"enabled" yaml:"enabled"`
 	RootUsers         []string `json:"root_users" yaml:"root_users"`
 	RootGroups        []string `json:"root_groups" yaml:"root_groups"`
-	ViewerGroups      []string `json:"readonly_groups" yaml:"readonly_groups"`
+	ReadOnlyGroups    []string `json:"readonly_groups" yaml:"readonly_groups"`
 	ViewerUsers       []string `json:"viewer_users" yaml:"viewer_users"`
 	AdminUsers        []string `json:"admin_users" yaml:"admin_users"`
 	IpInAuditDisabled bool     `json:"ip_in_audit" yaml:"ip_in_audit"`

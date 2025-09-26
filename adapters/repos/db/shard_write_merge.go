@@ -44,7 +44,7 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 				return errors.Wrapf(err, "validate vector index for update of %v for target vector %s", merge.ID, targetVector)
 			}
 		case [][]float32:
-			err := vectorIndex.ValidateMultiBeforeInsert(v)
+			err := vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(v)
 			if err != nil {
 				return errors.Wrapf(err, "validate multi vector index for update of %v for target vector %s", merge.ID, targetVector)
 			}

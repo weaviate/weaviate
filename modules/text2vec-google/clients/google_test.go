@@ -37,8 +37,8 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
-				assert.Equal(t, "endpoint", apiEndoint)
+			urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string {
+				assert.Equal(t, "endpoint", apiEndpoint)
 				assert.Equal(t, "project", projectID)
 				assert.Equal(t, "model", modelID)
 				return server.URL
@@ -68,7 +68,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -92,7 +92,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -111,7 +111,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -137,7 +137,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),

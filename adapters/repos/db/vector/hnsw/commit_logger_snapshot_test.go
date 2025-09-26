@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -25,17 +26,17 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func createTestCommitLoggerForSnapshots(t *testing.T, rootDir, id string) *hnswCommitLogger {
-	opts := []CommitlogOption{
+func createTestCommitLoggerForSnapshotsWithOpts(t *testing.T, rootDir, id string, opts ...CommitlogOption) *hnswCommitLogger {
+	options := []CommitlogOption{
 		WithCommitlogThreshold(1000),
 		WithCommitlogThresholdForCombining(200),
 		WithCondensor(&fakeCondensor{}),
 		WithSnapshotDisabled(false),
-		WithAllocChecker(fakeAllocChecker{}),
 	}
+	options = append(options, opts...)
 
 	commitLogDir := commitLogDirectory(rootDir, id)
-	cl, err := NewCommitLogger(rootDir, id, logrus.New(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	cl, err := NewCommitLogger(rootDir, id, logrus.New(), cyclemanager.NewCallbackGroupNoop(), options...)
 	require.NoError(t, err)
 
 	// commit logger always creates an empty file if there is no data, remove it first
@@ -47,6 +48,10 @@ func createTestCommitLoggerForSnapshots(t *testing.T, rootDir, id string) *hnswC
 	}
 
 	return cl
+}
+
+func createTestCommitLoggerForSnapshots(t *testing.T, rootDir, id string) *hnswCommitLogger {
+	return createTestCommitLoggerForSnapshotsWithOpts(t, rootDir, id)
 }
 
 func createCommitlogTestData(t *testing.T, dir string, filenameSizes ...any) {
@@ -63,7 +68,7 @@ func createCommitlogTestData(t *testing.T, dir string, filenameSizes ...any) {
 	}
 }
 
-func generateFakeCommitLogData(t *testing.T, cl *commitlog.Logger, size int64) {
+var generateFakeCommitLogData = func(t *testing.T, cl *commitlog.Logger, size int64) {
 	var err error
 
 	i := 0
@@ -90,6 +95,8 @@ func generateFakeCommitLogData(t *testing.T, cl *commitlog.Logger, size int64) {
 }
 
 func createCommitlogAndSnapshotTestData(t *testing.T, cl *hnswCommitLogger, commitlogNameSizes ...any) {
+	t.Helper()
+
 	require.GreaterOrEqual(t, len(commitlogNameSizes), 4, "at least 2 commitlog files are required to create snapshot")
 
 	clDir := commitLogDirectory(cl.rootPath, cl.id)
@@ -327,6 +334,80 @@ func TestCreateSnapshotCrashRecovery(t *testing.T) {
 		require.True(t, created)
 		files = readDir(t, sDir)
 		require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
+	})
+
+	t.Run("corrupt checkpoints", func(t *testing.T) {
+		dir := t.TempDir()
+		id := "main"
+		cl := createTestCommitLoggerForSnapshots(t, dir, id)
+		clDir := commitLogDirectory(dir, id)
+		sDir := snapshotDirectory(dir, id)
+
+		createCommitlogTestData(t, clDir, "1000.condensed", 1000, "1001.condensed", 1000, "1002.condensed", 1000)
+
+		// create snapshot
+		created, _, err := cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.NotNil(t, created)
+		files := readDir(t, sDir)
+		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+
+		// corrupt the checkpoints
+		err = os.WriteFile(filepath.Join(sDir, "1001.snapshot.checkpoints"), []byte("corrupt"), 0o644)
+		require.NoError(t, err)
+
+		// add new files
+		createCommitlogTestData(t, clDir, "1003.condensed", 1000, "1004.condensed", 1000, "1005.condensed", 1000)
+
+		// create snapshot should still work
+		created, _, err = cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.True(t, created)
+		files = readDir(t, sDir)
+		require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
+	})
+
+	t.Run("outdated checkpoints", func(t *testing.T) {
+		dir := t.TempDir()
+		id := "main"
+		cl := createTestCommitLoggerForSnapshots(t, dir, id)
+		clDir := commitLogDirectory(dir, id)
+		sDir := snapshotDirectory(dir, id)
+
+		createCommitlogTestData(t, clDir, "1000.condensed", 1000, "1001.condensed", 1000, "1002.condensed", 1000)
+
+		// create snapshot
+		created, _, err := cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.NotNil(t, created)
+		files := readDir(t, sDir)
+		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+
+		// copy the checkpoints file to a different file
+		oldCp, err := os.ReadFile(filepath.Join(sDir, "1001.snapshot.checkpoints"))
+		require.NoError(t, err)
+
+		// add new files
+		createCommitlogTestData(t, clDir, "1003.condensed", 1500, "1004.condensed", 2500, "1005.condensed", 3000)
+
+		// create new snapshot
+		created, _, err = cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.True(t, created)
+		files = readDir(t, sDir)
+		require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
+
+		// restore the old checkpoints file
+		err = os.WriteFile(filepath.Join(sDir, "1004.snapshot.checkpoints"), oldCp, 0o644)
+		require.NoError(t, err)
+
+		// load the snapshot
+		state, createdAt, err := cl.LoadSnapshot()
+		require.NoError(t, err)
+		require.Nil(t, state)
+		require.Zero(t, createdAt)
+		files = readDir(t, sDir)
+		require.Zero(t, files)
 	})
 }
 
@@ -867,6 +948,7 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 		require.Nil(t, restoredState.CompressionPQData)
 		require.Nil(t, restoredState.CompressionSQData)
 		require.Nil(t, restoredState.CompressionRQData)
+		require.Nil(t, restoredState.CompressionBRQData)
 		require.Nil(t, restoredState.EncoderMuvera)
 	})
 
@@ -901,6 +983,7 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 		require.Nil(t, restoredState.CompressionPQData)
 		require.Nil(t, restoredState.CompressionSQData)
 		require.Nil(t, restoredState.CompressionRQData)
+		require.Nil(t, restoredState.CompressionBRQData)
 		require.Nil(t, restoredState.EncoderMuvera)
 	})
 
@@ -1116,6 +1199,65 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 		require.Equal(t, state.EncoderMuvera.S[0][0][0], restoredState.EncoderMuvera.S[0][0][0])
 	})
 
+	t.Run("v2 metadata - with BRQ compression", func(t *testing.T) {
+		// Create state with BRQ compression
+		state := &DeserializationResult{
+			Entrypoint: 212,
+			Level:      5,
+			Compressed: true,
+			Nodes:      make([]*vertex, 250),
+			CompressionBRQData: &compressionhelpers.BRQData{
+				InputDim: 8,
+				Rotation: compressionhelpers.FastRotation{
+					OutputDim: 8,
+					Rounds:    1,
+					Swaps: [][]compressionhelpers.Swap{
+						{
+							{I: 0, J: 1},
+							{I: 2, J: 3},
+							{I: 4, J: 5},
+							{I: 6, J: 7},
+						},
+					},
+					Signs: [][]float32{
+						{1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0},
+					},
+				},
+				Rounding: []float32{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8},
+			},
+		}
+
+		dir := t.TempDir()
+		id := "test"
+		cl := createTestCommitLoggerForSnapshots(t, dir, id)
+
+		// Write snapshot to a temporary file
+		snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+		err := cl.writeSnapshot(state, snapshotPath)
+		require.NoError(t, err)
+
+		// Read snapshot back
+		restoredState, err := cl.readSnapshot(snapshotPath)
+		require.NoError(t, err)
+
+		// Verify all fields match
+		require.Equal(t, state.Compressed, true)
+		require.Equal(t, state.Entrypoint, restoredState.Entrypoint)
+		require.Equal(t, state.Level, restoredState.Level)
+		require.Equal(t, state.Compressed, restoredState.Compressed)
+		require.Equal(t, len(state.Nodes), len(restoredState.Nodes))
+		require.NotNil(t, restoredState.CompressionBRQData)
+		require.Equal(t, state.CompressionBRQData.InputDim, restoredState.CompressionBRQData.InputDim)
+		require.Equal(t, state.CompressionBRQData.Rotation.OutputDim, restoredState.CompressionBRQData.Rotation.OutputDim)
+		require.Equal(t, state.CompressionBRQData.Rotation.Rounds, restoredState.CompressionBRQData.Rotation.Rounds)
+		require.Equal(t, len(state.CompressionBRQData.Rotation.Swaps), len(restoredState.CompressionBRQData.Rotation.Swaps))
+		require.Equal(t, len(state.CompressionBRQData.Rotation.Signs), len(restoredState.CompressionBRQData.Rotation.Signs))
+		require.Equal(t, state.CompressionBRQData.Rotation.Swaps[0][0].I, restoredState.CompressionBRQData.Rotation.Swaps[0][0].I)
+		require.Equal(t, state.CompressionBRQData.Rotation.Swaps[0][0].J, restoredState.CompressionBRQData.Rotation.Swaps[0][0].J)
+		require.Equal(t, state.CompressionBRQData.Rotation.Signs[0][0], restoredState.CompressionBRQData.Rotation.Signs[0][0])
+		require.Equal(t, state.CompressionBRQData.Rounding[0], restoredState.CompressionBRQData.Rounding[0])
+	})
+
 	t.Run("v2 metadata - with Muvera encoding and SQ compression", func(t *testing.T) {
 		// Create state with Muvera encoding
 		state := &DeserializationResult{
@@ -1276,4 +1418,30 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid checksum")
 	})
+}
+
+func TestCommitLogger_Snapshot_Race(t *testing.T) {
+	dir := t.TempDir()
+	id := "main"
+	cl := createTestCommitLoggerForSnapshots(t, dir, id)
+	clDir := commitLogDirectory(dir, id)
+	sDir := snapshotDirectory(dir, id)
+	os.MkdirAll(sDir, os.ModePerm)
+
+	createCommitlogTestData(t, clDir, "1000.condensed", 1000, "1001.condensed", 1000, "1002.condensed", 1000)
+
+	var wg sync.WaitGroup
+	for range 5 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// create snapshot
+			_, _, err := cl.CreateSnapshot()
+			require.NoError(t, err)
+			files := readDir(t, sDir)
+			require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+		}()
+	}
+
+	wg.Wait()
 }

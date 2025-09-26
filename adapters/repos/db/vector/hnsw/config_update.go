@@ -64,6 +64,14 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 			name:     "muvera enabled",
 			accessor: func(c ent.UserConfig) interface{} { return c.Multivector.MuveraConfig.Enabled },
 		},
+		{
+			name:     "skipDefaultQuantization",
+			accessor: func(c ent.UserConfig) interface{} { return c.SkipDefaultQuantization },
+		},
+		{
+			name:     "trackDefaultQuantization",
+			accessor: func(c ent.UserConfig) interface{} { return c.TrackDefaultQuantization },
+		},
 	}
 
 	for _, u := range immutableFields {
@@ -113,6 +121,15 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	if !parsed.PQ.Enabled && !parsed.BQ.Enabled && !parsed.SQ.Enabled && !parsed.RQ.Enabled {
 		callback()
 		return nil
+	}
+
+	// check if rq bits is immutable
+	if h.rqConfig.Enabled && parsed.RQ.Enabled {
+		if parsed.RQ.Bits != h.rqConfig.Bits {
+			callback()
+			return errors.Errorf("rq bits is immutable: attempted change from \"%v\" to \"%v\"",
+				h.rqConfig.Bits, parsed.RQ.Bits)
+		}
 	}
 
 	h.pqConfig = parsed.PQ

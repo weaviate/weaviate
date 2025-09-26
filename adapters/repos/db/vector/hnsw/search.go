@@ -97,6 +97,11 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 	}
 
 	if h.muvera.Load() {
+		// this happens only if hnsw is empty so we need to initialize muvera encoder
+		if err := h.initMuveraEncoder(vectors); err != nil {
+			return nil, nil, err
+		}
+
 		muvera_query := h.muveraEncoder.EncodeQuery(vectors)
 		overfetch := 2
 		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList)
@@ -155,6 +160,23 @@ func (h *hnsw) SearchByMultiVectorDistance(ctx context.Context, vector [][]float
 ) ([]uint64, []float32, error) {
 	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
 		h.SearchByMultiVector, h.logger)
+}
+
+func (h *hnsw) initMuveraEncoder(vectors [][]float32) error {
+	if len(vectors) == 0 {
+		return fmt.Errorf("multi vector array is empty")
+	}
+	h.trackMuveraOnce.Do(func() {
+		h.muveraEncoder.InitEncoder(len(vectors[0]))
+		h.Lock()
+		if err := h.muveraEncoder.PersistMuvera(h.commitLog); err != nil {
+			h.Unlock()
+			h.logger.WithField("action", "persist muvera").Error(err)
+			return
+		}
+		h.Unlock()
+	})
+	return nil
 }
 
 func (h *hnsw) shouldRescore() bool {
@@ -234,7 +256,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, visited, allowList)
 
-	isMultivec := h.multivector.Load()
+	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	var worstResultDistance float32
 	var err error
 	if h.compressed.Load() {
@@ -538,7 +560,7 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue[any], level int,
 	visitedList visited.ListSet, allowList helpers.AllowList,
 ) {
-	isMultivec := h.multivector.Load()
+	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
 		visitedList.Visit(ep.ID)
@@ -775,7 +797,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	entryPointNode := h.nodes[entryPointID]
 	h.shardedNodeLocks.RUnlock(entryPointID)
 	useAcorn := h.acornEnabled(allowList)
-	isMultivec := h.multivector.Load()
+	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	if useAcorn {
 		if entryPointNode == nil {
 			strategy = RRE
@@ -1058,6 +1080,9 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 				} else {
 					h.logger.
 						WithField("action", "rescore").
+						WithField("id", h.id).
+						WithField("class", h.className).
+						WithField("shard", h.shardName).
 						WithError(err).
 						Warnf("could not rescore node %d", id)
 				}

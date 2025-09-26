@@ -68,7 +68,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 			assert.Nil(t, backupResp)
 			assert.Error(t, err)
 
-			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{})
+			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{}, false)
 			assert.Nil(t, restoreResp)
 			assert.Error(t, err)
 		})
@@ -151,7 +151,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 		}
 
 		t.Logf("cfg: %+v, className: %s, backend: %s, backupID: %s, nodeMapping: %+v\n", cfg, className, backend, backupID, nodeMapping)
-		resp, err := helper.RestoreBackup(t, cfg, className, backend, backupID, nodeMapping)
+		resp, err := helper.RestoreBackup(t, cfg, className, backend, backupID, nodeMapping, false)
 		require.Nil(t, err, "expected nil, got: %v", err)
 		assert.Equal(t, backupID, resp.Payload.ID)
 		assert.Equal(t, backend, resp.Payload.Backend)
@@ -232,7 +232,7 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 			assert.Nil(t, backupResp)
 			assert.Error(t, err)
 
-			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{})
+			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{}, false)
 			assert.Nil(t, restoreResp)
 			assert.Error(t, err)
 		})
@@ -332,6 +332,26 @@ wait:
 				found = true
 				assert.Equal(t, string(backup.Success), b.Status)
 				assert.Contains(t, b.Classes, className)
+
+				// Validate timestamp fields
+				require.NotNil(t, b.StartedAt, "StartedAt should not be nil")
+				require.NotNil(t, b.CompletedAt, "CompletedAt should not be nil")
+
+				startTime := time.Time(b.StartedAt)
+				completedTime := time.Time(b.CompletedAt)
+
+				// Verify timestamps are reasonable
+				assert.False(t, startTime.IsZero(), "Start time should not be zero")
+				assert.False(t, completedTime.IsZero(), "Completed time should not be zero")
+				assert.True(t, completedTime.After(startTime), "Completed time should be after start time")
+
+				// Verify timestamps are recent (within last hour)
+				now := time.Now()
+				assert.True(t, startTime.After(now.Add(-1*time.Hour)), "Start time should be within the last hour")
+				assert.True(t, completedTime.After(now.Add(-1*time.Hour)), "Completed time should be within the last hour")
+
+				t.Logf("Backup %s: started at %v, completed at %v, duration: %v",
+					b.ID, startTime, completedTime, completedTime.Sub(startTime))
 				break
 			}
 		}

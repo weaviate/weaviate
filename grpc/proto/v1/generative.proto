@@ -21,6 +21,7 @@ message GenerativeSearch {
     optional TextArray properties = 2;
     // only allow one at the beginning, but multiple in the future
     repeated GenerativeProvider queries = 3;
+    bool debug = 4;
   }
 
   string single_response_prompt = 1 [deprecated = true];
@@ -77,6 +78,7 @@ message GenerativeAWS{
   optional string target_variant = 13;
   optional TextArray images = 14;
   optional TextArray image_properties = 15;
+  optional int64 max_tokens = 16;
 }
 
 message GenerativeCohere{
@@ -89,6 +91,8 @@ message GenerativeCohere{
   optional double presence_penalty = 7;
   optional TextArray stop_sequences = 8;
   optional double temperature = 9;
+  optional TextArray images = 10;
+  optional TextArray image_properties = 11;
 }
 
 message GenerativeDummy{
@@ -111,6 +115,19 @@ message GenerativeOllama{
 }
 
 message GenerativeOpenAI{
+  enum ReasoningEffort {
+    REASONING_EFFORT_UNSPECIFIED = 0;
+    REASONING_EFFORT_MINIMAL = 1;
+    REASONING_EFFORT_LOW = 2;
+    REASONING_EFFORT_MEDIUM = 3;
+    REASONING_EFFORT_HIGH = 4;
+  }
+  enum Verbosity {
+    VERBOSITY_UNSPECIFIED = 0;
+    VERBOSITY_LOW = 1;
+    VERBOSITY_MEDIUM = 2;
+    VERBOSITY_HIGH = 3;
+  }
   optional double frequency_penalty = 1;
   optional int64 max_tokens = 2;
   optional string model = 3;
@@ -126,6 +143,8 @@ message GenerativeOpenAI{
   optional bool is_azure = 13;
   optional TextArray images = 14;
   optional TextArray image_properties = 15;
+  optional ReasoningEffort reasoning_effort = 16;
+  optional Verbosity verbosity = 17;
 }
 
 message GenerativeGoogle{

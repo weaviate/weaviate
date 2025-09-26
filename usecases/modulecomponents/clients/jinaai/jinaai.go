@@ -57,7 +57,7 @@ type embeddingsRequest[T []string | []MultiModalInput] struct {
 	Input             T             `json:"input"`
 	Model             string        `json:"model,omitempty"`
 	EmbeddingType     embeddingType `json:"embedding_type,omitempty"`
-	Normalized        bool          `json:"normalized,omitempty"`
+	Normalized        *bool         `json:"normalized,omitempty"`
 	Task              *Task         `json:"task,omitempty"`
 	Dimensions        *int64        `json:"dimensions,omitempty"`
 	ReturnMultivector *bool         `json:"return_multivector,omitempty"`
@@ -253,12 +253,12 @@ func (c *Client[T]) getTextEmbeddingsRequest(input []string, settings Settings) 
 		Input:         input,
 		Model:         settings.Model,
 		EmbeddingType: embeddingTypeFloat,
-		Normalized:    settings.Normalized,
 		Dimensions:    settings.Dimensions,
 	}
 	if strings.Contains(settings.Model, "v3") || strings.Contains(settings.Model, "clip") {
 		// v3 models require taskType and dimensions params
 		req.Task = &settings.Task
+		req.Normalized = &settings.Normalized
 	}
 	if settings.ReturnMultivector {
 		req.ReturnMultivector = &settings.ReturnMultivector
@@ -279,7 +279,6 @@ func (c *Client[T]) getMultiModalEmbeddingsRequest(texts, images []string, setti
 		Input:         input,
 		Model:         settings.Model,
 		EmbeddingType: embeddingTypeFloat,
-		Normalized:    settings.Normalized,
 		Dimensions:    settings.Dimensions,
 	}
 	if settings.ReturnMultivector {

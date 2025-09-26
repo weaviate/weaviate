@@ -180,9 +180,9 @@ func (a *Client) BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo
 }
 
 /*
-BackupsList lists backups in progress
+BackupsList lists all created backups
 
-[Coming soon] List all backups in progress not implemented yet.
+List all created backups IDs, Status
 */
 func (a *Client) BackupsList(params *BackupsListParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsListOK, error) {
 	// TODO: Validate the params before sending

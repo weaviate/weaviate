@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -81,16 +82,19 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		collection string
+		name        string
+		collection  string
+		accessUsing string
 	}{
 		{
-			name:       "search using collection name",
-			collection: books.DefaultClassName,
+			name:        "search using collection name",
+			collection:  books.DefaultClassName,
+			accessUsing: books.DefaultClassName,
 		},
 		{
-			name:       "search using alias",
-			collection: booksAliasName,
+			name:        "search using alias",
+			collection:  books.DefaultClassName,
+			accessUsing: booksAliasName,
 		},
 	}
 	for _, tt := range tests {
@@ -98,7 +102,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 			t.Run("search", func(t *testing.T) {
 				t.Run("get", func(t *testing.T) {
 					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-						Collection:  tt.collection,
+						Collection:  tt.accessUsing,
 						Uses_123Api: true,
 						Uses_125Api: true,
 						Uses_127Api: true,
@@ -110,7 +114,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 				})
 				t.Run("get with filters", func(t *testing.T) {
 					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-						Collection: tt.collection,
+						Collection: tt.accessUsing,
 						Metadata:   &pb.MetadataRequest{Vector: true, Uuid: true},
 						Filters: &pb.Filters{
 							Operator:  pb.Filters_OPERATOR_EQUAL,
@@ -130,7 +134,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 				})
 				t.Run("nearText", func(t *testing.T) {
 					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-						Collection: tt.collection,
+						Collection: tt.accessUsing,
 						Metadata:   &pb.MetadataRequest{Uuid: true},
 						NearText: &pb.NearTextSearch{
 							Query: []string{"Dune"},
@@ -147,7 +151,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 				})
 				t.Run("bm25", func(t *testing.T) {
 					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-						Collection: tt.collection,
+						Collection: tt.accessUsing,
 						Metadata:   &pb.MetadataRequest{Uuid: true},
 						Bm25Search: &pb.BM25{
 							Query:      "Dune",
@@ -165,7 +169,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 				})
 				t.Run("hybrid", func(t *testing.T) {
 					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-						Collection: tt.collection,
+						Collection: tt.accessUsing,
 						Metadata:   &pb.MetadataRequest{Uuid: true},
 						HybridSearch: &pb.Hybrid{
 							Query: "Project",
@@ -188,7 +192,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 			t.Run("aggregate using alias", func(t *testing.T) {
 				t.Run("count", func(t *testing.T) {
 					resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
-						Collection:   tt.collection,
+						Collection:   tt.accessUsing,
 						ObjectsCount: true,
 					})
 					require.NoError(t, err)
@@ -198,7 +202,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 				})
 				t.Run("count with filters", func(t *testing.T) {
 					resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
-						Collection: tt.collection,
+						Collection: tt.accessUsing,
 						Filters: &pb.Filters{
 							Operator:  pb.Filters_OPERATOR_EQUAL,
 							On:        []string{"title"},
@@ -214,7 +218,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 				t.Run("count with nearText", func(t *testing.T) {
 					certainty := float64(0.8)
 					resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
-						Collection: tt.collection,
+						Collection: tt.accessUsing,
 						Filters: &pb.Filters{
 							Operator:  pb.Filters_OPERATOR_EQUAL,
 							On:        []string{"title"},
@@ -237,6 +241,65 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 		})
 	}
 
+	t.Run("batch delete using alias", func(t *testing.T) {
+		resp, err := grpcClient.BatchObjects(ctx, &pb.BatchObjectsRequest{
+			Objects: []*pb.BatchObject{
+				{
+					Collection: booksAliasName,
+					Uuid:       uuid.NewString(),
+					Properties: &pb.BatchObject_Properties{
+						NonRefProperties: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"title":       structpb.NewStringValue("To be Deleted"),
+								"description": structpb.NewStringValue("object1"),
+							},
+						},
+					},
+				},
+				{
+					Collection: booksAliasName,
+					Uuid:       uuid.NewString(),
+					Properties: &pb.BatchObject_Properties{
+						NonRefProperties: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"title":       structpb.NewStringValue("To be Deleted"),
+								"description": structpb.NewStringValue("object2"),
+							},
+						},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Errors, 0)
+
+		// make sure objects exists
+		srep, err := grpcClient.Search(ctx, &pb.SearchRequest{
+			Collection: booksAliasName,
+			Filters:    &pb.Filters{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "To be Deleted"}, Target: &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "title"}}},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, srep)
+		require.Len(t, srep.Results, 2)
+
+		// delete
+		dresp, err := grpcClient.BatchDelete(ctx, &pb.BatchDeleteRequest{
+			Collection: booksAliasName,
+			Filters:    &pb.Filters{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "To be Deleted"}, Target: &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "title"}}},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, dresp)
+
+		// make sure objects are gone
+		srep, err = grpcClient.Search(ctx, &pb.SearchRequest{
+			Collection: booksAliasName,
+			Filters:    &pb.Filters{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "To be Deleted"}, Target: &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "title"}}},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, srep)
+		require.Len(t, srep.Results, 0)
+	})
 	t.Run("batch insert using alias", func(t *testing.T) {
 		theMartian := "67b79643-cf8b-4b22-b206-000000000001"
 		resp, err := grpcClient.BatchObjects(ctx, &pb.BatchObjectsRequest{

@@ -145,7 +145,7 @@ func (b *Bootstrapper) notify(ctx context.Context, remoteNodes map[string]string
 			return err
 		}
 	}
-	return
+	return err
 }
 
 // ResolveRemoteNodes returns a list of remoteNodes addresses resolved using addrResolver. The nodes id used are
