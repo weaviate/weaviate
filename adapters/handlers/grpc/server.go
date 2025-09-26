@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 
@@ -44,7 +45,7 @@ import (
 )
 
 // CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
-func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) *grpc.Server {
+func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.Server, *health.Server) {
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
 		grpc.MaxSendMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
@@ -100,9 +101,11 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) *grpc.Se
 	)
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
-	grpc_health_v1.RegisterHealthServer(s, weaviateV1)
 
-	return s
+	healthServer := health.NewServer()
+	grpc_health_v1.RegisterHealthServer(s, healthServer)
+
+	return s, healthServer
 }
 
 func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics) grpc.UnaryServerInterceptor {
