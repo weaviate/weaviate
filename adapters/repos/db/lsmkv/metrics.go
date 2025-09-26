@@ -28,12 +28,24 @@ type (
 )
 
 var (
+	lifecycleDurationBuckets  = prometheus.ExponentialBuckets(0.01, 2, 18)     // 0.01s → 0.02s → ... → ~163.84s
 	segmentSizeBuckets        = prometheus.ExponentialBuckets(100*1024, 2, 20) // 100KB → 200KB → 400KB → ... → ~52GB
 	compactionDurationBuckets = prometheus.ExponentialBuckets(0.01, 2, 18)     // 0.01s → 0.02s → ... → ~163.84s
 )
 
 type Metrics struct {
 	register prometheus.Registerer
+
+	// bucket metrics
+	bucketInitCountByStrategy        *prometheus.CounterVec
+	bucketInitInProgressByStrategy   *prometheus.GaugeVec
+	bucketInitFailureCountByStrategy *prometheus.CounterVec
+	bucketInitDurationByStrategy     *prometheus.HistogramVec
+
+	bucketShutdownCountByStrategy        *prometheus.CounterVec
+	bucketShutdownInProgressByStrategy   *prometheus.GaugeVec
+	bucketShutdownDurationByStrategy     *prometheus.HistogramVec
+	bucketShutdownFailureCountByStrategy *prometheus.CounterVec
 
 	// segment metrics
 	segmentTotalByStrategy *prometheus.GaugeVec
@@ -86,6 +98,113 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	}
 
 	register := promMetrics.Registerer
+
+	// bucket metrics
+
+	bucketInitCountByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_init_count",
+				Help:      "Total number of LSM bucket initializations requested, labeled by segment strategy",
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_init_count: %w", err)
+	}
+
+	bucketInitInProgressByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_init_in_progress",
+				Help:      "Number of LSM bucket initializations currently in progress, labeled by segment strategy",
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_init_in_progress: %w", err)
+	}
+
+	bucketInitFailureCountByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_init_failure_count",
+				Help:      "Number of failed LSM bucket initializations, labeled by segment strategy",
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_init_failure_count: %w", err)
+	}
+
+	bucketInitDurationByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_init_duration_seconds",
+				Help:      "Duration of LSM bucket initialization in seconds, labeled by segment strategy",
+				Buckets:   lifecycleDurationBuckets,
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_init_duration_seconds: %w", err)
+	}
+
+	bucketShutdownCountByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_shutdown_count",
+				Help:      "Total number of LSM bucket shutdowns requested, labeled by segment strategy",
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_shutdown_count: %w", err)
+	}
+
+	bucketShutdownInProgressByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_shutdown_in_progress",
+				Help:      "Number of LSM bucket shutdowns currently in progress, labeled by segment strategy",
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_shutdown_in_progress: %w", err)
+	}
+
+	bucketShutdownDurationByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_shutdown_duration_seconds",
+				Help:      "Duration of LSM bucket shutdown in seconds, labeled by segment strategy",
+				Buckets:   lifecycleDurationBuckets,
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_shutdown_duration_seconds: %w", err)
+	}
+
+	bucketShutdownFailureCountByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_shutdown_failure_count",
+				Help:      "Number of failed LSM bucket shutdowns, labeled by segment strategy",
+			}, []string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_shutdown_failure_count: %w", err)
+	}
 
 	// segment metrics
 	segmentTotalByStrategy, err := monitoring.EnsureRegisteredMetric(register,
@@ -268,6 +387,17 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		groupClasses:        promMetrics.Group,
 		criticalBucketsOnly: promMetrics.LSMCriticalBucketsOnly,
 
+		// bucket metrics
+		bucketInitCountByStrategy:        bucketInitCountByStrategy,
+		bucketInitInProgressByStrategy:   bucketInitInProgressByStrategy,
+		bucketInitFailureCountByStrategy: bucketInitFailureCountByStrategy,
+		bucketInitDurationByStrategy:     bucketInitDurationByStrategy,
+
+		bucketShutdownCountByStrategy:        bucketShutdownCountByStrategy,
+		bucketShutdownInProgressByStrategy:   bucketShutdownInProgressByStrategy,
+		bucketShutdownDurationByStrategy:     bucketShutdownDurationByStrategy,
+		bucketShutdownFailureCountByStrategy: bucketShutdownFailureCountByStrategy,
+
 		// segment metrics
 		segmentTotalByStrategy: segmentTotalByStrategy,
 		segmentSizeByStrategy:  segmentSizeByStrategy,
@@ -345,6 +475,77 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		LazySegmentInit:   lazySegmentInit,
 		LazySegmentUnLoad: lazySegmentUnload,
 	}, nil
+}
+
+// bucket metrics
+func (m *Metrics) IncBucketInitCountByStrategy(strategy string) {
+	if m == nil {
+		return
+	}
+	m.bucketInitCountByStrategy.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) IncBucketInitInProgressByStrategy(strategy string) {
+	if m == nil {
+		return
+	}
+	m.bucketInitInProgressByStrategy.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) DecBucketInitInProgressByStrategy(strategy string) {
+	if m == nil {
+		return
+	}
+	m.bucketInitInProgressByStrategy.WithLabelValues(strategy).Dec()
+}
+
+func (m *Metrics) IncBucketInitFailureCountByStrategy(strategy string) {
+	if m == nil {
+		return
+	}
+	m.bucketInitFailureCountByStrategy.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) ObserveBucketInitDurationByStrategy(strategy string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	m.bucketInitDurationByStrategy.WithLabelValues(strategy).Observe(duration.Seconds())
+}
+
+func (m *Metrics) IncBucketShutdownCountByStrategy(strategy string) {
+	if m == nil {
+		return
+	}
+	m.bucketShutdownCountByStrategy.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) IncBucketShutdownInProgressByStrategy(strategy string) {
+	if m == nil {
+		return
+	}
+	m.bucketShutdownInProgressByStrategy.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) DecBucketShutdownInProgressByStrategy(strategy string) {
+	if m == nil {
+		return
+	}
+	m.bucketShutdownInProgressByStrategy.WithLabelValues(strategy).Dec()
+}
+
+func (m *Metrics) IncBucketShutdownFailureCountByStrategy(strategy string) {
+	if m == nil {
+		return
+	}
+	m.bucketShutdownFailureCountByStrategy.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) ObserveBucketShutdownDurationByStrategy(strategy string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	m.bucketShutdownDurationByStrategy.WithLabelValues(strategy).Observe(duration.Seconds())
 }
 
 // segment metrics
