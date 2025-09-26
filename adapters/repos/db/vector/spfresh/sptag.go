@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -51,12 +52,14 @@ type BruteForceSPTAG struct {
 	tombstones map[uint64]struct{}
 	quantizer  *compressionhelpers.RotationalQuantizer
 	distancer  *Distancer
+	metrics    *Metrics
 }
 
-func NewBruteForceSPTAG() *BruteForceSPTAG {
+func NewBruteForceSPTAG(metrics *Metrics) *BruteForceSPTAG {
 	return &BruteForceSPTAG{
 		centroids:  make(map[uint64]Centroid),
 		tombstones: make(map[uint64]struct{}),
+		metrics:    metrics,
 	}
 }
 
@@ -93,7 +96,13 @@ func (s *BruteForceSPTAG) Upsert(id uint64, centroid *Centroid) error {
 		return errors.New("cannot upsert a centroid that is marked as deleted")
 	}
 
+	_, exists := s.centroids[id]
+	if !exists {
+		s.metrics.SetPostings(len(s.centroids) + 1 - len(s.tombstones))
+	}
+
 	s.centroids[id] = *centroid
+
 	return nil
 }
 
@@ -106,6 +115,9 @@ func (s *BruteForceSPTAG) MarkAsDeleted(id uint64) error {
 	}
 
 	s.tombstones[id] = struct{}{}
+
+	s.metrics.SetPostings(len(s.centroids) - len(s.tombstones))
+
 	return nil
 }
 
@@ -121,24 +133,10 @@ func (s *BruteForceSPTAG) Quantizer() *compressionhelpers.RotationalQuantizer {
 	return s.quantizer
 }
 
-func (s *BruteForceSPTAG) Len() (int, int) {
-	s.m.RLock()
-	defer s.m.RUnlock()
-
-	var count int
-	var deleted int
-	for id := range s.centroids {
-		count++
-		if _, del := s.tombstones[id]; del {
-			deleted++
-			continue
-		}
-	}
-
-	return count, deleted
-}
-
 func (s *BruteForceSPTAG) Search(query Vector, k int) ([]SearchResult, error) {
+	start := time.Now()
+	defer s.metrics.CentroidSearchDuration(start)
+
 	s.m.RLock()
 	defer s.m.RUnlock()
 

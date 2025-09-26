@@ -109,11 +109,7 @@ function release() {
         "--build-arg=CGO_ENABLED=0" # Force-disable CGO for cross-compilation - Fixes segmentation faults on arm64 (https://docs.docker.com/docker-hub/image-library/trusted-content/#alpine-images)
         "--platform=$build_platform"
         "--target=weaviate"
-        "--push"
-        "--cache-from=type=gha,scope=weaviate-multi,ignore-error=true"
-        "--cache-from=type=gha,scope=weaviate-amd64,ignore-error=true"
-        "--cache-from=type=gha,scope=weaviate-arm64,ignore-error=true"
-        "--cache-to=type=gha,scope=${cache_scope},mode=max,ignore-error=true")
+        "--push")
 
   if [ -n "$tag_exact" ]; then
     # exact tag on main
