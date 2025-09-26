@@ -103,6 +103,7 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
 
 	healthServer := health.NewServer()
+	healthServer.SetServingStatus("weaviate", grpc_health_v1.HealthCheckResponse_SERVING)
 	grpc_health_v1.RegisterHealthServer(s, healthServer)
 
 	return s, healthServer
