@@ -25,6 +25,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
@@ -44,6 +45,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -154,7 +156,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
-const MinimumRequiredContextionaryVersion = "1.0.2"
+const (
+	MinimumRequiredContextionaryVersion = "1.0.2"
+	ReadinessProbeLeadTime              = 2 * time.Second
+)
 
 func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
 	return func(s *http.Server, scheme, addr string) {
@@ -845,7 +850,7 @@ func parseVotersNames(cfg config.Raft) (m map[string]struct{}) {
 	return m
 }
 
-func configureAPI(api *operations.WeaviateAPI) http.Handler {
+func (s *Server) configureAPI(api *operations.WeaviateAPI) http.Handler {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
@@ -918,7 +923,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	grpcShutdown := batch.NewShutdown(context.Background())
-	grpcServer := createGrpcServer(appState, grpcShutdown, grpcInstrument...)
+	grpcServer, grpcHealthServer := createGrpcServer(appState, grpcShutdown, grpcInstrument...)
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
@@ -943,8 +948,26 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}, appState.Logger)
 	}
 
+	grpcShutdownChecker := &shutdownGRPCObserver{logger: appState.Logger}
+	appState.SetShutdownRestChecker(s)
+	appState.SetShutdownGrpcChecker(grpcShutdownChecker)
+
 	api.PreServerShutdown = func() {
+		appState.Logger.Info("pre-shutdown phase initiated")
+
+		grpcShutdownChecker.NotifyShutdown()
+		grpcHealthServer.SetServingStatus("gRPC server", grpc_health_v1.HealthCheckResponse_SERVING)
+		appState.Logger.Debug("notified gRPC server as shut down")
+
+		// NOTE: give health checks and readiness probes time to detect the shutdown without excessive delay
+		appState.Logger.Info("wait for health check propagation")
+		time.Sleep(ReadinessProbeLeadTime)
+
+		// CHANGE: Start draining gRPC connections after health checks are updated
+		appState.Logger.Debug("start gRPC draining connections")
 		grpcShutdown.Drain(appState.Logger)
+
+		appState.Logger.Info("pre-shutdown phase completed")
 	}
 
 	api.ServerShutdown = func() {
@@ -968,6 +991,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// gracefully stop gRPC server
+		grpcHealthServer.Shutdown()
 		grpcServer.GracefulStop()
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
@@ -1005,10 +1029,35 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				Errorf("failed to gracefully shutdown")
 		}
 	}
-
 	startGrpcServer(grpcServer, appState)
-
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+}
+
+// shutdownGRPCObserver provides a minimal, thread-safe shutdown flag for the gRPC
+// server that can be queried by the readiness probe via state.IsShuttingDown().
+//
+// Concurrency:
+//
+//	The flag is an int32 guarded by atomic operations and is safe for
+//	concurrent reads/writes.
+type shutdownGRPCObserver struct {
+	shuttingDown int32 // 0 = running, 1 = shutting down
+	logger       *logrus.Logger
+}
+
+// IsShuttingDown reports whether a shutdown has been initiated.
+// It is safe for concurrent use.
+func (g *shutdownGRPCObserver) IsShuttingDown() bool {
+	return atomic.LoadInt32(&g.shuttingDown) == 1
+}
+
+// NotifyShutdown marks the gRPC server as shutting down so that subsequent
+// readiness checks can fail fast (503) and LBs stop routing new traffic.
+// It is safe for concurrent use.
+//
+// Note: CAS is used to avoid redundant writes.
+func (g *shutdownGRPCObserver) NotifyShutdown() {
+	atomic.CompareAndSwapInt32(&g.shuttingDown, 0, 1)
 }
 
 func startBackupScheduler(appState *state.State) *backup.Scheduler {
