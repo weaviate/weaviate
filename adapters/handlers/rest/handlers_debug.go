@@ -19,6 +19,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -28,6 +29,8 @@ import (
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func setupDebugHandlers(appState *state.State) {
@@ -777,95 +780,129 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		output := make(map[string]map[string]string)
-
 		isDeadlock := false
 		var err error
+
+		output := make(map[string]map[string]map[string]string)
+		idx.ForEachLoadedShard(
+			func(shardName string, shard db.ShardLike) error {
+				output[shardName] = make(map[string]map[string]string)
+				return nil
+			},
+		)
+		outputLock := sync.Mutex{}
+		eg := enterrors.NewErrorGroupWrapper(logger)
+
 		for _, lockName := range locksToTest {
-			// shards will not be force loaded, as we are only getting the name
-			err = idx.ForEachShard(
-				func(shardName string, shard db.ShardLike) error {
-					timeoutAfter := time.After(timeout)
-					if len(shardsToLock) == 0 || slices.Contains(shardsToLock, shardName) {
+			eg.Go(func() (err error) {
+				// shards will not be force loaded, as we are only getting the name
+				err = idx.ForEachLoadedShard(
+					func(shardName string, shard db.ShardLike) error {
+						timeoutAfter := time.After(timeout)
+						if len(shardsToLock) == 0 || slices.Contains(shardsToLock, shardName) {
 
-						b := shard.Store().Bucket(lockName)
-
-						if b == nil {
-							output[shardName] = map[string]string{
-								"shard":   shardName,
-								"error":   "error",
-								"message": fmt.Sprintf("bucket %s not found", lockName),
-							}
-							return nil
-						}
-
-						previousStatus, err := b.DebugGetSegmentGroupLockStatus()
-
-						if err != nil {
-							output[shardName] = map[string]string{
-								"shard":   shardName,
-								"error":   "error",
-								"message": err.Error(),
-							}
-						} else {
-
-							running := true
-							tries := 0
-							statusString := "unknown"
-							startTime := time.Now()
-							for running {
-								select {
-								case <-timeoutAfter:
-									statusString = fmt.Sprintf("locked after %d tries and %s", tries, time.Since(startTime))
-									running = false
-									isDeadlock = true
-								default:
-									switch r.Method {
-									case http.MethodPost:
-										b.DebugLockSegmentGroup()
-										running = false
-										statusString = "locked"
-									case http.MethodDelete:
-										b.DebugUnlockSegmentGroup()
-										running = false
-										statusString = "unlocked"
-									case http.MethodGet:
-										locked, err := b.DebugGetSegmentGroupLockStatus()
-										if err != nil {
-											statusString = "error: " + err.Error()
-											running = false
-										} else if !locked {
-											statusString = fmt.Sprintf("unlocked after %d tries and %s", tries, time.Since(startTime))
-											running = false
-										}
+							var lockOperation func() error
+							var unlockOperation func() bool
+							var checkStatusOperation func() (bool, error)
+							if lockName == "docIds" {
+								lockOperation = shard.DebugLockDocIds
+								unlockOperation = shard.DebugUnlockDocIds
+								checkStatusOperation = shard.DebugGetDocIdLockStatus
+							} else {
+								b := shard.Store().Bucket(lockName)
+								if b == nil {
+									outputLock.Lock()
+									defer outputLock.Unlock()
+									output[shardName][lockName] = map[string]string{
+										"shard":   shardName,
+										"error":   "error",
+										"message": fmt.Sprintf("bucket %s not found", lockName),
 									}
-									time.Sleep(10 * time.Millisecond)
-									tries++
+									return nil
+								}
+
+								lockOperation = b.DebugLockSegmentGroup
+								unlockOperation = b.DebugUnlockSegmentGroup
+								checkStatusOperation = b.DebugGetSegmentGroupLockStatus
+							}
+							previousStatus, err := checkStatusOperation()
+
+							if err != nil {
+								outputLock.Lock()
+								defer outputLock.Unlock()
+								output[shardName][lockName] = map[string]string{
+									"shard":   shardName,
+									"error":   "error",
+									"message": err.Error(),
+								}
+							} else {
+
+								running := true
+								tries := 0
+								statusString := "unknown"
+								startTime := time.Now()
+								for running {
+									select {
+									case <-timeoutAfter:
+										statusString = fmt.Sprintf("locked after %d tries and %s", tries, time.Since(startTime))
+										running = false
+										isDeadlock = true
+									default:
+										switch r.Method {
+										case http.MethodPost:
+											lockOperation()
+											running = false
+											statusString = "locked"
+										case http.MethodDelete:
+											unlockOperation()
+											running = false
+											statusString = "unlocked"
+										case http.MethodGet:
+											locked, err := checkStatusOperation()
+											if err != nil {
+												statusString = "error: " + err.Error()
+												running = false
+											} else if !locked {
+												statusString = fmt.Sprintf("unlocked after %d tries and %s", tries, time.Since(startTime))
+												running = false
+											}
+										}
+										time.Sleep(10 * time.Millisecond)
+										tries++
+									}
+								}
+
+								previousStatusString := "unlocked"
+								if previousStatus {
+									previousStatusString = "locked"
+								}
+								outputLock.Lock()
+								defer outputLock.Unlock()
+								output[shardName][lockName] = map[string]string{
+									"shard":          shardName,
+									"status":         statusString,
+									"previousStatus": previousStatusString,
+									"message":        fmt.Sprintf("shard %s %s", shardName, statusString),
 								}
 							}
-
-							previousStatusString := "unlocked"
-							if previousStatus {
-								previousStatusString = "locked"
-							}
-							output[shardName] = map[string]string{
-								"shard":          shardName,
-								"status":         statusString,
-								"previousStatus": previousStatusString,
-								"message":        fmt.Sprintf("shard %s %s", shardName, statusString),
+						} else {
+							outputLock.Lock()
+							defer outputLock.Unlock()
+							output[shardName][lockName] = map[string]string{
+								"shard":   shardName,
+								"status":  "skipped",
+								"message": fmt.Sprintf("shard %s not selected", shardName),
 							}
 						}
-					} else {
-						output[shardName] = map[string]string{
-							"shard":   shardName,
-							"status":  "skipped",
-							"message": fmt.Sprintf("shard %s not selected", shardName),
-						}
-					}
-					return nil
-				},
-			)
+						return nil
+					},
+				)
+				return err
+			})
 		}
+
+		err = eg.Wait()
+
 		response := map[string]interface{}{
 			"shards": output,
 		}

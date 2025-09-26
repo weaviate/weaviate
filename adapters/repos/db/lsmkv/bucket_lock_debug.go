@@ -15,10 +15,12 @@ import "fmt"
 
 // DEBUG METHOD: don't use in any real production use-case
 // - This method is designed to simulate a segment group maintenance lock in the bucket
-func (b *Bucket) DebugLockSegmentGroup() {
-	if b.disk != nil {
-		b.disk.maintenanceLock.Lock()
+func (b *Bucket) DebugLockSegmentGroup() error {
+	if b.disk == nil {
+		return fmt.Errorf("disk is nil")
 	}
+	b.disk.maintenanceLock.Lock()
+	return nil
 }
 
 // DEBUG METHOD: don't use in any real production use-case

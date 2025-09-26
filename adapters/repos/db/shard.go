@@ -191,6 +191,11 @@ type ShardLike interface {
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
 	RepairIndex(ctx context.Context, targetVector string) error
+
+	// Debug methods for docID lock debugging and contention detection and simulation
+	DebugGetDocIdLockStatus() (bool, error)
+	DebugLockDocIds() error
+	DebugUnlockDocIds() (output bool)
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
