@@ -29,7 +29,6 @@ import (
 //
 // swagger:model NodeShardStatus
 type NodeShardStatus struct {
-
 	// The status of the async replication.
 	AsyncReplicationStatus []*AsyncReplicationStatus `json:"asyncReplicationStatus"`
 
@@ -116,10 +115,13 @@ func (m *NodeShardStatus) ContextValidate(ctx context.Context, formats strfmt.Re
 }
 
 func (m *NodeShardStatus) contextValidateAsyncReplicationStatus(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.AsyncReplicationStatus); i++ {
-
 		if m.AsyncReplicationStatus[i] != nil {
+
+			if swag.IsZero(m.AsyncReplicationStatus[i]) { // not required
+				return nil
+			}
+
 			if err := m.AsyncReplicationStatus[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("asyncReplicationStatus" + "." + strconv.Itoa(i))
@@ -129,7 +131,6 @@ func (m *NodeShardStatus) contextValidateAsyncReplicationStatus(ctx context.Cont
 				return err
 			}
 		}
-
 	}
 
 	return nil

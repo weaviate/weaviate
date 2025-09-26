@@ -20,12 +20,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new objects API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new objects API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new objects API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -36,8 +62,32 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
+
+// This client is generated with a few options you might find useful for your swagger spec.
+//
+// Feel free to add you own set of options.
+
+// WithContentType allows the client to force the Content-Type header
+// to negotiate a specific Consumer from the server.
+//
+// You may use this option to set arbitrary extensions to your MIME media type.
+func WithContentType(mime string) ClientOption {
+	return func(r *runtime.ClientOperation) {
+		r.ConsumesMediaTypes = []string{mime}
+	}
+}
+
+// WithContentTypeApplicationJSON sets the Content-Type header to "application/json".
+func WithContentTypeApplicationJSON(r *runtime.ClientOperation) {
+	r.ConsumesMediaTypes = []string{"application/json"}
+}
+
+// WithContentTypeApplicationYaml sets the Content-Type header to "application/yaml".
+func WithContentTypeApplicationYaml(r *runtime.ClientOperation) {
+	r.ConsumesMediaTypes = []string{"application/yaml"}
+}
 
 // ClientService is the interface for Client methods
 type ClientService interface {
@@ -97,7 +147,7 @@ func (a *Client) ObjectsClassDelete(params *ObjectsClassDeleteParams, authInfo r
 		Method:             "DELETE",
 		PathPattern:        "/objects/{className}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsClassDeleteReader{formats: a.formats},
@@ -138,7 +188,7 @@ func (a *Client) ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime
 		Method:             "GET",
 		PathPattern:        "/objects/{className}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsClassGetReader{formats: a.formats},
@@ -179,7 +229,7 @@ func (a *Client) ObjectsClassHead(params *ObjectsClassHeadParams, authInfo runti
 		Method:             "HEAD",
 		PathPattern:        "/objects/{className}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsClassHeadReader{formats: a.formats},
@@ -220,7 +270,7 @@ func (a *Client) ObjectsClassPatch(params *ObjectsClassPatchParams, authInfo run
 		Method:             "PATCH",
 		PathPattern:        "/objects/{className}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsClassPatchReader{formats: a.formats},
@@ -261,7 +311,7 @@ func (a *Client) ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime
 		Method:             "PUT",
 		PathPattern:        "/objects/{className}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsClassPutReader{formats: a.formats},
@@ -302,7 +352,7 @@ func (a *Client) ObjectsClassReferencesCreate(params *ObjectsClassReferencesCrea
 		Method:             "POST",
 		PathPattern:        "/objects/{className}/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsClassReferencesCreateReader{formats: a.formats},
@@ -343,7 +393,7 @@ func (a *Client) ObjectsClassReferencesDelete(params *ObjectsClassReferencesDele
 		Method:             "DELETE",
 		PathPattern:        "/objects/{className}/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsClassReferencesDeleteReader{formats: a.formats},
@@ -384,7 +434,7 @@ func (a *Client) ObjectsClassReferencesPut(params *ObjectsClassReferencesPutPara
 		Method:             "PUT",
 		PathPattern:        "/objects/{className}/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsClassReferencesPutReader{formats: a.formats},
@@ -425,7 +475,7 @@ func (a *Client) ObjectsCreate(params *ObjectsCreateParams, authInfo runtime.Cli
 		Method:             "POST",
 		PathPattern:        "/objects",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsCreateReader{formats: a.formats},
@@ -466,7 +516,7 @@ func (a *Client) ObjectsDelete(params *ObjectsDeleteParams, authInfo runtime.Cli
 		Method:             "DELETE",
 		PathPattern:        "/objects/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsDeleteReader{formats: a.formats},
@@ -507,7 +557,7 @@ func (a *Client) ObjectsGet(params *ObjectsGetParams, authInfo runtime.ClientAut
 		Method:             "GET",
 		PathPattern:        "/objects/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsGetReader{formats: a.formats},
@@ -548,7 +598,7 @@ func (a *Client) ObjectsHead(params *ObjectsHeadParams, authInfo runtime.ClientA
 		Method:             "HEAD",
 		PathPattern:        "/objects/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsHeadReader{formats: a.formats},
@@ -589,7 +639,7 @@ func (a *Client) ObjectsList(params *ObjectsListParams, authInfo runtime.ClientA
 		Method:             "GET",
 		PathPattern:        "/objects",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsListReader{formats: a.formats},
@@ -630,7 +680,7 @@ func (a *Client) ObjectsPatch(params *ObjectsPatchParams, authInfo runtime.Clien
 		Method:             "PATCH",
 		PathPattern:        "/objects/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsPatchReader{formats: a.formats},
@@ -671,7 +721,7 @@ func (a *Client) ObjectsReferencesCreate(params *ObjectsReferencesCreateParams, 
 		Method:             "POST",
 		PathPattern:        "/objects/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsReferencesCreateReader{formats: a.formats},
@@ -712,7 +762,7 @@ func (a *Client) ObjectsReferencesDelete(params *ObjectsReferencesDeleteParams, 
 		Method:             "DELETE",
 		PathPattern:        "/objects/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsReferencesDeleteReader{formats: a.formats},
@@ -753,7 +803,7 @@ func (a *Client) ObjectsReferencesUpdate(params *ObjectsReferencesUpdateParams, 
 		Method:             "PUT",
 		PathPattern:        "/objects/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsReferencesUpdateReader{formats: a.formats},
@@ -794,7 +844,7 @@ func (a *Client) ObjectsUpdate(params *ObjectsUpdateParams, authInfo runtime.Cli
 		Method:             "PUT",
 		PathPattern:        "/objects/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsUpdateReader{formats: a.formats},
@@ -835,7 +885,7 @@ func (a *Client) ObjectsValidate(params *ObjectsValidateParams, authInfo runtime
 		Method:             "POST",
 		PathPattern:        "/objects/validate",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsValidateReader{formats: a.formats},

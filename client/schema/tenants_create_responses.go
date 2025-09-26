@@ -17,6 +17,7 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *TenantsCreateReader) ReadResponse(response runtime.ClientResponse, cons
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /schema/{className}/tenants] tenants.create", response, response.Code())
 	}
 }
 
@@ -114,11 +115,13 @@ func (o *TenantsCreateOK) Code() int {
 }
 
 func (o *TenantsCreateOK) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateOK %s", 200, payload)
 }
 
 func (o *TenantsCreateOK) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateOK %s", 200, payload)
 }
 
 func (o *TenantsCreateOK) GetPayload() []*models.Tenant {
@@ -126,7 +129,6 @@ func (o *TenantsCreateOK) GetPayload() []*models.Tenant {
 }
 
 func (o *TenantsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -145,8 +147,7 @@ TenantsCreateUnauthorized describes a response with status code 401, with defaul
 
 Unauthorized or invalid credentials.
 */
-type TenantsCreateUnauthorized struct {
-}
+type TenantsCreateUnauthorized struct{}
 
 // IsSuccess returns true when this tenants create unauthorized response has a 2xx status code
 func (o *TenantsCreateUnauthorized) IsSuccess() bool {
@@ -179,15 +180,14 @@ func (o *TenantsCreateUnauthorized) Code() int {
 }
 
 func (o *TenantsCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateUnauthorized", 401)
 }
 
 func (o *TenantsCreateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateUnauthorized", 401)
 }
 
 func (o *TenantsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -236,11 +236,13 @@ func (o *TenantsCreateForbidden) Code() int {
 }
 
 func (o *TenantsCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateForbidden %s", 403, payload)
 }
 
 func (o *TenantsCreateForbidden) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateForbidden %s", 403, payload)
 }
 
 func (o *TenantsCreateForbidden) GetPayload() *models.ErrorResponse {
@@ -248,7 +250,6 @@ func (o *TenantsCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *TenantsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -304,11 +305,13 @@ func (o *TenantsCreateUnprocessableEntity) Code() int {
 }
 
 func (o *TenantsCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *TenantsCreateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *TenantsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -316,7 +319,6 @@ func (o *TenantsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *TenantsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -372,11 +374,13 @@ func (o *TenantsCreateInternalServerError) Code() int {
 }
 
 func (o *TenantsCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateInternalServerError %s", 500, payload)
 }
 
 func (o *TenantsCreateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/tenants][%d] tenantsCreateInternalServerError %s", 500, payload)
 }
 
 func (o *TenantsCreateInternalServerError) GetPayload() *models.ErrorResponse {
@@ -384,7 +388,6 @@ func (o *TenantsCreateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *TenantsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

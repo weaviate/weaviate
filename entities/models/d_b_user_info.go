@@ -30,7 +30,6 @@ import (
 //
 // swagger:model DBUserInfo
 type DBUserInfo struct {
-
 	// activity status of the returned user
 	// Required: true
 	Active *bool `json:"active"`
@@ -45,7 +44,7 @@ type DBUserInfo struct {
 
 	// type of the returned user
 	// Required: true
-	// Enum: [db_user db_env_user]
+	// Enum: ["db_user","db_env_user"]
 	DbUserType *string `json:"dbUserType"`
 
 	// Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
@@ -100,7 +99,6 @@ func (m *DBUserInfo) Validate(formats strfmt.Registry) error {
 }
 
 func (m *DBUserInfo) validateActive(formats strfmt.Registry) error {
-
 	if err := validate.Required("active", "body", m.Active); err != nil {
 		return err
 	}
@@ -162,7 +160,6 @@ func (m *DBUserInfo) validateDbUserTypeEnum(path, location string, value string)
 }
 
 func (m *DBUserInfo) validateDbUserType(formats strfmt.Registry) error {
-
 	if err := validate.Required("dbUserType", "body", m.DbUserType); err != nil {
 		return err
 	}
@@ -188,7 +185,6 @@ func (m *DBUserInfo) validateLastUsedAt(formats strfmt.Registry) error {
 }
 
 func (m *DBUserInfo) validateRoles(formats strfmt.Registry) error {
-
 	if err := validate.Required("roles", "body", m.Roles); err != nil {
 		return err
 	}
@@ -197,7 +193,6 @@ func (m *DBUserInfo) validateRoles(formats strfmt.Registry) error {
 }
 
 func (m *DBUserInfo) validateUserID(formats strfmt.Registry) error {
-
 	if err := validate.Required("userId", "body", m.UserID); err != nil {
 		return err
 	}

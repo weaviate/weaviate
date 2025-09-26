@@ -29,7 +29,6 @@ import (
 //
 // swagger:model GraphQLError
 type GraphQLError struct {
-
 	// locations
 	Locations []*GraphQLErrorLocationsItems0 `json:"locations"`
 
@@ -95,10 +94,13 @@ func (m *GraphQLError) ContextValidate(ctx context.Context, formats strfmt.Regis
 }
 
 func (m *GraphQLError) contextValidateLocations(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.Locations); i++ {
-
 		if m.Locations[i] != nil {
+
+			if swag.IsZero(m.Locations[i]) { // not required
+				return nil
+			}
+
 			if err := m.Locations[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("locations" + "." + strconv.Itoa(i))
@@ -108,7 +110,6 @@ func (m *GraphQLError) contextValidateLocations(ctx context.Context, formats str
 				return err
 			}
 		}
-
 	}
 
 	return nil
@@ -136,7 +137,6 @@ func (m *GraphQLError) UnmarshalBinary(b []byte) error {
 //
 // swagger:model GraphQLErrorLocationsItems0
 type GraphQLErrorLocationsItems0 struct {
-
 	// column
 	Column int64 `json:"column,omitempty"`
 

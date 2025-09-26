@@ -18,6 +18,7 @@ package authz
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -82,7 +83,7 @@ func (o *RemovePermissionsReader) ReadResponse(response runtime.ClientResponse, 
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /authz/roles/{id}/remove-permissions] removePermissions", response, response.Code())
 	}
 }
 
@@ -96,8 +97,7 @@ RemovePermissionsOK describes a response with status code 200, with default head
 
 Permissions removed successfully
 */
-type RemovePermissionsOK struct {
-}
+type RemovePermissionsOK struct{}
 
 // IsSuccess returns true when this remove permissions o k response has a 2xx status code
 func (o *RemovePermissionsOK) IsSuccess() bool {
@@ -130,15 +130,14 @@ func (o *RemovePermissionsOK) Code() int {
 }
 
 func (o *RemovePermissionsOK) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsOK ", 200)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsOK", 200)
 }
 
 func (o *RemovePermissionsOK) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsOK ", 200)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsOK", 200)
 }
 
 func (o *RemovePermissionsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -187,11 +186,13 @@ func (o *RemovePermissionsBadRequest) Code() int {
 }
 
 func (o *RemovePermissionsBadRequest) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsBadRequest %s", 400, payload)
 }
 
 func (o *RemovePermissionsBadRequest) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsBadRequest %s", 400, payload)
 }
 
 func (o *RemovePermissionsBadRequest) GetPayload() *models.ErrorResponse {
@@ -199,7 +200,6 @@ func (o *RemovePermissionsBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *RemovePermissionsBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -220,8 +220,7 @@ RemovePermissionsUnauthorized describes a response with status code 401, with de
 
 Unauthorized or invalid credentials.
 */
-type RemovePermissionsUnauthorized struct {
-}
+type RemovePermissionsUnauthorized struct{}
 
 // IsSuccess returns true when this remove permissions unauthorized response has a 2xx status code
 func (o *RemovePermissionsUnauthorized) IsSuccess() bool {
@@ -254,15 +253,14 @@ func (o *RemovePermissionsUnauthorized) Code() int {
 }
 
 func (o *RemovePermissionsUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsUnauthorized", 401)
 }
 
 func (o *RemovePermissionsUnauthorized) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsUnauthorized", 401)
 }
 
 func (o *RemovePermissionsUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -311,11 +309,13 @@ func (o *RemovePermissionsForbidden) Code() int {
 }
 
 func (o *RemovePermissionsForbidden) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsForbidden %s", 403, payload)
 }
 
 func (o *RemovePermissionsForbidden) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsForbidden %s", 403, payload)
 }
 
 func (o *RemovePermissionsForbidden) GetPayload() *models.ErrorResponse {
@@ -323,7 +323,6 @@ func (o *RemovePermissionsForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *RemovePermissionsForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -344,8 +343,7 @@ RemovePermissionsNotFound describes a response with status code 404, with defaul
 
 no role found
 */
-type RemovePermissionsNotFound struct {
-}
+type RemovePermissionsNotFound struct{}
 
 // IsSuccess returns true when this remove permissions not found response has a 2xx status code
 func (o *RemovePermissionsNotFound) IsSuccess() bool {
@@ -378,15 +376,14 @@ func (o *RemovePermissionsNotFound) Code() int {
 }
 
 func (o *RemovePermissionsNotFound) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsNotFound ", 404)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsNotFound", 404)
 }
 
 func (o *RemovePermissionsNotFound) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsNotFound ", 404)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsNotFound", 404)
 }
 
 func (o *RemovePermissionsNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -435,11 +432,13 @@ func (o *RemovePermissionsUnprocessableEntity) Code() int {
 }
 
 func (o *RemovePermissionsUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsUnprocessableEntity %s", 422, payload)
 }
 
 func (o *RemovePermissionsUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsUnprocessableEntity %s", 422, payload)
 }
 
 func (o *RemovePermissionsUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -447,7 +446,6 @@ func (o *RemovePermissionsUnprocessableEntity) GetPayload() *models.ErrorRespons
 }
 
 func (o *RemovePermissionsUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -503,11 +501,13 @@ func (o *RemovePermissionsInternalServerError) Code() int {
 }
 
 func (o *RemovePermissionsInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsInternalServerError %s", 500, payload)
 }
 
 func (o *RemovePermissionsInternalServerError) String() string {
-	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsInternalServerError %s", 500, payload)
 }
 
 func (o *RemovePermissionsInternalServerError) GetPayload() *models.ErrorResponse {
@@ -515,7 +515,6 @@ func (o *RemovePermissionsInternalServerError) GetPayload() *models.ErrorRespons
 }
 
 func (o *RemovePermissionsInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -531,7 +530,6 @@ RemovePermissionsBody remove permissions body
 swagger:model RemovePermissionsBody
 */
 type RemovePermissionsBody struct {
-
 	// permissions to remove from the role
 	// Required: true
 	Permissions []*models.Permission `json:"permissions"`
@@ -552,7 +550,6 @@ func (o *RemovePermissionsBody) Validate(formats strfmt.Registry) error {
 }
 
 func (o *RemovePermissionsBody) validatePermissions(formats strfmt.Registry) error {
-
 	if err := validate.Required("body"+"."+"permissions", "body", o.Permissions); err != nil {
 		return err
 	}
@@ -593,10 +590,13 @@ func (o *RemovePermissionsBody) ContextValidate(ctx context.Context, formats str
 }
 
 func (o *RemovePermissionsBody) contextValidatePermissions(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(o.Permissions); i++ {
-
 		if o.Permissions[i] != nil {
+
+			if swag.IsZero(o.Permissions[i]) { // not required
+				return nil
+			}
+
 			if err := o.Permissions[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("body" + "." + "permissions" + "." + strconv.Itoa(i))
@@ -606,7 +606,6 @@ func (o *RemovePermissionsBody) contextValidatePermissions(ctx context.Context, 
 				return err
 			}
 		}
-
 	}
 
 	return nil

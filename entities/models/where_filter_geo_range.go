@@ -28,7 +28,6 @@ import (
 //
 // swagger:model WhereFilterGeoRange
 type WhereFilterGeoRange struct {
-
 	// distance
 	Distance *WhereFilterGeoRangeDistance `json:"distance,omitempty"`
 
@@ -111,8 +110,12 @@ func (m *WhereFilterGeoRange) ContextValidate(ctx context.Context, formats strfm
 }
 
 func (m *WhereFilterGeoRange) contextValidateDistance(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Distance != nil {
+
+		if swag.IsZero(m.Distance) { // not required
+			return nil
+		}
+
 		if err := m.Distance.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("distance")
@@ -127,8 +130,12 @@ func (m *WhereFilterGeoRange) contextValidateDistance(ctx context.Context, forma
 }
 
 func (m *WhereFilterGeoRange) contextValidateGeoCoordinates(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.GeoCoordinates != nil {
+
+		if swag.IsZero(m.GeoCoordinates) { // not required
+			return nil
+		}
+
 		if err := m.GeoCoordinates.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("geoCoordinates")
@@ -164,7 +171,6 @@ func (m *WhereFilterGeoRange) UnmarshalBinary(b []byte) error {
 //
 // swagger:model WhereFilterGeoRangeDistance
 type WhereFilterGeoRangeDistance struct {
-
 	// max
 	Max float64 `json:"max,omitempty"`
 }

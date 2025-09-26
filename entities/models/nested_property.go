@@ -31,7 +31,6 @@ import (
 //
 // swagger:model NestedProperty
 type NestedProperty struct {
-
 	// data type
 	DataType []string `json:"dataType"`
 
@@ -54,7 +53,7 @@ type NestedProperty struct {
 	NestedProperties []*NestedProperty `json:"nestedProperties,omitempty"`
 
 	// tokenization
-	// Enum: [word lowercase whitespace field trigram gse kagome_kr kagome_ja gse_ch]
+	// Enum: ["word","lowercase","whitespace","field","trigram","gse","kagome_kr","kagome_ja","gse_ch"]
 	Tokenization string `json:"tokenization,omitempty"`
 }
 
@@ -180,10 +179,13 @@ func (m *NestedProperty) ContextValidate(ctx context.Context, formats strfmt.Reg
 }
 
 func (m *NestedProperty) contextValidateNestedProperties(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.NestedProperties); i++ {
-
 		if m.NestedProperties[i] != nil {
+
+			if swag.IsZero(m.NestedProperties[i]) { // not required
+				return nil
+			}
+
 			if err := m.NestedProperties[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("nestedProperties" + "." + strconv.Itoa(i))
@@ -193,7 +195,6 @@ func (m *NestedProperty) contextValidateNestedProperties(ctx context.Context, fo
 				return err
 			}
 		}
-
 	}
 
 	return nil

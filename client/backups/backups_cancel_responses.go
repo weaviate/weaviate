@@ -17,6 +17,7 @@ package backups
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *BackupsCancelReader) ReadResponse(response runtime.ClientResponse, cons
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[DELETE /backups/{backend}/{id}] backups.cancel", response, response.Code())
 	}
 }
 
@@ -79,8 +80,7 @@ BackupsCancelNoContent describes a response with status code 204, with default h
 
 Successfully deleted.
 */
-type BackupsCancelNoContent struct {
-}
+type BackupsCancelNoContent struct{}
 
 // IsSuccess returns true when this backups cancel no content response has a 2xx status code
 func (o *BackupsCancelNoContent) IsSuccess() bool {
@@ -113,15 +113,14 @@ func (o *BackupsCancelNoContent) Code() int {
 }
 
 func (o *BackupsCancelNoContent) Error() string {
-	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelNoContent ", 204)
+	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelNoContent", 204)
 }
 
 func (o *BackupsCancelNoContent) String() string {
-	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelNoContent ", 204)
+	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelNoContent", 204)
 }
 
 func (o *BackupsCancelNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -135,8 +134,7 @@ BackupsCancelUnauthorized describes a response with status code 401, with defaul
 
 Unauthorized or invalid credentials.
 */
-type BackupsCancelUnauthorized struct {
-}
+type BackupsCancelUnauthorized struct{}
 
 // IsSuccess returns true when this backups cancel unauthorized response has a 2xx status code
 func (o *BackupsCancelUnauthorized) IsSuccess() bool {
@@ -169,15 +167,14 @@ func (o *BackupsCancelUnauthorized) Code() int {
 }
 
 func (o *BackupsCancelUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelUnauthorized", 401)
 }
 
 func (o *BackupsCancelUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelUnauthorized", 401)
 }
 
 func (o *BackupsCancelUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -226,11 +223,13 @@ func (o *BackupsCancelForbidden) Code() int {
 }
 
 func (o *BackupsCancelForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelForbidden %s", 403, payload)
 }
 
 func (o *BackupsCancelForbidden) String() string {
-	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelForbidden %s", 403, payload)
 }
 
 func (o *BackupsCancelForbidden) GetPayload() *models.ErrorResponse {
@@ -238,7 +237,6 @@ func (o *BackupsCancelForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsCancelForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -294,11 +292,13 @@ func (o *BackupsCancelUnprocessableEntity) Code() int {
 }
 
 func (o *BackupsCancelUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelUnprocessableEntity %s", 422, payload)
 }
 
 func (o *BackupsCancelUnprocessableEntity) String() string {
-	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelUnprocessableEntity %s", 422, payload)
 }
 
 func (o *BackupsCancelUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -306,7 +306,6 @@ func (o *BackupsCancelUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsCancelUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -362,11 +361,13 @@ func (o *BackupsCancelInternalServerError) Code() int {
 }
 
 func (o *BackupsCancelInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelInternalServerError %s", 500, payload)
 }
 
 func (o *BackupsCancelInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /backups/{backend}/{id}][%d] backupsCancelInternalServerError %s", 500, payload)
 }
 
 func (o *BackupsCancelInternalServerError) GetPayload() *models.ErrorResponse {
@@ -374,7 +375,6 @@ func (o *BackupsCancelInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsCancelInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

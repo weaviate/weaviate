@@ -17,6 +17,7 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *TenantExistsReader) ReadResponse(response runtime.ClientResponse, consu
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[HEAD /schema/{className}/tenants/{tenantName}] tenant.exists", response, response.Code())
 	}
 }
 
@@ -85,8 +86,7 @@ TenantExistsOK describes a response with status code 200, with default header va
 
 The tenant exists in the specified class
 */
-type TenantExistsOK struct {
-}
+type TenantExistsOK struct{}
 
 // IsSuccess returns true when this tenant exists o k response has a 2xx status code
 func (o *TenantExistsOK) IsSuccess() bool {
@@ -119,15 +119,14 @@ func (o *TenantExistsOK) Code() int {
 }
 
 func (o *TenantExistsOK) Error() string {
-	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsOK ", 200)
+	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsOK", 200)
 }
 
 func (o *TenantExistsOK) String() string {
-	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsOK ", 200)
+	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsOK", 200)
 }
 
 func (o *TenantExistsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -141,8 +140,7 @@ TenantExistsUnauthorized describes a response with status code 401, with default
 
 Unauthorized or invalid credentials.
 */
-type TenantExistsUnauthorized struct {
-}
+type TenantExistsUnauthorized struct{}
 
 // IsSuccess returns true when this tenant exists unauthorized response has a 2xx status code
 func (o *TenantExistsUnauthorized) IsSuccess() bool {
@@ -175,15 +173,14 @@ func (o *TenantExistsUnauthorized) Code() int {
 }
 
 func (o *TenantExistsUnauthorized) Error() string {
-	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsUnauthorized ", 401)
+	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsUnauthorized", 401)
 }
 
 func (o *TenantExistsUnauthorized) String() string {
-	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsUnauthorized ", 401)
+	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsUnauthorized", 401)
 }
 
 func (o *TenantExistsUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -232,11 +229,13 @@ func (o *TenantExistsForbidden) Code() int {
 }
 
 func (o *TenantExistsForbidden) Error() string {
-	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsForbidden %s", 403, payload)
 }
 
 func (o *TenantExistsForbidden) String() string {
-	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsForbidden %s", 403, payload)
 }
 
 func (o *TenantExistsForbidden) GetPayload() *models.ErrorResponse {
@@ -244,7 +243,6 @@ func (o *TenantExistsForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *TenantExistsForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -265,8 +263,7 @@ TenantExistsNotFound describes a response with status code 404, with default hea
 
 The tenant not found
 */
-type TenantExistsNotFound struct {
-}
+type TenantExistsNotFound struct{}
 
 // IsSuccess returns true when this tenant exists not found response has a 2xx status code
 func (o *TenantExistsNotFound) IsSuccess() bool {
@@ -299,15 +296,14 @@ func (o *TenantExistsNotFound) Code() int {
 }
 
 func (o *TenantExistsNotFound) Error() string {
-	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsNotFound ", 404)
+	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsNotFound", 404)
 }
 
 func (o *TenantExistsNotFound) String() string {
-	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsNotFound ", 404)
+	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsNotFound", 404)
 }
 
 func (o *TenantExistsNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -356,11 +352,13 @@ func (o *TenantExistsUnprocessableEntity) Code() int {
 }
 
 func (o *TenantExistsUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsUnprocessableEntity %s", 422, payload)
 }
 
 func (o *TenantExistsUnprocessableEntity) String() string {
-	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsUnprocessableEntity %s", 422, payload)
 }
 
 func (o *TenantExistsUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -368,7 +366,6 @@ func (o *TenantExistsUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *TenantExistsUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -424,11 +421,13 @@ func (o *TenantExistsInternalServerError) Code() int {
 }
 
 func (o *TenantExistsInternalServerError) Error() string {
-	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsInternalServerError %s", 500, payload)
 }
 
 func (o *TenantExistsInternalServerError) String() string {
-	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[HEAD /schema/{className}/tenants/{tenantName}][%d] tenantExistsInternalServerError %s", 500, payload)
 }
 
 func (o *TenantExistsInternalServerError) GetPayload() *models.ErrorResponse {
@@ -436,7 +435,6 @@ func (o *TenantExistsInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *TenantExistsInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

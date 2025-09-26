@@ -17,6 +17,7 @@ package objects
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *ObjectsClassPutReader) ReadResponse(response runtime.ClientResponse, co
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[PUT /objects/{className}/{id}] objects.class.put", response, response.Code())
 	}
 }
 
@@ -120,11 +121,13 @@ func (o *ObjectsClassPutOK) Code() int {
 }
 
 func (o *ObjectsClassPutOK) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutOK %s", 200, payload)
 }
 
 func (o *ObjectsClassPutOK) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutOK %s", 200, payload)
 }
 
 func (o *ObjectsClassPutOK) GetPayload() *models.Object {
@@ -132,7 +135,6 @@ func (o *ObjectsClassPutOK) GetPayload() *models.Object {
 }
 
 func (o *ObjectsClassPutOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Object)
 
 	// response payload
@@ -153,8 +155,7 @@ ObjectsClassPutUnauthorized describes a response with status code 401, with defa
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassPutUnauthorized struct {
-}
+type ObjectsClassPutUnauthorized struct{}
 
 // IsSuccess returns true when this objects class put unauthorized response has a 2xx status code
 func (o *ObjectsClassPutUnauthorized) IsSuccess() bool {
@@ -187,15 +188,14 @@ func (o *ObjectsClassPutUnauthorized) Code() int {
 }
 
 func (o *ObjectsClassPutUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutUnauthorized", 401)
 }
 
 func (o *ObjectsClassPutUnauthorized) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutUnauthorized", 401)
 }
 
 func (o *ObjectsClassPutUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -244,11 +244,13 @@ func (o *ObjectsClassPutForbidden) Code() int {
 }
 
 func (o *ObjectsClassPutForbidden) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutForbidden %s", 403, payload)
 }
 
 func (o *ObjectsClassPutForbidden) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutForbidden %s", 403, payload)
 }
 
 func (o *ObjectsClassPutForbidden) GetPayload() *models.ErrorResponse {
@@ -256,7 +258,6 @@ func (o *ObjectsClassPutForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsClassPutForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -277,8 +278,7 @@ ObjectsClassPutNotFound describes a response with status code 404, with default 
 
 Successful query result but no resource was found.
 */
-type ObjectsClassPutNotFound struct {
-}
+type ObjectsClassPutNotFound struct{}
 
 // IsSuccess returns true when this objects class put not found response has a 2xx status code
 func (o *ObjectsClassPutNotFound) IsSuccess() bool {
@@ -311,15 +311,14 @@ func (o *ObjectsClassPutNotFound) Code() int {
 }
 
 func (o *ObjectsClassPutNotFound) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutNotFound ", 404)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutNotFound", 404)
 }
 
 func (o *ObjectsClassPutNotFound) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutNotFound ", 404)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutNotFound", 404)
 }
 
 func (o *ObjectsClassPutNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -368,11 +367,13 @@ func (o *ObjectsClassPutUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsClassPutUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsClassPutUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsClassPutUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -380,7 +381,6 @@ func (o *ObjectsClassPutUnprocessableEntity) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsClassPutUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -436,11 +436,13 @@ func (o *ObjectsClassPutInternalServerError) Code() int {
 }
 
 func (o *ObjectsClassPutInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsClassPutInternalServerError) String() string {
-	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsClassPutInternalServerError) GetPayload() *models.ErrorResponse {
@@ -448,7 +450,6 @@ func (o *ObjectsClassPutInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsClassPutInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

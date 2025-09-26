@@ -64,8 +64,12 @@ func (m C11yVectorBasedQuestion) ContextValidate(ctx context.Context, formats st
 	var res []error
 
 	for i := 0; i < len(m); i++ {
-
 		if m[i] != nil {
+
+			if swag.IsZero(m[i]) { // not required
+				return nil
+			}
+
 			if err := m[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName(strconv.Itoa(i))
@@ -75,7 +79,6 @@ func (m C11yVectorBasedQuestion) ContextValidate(ctx context.Context, formats st
 				return err
 			}
 		}
-
 	}
 
 	if len(res) > 0 {
@@ -88,7 +91,6 @@ func (m C11yVectorBasedQuestion) ContextValidate(ctx context.Context, formats st
 //
 // swagger:model C11yVectorBasedQuestionItems0
 type C11yVectorBasedQuestionItems0 struct {
-
 	// Vectorized properties.
 	// Max Items: 300
 	// Min Items: 300
@@ -187,10 +189,13 @@ func (m *C11yVectorBasedQuestionItems0) ContextValidate(ctx context.Context, for
 }
 
 func (m *C11yVectorBasedQuestionItems0) contextValidateClassProps(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.ClassProps); i++ {
-
 		if m.ClassProps[i] != nil {
+
+			if swag.IsZero(m.ClassProps[i]) { // not required
+				return nil
+			}
+
 			if err := m.ClassProps[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("classProps" + "." + strconv.Itoa(i))
@@ -200,7 +205,6 @@ func (m *C11yVectorBasedQuestionItems0) contextValidateClassProps(ctx context.Co
 				return err
 			}
 		}
-
 	}
 
 	return nil
@@ -228,7 +232,6 @@ func (m *C11yVectorBasedQuestionItems0) UnmarshalBinary(b []byte) error {
 //
 // swagger:model C11yVectorBasedQuestionItems0ClassPropsItems0
 type C11yVectorBasedQuestionItems0ClassPropsItems0 struct {
-
 	// props vectors
 	PropsVectors []float32 `json:"propsVectors"`
 

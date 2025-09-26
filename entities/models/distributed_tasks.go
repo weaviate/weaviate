@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
@@ -41,7 +42,6 @@ func (m DistributedTasks) Validate(formats strfmt.Registry) error {
 		}
 
 		for i := 0; i < len(m[k]); i++ {
-
 			if err := m[k][i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName(k + "." + strconv.Itoa(i))
@@ -50,7 +50,6 @@ func (m DistributedTasks) Validate(formats strfmt.Registry) error {
 				}
 				return err
 			}
-
 		}
 
 	}
@@ -66,8 +65,11 @@ func (m DistributedTasks) ContextValidate(ctx context.Context, formats strfmt.Re
 	var res []error
 
 	for k := range m {
-
 		for i := 0; i < len(m[k]); i++ {
+
+			if swag.IsZero(m[k][i]) { // not required
+				return nil
+			}
 
 			if err := m[k][i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -79,7 +81,6 @@ func (m DistributedTasks) ContextValidate(ctx context.Context, formats strfmt.Re
 			}
 
 		}
-
 	}
 
 	if len(res) > 0 {

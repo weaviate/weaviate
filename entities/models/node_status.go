@@ -31,7 +31,6 @@ import (
 //
 // swagger:model NodeStatus
 type NodeStatus struct {
-
 	// Weaviate batch statistics.
 	BatchStats *BatchStats `json:"batchStats,omitempty"`
 
@@ -48,7 +47,7 @@ type NodeStatus struct {
 	Stats *NodeStats `json:"stats,omitempty"`
 
 	// Node's status.
-	// Enum: [HEALTHY UNHEALTHY UNAVAILABLE TIMEOUT]
+	// Enum: ["HEALTHY","UNHEALTHY","UNAVAILABLE","TIMEOUT"]
 	Status *string `json:"status,omitempty"`
 
 	// The version of Weaviate.
@@ -216,8 +215,12 @@ func (m *NodeStatus) ContextValidate(ctx context.Context, formats strfmt.Registr
 }
 
 func (m *NodeStatus) contextValidateBatchStats(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.BatchStats != nil {
+
+		if swag.IsZero(m.BatchStats) { // not required
+			return nil
+		}
+
 		if err := m.BatchStats.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("batchStats")
@@ -232,10 +235,13 @@ func (m *NodeStatus) contextValidateBatchStats(ctx context.Context, formats strf
 }
 
 func (m *NodeStatus) contextValidateShards(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.Shards); i++ {
-
 		if m.Shards[i] != nil {
+
+			if swag.IsZero(m.Shards[i]) { // not required
+				return nil
+			}
+
 			if err := m.Shards[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("shards" + "." + strconv.Itoa(i))
@@ -245,15 +251,18 @@ func (m *NodeStatus) contextValidateShards(ctx context.Context, formats strfmt.R
 				return err
 			}
 		}
-
 	}
 
 	return nil
 }
 
 func (m *NodeStatus) contextValidateStats(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Stats != nil {
+
+		if swag.IsZero(m.Stats) { // not required
+			return nil
+		}
+
 		if err := m.Stats.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("stats")

@@ -17,6 +17,7 @@ package meta
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -59,7 +60,7 @@ func (o *MetaGetReader) ReadResponse(response runtime.ClientResponse, consumer r
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /meta] meta.get", response, response.Code())
 	}
 }
 
@@ -108,11 +109,13 @@ func (o *MetaGetOK) Code() int {
 }
 
 func (o *MetaGetOK) Error() string {
-	return fmt.Sprintf("[GET /meta][%d] metaGetOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /meta][%d] metaGetOK %s", 200, payload)
 }
 
 func (o *MetaGetOK) String() string {
-	return fmt.Sprintf("[GET /meta][%d] metaGetOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /meta][%d] metaGetOK %s", 200, payload)
 }
 
 func (o *MetaGetOK) GetPayload() *models.Meta {
@@ -120,7 +123,6 @@ func (o *MetaGetOK) GetPayload() *models.Meta {
 }
 
 func (o *MetaGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Meta)
 
 	// response payload
@@ -141,8 +143,7 @@ MetaGetUnauthorized describes a response with status code 401, with default head
 
 Unauthorized or invalid credentials.
 */
-type MetaGetUnauthorized struct {
-}
+type MetaGetUnauthorized struct{}
 
 // IsSuccess returns true when this meta get unauthorized response has a 2xx status code
 func (o *MetaGetUnauthorized) IsSuccess() bool {
@@ -175,15 +176,14 @@ func (o *MetaGetUnauthorized) Code() int {
 }
 
 func (o *MetaGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /meta][%d] metaGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /meta][%d] metaGetUnauthorized", 401)
 }
 
 func (o *MetaGetUnauthorized) String() string {
-	return fmt.Sprintf("[GET /meta][%d] metaGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /meta][%d] metaGetUnauthorized", 401)
 }
 
 func (o *MetaGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -232,11 +232,13 @@ func (o *MetaGetForbidden) Code() int {
 }
 
 func (o *MetaGetForbidden) Error() string {
-	return fmt.Sprintf("[GET /meta][%d] metaGetForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /meta][%d] metaGetForbidden %s", 403, payload)
 }
 
 func (o *MetaGetForbidden) String() string {
-	return fmt.Sprintf("[GET /meta][%d] metaGetForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /meta][%d] metaGetForbidden %s", 403, payload)
 }
 
 func (o *MetaGetForbidden) GetPayload() *models.ErrorResponse {
@@ -244,7 +246,6 @@ func (o *MetaGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *MetaGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -300,11 +301,13 @@ func (o *MetaGetInternalServerError) Code() int {
 }
 
 func (o *MetaGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /meta][%d] metaGetInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /meta][%d] metaGetInternalServerError %s", 500, payload)
 }
 
 func (o *MetaGetInternalServerError) String() string {
-	return fmt.Sprintf("[GET /meta][%d] metaGetInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /meta][%d] metaGetInternalServerError %s", 500, payload)
 }
 
 func (o *MetaGetInternalServerError) GetPayload() *models.ErrorResponse {
@@ -312,7 +315,6 @@ func (o *MetaGetInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *MetaGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

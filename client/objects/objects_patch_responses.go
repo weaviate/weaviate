@@ -17,6 +17,7 @@ package objects
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -77,7 +78,7 @@ func (o *ObjectsPatchReader) ReadResponse(response runtime.ClientResponse, consu
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[PATCH /objects/{id}] objects.patch", response, response.Code())
 	}
 }
 
@@ -91,8 +92,7 @@ ObjectsPatchNoContent describes a response with status code 204, with default he
 
 Successfully applied. No content provided.
 */
-type ObjectsPatchNoContent struct {
-}
+type ObjectsPatchNoContent struct{}
 
 // IsSuccess returns true when this objects patch no content response has a 2xx status code
 func (o *ObjectsPatchNoContent) IsSuccess() bool {
@@ -125,15 +125,14 @@ func (o *ObjectsPatchNoContent) Code() int {
 }
 
 func (o *ObjectsPatchNoContent) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNoContent ", 204)
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNoContent", 204)
 }
 
 func (o *ObjectsPatchNoContent) String() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNoContent ", 204)
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNoContent", 204)
 }
 
 func (o *ObjectsPatchNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -147,8 +146,7 @@ ObjectsPatchBadRequest describes a response with status code 400, with default h
 
 The patch-JSON is malformed.
 */
-type ObjectsPatchBadRequest struct {
-}
+type ObjectsPatchBadRequest struct{}
 
 // IsSuccess returns true when this objects patch bad request response has a 2xx status code
 func (o *ObjectsPatchBadRequest) IsSuccess() bool {
@@ -181,15 +179,14 @@ func (o *ObjectsPatchBadRequest) Code() int {
 }
 
 func (o *ObjectsPatchBadRequest) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchBadRequest ", 400)
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchBadRequest", 400)
 }
 
 func (o *ObjectsPatchBadRequest) String() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchBadRequest ", 400)
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchBadRequest", 400)
 }
 
 func (o *ObjectsPatchBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -203,8 +200,7 @@ ObjectsPatchUnauthorized describes a response with status code 401, with default
 
 Unauthorized or invalid credentials.
 */
-type ObjectsPatchUnauthorized struct {
-}
+type ObjectsPatchUnauthorized struct{}
 
 // IsSuccess returns true when this objects patch unauthorized response has a 2xx status code
 func (o *ObjectsPatchUnauthorized) IsSuccess() bool {
@@ -237,15 +233,14 @@ func (o *ObjectsPatchUnauthorized) Code() int {
 }
 
 func (o *ObjectsPatchUnauthorized) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnauthorized ", 401)
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnauthorized", 401)
 }
 
 func (o *ObjectsPatchUnauthorized) String() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnauthorized ", 401)
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnauthorized", 401)
 }
 
 func (o *ObjectsPatchUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -294,11 +289,13 @@ func (o *ObjectsPatchForbidden) Code() int {
 }
 
 func (o *ObjectsPatchForbidden) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchForbidden %s", 403, payload)
 }
 
 func (o *ObjectsPatchForbidden) String() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchForbidden %s", 403, payload)
 }
 
 func (o *ObjectsPatchForbidden) GetPayload() *models.ErrorResponse {
@@ -306,7 +303,6 @@ func (o *ObjectsPatchForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsPatchForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -327,8 +323,7 @@ ObjectsPatchNotFound describes a response with status code 404, with default hea
 
 Successful query result but no resource was found.
 */
-type ObjectsPatchNotFound struct {
-}
+type ObjectsPatchNotFound struct{}
 
 // IsSuccess returns true when this objects patch not found response has a 2xx status code
 func (o *ObjectsPatchNotFound) IsSuccess() bool {
@@ -361,15 +356,14 @@ func (o *ObjectsPatchNotFound) Code() int {
 }
 
 func (o *ObjectsPatchNotFound) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNotFound ", 404)
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNotFound", 404)
 }
 
 func (o *ObjectsPatchNotFound) String() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNotFound ", 404)
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNotFound", 404)
 }
 
 func (o *ObjectsPatchNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -418,11 +412,13 @@ func (o *ObjectsPatchUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsPatchUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsPatchUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsPatchUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -430,7 +426,6 @@ func (o *ObjectsPatchUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsPatchUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -486,11 +481,13 @@ func (o *ObjectsPatchInternalServerError) Code() int {
 }
 
 func (o *ObjectsPatchInternalServerError) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsPatchInternalServerError) String() string {
-	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsPatchInternalServerError) GetPayload() *models.ErrorResponse {
@@ -498,7 +495,6 @@ func (o *ObjectsPatchInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsPatchInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

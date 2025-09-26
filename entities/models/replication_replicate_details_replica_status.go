@@ -31,12 +31,11 @@ import (
 //
 // swagger:model ReplicationReplicateDetailsReplicaStatus
 type ReplicationReplicateDetailsReplicaStatus struct {
-
 	// A list of error messages encountered by this replica during the replication operation, if any.
 	Errors []*ReplicationReplicateDetailsReplicaStatusError `json:"errors"`
 
 	// The current operational state of the replica during the replication process.
-	// Enum: [REGISTERED HYDRATING FINALIZING DEHYDRATING READY CANCELLED]
+	// Enum: ["REGISTERED","HYDRATING","FINALIZING","DEHYDRATING","READY","CANCELLED"]
 	State string `json:"state,omitempty"`
 
 	// The UNIX timestamp in ms when this state was first entered. This is an approximate time and so should not be used for precise timing.
@@ -156,10 +155,13 @@ func (m *ReplicationReplicateDetailsReplicaStatus) ContextValidate(ctx context.C
 }
 
 func (m *ReplicationReplicateDetailsReplicaStatus) contextValidateErrors(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.Errors); i++ {
-
 		if m.Errors[i] != nil {
+
+			if swag.IsZero(m.Errors[i]) { // not required
+				return nil
+			}
+
 			if err := m.Errors[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("errors" + "." + strconv.Itoa(i))
@@ -169,7 +171,6 @@ func (m *ReplicationReplicateDetailsReplicaStatus) contextValidateErrors(ctx con
 				return err
 			}
 		}
-
 	}
 
 	return nil

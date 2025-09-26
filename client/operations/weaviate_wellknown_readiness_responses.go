@@ -44,7 +44,7 @@ func (o *WeaviateWellknownReadinessReader) ReadResponse(response runtime.ClientR
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /.well-known/ready] weaviate.wellknown.readiness", response, response.Code())
 	}
 }
 
@@ -58,8 +58,7 @@ WeaviateWellknownReadinessOK describes a response with status code 200, with def
 
 The application has completed its start-up routine and is ready to accept traffic.
 */
-type WeaviateWellknownReadinessOK struct {
-}
+type WeaviateWellknownReadinessOK struct{}
 
 // IsSuccess returns true when this weaviate wellknown readiness o k response has a 2xx status code
 func (o *WeaviateWellknownReadinessOK) IsSuccess() bool {
@@ -92,15 +91,14 @@ func (o *WeaviateWellknownReadinessOK) Code() int {
 }
 
 func (o *WeaviateWellknownReadinessOK) Error() string {
-	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessOK ", 200)
+	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessOK", 200)
 }
 
 func (o *WeaviateWellknownReadinessOK) String() string {
-	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessOK ", 200)
+	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessOK", 200)
 }
 
 func (o *WeaviateWellknownReadinessOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -114,8 +112,7 @@ WeaviateWellknownReadinessServiceUnavailable describes a response with status co
 
 The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead.
 */
-type WeaviateWellknownReadinessServiceUnavailable struct {
-}
+type WeaviateWellknownReadinessServiceUnavailable struct{}
 
 // IsSuccess returns true when this weaviate wellknown readiness service unavailable response has a 2xx status code
 func (o *WeaviateWellknownReadinessServiceUnavailable) IsSuccess() bool {
@@ -148,14 +145,13 @@ func (o *WeaviateWellknownReadinessServiceUnavailable) Code() int {
 }
 
 func (o *WeaviateWellknownReadinessServiceUnavailable) Error() string {
-	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessServiceUnavailable ", 503)
+	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessServiceUnavailable", 503)
 }
 
 func (o *WeaviateWellknownReadinessServiceUnavailable) String() string {
-	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessServiceUnavailable ", 503)
+	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessServiceUnavailable", 503)
 }
 
 func (o *WeaviateWellknownReadinessServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }

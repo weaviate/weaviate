@@ -17,6 +17,7 @@ package batch
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *BatchReferencesCreateReader) ReadResponse(response runtime.ClientRespon
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /batch/references] batch.references.create", response, response.Code())
 	}
 }
 
@@ -120,11 +121,13 @@ func (o *BatchReferencesCreateOK) Code() int {
 }
 
 func (o *BatchReferencesCreateOK) Error() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateOK %s", 200, payload)
 }
 
 func (o *BatchReferencesCreateOK) String() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateOK %s", 200, payload)
 }
 
 func (o *BatchReferencesCreateOK) GetPayload() []*models.BatchReferenceResponse {
@@ -132,7 +135,6 @@ func (o *BatchReferencesCreateOK) GetPayload() []*models.BatchReferenceResponse 
 }
 
 func (o *BatchReferencesCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -186,11 +188,13 @@ func (o *BatchReferencesCreateBadRequest) Code() int {
 }
 
 func (o *BatchReferencesCreateBadRequest) Error() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateBadRequest %s", 400, payload)
 }
 
 func (o *BatchReferencesCreateBadRequest) String() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateBadRequest %s", 400, payload)
 }
 
 func (o *BatchReferencesCreateBadRequest) GetPayload() *models.ErrorResponse {
@@ -198,7 +202,6 @@ func (o *BatchReferencesCreateBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BatchReferencesCreateBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -219,8 +222,7 @@ BatchReferencesCreateUnauthorized describes a response with status code 401, wit
 
 Unauthorized or invalid credentials.
 */
-type BatchReferencesCreateUnauthorized struct {
-}
+type BatchReferencesCreateUnauthorized struct{}
 
 // IsSuccess returns true when this batch references create unauthorized response has a 2xx status code
 func (o *BatchReferencesCreateUnauthorized) IsSuccess() bool {
@@ -253,15 +255,14 @@ func (o *BatchReferencesCreateUnauthorized) Code() int {
 }
 
 func (o *BatchReferencesCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnauthorized", 401)
 }
 
 func (o *BatchReferencesCreateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnauthorized", 401)
 }
 
 func (o *BatchReferencesCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -310,11 +311,13 @@ func (o *BatchReferencesCreateForbidden) Code() int {
 }
 
 func (o *BatchReferencesCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateForbidden %s", 403, payload)
 }
 
 func (o *BatchReferencesCreateForbidden) String() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateForbidden %s", 403, payload)
 }
 
 func (o *BatchReferencesCreateForbidden) GetPayload() *models.ErrorResponse {
@@ -322,7 +325,6 @@ func (o *BatchReferencesCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BatchReferencesCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -378,11 +380,13 @@ func (o *BatchReferencesCreateUnprocessableEntity) Code() int {
 }
 
 func (o *BatchReferencesCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *BatchReferencesCreateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *BatchReferencesCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -390,7 +394,6 @@ func (o *BatchReferencesCreateUnprocessableEntity) GetPayload() *models.ErrorRes
 }
 
 func (o *BatchReferencesCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -446,11 +449,13 @@ func (o *BatchReferencesCreateInternalServerError) Code() int {
 }
 
 func (o *BatchReferencesCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateInternalServerError %s", 500, payload)
 }
 
 func (o *BatchReferencesCreateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateInternalServerError %s", 500, payload)
 }
 
 func (o *BatchReferencesCreateInternalServerError) GetPayload() *models.ErrorResponse {
@@ -458,7 +463,6 @@ func (o *BatchReferencesCreateInternalServerError) GetPayload() *models.ErrorRes
 }
 
 func (o *BatchReferencesCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

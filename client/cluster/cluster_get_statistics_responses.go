@@ -17,6 +17,7 @@ package cluster
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *ClusterGetStatisticsReader) ReadResponse(response runtime.ClientRespons
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /cluster/statistics] cluster.get.statistics", response, response.Code())
 	}
 }
 
@@ -114,11 +115,13 @@ func (o *ClusterGetStatisticsOK) Code() int {
 }
 
 func (o *ClusterGetStatisticsOK) Error() string {
-	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsOK %s", 200, payload)
 }
 
 func (o *ClusterGetStatisticsOK) String() string {
-	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsOK %s", 200, payload)
 }
 
 func (o *ClusterGetStatisticsOK) GetPayload() *models.ClusterStatisticsResponse {
@@ -126,7 +129,6 @@ func (o *ClusterGetStatisticsOK) GetPayload() *models.ClusterStatisticsResponse 
 }
 
 func (o *ClusterGetStatisticsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ClusterStatisticsResponse)
 
 	// response payload
@@ -147,8 +149,7 @@ ClusterGetStatisticsUnauthorized describes a response with status code 401, with
 
 Unauthorized or invalid credentials.
 */
-type ClusterGetStatisticsUnauthorized struct {
-}
+type ClusterGetStatisticsUnauthorized struct{}
 
 // IsSuccess returns true when this cluster get statistics unauthorized response has a 2xx status code
 func (o *ClusterGetStatisticsUnauthorized) IsSuccess() bool {
@@ -181,15 +182,14 @@ func (o *ClusterGetStatisticsUnauthorized) Code() int {
 }
 
 func (o *ClusterGetStatisticsUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsUnauthorized ", 401)
+	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsUnauthorized", 401)
 }
 
 func (o *ClusterGetStatisticsUnauthorized) String() string {
-	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsUnauthorized ", 401)
+	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsUnauthorized", 401)
 }
 
 func (o *ClusterGetStatisticsUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -238,11 +238,13 @@ func (o *ClusterGetStatisticsForbidden) Code() int {
 }
 
 func (o *ClusterGetStatisticsForbidden) Error() string {
-	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsForbidden %s", 403, payload)
 }
 
 func (o *ClusterGetStatisticsForbidden) String() string {
-	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsForbidden %s", 403, payload)
 }
 
 func (o *ClusterGetStatisticsForbidden) GetPayload() *models.ErrorResponse {
@@ -250,7 +252,6 @@ func (o *ClusterGetStatisticsForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ClusterGetStatisticsForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -306,11 +307,13 @@ func (o *ClusterGetStatisticsUnprocessableEntity) Code() int {
 }
 
 func (o *ClusterGetStatisticsUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ClusterGetStatisticsUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ClusterGetStatisticsUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -318,7 +321,6 @@ func (o *ClusterGetStatisticsUnprocessableEntity) GetPayload() *models.ErrorResp
 }
 
 func (o *ClusterGetStatisticsUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -374,11 +376,13 @@ func (o *ClusterGetStatisticsInternalServerError) Code() int {
 }
 
 func (o *ClusterGetStatisticsInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsInternalServerError %s", 500, payload)
 }
 
 func (o *ClusterGetStatisticsInternalServerError) String() string {
-	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /cluster/statistics][%d] clusterGetStatisticsInternalServerError %s", 500, payload)
 }
 
 func (o *ClusterGetStatisticsInternalServerError) GetPayload() *models.ErrorResponse {
@@ -386,7 +390,6 @@ func (o *ClusterGetStatisticsInternalServerError) GetPayload() *models.ErrorResp
 }
 
 func (o *ClusterGetStatisticsInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

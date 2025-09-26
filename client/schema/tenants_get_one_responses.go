@@ -17,6 +17,7 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *TenantsGetOneReader) ReadResponse(response runtime.ClientResponse, cons
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /schema/{className}/tenants/{tenantName}] tenants.get.one", response, response.Code())
 	}
 }
 
@@ -120,11 +121,13 @@ func (o *TenantsGetOneOK) Code() int {
 }
 
 func (o *TenantsGetOneOK) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneOK %s", 200, payload)
 }
 
 func (o *TenantsGetOneOK) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneOK %s", 200, payload)
 }
 
 func (o *TenantsGetOneOK) GetPayload() *models.Tenant {
@@ -132,7 +135,6 @@ func (o *TenantsGetOneOK) GetPayload() *models.Tenant {
 }
 
 func (o *TenantsGetOneOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Tenant)
 
 	// response payload
@@ -153,8 +155,7 @@ TenantsGetOneUnauthorized describes a response with status code 401, with defaul
 
 Unauthorized or invalid credentials.
 */
-type TenantsGetOneUnauthorized struct {
-}
+type TenantsGetOneUnauthorized struct{}
 
 // IsSuccess returns true when this tenants get one unauthorized response has a 2xx status code
 func (o *TenantsGetOneUnauthorized) IsSuccess() bool {
@@ -187,15 +188,14 @@ func (o *TenantsGetOneUnauthorized) Code() int {
 }
 
 func (o *TenantsGetOneUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneUnauthorized ", 401)
+	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneUnauthorized", 401)
 }
 
 func (o *TenantsGetOneUnauthorized) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneUnauthorized ", 401)
+	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneUnauthorized", 401)
 }
 
 func (o *TenantsGetOneUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -244,11 +244,13 @@ func (o *TenantsGetOneForbidden) Code() int {
 }
 
 func (o *TenantsGetOneForbidden) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneForbidden %s", 403, payload)
 }
 
 func (o *TenantsGetOneForbidden) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneForbidden %s", 403, payload)
 }
 
 func (o *TenantsGetOneForbidden) GetPayload() *models.ErrorResponse {
@@ -256,7 +258,6 @@ func (o *TenantsGetOneForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *TenantsGetOneForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -277,8 +278,7 @@ TenantsGetOneNotFound describes a response with status code 404, with default he
 
 Tenant not found
 */
-type TenantsGetOneNotFound struct {
-}
+type TenantsGetOneNotFound struct{}
 
 // IsSuccess returns true when this tenants get one not found response has a 2xx status code
 func (o *TenantsGetOneNotFound) IsSuccess() bool {
@@ -311,15 +311,14 @@ func (o *TenantsGetOneNotFound) Code() int {
 }
 
 func (o *TenantsGetOneNotFound) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneNotFound ", 404)
+	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneNotFound", 404)
 }
 
 func (o *TenantsGetOneNotFound) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneNotFound ", 404)
+	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneNotFound", 404)
 }
 
 func (o *TenantsGetOneNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -368,11 +367,13 @@ func (o *TenantsGetOneUnprocessableEntity) Code() int {
 }
 
 func (o *TenantsGetOneUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneUnprocessableEntity %s", 422, payload)
 }
 
 func (o *TenantsGetOneUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneUnprocessableEntity %s", 422, payload)
 }
 
 func (o *TenantsGetOneUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -380,7 +381,6 @@ func (o *TenantsGetOneUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *TenantsGetOneUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -436,11 +436,13 @@ func (o *TenantsGetOneInternalServerError) Code() int {
 }
 
 func (o *TenantsGetOneInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneInternalServerError %s", 500, payload)
 }
 
 func (o *TenantsGetOneInternalServerError) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}/tenants/{tenantName}][%d] tenantsGetOneInternalServerError %s", 500, payload)
 }
 
 func (o *TenantsGetOneInternalServerError) GetPayload() *models.ErrorResponse {
@@ -448,7 +450,6 @@ func (o *TenantsGetOneInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *TenantsGetOneInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

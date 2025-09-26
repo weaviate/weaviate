@@ -63,8 +63,12 @@ func (m C11yNearestNeighbors) ContextValidate(ctx context.Context, formats strfm
 	var res []error
 
 	for i := 0; i < len(m); i++ {
-
 		if m[i] != nil {
+
+			if swag.IsZero(m[i]) { // not required
+				return nil
+			}
+
 			if err := m[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName(strconv.Itoa(i))
@@ -74,7 +78,6 @@ func (m C11yNearestNeighbors) ContextValidate(ctx context.Context, formats strfm
 				return err
 			}
 		}
-
 	}
 
 	if len(res) > 0 {
@@ -87,7 +90,6 @@ func (m C11yNearestNeighbors) ContextValidate(ctx context.Context, formats strfm
 //
 // swagger:model C11yNearestNeighborsItems0
 type C11yNearestNeighborsItems0 struct {
-
 	// distance
 	Distance float32 `json:"distance,omitempty"`
 

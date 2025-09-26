@@ -28,7 +28,6 @@ import (
 //
 // swagger:model BackupRestoreRequest
 type BackupRestoreRequest struct {
-
 	// Custom configuration for the backup restoration process
 	Config *RestoreConfig `json:"config,omitempty"`
 
@@ -93,8 +92,12 @@ func (m *BackupRestoreRequest) ContextValidate(ctx context.Context, formats strf
 }
 
 func (m *BackupRestoreRequest) contextValidateConfig(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Config != nil {
+
+		if swag.IsZero(m.Config) { // not required
+			return nil
+		}
+
 		if err := m.Config.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("config")

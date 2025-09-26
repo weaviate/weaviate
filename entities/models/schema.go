@@ -30,7 +30,6 @@ import (
 //
 // swagger:model Schema
 type Schema struct {
-
 	// Semantic classes that are available.
 	Classes []*Class `json:"classes"`
 
@@ -113,10 +112,13 @@ func (m *Schema) ContextValidate(ctx context.Context, formats strfmt.Registry) e
 }
 
 func (m *Schema) contextValidateClasses(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.Classes); i++ {
-
 		if m.Classes[i] != nil {
+
+			if swag.IsZero(m.Classes[i]) { // not required
+				return nil
+			}
+
 			if err := m.Classes[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("classes" + "." + strconv.Itoa(i))
@@ -126,7 +128,6 @@ func (m *Schema) contextValidateClasses(ctx context.Context, formats strfmt.Regi
 				return err
 			}
 		}
-
 	}
 
 	return nil

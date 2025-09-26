@@ -30,7 +30,6 @@ import (
 //
 // swagger:model Statistics
 type Statistics struct {
-
 	// bootstrapped
 	Bootstrapped bool `json:"bootstrapped,omitempty"`
 
@@ -68,7 +67,7 @@ type Statistics struct {
 	Ready bool `json:"ready,omitempty"`
 
 	// Node's status.
-	// Enum: [HEALTHY UNHEALTHY UNAVAILABLE TIMEOUT]
+	// Enum: ["HEALTHY","UNHEALTHY","UNAVAILABLE","TIMEOUT"]
 	Status *string `json:"status,omitempty"`
 }
 
@@ -172,8 +171,12 @@ func (m *Statistics) ContextValidate(ctx context.Context, formats strfmt.Registr
 }
 
 func (m *Statistics) contextValidateRaft(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Raft != nil {
+
+		if swag.IsZero(m.Raft) { // not required
+			return nil
+		}
+
 		if err := m.Raft.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("raft")

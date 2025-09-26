@@ -17,6 +17,7 @@ package classifications
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *ClassificationsGetReader) ReadResponse(response runtime.ClientResponse,
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /classifications/{id}] classifications.get", response, response.Code())
 	}
 }
 
@@ -114,11 +115,13 @@ func (o *ClassificationsGetOK) Code() int {
 }
 
 func (o *ClassificationsGetOK) Error() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetOK %s", 200, payload)
 }
 
 func (o *ClassificationsGetOK) String() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetOK %s", 200, payload)
 }
 
 func (o *ClassificationsGetOK) GetPayload() *models.Classification {
@@ -126,7 +129,6 @@ func (o *ClassificationsGetOK) GetPayload() *models.Classification {
 }
 
 func (o *ClassificationsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Classification)
 
 	// response payload
@@ -147,8 +149,7 @@ ClassificationsGetUnauthorized describes a response with status code 401, with d
 
 Unauthorized or invalid credentials.
 */
-type ClassificationsGetUnauthorized struct {
-}
+type ClassificationsGetUnauthorized struct{}
 
 // IsSuccess returns true when this classifications get unauthorized response has a 2xx status code
 func (o *ClassificationsGetUnauthorized) IsSuccess() bool {
@@ -181,15 +182,14 @@ func (o *ClassificationsGetUnauthorized) Code() int {
 }
 
 func (o *ClassificationsGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetUnauthorized", 401)
 }
 
 func (o *ClassificationsGetUnauthorized) String() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetUnauthorized", 401)
 }
 
 func (o *ClassificationsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -238,11 +238,13 @@ func (o *ClassificationsGetForbidden) Code() int {
 }
 
 func (o *ClassificationsGetForbidden) Error() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetForbidden %s", 403, payload)
 }
 
 func (o *ClassificationsGetForbidden) String() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetForbidden %s", 403, payload)
 }
 
 func (o *ClassificationsGetForbidden) GetPayload() *models.ErrorResponse {
@@ -250,7 +252,6 @@ func (o *ClassificationsGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ClassificationsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -271,8 +272,7 @@ ClassificationsGetNotFound describes a response with status code 404, with defau
 
 Not Found - Classification does not exist
 */
-type ClassificationsGetNotFound struct {
-}
+type ClassificationsGetNotFound struct{}
 
 // IsSuccess returns true when this classifications get not found response has a 2xx status code
 func (o *ClassificationsGetNotFound) IsSuccess() bool {
@@ -305,15 +305,14 @@ func (o *ClassificationsGetNotFound) Code() int {
 }
 
 func (o *ClassificationsGetNotFound) Error() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetNotFound ", 404)
+	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetNotFound", 404)
 }
 
 func (o *ClassificationsGetNotFound) String() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetNotFound ", 404)
+	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetNotFound", 404)
 }
 
 func (o *ClassificationsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -362,11 +361,13 @@ func (o *ClassificationsGetInternalServerError) Code() int {
 }
 
 func (o *ClassificationsGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetInternalServerError %s", 500, payload)
 }
 
 func (o *ClassificationsGetInternalServerError) String() string {
-	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetInternalServerError %s", 500, payload)
 }
 
 func (o *ClassificationsGetInternalServerError) GetPayload() *models.ErrorResponse {
@@ -374,7 +375,6 @@ func (o *ClassificationsGetInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *ClassificationsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

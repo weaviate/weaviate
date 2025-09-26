@@ -17,6 +17,7 @@ package objects
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *ObjectsCreateReader) ReadResponse(response runtime.ClientResponse, cons
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /objects] objects.create", response, response.Code())
 	}
 }
 
@@ -120,11 +121,13 @@ func (o *ObjectsCreateOK) Code() int {
 }
 
 func (o *ObjectsCreateOK) Error() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects][%d] objectsCreateOK %s", 200, payload)
 }
 
 func (o *ObjectsCreateOK) String() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects][%d] objectsCreateOK %s", 200, payload)
 }
 
 func (o *ObjectsCreateOK) GetPayload() *models.Object {
@@ -132,7 +135,6 @@ func (o *ObjectsCreateOK) GetPayload() *models.Object {
 }
 
 func (o *ObjectsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Object)
 
 	// response payload
@@ -188,11 +190,13 @@ func (o *ObjectsCreateBadRequest) Code() int {
 }
 
 func (o *ObjectsCreateBadRequest) Error() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects][%d] objectsCreateBadRequest %s", 400, payload)
 }
 
 func (o *ObjectsCreateBadRequest) String() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects][%d] objectsCreateBadRequest %s", 400, payload)
 }
 
 func (o *ObjectsCreateBadRequest) GetPayload() *models.ErrorResponse {
@@ -200,7 +204,6 @@ func (o *ObjectsCreateBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsCreateBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -221,8 +224,7 @@ ObjectsCreateUnauthorized describes a response with status code 401, with defaul
 
 Unauthorized or invalid credentials.
 */
-type ObjectsCreateUnauthorized struct {
-}
+type ObjectsCreateUnauthorized struct{}
 
 // IsSuccess returns true when this objects create unauthorized response has a 2xx status code
 func (o *ObjectsCreateUnauthorized) IsSuccess() bool {
@@ -255,15 +257,14 @@ func (o *ObjectsCreateUnauthorized) Code() int {
 }
 
 func (o *ObjectsCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /objects][%d] objectsCreateUnauthorized", 401)
 }
 
 func (o *ObjectsCreateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /objects][%d] objectsCreateUnauthorized", 401)
 }
 
 func (o *ObjectsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -312,11 +313,13 @@ func (o *ObjectsCreateForbidden) Code() int {
 }
 
 func (o *ObjectsCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects][%d] objectsCreateForbidden %s", 403, payload)
 }
 
 func (o *ObjectsCreateForbidden) String() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects][%d] objectsCreateForbidden %s", 403, payload)
 }
 
 func (o *ObjectsCreateForbidden) GetPayload() *models.ErrorResponse {
@@ -324,7 +327,6 @@ func (o *ObjectsCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -380,11 +382,13 @@ func (o *ObjectsCreateUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects][%d] objectsCreateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsCreateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects][%d] objectsCreateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -392,7 +396,6 @@ func (o *ObjectsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -448,11 +451,13 @@ func (o *ObjectsCreateInternalServerError) Code() int {
 }
 
 func (o *ObjectsCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects][%d] objectsCreateInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsCreateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /objects][%d] objectsCreateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects][%d] objectsCreateInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsCreateInternalServerError) GetPayload() *models.ErrorResponse {
@@ -460,7 +465,6 @@ func (o *ObjectsCreateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

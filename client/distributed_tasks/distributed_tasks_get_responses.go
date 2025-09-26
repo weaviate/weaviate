@@ -17,6 +17,7 @@ package distributed_tasks
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -53,7 +54,7 @@ func (o *DistributedTasksGetReader) ReadResponse(response runtime.ClientResponse
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /tasks] distributedTasks.get", response, response.Code())
 	}
 }
 
@@ -102,11 +103,13 @@ func (o *DistributedTasksGetOK) Code() int {
 }
 
 func (o *DistributedTasksGetOK) Error() string {
-	return fmt.Sprintf("[GET /tasks][%d] distributedTasksGetOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /tasks][%d] distributedTasksGetOK %s", 200, payload)
 }
 
 func (o *DistributedTasksGetOK) String() string {
-	return fmt.Sprintf("[GET /tasks][%d] distributedTasksGetOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /tasks][%d] distributedTasksGetOK %s", 200, payload)
 }
 
 func (o *DistributedTasksGetOK) GetPayload() models.DistributedTasks {
@@ -114,7 +117,6 @@ func (o *DistributedTasksGetOK) GetPayload() models.DistributedTasks {
 }
 
 func (o *DistributedTasksGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -168,11 +170,13 @@ func (o *DistributedTasksGetForbidden) Code() int {
 }
 
 func (o *DistributedTasksGetForbidden) Error() string {
-	return fmt.Sprintf("[GET /tasks][%d] distributedTasksGetForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /tasks][%d] distributedTasksGetForbidden %s", 403, payload)
 }
 
 func (o *DistributedTasksGetForbidden) String() string {
-	return fmt.Sprintf("[GET /tasks][%d] distributedTasksGetForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /tasks][%d] distributedTasksGetForbidden %s", 403, payload)
 }
 
 func (o *DistributedTasksGetForbidden) GetPayload() *models.ErrorResponse {
@@ -180,7 +184,6 @@ func (o *DistributedTasksGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *DistributedTasksGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -236,11 +239,13 @@ func (o *DistributedTasksGetInternalServerError) Code() int {
 }
 
 func (o *DistributedTasksGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /tasks][%d] distributedTasksGetInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /tasks][%d] distributedTasksGetInternalServerError %s", 500, payload)
 }
 
 func (o *DistributedTasksGetInternalServerError) String() string {
-	return fmt.Sprintf("[GET /tasks][%d] distributedTasksGetInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /tasks][%d] distributedTasksGetInternalServerError %s", 500, payload)
 }
 
 func (o *DistributedTasksGetInternalServerError) GetPayload() *models.ErrorResponse {
@@ -248,7 +253,6 @@ func (o *DistributedTasksGetInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *DistributedTasksGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

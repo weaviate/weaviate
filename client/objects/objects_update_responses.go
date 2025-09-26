@@ -17,6 +17,7 @@ package objects
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *ObjectsUpdateReader) ReadResponse(response runtime.ClientResponse, cons
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[PUT /objects/{id}] objects.update", response, response.Code())
 	}
 }
 
@@ -120,11 +121,13 @@ func (o *ObjectsUpdateOK) Code() int {
 }
 
 func (o *ObjectsUpdateOK) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateOK %s", 200, payload)
 }
 
 func (o *ObjectsUpdateOK) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateOK %s", 200, payload)
 }
 
 func (o *ObjectsUpdateOK) GetPayload() *models.Object {
@@ -132,7 +135,6 @@ func (o *ObjectsUpdateOK) GetPayload() *models.Object {
 }
 
 func (o *ObjectsUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Object)
 
 	// response payload
@@ -153,8 +155,7 @@ ObjectsUpdateUnauthorized describes a response with status code 401, with defaul
 
 Unauthorized or invalid credentials.
 */
-type ObjectsUpdateUnauthorized struct {
-}
+type ObjectsUpdateUnauthorized struct{}
 
 // IsSuccess returns true when this objects update unauthorized response has a 2xx status code
 func (o *ObjectsUpdateUnauthorized) IsSuccess() bool {
@@ -187,15 +188,14 @@ func (o *ObjectsUpdateUnauthorized) Code() int {
 }
 
 func (o *ObjectsUpdateUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateUnauthorized", 401)
 }
 
 func (o *ObjectsUpdateUnauthorized) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateUnauthorized", 401)
 }
 
 func (o *ObjectsUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -244,11 +244,13 @@ func (o *ObjectsUpdateForbidden) Code() int {
 }
 
 func (o *ObjectsUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateForbidden %s", 403, payload)
 }
 
 func (o *ObjectsUpdateForbidden) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateForbidden %s", 403, payload)
 }
 
 func (o *ObjectsUpdateForbidden) GetPayload() *models.ErrorResponse {
@@ -256,7 +258,6 @@ func (o *ObjectsUpdateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -277,8 +278,7 @@ ObjectsUpdateNotFound describes a response with status code 404, with default he
 
 Successful query result but no resource was found.
 */
-type ObjectsUpdateNotFound struct {
-}
+type ObjectsUpdateNotFound struct{}
 
 // IsSuccess returns true when this objects update not found response has a 2xx status code
 func (o *ObjectsUpdateNotFound) IsSuccess() bool {
@@ -311,15 +311,14 @@ func (o *ObjectsUpdateNotFound) Code() int {
 }
 
 func (o *ObjectsUpdateNotFound) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateNotFound ", 404)
+	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateNotFound", 404)
 }
 
 func (o *ObjectsUpdateNotFound) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateNotFound ", 404)
+	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateNotFound", 404)
 }
 
 func (o *ObjectsUpdateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -368,11 +367,13 @@ func (o *ObjectsUpdateUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsUpdateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsUpdateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -380,7 +381,6 @@ func (o *ObjectsUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -436,11 +436,13 @@ func (o *ObjectsUpdateInternalServerError) Code() int {
 }
 
 func (o *ObjectsUpdateInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsUpdateInternalServerError) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsUpdateInternalServerError) GetPayload() *models.ErrorResponse {
@@ -448,7 +450,6 @@ func (o *ObjectsUpdateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

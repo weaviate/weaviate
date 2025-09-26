@@ -17,6 +17,7 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -59,7 +60,7 @@ func (o *SchemaDumpReader) ReadResponse(response runtime.ClientResponse, consume
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /schema] schema.dump", response, response.Code())
 	}
 }
 
@@ -108,11 +109,13 @@ func (o *SchemaDumpOK) Code() int {
 }
 
 func (o *SchemaDumpOK) Error() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema][%d] schemaDumpOK %s", 200, payload)
 }
 
 func (o *SchemaDumpOK) String() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema][%d] schemaDumpOK %s", 200, payload)
 }
 
 func (o *SchemaDumpOK) GetPayload() *models.Schema {
@@ -120,7 +123,6 @@ func (o *SchemaDumpOK) GetPayload() *models.Schema {
 }
 
 func (o *SchemaDumpOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Schema)
 
 	// response payload
@@ -141,8 +143,7 @@ SchemaDumpUnauthorized describes a response with status code 401, with default h
 
 Unauthorized or invalid credentials.
 */
-type SchemaDumpUnauthorized struct {
-}
+type SchemaDumpUnauthorized struct{}
 
 // IsSuccess returns true when this schema dump unauthorized response has a 2xx status code
 func (o *SchemaDumpUnauthorized) IsSuccess() bool {
@@ -175,15 +176,14 @@ func (o *SchemaDumpUnauthorized) Code() int {
 }
 
 func (o *SchemaDumpUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpUnauthorized ", 401)
+	return fmt.Sprintf("[GET /schema][%d] schemaDumpUnauthorized", 401)
 }
 
 func (o *SchemaDumpUnauthorized) String() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpUnauthorized ", 401)
+	return fmt.Sprintf("[GET /schema][%d] schemaDumpUnauthorized", 401)
 }
 
 func (o *SchemaDumpUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -232,11 +232,13 @@ func (o *SchemaDumpForbidden) Code() int {
 }
 
 func (o *SchemaDumpForbidden) Error() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema][%d] schemaDumpForbidden %s", 403, payload)
 }
 
 func (o *SchemaDumpForbidden) String() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema][%d] schemaDumpForbidden %s", 403, payload)
 }
 
 func (o *SchemaDumpForbidden) GetPayload() *models.ErrorResponse {
@@ -244,7 +246,6 @@ func (o *SchemaDumpForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaDumpForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -300,11 +301,13 @@ func (o *SchemaDumpInternalServerError) Code() int {
 }
 
 func (o *SchemaDumpInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema][%d] schemaDumpInternalServerError %s", 500, payload)
 }
 
 func (o *SchemaDumpInternalServerError) String() string {
-	return fmt.Sprintf("[GET /schema][%d] schemaDumpInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema][%d] schemaDumpInternalServerError %s", 500, payload)
 }
 
 func (o *SchemaDumpInternalServerError) GetPayload() *models.ErrorResponse {
@@ -312,7 +315,6 @@ func (o *SchemaDumpInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaDumpInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

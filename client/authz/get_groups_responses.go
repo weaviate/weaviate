@@ -17,6 +17,7 @@ package authz
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *GetGroupsReader) ReadResponse(response runtime.ClientResponse, consumer
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /authz/groups/{groupType}] getGroups", response, response.Code())
 	}
 }
 
@@ -120,11 +121,13 @@ func (o *GetGroupsOK) Code() int {
 }
 
 func (o *GetGroupsOK) Error() string {
-	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsOK %s", 200, payload)
 }
 
 func (o *GetGroupsOK) String() string {
-	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsOK %s", 200, payload)
 }
 
 func (o *GetGroupsOK) GetPayload() []string {
@@ -132,7 +135,6 @@ func (o *GetGroupsOK) GetPayload() []string {
 }
 
 func (o *GetGroupsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -186,11 +188,13 @@ func (o *GetGroupsBadRequest) Code() int {
 }
 
 func (o *GetGroupsBadRequest) Error() string {
-	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsBadRequest %s", 400, payload)
 }
 
 func (o *GetGroupsBadRequest) String() string {
-	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsBadRequest %s", 400, payload)
 }
 
 func (o *GetGroupsBadRequest) GetPayload() *models.ErrorResponse {
@@ -198,7 +202,6 @@ func (o *GetGroupsBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetGroupsBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -219,8 +222,7 @@ GetGroupsUnauthorized describes a response with status code 401, with default he
 
 Unauthorized or invalid credentials.
 */
-type GetGroupsUnauthorized struct {
-}
+type GetGroupsUnauthorized struct{}
 
 // IsSuccess returns true when this get groups unauthorized response has a 2xx status code
 func (o *GetGroupsUnauthorized) IsSuccess() bool {
@@ -253,15 +255,14 @@ func (o *GetGroupsUnauthorized) Code() int {
 }
 
 func (o *GetGroupsUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsUnauthorized", 401)
 }
 
 func (o *GetGroupsUnauthorized) String() string {
-	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsUnauthorized", 401)
 }
 
 func (o *GetGroupsUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -310,11 +311,13 @@ func (o *GetGroupsForbidden) Code() int {
 }
 
 func (o *GetGroupsForbidden) Error() string {
-	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsForbidden %s", 403, payload)
 }
 
 func (o *GetGroupsForbidden) String() string {
-	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsForbidden %s", 403, payload)
 }
 
 func (o *GetGroupsForbidden) GetPayload() *models.ErrorResponse {
@@ -322,7 +325,6 @@ func (o *GetGroupsForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetGroupsForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -378,11 +380,13 @@ func (o *GetGroupsUnprocessableEntity) Code() int {
 }
 
 func (o *GetGroupsUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsUnprocessableEntity %s", 422, payload)
 }
 
 func (o *GetGroupsUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsUnprocessableEntity %s", 422, payload)
 }
 
 func (o *GetGroupsUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -390,7 +394,6 @@ func (o *GetGroupsUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetGroupsUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -446,11 +449,13 @@ func (o *GetGroupsInternalServerError) Code() int {
 }
 
 func (o *GetGroupsInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsInternalServerError %s", 500, payload)
 }
 
 func (o *GetGroupsInternalServerError) String() string {
-	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/groups/{groupType}][%d] getGroupsInternalServerError %s", 500, payload)
 }
 
 func (o *GetGroupsInternalServerError) GetPayload() *models.ErrorResponse {
@@ -458,7 +463,6 @@ func (o *GetGroupsInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetGroupsInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
