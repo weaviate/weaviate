@@ -267,7 +267,7 @@ func validateMapPairListVsWandSearch(ctx context.Context, bucket *Bucket, expect
 			Count: 1,
 		}
 
-		topKHeap := DoWand(N, terms, avgPropLen, true, 1)
+		topKHeap := DoWand(ctx, N, terms, avgPropLen, true, 1)
 
 		for topKHeap.Len() > 0 {
 			item := topKHeap.Pop()

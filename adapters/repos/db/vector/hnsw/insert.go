@@ -33,6 +33,9 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 
 	// no vectors exist
 	if dims == 0 {
+		if err := h.validatePQSegments(len(vector)); err != nil {
+			return err
+		}
 		return nil
 	}
 
@@ -42,15 +45,15 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 			"Existing nodes have vectors with length %v", len(vector), dims)
 	}
 
+	if err := h.validatePQSegments(dims); err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 	dims := int(atomic.LoadInt32(&h.dims))
-
-	if h.muvera.Load() {
-		return nil
-	}
 
 	// no vectors exist
 	if dims == 0 {
@@ -61,7 +64,14 @@ func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 		if len(vecDimensions) > 1 {
 			return fmt.Errorf("multi vector array consists of vectors with varying dimensions")
 		}
+		if err := h.validatePQSegments(len(vector[0])); err != nil {
+			return err
+		}
 		return nil
+	}
+
+	if h.muvera.Load() {
+		dims = h.muveraEncoder.Dimensions()
 	}
 
 	// check if vector length is the same as existing nodes
@@ -72,6 +82,17 @@ func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 		}
 	}
 
+	if err := h.validatePQSegments(dims); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (h *hnsw) validatePQSegments(dims int) error {
+	if h.pqConfig.Enabled && h.pqConfig.Segments != 0 && dims%h.pqConfig.Segments != 0 {
+		return fmt.Errorf("pq segments must be a divisor of the vector dimensions")
+	}
 	return nil
 }
 

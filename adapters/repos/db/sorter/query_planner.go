@@ -189,7 +189,7 @@ func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int,
 	if costInvertedBucket > costObjectsBucket {
 		// inverted strategy is more expensive, no need to plan further, just use
 		// objects strategy
-		return
+		return useInverted, err
 	}
 
 	if len(sort) > 1 {
@@ -197,12 +197,12 @@ func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int,
 			fmt.Sprintf("inverted strategy has lower cost, but query has multiple (%d) "+
 				"sort criteria which is currently not supported, "+
 				"fallback to objects bucket strategy", len(sort)))
-		return
+		return useInverted, err
 	}
 
 	propNames, _, err := extractPropNamesAndOrders(sort)
 	if err != nil {
-		return
+		return useInverted, err
 	}
 
 	dt := s.dataTypesHelper.getType(propNames[0])
@@ -214,7 +214,7 @@ func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int,
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 			fmt.Sprintf("inverted strategy has lower cost, but data type '%s' of property '%s' "+
 				"is currently not supported, falling back to objects bucket strategy", dt, propNames[0]))
-		return
+		return useInverted, err
 
 	}
 	costSavings := float64(costObjectsBucket) / float64(costInvertedBucket)
@@ -227,7 +227,7 @@ func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int,
 				fmt.Sprintf("property '%s' is not indexed (filterable), the query planner "+
 					"predicts an estimated cost savings of %.2fx, consider indexing this property, "+
 					"falling back to objects bucket strategy", propNames[0], costSavings))
-			return
+			return useInverted, err
 		}
 
 		// the prop is indexed, but no bucket found, this is unexpected, but we can
@@ -235,7 +235,7 @@ func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int,
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 			fmt.Sprintf("unexpected: property '%s' is indexed (filterable), but no bucket found, "+
 				"falling back to objects bucket strategy", propNames[0]))
-		return
+		return useInverted, err
 	}
 
 	if s.invertedDisabled.Get() {
@@ -243,12 +243,12 @@ func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int,
 			fmt.Sprintf("the query planner predicts an estimated cost savings of %.2fx, "+
 				"however the inverted sorter is globally disabled using a feature flag",
 				costSavings))
-		return
+		return useInverted, err
 	}
 
 	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 		fmt.Sprintf("predicted cost savings of %.2fx for inverted sorter on property '%s'",
 			costSavings, propNames[0]))
 	useInverted = true
-	return
+	return useInverted, err
 }

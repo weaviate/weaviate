@@ -18,7 +18,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -28,6 +27,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
@@ -216,8 +216,7 @@ type Store struct {
 	logCache *raft.LogCache
 
 	// cluster bootstrap related attributes
-	bootstrapMutex sync.Mutex
-	candidates     map[string]string
+	candidates map[string]string
 	// bootstrapped is set once the node has either bootstrapped or recovered from RAFT log entries
 	bootstrapped atomic.Bool
 

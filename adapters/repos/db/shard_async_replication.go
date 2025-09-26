@@ -187,7 +187,7 @@ func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err 
 
 	config.maintenanceModeEnabled = s.index.Config.MaintenanceModeEnabled
 
-	return
+	return config, err
 }
 
 func optParseInt(s string, defaultVal, minVal, maxVal int) (val int, err error) {
@@ -214,17 +214,8 @@ func optParseDuration(s string, defaultDuration time.Duration) (time.Duration, e
 	return time.ParseDuration(s)
 }
 
-func (s *Shard) initAsyncReplication() error {
+func (s *Shard) initAsyncReplication() (err error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-
-	if bucket.GetSecondaryIndices() < 2 {
-		s.index.logger.
-			WithField("action", "async_replication").
-			WithField("class_name", s.class.Class).
-			WithField("shard_name", s.name).
-			Warn("secondary index for token ranges is not available")
-		return nil
-	}
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	s.asyncReplicationCancelFunc = cancelFunc
@@ -363,8 +354,21 @@ func (s *Shard) initAsyncReplication() error {
 	return nil
 }
 
-func (s *Shard) initHashtree(ctx context.Context, config asyncReplicationConfig, bucket *lsmkv.Bucket) error {
+func (s *Shard) initHashtree(ctx context.Context, config asyncReplicationConfig, bucket *lsmkv.Bucket) (err error) {
 	start := time.Now()
+
+	s.metrics.IncAsyncReplicationHashTreeInitRunning()
+
+	defer func() {
+		s.metrics.DecAsyncReplicationHashTreeInitRunning()
+
+		if err != nil {
+			s.metrics.IncAsyncReplicationHashTreeInitFailure()
+			return
+		}
+
+		s.metrics.ObserveAsyncReplicationHashTreeInitDuration(time.Since(start))
+	}()
 
 	releaseInitialization := func() {
 		s.asyncReplicationRWMux.RLock()
@@ -372,13 +376,6 @@ func (s *Shard) initHashtree(ctx context.Context, config asyncReplicationConfig,
 
 		close(s.minimalHashtreeInitializationCh)
 	}
-
-	err := s.store.PauseCompaction(ctx)
-	if err != nil {
-		releaseInitialization()
-		return fmt.Errorf("pausing compaction: %w", err)
-	}
-	defer s.store.ResumeCompaction(ctx)
 
 	objCount := 0
 	prevProgressLogging := time.Now()
@@ -425,10 +422,9 @@ func (s *Shard) initHashtree(ctx context.Context, config asyncReplicationConfig,
 	}
 
 	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
 
 	if s.hashtree == nil {
-		s.asyncReplicationRWMux.Unlock()
-
 		s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
@@ -446,8 +442,6 @@ func (s *Shard) initHashtree(ctx context.Context, config asyncReplicationConfig,
 		WithField("object_count", objCount).
 		WithField("took", fmt.Sprintf("%v", time.Since(start))).
 		Info("hashtree successfully initialized")
-
-	s.asyncReplicationRWMux.Unlock()
 
 	s.initHashBeater(ctx, config)
 
@@ -663,6 +657,10 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 }
 
 func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfig) {
+	// channel is used to "wake up" the hashbeater when a change occurs that
+	// requires propagation, e.g. a new target node override is added
+	// it's buffered to ensure that multiple changes occurring in a short time
+	// frame only cause one wake-up
 	propagationRequired := make(chan struct{})
 
 	var lastHashbeat time.Time
@@ -670,6 +668,9 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 	var lastHashbeatMux sync.Mutex
 
 	enterrors.GoWrapper(func() {
+		s.metrics.IncAsyncReplicationGoroutinesRunning()
+		defer s.metrics.DecAsyncReplicationGoroutinesRunning()
+
 		s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
@@ -842,7 +843,12 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 				slices.Sort(aliveHosts)
 
 				if !slices.Equal(comparedHosts, aliveHosts) {
-					propagationRequired <- struct{}{}
+					select {
+					case <-ctx.Done():
+						return
+					case propagationRequired <- struct{}{}:
+					}
+
 					s.setLastComparedNodes(aliveHosts)
 				}
 			case <-ft.C:
@@ -853,7 +859,11 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 				lastHashbeatMux.Unlock()
 
 				if shouldHashbeat {
-					propagationRequired <- struct{}{}
+					select {
+					case <-ctx.Done():
+						return
+					case propagationRequired <- struct{}{}:
+					}
 				}
 			}
 		}
@@ -889,7 +899,20 @@ type hashBeatHostStats struct {
 	objectsNotResolved  int
 }
 
-func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) ([]*hashBeatHostStats, error) {
+func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (stats []*hashBeatHostStats, err error) {
+	start := time.Now()
+
+	s.metrics.IncAsyncReplicationIterationCount()
+
+	defer func() {
+		if err != nil && !errors.Is(err, replica.ErrNoDiffFound) {
+			s.metrics.IncAsyncReplicationIterationFailureCount()
+			return
+		}
+
+		s.metrics.ObserveAsyncReplicationIterationDuration(time.Since(start))
+	}()
+
 	var ht hashtree.AggregatedHashTree
 
 	s.asyncReplicationRWMux.RLock()
@@ -1246,6 +1269,18 @@ func (s *Shard) getHashBeatMaxUpdateTime(config asyncReplicationConfig, targetNo
 func (s *Shard) propagateObjects(ctx context.Context, config asyncReplicationConfig, host string,
 	objectsToPropagate []strfmt.UUID, remoteStaleUpdateTime map[strfmt.UUID]int64,
 ) (res []types.RepairResponse, err error) {
+	s.metrics.IncAsyncReplicationPropagationCount()
+
+	defer func(start time.Time) {
+		if err != nil {
+			s.metrics.IncAsyncReplicationPropagationFailureCount()
+			return
+		}
+
+		s.metrics.AddAsyncReplicationPropagationObjectCount(len(objectsToPropagate))
+		s.metrics.ObserveAsyncReplicationPropagationDuration(time.Since(start))
+	}(time.Now())
+
 	type workerResponse struct {
 		resp []types.RepairResponse
 		err  error

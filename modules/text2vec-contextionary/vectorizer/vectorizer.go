@@ -98,7 +98,11 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, override
 	cfg moduletools.ClassConfig,
 ) ([]float32, []txt2vecmodels.InterpretationSource, error) {
 	icheck := NewIndexChecker(cfg)
-	corpi := v.objectVectorizer.Texts(ctx, object, icheck)
+	corpi, isEmpty := v.objectVectorizer.Texts(ctx, object, icheck)
+	if isEmpty {
+		// don't vectorize empty text
+		return nil, nil, nil
+	}
 
 	vector, ie, err := v.client.VectorForCorpi(ctx, []string{corpi}, overrides)
 	if err != nil {

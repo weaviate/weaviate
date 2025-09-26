@@ -1847,22 +1847,32 @@ func (_c *MockShardLike_ObjectByIDErrDeleted_Call) RunAndReturn(run func(context
 	return _c
 }
 
-// ObjectCount provides a mock function with no fields
-func (_m *MockShardLike) ObjectCount() int {
-	ret := _m.Called()
+// ObjectCount provides a mock function with given fields: ctx
+func (_m *MockShardLike) ObjectCount(ctx context.Context) (int, error) {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ObjectCount")
 	}
 
 	var r0 int
-	if rf, ok := ret.Get(0).(func() int); ok {
-		r0 = rf()
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (int, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) int); ok {
+		r0 = rf(ctx)
 	} else {
 		r0 = ret.Get(0).(int)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockShardLike_ObjectCount_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ObjectCount'
@@ -1871,23 +1881,24 @@ type MockShardLike_ObjectCount_Call struct {
 }
 
 // ObjectCount is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) ObjectCount() *MockShardLike_ObjectCount_Call {
-	return &MockShardLike_ObjectCount_Call{Call: _e.mock.On("ObjectCount")}
+//   - ctx context.Context
+func (_e *MockShardLike_Expecter) ObjectCount(ctx interface{}) *MockShardLike_ObjectCount_Call {
+	return &MockShardLike_ObjectCount_Call{Call: _e.mock.On("ObjectCount", ctx)}
 }
 
-func (_c *MockShardLike_ObjectCount_Call) Run(run func()) *MockShardLike_ObjectCount_Call {
+func (_c *MockShardLike_ObjectCount_Call) Run(run func(ctx context.Context)) *MockShardLike_ObjectCount_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
 
-func (_c *MockShardLike_ObjectCount_Call) Return(_a0 int) *MockShardLike_ObjectCount_Call {
-	_c.Call.Return(_a0)
+func (_c *MockShardLike_ObjectCount_Call) Return(_a0 int, _a1 error) *MockShardLike_ObjectCount_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockShardLike_ObjectCount_Call) RunAndReturn(run func() int) *MockShardLike_ObjectCount_Call {
+func (_c *MockShardLike_ObjectCount_Call) RunAndReturn(run func(context.Context) (int, error)) *MockShardLike_ObjectCount_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2376,7 +2387,7 @@ func (_c *MockShardLike_PutObjectBatch_Call) RunAndReturn(run func(context.Conte
 }
 
 // QuantizedDimensions provides a mock function with given fields: ctx, targetVector, segments
-func (_m *MockShardLike) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
+func (_m *MockShardLike) QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error) {
 	ret := _m.Called(ctx, targetVector, segments)
 
 	if len(ret) == 0 {
@@ -2384,13 +2395,23 @@ func (_m *MockShardLike) QuantizedDimensions(ctx context.Context, targetVector s
 	}
 
 	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, int) (int, error)); ok {
+		return rf(ctx, targetVector, segments)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, int) int); ok {
 		r0 = rf(ctx, targetVector, segments)
 	} else {
 		r0 = ret.Get(0).(int)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, string, int) error); ok {
+		r1 = rf(ctx, targetVector, segments)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockShardLike_QuantizedDimensions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'QuantizedDimensions'
@@ -2413,12 +2434,12 @@ func (_c *MockShardLike_QuantizedDimensions_Call) Run(run func(ctx context.Conte
 	return _c
 }
 
-func (_c *MockShardLike_QuantizedDimensions_Call) Return(_a0 int) *MockShardLike_QuantizedDimensions_Call {
-	_c.Call.Return(_a0)
+func (_c *MockShardLike_QuantizedDimensions_Call) Return(_a0 int, _a1 error) *MockShardLike_QuantizedDimensions_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockShardLike_QuantizedDimensions_Call) RunAndReturn(run func(context.Context, string, int) int) *MockShardLike_QuantizedDimensions_Call {
+func (_c *MockShardLike_QuantizedDimensions_Call) RunAndReturn(run func(context.Context, string, int) (int, error)) *MockShardLike_QuantizedDimensions_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -154,7 +154,7 @@ func (c *TxManager) HaveDanglingTxs(ctx context.Context,
 		found = true
 	})
 
-	return
+	return found
 }
 
 // TryResumeDanglingTxs loops over the existing transactions and applies them.
@@ -204,7 +204,7 @@ func (c *TxManager) TryResumeDanglingTxs(ctx context.Context,
 		}).Infof("successfully resumed dangling transaction %q of type %q", tx.ID, tx.Type)
 	})
 
-	return
+	return applied, err
 }
 
 func (c *TxManager) resetTxExpiry(ttl time.Duration, id string) {

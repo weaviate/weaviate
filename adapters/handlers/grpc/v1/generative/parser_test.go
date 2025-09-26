@@ -53,6 +53,14 @@ func makeBoolPtr(b bool) *bool {
 	return &b
 }
 
+func makeStrPtrArray(values ...string) []*string {
+	arr := make([]*string, len(values))
+	for i := range values {
+		arr[i] = &values[i]
+	}
+	return arr
+}
+
 func getPropNames(props []*models.Property) []string {
 	names := make([]string, len(props))
 	for i, prop := range props {
@@ -460,6 +468,12 @@ func Test_RequestParser(t *testing.T) {
 									StopSequences: &pb.TextArray{
 										Values: []string{"stop"},
 									},
+									Images: &pb.TextArray{
+										Values: []string{"base64_encoded_image"},
+									},
+									ImageProperties: &pb.TextArray{
+										Values: []string{"image_property"},
+									},
 								},
 							},
 						},
@@ -467,7 +481,8 @@ func Test_RequestParser(t *testing.T) {
 				},
 			},
 			expected: &generate.Params{
-				Prompt: makeStrPtr("prompt"),
+				Prompt:     makeStrPtr("prompt"),
+				Properties: []string{"image_property"},
 				Options: map[string]any{
 					"cohere": cohere.Params{
 						BaseURL:          "url",
@@ -479,6 +494,8 @@ func Test_RequestParser(t *testing.T) {
 						FrequencyPenalty: makeFloat64Ptr(0.5),
 						PresencePenalty:  makeFloat64Ptr(0.5),
 						StopSequences:    []string{"stop"},
+						Images:           makeStrPtrArray("base64_encoded_image"),
+						ImageProperties:  []string{"image_property"},
 					},
 				},
 			},
@@ -689,6 +706,8 @@ func Test_RequestParser(t *testing.T) {
 									TopP:             makeFloat64Ptr(0.5),
 									FrequencyPenalty: makeFloat64Ptr(0.5),
 									PresencePenalty:  makeFloat64Ptr(0.5),
+									ReasoningEffort:  pb.GenerativeOpenAI_REASONING_EFFORT_HIGH.Enum(),
+									Verbosity:        pb.GenerativeOpenAI_VERBOSITY_LOW.Enum(),
 									Stop: &pb.TextArray{
 										Values: []string{"stop"},
 									},
@@ -714,6 +733,8 @@ func Test_RequestParser(t *testing.T) {
 						TopP:             makeFloat64Ptr(0.5),
 						FrequencyPenalty: makeFloat64Ptr(0.5),
 						PresencePenalty:  makeFloat64Ptr(0.5),
+						ReasoningEffort:  makeStrPtr("high"),
+						Verbosity:        makeStrPtr("low"),
 						Stop:             []string{"stop"},
 					},
 				},

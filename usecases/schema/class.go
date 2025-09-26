@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
-	cschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -57,14 +56,16 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, nam
 func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Principal,
 	name string, consistency bool,
 ) (*models.Class, uint64, error) {
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
-		return nil, 0, err
-	}
-
-	// Support getting class via alias name
+	// NOTE: Support getting class via alias name
+	// Also we resolve before doing `Authorize` so that Authorizer will work
+	// with correct `collectionName` for permissions and errors UX
 	name = schema.UppercaseClassName(name)
 	if rname := h.schemaReader.ResolveAlias(name); rname != "" {
 		name = rname
+	}
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
+		return nil, 0, err
 	}
 
 	if consistency {
@@ -291,29 +292,23 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	for _, alias := range aliases {
-		var err error
-		_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
-		if errors.Is(err, cschema.ErrAliasExists) {
-			// Overwrite if user asks to during restore
-			if overwriteAlias {
-				_, err = h.schemaManager.DeleteAlias(ctx, alias.Alias)
-				if err != nil {
-					return fmt.Errorf("failed to restore alias for class: delete alias failed: %w", err)
-				}
-				// retry again
-				_, err = h.schemaManager.CreateAlias(ctx, alias.Alias, class)
-				if err != nil {
-					return fmt.Errorf("failed to restore alias for class: create alias failed: %w", err)
-				}
-				return nil
-			}
-			// Schema returned alias already exists error. So let user know
-			// that there is a "flag overwrite" if she want's to overwrite alias.
-			return fmt.Errorf("failed to restore alias for class: alias already exists. You can overwrite using `overwrite_alias` param when restoring")
+		resolved := h.schemaReader.ResolveAlias(alias.Alias)
+
+		// Alias do exist and don't want to overwrite
+		if resolved != "" && !overwriteAlias {
+			continue
 		}
 
+		if resolved != "" {
+			_, err := h.schemaManager.DeleteAlias(ctx, alias.Alias)
+			if err != nil {
+				return fmt.Errorf("failed to restore alias for class: delete alias %s failed: %w", alias.Alias, err)
+			}
+		}
+
+		_, err := h.schemaManager.CreateAlias(ctx, alias.Alias, class)
 		if err != nil {
-			return fmt.Errorf("failed to restore alias for class: %w", err)
+			return fmt.Errorf("failed to restore alias for class: create alias %s failed: %w", alias.Alias, err)
 		}
 	}
 
@@ -952,7 +947,7 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 		err = validateMT(update)
 	}
 
-	return
+	return enabled, err
 }
 
 func validateImmutableFields(initial, updated *models.Class) error {

@@ -12,6 +12,8 @@
 package generative
 
 import (
+	"strings"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -129,7 +131,11 @@ func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.Gen
 		generative.Options = p.aws(opts)
 		p.providerName = awsParams.Name
 	case *pb.GenerativeProvider_Cohere:
-		generative.Options = p.cohere(query.GetCohere())
+		opts := query.GetCohere()
+		if opts.GetImageProperties() != nil {
+			generative.Properties = append(generative.Properties, opts.GetImageProperties().Values...)
+		}
+		generative.Options = p.cohere(opts)
 		p.providerName = cohereParams.Name
 	case *pb.GenerativeProvider_Mistral:
 		generative.Options = p.mistral(query.GetMistral())
@@ -266,6 +272,8 @@ func (p *Parser) cohere(in *pb.GenerativeCohere) map[string]any {
 			StopSequences:    in.StopSequences.GetValues(),
 			FrequencyPenalty: in.FrequencyPenalty,
 			PresencePenalty:  in.PresencePenalty,
+			Images:           p.getStringPtrs(in.Images),
+			ImageProperties:  p.getStrings(in.ImageProperties),
 		},
 	}
 }
@@ -304,6 +312,22 @@ func (p *Parser) openai(in *pb.GenerativeOpenAI) map[string]any {
 	if in == nil {
 		return nil
 	}
+	var reasoningEffort *string
+	switch in.GetReasoningEffort() {
+	case pb.GenerativeOpenAI_REASONING_EFFORT_UNSPECIFIED:
+		reasoningEffort = nil
+	default:
+		enumValue := strings.ToLower(strings.TrimPrefix(in.GetReasoningEffort().String(), "REASONING_EFFORT_"))
+		reasoningEffort = &enumValue
+	}
+	var verbosity *string
+	switch in.GetVerbosity() {
+	case pb.GenerativeOpenAI_VERBOSITY_UNSPECIFIED:
+		verbosity = nil
+	default:
+		enumValue := strings.ToLower(strings.TrimPrefix(in.GetVerbosity().String(), "VERBOSITY_"))
+		verbosity = &enumValue
+	}
 	return map[string]any{
 		openaiParams.Name: openaiParams.Params{
 			BaseURL:          in.GetBaseUrl(),
@@ -321,6 +345,8 @@ func (p *Parser) openai(in *pb.GenerativeOpenAI) map[string]any {
 			TopP:             in.TopP,
 			Images:           p.getStringPtrs(in.Images),
 			ImageProperties:  p.getStrings(in.ImageProperties),
+			ReasoningEffort:  reasoningEffort,
+			Verbosity:        verbosity,
 		},
 	}
 }

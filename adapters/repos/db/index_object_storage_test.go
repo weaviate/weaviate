@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
 
 	"github.com/go-openapi/strfmt"
@@ -160,6 +161,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			mockRouter := types.NewMockRouter(t)
 			mockRouter.EXPECT().GetWriteReplicasLocation(tt.className, mock.Anything, tt.shardName).
 				Return(types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "110.12.15.23"}}}, nil).Maybe()
+			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 			// Create index
 			index, err := NewIndex(ctx, IndexConfig{
 				RootPath:              dirName,
@@ -170,7 +172,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
-				}, nil, mockRouter, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+				}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -209,7 +211,8 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 
 				objectStorageSize, err := shard.ObjectStorageSize(ctx)
 				require.NoError(t, err)
-				objectCount := shard.ObjectCount()
+				objectCount, err := shard.ObjectCount(ctx)
+				require.NoError(t, err)
 
 				// Verify object count
 				assert.Equal(t, tt.expectedObjectCount, objectCount, "Object count should match expected")
@@ -229,7 +232,8 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 
 				objectStorageSize, err := shard.ObjectStorageSize(ctx)
 				require.NoError(t, err)
-				objectCount := shard.ObjectCount()
+				objectCount, err := shard.ObjectCount(ctx)
+				require.NoError(t, err)
 
 				assert.Equal(t, tt.expectedObjectCount, objectCount, "Empty shard should have 0 objects")
 				assert.Equal(t, tt.expectedStorageSizeMin, objectStorageSize, "Empty shard should have 0 storage size")
@@ -246,6 +250,8 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 
 	className := "TestClass"
 	tenantName := "test-tenant"
+	tenantNamePopulated := "test-tenant"
+	tenantNameEmpty := "empty-tenant"
 	objectCount := 50
 	objectSize := 500 // ~500 bytes per object
 
@@ -290,6 +296,8 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		},
 	}
 
+	shardState.SetLocalName("test-node")
+
 	// Create scheduler
 	scheduler := queue.NewScheduler(queue.SchedulerOptions{
 		Logger:  logger,
@@ -309,14 +317,14 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		return readFunc(class, shardState)
 	}).Maybe()
 	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
-	mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return(tenantName).Maybe()
-	mockSchema.EXPECT().ShardOwner(className, tenantName).Maybe().Return("test-node", nil)
-	mockSchema.EXPECT().TenantsShards(ctx, className, tenantName).Maybe().Return(map[string]string{tenantName: models.TenantActivityStatusHOT}, nil)
+	mockSchema.EXPECT().ShardOwner(className, tenantNamePopulated).Maybe().Return("test-node", nil)
+	mockSchema.EXPECT().TenantsShards(ctx, className, tenantNamePopulated).Maybe().
+		Return(map[string]string{tenantNamePopulated: models.TenantActivityStatusHOT}, nil)
 
 	mockRouter := types.NewMockRouter(t)
 	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, tenantName).
 		Return(types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "test-node", ShardName: tenantName, HostAddr: "110.12.15.23"}}}, nil).Maybe()
-
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 	// Create index with lazy loading disabled to test active calculation methods
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:              dirName,
@@ -328,7 +336,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, nil, nil, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+		}, nil, nil, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.NoError(t, err)
 
 	// Add properties
@@ -338,11 +346,11 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	}
 
 	// Add test objects
-	for i := 0; i < objectCount; i++ {
+	for i := range objectCount {
 		obj := &models.Object{
 			Class:  className,
 			ID:     strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", i)),
-			Tenant: tenantName,
+			Tenant: tenantNamePopulated,
 			Properties: map[string]interface{}{
 				"name":        fmt.Sprintf("test-object-%d", i),
 				"description": generateStringOfSize(objectSize - 50), // Leave room for other properties
@@ -357,7 +365,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Test active shard object storage size
-	activeShard, release, err := index.GetShard(ctx, tenantName)
+	activeShard, release, err := index.GetShard(ctx, tenantNamePopulated)
 	require.NoError(t, err)
 	require.NotNil(t, activeShard)
 
@@ -368,7 +376,8 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 
 	activeObjectStorageSize, err := activeShard.ObjectStorageSize(ctx)
 	require.NoError(t, err)
-	activeObjectCount := activeShard.ObjectCount()
+	activeObjectCount, err := activeShard.ObjectCount(ctx)
+	require.NoError(t, err)
 	assert.Greater(t, activeObjectStorageSize, int64(0), "Active shard calculation should have object storage size > 0")
 
 	// Test that active calculations are correct
@@ -388,11 +397,10 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Unload the shard from memory to test inactive calculation methods
-	index.shards.LoadAndDelete(tenantName)
+	index.shards.LoadAndDelete(tenantNamePopulated)
 
 	// Shut down the entire index to ensure all store metadata is persisted
 	require.NoError(t, index.Shutdown(ctx))
-
 	// Create a new index instance to test inactive calculation methods
 	// This ensures we're testing the inactive methods on a fresh index that reads from disk
 	newIndex, err := NewIndex(ctx, IndexConfig{
@@ -405,7 +413,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, index.GetVectorIndexConfigs(), nil, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+		}, index.GetVectorIndexConfigs(), nil, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.NoError(t, err)
 	defer newIndex.Shutdown(ctx)
 
@@ -413,13 +421,18 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	require.NoError(t, newIndex.ForEachShard(func(name string, shard ShardLike) error {
 		return shard.Shutdown(ctx)
 	}))
-	newIndex.shards.LoadAndDelete(tenantName)
+	newIndex.shards.LoadAndDelete(tenantNamePopulated)
 
-	inactiveObjectUsage, err := newIndex.CalculateUnloadedObjectsMetrics(ctx, tenantName)
+	inactiveObjectUsageOfPopulatedTenant, err := newIndex.CalculateUnloadedObjectsMetrics(ctx, tenantNamePopulated)
 	require.NoError(t, err)
 	// Compare active and inactive metrics
-	assert.Equal(t, int64(activeObjectCount), inactiveObjectUsage.Count, "Active and inactive object count should match")
-	assert.InDelta(t, activeObjectStorageSize, inactiveObjectUsage.StorageBytes, 1024, "Active and inactive object storage size should be close")
+	assert.Equal(t, int64(activeObjectCount), inactiveObjectUsageOfPopulatedTenant.Count, "Active and inactive object count should match")
+	assert.InDelta(t, activeObjectStorageSize, inactiveObjectUsageOfPopulatedTenant.StorageBytes, 1024, "Active and inactive object storage size should be close")
+
+	inactiveObjectUsageOfEmptyTenant, err := newIndex.CalculateUnloadedObjectsMetrics(ctx, tenantNameEmpty)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), inactiveObjectUsageOfEmptyTenant.Count)
+	assert.Equal(t, int64(0), inactiveObjectUsageOfEmptyTenant.StorageBytes)
 
 	// Verify all mock expectations were met
 	mockSchema.AssertExpectations(t)

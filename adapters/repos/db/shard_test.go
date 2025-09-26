@@ -109,7 +109,7 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 	}(shd.Index().Config.RootPath)
 
 	err := shd.Store().CreateOrLoadBucket(context.Background(), bucketName,
-		lsmkv.WithMemtableThreshold(1024))
+		lsmkv.WithMemtableThreshold(1024), lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	require.Nil(t, err)
 
 	bucket := shd.Store().Bucket(bucketName)
@@ -231,6 +231,54 @@ func TestShard_InvalidVectorBatches(t *testing.T) {
 	require.Equal(t, batchSize, int(shd.Counter().Get()))
 
 	require.Nil(t, idx.drop())
+}
+
+func TestShard_InvalidMultiVectorBatches(t *testing.T) {
+	t.Run("regular multivector", func(t *testing.T) {
+		ctx := testCtx()
+		class := &models.Class{Class: "TestClass"}
+		vectorIndexConfig := hnsw.NewDefaultMultiVectorUserConfig()
+		shd, idx := testShardWithSettings(t, ctx, class, vectorIndexConfig, false, false)
+		testShard(t, context.Background(), class.Class)
+		r := getRandomSeed()
+		batchSize := 100
+		validBatch := createRandomMultiVectorObjects(r, class.Class, batchSize, 4, 4)
+		shd.PutObjectBatch(ctx, validBatch)
+		require.Equal(t, batchSize, int(shd.Counter().Get()))
+		invalidBatch := createRandomMultiVectorObjects(r, class.Class, batchSize, 2, 5)
+		errs := shd.PutObjectBatch(ctx, invalidBatch)
+		require.Len(t, errs, batchSize)
+		for _, err := range errs {
+			require.ErrorContains(t, err, "new node has a multi vector with length 5 at position 0. Existing nodes have vectors with length 4")
+		}
+		require.Equal(t, batchSize, int(shd.Counter().Get()))
+		require.Nil(t, idx.drop())
+	})
+
+	t.Run("muvera multivector", func(t *testing.T) {
+		ctx := testCtx()
+		class := &models.Class{Class: "TestClass"}
+		vectorIndexConfig := hnsw.NewDefaultMultiVectorUserConfig()
+		vectorIndexConfig.Multivector = hnsw.MultivectorConfig{
+			Enabled:      true,
+			MuveraConfig: hnsw.MuveraConfig{Enabled: true, KSim: 1, Repetitions: 2, DProjections: 5},
+		}
+		shd, idx := testShardWithSettings(t, ctx, class, vectorIndexConfig, false, false)
+		testShard(t, context.Background(), class.Class)
+		r := getRandomSeed()
+		batchSize := 100
+		validBatch := createRandomMultiVectorObjects(r, class.Class, batchSize, 4, 4)
+		shd.PutObjectBatch(ctx, validBatch)
+		require.Equal(t, batchSize, int(shd.Counter().Get()))
+		invalidBatch := createRandomMultiVectorObjects(r, class.Class, batchSize, 2, 5)
+		errs := shd.PutObjectBatch(ctx, invalidBatch)
+		require.Len(t, errs, batchSize)
+		for _, err := range errs {
+			require.ErrorContains(t, err, "new node has a multi vector with length 5 at position 0. Existing nodes have vectors with length 4")
+		}
+		require.Equal(t, batchSize, int(shd.Counter().Get()))
+		require.Nil(t, idx.drop())
+	})
 }
 
 func TestShard_DebugResetVectorIndex(t *testing.T) {

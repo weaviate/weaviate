@@ -42,9 +42,9 @@ func New() *ObjectVectorizer {
 }
 
 func (v *ObjectVectorizer) Texts(ctx context.Context, object *models.Object, icheck ClassSettings,
-) string {
-	text, _ := v.TextsWithTitleProperty(ctx, object, icheck, "")
-	return text
+) (string, bool) {
+	text, _, isEmpty := v.TextsWithTitleProperty(ctx, object, icheck, "")
+	return text, isEmpty
 }
 
 func (v *ObjectVectorizer) separateCamelCase(in string, toLower bool) string {
@@ -70,15 +70,15 @@ func (v *ObjectVectorizer) separateCamelCase(in string, toLower bool) string {
 }
 
 func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *models.Object, icheck ClassSettings, titlePropertyName string,
-) (string, string) {
+) (string, string, bool) {
 	var corpi []string
 	var titlePropertyValue []string
 
+	hasSourceProperties := len(icheck.Properties()) > 0
 	toLowerCase := icheck.LowerCaseInput()
 	if entcfg.Enabled(os.Getenv("LOWERCASE_VECTORIZATION_INPUT")) {
 		toLowerCase = true
 	}
-
 	if icheck.VectorizeClassName() {
 		corpi = append(corpi, v.separateCamelCase(object.Class, toLowerCase))
 	}
@@ -90,7 +90,6 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 			}
 			isTitleProperty := propName == titlePropertyName
 			isPropertyNameVectorizable := icheck.VectorizePropertyName(propName)
-			hasSourceProperties := len(icheck.Properties()) > 0
 
 			switch val := propMap[propName].(type) {
 			case []string:
@@ -160,12 +159,15 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 			}
 		}
 	}
-	if len(corpi) == 0 {
+	if !hasSourceProperties && len(corpi) == 0 {
 		// fall back to using the class name
 		corpi = append(corpi, v.separateCamelCase(object.Class, toLowerCase))
 	}
 
-	return strings.Join(corpi, " "), strings.Join(titlePropertyValue, " ")
+	text := strings.Join(corpi, " ")
+	titleProperty := strings.Join(titlePropertyValue, " ")
+	isEmpty := len(text) == 0 && len(titleProperty) == 0
+	return text, titleProperty, isEmpty
 }
 
 func (v *ObjectVectorizer) insertValue(

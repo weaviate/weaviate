@@ -256,12 +256,10 @@ func (compressor *quantizedVectorsCompressor[T]) NewBag() CompressionDistanceBag
 }
 
 func (compressor *quantizedVectorsCompressor[T]) initCompressedStore() error {
-	err := compressor.compressedStore.CreateOrLoadBucket(context.Background(), helpers.VectorsCompressedBucketLSM)
+	err := compressor.compressedStore.CreateOrLoadBucket(context.Background(), helpers.VectorsCompressedBucketLSM, lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	if err != nil {
-		compressor.logger.WithFields(logrus.Fields{
-			"action": "initCompressedStore",
-			"error":  err,
-		}).Error("Create or load bucket (compressed vectors store)")
+		compressor.logger.WithField("action", "initCompressedStore").
+			WithError(err).Error("Create or load bucket (compressed vectors store)")
 		return errors.Wrapf(err, "Create or load bucket (compressed vectors store)")
 	}
 	return nil
@@ -703,7 +701,6 @@ func NewRQCompressor(
 	default:
 		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
 	}
-
 	return rqVectorsCompressor, nil
 }
 
@@ -762,7 +759,6 @@ func RestoreRQCompressor(
 	default:
 		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
 	}
-
 	return rqVectorsCompressor, nil
 }
 
@@ -810,7 +806,6 @@ func NewRQMultiCompressor(
 	default:
 		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
 	}
-
 	return rqVectorsCompressor, nil
 }
 
@@ -869,7 +864,6 @@ func RestoreRQMultiCompressor(
 	default:
 		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
 	}
-
 	return rqVectorsCompressor, nil
 }
 
