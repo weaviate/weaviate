@@ -9,12 +9,20 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package shardusage
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func TestShardPathDimensionsLSM(t *testing.T) {
@@ -133,4 +141,71 @@ func TestShardPathObjectsLSM(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestCalculateUnloadedObjectsMetrics(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+	tenantName := "tenant"
+
+	for _, metadata := range []bool{true, false} {
+		t.Run(fmt.Sprintf("metadata=%v", metadata), func(t *testing.T) {
+			dirName := t.TempDir()
+			bucketFolder := shardPathObjectsLSM(dirName, tenantName)
+
+			b, err := lsmkv.NewBucketCreator().NewBucket(ctx, bucketFolder, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithCalcCountNetAdditions(true), lsmkv.WithWriteMetadata(metadata))
+			require.NoError(t, err)
+			defer b.Shutdown(ctx)
+
+			require.NoError(t, b.Put([]byte("hello1"), []byte("world1")))
+			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.Put([]byte("hello2"), []byte("world2")))
+			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.Put([]byte("hello3"), []byte("world3")))
+			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.Put([]byte("hello4"), []byte("world4")))
+			require.NoError(t, b.FlushMemtable())
+
+			fileTypes := getFileTypeCount(t, bucketFolder)
+			require.Equal(t, 4, fileTypes[".db"])
+			require.Equal(t, 0, fileTypes[".wal"])
+			if metadata {
+				require.Equal(t, 4, fileTypes[".metadata"])
+			} else {
+				require.Equal(t, 4, fileTypes[".cna"])
+			}
+
+			metrics, err := CalculateUnloadedObjectsMetrics(logger, dirName, "tenant")
+			require.NoError(t, err)
+			require.Equal(t, metrics.Count, int64(4))
+
+			// add another key but dont flush => will not be included in count
+			require.NoError(t, b.Put([]byte("hello5"), []byte("world5")))
+
+			fileTypes = getFileTypeCount(t, bucketFolder)
+			require.Equal(t, 4, fileTypes[".db"])
+			require.Equal(t, 1, fileTypes[".wal"])
+			if metadata {
+				require.Equal(t, 4, fileTypes[".metadata"])
+			} else {
+				require.Equal(t, 4, fileTypes[".cna"])
+			}
+
+			metrics, err = CalculateUnloadedObjectsMetrics(logger, dirName, "tenant")
+			require.NoError(t, err)
+			require.Equal(t, metrics.Count, int64(4))
+		})
+	}
+}
+
+func getFileTypeCount(t *testing.T, path string) map[string]int {
+	t.Helper()
+	fileTypes := map[string]int{}
+	entries, err := os.ReadDir(path)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		fileTypes[filepath.Ext(entry.Name())] += 1
+	}
+	return fileTypes
 }

@@ -156,7 +156,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
-				}, nil, nil, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+				}, nil, nil, mockSchema, nil, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -311,7 +311,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, nil, nil, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+		}, nil, nil, mockSchema, nil, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.NoError(t, err)
 
 	// Add properties
@@ -377,6 +377,13 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	// Shut down the entire index to ensure all store metadata is persisted
 	require.NoError(t, index.Shutdown(ctx))
 
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
+		func(_ string, fn func(*models.Class, *sharding.State) error) error {
+			return fn(nil, shardState)
+		},
+	)
+
 	// Create a new index instance to test inactive calculation methods
 	// This ensures we're testing the inactive methods on a fresh index that reads from disk
 	newIndex, err := NewIndex(ctx, IndexConfig{
@@ -389,7 +396,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, index.GetVectorIndexConfigs(), nil, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+		}, index.GetVectorIndexConfigs(), nil, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.NoError(t, err)
 	defer newIndex.Shutdown(ctx)
 
@@ -399,16 +406,20 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	}))
 	newIndex.shards.LoadAndDelete(tenantNamePopulated)
 
-	inactiveObjectUsageOfPopulatedTenant, err := newIndex.CalculateUnloadedObjectsMetrics(ctx, tenantNamePopulated)
+	usage, err := newIndex.usageForCollection(ctx, time.Nanosecond, true)
 	require.NoError(t, err)
-	// Compare active and inactive metrics
-	assert.Equal(t, int64(activeObjectCount), inactiveObjectUsageOfPopulatedTenant.Count, "Active and inactive object count should match")
-	assert.InDelta(t, activeObjectStorageSize, inactiveObjectUsageOfPopulatedTenant.StorageBytes, 1024, "Active and inactive object storage size should be close")
 
-	inactiveObjectUsageOfEmptyTenant, err := newIndex.CalculateUnloadedObjectsMetrics(ctx, tenantNameEmpty)
-	require.NoError(t, err)
-	assert.Equal(t, int64(0), inactiveObjectUsageOfEmptyTenant.Count)
-	assert.Equal(t, int64(0), inactiveObjectUsageOfEmptyTenant.StorageBytes)
+	for _, shardUsage := range usage.Shards {
+		if shardUsage.Name == tenantNamePopulated {
+			assert.Equal(t, int64(activeObjectCount), shardUsage.ObjectsCount, "Active and inactive object count should match")
+			assert.InDelta(t, activeObjectStorageSize, shardUsage.ObjectsStorageBytes, 1024, "Active and inactive object storage size should be close")
+		} else {
+			assert.Equal(t, tenantNameEmpty, shardUsage.Name)
+			assert.Equal(t, int64(0), shardUsage.ObjectsCount)
+			assert.Equal(t, uint64(0), shardUsage.ObjectsStorageBytes)
+
+		}
+	}
 
 	// Verify all mock expectations were met
 	mockSchema.AssertExpectations(t)

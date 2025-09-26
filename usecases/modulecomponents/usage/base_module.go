@@ -242,7 +242,7 @@ func (b *BaseModule) collectUsageData(ctx context.Context) (*types.Report, error
 		return nil, fmt.Errorf("usage service not initialized")
 	}
 
-	usage, err := b.usageService.Usage(ctx)
+	usage, err := b.usageService.Usage(ctx, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get usage data: %w", err)
 	}

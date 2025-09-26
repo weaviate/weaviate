@@ -199,7 +199,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 				TrackVectorDimensions: true,
 			}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				defaultVectorConfig, vectorConfigs, nil, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+				defaultVectorConfig, vectorConfigs, nil, mockSchema, nil, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -466,7 +466,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 			}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
-				}, vectorConfigs, nil, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+				}, vectorConfigs, nil, mockSchema, nil, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -661,7 +661,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, nil, nil, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+		}, nil, nil, mockSchema, nil, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.NoError(t, err)
 
 	// Add properties
@@ -692,9 +692,6 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		err := index.putObject(ctx, storageObj, nil, 0)
 		require.NoError(t, err)
 	}
-
-	// Wait for indexing to complete
-	time.Sleep(1 * time.Second)
 
 	// Vector dimensions are always aggregated from nodeWideMetricsObserver,
 	// but we don't need DB for this test. Gimicky, but it does the job.
@@ -739,6 +736,13 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	// Shut down the entire index to ensure all store metadata is persisted
 	require.NoError(t, index.Shutdown(ctx))
 
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
+		func(_ string, fn func(*models.Class, *sharding.State) error) error {
+			return fn(nil, shardState)
+		},
+	)
+
 	// Create a new index instance to test inactive calculation methods
 	// This ensures we're testing the inactive methods on a fresh index that reads from disk
 	newIndex, err := NewIndex(ctx, IndexConfig{
@@ -752,7 +756,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, index.GetVectorIndexConfigs(), nil, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
+		}, index.GetVectorIndexConfigs(), nil, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 	require.NoError(t, err)
 	defer newIndex.Shutdown(ctx)
 
@@ -763,23 +767,23 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	newIndex.shards.LoadAndDelete(tenantNamePopulated)
 
 	// Compare active and inactive metrics
-	inactiveVectorStorageSizeOfPopulatedTenant, err := newIndex.CalculateUnloadedVectorsMetrics(ctx, tenantNamePopulated)
+	collectionUsage, err := newIndex.usageForCollection(ctx, time.Nanosecond, true)
 	require.NoError(t, err)
-	assert.Equal(t, activeVectorStorageSize, inactiveVectorStorageSizeOfPopulatedTenant, "Active and inactive vector storage size should be very similar")
+	for _, tenant := range collectionUsage.Shards {
+		if tenant.Name == tenantNamePopulated {
+			assert.Equal(t, uint64(activeVectorStorageSize), tenant.VectorStorageBytes, "Active and inactive vector storage size should be very similar")
 
-	inactiveDimensionalityOfPopulatedTenant, err := newIndex.CalculateUnloadedDimensionsUsage(ctx, tenantNamePopulated, "")
+			assert.Equal(t, objectCount, tenant.NamedVectors[0].Dimensionalities[0].Count, "Active and inactive object count should match")
+			assert.Equal(t, vectorDimensions, tenant.NamedVectors[0].Dimensionalities[0].Dimensions, "Active and inactive dimensions should match")
+		} else {
+			// empty tenant
+			assert.Equal(t, tenantNameEmpty, tenant.Name)
+			assert.Equal(t, uint64(0), tenant.VectorStorageBytes, "Empty tenant should have 0 vector storage size")
+			assert.Len(t, tenant.NamedVectors, 0)
+			assert.Equal(t, int64(0), tenant.ObjectsCount)
+		}
+	}
 	require.NoError(t, err)
-	assert.Equal(t, objectCount, inactiveDimensionalityOfPopulatedTenant.Count, "Active and inactive object count should match")
-	assert.Equal(t, vectorDimensions, inactiveDimensionalityOfPopulatedTenant.Dimensions, "Active and inactive dimensions should match")
-
-	inactiveVectorStorageSizeOfEmptyTenant, err := newIndex.CalculateUnloadedVectorsMetrics(ctx, tenantNameEmpty)
-	require.NoError(t, err)
-	assert.Equal(t, int64(0), inactiveVectorStorageSizeOfEmptyTenant)
-
-	inactiveDimensionalityOfEmptyTenant, err := newIndex.CalculateUnloadedDimensionsUsage(ctx, tenantNameEmpty, "")
-	require.NoError(t, err)
-	assert.Equal(t, 0, inactiveDimensionalityOfEmptyTenant.Count)
-	assert.Equal(t, 0, inactiveDimensionalityOfEmptyTenant.Dimensions)
 
 	// Verify all mock expectations were met
 	mockSchema.AssertExpectations(t)

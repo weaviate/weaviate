@@ -146,7 +146,7 @@ func TestModule_CollectAndUploadPeriodically_ContextCancellation(t *testing.T) {
 	mockUsageService := clusterusage.NewMockService(t)
 
 	// Set up expectations
-	mockUsageService.EXPECT().Usage(mock.Anything).Return(&types.Report{Node: "test-node"}, nil).Maybe()
+	mockUsageService.EXPECT().Usage(mock.Anything, mock.Anything).Return(&types.Report{Node: "test-node"}, nil).Maybe()
 	mockStorage.EXPECT().UploadUsageData(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Create base module
@@ -199,7 +199,7 @@ func TestModule_CollectAndUploadPeriodically_StopSignal(t *testing.T) {
 	mockUsageService := clusterusage.NewMockService(t)
 
 	// Set up expectations
-	mockUsageService.EXPECT().Usage(mock.Anything).Return(&types.Report{Node: "test-node"}, nil).Maybe()
+	mockUsageService.EXPECT().Usage(mock.Anything, mock.Anything).Return(&types.Report{Node: "test-node"}, nil).Maybe()
 	mockStorage.EXPECT().UploadUsageData(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Create base module
@@ -249,7 +249,7 @@ func TestCollectAndUploadPeriodically_ConfigChangesAndStop(t *testing.T) {
 	mockUsageService := clusterusage.NewMockService(t)
 
 	// Set up expectations
-	mockUsageService.EXPECT().Usage(mock.Anything).Return(&types.Report{Node: "test-node"}, nil).Maybe()
+	mockUsageService.EXPECT().Usage(mock.Anything, mock.Anything).Return(&types.Report{Node: "test-node"}, nil).Maybe()
 	mockUsageService.EXPECT().SetJitterInterval(mock.Anything).Return().Maybe()
 	mockStorage.EXPECT().UploadUsageData(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockStorage.EXPECT().UpdateConfig(mock.Anything).Return(true, nil).Maybe()
@@ -318,7 +318,7 @@ func TestModule_ZeroIntervalProtection(t *testing.T) {
 	mockUsageService := clusterusage.NewMockService(t)
 
 	// Set up expectations
-	mockUsageService.EXPECT().Usage(mock.Anything).Return(&types.Report{Node: "test-node"}, nil).Maybe()
+	mockUsageService.EXPECT().Usage(mock.Anything, mock.Anything).Return(&types.Report{Node: "test-node"}, nil).Maybe()
 	mockStorage.EXPECT().UploadUsageData(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockStorage.EXPECT().UpdateConfig(mock.Anything).Return(false, nil).Maybe()
 
