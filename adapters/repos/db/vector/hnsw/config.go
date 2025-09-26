@@ -42,6 +42,9 @@ type Config struct {
 	FlatSearchConcurrency     int
 	AcornFilterRatio          float64
 
+	MinMMapSize     int64
+	MaxWalReuseSize int64
+
 	// metadata for monitoring
 	ShardName string
 	ClassName string

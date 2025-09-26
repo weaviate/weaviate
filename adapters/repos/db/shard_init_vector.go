@@ -113,6 +113,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					)
 				},
 				AllocChecker:           s.index.allocChecker,
+				MinMMapSize:            s.index.Config.MinMMapSize,
+				MaxWalReuseSize:        s.index.Config.MaxReuseWalSize,
 				WaitForCachePrefill:    s.index.Config.HNSWWaitForCachePrefill,
 				FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
 				AcornFilterRatio:       s.index.Config.HNSWAcornFilterRatio,
