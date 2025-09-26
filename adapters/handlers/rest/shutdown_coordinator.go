@@ -15,7 +15,6 @@ import (
 	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 )
 
 // ShutdownCoordinator provides coordinated shutdown state management for HTTP and gRPC servers.
@@ -76,6 +75,3 @@ func (sc *ShutdownCoordinator) NotifyShutdown() {
 		sc.logger.Debug("notify shutdown")
 	}
 }
-
-// Interface compliance checks at compile time.
-var _ state.ShutdownTracker = (*ShutdownCoordinator)(nil)

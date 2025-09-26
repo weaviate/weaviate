@@ -44,7 +44,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
-type ShutdownTracker interface {
+type shutdownTracker interface {
 	IsShuttingDown() bool
 }
 
@@ -92,8 +92,8 @@ type State struct {
 
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator
-	restShutdownTracker      ShutdownTracker
-	grpcShutdownTracker      ShutdownTracker
+	restShutdownTracker      shutdownTracker
+	grpcShutdownTracker      shutdownTracker
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
@@ -114,14 +114,14 @@ func (s *State) SetGraphQL(gql graphql.GraphQL) {
 	s.gqlMutex.Unlock()
 }
 
-func (s *State) SetShutdownRestTracker(tracker ShutdownTracker) {
+func (s *State) SetShutdownRestTracker(tracker shutdownTracker) {
 	s.restShutdownTracker = tracker
-	s.Logger.Debug("REST ShutdownTracker set successfully")
+	s.Logger.Debug("REST shutdownTracker set successfully")
 }
 
-func (s *State) SetShutdownGrpcTracker(tracker ShutdownTracker) {
+func (s *State) SetShutdownGrpcTracker(tracker shutdownTracker) {
 	s.grpcShutdownTracker = tracker
-	s.Logger.Debug("GRPC ShutdownTracker set successfully")
+	s.Logger.Debug("GRPC shutdownTracker set successfully")
 }
 
 func (s *State) IsShuttingDown() bool {
