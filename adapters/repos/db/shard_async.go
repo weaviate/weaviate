@@ -418,7 +418,6 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 // it also removes any indexed vector that is not in the LSM store.
 // It it safe to call or interrupt this method at any time.
 func (s *Shard) RequantizeIndex(ctx context.Context, targetVector string) error {
-
 	start := time.Now()
 
 	vectorIndex, ok := s.GetVectorIndex(targetVector)
