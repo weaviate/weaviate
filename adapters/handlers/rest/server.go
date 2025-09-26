@@ -65,7 +65,7 @@ func NewServer(api *operations.WeaviateAPI) *Server {
 // ConfigureAPI configures the API and handlers.
 func (s *Server) ConfigureAPI() {
 	if s.api != nil {
-		s.handler = s.configureAPI(s.api)
+		s.handler = configureAPI(s.api)
 	}
 }
 
@@ -143,7 +143,7 @@ func (s *Server) SetAPI(api *operations.WeaviateAPI) {
 	}
 
 	s.api = api
-	s.handler = s.configureAPI(api)
+	s.handler = configureAPI(api)
 }
 
 func (s *Server) hasScheme(scheme string) bool {
@@ -427,15 +427,8 @@ func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) 
 	ctx, cancel := context.WithTimeout(context.TODO(), s.GracefulTimeout)
 	defer cancel()
 
-	s.Logf("Starting coordinated shutdown process")
-
 	// first execute the pre-shutdown hook
 	s.api.PreServerShutdown()
-
-	// NOTE: add a small additional delay to ensure health checks have propagated
-	// This gives load balancers more time to detect pods are shutting down
-	time.Sleep(500 * time.Millisecond)
-	s.Logf("Starting HTTP server shutdown")
 
 	shutdownChan := make(chan bool)
 	for i := range servers {
@@ -460,12 +453,8 @@ func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) 
 		success = success && <-shutdownChan
 	}
 	if success {
-		s.Logf("All HTTP servers shut down successfully")
-	} else {
-		s.Logf("Some HTTP servers failed to shut down gracefully")
+		s.api.ServerShutdown()
 	}
-
-	s.api.ServerShutdown()
 }
 
 // GetHandler returns a handler useful for testing
@@ -526,8 +515,4 @@ func handleInterrupt(once *sync.Once, s *Server) {
 
 func signalNotify(interrupt chan<- os.Signal) {
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
-}
-
-func (s *Server) IsShuttingDown() bool {
-	return atomic.LoadInt32(&s.shuttingDown) == 1
 }
