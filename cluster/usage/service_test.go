@@ -31,11 +31,11 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/models"
-	modulecapabilities "github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	backupusecase "github.com/weaviate/weaviate/usecases/backup"
-	"github.com/weaviate/weaviate/usecases/schema"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -62,17 +62,6 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 		VectorConfig: map[string]models.VectorConfig{vectorName: {VectorIndexConfig: hnsw.UserConfig{}}},
 	}
 
-	mockSchema := schema.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{class},
-		},
-	})
-	mockSchema.EXPECT().ReadOnlyClass(class.Class).Return(class)
-	mockSchema.EXPECT().ShardFromUUID(class.Class, mock.Anything).Return(shardName)
-
-	mockSchema.EXPECT().NodeName().Return(nodeName)
-
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{
 			shardName: {
@@ -83,16 +72,39 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 		},
 	}
 	shardingState.SetLocalName(nodeName)
-	mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
+		func(_ string, fn func(*models.Class, *sharding.State) error) error {
+			return fn(nil, shardingState)
+		},
+	)
+
+	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
+	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	})
+	mockSchemaGetter.EXPECT().ReadOnlyClass(class.Class).Return(class)
+	mockSchemaGetter.EXPECT().ShardFromUUID(class.Class, mock.Anything).Return(shardName)
+	mockSchemaGetter.EXPECT().NodeName().Return(nodeName)
+	mockSchemaGetter.EXPECT().CopyShardingState(className).Return(shardingState)
 
 	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
-	repo := createTestDb(t, mockSchema, class)
+	repo := createTestDb(t, mockSchemaGetter, shardingState, class)
 
+	// adding objects with the schemareader triggers some replication code paths that we do not care about here and are
+	// hard to setup with all these mocks and fake-things. So we add them with the schemaGetter and then switch on the
+	// schemaReader for the actual usage call
 	putObjectAndFlush(t, repo, className, "", map[string][]float32{vectorName: {0.1, 0.2, 0.3}})
+	repo.Shutdown(ctx)
+	repo.SetSchemaReader(mockSchemaReader)
+	require.Nil(t, repo.WaitForStartup(context.Background()))
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+	service := NewService(mockSchemaGetter, repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx)
 
@@ -124,7 +136,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	assert.Equal(t, dimensionality, dim.Dimensions)
 	assert.Equal(t, dimensionCount, dim.Count)
 
-	mockSchema.AssertExpectations(t)
+	mockSchemaGetter.AssertExpectations(t)
 	mockBackupProvider.AssertExpectations(t)
 }
 
@@ -167,7 +179,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	}
 	shardingState.SetLocalName(nodeName)
 
-	mockSchema := schema.NewMockSchemaGetter(t)
+	mockSchema := schemaUC.NewMockSchemaGetter(t)
 	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
@@ -181,9 +193,18 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	mockSchema.EXPECT().ReadOnlyClass(class.Class).Return(class)
 	mockSchema.EXPECT().TenantsShards(mock.Anything, className, hotTenant).Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, nil)
 	mockSchema.EXPECT().OptimisticTenantStatus(mock.Anything, className, hotTenant).Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, errors.New(""))
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
+		func(_ string, fn func(*models.Class, *sharding.State) error) error {
+			return fn(nil, shardingState)
+		},
+	)
 
-	repo := createTestDb(t, mockSchema, class)
+	repo := createTestDb(t, mockSchema, shardingState, class)
 	putObjectAndFlush(t, repo, className, hotTenant, map[string][]float32{vectorName: {0.1, 0.2, 0.3}}, map[string][]float32{vectorName: {0.4, 0.5, 0.6}})
+	repo.Shutdown(ctx)
+	repo.SetSchemaReader(mockSchemaReader)
+	require.Nil(t, repo.WaitForStartup(context.Background()))
 
 	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
@@ -254,14 +275,13 @@ func TestService_Usage_WithBackups(t *testing.T) {
 	class2 := "Class2"
 	class3 := "Class3"
 
-	mockSchema := schema.NewMockSchemaGetter(t)
+	mockSchema := schemaUC.NewMockSchemaGetter(t)
 	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
 		Objects: &models.Schema{Classes: []*models.Class{}},
 	})
 	mockSchema.EXPECT().NodeName().Return(nodeName)
-	// mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
 
-	repo := createTestDb(t, mockSchema, nil)
+	repo := createTestDb(t, mockSchema, nil, nil)
 
 	mockBackupBackend := modulecapabilities.NewMockBackupBackend(t)
 	backups := []*backup.DistributedBackupDescriptor{
@@ -1516,7 +1536,7 @@ func TestService_Usage_WithBackups(t *testing.T) {
 //	mockBackupProvider.AssertExpectations(t)
 //}
 
-func createTestDb(t *testing.T, sg schema.SchemaGetter, class *models.Class) *db.DB {
+func createTestDb(t *testing.T, sg schemaUC.SchemaGetter, shardingState *sharding.State, class *models.Class) *db.DB {
 	logger, _ := logrus.NewNullLogger()
 	repo, err := db.New(logger, db.Config{
 		MemtablesFlushDirtyAfter:  0,
@@ -1524,13 +1544,16 @@ func createTestDb(t *testing.T, sg schema.SchemaGetter, class *models.Class) *db
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 		MaxReuseWalSize:           0, // disable to make count easier
+		DisableLazyLoadShards:     true,
 	}, &db.FakeRemoteClient{}, &db.FakeNodeResolver{}, &db.FakeRemoteNodeClient{}, &db.FakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
+
 	repo.SetSchemaGetter(sg)
+
 	require.Nil(t, repo.WaitForStartup(context.Background()))
+
 	migrator := db.NewMigrator(repo, logger)
-	if class != nil {
-		shardingState := sg.CopyShardingState(class.Class)
+	if class != nil && shardingState != nil {
 		migrator.AddClass(context.Background(), class, shardingState)
 		for _, shard := range shardingState.Physical {
 			require.NoError(t, migrator.LoadShard(context.Background(), class.Class, shard.Name))

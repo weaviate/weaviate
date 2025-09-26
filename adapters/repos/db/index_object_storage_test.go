@@ -399,16 +399,16 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	}))
 	newIndex.shards.LoadAndDelete(tenantNamePopulated)
 
-	inactiveObjectUsageOfPopulatedTenant, err := newIndex.CalculateUnloadedObjectsMetrics(ctx, tenantNamePopulated)
+	shardUsage, err := newIndex.calculateUnloadedShardUsage(ctx, tenantNamePopulated)
 	require.NoError(t, err)
 	// Compare active and inactive metrics
-	assert.Equal(t, int64(activeObjectCount), inactiveObjectUsageOfPopulatedTenant.Count, "Active and inactive object count should match")
-	assert.InDelta(t, activeObjectStorageSize, inactiveObjectUsageOfPopulatedTenant.StorageBytes, 1024, "Active and inactive object storage size should be close")
+	assert.Equal(t, int64(activeObjectCount), shardUsage.ObjectsCount, "Active and inactive object count should match")
+	assert.InDelta(t, activeObjectStorageSize, shardUsage.ObjectsStorageBytes, 1024, "Active and inactive object storage size should be close")
 
-	inactiveObjectUsageOfEmptyTenant, err := newIndex.CalculateUnloadedObjectsMetrics(ctx, tenantNameEmpty)
+	shardUsageEmpty, err := newIndex.calculateUnloadedShardUsage(ctx, tenantNameEmpty)
 	require.NoError(t, err)
-	assert.Equal(t, int64(0), inactiveObjectUsageOfEmptyTenant.Count)
-	assert.Equal(t, int64(0), inactiveObjectUsageOfEmptyTenant.StorageBytes)
+	assert.Equal(t, int64(0), shardUsageEmpty.ObjectsCount)
+	assert.Equal(t, int64(0), shardUsageEmpty.ObjectsStorageBytes)
 
 	// Verify all mock expectations were met
 	mockSchema.AssertExpectations(t)

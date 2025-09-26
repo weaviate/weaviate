@@ -1,16 +1,35 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package db
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/cluster/usage/types"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName) (*types.CollectionUsage, error) {
@@ -40,84 +59,106 @@ func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName) (*t
 }
 
 func (i *Index) usageForCollection(ctx context.Context) (*types.CollectionUsage, error) {
-	schema := i.getSchema.ReadOnlyClass(i.Config.ClassName.String())
-
 	var uniqueShardCount int
 
 	collectionUsage := &types.CollectionUsage{
 		Name:              i.Config.ClassName.String(),
 		ReplicationFactor: int(i.Config.ReplicationFactor),
 	}
+
 	// iterate over local shards only
-	shardingState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
-	for shardName, physical := range shardingState.Physical {
+	err := i.schemaReader.Read(i.Config.ClassName.String(), func(_ *models.Class, ss *sharding.State) error {
+		for shardName, physical := range ss.Physical {
+			isLocal := ss.IsLocalShard(shardName)
+			if !isLocal {
+				continue
+			}
 
-		isLocal := shardingState.IsLocalShard(shardName)
-		if !isLocal {
-			continue
-		}
-		uniqueShardCount++
+			if err := func() error {
+				i.shardCreateLocks.Lock(shardName)
+				defer i.shardCreateLocks.Unlock(shardName)
 
-		if err := func() error {
-			i.shardCreateLocks.Lock(shardName)
-			defer i.shardCreateLocks.Unlock(shardName)
+				// there are 5 different states we need to handle here:
+				// 1. newly created tenant (empty)- no files on disk yet but present in sharding state. Just return 0 usage
+				// 2. cold tenant - handle without loading
+				// 3. offloaded tenants - handle without loading, return 0 usage
+				// 3. hot, unloaded lazy tenant - handle without loading
+				// 4. hot, loaded lazy tenant or non-lazy tenant - handle normally
 
-			// there are 3 different states we need to handle here:
-			// 1. cold tenant - handle without loading
-			// 2. hot, unloaded lazy tenant - handle without loading
-			// 3. hot, loaded lazy tenant or non-lazy tenant - handle normally
+				uniqueShardCount++
 
-			// case 1: cold tenant
-			if physical.ActivityStatus() == models.TenantActivityStatusCOLD {
-				//// Add jitter between cold tenant processing (except for the first one)
-				//if len(collectionUsage.Shards) > 0 {
-				//	jitter()
-				//}
-
-				shardUsage, err := i.calculateUnloadedShardUsage(ctx, shardName, schema.VectorConfig)
+				// case1: newly created empty tenant - status does not matter as there is no data yet
+				exists, err := i.tenantDirExists(shardName)
 				if err != nil {
 					return err
 				}
+				if !exists {
+					collectionUsage.Shards = append(collectionUsage.Shards, emptyShardUsageWithNameAndActivity(shardName, physical.ActivityStatus()))
+					return nil
+				}
 
-				collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
-				return nil
-			}
+				// case 2: cold tenant
+				if physical.ActivityStatus() == models.TenantActivityStatusCOLD {
+					//// Add jitter between cold tenant processing (except for the first one)
+					//if len(collectionUsage.Shards) > 0 {
+					//	jitter()
+					//}
 
-			shard := i.shards.Load(shardName)
-			if shard == nil {
-				return nil
-			}
+					shardUsage, err := i.calculateUnloadedShardUsage(ctx, shardName)
+					if err != nil {
+						return err
+					}
 
-			// case 2: hot, unloaded lazy tenant
-			if lazyShard, ok := shard.(*LazyLoadShard); ok && !lazyShard.isLoaded() {
-				shardUsage, err := i.calculateUnloadedShardUsage(ctx, shardName, schema.VectorConfig)
+					collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
+					return nil
+				} else if physical.ActivityStatus() != models.TenantActivityStatusHOT {
+					// case 3: non-hot tenants - OFFLOADED, OFFLOADING, ONLOADING. We return 0 usage for these tenants
+					collectionUsage.Shards = append(collectionUsage.Shards, emptyShardUsageWithNameAndActivity(shardName, physical.ActivityStatus()))
+					return nil
+				}
+
+				shard := i.shards.Load(shardName)
+				if shard == nil {
+					// not totally sure what this means, but just skip it for now
+					i.logger.WithField("shard", shardName).Warn("shard not found in memory, skipping usage calculation")
+					return nil
+				}
+
+				// case 2: hot, unloaded lazy tenant
+				if lazyShard, ok := shard.(*LazyLoadShard); ok && !lazyShard.isLoaded() {
+					shardUsage, err := i.calculateUnloadedShardUsage(ctx, shardName)
+					if err != nil {
+						return err
+					}
+
+					collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
+					return nil
+				}
+
+				// case 3: hot, loaded lazy tenant or non-lazy tenant
+				shardUsage, err := i.calculateLoadedShardUsage(ctx, shard)
 				if err != nil {
 					return err
 				}
-
 				collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
-				return nil
-			}
 
-			// case 3: hot, loaded lazy tenant or non-lazy tenant
-			shardUsage, err := i.calculateLoadedShardUsage(ctx, shard, schema)
-			if err != nil {
+				return nil
+			}(); err != nil {
 				return err
 			}
-			collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
-
-			return nil
-		}(); err != nil {
-			return nil, err
 		}
-	}
+		collectionUsage.UniqueShardCount = uniqueShardCount
 
-	collectionUsage.UniqueShardCount = uniqueShardCount
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	return collectionUsage, nil
 }
 
-func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard ShardLike, collectionConfig *models.Class) (*types.ShardUsage, error) {
+func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard ShardLike) (*types.ShardUsage, error) {
 	objectStorageSize, err := shard.ObjectStorageSize(ctx)
 	if err != nil {
 		return nil, err
@@ -131,6 +172,8 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard ShardLike, 
 	if err != nil {
 		return nil, err
 	}
+
+	vectorconfigs := i.GetVectorIndexConfigs()
 
 	shardUsage := &types.ShardUsage{
 		Name:                shard.Name(),
@@ -146,14 +189,12 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard ShardLike, 
 		var bits int16
 
 		// Check if this is a named vector configuration
-		if vectorConfig, exists := collectionConfig.VectorConfig[targetVector]; exists {
+		if vectorIndexConfig, exists := vectorconfigs[targetVector]; exists {
 			// Use the named vector's configuration
-			if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
-				category, _ = GetDimensionCategory(vectorIndexConfig)
-				indexType = vectorIndexConfig.IndexType()
-				bits = enthnsw.GetRQBits(vectorIndexConfig)
-			}
-		} else if vectorIndexConfig, ok := collectionConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+			category, _ = GetDimensionCategory(vectorIndexConfig)
+			indexType = vectorIndexConfig.IndexType()
+			bits = enthnsw.GetRQBits(vectorIndexConfig)
+		} else if vectorIndexConfig, exists := vectorconfigs[""]; exists {
 			// Fall back to legacy single vector configuration
 			category, _ = GetDimensionCategory(vectorIndexConfig)
 			indexType = vectorIndexConfig.IndexType()
@@ -195,14 +236,16 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard ShardLike, 
 	return shardUsage, nil
 }
 
-func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
+func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName string) (*types.ShardUsage, error) {
 	// Cold tenant: calculate from disk without loading
-	objectUsage, err := i.CalculateUnloadedObjectsMetrics(ctx, tenantName)
+	objectUsage, err := CalculateUnloadedObjectsMetrics(i.logger, i.path(), tenantName)
 	if err != nil {
 		return nil, err
 	}
 
-	vectorStorageSize, err := i.CalculateUnloadedVectorsMetrics(ctx, tenantName)
+	vectorIndexConfigs := i.GetVectorIndexConfigs()
+
+	vectorStorageSize, err := CalculateUnloadedVectorsMetrics(ctx, i.logger, i.path(), tenantName, vectorIndexConfigs)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +259,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName stri
 	}
 
 	// Get named vector data for cold shards from schema configuration
-	for targetVector, vectorConfig := range vectorConfigs {
+	for targetVector, vectorIndexConfig := range vectorIndexConfigs {
 		// For cold shards, we can't get actual dimensionality from disk without loading
 		// So we'll use a placeholder or estimate based on the schema
 		vectorUsage := &types.VectorUsage{
@@ -225,15 +268,154 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName stri
 			VectorCompressionRatio: 1.0, // Default ratio for cold shards
 		}
 
-		if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
-			category, _ := GetDimensionCategory(vectorIndexConfig)
-			vectorUsage.Compression = category.String()
-			vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
-			vectorUsage.Bits = enthnsw.GetRQBits(vectorIndexConfig)
-			vectorUsage.IsDynamic = common.IsDynamic(common.IndexType(vectorUsage.VectorIndexType))
+		category, _ := GetDimensionCategory(vectorIndexConfig)
+		vectorUsage.Compression = category.String()
+		vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
+		vectorUsage.Bits = enthnsw.GetRQBits(vectorIndexConfig)
+		vectorUsage.IsDynamic = common.IsDynamic(common.IndexType(vectorUsage.VectorIndexType))
+		// Why is this a list? There should be one dimensionality per named vector
+		dimensionalities, err := CalculateUnloadedDimensionsUsage(ctx, i.logger, i.path(), tenantName, targetVector)
+		if err != nil {
+			return nil, err
 		}
+		vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &dimensionalities)
 
 		shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
 	}
 	return shardUsage, err
+}
+
+// CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
+func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLogger, path, tenantName, targetVector string) (types.Dimensionality, error) {
+	bucketPath := shardPathDimensionsLSM(path, tenantName)
+	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, DimensionsBucketPrioritizedStrategies)
+	if err != nil {
+		return types.Dimensionality{}, fmt.Errorf("determine dimensions bucket strategy: %w", err)
+	}
+
+	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
+		bucketPath,
+		path,
+		logger,
+		nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		lsmkv.WithStrategy(strategy),
+	)
+	if err != nil {
+		return types.Dimensionality{}, err
+	}
+	defer bucket.Shutdown(ctx)
+
+	return calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+}
+
+// CalculateUnloadedVectorsMetrics calculates vector storage size for a cold tenant without loading it into memory
+func CalculateUnloadedVectorsMetrics(ctx context.Context, logger logrus.FieldLogger, path, tenantName string, vectorConfig map[string]schemaConfig.VectorIndexConfig) (int64, error) {
+	totalSize := int64(0)
+
+	// For each target vector, calculate storage size using dimensions bucket and config-based compression
+	for targetVector, config := range vectorConfig {
+		err := func() error {
+			bucketPath := shardPathDimensionsLSM(path, tenantName)
+			strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, DimensionsBucketPrioritizedStrategies)
+			if err != nil {
+				return fmt.Errorf("determine dimensions bucket strategy: %w", err)
+			}
+
+			// Get dimensions and object count from the dimensions bucket
+			bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
+				bucketPath,
+				path,
+				logger,
+				nil,
+				cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(),
+				lsmkv.WithStrategy(strategy),
+			)
+			if err != nil {
+				return err
+			}
+			defer bucket.Shutdown(ctx)
+
+			dimensionality, err := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+			if err != nil {
+				return err
+			}
+
+			if dimensionality.Count != 0 && dimensionality.Dimensions != 0 {
+				// Calculate uncompressed size (float32 = 4 bytes per dimension)
+				uncompressedSize := int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
+
+				// For inactive tenants, use vector index config for dimension tracking
+				// This is similar to the original shard dimension tracking approach
+				totalSize += int64(float64(uncompressedSize) / helpers.CompressionRatioFromConfig(config, dimensionality.Dimensions))
+			}
+			return nil
+		}()
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	return totalSize, nil
+}
+
+// CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
+func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, tenantName string) (types.ObjectUsage, error) {
+	// Parse all .cna files in the object store and sum them up
+	totalObjectCount := int64(0)
+	totalDiskSize := int64(0)
+
+	// Use a single walk to avoid multiple filepath.Walk calls and reduce file descriptors
+	if err := filepath.Walk(shardPathObjectsLSM(path, tenantName), func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Only count files, not directories
+		if !info.IsDir() {
+			totalDiskSize += info.Size()
+
+			// Look for .cna files (net count additions)
+			if strings.HasSuffix(info.Name(), lsmkv.CountNetAdditionsFileSuffix) {
+				count, err := lsmkv.ReadCountNetAdditionsFile(path)
+				if err != nil {
+					logger.WithField("path", path).WithError(err).Warn("failed to read .cna file")
+					return err
+				}
+				totalObjectCount += count
+			}
+
+			// Look for .metadata files (bloom filters + count net additions)
+			if strings.HasSuffix(info.Name(), lsmkv.MetadataFileSuffix) {
+				count, err := lsmkv.ReadObjectCountFromMetadataFile(path)
+				if err != nil {
+					logger.WithField("path", path).WithError(err).Warn("failed to read .metadata file")
+					return err
+				}
+				totalObjectCount += count
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return types.ObjectUsage{}, err
+	}
+
+	// If we can't determine object count, return the disk size as fallback
+	return types.ObjectUsage{
+		Count:        totalObjectCount,
+		StorageBytes: totalDiskSize,
+	}, nil
+}
+
+func emptyShardUsageWithNameAndActivity(shardName, activity string) *types.ShardUsage {
+	return &types.ShardUsage{
+		Name:                shardName,
+		Status:              activity,
+		ObjectsCount:        0,
+		ObjectsStorageBytes: 0,
+		VectorStorageBytes:  0,
+	}
 }
