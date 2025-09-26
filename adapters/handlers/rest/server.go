@@ -416,44 +416,37 @@ func (s *Server) Shutdown() error {
 }
 
 func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) {
-	// wg.Done must occur last, after s.api.ServerShutdown()
-	// (to preserve old behaviour)
 	defer wg.Done()
+	// Always invoke the API shutdown hook, even if HTTP servers fail to shutdown gracefully.
+	// This ensures critical cleanup always happens no matter if the server shutdown completed
+	// successfully or not.
+	defer s.api.ServerShutdown()
 
 	<-s.shutdown
-
 	servers := *serversPtr
-
 	ctx, cancel := context.WithTimeout(context.TODO(), s.GracefulTimeout)
 	defer cancel()
 
-	// first execute the pre-shutdown hook
 	s.api.PreServerShutdown()
 
-	shutdownChan := make(chan bool)
+	// Wait for all HTTP servers to attempt graceful shutdown
+	shutdownChan := make(chan bool, len(servers))
+
 	for i := range servers {
 		server := servers[i]
 		go func() {
-			var success bool
-			defer func() {
-				shutdownChan <- success
-			}()
 			if err := server.Shutdown(ctx); err != nil {
-				// Error from closing listeners, or context timeout:
-				s.Logf("HTTP server Shutdown: %v", err)
-			} else {
-				success = true
+				// Graceful shutdown failed, force close the server as fallback
+				_ = server.Close()
+				s.Logf("HTTP server shutdown failed: %v", err)
 			}
+			shutdownChan <- true // Signal completion regardless of success/failure
 		}()
 	}
 
-	// Wait until all listeners have successfully shut down before calling ServerShutdown
-	success := true
+	// Wait for all servers to complete shutdown attempts
 	for range servers {
-		success = success && <-shutdownChan
-	}
-	if success {
-		s.api.ServerShutdown()
+		<-shutdownChan
 	}
 }
 
