@@ -178,7 +178,7 @@ func (s *Server) Open() error {
 // Close closes the server and free any used ressources.
 func (s *Server) Close() {
 	if s.grpcServer != nil {
-		s.grpcServer.Stop()
+		s.grpcServer.GracefulStop()
 	}
 }
 

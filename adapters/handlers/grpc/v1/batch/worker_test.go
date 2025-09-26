@@ -43,7 +43,8 @@ func TestWorkerLoop(t *testing.T) {
 
 		readQueues := batch.NewBatchReadQueues()
 		readQueues.Make(StreamId)
-		internalQueue := batch.NewBatchInternalQueue()
+		processingQueue := batch.NewBatchProcessingQueue(1)
+		reportingQueue := batch.NewBatchReportingQueue(100) // don't care about blocking here
 
 		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
 			Took:   float32(1),
@@ -54,27 +55,32 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: nil,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueue, readQueues, mockBatcher, logger)
 
 		// Send data
-		internalQueue <- &batch.ProcessRequest{
-			StreamId: StreamId,
-			Objects: &batch.SendObjects{
-				Values: []*pb.BatchObject{},
-			},
-		}
-		internalQueue <- &batch.ProcessRequest{
-			StreamId: StreamId,
-			References: &batch.SendReferences{
-				Values: []*pb.BatchReference{},
-			},
-		}
+		processingQueue <- batch.NewProcessRequest(
+			[]*pb.BatchObject{{}},
+			nil,
+			StreamId,
+			false,
+			nil,
+		)
+		processingQueue <- batch.NewProcessRequest(
+			nil,
+			[]*pb.BatchReference{{}},
+			StreamId,
+			false,
+			nil,
+		)
 
 		// Send sentinel
-		internalQueue <- &batch.ProcessRequest{
-			StreamId: StreamId,
-			Stop:     true,
-		}
+		processingQueue <- batch.NewProcessRequest(
+			nil,
+			nil,
+			StreamId,
+			true,
+			nil,
+		)
 
 		// Accept the stop message
 		ch, ok := readQueues.Get(StreamId)
@@ -82,10 +88,10 @@ func TestWorkerLoop(t *testing.T) {
 		_, ok = <-ch
 		require.False(t, ok, "Expected read queue to be closed")
 
-		cancel()             // Cancel the context to stop the worker loop
-		close(internalQueue) // Allow the draining logic to exit naturally
+		cancel()               // Cancel the context to stop the worker loop
+		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
-		require.Empty(t, internalQueue, "Expected internal queue to be empty after processing")
+		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
 		require.Empty(t, ch, "Expected read queue to be empty after processing")
 		require.Equal(t, ctx.Err(), context.Canceled, "Expected context to be canceled")
 	})
@@ -98,7 +104,8 @@ func TestWorkerLoop(t *testing.T) {
 
 		readQueues := batch.NewBatchReadQueues()
 		readQueues.Make(StreamId)
-		internalQueue := batch.NewBatchInternalQueue()
+		processingQueue := batch.NewBatchProcessingQueue(1)
+		reportingQueue := batch.NewBatchReportingQueue(100) // don't care about blocking here
 
 		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
 			Took:   float32(1),
@@ -109,29 +116,34 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: nil,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueue, readQueues, mockBatcher, logger)
 
 		cancel() // Cancel the context to simulate shutdown
 		// Send data after context cancellation to ensure that the worker processes it
 		// in its shutdown select-case
-		internalQueue <- &batch.ProcessRequest{
-			StreamId: StreamId,
-			Objects: &batch.SendObjects{
-				Values: []*pb.BatchObject{},
-			},
-		}
-		internalQueue <- &batch.ProcessRequest{
-			StreamId: StreamId,
-			References: &batch.SendReferences{
-				Values: []*pb.BatchReference{},
-			},
-		}
+		processingQueue <- batch.NewProcessRequest(
+			[]*pb.BatchObject{{}},
+			nil,
+			StreamId,
+			false,
+			nil,
+		)
+		processingQueue <- batch.NewProcessRequest(
+			nil,
+			[]*pb.BatchReference{{}},
+			StreamId,
+			false,
+			nil,
+		)
 		// Send sentinel
-		internalQueue <- &batch.ProcessRequest{
-			StreamId: StreamId,
-			Stop:     true,
-		}
-		close(internalQueue) // Close the internal queue to stop processing as part of the shutdown
+		processingQueue <- batch.NewProcessRequest(
+			nil,
+			nil,
+			StreamId,
+			true,
+			nil,
+		)
+		close(processingQueue) // Close the internal queue to stop processing as part of the shutdown
 
 		// Accept the stop message
 		ch, ok := readQueues.Get(StreamId)
@@ -140,7 +152,7 @@ func TestWorkerLoop(t *testing.T) {
 		require.False(t, ok, "Expected read queue to be closed")
 
 		wg.Wait() // Wait for the worker to finish processing
-		require.Empty(t, internalQueue, "Expected internal queue to be empty after processing")
+		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
 		require.Empty(t, ch, "Expected read queue to be empty after processing")
 		require.Equal(t, ctx.Err(), context.Canceled, "Expected context to be canceled")
 	})
@@ -153,12 +165,17 @@ func TestWorkerLoop(t *testing.T) {
 
 		readQueues := batch.NewBatchReadQueues()
 		readQueues.Make(StreamId)
-		internalQueue := batch.NewBatchInternalQueue()
+		processingQueue := batch.NewBatchProcessingQueue(1)
+		reportingQueue := batch.NewBatchReportingQueue(100) // don't care about blocking here
 
 		errorsObj := []*pb.BatchObjectsReply_BatchError{
 			{
 				Error: replica.ErrReplicas.Error(),
 				Index: 0,
+			},
+			{
+				Error: "objs error",
+				Index: 1,
 			},
 		}
 		errorsRefs := []*pb.BatchReferencesReply_BatchError{
@@ -167,38 +184,54 @@ func TestWorkerLoop(t *testing.T) {
 				Index: 0,
 			},
 		}
+		// Return one retriable error and one regular error for objects
 		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
 			Took:   float32(1),
 			Errors: errorsObj,
-		}, nil)
+		}, nil).Times(1)
+		// Verify that the retriable error is sent again and no error is returned this time
+		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
+			Took:   float32(1),
+			Errors: nil,
+		}, nil).Times(1)
+		// Return one regular error for references
 		mockBatcher.EXPECT().BatchReferences(ctx, mock.Anything).Return(&pb.BatchReferencesReply{
 			Took:   float32(1),
 			Errors: errorsRefs,
-		}, nil)
+		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, internalQueue, readQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueue, readQueues, mockBatcher, logger)
 
 		// Send data
 		obj := &pb.BatchObject{}
-		internalQueue <- &batch.ProcessRequest{
-			StreamId: StreamId,
-			Objects: &batch.SendObjects{
-				Values: []*pb.BatchObject{obj, obj},
-			},
-		}
-		ref := &pb.BatchReference{}
-		internalQueue <- &batch.ProcessRequest{
-			StreamId: StreamId,
-			References: &batch.SendReferences{
-				Values: []*pb.BatchReference{ref, ref},
-			},
-		}
+		// must use goroutine to avoid deadlock due to one worker sending error over read stream
+		// while next send to processing queue is blocked by there only being one worker
+		go func() {
+			processingQueue <- batch.NewProcessRequest(
+				[]*pb.BatchObject{obj, obj, obj},
+				nil,
+				StreamId,
+				false,
+				nil,
+			)
+			ref := &pb.BatchReference{}
+			processingQueue <- batch.NewProcessRequest(
+				nil,
+				[]*pb.BatchReference{ref, ref},
+				StreamId,
+				false,
+				nil,
+			)
 
-		// Send sentinel
-		internalQueue <- &batch.ProcessRequest{
-			StreamId: StreamId,
-			Stop:     true,
-		}
+			// Send sentinel
+			processingQueue <- batch.NewProcessRequest(
+				nil,
+				nil,
+				StreamId,
+				true,
+				nil,
+			)
+		}()
 
 		ch, ok := readQueues.Get(StreamId)
 		require.True(t, ok, "Expected read queue to exist and to contain message")
@@ -207,28 +240,23 @@ func TestWorkerLoop(t *testing.T) {
 		errs := <-ch
 		require.NotNil(t, errs.Errors, "Expected errors to be returned")
 		require.Len(t, errs.Errors, 1, "Expected one error to be returned")
-		require.Equal(t, replica.ErrReplicas.Error(), errs.Errors[0].Error, "Expected error message to match")
-		require.True(t, errs.Errors[0].IsObject, "Expected IsObject to be true for object errors")
-		require.False(t, errs.Errors[0].IsReference, "Expected IsReference to be false for object errors")
-		require.True(t, errs.Errors[0].IsRetriable, "Expected IsRetriable to be true for this error")
+		require.Equal(t, "objs error", errs.Errors[0].Error, "Expected error message to match")
+		require.Equal(t, obj, errs.Errors[0].GetObject(), "Expected object to match")
 
 		// Read second error
 		errs = <-ch
 		require.NotNil(t, errs.Errors, "Expected errors to be returned")
 		require.Len(t, errs.Errors, 1, "Expected one error to be returned")
 		require.Equal(t, "refs error", errs.Errors[0].Error, "Expected error message to match")
-		require.False(t, errs.Errors[0].IsObject, "Expected IsObject to be false for reference errors")
-		require.True(t, errs.Errors[0].IsReference, "Expected IsReference to be true for reference errors")
-		require.False(t, errs.Errors[0].IsRetriable, "Expected IsRetriable to be false for this error")
 
 		// Read sentinel
 		_, ok = <-ch
 		require.False(t, ok, "Expected read queue to be closed")
 
-		cancel()             // Cancel the context to stop the worker loop
-		close(internalQueue) // Allow the draining logic to exit naturally
+		cancel()               // Cancel the context to stop the worker loop
+		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
-		require.Empty(t, internalQueue, "Expected internal queue to be empty after processing")
+		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
 		require.Empty(t, ch, "Expected read queue to be empty after processing")
 		require.Equal(t, ctx.Err(), context.Canceled, "Expected context to be canceled")
 	})
