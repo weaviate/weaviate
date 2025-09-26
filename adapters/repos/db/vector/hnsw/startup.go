@@ -283,16 +283,29 @@ func (h *hnsw) restoreDocMappings() error {
 	maxNodeID := uint64(0)
 	maxDocID := uint64(0)
 	buf := make([]byte, 8)
+
+	bucket := h.store.Bucket(h.id + "_mv_mappings")
+	if bucket == nil {
+		h.logger.WithFields(map[string]interface{}{
+			"action": "restore_doc_mappings",
+			"id":     h.id,
+		}).Error("failed to get mv_mappings bucket")
+		return errors.New(fmt.Sprintf("failed to get %s_mv_mappings from the bucket", h.id))
+	}
 	for _, node := range h.nodes {
 		if node == nil {
 			continue
 		}
 		binary.BigEndian.PutUint64(buf, node.id)
-		docIDBytes, err := h.store.Bucket(h.id + "_mv_mappings").Get(buf)
+		docIDBytes, err := bucket.Get(buf)
 		if err != nil {
 			return errors.Wrap(err, fmt.Sprintf("failed to get %s_mv_mappings from the bucket", h.id))
 		}
-		if len(docIDBytes) == 0 { // only happens if ungraceful shutdown happened while inserting
+		if len(docIDBytes) < 8 { // only happens if ungraceful shutdown happened while inserting
+			h.logger.WithFields(map[string]interface{}{
+				"action":  "restore_doc_mappings",
+				"node_id": node.id,
+			}).Error("skipping node with missing doc mapping, possibly due to corrupted state")
 			h.nodes[node.id] = nil
 			continue
 		}
