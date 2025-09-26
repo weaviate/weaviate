@@ -800,6 +800,9 @@ func (i *flat) ValidateMultiBeforeInsert(vector [][]float32) error {
 	return nil
 }
 
+func (i *flat) Preload(id uint64, vector []float32) {
+}
+
 func (index *flat) PostStartup() {
 	if !index.isBQCached() {
 		return
