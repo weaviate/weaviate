@@ -233,11 +233,11 @@ func computeMaxPostingSize(dims int, compressed bool) uint32 {
 }
 
 func (s *SPFresh) setMaxPostingSize() {
-	if s.Config.MaxPostingSize == 0 {
+	if s.config.MaxPostingSize == 0 {
 		isCompressed := s.Compressed()
-		s.Config.MaxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
+		s.config.MaxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
 	}
-	if s.Config.MaxPostingSize < s.Config.MinPostingSize { // either set by the user or computed by the index we want to make sure it's at least the min posting size
-		s.Config.MaxPostingSize = s.Config.MinPostingSize
+	if s.config.MaxPostingSize < s.config.MinPostingSize { // either set by the user or computed by the index we want to make sure it's at least the min posting size
+		s.config.MaxPostingSize = s.config.MinPostingSize
 	}
 }
