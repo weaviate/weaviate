@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -47,8 +48,9 @@ var _ common.VectorIndex = (*SPFresh)(nil)
 // while exposing a synchronous API for searching and updating vectors.
 // Note: this is a work in progress and not all features are implemented yet.
 type SPFresh struct {
-	Logger logrus.FieldLogger
-	Config *Config // Config contains internal configuration settings.
+	logger  logrus.FieldLogger
+	config  *Config // Config contains internal configuration settings.
+	metrics *Metrics
 
 	// some components require knowing the vector size beforehand
 	// and can only be initialized once the first vector has been
@@ -56,6 +58,7 @@ type SPFresh struct {
 	initDimensionsOnce sync.Once
 	dims               int32 // Number of dimensions of expected vectors
 	vectorSize         int32 // Size of the compressed vectors in bytes
+	distancer          *Distancer
 
 	// Internal components
 	SPTAG        SPTAG                   // Provides access to the SPTAG index for centroid operations.
@@ -77,11 +80,8 @@ type SPFresh struct {
 	mergeList *deduplicator // Prevents duplicate merge operations
 
 	visitedPool *visited.Pool
-	// TODO: make the distancer configurable
-	distancer *Distancer
 
-	postingLocks *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
-
+	postingLocks       *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
 	initialPostingLock sync.Mutex
 }
 
@@ -90,16 +90,19 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 		return nil, err
 	}
 
-	postingStore, err := NewLSMStore(store, bucketName(cfg.ID))
+	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
+
+	postingStore, err := NewLSMStore(store, metrics, bucketName(cfg.ID))
 	if err != nil {
 		return nil, err
 	}
 
 	s := SPFresh{
-		Logger: cfg.Logger.WithField("component", "SPFresh"),
-		Config: cfg,
-		SPTAG:  NewBruteForceSPTAG(),
-		Store:  postingStore,
+		logger:  cfg.Logger.WithField("component", "SPFresh"),
+		config:  cfg,
+		metrics: metrics,
+		SPTAG:   NewBruteForceSPTAG(metrics),
+		Store:   postingStore,
 		// Capacity of the version map: 8k pages, 1M vectors each -> 8B vectors
 		// - An empty version map consumes 240KB of memory
 		// - Each allocated page consumes 1MB of memory
@@ -109,7 +112,7 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 		// - An empty posting sizes buffer consumes 240KB of memory
 		// - Each allocated page consumes 4MB of memory
 		// - A fully used posting sizes consumes 4GB of memory
-		PostingSizes: NewPostingSizes(1024, 1024*1024),
+		PostingSizes: NewPostingSizes(metrics, 1024, 1024*1024),
 
 		postingLocks: common.NewDefaultShardedRWLocks(),
 		// TODO: Eventually, we'll create sharded workers between all instances of SPFresh
@@ -127,20 +130,20 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
 	// start N workers to process split operations
-	for i := 0; i < s.Config.SplitWorkers; i++ {
+	for i := 0; i < s.config.SplitWorkers; i++ {
 		s.wg.Add(1)
-		enterrors.GoWrapper(s.splitWorker, s.Logger)
+		enterrors.GoWrapper(s.splitWorker, s.logger)
 	}
 
 	// start M workers to process reassign operations
-	for i := 0; i < s.Config.ReassignWorkers; i++ {
+	for i := 0; i < s.config.ReassignWorkers; i++ {
 		s.wg.Add(1)
-		enterrors.GoWrapper(s.reassignWorker, s.Logger)
+		enterrors.GoWrapper(s.reassignWorker, s.logger)
 	}
 
 	// start a single worker to process merge operations
 	s.wg.Add(1)
-	enterrors.GoWrapper(s.mergeWorker, s.Logger)
+	enterrors.GoWrapper(s.mergeWorker, s.logger)
 
 	return &s, nil
 }
@@ -148,11 +151,14 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 // Delete marks a vector as deleted in the version map.
 func (s *SPFresh) Delete(ids ...uint64) error {
 	for _, id := range ids {
+		start := time.Now()
 		version := s.VersionMap.MarkDeleted(id)
 		if version == 0 {
 			return ErrVectorNotFound
 		}
+		s.metrics.DeleteVector(start)
 	}
+
 	return nil
 }
 
@@ -222,7 +228,7 @@ func (s *SPFresh) ContainsDoc(id uint64) bool {
 }
 
 func (s *SPFresh) Iterate(fn func(id uint64) bool) {
-	s.Logger.Warn("Iterate is not implemented for SPFresh index")
+	s.logger.Warn("Iterate is not implemented for SPFresh index")
 }
 
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
@@ -234,8 +240,8 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 
 func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	var bucketName string
-	if s.Config.TargetVector != "" {
-		bucketName = fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, s.Config.TargetVector)
+	if s.config.TargetVector != "" {
+		bucketName = fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, s.config.TargetVector)
 	} else {
 		bucketName = helpers.VectorsBucketLSM
 	}
@@ -248,7 +254,7 @@ func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVector
 			return 0, err
 		}
 
-		dist, err := s.Config.Distancer.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+		dist, err := s.config.Distancer.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
 		if err != nil {
 			return 0, err
 		}

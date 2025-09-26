@@ -20,8 +20,8 @@ import "github.com/pkg/errors"
 // If `reassignedFromID` is non-zero, the function will abort and return false
 // if one of the selected postings is equal to `reassignedFromID`.
 func (s *SPFresh) RNGSelect(query Vector, reassignedFromID uint64) ([]SearchResult, bool, error) {
-	replicas := make([]SearchResult, 0, s.Config.Replicas)
-	candidates, err := s.SPTAG.Search(query, s.Config.InternalPostingCandidates)
+	replicas := make([]SearchResult, 0, s.config.Replicas)
+	candidates, err := s.SPTAG.Search(query, s.config.InternalPostingCandidates)
 	if err != nil {
 		return nil, false, errors.Wrap(err, "failed to search for nearest neighbors")
 	}
@@ -37,7 +37,7 @@ func (s *SPFresh) RNGSelect(query Vector, reassignedFromID uint64) ([]SearchResu
 				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", c.ID, r.ID)
 			}
 
-			if centerDist <= (1.0/s.Config.RNGFactor)*c.Distance {
+			if centerDist <= (1.0/s.config.RNGFactor)*c.Distance {
 				tooClose = true
 				break
 			}
