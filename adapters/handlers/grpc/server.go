@@ -119,6 +119,7 @@ func CreateGRPCServer(state *state.State, shutdown *batch.Shutdown, options ...g
 	pbv1.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
 
 	healthServer := health.NewServer()
+	healthServer.SetServingStatus("weaviate", grpc_health_v1.HealthCheckResponse_SERVING)
 	grpc_health_v1.RegisterHealthServer(s, healthServer)
 
 	return s, healthServer

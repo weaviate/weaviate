@@ -955,7 +955,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger.Info("pre-shutdown phase initiated")
 
 		shutdownCoordinator.NotifyShutdown()
-		grpcHealthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+		grpcHealthServer.SetServingStatus("weaviate", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
 		appState.Logger.Debug("notified shutdown coordinator and marked gRPC as unhealthy")
 
 		// NOTE: give health checks and readiness probes time to detect the shutdown without excessive delay
