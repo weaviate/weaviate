@@ -911,8 +911,8 @@ func (s *Server) configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	grpcShutdownTracker := &shutdownGRPCTracker{logger: appState.Logger}
-	appState.SetShutdownRestChecker(s)
-	appState.SetShutdownGrpcChecker(grpcShutdownTracker)
+	appState.SetShutdownRestTracker(s)
+	appState.SetShutdownGrpcTracker(grpcShutdownTracker)
 
 	api.PreServerShutdown = func() {
 		appState.Logger.Info("pre-shutdown phase initiated")

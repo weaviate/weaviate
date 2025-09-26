@@ -45,7 +45,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
-type ShutdownChecker interface {
+type ShutdownTracker interface {
 	IsShuttingDown() bool
 }
 
@@ -94,8 +94,8 @@ type State struct {
 
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator
-	restShutdownChecker      ShutdownChecker
-	grpcShutdownChecker      ShutdownChecker
+	restShutdownTracker      ShutdownTracker
+	grpcShutdownTracker      ShutdownTracker
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
@@ -116,19 +116,19 @@ func (s *State) SetGraphQL(gql graphql.GraphQL) {
 	s.gqlMutex.Unlock()
 }
 
-func (s *State) SetShutdownRestChecker(checker ShutdownChecker) {
-	s.restShutdownChecker = checker
-	s.Logger.Debug("REST ShutdownChecker set successfully")
+func (s *State) SetShutdownRestTracker(tracker ShutdownTracker) {
+	s.restShutdownTracker = tracker
+	s.Logger.Debug("REST ShutdownTracker set successfully")
 }
 
-func (s *State) SetShutdownGrpcChecker(checker ShutdownChecker) {
-	s.grpcShutdownChecker = checker
-	s.Logger.Debug("GRPC ShutdownChecker set successfully")
+func (s *State) SetShutdownGrpcTracker(tracker ShutdownTracker) {
+	s.grpcShutdownTracker = tracker
+	s.Logger.Debug("GRPC ShutdownTracker set successfully")
 }
 
 func (s *State) IsShuttingDown() bool {
-	isRestShutdown := s.restShutdownChecker != nil && s.restShutdownChecker.IsShuttingDown()
-	isGrpcShutdown := s.grpcShutdownChecker != nil && s.grpcShutdownChecker.IsShuttingDown()
+	isRestShutdown := s.restShutdownTracker != nil && s.restShutdownTracker.IsShuttingDown()
+	isGrpcShutdown := s.grpcShutdownTracker != nil && s.grpcShutdownTracker.IsShuttingDown()
 	isShuttingDown := isRestShutdown || isGrpcShutdown
 
 	s.Logger.WithField("is_shutting_down", isShuttingDown).
