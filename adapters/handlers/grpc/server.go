@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/peer"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
@@ -46,7 +47,7 @@ import (
 )
 
 // CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
-func CreateGRPCServer(state *state.State, shutdown *batch.Shutdown, options ...grpc.ServerOption) *grpc.Server {
+func CreateGRPCServer(state *state.State, shutdown *batch.Shutdown, options ...grpc.ServerOption) (*grpc.Server, *health.Server) {
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
 		grpc.MaxSendMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
@@ -117,9 +118,11 @@ func CreateGRPCServer(state *state.State, shutdown *batch.Shutdown, options ...g
 	weaviateV1FileReplicationService := v1.NewFileReplicationService(state.DB, state.ClusterService.SchemaReader())
 	pbv1.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
 
-	grpc_health_v1.RegisterHealthServer(s, weaviateV1)
+	healthServer := health.NewServer()
+	healthServer.SetServingStatus("weaviate", grpc_health_v1.HealthCheckResponse_SERVING)
+	grpc_health_v1.RegisterHealthServer(s, healthServer)
 
-	return s
+	return s, healthServer
 }
 
 func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics) grpc.UnaryServerInterceptor {
