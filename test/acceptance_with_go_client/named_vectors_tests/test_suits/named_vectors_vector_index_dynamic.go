@@ -77,20 +77,11 @@ func testCompressedDynamicVectorIndex(host string) func(t *testing.T) {
 				}
 				objs = append(objs, obj)
 			}
-
-			resp, err := client.Batch().ObjectsBatcher().
-				WithObjects(objs...).
-				Do(ctx)
-			require.NoError(t, err)
-			require.NotNil(t, resp)
+			batchInsertObjects(t, client, objs)
 		}
 
 		queryAllTargetVectors := func(t *testing.T) {
-			var targetVectors []string
 			for targetVector := range targetVectorDimensions {
-				targetVectors = append(targetVectors, targetVector)
-			}
-			for _, targetVector := range targetVectors {
 				nearVector := client.GraphQL().NearVectorArgBuilder().
 					WithVector(generateRandomVector(targetVectorDimensions[targetVector])).
 					WithTargetVectors(targetVector)
