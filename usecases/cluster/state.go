@@ -14,6 +14,7 @@ package cluster
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // NodeSelector is an interface to select a portion of the available nodes in memberlist
@@ -75,6 +77,7 @@ type Config struct {
 	// RaftBootstrapExpect is used to detect split-brain scenarios and attempt to rejoin the cluster
 	// TODO-RAFT-DB-63 : shall be removed once NodeAddress() is moved under raft cluster package
 	RaftBootstrapExpect int
+	RequestQueueConfig  RequestQueueConfig `json:"requestQueueConfig" yaml:"requestQueueConfig"`
 }
 
 type AuthConfig struct {
@@ -88,6 +91,18 @@ type BasicAuth struct {
 
 func (ba BasicAuth) Enabled() bool {
 	return ba.Username != "" || ba.Password != ""
+}
+
+const (
+	DefaultRequestQueueSize           = 10000
+	DefaultRequestQueueFullHttpStatus = http.StatusTooManyRequests
+)
+
+type RequestQueueConfig struct {
+	IsEnabled           *configRuntime.DynamicValue[bool] `json:"isEnabled" yaml:"isEnabled"`
+	NumWorkers          int                               `json:"numWorkers" yaml:"numWorkers"`
+	QueueSize           int                               `json:"queueSize" yaml:"queueSize"`
+	QueueFullHttpStatus int                               `json:"queueFullHttpStatus" yaml:"queueFullHttpStatus"`
 }
 
 func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {

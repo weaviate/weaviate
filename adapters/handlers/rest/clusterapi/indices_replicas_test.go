@@ -18,8 +18,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
@@ -27,7 +29,8 @@ import (
 func TestMaintenanceModeReplicatedIndices(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
 	fakeReplicator := newFakeReplicator()
-	indices := clusterapi.NewReplicatedIndices(fakeReplicator, nil, noopAuth, func() bool { return true }, clusterapi.WorkQueueConfig{})
+	logger, _ := test.NewNullLogger()
+	indices := clusterapi.NewReplicatedIndices(fakeReplicator, nil, noopAuth, func() bool { return true }, cluster.RequestQueueConfig{}, logger)
 	mux := http.NewServeMux()
 	mux.Handle("/replicas/indices/", indices.Indices())
 	server := httptest.NewServer(mux)
@@ -66,22 +69,22 @@ func TestMaintenanceModeReplicatedIndices(t *testing.T) {
 
 func TestReplicatedIndicesWorkQueue(t *testing.T) {
 	testCases := []struct {
-		name             string
-		workQueueConfig  clusterapi.WorkQueueConfig
-		numRequests      int
-		expectedAccepted int
-		expectedRejected int
+		name               string
+		requestQueueConfig cluster.RequestQueueConfig
+		numRequests        int
+		expectedAccepted   int
+		expectedRejected   int
 	}{
 		{
-			name:             "empty_config",
-			workQueueConfig:  clusterapi.WorkQueueConfig{},
-			numRequests:      10,
-			expectedAccepted: 10,
-			expectedRejected: 0,
+			name:               "empty_config",
+			requestQueueConfig: cluster.RequestQueueConfig{},
+			numRequests:        10,
+			expectedAccepted:   10,
+			expectedRejected:   0,
 		},
 		{
 			name: "disabled_10reqs",
-			workQueueConfig: clusterapi.WorkQueueConfig{
+			requestQueueConfig: cluster.RequestQueueConfig{
 				IsEnabled: configRuntime.NewDynamicValue(false),
 			},
 			numRequests:      10,
@@ -90,11 +93,11 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 		},
 		{
 			name: "disabled_10reqs_0config",
-			workQueueConfig: clusterapi.WorkQueueConfig{
-				IsEnabled:            configRuntime.NewDynamicValue(false),
-				NumWorkers:           0,
-				BufferSize:           0,
-				BufferFullHttpStatus: 0,
+			requestQueueConfig: cluster.RequestQueueConfig{
+				IsEnabled:           configRuntime.NewDynamicValue(false),
+				NumWorkers:          0,
+				QueueSize:           0,
+				QueueFullHttpStatus: 0,
 			},
 			numRequests:      10,
 			expectedAccepted: 10,
@@ -102,11 +105,11 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 		},
 		{
 			name: "disabled_10reqs_1config",
-			workQueueConfig: clusterapi.WorkQueueConfig{
-				IsEnabled:            configRuntime.NewDynamicValue(false),
-				NumWorkers:           1,
-				BufferSize:           1,
-				BufferFullHttpStatus: 1,
+			requestQueueConfig: cluster.RequestQueueConfig{
+				IsEnabled:           configRuntime.NewDynamicValue(false),
+				NumWorkers:          1,
+				QueueSize:           1,
+				QueueFullHttpStatus: 1,
 			},
 			numRequests:      10,
 			expectedAccepted: 10,
@@ -115,11 +118,11 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 		{
 			// the implementation ensures that at least one worker is running
 			name: "enabled_10reqs_0workers_1buffer_429",
-			workQueueConfig: clusterapi.WorkQueueConfig{
-				IsEnabled:            configRuntime.NewDynamicValue(true),
-				NumWorkers:           0,
-				BufferSize:           1,
-				BufferFullHttpStatus: http.StatusTooManyRequests,
+			requestQueueConfig: cluster.RequestQueueConfig{
+				IsEnabled:           configRuntime.NewDynamicValue(true),
+				NumWorkers:          0,
+				QueueSize:           1,
+				QueueFullHttpStatus: http.StatusTooManyRequests,
 			},
 			numRequests:      10,
 			expectedAccepted: 2,
@@ -127,11 +130,11 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 		},
 		{
 			name: "enabled_10reqs_2workers_3buffer_429",
-			workQueueConfig: clusterapi.WorkQueueConfig{
-				IsEnabled:            configRuntime.NewDynamicValue(true),
-				NumWorkers:           2,
-				BufferSize:           3,
-				BufferFullHttpStatus: http.StatusTooManyRequests,
+			requestQueueConfig: cluster.RequestQueueConfig{
+				IsEnabled:           configRuntime.NewDynamicValue(true),
+				NumWorkers:          2,
+				QueueSize:           3,
+				QueueFullHttpStatus: http.StatusTooManyRequests,
 			},
 			numRequests:      10,
 			expectedAccepted: 5,
@@ -140,22 +143,22 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 		{
 			name:        "enabled_10reqs_32workers_1024buffer_429",
 			numRequests: 10,
-			workQueueConfig: clusterapi.WorkQueueConfig{
-				IsEnabled:            configRuntime.NewDynamicValue(true),
-				NumWorkers:           32,
-				BufferSize:           1024,
-				BufferFullHttpStatus: http.StatusTooManyRequests,
+			requestQueueConfig: cluster.RequestQueueConfig{
+				IsEnabled:           configRuntime.NewDynamicValue(true),
+				NumWorkers:          32,
+				QueueSize:           1024,
+				QueueFullHttpStatus: http.StatusTooManyRequests,
 			},
 			expectedAccepted: 10,
 			expectedRejected: 0,
 		},
 		{
 			name: "enabled_10reqs_5workers_0buffer_429",
-			workQueueConfig: clusterapi.WorkQueueConfig{
-				IsEnabled:            configRuntime.NewDynamicValue(true),
-				NumWorkers:           5,
-				BufferSize:           0,
-				BufferFullHttpStatus: http.StatusTooManyRequests,
+			requestQueueConfig: cluster.RequestQueueConfig{
+				IsEnabled:           configRuntime.NewDynamicValue(true),
+				NumWorkers:          5,
+				QueueSize:           0,
+				QueueFullHttpStatus: http.StatusTooManyRequests,
 			},
 			numRequests:      10,
 			expectedAccepted: 5,
@@ -163,11 +166,11 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 		},
 		{
 			name: "enabled_10reqs_1workers_1buffer_504",
-			workQueueConfig: clusterapi.WorkQueueConfig{
-				IsEnabled:            configRuntime.NewDynamicValue(true),
-				NumWorkers:           1,
-				BufferSize:           1,
-				BufferFullHttpStatus: http.StatusGatewayTimeout,
+			requestQueueConfig: cluster.RequestQueueConfig{
+				IsEnabled:           configRuntime.NewDynamicValue(true),
+				NumWorkers:          1,
+				QueueSize:           1,
+				QueueFullHttpStatus: http.StatusGatewayTimeout,
 			},
 			numRequests:      10,
 			expectedAccepted: 2,
@@ -178,7 +181,8 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			noopAuth := clusterapi.NewNoopAuthHandler()
 			fakeReplicator := newFakeReplicator()
-			indices := clusterapi.NewReplicatedIndices(fakeReplicator, nil, noopAuth, func() bool { return false }, tc.workQueueConfig)
+			logger, _ := test.NewNullLogger()
+			indices := clusterapi.NewReplicatedIndices(fakeReplicator, nil, noopAuth, func() bool { return false }, tc.requestQueueConfig, logger)
 			mux := http.NewServeMux()
 			mux.Handle("/replicas/indices/", indices.Indices())
 			server := httptest.NewServer(mux)
@@ -200,7 +204,7 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 					httpStatuses <- res.StatusCode
 					if res.StatusCode == http.StatusOK {
 						wgAccepted.Done()
-					} else if res.StatusCode == tc.workQueueConfig.BufferFullHttpStatus {
+					} else if res.StatusCode == tc.requestQueueConfig.QueueFullHttpStatus {
 						wgRejected.Done()
 					} else {
 						// unexpected status code received
@@ -221,7 +225,7 @@ func TestReplicatedIndicesWorkQueue(t *testing.T) {
 			for httpStatus := range httpStatuses {
 				if httpStatus == http.StatusOK {
 					actualAccepted++
-				} else if httpStatus == tc.workQueueConfig.BufferFullHttpStatus {
+				} else if httpStatus == tc.requestQueueConfig.QueueFullHttpStatus {
 					actualRejected++
 				} else {
 					fmt.Println("unexpected status code: ", httpStatus)

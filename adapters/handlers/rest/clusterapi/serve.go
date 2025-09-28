@@ -22,7 +22,6 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
-	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -45,13 +44,13 @@ func NewServer(appState *state.State) *Server {
 		Debugf("serving cluster api on port %d", port)
 
 	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
-	workQueueConfig := WorkQueueConfig{
-		IsEnabled:            configRuntime.NewDynamicValue(true),
-		NumWorkers:           32,
-		BufferSize:           1024,
-		BufferFullHttpStatus: http.StatusTooManyRequests,
-	}
-	replicatedIndices := NewReplicatedIndices(appState.RemoteReplicaIncoming, appState.Scaler, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, workQueueConfig)
+	replicatedIndices := NewReplicatedIndices(
+		appState.RemoteReplicaIncoming,
+		appState.Scaler,
+		auth,
+		appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		appState.ServerConfig.Config.Cluster.RequestQueueConfig,
+		appState.Logger)
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
 	backups := NewBackups(appState.BackupManager, auth)

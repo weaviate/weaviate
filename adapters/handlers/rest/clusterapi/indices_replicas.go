@@ -29,7 +29,7 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
-	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -80,8 +80,8 @@ type replicatedIndices struct {
 	// put into a maintenance mode where all replicatedIndices requests just return a 418
 	maintenanceModeEnabled func() bool
 
-	workQueueConfig WorkQueueConfig
-	workQueue       chan workItem
+	requestQueueConfig cluster.RequestQueueConfig
+	requestQueue       chan queuedRequest
 }
 
 var (
@@ -105,12 +105,87 @@ var (
 		`\/shards\/(` + sh + `):(commit|abort)`)
 )
 
-func (i *replicatedIndices) doWork(workItem workItem) {
-	if workItem.wg != nil {
-		defer workItem.wg.Done()
+func NewReplicatedIndices(
+	shards replicator,
+	scaler localScaler,
+	auth auth,
+	maintenanceModeEnabled func() bool,
+	requestQueueConfig cluster.RequestQueueConfig,
+	logger logrus.FieldLogger,
+) *replicatedIndices {
+	if requestQueueConfig.QueueFullHttpStatus == 0 {
+		defaultHttpStatus := http.StatusTooManyRequests
+		logger.WithField("status", defaultHttpStatus).Debug("no replicated indices buffer full http status provided, using default")
+		requestQueueConfig.QueueFullHttpStatus = defaultHttpStatus
 	}
-	r := workItem.r
-	w := workItem.w
+	if requestQueueConfig.QueueFullHttpStatus != http.StatusTooManyRequests && requestQueueConfig.QueueFullHttpStatus != http.StatusGatewayTimeout {
+		logger.WithField("status", requestQueueConfig.QueueFullHttpStatus).Warn("unexpected replicated indices buffer full http status")
+	}
+	i := &replicatedIndices{
+		shards:                 shards,
+		scaler:                 scaler,
+		auth:                   auth,
+		maintenanceModeEnabled: maintenanceModeEnabled,
+		requestQueue:           make(chan queuedRequest, requestQueueConfig.QueueSize),
+		requestQueueConfig:     requestQueueConfig,
+	}
+
+	for j := 0; j < max(1, requestQueueConfig.NumWorkers); j++ {
+		enterrors.GoWrapper(func() {
+			for rq := range i.requestQueue {
+				if rq.r.Context().Err() != nil {
+					if rq.wg != nil {
+						rq.wg.Done()
+					}
+					rq.w.WriteHeader(http.StatusRequestTimeout)
+					continue
+				}
+				i.handleRequest(rq)
+			}
+		}, logger)
+	}
+	return i
+}
+
+type queuedRequest struct {
+	r  *http.Request
+	w  http.ResponseWriter
+	wg *sync.WaitGroup
+}
+
+func (i *replicatedIndices) Indices() http.Handler {
+	return i.auth.handleFunc(i.indicesHandler())
+}
+
+func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if i.maintenanceModeEnabled() {
+			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
+			return
+		}
+		if i.requestQueueConfig.IsEnabled != nil && i.requestQueueConfig.IsEnabled.Get() {
+			wg := sync.WaitGroup{}
+			wg.Add(1)
+			select {
+			case i.requestQueue <- queuedRequest{r: r, w: w, wg: &wg}:
+			default:
+				http.Error(w, "too many buffered requests", i.requestQueueConfig.QueueFullHttpStatus)
+				wg.Done()
+				return
+			}
+			wg.Wait()
+			return
+		}
+		i.handleRequest(queuedRequest{r: r, w: w, wg: nil})
+	}
+}
+
+func (i *replicatedIndices) handleRequest(qr queuedRequest) {
+	if qr.wg != nil {
+		defer qr.wg.Done()
+	}
+	r := qr.r
+	w := qr.w
 	path := r.URL.Path
 
 	// NOTE if you update any of these handler methods/paths, also update the indices_replicas_test.go
@@ -214,85 +289,6 @@ func (i *replicatedIndices) doWork(workItem workItem) {
 	default:
 		http.NotFound(w, r)
 		return
-	}
-}
-
-type WorkQueueConfig struct {
-	IsEnabled            *configRuntime.DynamicValue[bool]
-	NumWorkers           int
-	BufferSize           int
-	BufferFullHttpStatus int
-}
-
-func NewReplicatedIndices(
-	shards replicator,
-	scaler localScaler,
-	auth auth,
-	maintenanceModeEnabled func() bool,
-	workQueueConfig WorkQueueConfig,
-) *replicatedIndices {
-	if workQueueConfig.BufferFullHttpStatus == 0 {
-		workQueueConfig.BufferFullHttpStatus = http.StatusTooManyRequests
-	}
-	if workQueueConfig.BufferFullHttpStatus != http.StatusTooManyRequests && workQueueConfig.BufferFullHttpStatus != http.StatusGatewayTimeout {
-		fmt.Println("warning unexpected replicated indices buffer full http status: ", workQueueConfig.BufferFullHttpStatus)
-	}
-	i := &replicatedIndices{
-		shards:                 shards,
-		scaler:                 scaler,
-		auth:                   auth,
-		maintenanceModeEnabled: maintenanceModeEnabled,
-		workQueue:              make(chan workItem, workQueueConfig.BufferSize),
-		workQueueConfig:        workQueueConfig,
-	}
-
-	for j := 0; j < max(1, workQueueConfig.NumWorkers); j++ {
-		enterrors.GoWrapper(func() {
-			for workItem := range i.workQueue {
-				if workItem.r.Context().Err() != nil {
-					if workItem.wg != nil {
-						workItem.wg.Done()
-					}
-					workItem.w.WriteHeader(http.StatusRequestTimeout)
-					continue
-				}
-				i.doWork(workItem)
-			}
-		}, logrus.New()) // TODO logger
-	}
-	return i
-}
-
-type workItem struct {
-	r  *http.Request
-	w  http.ResponseWriter
-	wg *sync.WaitGroup
-}
-
-func (i *replicatedIndices) Indices() http.Handler {
-	return i.auth.handleFunc(i.indicesHandler())
-}
-
-func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if i.maintenanceModeEnabled() {
-			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
-			return
-		}
-		if i.workQueueConfig.IsEnabled != nil && i.workQueueConfig.IsEnabled.Get() {
-			wg := sync.WaitGroup{}
-			wg.Add(1)
-			select {
-			case i.workQueue <- workItem{r: r, w: w, wg: &wg}:
-			default:
-				http.Error(w, "too many buffered requests", i.workQueueConfig.BufferFullHttpStatus)
-				wg.Done()
-				return
-			}
-			wg.Wait()
-			return
-		}
-		i.doWork(workItem{r: r, w: w, wg: nil})
 	}
 }
 
