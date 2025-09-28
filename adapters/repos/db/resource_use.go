@@ -152,8 +152,7 @@ func (db *DB) memUseReadonly(mon *memwatch.Monitor) {
 }
 
 func (db *DB) setShardsReadOnly(reason string) {
-	db.indexLock.Lock()
-	for _, index := range db.indices {
+	for _, index := range db.Indices() {
 		index.ForEachShard(func(name string, shard ShardLike) error {
 			err := shard.SetStatusReadonly(reason)
 			if err != nil {
@@ -165,6 +164,5 @@ func (db *DB) setShardsReadOnly(reason string) {
 			return nil
 		})
 	}
-	db.indexLock.Unlock()
 	db.resourceScanState.isReadOnly = true
 }
