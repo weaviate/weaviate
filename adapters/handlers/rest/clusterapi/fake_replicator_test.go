@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package clusterapi_test
 
 import (
@@ -48,9 +59,7 @@ func (f *fakeReplicator) ReplicateReferences(ctx context.Context, indexName, sha
 }
 
 func (f *fakeReplicator) CommitReplication(indexName, shardName, requestID string) interface{} {
-	select {
-	case <-f.commitBlock:
-	}
+	<-f.commitBlock
 	return map[string]string{"status": "committed"}
 }
 
