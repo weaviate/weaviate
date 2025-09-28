@@ -246,8 +246,6 @@ func NewReplicatedIndices(
 		workQueueConfig:        workQueueConfig,
 	}
 
-	// TODO graceful shutdown? later? Server.Close in clusterapi/serve.go
-	// TODO stop/wait for workers?
 	for j := 0; j < max(1, workQueueConfig.NumWorkers); j++ {
 		enterrors.GoWrapper(func() {
 			for workItem := range i.workQueue {
