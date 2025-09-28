@@ -77,7 +77,8 @@ type Config struct {
 	// RaftBootstrapExpect is used to detect split-brain scenarios and attempt to rejoin the cluster
 	// TODO-RAFT-DB-63 : shall be removed once NodeAddress() is moved under raft cluster package
 	RaftBootstrapExpect int
-	RequestQueueConfig  RequestQueueConfig `json:"requestQueueConfig" yaml:"requestQueueConfig"`
+	// RequestQueueConfig is used to configure the request queue buffer for the replicated indices
+	RequestQueueConfig RequestQueueConfig `json:"requestQueueConfig" yaml:"requestQueueConfig"`
 }
 
 type AuthConfig struct {
@@ -98,11 +99,17 @@ const (
 	DefaultRequestQueueFullHttpStatus = http.StatusTooManyRequests
 )
 
+// RequestQueueConfig is used to configure the request queue buffer for the replicated indices
 type RequestQueueConfig struct {
-	IsEnabled           *configRuntime.DynamicValue[bool] `json:"isEnabled" yaml:"isEnabled"`
-	NumWorkers          int                               `json:"numWorkers" yaml:"numWorkers"`
-	QueueSize           int                               `json:"queueSize" yaml:"queueSize"`
-	QueueFullHttpStatus int                               `json:"queueFullHttpStatus" yaml:"queueFullHttpStatus"`
+	// IsEnabled is used to enable/disable the request queue, can be modified at runtime
+	IsEnabled *configRuntime.DynamicValue[bool] `json:"isEnabled" yaml:"isEnabled"`
+	// NumWorkers is used to configure the number of workers that handle requests from the queue
+	NumWorkers int `json:"numWorkers" yaml:"numWorkers"`
+	// QueueSize is used to configure the size of the request queue buffer
+	QueueSize int `json:"queueSize" yaml:"queueSize"`
+	// QueueFullHttpStatus is used to configure the http status code that is returned when the request queue is full
+	// Should usually be set to 429 or 504 (429 will be retried by the coordinator, 504 will not)
+	QueueFullHttpStatus int `json:"queueFullHttpStatus" yaml:"queueFullHttpStatus"`
 }
 
 func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {

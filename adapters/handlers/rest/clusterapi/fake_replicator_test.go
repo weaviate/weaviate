@@ -58,6 +58,7 @@ func (f *fakeReplicator) ReplicateReferences(ctx context.Context, indexName, sha
 	return replica.SimpleResponse{}
 }
 
+// CommitReplication waits to return until a message is received on the commitBlock channel
 func (f *fakeReplicator) CommitReplication(indexName, shardName, requestID string) interface{} {
 	<-f.commitBlock
 	return map[string]string{"status": "committed"}

@@ -81,7 +81,9 @@ type replicatedIndices struct {
 	maintenanceModeEnabled func() bool
 
 	requestQueueConfig cluster.RequestQueueConfig
-	requestQueue       chan queuedRequest
+	// requestQueue buffers requests until they're picked up by a worker, goal is to avoid
+	// overwhelming the system with requests during spikes (also allows for backpressure)
+	requestQueue chan queuedRequest
 }
 
 var (
@@ -113,14 +115,15 @@ func NewReplicatedIndices(
 	requestQueueConfig cluster.RequestQueueConfig,
 	logger logrus.FieldLogger,
 ) *replicatedIndices {
+	// validate the requestQueueConfig
 	if requestQueueConfig.QueueFullHttpStatus == 0 {
-		defaultHttpStatus := http.StatusTooManyRequests
-		logger.WithField("status", defaultHttpStatus).Debug("no replicated indices buffer full http status provided, using default")
-		requestQueueConfig.QueueFullHttpStatus = defaultHttpStatus
+		logger.WithField("default_status", cluster.DefaultRequestQueueFullHttpStatus).Debug("no replicated indices buffer full http status provided, using default")
+		requestQueueConfig.QueueFullHttpStatus = cluster.DefaultRequestQueueFullHttpStatus
 	}
 	if requestQueueConfig.QueueFullHttpStatus != http.StatusTooManyRequests && requestQueueConfig.QueueFullHttpStatus != http.StatusGatewayTimeout {
 		logger.WithField("status", requestQueueConfig.QueueFullHttpStatus).Warn("unexpected replicated indices buffer full http status")
 	}
+
 	i := &replicatedIndices{
 		shards:                 shards,
 		scaler:                 scaler,
@@ -129,8 +132,19 @@ func NewReplicatedIndices(
 		requestQueue:           make(chan queuedRequest, requestQueueConfig.QueueSize),
 		requestQueueConfig:     requestQueueConfig,
 	}
+	i.startWorkers(logger)
+	return i
+}
 
-	for j := 0; j < max(1, requestQueueConfig.NumWorkers); j++ {
+type queuedRequest struct {
+	r *http.Request
+	w http.ResponseWriter
+	// when the request is done being handled, the waitgroup is done
+	wg *sync.WaitGroup
+}
+
+func (i *replicatedIndices) startWorkers(logger logrus.FieldLogger) {
+	for j := 0; j < max(1, i.requestQueueConfig.NumWorkers); j++ {
 		enterrors.GoWrapper(func() {
 			for rq := range i.requestQueue {
 				if rq.r.Context().Err() != nil {
@@ -144,13 +158,6 @@ func NewReplicatedIndices(
 			}
 		}, logger)
 	}
-	return i
-}
-
-type queuedRequest struct {
-	r  *http.Request
-	w  http.ResponseWriter
-	wg *sync.WaitGroup
 }
 
 func (i *replicatedIndices) Indices() http.Handler {
@@ -163,6 +170,7 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
 		}
+		// if the request queue is enabled, add the request to the queue
 		if i.requestQueueConfig.IsEnabled != nil && i.requestQueueConfig.IsEnabled.Get() {
 			wg := sync.WaitGroup{}
 			wg.Add(1)
@@ -176,6 +184,7 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			wg.Wait()
 			return
 		}
+		// if the request queue is not enabled, handle the request directly
 		i.handleRequest(queuedRequest{r: r, w: w, wg: nil})
 	}
 }
