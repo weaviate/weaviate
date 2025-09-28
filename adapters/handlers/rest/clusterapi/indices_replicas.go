@@ -18,10 +18,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"regexp"
-	"runtime"
 	"strconv"
 	"sync"
 	"time"
@@ -31,6 +29,7 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -81,7 +80,8 @@ type replicatedIndices struct {
 	// put into a maintenance mode where all replicatedIndices requests just return a 418
 	maintenanceModeEnabled func() bool
 
-	workQueue chan workItem
+	workQueueConfig WorkQueueConfig
+	workQueue       chan workItem
 }
 
 var (
@@ -106,7 +106,9 @@ var (
 )
 
 func (i *replicatedIndices) doWork(workItem workItem) {
-	defer workItem.wg.Done()
+	if workItem.wg != nil {
+		defer workItem.wg.Done()
+	}
 	r := workItem.r
 	w := workItem.w
 	path := r.URL.Path
@@ -215,21 +217,47 @@ func (i *replicatedIndices) doWork(workItem workItem) {
 	}
 }
 
-func NewReplicatedIndices(shards replicator, scaler localScaler, auth auth, maintenanceModeEnabled func() bool) *replicatedIndices {
-	// TODO what sizes to choose here?
-	numWorkers := runtime.GOMAXPROCS(0) * 2
+type WorkQueueConfig struct {
+	IsEnabled            *configRuntime.DynamicValue[bool]
+	NumWorkers           int
+	BufferSize           int
+	BufferFullHttpStatus int
+}
+
+func NewReplicatedIndices(
+	shards replicator,
+	scaler localScaler,
+	auth auth,
+	maintenanceModeEnabled func() bool,
+	workQueueConfig WorkQueueConfig,
+) *replicatedIndices {
+	if workQueueConfig.BufferFullHttpStatus == 0 {
+		workQueueConfig.BufferFullHttpStatus = http.StatusTooManyRequests
+	}
+	if workQueueConfig.BufferFullHttpStatus != http.StatusTooManyRequests && workQueueConfig.BufferFullHttpStatus != http.StatusGatewayTimeout {
+		fmt.Println("warning unexpected replicated indices buffer full http status: ", workQueueConfig.BufferFullHttpStatus)
+	}
 	i := &replicatedIndices{
 		shards:                 shards,
 		scaler:                 scaler,
 		auth:                   auth,
 		maintenanceModeEnabled: maintenanceModeEnabled,
-		workQueue:              make(chan workItem, int(math.Max(1000, float64(numWorkers)))),
+		workQueue:              make(chan workItem, workQueueConfig.BufferSize),
+		workQueueConfig:        workQueueConfig,
 	}
 
+	// TODO graceful shutdown? later? Server.Close in clusterapi/serve.go
 	// TODO stop/wait for workers?
-	for j := 0; j < numWorkers; j++ {
+	for j := 0; j < max(1, workQueueConfig.NumWorkers); j++ {
 		enterrors.GoWrapper(func() {
 			for workItem := range i.workQueue {
+				if workItem.r.Context().Err() != nil {
+					if workItem.wg != nil {
+						workItem.wg.Done()
+					}
+					workItem.w.WriteHeader(http.StatusRequestTimeout)
+					continue
+				}
 				i.doWork(workItem)
 			}
 		}, logrus.New()) // TODO logger
@@ -253,16 +281,20 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
 		}
-		wg := sync.WaitGroup{}
-		wg.Add(1)
-		select {
-		case i.workQueue <- workItem{r: r, w: w, wg: &wg}:
-		default:
-			http.Error(w, "too many buffered requests", http.StatusTooManyRequests)
-			wg.Done()
+		if i.workQueueConfig.IsEnabled != nil && i.workQueueConfig.IsEnabled.Get() {
+			wg := sync.WaitGroup{}
+			wg.Add(1)
+			select {
+			case i.workQueue <- workItem{r: r, w: w, wg: &wg}:
+			default:
+				http.Error(w, "too many buffered requests", i.workQueueConfig.BufferFullHttpStatus)
+				wg.Done()
+				return
+			}
+			wg.Wait()
 			return
 		}
-		wg.Wait()
+		i.doWork(workItem{r: r, w: w, wg: nil})
 	}
 }
 
