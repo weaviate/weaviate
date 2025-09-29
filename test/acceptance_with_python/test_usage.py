@@ -3,6 +3,7 @@ from typing import Union, List, Optional
 
 import pytest
 import weaviate.classes as wvc
+from faker import Faker
 from weaviate.collections.classes.config_vector_index import (
     _BQConfigCreate,
     _SQConfigCreate,
@@ -16,6 +17,7 @@ from weaviate.collections.classes.config_vectors import _VectorConfigCreate
 
 from . import get_debug_usage as debug_usage
 from .conftest import CollectionFactory
+from .get_debug_usage import ShardUsage
 
 vectors = wvc.config.Configure.Vectors
 vectorizers = wvc.config.Configure.Vectorizer
@@ -23,7 +25,7 @@ quantizer = wvc.config.Configure.VectorIndex.Quantizer
 
 
 def tenant_objects_count(tenant_id: int) -> int:
-    return 10 + tenant_id
+    return 50 + tenant_id
 
 
 vector_names = ["first", "second", "third"]
@@ -64,7 +66,11 @@ def test_usage_mt(
         vectorizer_config=vectorizer_config,
         vector_index_config=vector_index_config,
         multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=True),
+        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
     )
+
+    fake = Faker()
+    Faker.seed(4321)
 
     if isinstance(vector_config, _VectorConfigCreate):
         vector_config = [vector_config]
@@ -90,48 +96,32 @@ def test_usage_mt(
                     vector = [j * 0.01] * vector_length
                 else:
                     vector = None
-            collection.with_tenant("tenant" + str(i)).data.insert({}, vector=vector)
+            collection.with_tenant("tenant" + str(i)).data.insert(
+                {"name": fake.text()}, vector=vector
+            )
 
+    # test usage for HOT tenants
     usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
     assert usage_collection is not None
     assert usage_collection.name == collection.name
     assert len(usage_collection.shards) == num_tenants
 
     for shard in usage_collection.shards:
+        analyse_tenant(shard, True, num_vector_indices, vector_config, vector_index_config)
+
+    # now deactivate some tenats and check usage again
+    collection.tenants.deactivate(["tenant" + str(i) for i in range(0, num_tenants, 2)])
+    usage_collection_col = debug_usage.get_debug_usage_for_collection(collection.name)
+    assert usage_collection is not None
+    assert usage_collection.name == collection.name
+    assert len(usage_collection.shards) == num_tenants
+
+    for shard in usage_collection_col.shards:
         tenant_id = int(shard.name.removeprefix("tenant"))
-        assert shard.objects_count == tenant_objects_count(tenant_id)
         assert len(shard.named_vectors) == num_vector_indices
-        shard.status = "active"
-        for named_vector in shard.named_vectors:
-            if vector_config is not None:
-                vector_index = vector_names.index(named_vector.name)
-                vec_index_config = vector_config[vector_index].vectorIndexConfig
-            else:
-                vec_index_config = vector_index_config
-                vector_index = 0
-
-            assert (
-                named_vector.dimensionalities[0].count == tenant_objects_count(tenant_id) - 1
-            )  # first object has no vector
-            assert named_vector.dimensionalities[0].dimensions == tenant_id + vector_index + 50
-
-            if vec_index_config is not None:
-                assert named_vector.vector_index_type == vec_index_config.vector_index_type()
-                if isinstance(vec_index_config.quantizer, _BQConfigCreate):
-                    assert named_vector.compression == _BQConfigCreate.quantizer_name()
-                    if vec_index_config.vector_index_type() == "flat":
-                        assert named_vector.vector_compression_ratio == 1  # not set for flat
-                    else:
-                        assert named_vector.vector_compression_ratio == 32
-                elif isinstance(vec_index_config.quantizer, _SQConfigCreate):
-                    assert named_vector.compression == _SQConfigCreate.quantizer_name()
-                    # SQ compression is only enabled for async indexing
-                elif isinstance(vec_index_config.quantizer, _RQConfigCreate):
-                    assert named_vector.compression == _RQConfigCreate.quantizer_name()
-                    assert named_vector.vector_compression_ratio != 1  # not constant
-                elif isinstance(vec_index_config.quantizer, _PQConfigCreate):
-                    assert named_vector.compression == _PQConfigCreate.quantizer_name()
-                    # PQ compression is only enabled after training
+        analyse_tenant(
+            shard, tenant_id % 2 != 0, num_vector_indices, vector_config, vector_index_config
+        )
 
 
 @pytest.mark.parametrize(
@@ -205,3 +195,54 @@ def test_usage_enabling_compression(
     elif quantizer_config.quantizer_name() == "sq":
         assert named_vector.compression == "sq"
         assert named_vector.vector_compression_ratio != 1  # not constant
+
+
+def analyse_tenant(
+    shard: ShardUsage,
+    is_active: bool,
+    num_vector_indices: int,
+    vector_config: Optional[_VectorConfigCreate],
+    vector_index_config: Optional[_VectorIndexConfigCreate],
+) -> None:
+    tenant_id = int(shard.name.removeprefix("tenant"))
+    assert len(shard.named_vectors) == num_vector_indices
+    if is_active:
+        shard.status = "active"
+        assert shard.objects_count == tenant_objects_count(
+            tenant_id
+        )  # inactive count is too unreliable
+    else:
+        assert shard.status == "inactive"
+
+    for named_vector in shard.named_vectors:
+        if vector_config is not None:
+            vector_index = vector_names.index(named_vector.name)
+            vec_index_config = vector_config[vector_index].vectorIndexConfig
+        else:
+            vec_index_config = vector_index_config
+            vector_index = 0
+
+        assert (
+            named_vector.dimensionalities[0].count == tenant_objects_count(tenant_id) - 1
+        )  # first object has no vector
+        assert named_vector.dimensionalities[0].dimensions == tenant_id + vector_index + 50
+
+        if vec_index_config is not None:
+            assert named_vector.vector_index_type == vec_index_config.vector_index_type()
+            if isinstance(vec_index_config.quantizer, _BQConfigCreate):
+                assert named_vector.compression == _BQConfigCreate.quantizer_name()
+                if is_active:
+                    if vec_index_config.vector_index_type() == "flat":
+                        assert named_vector.vector_compression_ratio == 1  # not set for flat
+                    else:
+                        assert named_vector.vector_compression_ratio == 32
+            elif isinstance(vec_index_config.quantizer, _SQConfigCreate):
+                assert named_vector.compression == _SQConfigCreate.quantizer_name()
+                # SQ compression is only enabled for async indexing after training
+            elif isinstance(vec_index_config.quantizer, _RQConfigCreate):
+                assert named_vector.compression == _RQConfigCreate.quantizer_name()
+                if is_active:
+                    assert named_vector.vector_compression_ratio != 1  # not constant
+            elif isinstance(vec_index_config.quantizer, _PQConfigCreate):
+                assert named_vector.compression == _PQConfigCreate.quantizer_name()
+                # PQ compression is only enabled after training

@@ -7,3 +7,5 @@ black>=24.2.0,<25.0.0
 loguru>=0.7.2
 
 numpy==2.1.2
+
+Faker

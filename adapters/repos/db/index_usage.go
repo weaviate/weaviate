@@ -116,7 +116,11 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 				shard := i.shards.Load(shardName)
 				if shard == nil {
 					// not totally sure what this means, but just skip it for now
-					i.logger.WithField("shard", shardName).Warn("shard not found in memory, skipping usage calculation")
+					i.logger.WithField("action", "usage").WithFields(map[string]interface{}{
+						"shard":      shardName,
+						"collection": i.Config.ClassName,
+						"status":     physical.ActivityStatus(),
+					}).Warn("shard not found in memory, skipping usage calculation")
 					return nil
 				}
 
@@ -261,11 +265,8 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName stri
 
 	// Get named vector data for cold shards from schema configuration
 	for targetVector, vectorIndexConfig := range vectorIndexConfigs {
-		// For cold shards, we can't get actual dimensionality from disk without loading
-		// So we'll use a placeholder or estimate based on the schema
 		vectorUsage := &types.VectorUsage{
 			Name:                   targetVector,
-			Compression:            DimensionCategoryStandard.String(),
 			VectorCompressionRatio: 1.0, // Default ratio for cold shards
 		}
 
