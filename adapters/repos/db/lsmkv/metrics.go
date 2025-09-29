@@ -30,6 +30,7 @@ type (
 var (
 	lifecycleDurationBuckets  = prometheus.ExponentialBuckets(0.01, 2, 15)     // 0.01s → 0.02s → ... → ~163.84s
 	cursorDurationBuckets     = prometheus.ExponentialBuckets(0.01, 2, 16)     // 0.01s → ... → ~327.68s
+	operationDurationBuckets  = prometheus.ExponentialBuckets(0.01, 2, 12)     // 0.01s → 0.02s → ... → ~40.96s
 	segmentSizeBuckets        = prometheus.ExponentialBuckets(100*1024, 2, 20) // 100KB → 200KB → 400KB → ... → ~52GB
 	compactionDurationBuckets = prometheus.ExponentialBuckets(0.01, 2, 15)     // 0.01s → 0.02s → ... → ~163.84s
 )
@@ -51,6 +52,16 @@ type Metrics struct {
 	bucketOpenedCursorsByStrategy  *prometheus.CounterVec
 	bucketOpenCursorsByStrategy    *prometheus.GaugeVec
 	bucketCursorDurationByStrategy *prometheus.HistogramVec
+
+	bucketReadOpCountByComponent        *prometheus.CounterVec
+	bucketReadOpOngoingByComponent      *prometheus.GaugeVec
+	bucketReadOpFailureCountByComponent *prometheus.CounterVec
+	bucketReadOpDurationByComponent     *prometheus.HistogramVec
+
+	bucketWriteOpCount        *prometheus.CounterVec
+	bucketWriteOpOngoing      *prometheus.GaugeVec
+	bucketWriteOpFailureCount *prometheus.CounterVec
+	bucketWriteOpDuration     *prometheus.HistogramVec
 
 	// segment metrics
 	segmentTotalByStrategy *prometheus.GaugeVec
@@ -251,6 +262,112 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		return nil, fmt.Errorf("register lsm_bucket_cursor_duration_seconds: %w", err)
 	}
 
+	bucketReadOpCountByComponent, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_read_operation_count",
+				Help:      "Total number of LSM bucket read operations requested, labeled by operation and component",
+			},
+			[]string{"operation", "component"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_read_operation_count: %w", err)
+	}
+
+	bucketReadOpOngoingByComponent, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_read_operation_ongoing",
+				Help:      "Number of LSM bucket read operations currently in progress, labeled by operation and component",
+			},
+			[]string{"operation", "component"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_read_operation_ongoing: %w", err)
+	}
+
+	bucketReadOpFailureCountByComponent, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_read_operation_failure_count",
+				Help:      "Number of failed LSM bucket read operations, labeled by operation and component",
+			},
+			[]string{"operation", "component"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_read_operation_failure_count: %w", err)
+	}
+
+	bucketReadOpDurationByComponent, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_read_operation_duration_seconds",
+				Help:      "Duration of LSM bucket read operations in seconds, labeled by operation and component",
+				Buckets:   operationDurationBuckets,
+			},
+			[]string{"operation", "component"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_read_operation_duration_seconds: %w", err)
+	}
+
+	bucketWriteOpCount, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_write_operation_count",
+				Help:      "Total number of LSM bucket write operations requested, labeled by operation",
+			},
+			[]string{"operation"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_write_operation_count: %w", err)
+	}
+
+	bucketWriteOpOngoing, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_write_operation_ongoing",
+				Help:      "Number of LSM bucket write operations currently in progress, labeled by operation",
+			},
+			[]string{"operation"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_write_operation_ongoing: %w", err)
+	}
+
+	bucketWriteOpFailureCount, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_write_operation_failure_count",
+				Help:      "Number of failed LSM bucket write operations, labeled by operation",
+			},
+			[]string{"operation"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_write_operation_failure_count: %w", err)
+	}
+
+	bucketWriteOpDuration, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_write_operation_duration_seconds",
+				Help:      "Duration of LSM bucket write operations in seconds, labeled by operation",
+				Buckets:   operationDurationBuckets,
+			},
+			[]string{"operation"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_write_operation_duration_seconds: %w", err)
+	}
+
 	// segment metrics
 	segmentTotalByStrategy, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewGaugeVec(
@@ -447,6 +564,16 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		bucketOpenCursorsByStrategy:    bucketOpenCursorsByStrategy,
 		bucketCursorDurationByStrategy: bucketCursorDurationByStrategy,
 
+		bucketReadOpCountByComponent:        bucketReadOpCountByComponent,
+		bucketReadOpOngoingByComponent:      bucketReadOpOngoingByComponent,
+		bucketReadOpFailureCountByComponent: bucketReadOpFailureCountByComponent,
+		bucketReadOpDurationByComponent:     bucketReadOpDurationByComponent,
+
+		bucketWriteOpCount:        bucketWriteOpCount,
+		bucketWriteOpOngoing:      bucketWriteOpOngoing,
+		bucketWriteOpFailureCount: bucketWriteOpFailureCount,
+		bucketWriteOpDuration:     bucketWriteOpDuration,
+
 		// segment metrics
 		segmentTotalByStrategy: segmentTotalByStrategy,
 		segmentSizeByStrategy:  segmentSizeByStrategy,
@@ -623,6 +750,76 @@ func (m *Metrics) ObserveBucketCursorDurationByStrategy(strategy string, duratio
 		return
 	}
 	m.bucketCursorDurationByStrategy.WithLabelValues(strategy).Observe(duration.Seconds())
+}
+
+func (m *Metrics) IncBucketReadOpCountByComponent(op, component string) {
+	if m == nil {
+		return
+	}
+	m.bucketReadOpCountByComponent.WithLabelValues(op, component).Inc()
+}
+
+func (m *Metrics) IncBucketReadOpOngoingByComponent(op, component string) {
+	if m == nil {
+		return
+	}
+	m.bucketReadOpOngoingByComponent.WithLabelValues(op, component).Inc()
+}
+
+func (m *Metrics) DecBucketReadOpOngoingByComponent(op, component string) {
+	if m == nil {
+		return
+	}
+	m.bucketReadOpOngoingByComponent.WithLabelValues(op, component).Dec()
+}
+
+func (m *Metrics) IncBucketReadOpFailureCountByComponent(op, component string) {
+	if m == nil {
+		return
+	}
+	m.bucketReadOpFailureCountByComponent.WithLabelValues(op, component).Inc()
+}
+
+func (m *Metrics) ObserveBucketReadOpDurationByComponent(op, component string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	m.bucketReadOpDurationByComponent.WithLabelValues(op, component).Observe(duration.Seconds())
+}
+
+func (m *Metrics) IncBucketWriteOpCount(op string) {
+	if m == nil {
+		return
+	}
+	m.bucketWriteOpCount.WithLabelValues(op).Inc()
+}
+
+func (m *Metrics) IncBucketWriteOpOngoing(op string) {
+	if m == nil {
+		return
+	}
+	m.bucketWriteOpOngoing.WithLabelValues(op).Inc()
+}
+
+func (m *Metrics) DecBucketWriteOpOngoing(op string) {
+	if m == nil {
+		return
+	}
+	m.bucketWriteOpOngoing.WithLabelValues(op).Dec()
+}
+
+func (m *Metrics) IncBucketWriteOpFailureCount(op string) {
+	if m == nil {
+		return
+	}
+	m.bucketWriteOpFailureCount.WithLabelValues(op).Inc()
+}
+
+func (m *Metrics) ObserveBucketWriteOpDuration(op string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	m.bucketWriteOpDuration.WithLabelValues(op).Observe(duration.Seconds())
 }
 
 // segment metrics
