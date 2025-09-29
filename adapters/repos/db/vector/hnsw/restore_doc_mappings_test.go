@@ -12,80 +12,84 @@
 package hnsw
 
 import (
+	"context"
+	"encoding/binary"
 	"testing"
 
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestRestoreDocMappingsWithCorruptedState tests that restoreDocMappings handles
-// corrupted state gracefully after ungraceful shutdown
-func TestRestoreDocMappingsWithCorruptedState(t *testing.T) {
-	logger, hook := test.NewNullLogger()
-
-	// Create a dummy store
+func TestRestoreDocMappingsWithMissingBucket(t *testing.T) {
+	rootPath := t.TempDir()
 	store := testinghelpers.NewDummyStore(t)
 
-	// Create a minimal hnsw instance for testing
-	idx := &hnsw{
-		id:     "test-corrupted-mappings",
-		logger: logger,
-		store:  store,
-		nodes: []*vertex{
-			{id: 1},
-			{id: 2},
-			{id: 3},
+	uc := ent.UserConfig{}
+	uc.Multivector.Enabled = true
+
+	index, err := New(Config{
+		RootPath:              rootPath,
+		ID:                    "doc-mappings",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return nil, nil
 		},
-		docIDVectors: make(map[uint64][]uint64),
-	}
+		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+			return nil, nil
+		},
+	}, uc, cyclemanager.NewCallbackGroupNoop(), store)
 
-	// Enable multivector mode
-	idx.multivector.Store(true)
-
-	// Now try to restore doc mappings - this should not panic even with missing mappings
-	err := idx.restoreDocMappings()
 	assert.Nil(t, err)
 
-	// Verify that warnings were logged for the missing mappings or bucket
-	logEntries := hook.AllEntries()
-	warningCount := 0
-	for _, entry := range logEntries {
-		if entry.Level.String() == "warning" &&
-			(entry.Message == "skipping node with missing doc mapping, possibly due to corrupted state" ||
-				entry.Message == "mappings bucket not found, possibly due to corrupted state after ungraceful shutdown") {
-			warningCount++
-		}
-	}
+	err = index.AddMulti(context.Background(), 1, [][]float32{{1, 2, 3}})
+	assert.Nil(t, err)
 
-	// Should have at least one warning (either for missing mappings or missing bucket)
-	assert.GreaterOrEqual(t, warningCount, 1, "Expected at least one warning for corrupted state")
+	newStore := testinghelpers.NewDummyStore(t)
+	index.store = newStore
+	assert.Nil(t, err)
+	err = index.restoreDocMappings()
+	assert.ErrorContains(t, err, "multivector mappings bucket not found")
 }
 
-// TestRestoreDocMappingsWithNilData tests the specific case where Get returns nil
 func TestRestoreDocMappingsWithNilData(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-
-	// Create a dummy store
+	rootPath := t.TempDir()
 	store := testinghelpers.NewDummyStore(t)
 
-	// Create a minimal hnsw instance for testing
-	idx := &hnsw{
-		id:     "test-nil-data",
-		logger: logger,
-		store:  store,
-		nodes: []*vertex{
-			{id: 1},
-			{id: 2},
-			{id: 3},
-		},
-		docIDVectors: make(map[uint64][]uint64),
-	}
+	uc := ent.UserConfig{}
+	uc.Multivector.Enabled = true
 
-	// This should not panic even with missing mappings
-	err := idx.restoreDocMappings()
+	index, err := New(Config{
+		RootPath:              rootPath,
+		ID:                    "doc-mappings",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return nil, nil
+		},
+		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+			return nil, nil
+		},
+	}, uc, cyclemanager.NewCallbackGroupNoop(), store)
+
 	assert.Nil(t, err)
 
-	// Verify that the function completed without crashing
-	assert.NotNil(t, idx.docIDVectors)
+	err = index.AddMulti(context.Background(), 1, [][]float32{{1, 2, 3}})
+	assert.Nil(t, err)
+	err = index.AddMulti(context.Background(), 2, [][]float32{{4, 5, 6}, {7, 8, 9}})
+	assert.Nil(t, err)
+	nodeIDBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(nodeIDBytes, 2)
+	err = index.store.Bucket(index.id + "_mv_mappings").Delete(nodeIDBytes)
+	assert.Nil(t, err)
+	err = index.store.Bucket(index.id+"_mv_mappings").Put(nodeIDBytes, []byte{5})
+	require.Nil(t, err)
+	err = index.restoreDocMappings()
+	require.Nil(t, err)
+	assert.Nil(t, index.nodes[2])
 }
