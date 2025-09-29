@@ -902,19 +902,7 @@ func TestShard_RequantizeIndex(t *testing.T) {
 			vidx, _ := test.getVectorIndexAndQueue(shd)
 
 			// For HNSW, the compressed bucket name uses the index name, not the target vector
-			var compressedBucketName string
-			if test.name == "hnsw" || test.name == "hnsw with target vectors" {
-				// HNSW uses the index name for the compressed bucket
-				// For default vector, the index name is "main"
-				if test.targetVector == "" {
-					compressedBucketName = helpers.GetCompressedBucketName("main")
-				} else {
-					compressedBucketName = helpers.GetCompressedBucketName(test.targetVector)
-				}
-			} else {
-				// Flat uses the target vector directly
-				compressedBucketName = helpers.GetCompressedBucketName(test.targetVector)
-			}
+			compressedBucketName := helpers.GetCompressedBucketName(test.targetVector)
 			compressedBucket := shd.Store().Bucket(compressedBucketName)
 			require.NotNil(t, compressedBucket)
 
