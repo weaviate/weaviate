@@ -28,9 +28,10 @@ type (
 )
 
 var (
-	lifecycleDurationBuckets  = prometheus.ExponentialBuckets(0.01, 2, 18)     // 0.01s → 0.02s → ... → ~163.84s
+	lifecycleDurationBuckets  = prometheus.ExponentialBuckets(0.01, 2, 15)     // 0.01s → 0.02s → ... → ~163.84s
+	cursorDurationBuckets     = prometheus.ExponentialBuckets(0.01, 2, 16)     // 0.01s → ... → ~327.68s
 	segmentSizeBuckets        = prometheus.ExponentialBuckets(100*1024, 2, 20) // 100KB → 200KB → 400KB → ... → ~52GB
-	compactionDurationBuckets = prometheus.ExponentialBuckets(0.01, 2, 18)     // 0.01s → 0.02s → ... → ~163.84s
+	compactionDurationBuckets = prometheus.ExponentialBuckets(0.01, 2, 15)     // 0.01s → 0.02s → ... → ~163.84s
 )
 
 type Metrics struct {
@@ -46,6 +47,10 @@ type Metrics struct {
 	bucketShutdownInProgressByStrategy   *prometheus.GaugeVec
 	bucketShutdownDurationByStrategy     *prometheus.HistogramVec
 	bucketShutdownFailureCountByStrategy *prometheus.CounterVec
+
+	bucketOpenedCursorsByStrategy  *prometheus.CounterVec
+	bucketOpenCursorsByStrategy    *prometheus.GaugeVec
+	bucketCursorDurationByStrategy *prometheus.HistogramVec
 
 	// segment metrics
 	segmentTotalByStrategy *prometheus.GaugeVec
@@ -204,6 +209,46 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		))
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_bucket_shutdown_failure_count: %w", err)
+	}
+
+	bucketOpenedCursorsByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_opened_cursors",
+				Help:      "Number of opened LSM bucket cursors, labeled by segment strategy",
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_opened_cursors: %w", err)
+	}
+
+	bucketOpenCursorsByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_open_cursors",
+				Help:      "Number of currently open LSM bucket cursors, labeled by segment strategy",
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_open_cursors: %w", err)
+	}
+
+	bucketCursorDurationByStrategy, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_cursor_duration_seconds",
+				Help:      "Duration of LSM bucket cursor operations in seconds, labeled by segment strategy",
+				Buckets:   cursorDurationBuckets,
+			},
+			[]string{"strategy"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_cursor_duration_seconds: %w", err)
 	}
 
 	// segment metrics
@@ -398,6 +443,10 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		bucketShutdownDurationByStrategy:     bucketShutdownDurationByStrategy,
 		bucketShutdownFailureCountByStrategy: bucketShutdownFailureCountByStrategy,
 
+		bucketOpenedCursorsByStrategy:  bucketOpenedCursorsByStrategy,
+		bucketOpenCursorsByStrategy:    bucketOpenCursorsByStrategy,
+		bucketCursorDurationByStrategy: bucketCursorDurationByStrategy,
+
 		// segment metrics
 		segmentTotalByStrategy: segmentTotalByStrategy,
 		segmentSizeByStrategy:  segmentSizeByStrategy,
@@ -546,6 +595,34 @@ func (m *Metrics) ObserveBucketShutdownDurationByStrategy(strategy string, durat
 		return
 	}
 	m.bucketShutdownDurationByStrategy.WithLabelValues(strategy).Observe(duration.Seconds())
+}
+
+func (m *Metrics) IncBucketOpenedCursorsByStrategy(strategy string) {
+	if m == nil {
+		return
+	}
+	m.bucketOpenedCursorsByStrategy.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) IncBucketOpenCursorsByStrategy(strategy string) {
+	if m == nil {
+		return
+	}
+	m.bucketOpenCursorsByStrategy.WithLabelValues(strategy).Inc()
+}
+
+func (m *Metrics) DecBucketOpenCursorsByStrategy(strategy string) {
+	if m == nil {
+		return
+	}
+	m.bucketOpenCursorsByStrategy.WithLabelValues(strategy).Dec()
+}
+
+func (m *Metrics) ObserveBucketCursorDurationByStrategy(strategy string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	m.bucketCursorDurationByStrategy.WithLabelValues(strategy).Observe(duration.Seconds())
 }
 
 // segment metrics
