@@ -195,7 +195,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 					Loaded:               false,
 					ReplicationFactor:    replicationFactor,
 					NumberOfReplicas:     numberOfReplicas,
-					Compressed:           isAnyVectorIndexCompressed(shard),
+					// don't add compression status as this would trigger loading the shard
 				}
 				*status = append(*status, shardStatus)
 				shardCount++
