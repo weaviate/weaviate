@@ -262,9 +262,10 @@ func (h *hnsw) restoreDocMappings() error {
 	// Get the mappings bucket - handle case where it might be nil
 	bucket := h.store.Bucket(h.id + "_mv_mappings")
 	if bucket == nil {
+		err := errors.New("multivector mappings bucket not found")
 		h.logger.WithField("action", "restore_doc_mappings").
-			Warn("mappings bucket not found, possibly due to corrupted state after ungraceful shutdown")
-		return nil
+			WithError(err)
+		return err
 	}
 
 	for _, node := range h.nodes {
@@ -280,7 +281,8 @@ func (h *hnsw) restoreDocMappings() error {
 				"action":  "restore_doc_mappings",
 				"node_id": node.id,
 				"error":   err.Error(),
-			}).Warn("skipping node with missing doc mapping, possibly due to corrupted state")
+			}).Error("skipping node with missing doc mapping")
+			h.nodes[node.id] = nil
 			continue
 		}
 
@@ -290,7 +292,8 @@ func (h *hnsw) restoreDocMappings() error {
 				"action":       "restore_doc_mappings",
 				"node_id":      node.id,
 				"bytes_length": len(docIDBytes),
-			}).Warn("skipping node with invalid doc mapping data, possibly due to corrupted state")
+			}).Error("skipping node with invalid doc mapping data")
+			h.nodes[node.id] = nil
 			continue
 		}
 
