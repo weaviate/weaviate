@@ -268,6 +268,30 @@ def test_usage_enabling_compression(
         assert named_vector.vector_compression_ratio != 1  # not constant
 
 
+def test_multi_vector(collection_factory: CollectionFactory):
+    collection = collection_factory(
+        vector_config=wvc.config.Configure.MultiVectors.self_provided(name=vector_names[0])
+    )
+
+    collection.data.insert({}, vector={vector_names[0]: [[0.1, 0.2], [0.4, 0.5], [0.7, 0.8]]})
+    collection.data.insert({}, vector={vector_names[0]: [[0.1, 0.2], [0.4, 0.5], [0.7, 0.8]]})
+    collection.data.insert({})
+
+    usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
+    assert usage_collection is not None
+    assert usage_collection.name == collection.name
+    assert len(usage_collection.shards) == 1
+    shard = usage_collection.shards[0]
+    assert shard.objects_count == 3
+    assert len(shard.named_vectors) == 1
+    named_vector = shard.named_vectors[0]
+    assert named_vector.name == vector_names[0]
+    assert len(named_vector.dimensionalities) == 1
+    dimensionality = named_vector.dimensionalities[0]
+    assert dimensionality.dimensions == 6  # 3 vectors of 2 dimensions each
+    assert dimensionality.count == 2
+
+
 def analyse_tenant(
     shard: ShardUsage,
     is_active: bool,
