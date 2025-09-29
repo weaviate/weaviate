@@ -17,7 +17,7 @@ from weaviate.collections.classes.config_vectors import _VectorConfigCreate
 
 from . import get_debug_usage as debug_usage
 from .conftest import CollectionFactory
-from .get_debug_usage import ShardUsage
+from .get_debug_usage import ShardUsage, VectorUsage
 
 vectors = wvc.config.Configure.Vectors
 vectorizers = wvc.config.Configure.Vectorizer
@@ -29,6 +29,77 @@ def tenant_objects_count(tenant_id: int) -> int:
 
 
 vector_names = ["first", "second", "third"]
+
+
+def test_usage_adding_named_vector(collection_factory: CollectionFactory):
+    vec_config = vectors.self_provided(
+        name="first",
+        quantizer=quantizer.bq(),
+        vector_index_config=wvc.config.Configure.VectorIndex.flat(),
+    )
+    collection = collection_factory(
+        vector_config=vec_config,  # either vector_config or vectorizer_config
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=True),
+        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
+    )
+
+    collection.tenants.create(["tenant1"])
+    uuid1 = collection.with_tenant("tenant1").data.insert(
+        {"name": "some text"}, vector={"first": [0.1, 0.2, 0.3]}
+    )
+    collection.with_tenant("tenant1").data.insert({"name": "some text"})
+
+    usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
+    assert usage_collection is not None
+    assert usage_collection.name == collection.name
+    assert len(usage_collection.shards) == 1
+    tenant1_usage = usage_collection.shards[0]
+    assert tenant1_usage.name == "tenant1"
+    assert tenant1_usage.objects_count == 2
+    assert len(tenant1_usage.named_vectors) == 1
+
+    def verify_named_vector1(named_vector: VectorUsage) -> None:
+        assert named_vector.name == "first"
+        assert named_vector.compression == "bq"
+        assert named_vector.vector_index_type == "flat"
+        assert len(named_vector.dimensionalities) == 1
+        dim = named_vector.dimensionalities[0]
+        assert dim.dimensions == 3
+        assert dim.count == 1
+
+    verify_named_vector1(tenant1_usage.named_vectors[0])
+
+    # verify adding a new named vector
+    collection.config.add_vector(
+        vector_config=wvc.config.Configure.Vectors.self_provided(
+            name="second", quantizer=quantizer.rq()
+        ),
+    )
+
+    collection.with_tenant("tenant1").data.update(uuid1, vector={"second": [0.4, 0.5]})
+
+    usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
+    assert usage_collection is not None
+    assert usage_collection.name == collection.name
+    assert len(usage_collection.shards) == 1
+
+    # verify that second vector is added
+    tenant1_usage = usage_collection.shards[0]
+    assert tenant1_usage.name == "tenant1"
+    assert tenant1_usage.objects_count == 2
+    assert len(tenant1_usage.named_vectors) == 2
+    named_vector_first = next(nv for nv in tenant1_usage.named_vectors if nv.name == "first")
+    named_vector_second = next(nv for nv in tenant1_usage.named_vectors if nv.name == "second")
+
+    verify_named_vector1(named_vector_first)  # verify first vector is unchanged
+
+    assert named_vector_second.name == "second"
+    assert named_vector_second.compression == "rq"
+    assert named_vector_second.vector_index_type == "hnsw"
+    assert len(named_vector_second.dimensionalities) == 1
+    dimensionality = named_vector_second.dimensionalities[0]
+    assert dimensionality.dimensions == 2
+    assert dimensionality.count == 1
 
 
 @pytest.mark.parametrize(
