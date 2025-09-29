@@ -365,7 +365,7 @@ func TestFlat_Preload(t *testing.T) {
 			require.Nil(t, err)
 			defer index.Shutdown(context.Background())
 
-			rawVector1 := []float32{1, -1, 1}
+			rawVector1 := []float32{4, -1, 4}
 			id1 := uint64(1)
 
 			ctx := context.Background()

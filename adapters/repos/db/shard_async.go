@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -428,6 +429,11 @@ func (s *Shard) RequantizeIndex(ctx context.Context, targetVector string) error 
 		return nil
 	}
 
+	normalize := false
+	if vectorIndex.DistancerProvider().Type() == "cosine-dot" {
+		normalize = true
+	}
+
 	total := 0
 
 	if vectorIndex.Multivector() {
@@ -435,6 +441,9 @@ func (s *Shard) RequantizeIndex(ctx context.Context, targetVector string) error 
 	} else {
 		// add non-indexed vectors to the queue
 		err := s.iterateOnLSMVectors(ctx, 0, targetVector, func(docID uint64, vector []float32) error {
+			if normalize {
+				vector = distancer.Normalize(vector)
+			}
 			vectorIndex.Preload(docID, vector)
 			total += 1
 			if total%100000 == 0 {

@@ -334,7 +334,7 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 	slice := make([]byte, len(vector)*4)
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
 
-	index.preloadNormalized(id, vector, false)
+	index.Preload(id, vector)
 	newCount := atomic.LoadUint64(&index.count)
 	atomic.StoreUint64(&index.count, newCount+1)
 	return nil
@@ -793,14 +793,6 @@ func (i *flat) ValidateMultiBeforeInsert(vector [][]float32) error {
 }
 
 func (index *flat) Preload(id uint64, vector []float32) {
-	index.preloadNormalized(id, vector, true)
-}
-
-func (index *flat) preloadNormalized(id uint64, vector []float32, shouldNormalize bool) {
-	if shouldNormalize {
-		vector = index.normalized(vector)
-	}
-
 	if index.isBQ() {
 		vectorBQ := index.bq.Encode(vector)
 		if index.isBQCached() {
