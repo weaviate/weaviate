@@ -91,7 +91,7 @@ type VectorUsage struct {
 	// The bits parameter for RQ compression (only set when Compression="rq")
 	Bits int16 `json:"bits,omitempty"`
 
-	// List of dimensionalities and their metrics
+	// List of dimensionalities and their metrics. Note: List is not needed here, but we keep it like this for the consumer
 	Dimensionalities []*Dimensionality `json:"dimensionalities,omitempty"`
 }
 

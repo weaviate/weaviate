@@ -62,7 +62,10 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 		ReplicationFactor: int(i.Config.ReplicationFactor),
 	}
 
-	// iterate over local shards only
+	// Iterate over local shards:
+	// 1) lock underlying map using schemaReader.Read
+	// 2) for each local shard, lock using shardCreateLocks to avoid concurrent creation/deletion
+	// 3) calculate usage depending on shard state
 	err := i.schemaReader.Read(i.Config.ClassName.String(), func(_ *models.Class, ss *sharding.State) error {
 		for shardName, physical := range ss.Physical {
 			isLocal := ss.IsLocalShard(shardName)
@@ -78,8 +81,8 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 				// 1. newly created shard (empty)- no files on disk yet but present in sharding state. Just return 0 usage
 				// 2. cold shard (only MT) - handle without loading
 				// 3. offloaded shards - handle without loading, return 0 usage
-				// 3. hot, unloaded lazy shard - handle without loading
-				// 4. hot, loaded lazy shard or non-lazy shard - handle normally
+				// 4. hot, unloaded lazy shard - handle without loading
+				// 5. hot, loaded lazy shard or non-lazy shard - handle normally
 
 				uniqueShardCount++
 
@@ -108,7 +111,7 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 					collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
 					return nil
 				} else if physical.ActivityStatus() != models.TenantActivityStatusHOT {
-					// case 3: non-hot tenants - OFFLOADED, OFFLOADING, ONLOADING. We return 0 usage for these tenants
+					// case 3: other non-hot tenants - OFFLOADED, OFFLOADING, ONLOADING. We return 0 usage for these tenants
 					collectionUsage.Shards = append(collectionUsage.Shards, emptyShardUsageWithNameAndActivity(shardName, physical.ActivityStatus()))
 					return nil
 				}
@@ -124,7 +127,7 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 					return nil
 				}
 
-				// case 2: hot, unloaded lazy tenant
+				// case 4: hot, unloaded lazy tenant. Handle without loading
 				if lazyShard, ok := shard.(*LazyLoadShard); ok && !lazyShard.isLoaded() {
 					shardUsage, err := i.calculateUnloadedShardUsage(ctx, shardName)
 					if err != nil {
@@ -275,7 +278,6 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName stri
 		vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
 		vectorUsage.Bits = enthnsw.GetRQBits(vectorIndexConfig)
 		vectorUsage.IsDynamic = common.IsDynamic(common.IndexType(vectorUsage.VectorIndexType))
-		// Why is this a list? There should be one dimensionality per named vector
 		dimensionalities, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, i.logger, i.path(), tenantName, targetVector)
 		if err != nil {
 			return nil, err
