@@ -19,11 +19,11 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -106,7 +106,9 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 				replica := replica
 				g := func() {
 					defer wg.Done()
-					err := op(ctx, replica, c.TxID)
+					//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
+					opctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+					err := op(opctx, replica, c.TxID)
 					resChan <- _Result[string]{replica, err}
 				}
 				enterrors.GoWrapper(g, c.log)
@@ -144,7 +146,9 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 			fs := logrus.Fields{"op": "broadcast", "active": len(actives), "total": len(replicas)}
 			c.log.WithFields(fs).Error("abort")
 			for _, node := range replicas {
-				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
+				//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
+				abortCtx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+				c.Abort(abortCtx, node, c.Class, c.Shard, c.TxID)
 			}
 			resChan <- _Result[string]{Err: fmt.Errorf("broadcast: %w", ErrReplicas)}
 		}
@@ -217,14 +221,6 @@ func (c *coordinator[T]) Push(ctx context.Context,
 
 	level := routingPlan.IntConsistencyLevel
 
-	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 20*time.Second)
-	c.log.WithFields(logrus.Fields{
-		"action":   "coordinator_push",
-		"duration": 20 * time.Second,
-		"level":    level,
-	}).Debug("context.WithTimeout")
-
 	// create callback for metrics
 	// the use of an immediately invoked function expression (IIFE) captures the start time
 	// and returns the actual callback function.
@@ -248,16 +244,20 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		}
 	}()
 
-	nodeCh := c.broadcast(ctxWithTimeout, routingPlan.ReplicasHostAddrs, ask, level)
+	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
+	ctxPrepare, _ := context.WithTimeout(context.Background(), 20*time.Second)
+	nodeCh := c.broadcast(ctxPrepare, routingPlan.ReplicasHostAddrs, ask, level)
 
-	commitCh := c.commitAll(context.Background(), nodeCh, com, callback)
+	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
+	ctxFinalize, _ := context.WithTimeout(context.Background(), 20*time.Second)
+	commitCh := c.commitAll(ctxFinalize, nodeCh, com, callback)
 
 	// if there are additional hosts, we do a "best effort" write to them
 	// where we don't wait for a response because they are not part of the
 	// replicas used to reach level consistency
 	if len(routingPlan.AdditionalHostAddrs) > 0 {
-		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
-		c.commitAll(context.Background(), additionalHostsBroadcast, com, nil)
+		additionalHostsBroadcast := c.broadcast(ctxPrepare, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
+		c.commitAll(ctxFinalize, additionalHostsBroadcast, com, nil)
 	}
 
 	return commitCh, level, nil
