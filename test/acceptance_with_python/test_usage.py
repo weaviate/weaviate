@@ -34,10 +34,14 @@ vector_names = ["first", "second", "third"]
     [
         (vectors.self_provided(name=vector_names[0]), None, None),
         ([vectors.self_provided(name="first"), vectors.self_provided(name="second")], None, None),
-        ([vectors.self_provided(name="first", quantizer=quantizer.bq())], None, None),
+        ([vectors.self_provided(name="first", quantizer=quantizer.rq())], None, None),
         (
             [
-                vectors.self_provided(name="first", quantizer=quantizer.rq()),
+                vectors.self_provided(
+                    name="first",
+                    quantizer=quantizer.bq(),
+                    vector_index_config=wvc.config.Configure.VectorIndex.flat(),
+                ),
                 vectors.self_provided(name="second", quantizer=quantizer.sq()),
                 vectors.self_provided(name="third", quantizer=quantizer.pq()),
             ],
@@ -46,7 +50,7 @@ vector_names = ["first", "second", "third"]
         ),
         (None, vectorizers.none(), None),
         (None, vectorizers.none(), wvc.config.Configure.VectorIndex.hnsw(quantizer=quantizer.rq())),
-        # (None, vectorizers.none(), wvc.config.Configure.VectorIndex.flat(quantizer=quantizer.bq())), - flat with compresseion is not supported in the usage module
+        (None, vectorizers.none(), wvc.config.Configure.VectorIndex.flat(quantizer=quantizer.bq())),
     ],
 )
 def test_usage_mt(
@@ -101,9 +105,9 @@ def test_usage_mt(
         for named_vector in shard.named_vectors:
             if vector_config is not None:
                 vector_index = vector_names.index(named_vector.name)
-                vector_index_config = vector_config[vector_index].vectorIndexConfig
+                vec_index_config = vector_config[vector_index].vectorIndexConfig
             else:
-                vector_index_config = vector_index_config
+                vec_index_config = vector_index_config
                 vector_index = 0
 
             assert (
@@ -111,18 +115,21 @@ def test_usage_mt(
             )  # first object has no vector
             assert named_vector.dimensionalities[0].dimensions == tenant_id + vector_index + 50
 
-            if vector_index_config is not None:
-                assert named_vector.vector_index_type == vector_index_config.vector_index_type()
-                if isinstance(vector_index_config.quantizer, _BQConfigCreate):
+            if vec_index_config is not None:
+                assert named_vector.vector_index_type == vec_index_config.vector_index_type()
+                if isinstance(vec_index_config.quantizer, _BQConfigCreate):
                     assert named_vector.compression == _BQConfigCreate.quantizer_name()
-                    assert named_vector.vector_compression_ratio == 32
-                elif isinstance(vector_index_config.quantizer, _SQConfigCreate):
+                    if vec_index_config.vector_index_type() == "flat":
+                        assert named_vector.vector_compression_ratio == 1  # not set for flat
+                    else:
+                        assert named_vector.vector_compression_ratio == 32
+                elif isinstance(vec_index_config.quantizer, _SQConfigCreate):
                     assert named_vector.compression == _SQConfigCreate.quantizer_name()
                     # SQ compression is only enabled for async indexing
-                elif isinstance(vector_index_config.quantizer, _RQConfigCreate):
+                elif isinstance(vec_index_config.quantizer, _RQConfigCreate):
                     assert named_vector.compression == _RQConfigCreate.quantizer_name()
                     assert named_vector.vector_compression_ratio != 1  # not constant
-                elif isinstance(vector_index_config.quantizer, _PQConfigCreate):
+                elif isinstance(vec_index_config.quantizer, _PQConfigCreate):
                     assert named_vector.compression == _PQConfigCreate.quantizer_name()
                     # PQ compression is only enabled after training
 
