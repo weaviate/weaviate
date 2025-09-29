@@ -1,4 +1,5 @@
 import random
+import time
 from typing import Union, List, Optional
 
 import pytest
@@ -242,6 +243,8 @@ def test_usage_enabling_compression(
             vector_index_config=wvc.config.Reconfigure.VectorIndex.hnsw(quantizer=quantizer_config),
         )
     )
+
+    time.sleep(0.5)  # wait for async training to finish
 
     usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
     assert usage_collection is not None

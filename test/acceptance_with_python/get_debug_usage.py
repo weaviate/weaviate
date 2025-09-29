@@ -67,10 +67,14 @@ class Report:
 
 
 def parse_dimensionality(data):
+    if data is None:
+        return None
     return Dimensionality(dimensions=data.get("dimensionality"), count=data.get("count"))
 
 
 def parse_vector_usage(data):
+    if data is None:
+        return None
     return VectorUsage(
         name=data.get("name"),
         vector_index_type=data.get("vector_index_type"),
@@ -78,31 +82,47 @@ def parse_vector_usage(data):
         compression=data.get("compression"),
         vector_compression_ratio=data.get("vector_compression_ratio"),
         bits=data.get("bits"),
-        dimensionalities=[parse_dimensionality(d) for d in data.get("dimensionalities", [])],
+        dimensionalities=[
+            d
+            for d in (parse_dimensionality(dd) for dd in data.get("dimensionalities", []))
+            if d is not None
+        ],
     )
 
 
 def parse_shard_usage(data):
+    if data is None:
+        return None
     return ShardUsage(
         name=data.get("name"),
         status=data.get("status"),
         objects_count=data.get("objects_count"),
         objects_storage_bytes=data.get("objects_storage_bytes"),
         vector_storage_bytes=data.get("vector_storage_bytes"),
-        named_vectors=[parse_vector_usage(v) for v in data.get("named_vectors", [])],
+        named_vectors=[
+            v
+            for v in (parse_vector_usage(vv) for vv in data.get("named_vectors", []))
+            if v is not None
+        ],
     )
 
 
 def parse_collection_usage(data):
+    if data is None:
+        return None
     return CollectionUsage(
         name=data.get("name"),
         replication_factor=data.get("replication_factor"),
         unique_shard_count=data.get("unique_shard_count"),
-        shards=[parse_shard_usage(s) for s in data.get("shards", [])],
+        shards=[
+            s for s in (parse_shard_usage(ss) for ss in data.get("shards", [])) if s is not None
+        ],
     )
 
 
 def parse_backup_usage(data):
+    if data is None:
+        return None
     return BackupUsage(
         id=data.get("id"),
         completion_time=data.get("completion_time"),
@@ -113,11 +133,19 @@ def parse_backup_usage(data):
 
 
 def parse_report(data):
+    if data is None:
+        return None
     return Report(
         version=data.get("version"),
         node=data.get("node"),
-        collections=[parse_collection_usage(c) for c in data.get("collections", [])],
-        backups=[parse_backup_usage(b) for b in data.get("backups", [])],
+        collections=[
+            c
+            for c in (parse_collection_usage(cc) for cc in data.get("collections", []))
+            if c is not None
+        ],
+        backups=[
+            b for b in (parse_backup_usage(bb) for bb in data.get("backups", [])) if b is not None
+        ],
         collecting_time=data.get("collecting_time"),
         schema=data.get("schema"),
     )
