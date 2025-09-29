@@ -247,19 +247,23 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	}()
 
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	// ctxPrepare, _ := context.WithTimeout(context.Background(), 20*time.Second)
-	nodeCh := c.broadcast(ctx, routingPlan.ReplicasHostAddrs, ask, level)
+	ctxPrepare, _ := context.WithTimeout(context.Background(), 20*time.Second)
+	nodeCh := c.broadcast(ctxPrepare, routingPlan.ReplicasHostAddrs, ask, level)
 
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	// ctxFinalize, _ := context.WithTimeout(context.Background(), 20*time.Second)
-	commitCh := c.commitAll(ctx, nodeCh, com, callback)
+	ctxFinalize, _ := context.WithTimeout(context.Background(), 20*time.Second)
+	commitCh := c.commitAll(ctxFinalize, nodeCh, com, callback)
 
 	// if there are additional hosts, we do a "best effort" write to them
 	// where we don't wait for a response because they are not part of the
 	// replicas used to reach level consistency
 	if len(routingPlan.AdditionalHostAddrs) > 0 {
-		additionalHostsBroadcast := c.broadcast(ctx, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
-		c.commitAll(ctx, additionalHostsBroadcast, com, nil)
+		//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
+		ctxPrepare, _ := context.WithTimeout(context.Background(), 20*time.Second)
+		additionalHostsBroadcast := c.broadcast(ctxPrepare, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
+		//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
+		ctxFinalize, _ := context.WithTimeout(context.Background(), 20*time.Second)
+		c.commitAll(ctxFinalize, additionalHostsBroadcast, com, nil)
 	}
 
 	return commitCh, level, nil
