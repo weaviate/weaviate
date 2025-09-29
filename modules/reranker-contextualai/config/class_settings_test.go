@@ -16,11 +16,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func TestClassSettings_Validate(t *testing.T) {
+func TestClassSettingsValidate(t *testing.T) {
 	tests := []struct {
 		name        string
 		cfg         map[string]interface{}
@@ -47,8 +45,8 @@ func TestClassSettings_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockConfig := &mockClassConfig{classConfig: tt.cfg}
-			settings := NewClassSettings(mockConfig)
+			fakeConfig := fakeClassConfig{classConfig: tt.cfg}
+			settings := NewClassSettings(fakeConfig)
 
 			err := settings.Validate(&models.Class{})
 
@@ -61,7 +59,7 @@ func TestClassSettings_Validate(t *testing.T) {
 	}
 }
 
-func TestClassSettings_Model(t *testing.T) {
+func TestClassSettingsModel(t *testing.T) {
 	tests := []struct {
 		name     string
 		cfg      map[string]interface{}
@@ -83,8 +81,8 @@ func TestClassSettings_Model(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockConfig := &mockClassConfig{classConfig: tt.cfg}
-			settings := NewClassSettings(mockConfig)
+			fakeConfig := fakeClassConfig{classConfig: tt.cfg}
+			settings := NewClassSettings(fakeConfig)
 
 			model := settings.Model()
 			assert.Equal(t, tt.expected, model)
@@ -92,7 +90,7 @@ func TestClassSettings_Model(t *testing.T) {
 	}
 }
 
-func TestClassSettings_Instruction(t *testing.T) {
+func TestClassSettingsInstruction(t *testing.T) {
 	tests := []struct {
 		name     string
 		cfg      map[string]interface{}
@@ -114,8 +112,8 @@ func TestClassSettings_Instruction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockConfig := &mockClassConfig{classConfig: tt.cfg}
-			settings := NewClassSettings(mockConfig)
+			fakeConfig := fakeClassConfig{classConfig: tt.cfg}
+			settings := NewClassSettings(fakeConfig)
 
 			instruction := settings.Instruction()
 			assert.Equal(t, tt.expected, instruction)
@@ -123,7 +121,7 @@ func TestClassSettings_Instruction(t *testing.T) {
 	}
 }
 
-func TestClassSettings_TopN(t *testing.T) {
+func TestClassSettingsTopN(t *testing.T) {
 	tests := []struct {
 		name     string
 		cfg      map[string]interface{}
@@ -145,44 +143,11 @@ func TestClassSettings_TopN(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockConfig := &mockClassConfig{classConfig: tt.cfg}
-			settings := NewClassSettings(mockConfig)
+			fakeConfig := fakeClassConfig{classConfig: tt.cfg}
+			settings := NewClassSettings(fakeConfig)
 
 			topN := settings.TopN()
 			assert.Equal(t, tt.expected, topN)
 		})
 	}
-}
-
-// mockClassConfig implements moduletools.ClassConfig for testing
-type mockClassConfig struct {
-	classConfig map[string]interface{}
-}
-
-func (m *mockClassConfig) Class() map[string]interface{} {
-	return m.classConfig
-}
-
-func (m *mockClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
-	return m.classConfig
-}
-
-func (m *mockClassConfig) Property(propName string) map[string]interface{} {
-	return map[string]interface{}{}
-}
-
-func (m *mockClassConfig) Tenant() string {
-	return ""
-}
-
-func (m *mockClassConfig) TargetVector() string {
-	return ""
-}
-
-func (m *mockClassConfig) Config() *config.Config {
-	return nil
-}
-
-func (m *mockClassConfig) PropertiesDataTypes() map[string]schema.DataType {
-	return nil
 }

@@ -76,64 +76,16 @@ func (c *contextualai) generate(ctx context.Context, cfg moduletools.ClassConfig
 		return nil, errors.Wrap(err, "get contextual ai url")
 	}
 
-	// Build messages array - always include the user prompt
-	messages := []message{
-		{
-			Role:    "user",
-			Content: prompt,
-		},
-	}
-
-	// Use provided knowledge if available, otherwise use knowledge from properties
-	finalKnowledge := knowledge
-	if len(params.Knowledge) > 0 {
-		finalKnowledge = params.Knowledge
-	}
-
-	input := generateInput{
-		Model:     params.Model,
-		Messages:  messages,
-		Knowledge: finalKnowledge,
-	}
-
-	// Add optional parameters
-	if params.SystemPrompt != "" {
-		input.SystemPrompt = &params.SystemPrompt
-	}
-	if params.AvoidCommentary != nil {
-		input.AvoidCommentary = params.AvoidCommentary
-	}
-	if params.Temperature != nil {
-		input.Temperature = params.Temperature
-	}
-	if params.TopP != nil {
-		input.TopP = params.TopP
-	}
-	if params.MaxNewTokens != nil {
-		input.MaxNewTokens = params.MaxNewTokens
-	}
+	input := c.buildGenerateInput(params, prompt, knowledge)
 
 	body, err := json.Marshal(input)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal body")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", contextualAIURL, bytes.NewReader(body))
+	res, err := c.makeAPIRequest(ctx, contextualAIURL, body)
 	if err != nil {
-		return nil, errors.Wrap(err, "create POST request")
-	}
-
-	apiKey, err := c.getAPIKey(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "Contextual AI API key")
-	}
-
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
-	req.Header.Add("Content-Type", "application/json")
-
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, errors.Wrap(err, "do POST request")
+		return nil, err
 	}
 	defer res.Body.Close()
 
@@ -143,21 +95,12 @@ func (c *contextualai) generate(ctx context.Context, cfg moduletools.ClassConfig
 	}
 
 	if res.StatusCode != 200 {
-		var apiError contextualAIAPIError
-		if err := json.Unmarshal(bodyBytes, &apiError); err == nil {
-			if apiError.Message != "" {
-				return nil, fmt.Errorf("contextual AI API error: %s", apiError.Message)
-			}
-			if apiError.Detail != "" {
-				return nil, fmt.Errorf("contextual AI API error: %s", apiError.Detail)
-			}
-		}
-		return nil, fmt.Errorf("contextual AI API request failed with status: %d", res.StatusCode)
+		return nil, c.handleAPIError(res.StatusCode, bodyBytes)
 	}
 
-	var resBody generateResponse
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+	resBody, err := c.parseResponse(bodyBytes)
+	if err != nil {
+		return nil, err
 	}
 
 	textResponse := resBody.Response
@@ -196,6 +139,90 @@ func (c *contextualai) getParameters(cfg moduletools.ClassConfig, options interf
 	}
 
 	return params
+}
+
+func (c *contextualai) buildGenerateInput(params contextualaiparams.Params, prompt string, knowledge []string) generateInput {
+	// Build messages array - always include the user prompt
+	messages := []message{
+		{
+			Role:    "user",
+			Content: prompt,
+		},
+	}
+
+	// Use provided knowledge if available, otherwise use knowledge from properties
+	finalKnowledge := knowledge
+	if len(params.Knowledge) > 0 {
+		finalKnowledge = params.Knowledge
+	}
+
+	input := generateInput{
+		Model:     params.Model,
+		Messages:  messages,
+		Knowledge: finalKnowledge,
+	}
+
+	// Add optional parameters
+	if params.SystemPrompt != "" {
+		input.SystemPrompt = &params.SystemPrompt
+	}
+	if params.AvoidCommentary != nil {
+		input.AvoidCommentary = params.AvoidCommentary
+	}
+	if params.Temperature != nil {
+		input.Temperature = params.Temperature
+	}
+	if params.TopP != nil {
+		input.TopP = params.TopP
+	}
+	if params.MaxNewTokens != nil {
+		input.MaxNewTokens = params.MaxNewTokens
+	}
+
+	return input
+}
+
+func (c *contextualai) makeAPIRequest(ctx context.Context, url string, body []byte) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return nil, errors.Wrap(err, "create POST request")
+	}
+
+	apiKey, err := c.getAPIKey(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "Contextual AI API key")
+	}
+
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "do POST request")
+	}
+
+	return res, nil
+}
+
+func (c *contextualai) handleAPIError(statusCode int, bodyBytes []byte) error {
+	var apiError contextualAIAPIError
+	if err := json.Unmarshal(bodyBytes, &apiError); err == nil {
+		if apiError.Message != "" {
+			return fmt.Errorf("contextual AI API error: %s", apiError.Message)
+		}
+		if apiError.Detail != "" {
+			return fmt.Errorf("contextual AI API error: %s", apiError.Detail)
+		}
+	}
+	return fmt.Errorf("contextual AI API request failed with status: %d", statusCode)
+}
+
+func (c *contextualai) parseResponse(bodyBytes []byte) (*generateResponse, error) {
+	var resBody generateResponse
+	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+	}
+	return &resBody, nil
 }
 
 func (c *contextualai) getDebugInformation(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {

@@ -22,11 +22,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func TestClient_Rank(t *testing.T) {
+const testQuery = "test query"
+
+func TestClientRank(t *testing.T) {
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "/v1/rerank", r.URL.Path)
@@ -37,7 +37,7 @@ func TestClient_Rank(t *testing.T) {
 		err := json.NewDecoder(r.Body).Decode(&req)
 		require.NoError(t, err)
 
-		assert.Equal(t, "test query", req.Query)
+		assert.Equal(t, testQuery, req.Query)
 		assert.Equal(t, []string{"doc1", "doc2", "doc3"}, req.Documents)
 		assert.Equal(t, "ctxl-rerank-v2-instruct-multilingual", req.Model)
 
@@ -63,22 +63,22 @@ func TestClient_Rank(t *testing.T) {
 		logger:       logrus.New(),
 	}
 
-	mockConfig := &mockClassConfig{
+	fakeConfig := fakeClassConfig{
 		classConfig: map[string]interface{}{
 			"model": "ctxl-rerank-v2-instruct-multilingual",
 		},
 	}
 
-	result, err := client.Rank(context.Background(), "test query", []string{"doc1", "doc2", "doc3"}, mockConfig)
+	result, err := client.Rank(context.Background(), testQuery, []string{"doc1", "doc2", "doc3"}, fakeConfig)
 
 	require.NoError(t, err)
-	assert.Equal(t, "test query", result.Query)
+	assert.Equal(t, testQuery, result.Query)
 	assert.Len(t, result.DocumentScores, 3)
 	assert.Equal(t, "doc1", result.DocumentScores[0].Document)
 	assert.Equal(t, 0.9, result.DocumentScores[0].Score)
 }
 
-func TestClient_MetaInfo(t *testing.T) {
+func TestClientMetaInfo(t *testing.T) {
 	client := &client{}
 
 	meta, err := client.MetaInfo()
@@ -86,37 +86,4 @@ func TestClient_MetaInfo(t *testing.T) {
 
 	assert.Equal(t, "Reranker - Contextual AI", meta["name"])
 	assert.Equal(t, "https://contextual.ai/rerank/", meta["documentationHref"])
-}
-
-// mockClassConfig implements moduletools.ClassConfig for testing
-type mockClassConfig struct {
-	classConfig map[string]interface{}
-}
-
-func (m *mockClassConfig) Class() map[string]interface{} {
-	return m.classConfig
-}
-
-func (m *mockClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
-	return m.classConfig
-}
-
-func (m *mockClassConfig) Property(propName string) map[string]interface{} {
-	return map[string]interface{}{}
-}
-
-func (m *mockClassConfig) Tenant() string {
-	return ""
-}
-
-func (m *mockClassConfig) TargetVector() string {
-	return ""
-}
-
-func (m *mockClassConfig) Config() *config.Config {
-	return nil
-}
-
-func (m *mockClassConfig) PropertiesDataTypes() map[string]schema.DataType {
-	return nil
 }
