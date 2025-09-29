@@ -51,7 +51,6 @@ def test_usage_adding_named_vector(collection_factory: CollectionFactory):
     collection.with_tenant("tenant1").data.insert({"name": "some text"})
 
     usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
-    assert usage_collection is not None
     assert usage_collection.name == collection.name
     assert len(usage_collection.shards) == 1
     tenant1_usage = usage_collection.shards[0]
@@ -80,7 +79,6 @@ def test_usage_adding_named_vector(collection_factory: CollectionFactory):
     collection.with_tenant("tenant1").data.update(uuid1, vector={"second": [0.4, 0.5]})
 
     usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
-    assert usage_collection is not None
     assert usage_collection.name == collection.name
     assert len(usage_collection.shards) == 1
 
@@ -174,7 +172,6 @@ def test_usage_mt(
 
     # test usage for HOT tenants
     usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
-    assert usage_collection is not None
     assert usage_collection.name == collection.name
     assert len(usage_collection.shards) == num_tenants
 
@@ -184,7 +181,6 @@ def test_usage_mt(
     # now deactivate some tenats and check usage again
     collection.tenants.deactivate(["tenant" + str(i) for i in range(0, num_tenants, 2)])
     usage_collection_col = debug_usage.get_debug_usage_for_collection(collection.name)
-    assert usage_collection is not None
     assert usage_collection.name == collection.name
     assert len(usage_collection.shards) == num_tenants
 
@@ -221,7 +217,6 @@ def test_usage_enabling_compression(
         )
 
     usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
-    assert usage_collection is not None
     assert usage_collection.name == collection.name
     assert len(usage_collection.shards) == 1
     shard = usage_collection.shards[0]
@@ -247,7 +242,6 @@ def test_usage_enabling_compression(
     time.sleep(0.5)  # wait for async training to finish
 
     usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
-    assert usage_collection is not None
     assert usage_collection.name == collection.name
     assert len(usage_collection.shards) == 1
     shard = usage_collection.shards[0]
@@ -281,7 +275,6 @@ def test_multi_vector(collection_factory: CollectionFactory):
     collection.data.insert({})
 
     usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
-    assert usage_collection is not None
     assert usage_collection.name == collection.name
     assert len(usage_collection.shards) == 1
     shard = usage_collection.shards[0]
