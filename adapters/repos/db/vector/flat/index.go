@@ -334,15 +334,7 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 	slice := make([]byte, len(vector)*4)
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
 
-	if index.isBQ() {
-		vectorBQ := index.bq.Encode(vector)
-		if index.isBQCached() {
-			index.bqCache.Grow(id)
-			index.bqCache.Preload(id, vectorBQ)
-		}
-		slice = make([]byte, len(vectorBQ)*8)
-		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
-	}
+	index.Preload(id, vector)
 	newCount := atomic.LoadUint64(&index.count)
 	atomic.StoreUint64(&index.count, newCount+1)
 	return nil
@@ -798,6 +790,18 @@ func (i *flat) ValidateBeforeInsert(vector []float32) error {
 
 func (i *flat) ValidateMultiBeforeInsert(vector [][]float32) error {
 	return nil
+}
+
+func (index *flat) Preload(id uint64, vector []float32) {
+	if index.isBQ() {
+		vectorBQ := index.bq.Encode(vector)
+		if index.isBQCached() {
+			index.bqCache.Grow(id)
+			index.bqCache.Preload(id, vectorBQ)
+		}
+		slice := make([]byte, len(vectorBQ)*8)
+		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
+	}
 }
 
 func (index *flat) PostStartup() {
