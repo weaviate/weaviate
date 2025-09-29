@@ -682,13 +682,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		migrator.RecountProperties(ctx)
 	}
 
-	if err := migrator.MigrateCompressedVectorBuckets(ctx); err != nil {
-		appState.Logger.
-			WithError(err).
-			WithField("action", "migrateCompressedVectorBuckets").
-			Fatal("migration failed")
-	}
-
 	return appState
 }
 

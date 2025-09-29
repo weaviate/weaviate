@@ -229,6 +229,8 @@ func (s *Shard) initTargetVectors(ctx context.Context) error {
 	s.vectorIndexes = make(map[string]VectorIndex, len(s.index.vectorIndexUserConfigs))
 	s.queues = make(map[string]*VectorIndexQueue, len(s.index.vectorIndexUserConfigs))
 
+	newMigrator().do(s)
+
 	for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
 		if err := s.initTargetVectorWithLock(ctx, targetVector, vectorIndexConfig); err != nil {
 			return err
