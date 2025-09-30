@@ -32,6 +32,7 @@ func TestTenantStatusChanges(t *testing.T) {
 	className := t.Name() + "Class"
 
 	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 	class := &models.Class{
 		Class: className,
@@ -68,7 +69,7 @@ func TestTenantStatusChanges(t *testing.T) {
 				return
 			}
 
-			usage, err := GetDebugUsageForCollection(className)
+			usage, err := getDebugUsageForCollection(className)
 			require.NoError(t, err)
 			require.NotNil(t, usage)
 			require.Equal(t, len(usage.Shards), len(tenants))
@@ -100,5 +101,137 @@ func TestTenantStatusChanges(t *testing.T) {
 		)
 	}
 	require.NoError(t, eg.Wait())
+	endUsage.Store(true)
+}
+
+func TestUsageTenantDelete(t *testing.T) {
+	ctx := context.Background()
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	require.Nil(t, err)
+
+	className := t.Name() + "Class"
+
+	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:     "first",
+				DataType: []string{string(schema.DataTypeText)},
+			},
+		},
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+	}
+	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+	tenants := make([]models.Tenant, 100)
+	for i := range tenants {
+		tenants[i] = models.Tenant{Name: fmt.Sprintf("tenant%d", i)}
+	}
+	require.NoError(t, c.Schema().TenantsCreator().WithClassName(className).WithTenants(tenants...).Do(ctx))
+
+	// add some data
+	for i, tenant := range tenants {
+		_, err := c.Data().Creator().WithClassName(className).
+			WithTenant(tenant.Name).
+			WithProperties(map[string]interface{}{
+				"first": fmt.Sprintf("hello%d", i),
+			}).Do(ctx)
+		require.NoError(t, err)
+	}
+
+	endUsage := atomic.Bool{}
+	deletedTenants := atomic.Int32{}
+	go func() {
+		for {
+			if endUsage.Load() {
+				return
+			}
+			deletedTenantsBeforeCall := deletedTenants.Load()
+			usage, err := getDebugUsageForCollection(className)
+			require.NoError(t, err)
+			require.NotNil(t, usage)
+			deletedTenantsAfterCall := deletedTenants.Load()
+
+			// we add a bit of wiggle room here as the usage endpoint might take a bit to reflect the changes
+			require.LessOrEqual(t, len(usage.Shards), len(tenants)-int(deletedTenantsBeforeCall)+1)
+			require.GreaterOrEqual(t, len(usage.Shards), len(tenants)-int(deletedTenantsAfterCall)-1)
+
+			names := make(map[string]struct{})
+			for _, shard := range usage.Shards {
+				require.NotNil(t, shard.Name)
+				if _, ok := names[*shard.Name]; ok {
+					require.Fail(t, "duplicate shard name found")
+				}
+				names[*shard.Name] = struct{}{}
+			}
+		}
+	}()
+
+	for i := range tenants {
+		err := c.Schema().TenantsDeleter().WithClassName(className).WithTenants(tenants[i].Name).Do(ctx)
+		require.NoError(t, err)
+		deletedTenants.Add(1)
+	}
+	endUsage.Store(true)
+}
+
+func TestCollectionDeletion(t *testing.T) {
+	ctx := context.Background()
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	require.Nil(t, err)
+
+	getClassName := func(t *testing.T, i int) string {
+		return t.Name() + "Class" + fmt.Sprintf("%d", i)
+	}
+	numClasses := 100
+
+	c.Schema().AllDeleter().Do(ctx)
+	classCreator := c.Schema().ClassCreator()
+	// create a bunch of classes
+	for i := 0; i < numClasses; i++ {
+		className := getClassName(t, i)
+
+		c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+		class := &models.Class{
+			Class: className,
+			Properties: []*models.Property{
+				{
+					Name:     "first",
+					DataType: []string{string(schema.DataTypeText)},
+				},
+			},
+		}
+		require.NoError(t, classCreator.WithClass(class).Do(ctx))
+
+	}
+
+	endUsage := atomic.Bool{}
+	deletedClasses := atomic.Int32{}
+	go func() {
+		for {
+			if endUsage.Load() {
+				return
+			}
+			deletedClassesBeforeCall := deletedClasses.Load()
+			usage, err := getDebugUsage()
+			require.NoError(t, err)
+			require.NotNil(t, usage)
+			deletedClassesAfterCall := deletedClasses.Load()
+
+			// we add a bit of wiggle room here as the usage endpoint might take a bit to reflect the changes
+			require.LessOrEqual(t, len(usage.Collections), numClasses-int(deletedClassesBeforeCall)+1)
+			require.GreaterOrEqual(t, len(usage.Collections), numClasses-int(deletedClassesAfterCall)-1)
+		}
+	}()
+
+	for i := 0; i < numClasses; i++ {
+		className := getClassName(t, i)
+		require.NoError(t, c.Schema().ClassDeleter().WithClassName(className).Do(ctx))
+		deletedClasses.Add(1)
+	}
 	endUsage.Store(true)
 }

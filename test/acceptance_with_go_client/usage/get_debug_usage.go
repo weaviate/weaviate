@@ -69,7 +69,7 @@ type Report struct {
 }
 
 // Get the debug usage report from the endpoint
-func GetDebugUsage() (*Report, error) {
+func getDebugUsage() (*Report, error) {
 	url := "http://localhost:6060/debug/usage?exactObjectCount=false"
 	resp, err := http.Get(url)
 	if err != nil {
@@ -95,8 +95,8 @@ func GetDebugUsage() (*Report, error) {
 }
 
 // Get a specific collection by name
-func GetDebugUsageForCollection(collection string) (*CollectionUsage, error) {
-	report, err := GetDebugUsage()
+func getDebugUsageForCollection(collection string) (*CollectionUsage, error) {
+	report, err := getDebugUsage()
 	if err != nil {
 		return nil, err
 	}

@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/cluster/usage/types"
