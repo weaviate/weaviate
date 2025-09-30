@@ -108,8 +108,18 @@ func (m compressedVectorsMigrator) migrate(targetVector string,
 		m.logger.Infof("renamed old vectors compressed bucket for target vector: %s", targetVector)
 		return nil
 	} else {
-		// Copy old bucket to new target vector bucket
-		if err := m.copyBucketContents(vectorsCompressedPath, targetVectorBucketPath); err != nil {
+		// Define temporary target vector bucket name
+		targetVectorBucketPathTmp := fmt.Sprintf("tmp_%s", targetVectorBucketPath)
+		// Check if temporary target vector bucket folder exists
+		if _, err := os.Stat(targetVectorBucketPathTmp); err == nil {
+			os.RemoveAll(targetVectorBucketPathTmp)
+		}
+		// Copy old bucket to temporary target vector bucket
+		if err := m.copyBucketContents(vectorsCompressedPath, targetVectorBucketPathTmp); err != nil {
+			return err
+		}
+		// Rename temporary target vector bucket to target vector bucket
+		if err := os.Rename(targetVectorBucketPathTmp, targetVectorBucketPath); err != nil {
 			return err
 		}
 		m.logger.Infof("copied old vectors compressed bucket for target vector: %s", targetVector)
