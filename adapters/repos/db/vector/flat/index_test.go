@@ -72,6 +72,9 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 	bq := flatent.CompressionUserConfig{
 		Enabled: false,
 	}
+	rq := flatent.CompressionUserConfig{
+		Enabled: false,
+	}
 	switch compression {
 	case compressionPQ:
 		pq.Enabled = true
@@ -81,6 +84,10 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 		bq.Enabled = true
 		bq.RescoreLimit = 100 * k
 		bq.Cache = vectorCache
+	case compressionRQ:
+		rq.Enabled = true
+		rq.RescoreLimit = 100 * k
+		rq.Cache = vectorCache
 	}
 	index, err := New(Config{
 		ID:               runId,
@@ -89,6 +96,7 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 	}, flatent.UserConfig{
 		PQ: pq,
 		BQ: bq,
+		RQ: rq,
 	}, store)
 	if err != nil {
 		return 0, 0, err
@@ -185,7 +193,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	}
 
 	extraVectorsForDelete, _ := testinghelpers.RandomVecs(5_000, 0, dimensions)
-	for _, compression := range []string{compressionNone, compressionBQ} {
+	for _, compression := range []string{compressionNone, compressionBQ, compressionRQ} {
 		t.Run("compression: "+compression, func(t *testing.T) {
 			for _, cache := range []bool{false, true} {
 				t.Run("cache: "+strconv.FormatBool(cache), func(t *testing.T) {
@@ -195,6 +203,9 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					targetRecall := float32(0.99)
 					if compression == compressionBQ {
 						targetRecall = 0.8
+					}
+					if compression == compressionRQ {
+						targetRecall = 0.7 // RQ has lower recall due to 1-bit quantization
 					}
 					t.Run("recall", func(t *testing.T) {
 						recall, latency, err := run(ctx, dirName, logger, compression, cache, vectors, queries, k, truths, nil, nil, distancer, 0)
@@ -217,7 +228,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 			}
 		})
 	}
-	for _, compression := range []string{compressionNone, compressionBQ} {
+	for _, compression := range []string{compressionNone, compressionBQ, compressionRQ} {
 		t.Run("compression: "+compression, func(t *testing.T) {
 			for _, cache := range []bool{false, true} {
 				t.Run("cache: "+strconv.FormatBool(cache), func(t *testing.T) {
@@ -234,6 +245,9 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					targetRecall := float32(0.99)
 					if compression == compressionBQ {
 						targetRecall = 0.8
+					}
+					if compression == compressionRQ {
+						targetRecall = 0.7 // RQ has lower recall due to 1-bit quantization
 					}
 
 					t.Run("recall on filtered", func(t *testing.T) {
@@ -271,12 +285,15 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 		pq    bool
 		cache bool
 		bq    bool
+		rq    bool
 	}{
-		{pq: false, cache: false, bq: false},
-		{pq: true, cache: false, bq: false},
-		{pq: true, cache: true, bq: false},
-		{pq: false, cache: false, bq: true},
-		{pq: false, cache: true, bq: true},
+		{pq: false, cache: false, bq: false, rq: false},
+		{pq: true, cache: false, bq: false, rq: false},
+		{pq: true, cache: true, bq: false, rq: false},
+		{pq: false, cache: false, bq: true, rq: false},
+		{pq: false, cache: true, bq: true, rq: false},
+		{pq: false, cache: false, bq: false, rq: true},
+		{pq: false, cache: true, bq: false, rq: true},
 	}
 	for _, tt := range cases {
 		t.Run("tt.name", func(t *testing.T) {
@@ -287,6 +304,9 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 			}
 			bq := flatent.CompressionUserConfig{
 				Enabled: tt.bq, Cache: tt.cache, RescoreLimit: 10,
+			}
+			rq := flatent.CompressionUserConfig{
+				Enabled: tt.rq, Cache: tt.cache, RescoreLimit: 10,
 			}
 			store, err := lsmkv.New(dirName, dirName, logger, nil,
 				cyclemanager.NewCallbackGroupNoop(),
@@ -303,6 +323,7 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 			}, flatent.UserConfig{
 				PQ: pq,
 				BQ: bq,
+				RQ: rq,
 			}, store)
 			require.Nil(t, err)
 
@@ -347,7 +368,7 @@ func TestConcurrentReads(t *testing.T) {
 	for i := range concurrentReads {
 		t.Run("concurrent reads: "+strconv.Itoa(concurrentReads[i]), func(t *testing.T) {
 			targetRecall := float32(0.8)
-			recall, latency, err := run(ctx, dirName, logger, compressionBQ, true, vectors, queries, k, truths, nil, nil, distancer, concurrentReads[i])
+			recall, latency, err := run(ctx, dirName, logger, compressionRQ, true, vectors, queries, k, truths, nil, nil, distancer, concurrentReads[i])
 			require.Nil(t, err)
 
 			fmt.Println(recall, latency)
