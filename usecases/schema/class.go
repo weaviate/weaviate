@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"reflect"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -962,15 +961,8 @@ func validateImmutableFields(initial, updated *models.Class) error {
 		return err
 	}
 
-	for k, v := range updated.VectorConfig {
-		if _, ok := initial.VectorConfig[k]; !ok {
-			continue
-		}
-
-		if !reflect.DeepEqual(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
-			return fmt.Errorf("vectorizer config of vector %q is immutable", k)
-		}
-	}
+	// Vectorizer is now mutable to allow switching between providers
+	// Vector index type remains immutable for consistency
 
 	return nil
 }
@@ -995,11 +987,15 @@ func validateImmutableTextFields(previous, next *models.Class,
 }
 
 func validateLegacyVectorIndexConfigImmutableFields(initial, updated *models.Class) error {
+	// Vectorizer is now mutable to allow switching between providers
+	// Only vector index type remains immutable, but only if it was already set
+	
+	// If the initial class didn't have a vector index type set, allow adding one
+	if initial.VectorIndexType == "" {
+		return nil
+	}
+	
 	return validateImmutableTextFields(initial, updated, []immutableText{
-		{
-			name:     "vectorizer",
-			accessor: func(c *models.Class) string { return c.Vectorizer },
-		},
 		{
 			name:     "vector index type",
 			accessor: func(c *models.Class) string { return c.VectorIndexType },
