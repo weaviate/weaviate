@@ -82,7 +82,6 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	if err != nil {
 		return err
 	}
-	defer targets.Release()
 
 	// if there are no postings found, ensure an initial posting is created
 	if targets.Len() == 0 {

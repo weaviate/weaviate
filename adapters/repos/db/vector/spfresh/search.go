@@ -39,10 +39,8 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 	if err != nil {
 		return nil, nil, err
 	}
-	defer centroids.Release()
 
 	q := NewResultSet(k)
-	defer q.Release()
 
 	// compute the max distance to filter out candidates that are too far away
 	maxDist := centroids.data[0].Distance * s.config.MaxDistanceRatio

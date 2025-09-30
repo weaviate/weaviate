@@ -27,7 +27,6 @@ func (s *SPFresh) RNGSelect(query Vector, reassignedFromID uint64) (*ResultSet, 
 	if err != nil {
 		return nil, false, errors.Wrap(err, "failed to search for nearest neighbors")
 	}
-	defer candidates.Release()
 
 	for cID, cDistance := range candidates.Iter() {
 		cCenter := s.SPTAG.Get(cID)

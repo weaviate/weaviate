@@ -333,7 +333,6 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 	if err != nil {
 		return errors.Wrapf(err, "failed to search for nearest centroids for reassign after split for posting %d", oldPostingID)
 	}
-	defer nearest.Release()
 
 	seen := make(map[uint64]struct{})
 	for _, id := range newPostingIDs {

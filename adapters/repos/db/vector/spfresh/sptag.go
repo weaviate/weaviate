@@ -183,28 +183,19 @@ type Result struct {
 }
 
 // ResultSet maintains the k smallest elements by distance in a sorted array.
+// It creates a fixed-size array of length k and inserts new elements in sorted order.
+// It performs about 3x faster than the priority queue approach, as it avoids
+// the overhead of heap operations and memory allocations.
 type ResultSet struct {
 	data []Result
 	k    int
 }
 
-var qPool = sync.Pool{
-	New: func() any {
-		return &ResultSet{
-			data: make([]Result, 0, 64),
-		}
-	},
-}
-
 func NewResultSet(k int) *ResultSet {
-	ks := qPool.Get().(*ResultSet)
-	ks.Reset(k)
-
-	return ks
-}
-
-func (ks *ResultSet) Release() {
-	qPool.Put(ks)
+	return &ResultSet{
+		data: make([]Result, 0, k),
+		k:    k,
+	}
 }
 
 // Insert adds a new element, maintaining only k smallest elements by distance

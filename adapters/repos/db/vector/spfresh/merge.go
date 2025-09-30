@@ -153,7 +153,6 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	if err != nil {
 		return errors.Wrapf(err, "failed to search for nearest centroid for posting %d", postingID)
 	}
-	defer nearest.Release()
 
 	if nearest.Len() <= 1 {
 		s.logger.WithField("postingID", postingID).

@@ -89,7 +89,6 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	if !needsReassign {
 		return nil
 	}
-	defer replicas.Release()
 
 	// check again if the version is still valid
 	version = s.VersionMap.Get(op.Vector.ID())

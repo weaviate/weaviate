@@ -14,9 +14,11 @@ package spfresh
 import (
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
 func TestBruteForceSPTAG_Search(t *testing.T) {
@@ -88,4 +90,29 @@ func TestBruteForceSPTAG_Search(t *testing.T) {
 	nonExistingVector := sptag.Get(999)
 	require.Nil(t, nonExistingVector)
 	require.False(t, sptag.Exists(999))
+}
+
+func BenchmarkSPTAGSearch(b *testing.B) {
+	dim := 64
+	q := compressionhelpers.NewRotationalQuantizer(dim, 42, 8, distancer.NewL2SquaredProvider())
+	sptag := NewBruteForceSPTAG(NewMetrics(nil, "n/a", "n/a"), 1024*1024, 1024)
+	sptag.Init(int32(dim), distancer.NewL2SquaredProvider())
+	logger, _ := test.NewNullLogger()
+	vectors_size := 1000_000
+	queries_size := 100
+
+	vectors, _ := testinghelpers.RandomVecsFixedSeed(vectors_size, queries_size, dim)
+
+	for i, v := range vectors {
+		encoded := q.Encode(v)
+		err := sptag.Insert(uint64(i), NewAnonymousCompressedVector(encoded))
+		require.NoError(b, err)
+	}
+
+	b.ResetTimer()
+	for b.Loop() {
+		compressionhelpers.Concurrently(logger, 100, func(taskIndex uint64) {
+			sptag.Search(NewAnonymousCompressedVector(q.Encode(vectors[0])), 64)
+		})
+	}
 }
