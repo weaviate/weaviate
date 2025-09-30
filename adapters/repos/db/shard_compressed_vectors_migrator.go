@@ -66,6 +66,7 @@ func (m compressedVectorsMigrator) do(s *Shard) error {
 				if err := os.RemoveAll(vectorsCompressedPath); err != nil {
 					return fmt.Errorf("failed to remove old bucket directory after copying all target vectors: %w", err)
 				}
+				m.logger.Info("removed old vectors compressed bucket")
 			}
 		}
 	}
@@ -78,7 +79,7 @@ func (m compressedVectorsMigrator) migrate(targetVector string,
 	renameBucket bool,
 ) error {
 	if !m.isQuantizationEnabled(vectorIndexConfig) {
-		m.logger.Info("skipping migration, quantization not enabled for target vector: %s", targetVector)
+		m.logger.Infof("skipping migration, quantization not enabled for target vector: %s", targetVector)
 		return nil
 	}
 
@@ -109,7 +110,7 @@ func (m compressedVectorsMigrator) migrate(targetVector string,
 		return nil
 	} else {
 		// Define temporary target vector bucket name
-		targetVectorBucketPathTmp := fmt.Sprintf("tmp_%s", targetVectorBucketPath)
+		targetVectorBucketPathTmp := fmt.Sprintf("%s_tmp", targetVectorBucketPath)
 		// Check if temporary target vector bucket folder exists
 		if _, err := os.Stat(targetVectorBucketPathTmp); err == nil {
 			os.RemoveAll(targetVectorBucketPathTmp)
