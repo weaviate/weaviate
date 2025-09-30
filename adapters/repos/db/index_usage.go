@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/shardusage"
+	"github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/cluster/usage/types"
@@ -261,7 +261,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName stri
 	shardUsage := &types.ShardUsage{
 		Name:                tenantName,
 		ObjectsCount:        objectUsage.Count,
-		Status:              strings.ToLower(models.TenantActivityStatusINACTIVE),
+		Status:              strings.ToLower(models.TenantActivityStatusINACTIVE), //
 		ObjectsStorageBytes: uint64(objectUsage.StorageBytes),
 		VectorStorageBytes:  uint64(vectorStorageSize),
 	}

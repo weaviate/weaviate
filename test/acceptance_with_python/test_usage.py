@@ -12,6 +12,7 @@ from weaviate.collections.classes.config_vector_index import (
     _PQConfigCreate,
     _VectorIndexConfigCreate,
     _QuantizerConfigUpdate,
+    _PQConfigUpdate,
 )
 from weaviate.collections.classes.config_vectorizers import _VectorizerConfigCreate
 from weaviate.collections.classes.config_vectors import _VectorConfigCreate
@@ -29,7 +30,7 @@ def tenant_objects_count(tenant_id: int) -> int:
     return 50 + tenant_id
 
 
-vector_names = ["first", "second", "third"]
+vector_names = ["first", "second", "third", "fourth"]
 
 
 def test_usage_adding_named_vector(collection_factory: CollectionFactory):
@@ -121,7 +122,13 @@ def test_usage_adding_named_vector(collection_factory: CollectionFactory):
             None,
         ),
         (None, vectorizers.none(), None),
-        (None, vectorizers.none(), wvc.config.Configure.VectorIndex.hnsw(quantizer=quantizer.rq())),
+        (
+            None,
+            vectorizers.none(),
+            wvc.config.Configure.VectorIndex.hnsw(
+                quantizer=quantizer.rq(bits=8)
+            ),  # change to bits=1 in 1.33 to also test
+        ),
         (None, vectorizers.none(), wvc.config.Configure.VectorIndex.flat(quantizer=quantizer.bq())),
     ],
 )
@@ -198,6 +205,7 @@ def test_usage_mt(
         wvc.config.Reconfigure.VectorIndex.Quantizer.bq(enabled=True),
         wvc.config.Reconfigure.VectorIndex.Quantizer.rq(enabled=True),
         wvc.config.Reconfigure.VectorIndex.Quantizer.sq(enabled=True, training_limit=50),
+        wvc.config.Reconfigure.VectorIndex.Quantizer.pq(enabled=True, training_limit=150),
     ],
 )
 def test_usage_enabling_compression(
@@ -267,11 +275,41 @@ def test_usage_enabling_compression(
 
 def test_multi_vector(collection_factory: CollectionFactory):
     collection = collection_factory(
-        vector_config=wvc.config.Configure.MultiVectors.self_provided(name=vector_names[0])
+        vector_config=[
+            wvc.config.Configure.MultiVectors.self_provided(name=vector_names[0]),
+            wvc.config.Configure.MultiVectors.self_provided(
+                name=vector_names[1],
+                encoding=wvc.config.Configure.VectorIndex.MultiVector.Encoding.muvera(),
+            ),
+            wvc.config.Configure.MultiVectors.self_provided(
+                name=vector_names[2],
+                encoding=wvc.config.Configure.VectorIndex.MultiVector.Encoding.muvera(),
+                quantizer=quantizer.bq(),
+            ),
+            wvc.config.Configure.MultiVectors.self_provided(
+                name=vector_names[3], quantizer=quantizer.bq()
+            ),
+        ]
     )
 
-    collection.data.insert({}, vector={vector_names[0]: [[0.1, 0.2], [0.4, 0.5], [0.7, 0.8]]})
-    collection.data.insert({}, vector={vector_names[0]: [[0.1, 0.2], [0.4, 0.5], [0.7, 0.8]]})
+    collection.data.insert(
+        {},
+        vector={
+            vector_names[0]: [[0.1, 0.2], [0.4, 0.5], [0.7, 0.8]],
+            vector_names[1]: [[0.1, 0.2], [0.4, 0.5], [0.7, 0.8]],
+            vector_names[2]: [[0.1, 0.2], [0.4, 0.5], [0.7, 0.8]],
+            vector_names[3]: [[0.1, 0.2], [0.4, 0.5], [0.7, 0.8]],
+        },
+    )
+    collection.data.insert(
+        {},
+        vector={
+            vector_names[0]: [[0.1, 0.2], [0.4, 0.5], [0.7, 0.8]],
+            vector_names[1]: [[0.1, 0.2], [0.4, 0.5], [0.7, 0.8]],
+            vector_names[2]: [[0.1, 0.2], [0.4, 0.5], [0.7, 0.8]],
+            vector_names[3]: [[0.1, 0.2], [0.4, 0.5], [0.7, 0.8]],
+        },
+    )
     collection.data.insert({})
 
     usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
@@ -279,13 +317,42 @@ def test_multi_vector(collection_factory: CollectionFactory):
     assert len(usage_collection.shards) == 1
     shard = usage_collection.shards[0]
     assert shard.objects_count == 3
-    assert len(shard.named_vectors) == 1
-    named_vector = shard.named_vectors[0]
-    assert named_vector.name == vector_names[0]
-    assert len(named_vector.dimensionalities) == 1
-    dimensionality = named_vector.dimensionalities[0]
+    assert len(shard.named_vectors) == 4
+    named_vector_pure = next(nv for nv in shard.named_vectors if nv.name == vector_names[0])
+    assert named_vector_pure.name == vector_names[0]
+    assert len(named_vector_pure.dimensionalities) == 1
+    dimensionality = named_vector_pure.dimensionalities[0]
     assert dimensionality.dimensions == 6  # 3 vectors of 2 dimensions each
     assert dimensionality.count == 2
+    assert named_vector_pure.compression == "standard"
+    assert named_vector_pure.vector_compression_ratio == 1
+
+    named_vector_muvera = next(nv for nv in shard.named_vectors if nv.name == vector_names[1])
+    assert named_vector_muvera.name == vector_names[1]
+    assert len(named_vector_muvera.dimensionalities) == 1
+    dimensionality = named_vector_muvera.dimensionalities[0]
+    assert dimensionality.dimensions == 6  # 3 vectors of 2 dimensions each
+    assert dimensionality.count == 2
+    assert named_vector_muvera.compression == "standard"
+    assert named_vector_muvera.vector_compression_ratio == 1
+
+    named_vector_muvera_bq = next(nv for nv in shard.named_vectors if nv.name == vector_names[2])
+    assert named_vector_muvera_bq.name == vector_names[2]
+    assert len(named_vector_muvera_bq.dimensionalities) == 1
+    dimensionality = named_vector_muvera_bq.dimensionalities[0]
+    assert dimensionality.dimensions == 6  # 3 vectors of 2 dimensions each
+    assert dimensionality.count == 2
+    assert named_vector_muvera_bq.compression == "bq"
+    assert named_vector_muvera_bq.vector_compression_ratio == 32
+
+    named_vector_bq = next(nv for nv in shard.named_vectors if nv.name == vector_names[3])
+    assert named_vector_bq.name == vector_names[3]
+    assert len(named_vector_bq.dimensionalities) == 1
+    dimensionality = named_vector_bq.dimensionalities[0]
+    assert dimensionality.dimensions == 6  # 3 vectors of 2 dimensions each
+    assert dimensionality.count == 2
+    assert named_vector_bq.compression == "bq"
+    assert named_vector_bq.vector_compression_ratio == 32
 
 
 def analyse_tenant(
@@ -332,6 +399,7 @@ def analyse_tenant(
                 # SQ compression is only enabled for async indexing after training
             elif isinstance(vec_index_config.quantizer, _RQConfigCreate):
                 assert named_vector.compression == _RQConfigCreate.quantizer_name()
+                # assert named_vector.bits == vec_index_config.quantizer.bits - uncomment in 1.33 to also test bits=1
                 if is_active:
                     assert named_vector.vector_compression_ratio != 1  # not constant
             elif isinstance(vec_index_config.quantizer, _PQConfigCreate):

@@ -71,7 +71,7 @@ func TestTenantStatusChanges(t *testing.T) {
 			usage, err := GetDebugUsageForCollection(className)
 			require.NoError(t, err)
 			require.NotNil(t, usage)
-			// require.Equal(t, len(usage.Shards), len(tenants))
+			require.Equal(t, len(usage.Shards), len(tenants))
 
 			names := make(map[string]struct{})
 			for _, shard := range usage.Shards {
@@ -81,7 +81,7 @@ func TestTenantStatusChanges(t *testing.T) {
 				}
 				names[*shard.Name] = struct{}{}
 			}
-			// require.Equal(t, len(names), len(tenants))
+			require.Equal(t, len(names), len(tenants))
 		}
 	}()
 
