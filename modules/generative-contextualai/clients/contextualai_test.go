@@ -27,7 +27,12 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
-const baseURLKey contextKey = "X-Contextual-Baseurl"
+const (
+	baseURLKey        contextKey = "X-Contextual-Baseurl"
+	testAPIKey        string     = "test-key"
+	contentTypeHeader string     = "Content-Type"
+	applicationJSON   string     = "application/json"
+)
 
 func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
@@ -74,48 +79,57 @@ func TestGenerateAllResults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if tt.timeout > 0 {
-					time.Sleep(100 * time.Millisecond)
-				}
-
-				assert.Equal(t, "/v1/generate", r.URL.Path)
-				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-				assert.Contains(t, r.Header.Get("Authorization"), "Bearer")
-
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(tt.statusCode)
-
-				if tt.statusCode == 200 {
-					json.NewEncoder(w).Encode(tt.response)
-				} else {
-					json.NewEncoder(w).Encode(map[string]interface{}{
-						"detail": "validation error",
-					})
-				}
-			}))
+			server := createTestServer(t, tt.statusCode, tt.timeout, tt.response)
 			defer server.Close()
 
-			timeout := 30 * time.Second
-			if tt.timeout > 0 {
-				timeout = tt.timeout
-			}
-
-			c := New("test-key", timeout, nullLogger())
+			timeout := getTestTimeout(tt.timeout)
+			c := New(testAPIKey, timeout, nullLogger())
 			cfg := fakeClassConfig{classConfig: map[string]interface{}{}}
-
-			// Override the URL for testing
 			ctx := context.WithValue(context.Background(), baseURLKey, []string{server.URL})
 
 			res, err := c.GenerateAllResults(ctx, props, "What is my name?", nil, false, cfg)
 
-			if tt.expectError {
-				assert.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tt.expectedResult, *res.Result)
-			}
+			assertTestResult(t, tt.expectError, tt.expectedResult, res, err)
 		})
+	}
+}
+
+func createTestServer(t *testing.T, statusCode int, timeout time.Duration, response generateResponse) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if timeout > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		assert.Equal(t, "/v1/generate", r.URL.Path)
+		assert.Equal(t, applicationJSON, r.Header.Get(contentTypeHeader))
+		assert.Contains(t, r.Header.Get("Authorization"), "Bearer")
+
+		w.Header().Set(contentTypeHeader, applicationJSON)
+		w.WriteHeader(statusCode)
+
+		if statusCode == 200 {
+			json.NewEncoder(w).Encode(response)
+		} else {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"detail": "validation error",
+			})
+		}
+	}))
+}
+
+func getTestTimeout(timeout time.Duration) time.Duration {
+	if timeout > 0 {
+		return timeout
+	}
+	return 30 * time.Second
+}
+
+func assertTestResult(t *testing.T, expectError bool, expectedResult string, res *modulecapabilities.GenerateResponse, err error) {
+	if expectError {
+		assert.Error(t, err)
+	} else {
+		require.NoError(t, err)
+		assert.Equal(t, expectedResult, *res.Result)
 	}
 }
 
@@ -132,14 +146,14 @@ func TestGenerateSingleResult(t *testing.T) {
 		assert.Len(t, reqBody.Messages, 1)
 		assert.Equal(t, "user", reqBody.Messages[0].Role)
 
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(contentTypeHeader, applicationJSON)
 		json.NewEncoder(w).Encode(generateResponse{
 			Response: "Generated response",
 		})
 	}))
 	defer server.Close()
 
-	c := New("test-key", 30*time.Second, nullLogger())
+	c := New(testAPIKey, 30*time.Second, nullLogger())
 	cfg := fakeClassConfig{classConfig: map[string]interface{}{}}
 
 	ctx := context.WithValue(context.Background(), baseURLKey, []string{server.URL})
@@ -158,7 +172,7 @@ func TestClientGetParameters(t *testing.T) {
 	}
 
 	client := &contextualai{
-		apiKey:     "test-key",
+		apiKey:     testAPIKey,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		logger:     logrus.New(),
 	}
@@ -221,13 +235,13 @@ func TestAPIErrorHandling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set(contentTypeHeader, applicationJSON)
 				w.WriteHeader(tt.statusCode)
 				json.NewEncoder(w).Encode(tt.responseBody)
 			}))
 			defer server.Close()
 
-			c := New("test-key", 30*time.Second, nullLogger())
+			c := New(testAPIKey, 30*time.Second, nullLogger())
 			cfg := fakeClassConfig{classConfig: map[string]interface{}{}}
 			ctx := context.WithValue(context.Background(), baseURLKey, []string{server.URL})
 

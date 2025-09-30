@@ -94,11 +94,40 @@ func (c *client) lockGuard(mutate func()) {
 func (c *client) performRank(ctx context.Context, query string, documents []string,
 	cfg moduletools.ClassConfig,
 ) ([]ent.DocumentScore, error) {
-	settings := config.NewClassSettings(cfg)
-	contextualUrl, err := url.JoinPath(c.host, c.path)
+	input, err := c.buildRankInput(query, documents, cfg)
 	if err != nil {
-		return nil, errors.Wrap(err, "join Contextual AI API host and path")
+		return nil, err
 	}
+
+	body, err := json.Marshal(input)
+	if err != nil {
+		return nil, errors.Wrapf(err, "marshal body")
+	}
+
+	res, err := c.makeRankRequest(ctx, body)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	bodyBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, errors.Wrap(err, "read response body")
+	}
+
+	if res.StatusCode != 200 {
+		return nil, c.handleRankError(res.StatusCode, bodyBytes)
+	}
+
+	var rankResponse RankResponse
+	if err := json.Unmarshal(bodyBytes, &rankResponse); err != nil {
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+	}
+	return c.toDocumentScores(documents, rankResponse.Results), nil
+}
+
+func (c *client) buildRankInput(query string, documents []string, cfg moduletools.ClassConfig) (RankInput, error) {
+	settings := config.NewClassSettings(cfg)
 
 	input := RankInput{
 		Query:     query,
@@ -106,7 +135,6 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 		Model:     settings.Model(),
 	}
 
-	// Add optional parameters if they are set
 	if instruction := settings.Instruction(); instruction != "" {
 		input.Instruction = &instruction
 	}
@@ -115,16 +143,19 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 		input.TopN = &topN
 	}
 
-	// Add metadata as empty strings for documents that don't have metadata
 	metadata := make([]string, len(documents))
 	for i := range metadata {
 		metadata[i] = ""
 	}
 	input.Metadata = metadata
 
-	body, err := json.Marshal(input)
+	return input, nil
+}
+
+func (c *client) makeRankRequest(ctx context.Context, body []byte) (*http.Response, error) {
+	contextualUrl, err := url.JoinPath(c.host, c.path)
 	if err != nil {
-		return nil, errors.Wrapf(err, "marshal body")
+		return nil, errors.Wrap(err, "join Contextual AI API host and path")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", contextualUrl, bytes.NewReader(body))
@@ -136,6 +167,7 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 	if err != nil {
 		return nil, errors.Wrapf(err, "Contextual AI API Key")
 	}
+
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	req.Header.Add("Content-Type", "application/json")
 
@@ -143,33 +175,25 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 	if err != nil {
 		return nil, errors.Wrap(err, "send POST request")
 	}
-	defer res.Body.Close()
 
-	bodyBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, errors.Wrap(err, "read response body")
+	return res, nil
+}
+
+func (c *client) handleRankError(statusCode int, bodyBytes []byte) error {
+	var apiError contextualApiError
+	if err := json.Unmarshal(bodyBytes, &apiError); err != nil {
+		return errors.Wrap(err, "unmarshal error from response body")
 	}
 
-	if res.StatusCode != 200 {
-		var apiError contextualApiError
-		err = json.Unmarshal(bodyBytes, &apiError)
-		if err != nil {
-			return nil, errors.Wrap(err, "unmarshal error from response body")
-		}
-		if apiError.Message != "" {
-			return nil, errors.Errorf("connection to Contextual AI API failed with status %d: %s", res.StatusCode, apiError.Message)
-		}
-		if len(apiError.Detail) > 0 && apiError.Detail[0].Msg != "" {
-			return nil, errors.Errorf("connection to Contextual AI API failed with status %d: %s", res.StatusCode, apiError.Detail[0].Msg)
-		}
-		return nil, errors.Errorf("connection to Contextual AI API failed with status %d", res.StatusCode)
+	if apiError.Message != "" {
+		return errors.Errorf("connection to Contextual AI API failed with status %d: %s", statusCode, apiError.Message)
 	}
 
-	var rankResponse RankResponse
-	if err := json.Unmarshal(bodyBytes, &rankResponse); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+	if len(apiError.Detail) > 0 && apiError.Detail[0].Msg != "" {
+		return errors.Errorf("connection to Contextual AI API failed with status %d: %s", statusCode, apiError.Detail[0].Msg)
 	}
-	return c.toDocumentScores(documents, rankResponse.Results), nil
+
+	return errors.Errorf("connection to Contextual AI API failed with status %d", statusCode)
 }
 
 func (c *client) chunkDocuments(documents []string, chunkSize int) [][]string {

@@ -25,13 +25,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testQuery = "test query"
+const (
+	testQuery         = "test query"
+	testAPIKey        = "test-key"
+	rerankPath        = "/v1/rerank"
+	contentTypeHeader = "Content-Type"
+	applicationJSON   = "application/json"
+	testModel         = "ctxl-rerank-v2-instruct-multilingual"
+)
 
 func TestClientRank(t *testing.T) {
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, "/v1/rerank", r.URL.Path)
-		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		assert.Equal(t, rerankPath, r.URL.Path)
+		assert.Equal(t, applicationJSON, r.Header.Get(contentTypeHeader))
 		assert.Contains(t, r.Header.Get("Authorization"), "Bearer")
 
 		var req RankInput
@@ -40,7 +47,7 @@ func TestClientRank(t *testing.T) {
 
 		assert.Equal(t, testQuery, req.Query)
 		assert.Equal(t, []string{"doc1", "doc2", "doc3"}, req.Documents)
-		assert.Equal(t, "ctxl-rerank-v2-instruct-multilingual", req.Model)
+		assert.Equal(t, testModel, req.Model)
 
 		response := RankResponse{
 			Results: []RerankedResult{
@@ -50,23 +57,23 @@ func TestClientRank(t *testing.T) {
 			},
 		}
 
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(contentTypeHeader, applicationJSON)
 		json.NewEncoder(w).Encode(response)
 	}))
 	defer testServer.Close()
 
 	client := &client{
-		apiKey:       "test-key",
+		apiKey:       testAPIKey,
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
 		host:         testServer.URL,
-		path:         "/v1/rerank",
+		path:         rerankPath,
 		maxDocuments: 1000,
 		logger:       logrus.New(),
 	}
 
 	fakeConfig := fakeClassConfig{
 		classConfig: map[string]interface{}{
-			"model": "ctxl-rerank-v2-instruct-multilingual",
+			"model": testModel,
 		},
 	}
 
@@ -131,24 +138,24 @@ func TestRankErrorHandling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set(contentTypeHeader, applicationJSON)
 				w.WriteHeader(tt.statusCode)
 				json.NewEncoder(w).Encode(tt.responseBody)
 			}))
 			defer testServer.Close()
 
 			client := &client{
-				apiKey:       "test-key",
+				apiKey:       testAPIKey,
 				httpClient:   &http.Client{Timeout: 30 * time.Second},
 				host:         testServer.URL,
-				path:         "/v1/rerank",
+				path:         rerankPath,
 				maxDocuments: 1000,
 				logger:       logrus.New(),
 			}
 
 			fakeConfig := fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"model": "ctxl-rerank-v2-instruct-multilingual",
+					"model": testModel,
 				},
 			}
 
@@ -209,16 +216,16 @@ func TestRankWithDifferentConfigs(t *testing.T) {
 					},
 				}
 
-				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set(contentTypeHeader, applicationJSON)
 				json.NewEncoder(w).Encode(response)
 			}))
 			defer testServer.Close()
 
 			client := &client{
-				apiKey:       "test-key",
+				apiKey:       testAPIKey,
 				httpClient:   &http.Client{Timeout: 30 * time.Second},
 				host:         testServer.URL,
-				path:         "/v1/rerank",
+				path:         rerankPath,
 				maxDocuments: 1000,
 				logger:       logrus.New(),
 			}
