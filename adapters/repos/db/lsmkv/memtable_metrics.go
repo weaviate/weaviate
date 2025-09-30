@@ -66,6 +66,7 @@ func newMemtableMetrics(metrics *Metrics, path, strategy string) (*memtableMetri
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_memtable_flush_total: %w", err)
 	}
+	monitoring.InitCounterVec(flushingCount, bucketStrategiesLabels)
 
 	flushingInProgress, err := monitoring.EnsureRegisteredMetric(metrics.register,
 		prometheus.NewGaugeVec(
@@ -79,6 +80,7 @@ func newMemtableMetrics(metrics *Metrics, path, strategy string) (*memtableMetri
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_memtable_flush_in_progress: %w", err)
 	}
+	monitoring.InitGaugeVec(flushingInProgress, bucketStrategiesLabels)
 
 	flushingFailureCount, err := monitoring.EnsureRegisteredMetric(metrics.register,
 		prometheus.NewCounterVec(
@@ -92,6 +94,7 @@ func newMemtableMetrics(metrics *Metrics, path, strategy string) (*memtableMetri
 	if err != nil {
 		return nil, fmt.Errorf("register lsm_memtable_flush_failures_total: %w", err)
 	}
+	monitoring.InitCounterVec(flushingFailureCount, bucketStrategiesLabels)
 
 	flushingDuration, err := monitoring.EnsureRegisteredMetric(metrics.register,
 		prometheus.NewHistogramVec(
