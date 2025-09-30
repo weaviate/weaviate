@@ -24,9 +24,9 @@ import (
 
 // fakeReplicator is a mock implementation of the replicator interface for testing
 type fakeReplicator struct {
-	useCommitBlock bool
-	commitBlock    chan struct{}
-	startedChan    chan struct{} // Signal when operation has started
+	useCommitBlock bool          // Enables/disables if commit will block or not
+	commitBlock    chan struct{} // Used to allow the tester to block/unblock the commit operation
+	startedChan    chan struct{} // Signal to the tester when operations have started
 }
 
 // newFakeReplicator creates a new controllable fake replicator

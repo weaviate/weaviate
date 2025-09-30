@@ -130,7 +130,7 @@ func (s *Server) Close(ctx context.Context) error {
 		}
 	}
 
-	// Now shutdown the HTTP server after the business logic has been drained
+	// Now shutdown the HTTP server after the replicated indices have been closed
 	if err := s.server.Shutdown(ctx); err != nil {
 		s.appState.Logger.WithField("action", "cluster_api_shutdown").
 			WithError(err).

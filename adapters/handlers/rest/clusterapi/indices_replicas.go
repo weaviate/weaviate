@@ -84,10 +84,11 @@ type replicatedIndices struct {
 	// requestQueue buffers requests until they're picked up by a worker, goal is to avoid
 	// overwhelming the system with requests during spikes (also allows for backpressure)
 	requestQueue chan queuedRequest
-
 	// shutdown management
-	shutdown     chan struct{}
-	workerWg     sync.WaitGroup
+	shutdown chan struct{}
+	// workerWg waits for all workers to finish
+	workerWg sync.WaitGroup
+	// shutdownOnce ensures that the shutdown is only done once
 	shutdownOnce sync.Once
 }
 
@@ -996,7 +997,7 @@ func (i *replicatedIndices) Close(ctx context.Context) error {
 		// Set a timeout for graceful shutdown
 		shutdownTimeout := i.requestQueueConfig.QueueShutdownTimeout
 		if shutdownTimeout == 0 {
-			shutdownTimeout = 30 * time.Second // default timeout
+			shutdownTimeout = 30 * time.Second // default timeout if not set
 		}
 
 		// Create a context with timeout for shutdown
