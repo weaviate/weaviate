@@ -16,11 +16,13 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/test/docker"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -214,7 +216,6 @@ func TestCollectionDeletion(t *testing.T) {
 			},
 		}
 		require.NoError(t, classCreator.WithClass(class).Do(ctx))
-
 	}
 
 	endUsage := atomic.Bool{}
@@ -242,4 +243,78 @@ func TestCollectionDeletion(t *testing.T) {
 		deletedClasses.Add(1)
 	}
 	endUsage.Store(true)
+}
+
+func TestRestart(t *testing.T) {
+	ctx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviate().
+		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	require.NoError(t, err)
+
+	className := t.Name() + "Class"
+
+	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:     "first",
+				DataType: []string{string(schema.DataTypeText)},
+			},
+		},
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+	}
+	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+	tenants := make([]models.Tenant, 100)
+	for i := range tenants {
+		tenants[i] = models.Tenant{Name: fmt.Sprintf("tenant%d", i)}
+	}
+	require.NoError(t, c.Schema().TenantsCreator().WithClassName(className).WithTenants(tenants...).Do(ctx))
+
+	// add some data
+	for i, tenant := range tenants {
+		objs := make([]*models.Object, 10)
+		for j := range objs {
+			vector := make([]float32, 128)
+			for k := range vector {
+				vector[k] = float32(i+j+k) / 10000.0
+			}
+			objs[j] = &models.Object{
+				Class: className,
+				Properties: map[string]interface{}{
+					"first": fmt.Sprintf("hello%d-%d", i, j),
+				},
+				Vector: vector,
+				Tenant: tenant.Name,
+			}
+		}
+
+		_, err := c.Batch().ObjectsBatcher().WithObjects(objs...).Do(ctx)
+		require.NoError(t, err)
+	}
+
+	usage, err := getDebugUsage()
+	require.NoError(t, err)
+	require.NotNil(t, usage)
+
+	timeout := time.Minute
+	require.NoError(t, compose.StopAt(ctx, 0, &timeout))
+	require.NoError(t, compose.StartAt(ctx, 0))
+
+	usage2, err := getDebugUsage()
+	require.NoError(t, err)
+	require.NotNil(t, usage2)
+	require.False(t, ReportsAreDifferent(usage, usage2))
 }
