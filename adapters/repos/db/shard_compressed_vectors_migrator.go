@@ -12,87 +12,124 @@
 package db
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
-	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 type compressedVectorsMigrator struct {
+	logger logrus.FieldLogger
 }
 
-func newMigrator() compressedVectorsMigrator {
-	return compressedVectorsMigrator{}
+func newCompressedVectorsMigrator(logger logrus.FieldLogger) compressedVectorsMigrator {
+	return compressedVectorsMigrator{logger: logger.WithField("action", "compressed_vector_migration")}
 }
 
-func (migrator compressedVectorsMigrator) do(s *Shard) error {
+func (m compressedVectorsMigrator) do(s *Shard) error {
 	totalVectors := len(s.index.vectorIndexUserConfigs)
 	if s.index.vectorIndexUserConfig != nil {
 		totalVectors++
 	}
 
-	oldBucketName := helpers.VectorsCompressedBucketLSM
 	lsmDir := s.store.GetDir()
-	oldBucketPath := filepath.Join(lsmDir, oldBucketName)
-	if _, err := os.Stat(oldBucketPath); !os.IsNotExist(err) {
+	vectorsCompressedPath := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
+	if _, err := os.Stat(vectorsCompressedPath); !os.IsNotExist(err) {
 		switch totalVectors {
 		case 0:
 			// do nothing
 		case 1:
 			if len(s.index.vectorIndexUserConfigs) > 0 {
-				// rename
-				for key := range s.index.vectorIndexUserConfigs {
-					newBucketName := helpers.GetCompressedBucketName(key)
-
-					// Skip if bucket names are the same (shouldn't happen with multiple configs)
-					if oldBucketName == newBucketName {
-						continue
-					}
-
-					newBucketPath := filepath.Join(lsmDir, newBucketName)
-
-					// Check if new bucket directory already exists
-					if _, err := os.Stat(newBucketPath); err == nil {
-						os.RemoveAll(newBucketPath)
-					}
-					// Rename old bucket to new bucket
-					if err := os.Rename(oldBucketPath, newBucketPath); err != nil {
-						return errors.Wrapf(err, "failed to rename old bucket from %s to %s", oldBucketPath, newBucketPath)
+				for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
+					// Rename old bucket to new target vector bucket
+					if err := m.migrate(targetVector, vectorIndexConfig, lsmDir, true); err != nil {
+						return fmt.Errorf("failed to rename old compressed vector bucket for target vector %s: %w", targetVector, err)
 					}
 				}
 			}
 		default:
-			// copy
-			for key := range s.index.vectorIndexUserConfigs {
-				newBucketName := helpers.GetCompressedBucketName(key)
-
-				// Skip if bucket names are the same (shouldn't happen with multiple configs)
-				if oldBucketName == newBucketName {
-					continue
-				}
-
-				newBucketPath := filepath.Join(lsmDir, newBucketName)
-
-				// Check if new bucket directory already exists
-				if _, err := os.Stat(newBucketPath); err == nil {
-					os.RemoveAll(newBucketPath)
-				}
-
-				// Copy old bucket to new target vector bucket
-				if err := migrator.copyBucketContents(oldBucketPath, newBucketPath); err != nil {
-					return errors.Wrap(err, "failed to copy from old compressed vector bucket to new bucket: ")
+			// Copy old buckets to new target vector buckets
+			for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
+				if err := m.migrate(targetVector, vectorIndexConfig, lsmDir, false); err != nil {
+					return fmt.Errorf("failed to copy from old compressed vector bucket to new bucket for target vector: %s: %w", targetVector, err)
 				}
 			}
-
-			// Remove the old bucket directory after all copies are complete
-			if err := os.RemoveAll(oldBucketPath); err != nil {
-				return errors.Wrap(err, "failed to remove old bucket directory after copying to all target vectors")
+			if s.index.vectorIndexUserConfig == nil {
+				// Remove the old bucket directory after all copies are complete, only if was not defined for legacy vector
+				if err := os.RemoveAll(vectorsCompressedPath); err != nil {
+					return fmt.Errorf("failed to remove old bucket directory after copying all target vectors: %w", err)
+				}
 			}
 		}
 	}
 	return nil
+}
+
+func (m compressedVectorsMigrator) migrate(targetVector string,
+	vectorIndexConfig schemaConfig.VectorIndexConfig,
+	lsmDir string,
+	renameBucket bool,
+) error {
+	if !m.isQuantizationEnabled(vectorIndexConfig) {
+		m.logger.Info("skipping migration, quantization not enabled for target vector: %s", targetVector)
+		return nil
+	}
+
+	targetVectorBucket := helpers.GetCompressedBucketName(targetVector)
+
+	// Skip if bucket names are the same (shouldn't happen with multiple configs)
+	if targetVectorBucket == helpers.VectorsCompressedBucketLSM {
+		m.logger.Info("skipping migration, proper bucket exists for legacy vector")
+		return nil
+	}
+
+	targetVectorBucketPath := filepath.Join(lsmDir, targetVectorBucket)
+
+	// Skip if the proper bucket name already exists
+	if _, err := os.Stat(targetVectorBucketPath); err == nil {
+		m.logger.Infof("skipping migration, proper bucket exists for target vector: %s", targetVector)
+		return nil
+	}
+
+	vectorsCompressedPath := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
+
+	if renameBucket {
+		// Rename old bucket to new bucket
+		if err := os.Rename(vectorsCompressedPath, targetVectorBucketPath); err != nil {
+			return err
+		}
+		m.logger.Infof("renamed old vectors compressed bucket for target vector: %s", targetVector)
+		return nil
+	} else {
+		// Copy old bucket to new target vector bucket
+		if err := m.copyBucketContents(vectorsCompressedPath, targetVectorBucketPath); err != nil {
+			return err
+		}
+		m.logger.Infof("copied old vectors compressed bucket for target vector: %s", targetVector)
+		return nil
+	}
+}
+
+func (m compressedVectorsMigrator) isQuantizationEnabled(vectorConfig schemaConfig.VectorIndexConfig) bool {
+	switch vc := vectorConfig.(type) {
+	case hnsw.UserConfig:
+		return vc.BQ.Enabled || vc.PQ.Enabled || vc.SQ.Enabled
+	case flat.UserConfig:
+		return vc.BQ.Enabled || vc.PQ.Enabled || vc.SQ.Enabled
+	case dynamic.UserConfig:
+		flatCompressionEnabled := vc.FlatUC.BQ.Enabled || vc.FlatUC.PQ.Enabled || vc.FlatUC.SQ.Enabled
+		hnswCompressionEnabled := vc.HnswUC.BQ.Enabled || vc.HnswUC.PQ.Enabled || vc.HnswUC.SQ.Enabled
+		return flatCompressionEnabled || hnswCompressionEnabled
+	default:
+		return false
+	}
 }
 
 func (m compressedVectorsMigrator) copyBucketContents(srcDir, dstDir string) error {
@@ -117,7 +154,7 @@ func (m compressedVectorsMigrator) copyBucketContents(srcDir, dstDir string) err
 	})
 }
 
-func (migrator compressedVectorsMigrator) copyFile(src, dst string) error {
+func (m compressedVectorsMigrator) copyFile(src, dst string) error {
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return err

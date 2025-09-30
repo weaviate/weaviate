@@ -226,10 +226,13 @@ func (s *Shard) initTargetVectors(ctx context.Context) error {
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()
 
+	if err := newCompressedVectorsMigrator(s.index.logger).do(s); err != nil {
+		s.index.logger.WithField("action", "init_target_vectors").
+			WithError(err).Error("failed to migrate vectors compressed folder")
+	}
+
 	s.vectorIndexes = make(map[string]VectorIndex, len(s.index.vectorIndexUserConfigs))
 	s.queues = make(map[string]*VectorIndexQueue, len(s.index.vectorIndexUserConfigs))
-
-	newMigrator().do(s)
 
 	for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
 		if err := s.initTargetVectorWithLock(ctx, targetVector, vectorIndexConfig); err != nil {
