@@ -118,13 +118,13 @@ func CalculateUnloadedVectorsMetrics(ctx context.Context, logger logrus.FieldLog
 }
 
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
-func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, tenantName string) (types.ObjectUsage, error) {
+func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, shardName string) (types.ObjectUsage, error) {
 	// Parse all .cna files in the object store and sum them up
 	totalObjectCount := int64(0)
 	totalDiskSize := int64(0)
 
 	// Use a single walk to avoid multiple filepath.Walk calls and reduce file descriptors
-	if err := filepath.Walk(shardPathObjectsLSM(path, tenantName), func(path string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(shardPathObjectsLSM(path, shardName), func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -137,7 +137,7 @@ func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, tenantName
 			if strings.HasSuffix(info.Name(), lsmkv.CountNetAdditionsFileSuffix) {
 				count, err := lsmkv.ReadCountNetAdditionsFile(path)
 				if err != nil {
-					logger.WithField("path", path).WithError(err).Warn("failed to read .cna file")
+					logger.WithField("path", path).WithField("shard", shardName).WithError(err).Warn("failed to read .cna file")
 					return err
 				}
 				totalObjectCount += count
@@ -147,7 +147,7 @@ func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, tenantName
 			if strings.HasSuffix(info.Name(), lsmkv.MetadataFileSuffix) {
 				count, err := lsmkv.ReadObjectCountFromMetadataFile(path)
 				if err != nil {
-					logger.WithField("path", path).WithError(err).Warn("failed to read .metadata file")
+					logger.WithField("path", path).WithField("shard", shardName).WithError(err).Warn("failed to read .metadata file")
 					return err
 				}
 				totalObjectCount += count
