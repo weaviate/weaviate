@@ -178,26 +178,26 @@ func TestRankWithDifferentConfigs(t *testing.T) {
 		{
 			name: "with default config",
 			config: map[string]interface{}{
-				"model": "ctxl-rerank-v2-instruct-multilingual",
+				"model": testModel,
 			},
-			expectedModel: "ctxl-rerank-v2-instruct-multilingual",
+			expectedModel: testModel,
 		},
 		{
 			name: "with topN",
 			config: map[string]interface{}{
-				"model": "ctxl-rerank-v2-instruct-multilingual",
+				"model": testModel,
 				"topN":  5,
 			},
-			expectedModel: "ctxl-rerank-v2-instruct-multilingual",
+			expectedModel: testModel,
 			expectedTopN:  func() *int { v := 5; return &v }(),
 		},
 		{
 			name: "with instruction",
 			config: map[string]interface{}{
-				"model":       "ctxl-rerank-v2-instruct-multilingual",
+				"model":       testModel,
 				"instruction": "Prioritize recent documents",
 			},
-			expectedModel: "ctxl-rerank-v2-instruct-multilingual",
+			expectedModel: testModel,
 			expectedInstr: func() *string { v := "Prioritize recent documents"; return &v }(),
 		},
 	}
