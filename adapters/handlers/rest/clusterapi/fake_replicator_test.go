@@ -26,12 +26,14 @@ import (
 type fakeReplicator struct {
 	useCommitBlock bool
 	commitBlock    chan struct{}
+	startedChan    chan struct{} // Signal when operation has started
 }
 
 // newFakeReplicator creates a new controllable fake replicator
 func newFakeReplicator(useCommitBlock bool) *fakeReplicator {
 	return &fakeReplicator{
 		commitBlock:    make(chan struct{}),
+		startedChan:    make(chan struct{}),
 		useCommitBlock: useCommitBlock,
 	}
 }
@@ -62,10 +64,15 @@ func (f *fakeReplicator) ReplicateReferences(ctx context.Context, indexName, sha
 
 // CommitReplication waits to return until a message is received on the commitBlock channel
 func (f *fakeReplicator) CommitReplication(indexName, shardName, requestID string) interface{} {
+	// Signal that the operation has started
+	select {
+	case f.startedChan <- struct{}{}:
+	default:
+	}
+
 	if f.useCommitBlock {
 		<-f.commitBlock
 	}
-	// fmt.Println("NATEE commit replication")
 	return map[string]string{"status": "committed"}
 }
 
@@ -95,4 +102,13 @@ func (f *fakeReplicator) DigestObjectsInRange(ctx context.Context, class, shardN
 
 func (f *fakeReplicator) HashTreeLevel(ctx context.Context, index, shard string, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
 	return []hashtree.Digest{}, nil
+}
+
+func (f *fakeReplicator) Done() {
+	close(f.commitBlock)
+}
+
+// WaitForStart waits for the operation to start (non-blocking)
+func (f *fakeReplicator) WaitForStart() <-chan struct{} {
+	return f.startedChan
 }

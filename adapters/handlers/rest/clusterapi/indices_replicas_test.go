@@ -246,42 +246,27 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 		requestQueueConfig cluster.RequestQueueConfig
 		numRequests        int
 		shutdownTimeout    time.Duration
-		expectTimeout      bool
-		useCommitBlock     bool
 	}{
-		// {
-		// 	name: "shutdown_with_no_queue",
-		// 	requestQueueConfig: cluster.RequestQueueConfig{
-		// 		IsEnabled: configRuntime.NewDynamicValue(false),
-		// 	},
-		// 	numRequests:     0,
-		// 	shutdownTimeout: 1 * time.Second,
-		// },
-		// {
-		// 	name: "shutdown_with_empty_queue",
-		// 	requestQueueConfig: cluster.RequestQueueConfig{
-		// 		IsEnabled:  configRuntime.NewDynamicValue(true),
-		// 		NumWorkers: 2,
-		// 		QueueSize:  10,
-		// 	},
-		// 	numRequests:     0,
-		// 	shutdownTimeout: 1 * time.Second,
-		// },
-		// {
-		// 	name: "shutdown_with_pending_requests",
-		// 	requestQueueConfig: cluster.RequestQueueConfig{
-		// 		IsEnabled:            configRuntime.NewDynamicValue(true),
-		// 		NumWorkers:           1,
-		// 		QueueSize:            5,
-		// 		QueueShutdownTimeout: 1 * time.Second,
-		// 	},
-		// 	numRequests:     3,
-		// 	shutdownTimeout: 2 * time.Second,
-		// 	expectTimeout:   false,
-		// 	useCommitBlock:  false,
-		// },
 		{
-			name: "shutdown_with_stuck_requests",
+			name: "shutdown_with_no_queue",
+			requestQueueConfig: cluster.RequestQueueConfig{
+				IsEnabled: configRuntime.NewDynamicValue(false),
+			},
+			numRequests:     0,
+			shutdownTimeout: 1 * time.Second,
+		},
+		{
+			name: "shutdown_with_empty_queue",
+			requestQueueConfig: cluster.RequestQueueConfig{
+				IsEnabled:  configRuntime.NewDynamicValue(true),
+				NumWorkers: 2,
+				QueueSize:  10,
+			},
+			numRequests:     0,
+			shutdownTimeout: 1 * time.Second,
+		},
+		{
+			name: "shutdown_with_pending_requests",
 			requestQueueConfig: cluster.RequestQueueConfig{
 				IsEnabled:            configRuntime.NewDynamicValue(true),
 				NumWorkers:           1,
@@ -290,38 +275,13 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 			},
 			numRequests:     3,
 			shutdownTimeout: 2 * time.Second,
-			expectTimeout:   true,
-			useCommitBlock:  true,
 		},
-		// {
-		// 	name: "shutdown_timeout",
-		// 	requestQueueConfig: cluster.RequestQueueConfig{
-		// 		IsEnabled:            configRuntime.NewDynamicValue(true),
-		// 		NumWorkers:           1,
-		// 		QueueSize:            1,
-		// 		QueueShutdownTimeout: 100 * time.Millisecond,
-		// 	},
-		// 	numRequests:     1,
-		// 	shutdownTimeout: 50 * time.Millisecond, // Very short timeout to trigger timeout
-		// 	expectTimeout:   true,
-		// },
-		// {
-		// 	name: "shutdown_with_custom_timeout",
-		// 	requestQueueConfig: cluster.RequestQueueConfig{
-		// 		IsEnabled:            configRuntime.NewDynamicValue(true),
-		// 		NumWorkers:           2,
-		// 		QueueSize:            10,
-		// 		QueueShutdownTimeout: 500 * time.Millisecond,
-		// 	},
-		// 	numRequests:     2,
-		// 	shutdownTimeout: 1 * time.Second,
-		// },
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			noopAuth := clusterapi.NewNoopAuthHandler()
-			fakeReplicator := newFakeReplicator(tc.useCommitBlock)
+			fakeReplicator := newFakeReplicator(false)
 			logger, _ := test.NewNullLogger()
 
 			indices := clusterapi.NewReplicatedIndices(
@@ -339,7 +299,7 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 			defer server.Close()
 
 			// Send requests if needed
-			var wg sync.WaitGroup
+			wg := sync.WaitGroup{}
 			requestKey := fmt.Sprintf("%s=%s", replica.RequestKey, "test_request_id")
 
 			for i := 0; i < tc.numRequests; i++ {
@@ -358,9 +318,6 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 				}()
 			}
 
-			// Wait a bit for requests to be queued
-			time.Sleep(50 * time.Millisecond)
-
 			// Test shutdown
 			ctx, cancel := context.WithTimeout(t.Context(), tc.shutdownTimeout)
 			defer cancel()
@@ -368,21 +325,13 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 			start := time.Now()
 			err := indices.Close(ctx)
 			shutdownDuration := time.Since(start)
+			// Should shutdown gracefully
+			assert.NoError(t, err)
+			// Shutdown should be reasonably fast
+			assert.True(t, shutdownDuration < 1*time.Second)
 
-			if tc.expectTimeout {
-				// Should get a timeout error
-				assert.Error(t, err)
-				assert.Contains(t, err.Error(), "shutdown timeout reached")
-				// Shutdown should have taken at least the configured timeout
-				assert.True(t, shutdownDuration >= tc.requestQueueConfig.QueueShutdownTimeout)
-			} else {
-				// Should shutdown gracefully
-				assert.NoError(t, err)
-				// Shutdown should be reasonably fast
-				assert.True(t, shutdownDuration < 1*time.Second)
-				// Wait for any remaining requests to complete
-				wg.Wait()
-			}
+			// Wait for any remaining requests to complete
+			wg.Wait()
 
 			// Test that new requests are rejected after shutdown
 			req, err := http.NewRequest("POST",
@@ -432,4 +381,76 @@ func TestReplicatedIndicesShutdownMultipleCalls(t *testing.T) {
 	// Third shutdown should also succeed (no error) due to sync.Once
 	err = indices.Close(ctx)
 	assert.NoError(t, err)
+}
+
+func TestReplicatedIndicesShutdownWithStuckRequests(t *testing.T) {
+	noopAuth := clusterapi.NewNoopAuthHandler()
+	// Create a fake replicator that blocks on commit operations
+	fakeReplicator := newFakeReplicator(true) // This will block on commit
+	logger, _ := test.NewNullLogger()
+
+	indices := clusterapi.NewReplicatedIndices(
+		fakeReplicator,
+		nil,
+		noopAuth,
+		func() bool { return false },
+		cluster.RequestQueueConfig{
+			IsEnabled:            configRuntime.NewDynamicValue(true),
+			NumWorkers:           1,
+			QueueSize:            5,
+			QueueShutdownTimeout: 500 * time.Millisecond, // Short timeout to test timeout handling
+		},
+		logger,
+	)
+
+	mux := http.NewServeMux()
+	mux.Handle("/replicas/indices/", indices.Indices())
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	// Send a request that will get stuck
+	requestKey := fmt.Sprintf("%s=%s", replica.RequestKey, "stuck_request")
+	req, err := http.NewRequest("POST",
+		fmt.Sprintf("%s/replicas/indices/MyClass/shards/myshard:commit?%s",
+			server.URL, requestKey), nil)
+	assert.Nil(t, err)
+
+	// Start the request in a goroutine (it will get stuck)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		res, err := http.DefaultClient.Do(req)
+		if err == nil {
+			res.Body.Close()
+		}
+	}()
+
+	// Wait for the operation to actually start (using this to avoid sleep)
+	select {
+	case <-fakeReplicator.WaitForStart():
+		// Operation has started, we can proceed with shutdown test
+	case <-time.After(1 * time.Second):
+		t.Fatal("operation did not start within timeout")
+	}
+
+	// Now try to shutdown - this should timeout because the request is stuck
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	err = indices.Close(ctx)
+	shutdownDuration := time.Since(start)
+
+	// Should get a timeout error because the worker is stuck
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "shutdown timeout reached")
+
+	// Shutdown should have taken at least the configured timeout
+	assert.True(t, shutdownDuration >= 500*time.Millisecond)
+
+	fakeReplicator.Done()
+
+	// Wait for the stuck request to complete (it should eventually timeout)
+	wg.Wait()
 }
