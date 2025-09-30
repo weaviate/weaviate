@@ -785,6 +785,11 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 					return fmt.Errorf("the GSE tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE' to 'true' to enable")
 				}
 				return nil
+			case models.PropertyTokenizationGseCh:
+				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE_CH")) {
+					return fmt.Errorf("the Chinese tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE_CH' to 'true' to enable")
+				}
+				return nil
 			case models.PropertyTokenizationKagomeKr:
 				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
 					return fmt.Errorf("the Korean tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_KR' to 'true' to enable")
