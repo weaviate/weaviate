@@ -784,7 +784,7 @@ func setupDebugHandlers(appState *state.State) {
 				return
 			}
 		} else {
-			timeout = 5 * time.Second
+			timeout = 30 * time.Second
 		}
 
 		className := schema.ClassName(colName)
