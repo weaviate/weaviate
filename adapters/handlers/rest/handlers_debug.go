@@ -822,12 +822,8 @@ func setupDebugHandlers(appState *state.State) {
 						timeoutAfter := time.After(timeout)
 						if len(shardsToLock) == 0 || slices.Contains(shardsToLock, shardName) {
 
-							var lockOperation func() error
-							var unlockOperation func() bool
 							var checkStatusOperation func() (bool, error)
 							if lockName == "docIds" {
-								lockOperation = shard.DebugLockDocIds
-								unlockOperation = shard.DebugUnlockDocIds
 								checkStatusOperation = shard.DebugGetDocIdLockStatus
 							} else {
 								b := shard.Store().Bucket(lockName)
@@ -842,70 +838,42 @@ func setupDebugHandlers(appState *state.State) {
 									return nil
 								}
 
-								lockOperation = b.DebugLockSegmentGroup
-								unlockOperation = b.DebugUnlockSegmentGroup
 								checkStatusOperation = b.DebugGetSegmentGroupLockStatus
 							}
-							previousStatus, err := checkStatusOperation()
 
-							if err != nil {
-								outputLock.Lock()
-								defer outputLock.Unlock()
-								output[shardName][lockName] = map[string]string{
-									"shard":   shardName,
-									"error":   "error",
-									"message": err.Error(),
-								}
-							} else {
-
-								running := true
-								tries := 0
-								statusString := "unknown"
-								startTime := time.Now()
-								for running {
-									select {
-									case <-timeoutAfter:
-										statusString = fmt.Sprintf("locked after %d tries and %s", tries, time.Since(startTime))
+							running := true
+							tries := 0
+							statusString := "unknown"
+							startTime := time.Now()
+							for running {
+								select {
+								case <-timeoutAfter:
+									statusString = fmt.Sprintf("locked after %d tries and %s", tries, time.Since(startTime))
+									running = false
+									isDeadlock = true
+								default:
+									locked, err := checkStatusOperation()
+									if err != nil {
+										statusString = "error: " + err.Error()
 										running = false
-										isDeadlock = true
-									default:
-										switch r.Method {
-										case http.MethodPost:
-											lockOperation()
-											running = false
-											statusString = "locked"
-										case http.MethodDelete:
-											unlockOperation()
-											running = false
-											statusString = "unlocked"
-										case http.MethodGet:
-											locked, err := checkStatusOperation()
-											if err != nil {
-												statusString = "error: " + err.Error()
-												running = false
-											} else if !locked {
-												statusString = fmt.Sprintf("unlocked after %d tries and %s", tries, time.Since(startTime))
-												running = false
-											}
-										}
-										time.Sleep(10 * time.Millisecond)
-										tries++
+									} else if !locked {
+										statusString = fmt.Sprintf("unlocked after %d tries and %s", tries, time.Since(startTime))
+										running = false
 									}
-								}
 
-								previousStatusString := "unlocked"
-								if previousStatus {
-									previousStatusString = "locked"
-								}
-								outputLock.Lock()
-								defer outputLock.Unlock()
-								output[shardName][lockName] = map[string]string{
-									"shard":          shardName,
-									"status":         statusString,
-									"previousStatus": previousStatusString,
-									"message":        fmt.Sprintf("shard %s %s", shardName, statusString),
+									time.Sleep(10 * time.Millisecond)
+									tries++
 								}
 							}
+
+							outputLock.Lock()
+							defer outputLock.Unlock()
+							output[shardName][lockName] = map[string]string{
+								"shard":   shardName,
+								"status":  statusString,
+								"message": fmt.Sprintf("shard %s %s", shardName, statusString),
+							}
+
 						} else {
 							outputLock.Lock()
 							defer outputLock.Unlock()
