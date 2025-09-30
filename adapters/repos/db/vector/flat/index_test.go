@@ -423,3 +423,98 @@ func TestFlat_Validation(t *testing.T) {
 	err = index.Add(ctx, uint64(0), []float32{-2})
 	require.Error(t, err)
 }
+
+func TestFlat_RQPersistence(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+	dirName := t.TempDir()
+
+	store, err := lsmkv.New(dirName, dirName, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	defer store.Shutdown(context.Background())
+
+	distancer := distancer.NewCosineDistanceProvider()
+
+	// Create index with RQ enabled
+	rq := flatent.CompressionUserConfig{
+		Enabled:      true,
+		Cache:        false,
+		RescoreLimit: 10,
+	}
+	index, err := New(Config{
+		ID:               "test-rq",
+		RootPath:         dirName,
+		DistanceProvider: distancer,
+	}, flatent.UserConfig{
+		RQ: rq,
+	}, store)
+	require.Nil(t, err)
+	defer index.Shutdown(context.Background())
+
+	// Add a vector to trigger RQ initialization
+	testVector := []float32{1.0, 2.0, 3.0, 4.0}
+	err = index.Add(ctx, 1, testVector)
+	require.Nil(t, err)
+
+	// Verify RQ quantizer was created
+	require.NotNil(t, index.rq)
+
+	// Test encoding
+	encoded := index.rq.Encode(testVector)
+	require.NotNil(t, encoded)
+	require.Greater(t, len(encoded), 0)
+
+	// Test distance calculation - RQ distances can be negative
+	distance, err := index.rq.DistanceBetweenCompressedVectors(encoded, encoded)
+	require.Nil(t, err)
+	require.IsType(t, float32(0), distance) // Just verify it returns a float32
+
+	// Store the original distance for comparison after restart
+	originalDistance := distance
+
+	// Shutdown and recreate index to test persistence
+	index.Shutdown(context.Background())
+	store.Shutdown(context.Background())
+
+	// Recreate store and index
+	store2, err := lsmkv.New(dirName, dirName, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	defer store2.Shutdown(context.Background())
+
+	index2, err := New(Config{
+		ID:               "test-rq",
+		RootPath:         dirName,
+		DistanceProvider: distancer,
+	}, flatent.UserConfig{
+		RQ: rq,
+	}, store2)
+	require.Nil(t, err)
+	defer index2.Shutdown(context.Background())
+
+	// Verify RQ quantizer was restored
+	require.NotNil(t, index2.rq)
+
+	// Test that the restored quantizer works
+	encoded2 := index2.rq.Encode(testVector)
+	require.NotNil(t, encoded2)
+
+	// The encoded vectors should be identical (same seed)
+	require.Equal(t, len(encoded), len(encoded2))
+	for i := range encoded {
+		require.Equal(t, encoded[i], encoded2[i])
+	}
+
+	// Test distance calculation with restored quantizer
+	distance2, err := index2.rq.DistanceBetweenCompressedVectors(encoded2, encoded2)
+	require.Nil(t, err)
+	require.IsType(t, float32(0), distance2) // Just verify it returns a float32
+
+	// Verify that the distance calculation is consistent after restart
+	require.Equal(t, originalDistance, distance2, "Distance calculation should be consistent after restart")
+}

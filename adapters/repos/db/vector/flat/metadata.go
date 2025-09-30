@@ -14,11 +14,13 @@ package flat
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -97,6 +99,11 @@ func (index *flat) initMetadata() error {
 	}
 
 	index.initDimensions()
+
+	// Restore RQ data if available
+	if err := index.restoreRQData(); err != nil {
+		index.logger.Warnf("flat index unable to restore RQ data: %v", err)
+	}
 
 	return nil
 }
@@ -193,5 +200,276 @@ func (index *flat) setDimensions(dimensions int32) error {
 		return errors.Wrap(err, "set dimensions")
 	}
 
+	return nil
+}
+
+// RQ data persistence and restoration functions
+
+func (index *flat) persistRQData() error {
+	if !index.isRQ() || index.rq == nil {
+		return nil // No RQ data to persist
+	}
+
+	err := index.openMetadata()
+	if err != nil {
+		return err
+	}
+	defer index.closeMetadata()
+
+	err = index.metadata.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(vectorMetadataBucket))
+		if b == nil {
+			return errors.New("failed to get bucket")
+		}
+
+		// Create a simple commit logger to capture RQ data
+		logger := &flatCommitLogger{bucket: b}
+		index.rq.PersistCompression(logger)
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "persist RQ data")
+	}
+
+	return nil
+}
+
+func (index *flat) restoreRQData() error {
+	if !index.isRQ() {
+		return nil // No RQ to restore
+	}
+
+	err := index.openMetadata()
+	if err != nil {
+		return err
+	}
+	defer index.closeMetadata()
+
+	var brqData *compressionhelpers.BRQData
+	err = index.metadata.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(vectorMetadataBucket))
+		if b == nil {
+			return nil // No metadata yet
+		}
+
+		// Check if RQ data exists
+		data := b.Get([]byte("rq_data"))
+		if data == nil {
+			return nil // No RQ data to restore
+		}
+
+		// Deserialize BRQData
+		brqData = &compressionhelpers.BRQData{}
+		pos := 0
+
+		// Read InputDim
+		if pos+4 > len(data) {
+			return errors.New("invalid RQ data: InputDim")
+		}
+		brqData.InputDim = binary.LittleEndian.Uint32(data[pos:])
+		pos += 4
+
+		// Read Rotation.OutputDim
+		if pos+4 > len(data) {
+			return errors.New("invalid RQ data: OutputDim")
+		}
+		outputDim := binary.LittleEndian.Uint32(data[pos:])
+		pos += 4
+
+		// Read Rotation.Rounds
+		if pos+4 > len(data) {
+			return errors.New("invalid RQ data: Rounds")
+		}
+		rounds := binary.LittleEndian.Uint32(data[pos:])
+		pos += 4
+
+		// Read Swaps
+		if pos+4 > len(data) {
+			return errors.New("invalid RQ data: Swaps length")
+		}
+		swapsLen := binary.LittleEndian.Uint32(data[pos:])
+		pos += 4
+
+		brqData.Rotation.Swaps = make([][]compressionhelpers.Swap, swapsLen)
+		for i := uint32(0); i < swapsLen; i++ {
+			if pos+4 > len(data) {
+				return errors.New("invalid RQ data: Swap array length")
+			}
+			swapLen := binary.LittleEndian.Uint32(data[pos:])
+			pos += 4
+
+			brqData.Rotation.Swaps[i] = make([]compressionhelpers.Swap, swapLen)
+			for j := uint32(0); j < swapLen; j++ {
+				if pos+4 > len(data) {
+					return errors.New("invalid RQ data: Swap I")
+				}
+				brqData.Rotation.Swaps[i][j].I = binary.LittleEndian.Uint16(data[pos:])
+				pos += 2
+				if pos+2 > len(data) {
+					return errors.New("invalid RQ data: Swap J")
+				}
+				brqData.Rotation.Swaps[i][j].J = binary.LittleEndian.Uint16(data[pos:])
+				pos += 2
+			}
+		}
+
+		// Read Signs
+		if pos+4 > len(data) {
+			return errors.New("invalid RQ data: Signs length")
+		}
+		signsLen := binary.LittleEndian.Uint32(data[pos:])
+		pos += 4
+
+		brqData.Rotation.Signs = make([][]float32, signsLen)
+		for i := uint32(0); i < signsLen; i++ {
+			if pos+4 > len(data) {
+				return errors.New("invalid RQ data: Sign array length")
+			}
+			signLen := binary.LittleEndian.Uint32(data[pos:])
+			pos += 4
+
+			brqData.Rotation.Signs[i] = make([]float32, signLen)
+			for j := uint32(0); j < signLen; j++ {
+				if pos+4 > len(data) {
+					return errors.New("invalid RQ data: Sign value")
+				}
+				brqData.Rotation.Signs[i][j] = math.Float32frombits(binary.LittleEndian.Uint32(data[pos:]))
+				pos += 4
+			}
+		}
+
+		// Read Rounding
+		if pos+4 > len(data) {
+			return errors.New("invalid RQ data: Rounding length")
+		}
+		roundingLen := binary.LittleEndian.Uint32(data[pos:])
+		pos += 4
+
+		brqData.Rounding = make([]float32, roundingLen)
+		for i := uint32(0); i < roundingLen; i++ {
+			if pos+4 > len(data) {
+				return errors.New("invalid RQ data: Rounding value")
+			}
+			brqData.Rounding[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[pos:]))
+			pos += 4
+		}
+
+		// Set rotation metadata
+		brqData.Rotation.OutputDim = outputDim
+		brqData.Rotation.Rounds = rounds
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "restore RQ data")
+	}
+
+	if brqData != nil {
+		// Restore the RQ quantizer
+		index.rq, err = compressionhelpers.RestoreBinaryRotationalQuantizer(
+			int(brqData.InputDim),
+			int(brqData.Rotation.OutputDim),
+			int(brqData.Rotation.Rounds),
+			brqData.Rotation.Swaps,
+			brqData.Rotation.Signs,
+			brqData.Rounding,
+			index.distancerProvider,
+		)
+		if err != nil {
+			return errors.Wrap(err, "restore binary rotational quantizer")
+		}
+	}
+
+	return nil
+}
+
+// flatCommitLogger implements CommitLogger interface for persisting RQ data
+type flatCommitLogger struct {
+	bucket *bolt.Bucket
+}
+
+func (f *flatCommitLogger) AddRQCompression(data compressionhelpers.RQData) error {
+	// Not used for flat index
+	return nil
+}
+
+func (f *flatCommitLogger) AddBRQCompression(data compressionhelpers.BRQData) error {
+	// Serialize BRQData to bytes
+	var buf []byte
+
+	// Write InputDim
+	inputDimBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(inputDimBytes, data.InputDim)
+	buf = append(buf, inputDimBytes...)
+
+	// Write Rotation.OutputDim
+	outputDimBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(outputDimBytes, data.Rotation.OutputDim)
+	buf = append(buf, outputDimBytes...)
+
+	// Write Rotation.Rounds
+	roundsBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(roundsBytes, uint32(data.Rotation.Rounds))
+	buf = append(buf, roundsBytes...)
+
+	// Write Swaps
+	swapsLenBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(swapsLenBytes, uint32(len(data.Rotation.Swaps)))
+	buf = append(buf, swapsLenBytes...)
+
+	for _, swapArray := range data.Rotation.Swaps {
+		swapLenBytes := make([]byte, 4)
+		binary.LittleEndian.PutUint32(swapLenBytes, uint32(len(swapArray)))
+		buf = append(buf, swapLenBytes...)
+
+		for _, swap := range swapArray {
+			iBytes := make([]byte, 2)
+			binary.LittleEndian.PutUint16(iBytes, swap.I)
+			buf = append(buf, iBytes...)
+			jBytes := make([]byte, 2)
+			binary.LittleEndian.PutUint16(jBytes, swap.J)
+			buf = append(buf, jBytes...)
+		}
+	}
+
+	// Write Signs
+	signsLenBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(signsLenBytes, uint32(len(data.Rotation.Signs)))
+	buf = append(buf, signsLenBytes...)
+
+	for _, signArray := range data.Rotation.Signs {
+		signLenBytes := make([]byte, 4)
+		binary.LittleEndian.PutUint32(signLenBytes, uint32(len(signArray)))
+		buf = append(buf, signLenBytes...)
+
+		for _, sign := range signArray {
+			signBytes := make([]byte, 4)
+			binary.LittleEndian.PutUint32(signBytes, math.Float32bits(sign))
+			buf = append(buf, signBytes...)
+		}
+	}
+
+	// Write Rounding
+	roundingLenBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(roundingLenBytes, uint32(len(data.Rounding)))
+	buf = append(buf, roundingLenBytes...)
+
+	for _, rounding := range data.Rounding {
+		roundingBytes := make([]byte, 4)
+		binary.LittleEndian.PutUint32(roundingBytes, math.Float32bits(rounding))
+		buf = append(buf, roundingBytes...)
+	}
+
+	return f.bucket.Put([]byte("rq_data"), buf)
+}
+
+func (f *flatCommitLogger) AddPQCompression(data compressionhelpers.PQData) error {
+	// Not used for flat index
+	return nil
+}
+
+func (f *flatCommitLogger) AddSQCompression(data compressionhelpers.SQData) error {
+	// Not used for flat index
 	return nil
 }

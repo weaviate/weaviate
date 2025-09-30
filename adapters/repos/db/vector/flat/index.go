@@ -373,6 +373,10 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 		if index.isRQ() {
 			// Use a fixed seed for consistency
 			index.rq = compressionhelpers.NewBinaryRotationalQuantizer(int(size), 42, index.distancerProvider)
+			// Persist RQ data immediately after creation
+			if err := index.persistRQData(); err != nil {
+				index.logger.WithError(err).Error("could not persist RQ data")
+			}
 		}
 	})
 
@@ -561,6 +565,11 @@ func (index *flat) searchByVectorBQ(ctx context.Context, vector []float32, k int
 }
 
 func (index *flat) searchByVectorRQ(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	// Ensure RQ quantizer is initialized
+	if index.rq == nil {
+		return nil, nil, fmt.Errorf("RQ quantizer not initialized")
+	}
+
 	// TODO: pass context into inner methods, so it can be checked more granuarly
 	rescore := index.searchTimeRescore(k)
 	heap := index.pqResults.GetMax(rescore)
