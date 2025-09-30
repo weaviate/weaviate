@@ -33,11 +33,10 @@ type BruteForceSPTAG struct {
 	distancer *Distancer
 	metrics   *Metrics
 
-	centroidsLock sync.Mutex
-	centroids     *common.PagedArray[atomic.Pointer[Centroid]]
-	idLock        sync.RWMutex
-	ids           []uint64
-	counter       atomic.Int32
+	centroids *common.PagedArray[atomic.Pointer[Centroid]]
+	idLock    sync.RWMutex
+	ids       []uint64
+	counter   atomic.Int32
 }
 
 func NewBruteForceSPTAG(metrics *Metrics, pages, pageSize uint64) *BruteForceSPTAG {
@@ -67,15 +66,9 @@ func (s *BruteForceSPTAG) Get(id uint64) *Centroid {
 }
 
 func (s *BruteForceSPTAG) Insert(id uint64, vector Vector) error {
-	page, slot := s.centroids.GetPageFor(id)
+	page, slot := s.centroids.EnsurePageFor(id)
 	if page == nil {
-		s.centroidsLock.Lock()
-		page, slot = s.centroids.GetPageFor(id)
-		if page == nil {
-			s.centroids.AllocPageFor(id)
-			page, slot = s.centroids.GetPageFor(id)
-		}
-		s.centroidsLock.Unlock()
+		return errors.New("failed to allocate page")
 	}
 
 	page[slot].Store(&Centroid{
