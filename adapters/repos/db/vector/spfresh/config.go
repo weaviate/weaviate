@@ -60,7 +60,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		Logger:                    logrus.New(),
 		Distancer:                 distancer.NewL2SquaredProvider(),
-		MinPostingSize:            40,
+		MinPostingSize:            10,
 		SplitWorkers:              w,
 		ReassignWorkers:           w,
 		InternalPostingCandidates: 64,
