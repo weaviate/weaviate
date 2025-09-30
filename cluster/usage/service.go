@@ -13,7 +13,6 @@ package usage
 
 import (
 	"context"
-	"os"
 	"time"
 
 	"github.com/pkg/errors"
@@ -22,7 +21,6 @@ import (
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	backupent "github.com/weaviate/weaviate/entities/backup"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -59,14 +57,6 @@ func (s *service) SetJitterInterval(interval time.Duration) {
 // Usage service collects usage metrics for the node and shall return error in case of any error
 // to avoid reporting partial data
 func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Report, error) {
-	defer func() {
-		if !entcfg.Enabled(os.Getenv("RECOVERY_IN_USAGE_MODULE_DISABLED")) {
-			if r := recover(); r != nil {
-				s.logger.Warn("Could not collect usage data")
-			}
-		}
-	}()
-
 	scheme := s.schemaManager.GetSchemaSkipAuth().Objects
 	collections := scheme.Classes
 	usage := &types.Report{
@@ -82,7 +72,7 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 		// we lock the local index against being deleted while we collect usage, however we cannot lock the RAFT schema
 		// against being changed. If the class was deleted in the RAFT schema, we simply skip it here
 		// as it is no longer relevant for the current node usage
-		if errors.Is(err, clusterSchema.ErrClassNotFound) {
+		if errors.Is(err, clusterSchema.ErrClassNotFound) || collectionUsage == nil {
 			continue
 		}
 		if err != nil {
