@@ -261,10 +261,11 @@ func TestEnvironmentMemtable_MaxDuration(t *testing.T) {
 func TestEnvironmentParseClusterConfig(t *testing.T) {
 	hostname, _ := os.Hostname()
 	defaultRequestQueueConfig := cluster.RequestQueueConfig{
-		IsEnabled:           configRuntime.NewDynamicValue(false),
-		NumWorkers:          runtime.GOMAXPROCS(0) * 2,
-		QueueSize:           10000,
-		QueueFullHttpStatus: 429,
+		IsEnabled:                   configRuntime.NewDynamicValue(false),
+		NumWorkers:                  runtime.GOMAXPROCS(0) * 2,
+		QueueSize:                   5000,
+		QueueFullHttpStatus:         429,
+		QueueShutdownTimeoutSeconds: 90,
 	}
 	tests := []struct {
 		name           string
@@ -348,10 +349,11 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 		{
 			name: "request queue enabled with custom config",
 			envVars: map[string]string{
-				"REPLICATED_INDICES_REQUEST_QUEUE_ENABLED":          "true",
-				"REPLICATED_INDICES_REQUEST_QUEUE_NUM_WORKERS":      "10",
-				"REPLICATED_INDICES_REQUEST_QUEUE_SIZE":             "100",
-				"REPLICATED_INDICES_REQUEST_QUEUE_FULL_HTTP_STATUS": "504",
+				"REPLICATED_INDICES_REQUEST_QUEUE_ENABLED":                  "true",
+				"REPLICATED_INDICES_REQUEST_QUEUE_NUM_WORKERS":              "10",
+				"REPLICATED_INDICES_REQUEST_QUEUE_SIZE":                     "100",
+				"REPLICATED_INDICES_REQUEST_QUEUE_FULL_HTTP_STATUS":         "504",
+				"REPLICATED_INDICES_REQUEST_QUEUE_SHUTDOWN_TIMEOUT_SECONDS": "120",
 			},
 			expectedResult: cluster.Config{
 				Hostname:         hostname,
@@ -359,10 +361,11 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				DataBindPort:     7947,
 				MaintenanceNodes: make([]string, 0),
 				RequestQueueConfig: cluster.RequestQueueConfig{
-					IsEnabled:           configRuntime.NewDynamicValue(true),
-					NumWorkers:          10,
-					QueueSize:           100,
-					QueueFullHttpStatus: 504,
+					IsEnabled:                   configRuntime.NewDynamicValue(true),
+					NumWorkers:                  10,
+					QueueSize:                   100,
+					QueueFullHttpStatus:         504,
+					QueueShutdownTimeoutSeconds: 120,
 				},
 			},
 		},

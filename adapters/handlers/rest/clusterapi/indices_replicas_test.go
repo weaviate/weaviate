@@ -268,10 +268,10 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 		{
 			name: "shutdown_with_pending_requests",
 			requestQueueConfig: cluster.RequestQueueConfig{
-				IsEnabled:            configRuntime.NewDynamicValue(true),
-				NumWorkers:           1,
-				QueueSize:            5,
-				QueueShutdownTimeout: 1 * time.Second,
+				IsEnabled:                   configRuntime.NewDynamicValue(true),
+				NumWorkers:                  1,
+				QueueSize:                   5,
+				QueueShutdownTimeoutSeconds: 1,
 			},
 			numRequests:     3,
 			shutdownTimeout: 2 * time.Second,
@@ -395,10 +395,10 @@ func TestReplicatedIndicesShutdownWithStuckRequests(t *testing.T) {
 		noopAuth,
 		func() bool { return false },
 		cluster.RequestQueueConfig{
-			IsEnabled:            configRuntime.NewDynamicValue(true),
-			NumWorkers:           1,
-			QueueSize:            5,
-			QueueShutdownTimeout: 500 * time.Millisecond, // Short timeout to test timeout handling
+			IsEnabled:                   configRuntime.NewDynamicValue(true),
+			NumWorkers:                  1,
+			QueueSize:                   5,
+			QueueShutdownTimeoutSeconds: 1,
 		},
 		logger,
 	)

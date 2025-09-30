@@ -90,6 +90,7 @@ type replicatedIndices struct {
 	workerWg sync.WaitGroup
 	// shutdownOnce ensures that the shutdown is only done once
 	shutdownOnce sync.Once
+	logger       logrus.FieldLogger
 }
 
 var (
@@ -138,8 +139,9 @@ func NewReplicatedIndices(
 		requestQueue:           make(chan queuedRequest, requestQueueConfig.QueueSize),
 		requestQueueConfig:     requestQueueConfig,
 		shutdown:               make(chan struct{}),
+		logger:                 logger,
 	}
-	i.startWorkers(logger)
+	i.startWorkers()
 	return i
 }
 
@@ -150,7 +152,7 @@ type queuedRequest struct {
 	wg *sync.WaitGroup
 }
 
-func (i *replicatedIndices) startWorkers(logger logrus.FieldLogger) {
+func (i *replicatedIndices) startWorkers() {
 	for j := 0; j < max(1, i.requestQueueConfig.NumWorkers); j++ {
 		i.workerWg.Add(1)
 		enterrors.GoWrapper(func() {
@@ -170,7 +172,7 @@ func (i *replicatedIndices) startWorkers(logger logrus.FieldLogger) {
 					return
 				}
 			}
-		}, logger)
+		}, i.logger)
 	}
 }
 
@@ -995,21 +997,21 @@ func (i *replicatedIndices) Close(ctx context.Context) error {
 		close(i.shutdown)
 
 		// Set a timeout for graceful shutdown
-		shutdownTimeout := i.requestQueueConfig.QueueShutdownTimeout
-		if shutdownTimeout == 0 {
-			shutdownTimeout = 30 * time.Second // default timeout if not set
+		shutdownTimeoutSeconds := i.requestQueueConfig.QueueShutdownTimeoutSeconds
+		if shutdownTimeoutSeconds == 0 {
+			shutdownTimeoutSeconds = cluster.DefaultRequestQueueShutdownTimeoutSeconds
 		}
 
 		// Create a context with timeout for shutdown
-		shutdownCtx, cancel := context.WithTimeout(ctx, shutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(ctx, time.Duration(shutdownTimeoutSeconds)*time.Second)
 		defer cancel()
 
 		// Wait for workers to finish with timeout
 		done := make(chan struct{})
-		go func() {
+		enterrors.GoWrapper(func() {
 			i.workerWg.Wait()
 			close(done)
-		}()
+		}, i.logger)
 
 		select {
 		case <-done:

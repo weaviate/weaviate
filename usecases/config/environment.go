@@ -1277,6 +1277,9 @@ func parseClusterConfig() (cluster.Config, error) {
 	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_FULL_HTTP_STATUS",
 		func(val int) { cfg.RequestQueueConfig.QueueFullHttpStatus = val },
 		cluster.DefaultRequestQueueFullHttpStatus)
+	parsePositiveInt("REPLICATED_INDICES_REQUEST_QUEUE_SHUTDOWN_TIMEOUT_SECONDS",
+		func(val int) { cfg.RequestQueueConfig.QueueShutdownTimeoutSeconds = val },
+		cluster.DefaultRequestQueueShutdownTimeoutSeconds)
 
 	return cfg, nil
 }

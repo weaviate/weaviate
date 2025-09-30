@@ -95,8 +95,9 @@ func (ba BasicAuth) Enabled() bool {
 }
 
 const (
-	DefaultRequestQueueSize           = 10000
-	DefaultRequestQueueFullHttpStatus = http.StatusTooManyRequests
+	DefaultRequestQueueSize                   = 2000
+	DefaultRequestQueueFullHttpStatus         = http.StatusTooManyRequests
+	DefaultRequestQueueShutdownTimeoutSeconds = 90
 )
 
 // RequestQueueConfig is used to configure the request queue buffer for the replicated indices
@@ -110,6 +111,11 @@ type RequestQueueConfig struct {
 	// QueueFullHttpStatus is used to configure the http status code that is returned when the request queue is full
 	// Should usually be set to 429 or 504 (429 will be retried by the coordinator, 504 will not)
 	QueueFullHttpStatus int `json:"queueFullHttpStatus" yaml:"queueFullHttpStatus"`
+	// QueueShutdownTimeoutSeconds is used to configure the timeout for the request queue shutdown.
+	// This is the timeout for the workers to finish processing the requests in the queue
+	// and for the request queue to be drained.
+	// Should usually be set to 90 seconds, based on coordinator's timeout
+	QueueShutdownTimeoutSeconds int `json:"queueShutdownTimeoutSeconds" yaml:"queueShutdownTimeoutSeconds"`
 }
 
 func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
