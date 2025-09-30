@@ -74,6 +74,9 @@ func TestTenantStatusChanges(t *testing.T) {
 			require.NotNil(t, usage)
 			require.Equal(t, len(usage.Shards), len(tenants))
 
+			require.NotNil(t, usage.UniqueShardCount)
+			require.Equal(t, len(usage.Shards), *usage.UniqueShardCount)
+
 			names := make(map[string]struct{})
 			for _, shard := range usage.Shards {
 				require.NotNil(t, shard.Name)
@@ -158,6 +161,11 @@ func TestUsageTenantDelete(t *testing.T) {
 			// we add a bit of wiggle room here as the usage endpoint might take a bit to reflect the changes
 			require.LessOrEqual(t, len(usage.Shards), len(tenants)-int(deletedTenantsBeforeCall)+1)
 			require.GreaterOrEqual(t, len(usage.Shards), len(tenants)-int(deletedTenantsAfterCall)-1)
+
+			if len(usage.Shards) > 0 {
+				require.NotNil(t, usage.UniqueShardCount)
+				require.Equal(t, len(usage.Shards), *usage.UniqueShardCount)
+			}
 
 			names := make(map[string]struct{})
 			for _, shard := range usage.Shards {

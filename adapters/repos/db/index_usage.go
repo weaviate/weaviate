@@ -83,91 +83,60 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 
 	var uniqueShardCount int
 
-	// There is a small gap between collecting the local shards and calculating the usage where the sharding state
-	// could have changed. We handle this by getting the current tenant state while holding the lock for this tenant.
+	// There is an important distinction between the state of the shard in the schema (in schemaReader) and the local
+	// state, which corresponds to which shard is loaded in memory and both can be out of sync.
 	//
-	// there are different cases we need to handle:
-	// 1. deleted in the meantime - not present on disk, not present in sharding state. Ignore
-	// 2. newly created shard (empty) - no files on disk yet but present in sharding state. Just return 0 usage
-	// 3. cold shard (only MT) - handle without loading. We will ignore the case that the cold shard could have been loaded
-	// 3. offloaded shards - handle without loading, return 0 usage
-	// 4. hot, unloaded lazy shard - handle without loading
-	// 5. hot, loaded lazy shard or non-lazy shard - handle normally
-	//
+	// After collection all local shards from the sharding state, we now need to iterate through these shards, lock them
+	// individually against changes in the _local_ state (i.e. loading/unloading) and then collect their usage based
+	// on this local state.
 	for shardName := range localShards {
 		if err := func() error {
-			i.shardCreateLocks.Lock(shardName)
-			defer i.shardCreateLocks.Unlock(shardName)
-
-			stillExists, status, err := i.getShardStatus(shardName)
-			if err != nil {
-				return err
-			}
-
-			// case 1: deleted in the meantime - ignore
-			if !stillExists {
-				return nil
-			}
-
-			uniqueShardCount++
-
-			// case2: newly created empty tenant - status does not matter as there is no data yet
-			exists, err := i.tenantDirExists(shardName)
-			if err != nil {
-				return err
-			}
-			if !exists {
-				collectionUsage.Shards = append(collectionUsage.Shards, emptyShardUsageWithNameAndActivity(shardName, status))
-				return nil
-			}
-
 			// Add jitter between tenant processing to not overload the system if there are many shards
 			if len(collectionUsage.Shards) > 0 {
 				addJitter(jitterInterval)
 			}
 
-			// case 3: cold tenant
-			if status == models.TenantActivityStatusCOLD {
-				shardUsage, err := i.calculateUnloadedShardUsage(ctx, shardName)
-				if err != nil {
-					return err
-				}
+			i.shardCreateLocks.Lock(shardName)
+			defer i.shardCreateLocks.Unlock(shardName)
 
-				collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
-				return nil
-			} else if status != models.TenantActivityStatusHOT {
-				// case 4: other non-hot tenants - OFFLOADED, OFFLOADING, ONLOADING. We return 0 usage for these tenants
-				collectionUsage.Shards = append(collectionUsage.Shards, emptyShardUsageWithNameAndActivity(shardName, status))
-				return nil
-			}
+			uniqueShardCount++
 
 			shard := i.shards.Load(shardName)
-			if shard == nil {
-				// shard was unloaded in the meantime, dont reload to get usage
-				shardUsage, err := i.calculateUnloadedShardUsage(ctx, shardName)
-				if err != nil {
-					return err
-				}
-
-				collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
-				return nil
+			var localStatus string
+			if shard != nil {
+				localStatus = models.TenantActivityStatusACTIVE
+			} else {
+				// this might also be offloaded, we need to check this later
+				localStatus = models.TenantActivityStatusINACTIVE
 			}
 
-			// case 4: hot, unloaded lazy tenant. Handle without loading
-			if lazyShard, ok := shard.(*LazyLoadShard); ok && !lazyShard.isLoaded() {
-				shardUsage, err := i.calculateUnloadedShardUsage(ctx, shardName)
-				if err != nil {
-					return err
-				}
-
-				collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
-				return nil
-			}
-
-			// case 3: hot, loaded lazy tenant or non-lazy tenant
-			shardUsage, err := i.calculateLoadedShardUsage(ctx, shard, exactObjectCount)
+			// case1: newly created empty tenant - status does not matter as there is no data yet. This also includes
+			// tenants that were deleted in the meantime, but as we record zero usage, it doesn't matter
+			exists, err := i.tenantDirExists(shardName)
 			if err != nil {
 				return err
+			}
+			if !exists {
+				collectionUsage.Shards = append(collectionUsage.Shards, emptyShardUsageWithNameAndActivity(shardName, localStatus))
+				return nil
+			}
+
+			var err2 error
+			var shardUsage *types.ShardUsage
+			switch localStatus {
+			case models.TenantActivityStatusACTIVE:
+				// active tenants can be either fully loaded or lazy loaded. Lazy shards should _not_ be loaded just for
+				// usage calculation and are treated like inactive shards
+				if lazyShard, ok := shard.(*LazyLoadShard); ok && !lazyShard.isLoaded() {
+					shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName)
+				} else {
+					shardUsage, err2 = i.calculateLoadedShardUsage(ctx, shard, exactObjectCount)
+				}
+			case models.TenantActivityStatusINACTIVE:
+				shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName)
+			}
+			if err2 != nil {
+				return err2
 			}
 			collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
 
@@ -180,23 +149,6 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 	collectionUsage.UniqueShardCount = uniqueShardCount
 
 	return collectionUsage, nil
-}
-
-func (i *Index) getShardStatus(shardName string) (bool, string, error) {
-	var exists bool
-	var status string
-	err := i.schemaReader.Read(i.Config.ClassName.String(), func(_ *models.Class, ss *sharding.State) error {
-		shard, ok := ss.Physical[shardName]
-		exists = ok
-		if ok {
-			status = shard.ActivityStatus()
-		}
-		return nil
-	})
-	if err != nil {
-		return false, "", err
-	}
-	return exists, status, nil
 }
 
 func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard ShardLike, exactCount bool) (*types.ShardUsage, error) {
