@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -111,11 +112,12 @@ func userConfig(segments, centroids, maxConn, efC, ef, trainingLimit int) ent.Us
 }
 
 func indexConfig(vectorId, tempDir string, logger *logrus.Logger, vectors [][]float32, distancer distancer.Provider) Config {
+	correctedID := fmt.Sprintf("vectors_%s", vectorId)
 	return Config{
 		RootPath: tempDir,
-		ID:       vectorId,
+		ID:       correctedID,
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(tempDir, vectorId, logger, cyclemanager.NewCallbackGroupNoop())
+			return NewCommitLogger(tempDir, correctedID, logger, cyclemanager.NewCallbackGroupNoop())
 		},
 		DistanceProvider: distancer,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
