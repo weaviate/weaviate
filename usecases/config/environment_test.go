@@ -263,7 +263,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 	defaultRequestQueueConfig := cluster.RequestQueueConfig{
 		IsEnabled:                   configRuntime.NewDynamicValue(false),
 		NumWorkers:                  runtime.GOMAXPROCS(0) * 2,
-		QueueSize:                   5000,
+		QueueSize:                   2000,
 		QueueFullHttpStatus:         429,
 		QueueShutdownTimeoutSeconds: 90,
 	}
