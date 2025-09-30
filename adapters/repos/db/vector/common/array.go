@@ -21,13 +21,11 @@ import (
 // The thread-safety is delegated to the caller, a typical pattern is to use an exclusive lock when allocating pages
 // and atomic operations for reading and writing individual elements within a page.
 type PagedArray[T any] struct {
-	buf      []atomic.Pointer[page[T]] // one pointer per page
+	buf      []atomic.Pointer[[]T]
 	pageSize uint64
 	pageBits uint8
 	pageMask uint64
 }
-
-type page[T any] struct{ data []T }
 
 // NewPagedArray creates a new PagedArray with the given page size.
 // It will round up to the next power of 2 and enforce a minimum size of 64.
@@ -41,7 +39,7 @@ func NewPagedArray[T any](pages, pageSize uint64) *PagedArray[T] {
 		pageSize: pageSize,
 		pageBits: uint8(bits.TrailingZeros64(pageSize)),
 		pageMask: pageSize - 1,
-		buf:      make([]atomic.Pointer[page[T]], pages),
+		buf:      make([]atomic.Pointer[[]T], pages),
 	}
 }
 
@@ -75,7 +73,7 @@ func (p *PagedArray[T]) Get(id uint64) T {
 		return zero
 	}
 
-	return pg.data[int(id&p.pageMask)]
+	return (*pg)[int(id&p.pageMask)]
 }
 
 // GetPageFor takes an ID and returns the associated page and its index.
@@ -93,7 +91,7 @@ func (p *PagedArray[T]) GetPageFor(id uint64) ([]T, int) {
 		return nil, -1
 	}
 
-	return pg.data, int(id & p.pageMask)
+	return (*pg), int(id & p.pageMask)
 }
 
 func (p *PagedArray[T]) Set(id uint64, v T) bool {
@@ -108,7 +106,7 @@ func (p *PagedArray[T]) Set(id uint64, v T) bool {
 		return false
 	}
 
-	pg.data[int(id&p.pageMask)] = v
+	(*pg)[int(id&p.pageMask)] = v
 	return true
 }
 
@@ -127,7 +125,7 @@ func (p *PagedArray[T]) Delete(id uint64) bool {
 	}
 
 	var zero T
-	pg.data[int(id&p.pageMask)] = zero
+	(*pg)[int(id&p.pageMask)] = zero
 	return true
 }
 
@@ -143,8 +141,8 @@ func (p *PagedArray[T]) AllocPageFor(id uint64) bool {
 		return true
 	}
 
-	pg := &page[T]{data: make([]T, p.pageSize)}
-	return p.buf[pageID].CompareAndSwap(nil, pg)
+	pg := make([]T, p.pageSize)
+	return p.buf[pageID].CompareAndSwap(nil, &pg)
 }
 
 // Grow ensures the buffer has space for `newPageCount` pages.
@@ -154,8 +152,12 @@ func (p *PagedArray[T]) Grow(newPageCount int) {
 		return
 	}
 
-	newBuf := make([]atomic.Pointer[page[T]], newPageCount)
-	copy(newBuf, p.buf)
+	newBuf := make([]atomic.Pointer[[]T], newPageCount)
+	for i := range p.buf {
+		if pg := p.buf[i].Load(); pg != nil {
+			newBuf[i].Store(pg)
+		}
+	}
 	p.buf = newBuf
 }
 
@@ -164,7 +166,7 @@ func (p *PagedArray[T]) Cap() int {
 	total := 0
 	for i := range p.buf {
 		if pg := p.buf[i].Load(); pg != nil {
-			total += len(pg.data)
+			total += len(*pg)
 		}
 	}
 	return total
@@ -179,7 +181,7 @@ func (p *PagedArray[T]) Len() int {
 func (p *PagedArray[T]) Reset() {
 	for i := range p.buf {
 		if pg := p.buf[i].Load(); pg != nil {
-			clear(pg.data)
+			clear(*pg)
 		}
 	}
 }
