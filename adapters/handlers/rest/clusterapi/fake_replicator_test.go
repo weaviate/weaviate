@@ -24,13 +24,15 @@ import (
 
 // fakeReplicator is a mock implementation of the replicator interface for testing
 type fakeReplicator struct {
-	commitBlock chan struct{}
+	useCommitBlock bool
+	commitBlock    chan struct{}
 }
 
 // newFakeReplicator creates a new controllable fake replicator
-func newFakeReplicator() *fakeReplicator {
+func newFakeReplicator(useCommitBlock bool) *fakeReplicator {
 	return &fakeReplicator{
-		commitBlock: make(chan struct{}),
+		commitBlock:    make(chan struct{}),
+		useCommitBlock: useCommitBlock,
 	}
 }
 
@@ -60,7 +62,10 @@ func (f *fakeReplicator) ReplicateReferences(ctx context.Context, indexName, sha
 
 // CommitReplication waits to return until a message is received on the commitBlock channel
 func (f *fakeReplicator) CommitReplication(indexName, shardName, requestID string) interface{} {
-	<-f.commitBlock
+	if f.useCommitBlock {
+		<-f.commitBlock
+	}
+	// fmt.Println("NATEE commit replication")
 	return map[string]string{"status": "committed"}
 }
 

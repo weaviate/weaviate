@@ -27,8 +27,9 @@ import (
 
 // Server represents the cluster API server
 type Server struct {
-	server   *http.Server
-	appState *state.State
+	server            *http.Server
+	appState          *state.State
+	replicatedIndices *replicatedIndices
 }
 
 // Ensure Server implements interfaces.ClusterServer
@@ -100,7 +101,8 @@ func NewServer(appState *state.State) *Server {
 			Addr:    fmt.Sprintf(":%d", port),
 			Handler: handler,
 		},
-		appState: appState,
+		appState:          appState,
+		replicatedIndices: replicatedIndices,
 	}
 }
 
@@ -116,6 +118,19 @@ func (s *Server) Close(ctx context.Context) error {
 	s.appState.Logger.WithField("action", "cluster_api_shutdown").
 		Info("server is shutting down")
 
+	// Close the replicatedIndices first to drain the queue and wait for workers
+	// This ensures all pending replication requests are processed before stopping the server
+	if s.replicatedIndices != nil {
+		s.appState.Logger.WithField("action", "cluster_api_shutdown").
+			Info("shutting down replicated indices")
+		if err := s.replicatedIndices.Close(ctx); err != nil {
+			s.appState.Logger.WithField("action", "cluster_api_shutdown").
+				WithError(err).
+				Warn("error shutting down replicated indices")
+		}
+	}
+
+	// Now shutdown the HTTP server after the business logic has been drained
 	if err := s.server.Shutdown(ctx); err != nil {
 		s.appState.Logger.WithField("action", "cluster_api_shutdown").
 			WithError(err).

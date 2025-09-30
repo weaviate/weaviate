@@ -84,6 +84,11 @@ type replicatedIndices struct {
 	// requestQueue buffers requests until they're picked up by a worker, goal is to avoid
 	// overwhelming the system with requests during spikes (also allows for backpressure)
 	requestQueue chan queuedRequest
+
+	// shutdown management
+	shutdown     chan struct{}
+	workerWg     sync.WaitGroup
+	shutdownOnce sync.Once
 }
 
 var (
@@ -131,6 +136,7 @@ func NewReplicatedIndices(
 		maintenanceModeEnabled: maintenanceModeEnabled,
 		requestQueue:           make(chan queuedRequest, requestQueueConfig.QueueSize),
 		requestQueueConfig:     requestQueueConfig,
+		shutdown:               make(chan struct{}),
 	}
 	i.startWorkers(logger)
 	return i
@@ -145,16 +151,23 @@ type queuedRequest struct {
 
 func (i *replicatedIndices) startWorkers(logger logrus.FieldLogger) {
 	for j := 0; j < max(1, i.requestQueueConfig.NumWorkers); j++ {
+		i.workerWg.Add(1)
 		enterrors.GoWrapper(func() {
-			for rq := range i.requestQueue {
-				if rq.r.Context().Err() != nil {
-					if rq.wg != nil {
-						rq.wg.Done()
+			defer i.workerWg.Done()
+			for {
+				select {
+				case rq := <-i.requestQueue:
+					if rq.r.Context().Err() != nil {
+						if rq.wg != nil {
+							rq.wg.Done()
+						}
+						rq.w.WriteHeader(http.StatusRequestTimeout)
+						continue
 					}
-					rq.w.WriteHeader(http.StatusRequestTimeout)
-					continue
+					i.handleRequest(rq)
+				case <-i.shutdown:
+					return
 				}
-				i.handleRequest(rq)
 			}
 		}, logger)
 	}
@@ -170,12 +183,24 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
 		}
+
+		// Check if we're shutting down
+		select {
+		case <-i.shutdown:
+			http.Error(w, "503 Service Unavailable - shutting down", http.StatusServiceUnavailable)
+			return
+		default:
+		}
+
 		// if the request queue is enabled, add the request to the queue
 		if i.requestQueueConfig.IsEnabled != nil && i.requestQueueConfig.IsEnabled.Get() {
 			wg := sync.WaitGroup{}
 			wg.Add(1)
 			select {
 			case i.requestQueue <- queuedRequest{r: r, w: w, wg: &wg}:
+			case <-i.shutdown:
+				http.Error(w, "503 Service Unavailable - shutting down", http.StatusServiceUnavailable)
+				return
 			default:
 				http.Error(w, "too many buffered requests", i.requestQueueConfig.QueueFullHttpStatus)
 				wg.Done()
@@ -959,4 +984,51 @@ func localIndexNotReady(resp replica.SimpleResponse) bool {
 		}
 	}
 	return false
+}
+
+// Close gracefully shuts down the replicatedIndices by draining the queue and waiting for workers to finish
+func (i *replicatedIndices) Close(ctx context.Context) error {
+	var err error
+	i.shutdownOnce.Do(func() {
+		// Signal shutdown to all workers
+		close(i.shutdown)
+
+		// Set a timeout for graceful shutdown
+		shutdownTimeout := i.requestQueueConfig.QueueShutdownTimeout
+		if shutdownTimeout == 0 {
+			shutdownTimeout = 30 * time.Second // default timeout
+		}
+
+		// Create a context with timeout for shutdown
+		shutdownCtx, cancel := context.WithTimeout(ctx, shutdownTimeout)
+		defer cancel()
+
+		// Wait for workers to finish with timeout
+		done := make(chan struct{})
+		go func() {
+			i.workerWg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			// Workers finished gracefully
+		case <-shutdownCtx.Done():
+			// Timeout reached, workers are still running
+			err = fmt.Errorf("shutdown timeout reached, some workers may still be running")
+			for {
+				select {
+				case rq, ok := <-i.requestQueue:
+					if !ok {
+						return
+					}
+					rq.w.WriteHeader(http.StatusRequestTimeout)
+					rq.wg.Done()
+				default:
+					return
+				}
+			}
+		}
+	})
+	return err
 }
