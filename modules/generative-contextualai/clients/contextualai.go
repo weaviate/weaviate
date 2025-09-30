@@ -210,8 +210,8 @@ func (c *contextualai) handleAPIError(statusCode int, bodyBytes []byte) error {
 		if apiError.Message != "" {
 			return fmt.Errorf("contextual AI API error: %s", apiError.Message)
 		}
-		if apiError.Detail != "" {
-			return fmt.Errorf("contextual AI API error: %s", apiError.Detail)
+		if len(apiError.Detail) > 0 && apiError.Detail[0].Msg != "" {
+			return fmt.Errorf("contextual AI API error: %s", apiError.Detail[0].Msg)
 		}
 	}
 	return fmt.Errorf("contextual AI API request failed with status: %d", statusCode)
@@ -255,11 +255,17 @@ func (c *contextualai) extractKnowledge(properties []*modulecapabilities.Generat
 
 func (c *contextualai) getContextualAIURL(ctx context.Context) (string, error) {
 	baseURL := "https://api.contextual.ai"
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Contextual-Baseurl"); headerBaseURL != "" {
+	if value := ctx.Value(contextKey("X-Contextual-Baseurl")); value != nil {
+		if urls, ok := value.([]string); ok && len(urls) > 0 {
+			baseURL = urls[0]
+		}
+	} else if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Contextual-Baseurl"); headerBaseURL != "" {
 		baseURL = headerBaseURL
 	}
 	return url.JoinPath(baseURL, "/v1/generate")
 }
+
+type contextKey string
 
 func (c *contextualai) getAPIKey(ctx context.Context) (string, error) {
 	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Contextual-Api-Key"); apiKey != "" {
@@ -294,6 +300,12 @@ type generateResponse struct {
 }
 
 type contextualAIAPIError struct {
-	Message string `json:"message"`
-	Detail  string `json:"detail"`
+	Message string        `json:"message"`
+	Detail  []errorDetail `json:"detail"`
+}
+
+type errorDetail struct {
+	Loc  []string `json:"loc"`
+	Msg  string   `json:"msg"`
+	Type string   `json:"type"`
 }

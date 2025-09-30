@@ -52,7 +52,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *clien
 		httpClient:   &http.Client{Timeout: timeout},
 		host:         "https://api.contextual.ai",
 		path:         "/v1/rerank",
-		maxDocuments: 1000, // Based on 400k token limit, but chunking for safety
+		maxDocuments: 1000,
 		logger:       logger,
 	}
 }
@@ -159,6 +159,9 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 		if apiError.Message != "" {
 			return nil, errors.Errorf("connection to Contextual AI API failed with status %d: %s", res.StatusCode, apiError.Message)
 		}
+		if len(apiError.Detail) > 0 && apiError.Detail[0].Msg != "" {
+			return nil, errors.Errorf("connection to Contextual AI API failed with status %d: %s", res.StatusCode, apiError.Detail[0].Msg)
+		}
 		return nil, errors.Errorf("connection to Contextual AI API failed with status %d", res.StatusCode)
 	}
 
@@ -226,7 +229,6 @@ func (c *client) getApiKey(ctx context.Context) (string, error) {
 		"nor in environment variable under CONTEXTUAL_API_KEY")
 }
 
-// RankInput represents the request payload for Contextual AI rerank API
 type RankInput struct {
 	Query       string   `json:"query"`
 	Documents   []string `json:"documents"`
@@ -236,19 +238,22 @@ type RankInput struct {
 	Metadata    []string `json:"metadata,omitempty"`
 }
 
-// RerankedResult represents a single result from the rerank response
 type RerankedResult struct {
 	Index          int     `json:"index"`
 	RelevanceScore float64 `json:"relevance_score"`
 }
 
-// RankResponse represents the response from Contextual AI rerank API
 type RankResponse struct {
 	Results []RerankedResult `json:"results"`
 }
 
-// contextualApiError represents an error response from the API
 type contextualApiError struct {
-	Message string `json:"message"`
-	Detail  string `json:"detail"`
+	Message string        `json:"message"`
+	Detail  []errorDetail `json:"detail"`
+}
+
+type errorDetail struct {
+	Loc  []string `json:"loc"`
+	Msg  string   `json:"msg"`
+	Type string   `json:"type"`
 }
