@@ -65,8 +65,6 @@ func TestMain(m *testing.M) {
 func TestSPFreshRecall(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.RNGFactor = 5.0
-	cfg.MaxPostingSize = 178
-	cfg.MinPostingSize = 40
 	l := logrus.New()
 	cfg.Logger = l
 	cfg.PrometheusMetrics = monitoring.GetMetrics()
