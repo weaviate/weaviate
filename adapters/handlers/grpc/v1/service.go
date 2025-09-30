@@ -17,12 +17,12 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -53,9 +53,9 @@ type Service struct {
 	authorizer           authorization.Authorizer
 	logger               logrus.FieldLogger
 
-	authenticator      *authHandler
+	authenticator      *auth.Handler
 	batchHandler       *batch.Handler
-	batchQueuesHandler *batch.QueuesHandler
+	batchStreamHandler *batch.StreamHandler
 	batchMetrics       *batch.BatchStreamingCallbacks
 }
 
@@ -64,22 +64,9 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	batchManager *objects.BatchManager, config *config.Config, authorization authorization.Authorizer,
 	logger logrus.FieldLogger, shutdown *batch.Shutdown,
 ) *Service {
-	batchMetrics := batch.NewBatchStreamingCallbacks(prometheus.DefaultRegisterer)
-
-	authenticator := NewAuthHandler(allowAnonymousAccess, authComposer)
-	numWorkers := _NUMCPU
-
-	processingQueue := batch.NewBatchProcessingQueue(numWorkers)
-	reportingQueue := batch.NewBatchReportingQueue(numWorkers)
-	batchWriteQueues := batch.NewBatchWriteQueues(numWorkers)
-	batchReadQueues := batch.NewBatchReadQueues()
-
+	authenticator := auth.NewHandler(allowAnonymousAccess, authComposer)
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchQueuesHandler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, shutdown.ShutdownFinished, batchWriteQueues, batchReadQueues, batchMetrics, logger)
-
-	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, numWorkers, processingQueue, reportingQueue, batchReadQueues, batchHandler, logger)
-	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, batchWriteQueues, processingQueue, reportingQueue, batchMetrics, logger)
-
+	batchStreamHandler, batchMetrics := batch.Start(authenticator, authorization, batchHandler, prometheus.DefaultRegisterer, shutdown, _NUMCPU, logger)
 	return &Service{
 		traverser:            traverser,
 		authComposer:         authComposer,
@@ -91,7 +78,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		authorizer:           authorization,
 		authenticator:        authenticator,
 		batchHandler:         batchHandler,
-		batchQueuesHandler:   batchQueuesHandler,
+		batchStreamHandler:   batchStreamHandler,
 		batchMetrics:         batchMetrics,
 	}
 }
@@ -278,7 +265,7 @@ func (s *Service) BatchReferences(ctx context.Context, req *pb.BatchReferencesRe
 // 	var errInner error
 
 // 	if err := enterrors.GoWrapperWithBlock(func() {
-// 		result, errInner = s.batchQueuesHandler.Send(ctx, req)
+// 		result, errInner = s.batchStreamHandler.Send(ctx, req)
 // 	}, s.logger); err != nil {
 // 		return nil, err
 // 	}
@@ -307,41 +294,7 @@ func (s *Service) BatchStream(stream pb.Weaviate_BatchStreamServer) error {
 		s.batchMetrics.OnStreamStart()
 		defer s.batchMetrics.OnStreamStop()
 	}
-
-	id, err := uuid.NewRandom()
-	if err != nil {
-		return fmt.Errorf("stream ID generation failed: %w", err)
-	}
-	streamId := id.String()
-
-	message, err := stream.Recv()
-	if err != nil {
-		return fmt.Errorf("initial stream message receive: %w", err)
-	}
-
-	startReq := message.GetStart()
-	if startReq == nil {
-		return fmt.Errorf("first message must be a start message")
-	}
-
-	s.batchQueuesHandler.Setup(streamId, startReq)
-	defer s.batchQueuesHandler.Teardown(streamId)
-
-	// Ensure that internal goroutines are cancelled when the stream exits for any reason
-	ctx, cancel := context.WithCancel(stream.Context())
-	defer cancel()
-
-	g, ctx := enterrors.NewErrorGroupWithContextWrapper(s.logger, ctx)
-	s.batchQueuesHandler.RecvWgAdd()
-	g.Go(func() error { return s.batchQueuesHandler.StreamRecv(ctx, streamId, stream) })
-	s.batchQueuesHandler.SendWgAdd()
-	g.Go(func() error { return s.batchQueuesHandler.StreamSend(ctx, streamId, stream) })
-
-	if err := g.Wait(); err != nil {
-		return err
-	}
-
-	return nil
+	return s.batchStreamHandler.Handle(stream)
 }
 
 func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {

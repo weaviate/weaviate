@@ -94,6 +94,10 @@ func (m *BatchStreamingCallbacks) OnSchedulerReport(streamId string, currentBatc
 }
 
 func NewBatchStreamingCallbacks(reg prometheus.Registerer) *BatchStreamingCallbacks {
+	if reg == nil {
+		return nil
+	}
+
 	openStreams := promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "weaviate",
 		Name:      "batch_streaming_open_streams",

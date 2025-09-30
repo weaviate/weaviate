@@ -57,12 +57,19 @@ func TestScheduler(t *testing.T) {
 
 		shutdownCancel() // Trigger shutdown
 		close(queue)     // Close the write queue as part of shutdown
-		wg.Wait()
+		wg.Wait()        // Wait for the scheduler to finish
+
+		// Assert that stop was sent to processing queue on shutdown
+		require.Eventually(t, func() bool {
+			select {
+			case receivedObj := <-processingQueue:
+				return receivedObj.Stop
+			default:
+				return false
+			}
+		}, 1*time.Second, 10*time.Millisecond, "Expected stop to be sent to processing queue")
 
 		require.Empty(t, processingQueue, "Expected processing queue to be empty after shutdown")
-		ch, ok := writeQueues.GetQueue("test-stream")
-		require.True(t, ok, "Expected write queue to still exist after shutdown")
-		require.Empty(t, ch, "Expected write queue to be empty after shutdown")
 		require.Equal(t, context.Canceled, shutdownCtx.Err(), "Expected context to be canceled")
 	})
 }

@@ -35,18 +35,12 @@ func TestShutdownHappyPath(t *testing.T) {
 
 	mockBatcher := mocks.NewMockBatcher(t)
 
-	readQueues := batch.NewBatchReadQueues()
-	readQueues.Make(StreamId)
-	writeQueues := batch.NewBatchWriteQueues(1)
-	writeQueues.Make(StreamId, nil)
-	processingQueue := batch.NewBatchProcessingQueue(1)
-	reportingQueue := batch.NewBatchReportingQueue(1)
-
 	howManyObjs := 5000
-	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(context.Context, *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
-		time.Sleep(1 * time.Second)
-		errors := make([]*pb.BatchObjectsReply_BatchError, 0, 100)
-		for i := 0; i < 100; i++ {
+	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+		time.Sleep(100 * time.Millisecond)
+		numErrs := int(len(req.Objects) / 10)
+		errors := make([]*pb.BatchObjectsReply_BatchError, 0, numErrs)
+		for i := 0; i < numErrs; i++ {
 			errors = append(errors, &pb.BatchObjectsReply_BatchError{
 				Error: "some error",
 				Index: int32(i),
@@ -63,59 +57,39 @@ func TestShutdownHappyPath(t *testing.T) {
 		objs = append(objs, &pb.BatchObject{})
 	}
 
-	stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
+	stream := newMockStream(ctx, t)
 	var count int
 	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
 		count++
 		switch count {
 		case 1:
-			return &pb.BatchStreamRequest{
-				Message: &pb.BatchStreamRequest_Objects_{
-					Objects: &pb.BatchStreamRequest_Objects{
-						Values: objs,
-					},
-				},
-			}, nil
+			return newBatchStreamStartRequest(), nil
 		case 2:
-			<-ctx.Done()
+			return newBatchStreamObjsRequest(objs), nil
+		case 3:
 			return nil, io.EOF
 		}
-		panic("should not be called more than twice")
-	}).Times(2)
+		panic("should not be called more than thrice")
+	}).Times(3)
 	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetError().GetError() == "some error" &&
 			msg.GetError().GetObject() != nil
 	})).Return(nil).Maybe()
-	stream.EXPECT().Send(&pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_ShutdownTriggered_{
-			ShutdownTriggered: &pb.BatchStreamReply_ShutdownTriggered{},
-		},
-	}).Return(nil).Once()
+	stream.EXPECT().Send(newBatchStreamShutdownTriggeredReply()).Return(nil).Once()
 	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetBackoff() != nil
 	})).Return(nil).Maybe()
-	stream.EXPECT().Send(&pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_ShutdownFinished_{
-			ShutdownFinished: &pb.BatchStreamReply_ShutdownFinished{},
-		},
-	}).Return(nil).Once()
+	stream.EXPECT().Send(newBatchStreamShutdownFinishedReply()).Return(nil).Once()
 
+	numWorkers := 1
 	shutdown := batch.NewShutdown(ctx)
-	handler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, shutdown.ShutdownFinished, writeQueues, readQueues, nil, logger)
-	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, writeQueues, processingQueue, reportingQueue, nil, logger)
-	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, 1, processingQueue, reportingQueue, readQueues, mockBatcher, logger)
-
-	handler.SendWgAdd()
+	handler, _ := batch.Start(nil, nil, mockBatcher, nil, shutdown, numWorkers, logger)
 	go func() {
-		err := handler.StreamSend(ctx, StreamId, stream)
-		require.NoError(t, err, "Expected no error when running stream send")
+		time.Sleep(1 * time.Second)
+		shutdown.Drain(logger)
 	}()
-	handler.RecvWgAdd()
-	go func() {
-		err := handler.StreamRecv(ctx, StreamId, stream)
-		require.NoError(t, err, "Expected no error when running stream recv")
-	}()
-	shutdown.Drain(logger)
+	err := handler.Handle(stream)
+	require.NoError(t, err, "handler should shut down gracefully")
 }
 
 func TestShutdownAfterBrokenStream(t *testing.T) {
@@ -127,18 +101,12 @@ func TestShutdownAfterBrokenStream(t *testing.T) {
 
 	mockBatcher := mocks.NewMockBatcher(t)
 
-	readQueues := batch.NewBatchReadQueues()
-	readQueues.Make(StreamId)
-	writeQueues := batch.NewBatchWriteQueues(1)
-	writeQueues.Make(StreamId, nil)
-	processingQueue := batch.NewBatchProcessingQueue(1)
-	reportingQueue := batch.NewBatchReportingQueue(1)
-
 	howManyObjs := 5000
-	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(context.Context, *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
-		time.Sleep(1 * time.Second)
-		errors := make([]*pb.BatchObjectsReply_BatchError, 0, 100)
-		for i := 0; i < 100; i++ {
+	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+		time.Sleep(100 * time.Millisecond)
+		numErrs := int(len(req.Objects) / 10)
+		errors := make([]*pb.BatchObjectsReply_BatchError, 0, numErrs)
+		for i := 0; i < numErrs; i++ {
 			errors = append(errors, &pb.BatchObjectsReply_BatchError{
 				Error: "some error",
 				Index: int32(i),
@@ -155,58 +123,53 @@ func TestShutdownAfterBrokenStream(t *testing.T) {
 		objs = append(objs, &pb.BatchObject{})
 	}
 
-	stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
+	stream := newMockStream(ctx, t)
 	var count int
 	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
 		count++
 		switch count {
 		case 1:
-			return &pb.BatchStreamRequest{
-				Message: &pb.BatchStreamRequest_Objects_{
-					Objects: &pb.BatchStreamRequest_Objects{
-						Values: objs,
-					},
-				},
-			}, nil
+			return newBatchStreamStartRequest(), nil
 		case 2:
+			return newBatchStreamObjsRequest(objs), nil
+		case 3:
 			// simulate ending the stream from the client-side ungracefully
 			return nil, errors.New("some network error")
 		}
-		panic("should not be called more than twice")
-	}).Times(2)
+		panic("should not be called more than thrice")
+	}).Times(3)
 
 	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetError().GetError() == "some error" &&
 			msg.GetError().GetObject() != nil
 	})).Return(nil).Maybe()
-	stream.EXPECT().Send(&pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_ShutdownTriggered_{
-			ShutdownTriggered: &pb.BatchStreamReply_ShutdownTriggered{},
-		},
-	}).Return(nil).Once()
 	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetBackoff() != nil
 	})).Return(nil).Maybe()
-	stream.EXPECT().Send(&pb.BatchStreamReply{
+	// whenever the server is cancelled, it will the client to stop despite the broken stream
+	// in this specific case, the client will never receive this message
+	stream.EXPECT().Send(newBatchStreamStopReply()).Return(nil).Once()
+
+	numWorkers := 1
+	shutdown := batch.NewShutdown(ctx)
+	handler, _ := batch.Start(nil, nil, mockBatcher, nil, shutdown, numWorkers, logger)
+	err := handler.Handle(stream)
+	require.Error(t, err, "some network error")
+	shutdown.Drain(logger)
+}
+
+func newBatchStreamShutdownTriggeredReply() *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_ShutdownTriggered_{
+			ShutdownTriggered: &pb.BatchStreamReply_ShutdownTriggered{},
+		},
+	}
+}
+
+func newBatchStreamShutdownFinishedReply() *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
 		Message: &pb.BatchStreamReply_ShutdownFinished_{
 			ShutdownFinished: &pb.BatchStreamReply_ShutdownFinished{},
 		},
-	}).Return(nil).Once()
-
-	shutdown := batch.NewShutdown(ctx)
-	handler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, shutdown.ShutdownFinished, writeQueues, readQueues, nil, logger)
-	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, writeQueues, processingQueue, reportingQueue, nil, logger)
-	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, 1, processingQueue, reportingQueue, readQueues, mockBatcher, logger)
-
-	handler.SendWgAdd()
-	go func() {
-		err := handler.StreamSend(ctx, StreamId, stream)
-		require.NoError(t, err, "Expected no error when running stream send")
-	}()
-	handler.RecvWgAdd()
-	go func() {
-		err := handler.StreamRecv(ctx, StreamId, stream)
-		require.Equal(t, err.Error(), "some network error", "Expected network error when running stream recv")
-	}()
-	shutdown.Drain(logger)
+	}
 }

@@ -19,17 +19,16 @@ import (
 )
 
 type Shutdown struct {
-	HandlersCtx      context.Context
-	HandlersCancel   context.CancelFunc
-	RecvWg           *sync.WaitGroup
-	SendWg           *sync.WaitGroup
-	SchedulerCtx     context.Context
-	SchedulerCancel  context.CancelFunc
-	SchedulerWg      *sync.WaitGroup
-	WorkersCtx       context.Context
-	WorkersCancel    context.CancelFunc
-	WorkersWg        *sync.WaitGroup
-	ShutdownFinished chan struct{}
+	HandlersCtx     context.Context
+	HandlersCancel  context.CancelFunc
+	RecvWg          *sync.WaitGroup
+	SendWg          *sync.WaitGroup
+	SchedulerCtx    context.Context
+	SchedulerCancel context.CancelFunc
+	SchedulerWg     *sync.WaitGroup
+	WorkersCtx      context.Context
+	WorkersCancel   context.CancelFunc
+	WorkersWg       *sync.WaitGroup
 }
 
 func NewShutdown(ctx context.Context) *Shutdown {
@@ -42,19 +41,17 @@ func NewShutdown(ctx context.Context) *Shutdown {
 	sCtx, sCancel := context.WithCancel(ctx)
 	wCtx, wCancel := context.WithCancel(ctx)
 
-	shutdownFinished := make(chan struct{})
 	return &Shutdown{
-		HandlersCtx:      hCtx,
-		HandlersCancel:   hCancel,
-		RecvWg:           &recvWg,
-		SendWg:           &sendWg,
-		SchedulerCtx:     sCtx,
-		SchedulerCancel:  sCancel,
-		SchedulerWg:      &schedulerWg,
-		WorkersCtx:       wCtx,
-		WorkersCancel:    wCancel,
-		WorkersWg:        &workersWg,
-		ShutdownFinished: shutdownFinished,
+		HandlersCtx:     hCtx,
+		HandlersCancel:  hCancel,
+		RecvWg:          &recvWg,
+		SendWg:          &sendWg,
+		SchedulerCtx:    sCtx,
+		SchedulerCancel: sCancel,
+		SchedulerWg:     &schedulerWg,
+		WorkersCtx:      wCtx,
+		WorkersCancel:   wCancel,
+		WorkersWg:       &workersWg,
 	}
 }
 
@@ -81,7 +78,7 @@ func NewShutdown(ctx context.Context) *Shutdown {
 // The gRPC shutdown is then considered complete as every queue has been drained successfully so the server
 // can move onto switching off the HTTP handlers and shutting itself down completely.
 func (s *Shutdown) Drain(logger logrus.FieldLogger) {
-	log := logger.WithField("workflow", "batch shutdown")
+	log := logger.WithField("action", "shutdown_drain")
 	// stop handlers first
 	s.HandlersCancel()
 	log.Info("shutting down grpc batch handlers")
@@ -96,10 +93,9 @@ func (s *Shutdown) Drain(logger logrus.FieldLogger) {
 	// wait for all the objects to be processed from the internal queue
 	s.WorkersWg.Wait()
 	log.Info("finished draining the internal queues")
-	// signal that shutdown is complete
-	close(s.ShutdownFinished)
 	log.Info("waiting for all streams to exit")
 	// wait for all streams to exit, i.e. be hungup by their clients
-	s.SendWg.Wait()
 	s.RecvWg.Wait()
+	s.SendWg.Wait()
+	log.Info("all streams exited, shutdown complete")
 }

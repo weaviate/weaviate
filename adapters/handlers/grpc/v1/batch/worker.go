@@ -57,18 +57,19 @@ type processRequest struct {
 
 func StartBatchWorkers(ctx context.Context, wg *sync.WaitGroup, concurrency int, processingQueue processingQueue, reportingQueue reportingQueue, readQueues *ReadQueues, batcher Batcher, logger logrus.FieldLogger) {
 	eg := enterrors.NewErrorGroupWrapper(logger)
-	wgs := sync.Map{}
+	logger.WithField("action", "batch_stream_start").WithField("concurrency", concurrency).Info("entering worker loop(s)")
 	for range concurrency {
 		wg.Add(1)
 		eg.Go(func() error {
 			defer wg.Done()
-			w := &Worker{batcher: batcher, logger: logger, readQueues: readQueues, processingQueue: processingQueue, reportingQueue: reportingQueue, wgs: &wgs}
+			w := &Worker{batcher: batcher, logger: logger, readQueues: readQueues, processingQueue: processingQueue, reportingQueue: reportingQueue, wgs: &sync.Map{}}
 			return w.Loop(ctx)
 		})
 	}
 	eg.Go(func() error {
-		wg.Wait() // wait for all workers to finish
-		close(reportingQueue)
+		wg.Wait()             // wait for all workers to finish
+		close(reportingQueue) // close reporting queue to stop the stats reporter in the scheduler
+		readQueues.CloseAll() // close all read queues to stop the reply handlers in the stream handler
 		return nil
 	})
 }
@@ -84,8 +85,9 @@ func (w *Worker) isReplicationError(err string) bool {
 		(strings.Contains(err, "status code: 404, error: request not found")) // failed to find request on shutdown node
 }
 
-func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObjects) error {
+func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObjects, retries int) error {
 	if req == nil {
+		w.logger.WithField("streamId", streamId).Error("received nil sendObjects request")
 		return fmt.Errorf("received nil sendObjects request")
 	}
 	start := time.Now()
@@ -95,6 +97,7 @@ func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObje
 	})
 	end := time.Now()
 	if err != nil {
+		w.logger.WithField("streamId", streamId).WithError(err).Error("failed to batch objects")
 		return err
 	}
 	// Log processing time
@@ -107,7 +110,7 @@ func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObje
 			if err == nil {
 				continue
 			}
-			if w.isReplicationError(err.Error) {
+			if w.isReplicationError(err.Error) && retries < 3 {
 				retriable = append(retriable, req.Values[err.Index])
 				continue
 			}
@@ -116,18 +119,20 @@ func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObje
 				Detail: &pb.BatchStreamReply_Error_Object{Object: req.Values[err.Index]},
 			})
 		}
-		w.reportErrors(streamId, errs)
+		if len(errs) > 0 {
+			w.reportErrors(streamId, errs)
+		}
 		if len(retriable) > 0 {
 			w.sendObjects(ctx, streamId, &SendObjects{
 				Values:           retriable,
 				ConsistencyLevel: req.ConsistencyLevel,
-			})
+			}, retries+1)
 		}
 	}
 	return nil
 }
 
-func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendReferences) error {
+func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendReferences, retries int) error {
 	if req == nil {
 		return fmt.Errorf("received nil sendReferences request")
 	}
@@ -150,7 +155,7 @@ func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendR
 			if err == nil {
 				continue
 			}
-			if w.isReplicationError(err.Error) {
+			if w.isReplicationError(err.Error) && retries < 3 {
 				retriable = append(retriable, req.Values[err.Index])
 				continue
 			}
@@ -159,28 +164,22 @@ func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendR
 				Detail: &pb.BatchStreamReply_Error_Reference{Reference: req.Values[err.Index]},
 			})
 		}
-		w.reportErrors(streamId, errs)
+		if len(errs) > 0 {
+			w.reportErrors(streamId, errs)
+		}
 		if len(retriable) > 0 {
 			return w.sendReferences(ctx, streamId, &SendReferences{
 				Values:           retriable,
 				ConsistencyLevel: req.ConsistencyLevel,
-			})
+			}, retries+1)
 		}
 	}
 	return nil
 }
 
 func (w *Worker) reportErrors(streamId string, errs []*pb.BatchStreamReply_Error) {
-	if ch, ok := w.readQueues.Get(streamId); ok {
-		for {
-			select {
-			case ch <- &readObject{Errors: errs}:
-				return
-			case <-time.After(1 * time.Second):
-				w.logger.WithField("streamId", streamId).Warn("timed out sending errors to read queue, maybe the client disconnected?")
-				return
-			}
-		}
+	if ok := w.readQueues.Send(streamId, errs); !ok {
+		w.logger.WithField("streamId", streamId).Warn("timed out sending errors to read queue, maybe the client disconnected?")
 	}
 }
 
@@ -203,32 +202,42 @@ func (w *Worker) Loop(ctx context.Context) error {
 		case <-ctx.Done():
 			// Drain the write queue and process any remaining requests
 			for req := range w.processingQueue {
+				if req == nil {
+					continue
+				}
+				log := w.logger.WithField("streamId", req.StreamId)
 				// This should only ever be received once so it’s okay to wait on the shared wait group here
 				// If the scheduler does send more than one stop per stream then deadlocks may occur
 				wg := w.wgForStream(req.StreamId)
+				log.Info("received processing request while draining")
+				if err := w.process(ctx, req, wg); err != nil {
+					log.Error(fmt.Errorf("failed to process batch request: %w", err))
+				}
 				if w.isSentinel(req) {
 					w.wait(req.StreamId, wg)
-					return nil
-				}
-				if err := w.process(ctx, req, wg); err != nil {
-					return fmt.Errorf("failed to process batch request: %w", err)
+					log.Info("all processing complete")
 				}
 			}
 			return nil
 		case req, ok := <-w.processingQueue:
 			if req != nil {
+				log := w.logger.WithField("streamId", req.StreamId)
+				log.Debug("received processing request")
+				wg := w.wgForStream(req.StreamId)
+				if err := w.process(ctx, req, wg); err != nil {
+					log.Error(fmt.Errorf("failed to process batch request: %w", err))
+				}
 				// This should only ever be received once so it’s okay to wait on the shared wait group here
 				// If the scheduler does send more than one stop per stream then deadlocks may occur
-				wg := w.wgForStream(req.StreamId)
 				if w.isSentinel(req) {
+					log.Debug("received sentinel, waiting for all processing to complete")
 					w.wait(req.StreamId, wg)
-					return nil
-				}
-				if err := w.process(ctx, req, wg); err != nil {
-					return fmt.Errorf("failed to process batch request: %w", err)
+					log.Debug("all processing complete")
+					continue
 				}
 			}
 			if !ok {
+				w.logger.Debug("processing queue closed, shutting down worker")
 				return nil // channel closed, exit loop
 			}
 		}
@@ -236,7 +245,7 @@ func (w *Worker) Loop(ctx context.Context) error {
 }
 
 func (w *Worker) isSentinel(req *processRequest) bool {
-	return req != nil && (req.Objects == nil && req.References == nil && req.Stop)
+	return req != nil && req.Stop
 }
 
 func (w *Worker) wait(streamId string, wg *sync.WaitGroup) {
@@ -250,12 +259,12 @@ func (w *Worker) process(ctx context.Context, req *processRequest, wg *sync.Wait
 	wg.Add(1)
 	defer wg.Done()
 	if req.Objects != nil {
-		if err := w.sendObjects(ctx, req.StreamId, req.Objects); err != nil {
+		if err := w.sendObjects(ctx, req.StreamId, req.Objects, 0); err != nil {
 			return err
 		}
 	}
 	if req.References != nil {
-		if err := w.sendReferences(ctx, req.StreamId, req.References); err != nil {
+		if err := w.sendReferences(ctx, req.StreamId, req.References, 0); err != nil {
 			return err
 		}
 	}
