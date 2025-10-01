@@ -81,7 +81,9 @@ func (s *Shutdown) Drain(logger logrus.FieldLogger) {
 	log := logger.WithField("action", "shutdown_drain")
 	// stop handlers first
 	s.HandlersCancel()
-	log.Info("shutting down grpc batch handlers")
+	log.Info("wait for all receivers to finish adding to write queues")
+	s.RecvWg.Wait()
+	log.Info("all receivers finished")
 	// stop the scheduler
 	s.SchedulerCancel()
 	log.Info("shutting down grpc batch scheduler")
@@ -93,9 +95,8 @@ func (s *Shutdown) Drain(logger logrus.FieldLogger) {
 	// wait for all the objects to be processed from the internal queue
 	s.WorkersWg.Wait()
 	log.Info("finished draining the internal queues")
-	log.Info("waiting for all streams to exit")
+	log.Info("waiting for all sends to exit")
 	// wait for all streams to exit, i.e. be hungup by their clients
-	s.RecvWg.Wait()
 	s.SendWg.Wait()
-	log.Info("all streams exited, shutdown complete")
+	log.Info("all senders exited, shutdown complete")
 }

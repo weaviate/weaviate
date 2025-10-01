@@ -35,7 +35,6 @@ type Worker struct {
 	readQueues      *ReadQueues
 	processingQueue processingQueue
 	reportingQueue  reportingQueue
-	wgs             *sync.Map // map[string]*sync.WaitGroup; streamID -> wg
 }
 
 type SendObjects struct {
@@ -52,7 +51,6 @@ type processRequest struct {
 	StreamId   string
 	Objects    *SendObjects
 	References *SendReferences
-	Stop       bool
 }
 
 func StartBatchWorkers(ctx context.Context, wg *sync.WaitGroup, concurrency int, processingQueue processingQueue, reportingQueue reportingQueue, readQueues *ReadQueues, batcher Batcher, logger logrus.FieldLogger) {
@@ -62,7 +60,7 @@ func StartBatchWorkers(ctx context.Context, wg *sync.WaitGroup, concurrency int,
 		wg.Add(1)
 		eg.Go(func() error {
 			defer wg.Done()
-			w := &Worker{batcher: batcher, logger: logger, readQueues: readQueues, processingQueue: processingQueue, reportingQueue: reportingQueue, wgs: &sync.Map{}}
+			w := &Worker{batcher: batcher, logger: logger, readQueues: readQueues, processingQueue: processingQueue, reportingQueue: reportingQueue}
 			return w.Loop(ctx)
 		})
 	}
@@ -72,11 +70,6 @@ func StartBatchWorkers(ctx context.Context, wg *sync.WaitGroup, concurrency int,
 		readQueues.CloseAll() // close all read queues to stop the reply handlers in the stream handler
 		return nil
 	})
-}
-
-func (w *Worker) wgForStream(streamId string) *sync.WaitGroup {
-	actual, _ := w.wgs.LoadOrStore(streamId, &sync.WaitGroup{})
-	return actual.(*sync.WaitGroup)
 }
 
 func (w *Worker) isReplicationError(err string) bool {
@@ -100,8 +93,7 @@ func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObje
 		w.logger.WithField("streamId", streamId).WithError(err).Error("failed to batch objects")
 		return err
 	}
-	// Log processing time
-	w.reportStats(streamId, end.Sub(start))
+
 	// Handle errors
 	if len(reply.GetErrors()) > 0 {
 		retriable := make([]*pb.BatchObject, 0, len(reply.GetErrors()))
@@ -119,16 +111,19 @@ func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObje
 				Detail: &pb.BatchStreamReply_Error_Object{Object: req.Values[err.Index]},
 			})
 		}
+		// Log errors
 		if len(errs) > 0 {
 			w.reportErrors(streamId, errs)
 		}
 		if len(retriable) > 0 {
-			w.sendObjects(ctx, streamId, &SendObjects{
+			return w.sendObjects(ctx, streamId, &SendObjects{
 				Values:           retriable,
 				ConsistencyLevel: req.ConsistencyLevel,
 			}, retries+1)
 		}
 	}
+	// Log processing time
+	w.reportStats(streamId, end.Sub(start))
 	return nil
 }
 
@@ -145,8 +140,6 @@ func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendR
 	if err != nil {
 		return err
 	}
-	// Log processing time
-	w.reportStats(streamId, end.Sub(start))
 	// Handle errors
 	if len(reply.GetErrors()) > 0 {
 		retriable := make([]*pb.BatchReference, 0, len(reply.GetErrors()))
@@ -174,6 +167,8 @@ func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendR
 			}, retries+1)
 		}
 	}
+	// Log processing time
+	w.reportStats(streamId, end.Sub(start))
 	return nil
 }
 
@@ -186,7 +181,7 @@ func (w *Worker) reportErrors(streamId string, errs []*pb.BatchStreamReply_Error
 func (w *Worker) reportStats(streamId string, processingTime time.Duration) {
 	for {
 		select {
-		case w.reportingQueue <- &workerStats{processingTime: processingTime, streamId: streamId}:
+		case w.reportingQueue <- NewWorkersStats(processingTime, streamId):
 			return
 		case <-time.After(1 * time.Second):
 			w.logger.WithField("streamId", streamId).Warn("timed out sending stats to read queue, maybe the client disconnected?")
@@ -199,65 +194,30 @@ func (w *Worker) reportStats(streamId string, processingTime time.Duration) {
 func (w *Worker) Loop(ctx context.Context) error {
 	for {
 		select {
-		case <-ctx.Done():
-			// Drain the write queue and process any remaining requests
-			for req := range w.processingQueue {
-				if req == nil {
-					continue
-				}
-				log := w.logger.WithField("streamId", req.StreamId)
-				// This should only ever be received once so it’s okay to wait on the shared wait group here
-				// If the scheduler does send more than one stop per stream then deadlocks may occur
-				wg := w.wgForStream(req.StreamId)
-				log.Info("received processing request while draining")
-				if err := w.process(ctx, req, wg); err != nil {
-					log.Error(fmt.Errorf("failed to process batch request: %w", err))
-				}
-				if w.isSentinel(req) {
-					w.wait(req.StreamId, wg)
-					log.Info("all processing complete")
-				}
-			}
-			return nil
 		case req, ok := <-w.processingQueue:
 			if req != nil {
 				log := w.logger.WithField("streamId", req.StreamId)
 				log.Debug("received processing request")
-				wg := w.wgForStream(req.StreamId)
-				if err := w.process(ctx, req, wg); err != nil {
+				if err := w.process(ctx, req); err != nil {
 					log.Error(fmt.Errorf("failed to process batch request: %w", err))
-				}
-				// This should only ever be received once so it’s okay to wait on the shared wait group here
-				// If the scheduler does send more than one stop per stream then deadlocks may occur
-				if w.isSentinel(req) {
-					log.Debug("received sentinel, waiting for all processing to complete")
-					w.wait(req.StreamId, wg)
-					log.Debug("all processing complete")
-					continue
 				}
 			}
 			if !ok {
 				w.logger.Debug("processing queue closed, shutting down worker")
 				return nil // channel closed, exit loop
 			}
+		default:
+			if ctx.Err() != nil {
+				// Context canceled, exit loop
+				w.logger.WithField("action", "shutdown_worker_loop").Info("shutting down worker loop")
+				return nil
+			}
+			time.Sleep(10 * time.Millisecond) // Prevent busy waiting
 		}
 	}
 }
 
-func (w *Worker) isSentinel(req *processRequest) bool {
-	return req != nil && req.Stop
-}
-
-func (w *Worker) wait(streamId string, wg *sync.WaitGroup) {
-	wg.Wait() // Wait for all processing requests to complete
-	// Signal to the reply handler that we are done
-	w.readQueues.Close(streamId)
-	w.wgs.Delete(streamId) // Clean up the wait group map
-}
-
-func (w *Worker) process(ctx context.Context, req *processRequest, wg *sync.WaitGroup) error {
-	wg.Add(1)
-	defer wg.Done()
+func (w *Worker) process(ctx context.Context, req *processRequest) error {
 	if req.Objects != nil {
 		if err := w.sendObjects(ctx, req.StreamId, req.Objects, 0); err != nil {
 			return err

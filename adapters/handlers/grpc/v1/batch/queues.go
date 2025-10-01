@@ -132,6 +132,9 @@ func (r *ReadQueues) Close(streamId string) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	if queue, ok := r.queues[streamId]; ok {
+		if _, alreadyClosed := r.closed[streamId]; alreadyClosed {
+			return
+		}
 		close(queue)
 		r.closed[streamId] = struct{}{}
 	}

@@ -185,6 +185,65 @@ func TestGRPC_Batching(t *testing.T) {
 		require.Equal(t, 1, len(obj.Properties.(map[string]any)["hasParagraphs"].([]any)), "Article should have 1 paragraph")
 	})
 
+	t.Run("send 50000 objects as fast as possible", func(t *testing.T) {
+		defer setupClasses()()
+
+		// Open up a stream to read messages from
+		startTime := time.Now()
+		stream := start(ctx, t, grpcClient)
+		defer stream.CloseSend()
+
+		// Send 50000 articles
+		var objects []*pb.BatchObject
+		for i := 0; i < 50000; i++ {
+			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: uuid.NewString()})
+			if len(objects) == 1000 {
+				sendObjects(t, stream, objects)
+				objects = nil
+				t.Logf("Sent %d objects", i+1)
+			}
+		}
+		t.Log("Done adding objects to stream")
+
+		// Send stop message
+		err := stream.Send(&pb.BatchStreamRequest{
+			Message: &pb.BatchStreamRequest_Stop_{Stop: &pb.BatchStreamRequest_Stop{}},
+		})
+		require.NoError(t, err, "sending Stop over the stream should not return an error")
+
+		go func() {
+			defer stream.CloseSend()
+			// Verify no errors returned from the stream
+			for {
+				resp, err := stream.Recv()
+				if err != nil {
+					t.Errorf("Stream recv returned error: %v", err)
+					return
+				}
+				if resp.GetError() != nil {
+					t.Errorf("Received unexpected error from server: %v", resp.GetError())
+				}
+				if resp.GetStop() != nil {
+					t.Log("Received stop from server")
+					return
+				}
+			}
+		}()
+
+		// Verify that all objects are present after shutdown and restart
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			res, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
+				Collection:   clsA.Class,
+				ObjectsCount: true,
+			})
+			require.NoError(t, err, "Aggregate should not return an error")
+			require.Equal(ct, int64(50000), *res.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
+		}, 120*time.Second, 5*time.Second, "Objects not created within time")
+
+		duration := time.Since(startTime)
+		require.Less(t, duration.Seconds(), float64(20), fmt.Sprintf("Sending 50000 objects should take less than 20 seconds, took %f seconds", duration.Seconds()))
+	})
+
 	t.Run("send 50000 objects then immediately restart the node to trigger shutdown and ensure all are present afterwards", func(t *testing.T) {
 		defer setupClasses()()
 
@@ -199,6 +258,7 @@ func TestGRPC_Batching(t *testing.T) {
 			if len(objects) == 1000 {
 				sendObjects(t, stream, objects)
 				objects = nil
+				t.Logf("Sent %d objects", i+1)
 			}
 		}
 		t.Log("Done adding objects to stream")

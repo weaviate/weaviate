@@ -27,17 +27,17 @@ func Start(
 	numWorkers int,
 	logger logrus.FieldLogger,
 ) (*StreamHandler, *BatchStreamingCallbacks) {
-	batchMetrics := NewBatchStreamingCallbacks(reg)
+	metrics := NewBatchStreamingCallbacks(reg)
 
-	processingQueue := NewBatchProcessingQueue(numWorkers)
-	reportingQueue := NewBatchReportingQueue(numWorkers)
-	batchWriteQueues := NewBatchWriteQueues(numWorkers)
-	batchReadQueues := NewBatchReadQueues()
+	internalBuffer := 10 * numWorkers // Higher numbers make shutdown slower but lower numbers make throughput worse
+	processingQueue := NewBatchProcessingQueue(internalBuffer)
+	reportingQueue := NewBatchReportingQueue(internalBuffer)
+	writeQueues := NewBatchWriteQueues(numWorkers)
+	readQueues := NewBatchReadQueues()
 
-	batchStreamHandler := NewStreamHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, batchWriteQueues, batchReadQueues, batchMetrics, logger)
+	streamHandler := NewStreamHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, writeQueues, readQueues, metrics, logger)
+	StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, writeQueues, readQueues, processingQueue, reportingQueue, metrics, logger)
+	StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, numWorkers, processingQueue, reportingQueue, readQueues, batchHandler, logger)
 
-	StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, numWorkers, processingQueue, reportingQueue, batchReadQueues, batchHandler, logger)
-	StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, batchWriteQueues, processingQueue, reportingQueue, batchMetrics, logger)
-
-	return batchStreamHandler, batchMetrics
+	return streamHandler, metrics
 }

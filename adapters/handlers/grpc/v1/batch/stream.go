@@ -88,6 +88,18 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	return nil
 }
 
+func (h *StreamHandler) wait(ctx context.Context) error {
+	ticker := time.NewTicker(POLLING_INTERVAL)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+	}
+}
+
 func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
 	defer h.sendWg.Done()
 	// shuttingDown acts as a soft cancel here so we can send the shutting down message to the client.
@@ -166,11 +178,11 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
 func (h *StreamHandler) recv(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
 	log := h.logger.WithField("streamId", streamId)
-	defer h.recvWg.Done()
 	closed := false
 	close := func() {
 		if !closed {
 			h.writeQueues.Close(streamId)
+			h.recvWg.Done()
 		}
 		closed = true
 	}

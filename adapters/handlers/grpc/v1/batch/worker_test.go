@@ -62,37 +62,19 @@ func TestWorkerLoop(t *testing.T) {
 			[]*pb.BatchObject{{}},
 			nil,
 			StreamId,
-			false,
 			nil,
 		)
 		processingQueue <- batch.NewProcessRequest(
 			nil,
 			[]*pb.BatchReference{{}},
 			StreamId,
-			false,
 			nil,
 		)
-
-		// Send sentinel
-		processingQueue <- batch.NewProcessRequest(
-			nil,
-			nil,
-			StreamId,
-			true,
-			nil,
-		)
-
-		// Accept the stop message
-		ch, ok := readQueues.Get(StreamId)
-		require.True(t, ok, "Expected read queue to exist and to contain message")
-		_, ok = <-ch
-		require.False(t, ok, "Expected read queue to be closed")
 
 		cancel()               // Cancel the context to stop the worker loop
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
 		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
-		require.Empty(t, ch, "Expected read queue to be empty after processing")
 		require.Equal(t, ctx.Err(), context.Canceled, "Expected context to be canceled")
 	})
 
@@ -125,35 +107,18 @@ func TestWorkerLoop(t *testing.T) {
 			[]*pb.BatchObject{{}},
 			nil,
 			StreamId,
-			false,
 			nil,
 		)
 		processingQueue <- batch.NewProcessRequest(
 			nil,
 			[]*pb.BatchReference{{}},
 			StreamId,
-			false,
 			nil,
 		)
-		// Send sentinel
-		processingQueue <- batch.NewProcessRequest(
-			nil,
-			nil,
-			StreamId,
-			true,
-			nil,
-		)
+
 		close(processingQueue) // Close the internal queue to stop processing as part of the shutdown
-
-		// Accept the stop message
-		ch, ok := readQueues.Get(StreamId)
-		require.True(t, ok, "Expected read queue to exist and to contain message")
-		_, ok = <-ch
-		require.False(t, ok, "Expected read queue to be closed")
-
-		wg.Wait() // Wait for the worker to finish processing
+		wg.Wait()              // Wait for the worker to finish processing
 		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
-		require.Empty(t, ch, "Expected read queue to be empty after processing")
 		require.Equal(t, ctx.Err(), context.Canceled, "Expected context to be canceled")
 	})
 
@@ -211,7 +176,6 @@ func TestWorkerLoop(t *testing.T) {
 				[]*pb.BatchObject{obj, obj, obj},
 				nil,
 				StreamId,
-				false,
 				nil,
 			)
 			ref := &pb.BatchReference{}
@@ -219,16 +183,6 @@ func TestWorkerLoop(t *testing.T) {
 				nil,
 				[]*pb.BatchReference{ref, ref},
 				StreamId,
-				false,
-				nil,
-			)
-
-			// Send sentinel
-			processingQueue <- batch.NewProcessRequest(
-				nil,
-				nil,
-				StreamId,
-				true,
 				nil,
 			)
 		}()
@@ -249,15 +203,10 @@ func TestWorkerLoop(t *testing.T) {
 		require.Len(t, errs.Errors, 1, "Expected one error to be returned")
 		require.Equal(t, "refs error", errs.Errors[0].Error, "Expected error message to match")
 
-		// Read sentinel
-		_, ok = <-ch
-		require.False(t, ok, "Expected read queue to be closed")
-
 		cancel()               // Cancel the context to stop the worker loop
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
 		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
-		require.Empty(t, ch, "Expected read queue to be empty after processing")
 		require.Equal(t, ctx.Err(), context.Canceled, "Expected context to be canceled")
 	})
 }

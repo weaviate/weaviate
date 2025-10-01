@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,8 +35,10 @@ func TestShutdownHappyPath(t *testing.T) {
 	logger := logrus.New()
 
 	mockBatcher := mocks.NewMockBatcher(t)
+	mockStream := newMockStream(ctx, t)
 
 	howManyObjs := 5000
+	objsCh := make(chan *pb.BatchObject, howManyObjs)
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 		time.Sleep(100 * time.Millisecond)
 		numErrs := int(len(req.Objects) / 10)
@@ -45,6 +48,9 @@ func TestShutdownHappyPath(t *testing.T) {
 				Error: "some error",
 				Index: int32(i),
 			})
+		}
+		for _, obj := range req.Objects {
+			objsCh <- obj
 		}
 		return &pb.BatchObjectsReply{
 			Took:   float32(1),
@@ -57,9 +63,8 @@ func TestShutdownHappyPath(t *testing.T) {
 		objs = append(objs, &pb.BatchObject{})
 	}
 
-	stream := newMockStream(ctx, t)
 	var count int
-	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+	mockStream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
 		count++
 		switch count {
 		case 1:
@@ -71,25 +76,30 @@ func TestShutdownHappyPath(t *testing.T) {
 		}
 		panic("should not be called more than thrice")
 	}).Times(3)
-	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetError().GetError() == "some error" &&
 			msg.GetError().GetObject() != nil
 	})).Return(nil).Maybe()
-	stream.EXPECT().Send(newBatchStreamShutdownTriggeredReply()).Return(nil).Once()
-	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+	mockStream.EXPECT().Send(newBatchStreamShutdownTriggeredReply()).Return(nil).Once()
+	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetBackoff() != nil
 	})).Return(nil).Maybe()
-	stream.EXPECT().Send(newBatchStreamShutdownFinishedReply()).Return(nil).Once()
+	mockStream.EXPECT().Send(newBatchStreamShutdownFinishedReply()).Return(nil).Once()
 
-	numWorkers := 1
+	numWorkers := 2
 	shutdown := batch.NewShutdown(ctx)
 	handler, _ := batch.Start(nil, nil, mockBatcher, nil, shutdown, numWorkers, logger)
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
-		time.Sleep(1 * time.Second)
+		defer wg.Done()
+		time.Sleep(100 * time.Millisecond)
 		shutdown.Drain(logger)
 	}()
-	err := handler.Handle(stream)
+	err := handler.Handle(mockStream)
 	require.NoError(t, err, "handler should shut down gracefully")
+	require.Len(t, objsCh, howManyObjs, "all objects should have been processed")
+	wg.Wait()
 }
 
 func TestShutdownAfterBrokenStream(t *testing.T) {
