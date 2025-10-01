@@ -69,9 +69,13 @@ type Report struct {
 	Schema         map[string]interface{} `json:"schema,omitempty"`
 }
 
-// Get the debug usage report from the endpoint
 func getDebugUsage() (*Report, error) {
-	url := "http://localhost:6060/debug/usage?exactObjectCount=false"
+	return getDebugUsageWithPort("localhost:6060")
+}
+
+// Get the debug usage report from the endpoint
+func getDebugUsageWithPort(host string) (*Report, error) {
+	url := fmt.Sprintf("http://%s/debug/usage?exactObjectCount=false", host)
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call endpoint: %w", err)

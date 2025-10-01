@@ -21,6 +21,7 @@ import (
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/test/docker"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -244,19 +245,21 @@ func TestCollectionDeletion(t *testing.T) {
 }
 
 func TestRestart(t *testing.T) {
-	t.Skip("debug endpoint needs to be available for compose")
 	ctx := context.Background()
 
-	//compose, err := docker.New().
-	//	WithWeaviate().
-	//	WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
-	//	Start(ctx)
-	//require.NoError(t, err)
-	//defer func() {
-	//	require.NoError(t, compose.Terminate(ctx))
-	//}()
+	compose, err := docker.New().
+		WithWeaviateWithDebugPort().
+		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
 
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	rest := compose.GetWeaviate().URI()
+	debug := compose.GetWeaviate().DebugURI()
+
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: rest})
 	require.NoError(t, err)
 
 	className := t.Name() + "Class"
@@ -304,7 +307,7 @@ func TestRestart(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	usage, err := getDebugUsage()
+	usage, err := getDebugUsageWithPort(debug)
 	require.NoError(t, err)
 	require.NotNil(t, usage)
 
@@ -312,7 +315,7 @@ func TestRestart(t *testing.T) {
 	// require.NoError(t, compose.StopAt(ctx, 0, &timeout))
 	// require.NoError(t, compose.StartAt(ctx, 0))
 
-	usage2, err := getDebugUsage()
+	usage2, err := getDebugUsageWithPort(debug)
 	require.NoError(t, err)
 	require.NotNil(t, usage2)
 	require.NoError(t, ReportsDifference(usage, usage2))
