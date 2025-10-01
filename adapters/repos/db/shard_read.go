@@ -198,7 +198,7 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 	binary.LittleEndian.PutUint64(keyBuf, indexID)
 
 	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondary(0, keyBuf)
+		GetBySecondary(ctx, 0, keyBuf)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +225,7 @@ func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
 	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondaryWithBuffer(0, container.Buff8, container.Buff)
+		GetBySecondaryWithBuffer(ctx, 0, container.Buff8, container.Buff)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +248,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
 	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondaryWithBuffer(0, container.Buff8, container.Buff)
+		GetBySecondaryWithBuffer(ctx, 0, container.Buff8, container.Buff)
 	if err != nil {
 		return nil, err
 	}
@@ -668,7 +668,7 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 		return "", fmt.Errorf("write doc id to buffer: %w", err)
 	}
 	docIDBytes := keyBuf.Bytes()
-	res, err := bucket.GetBySecondary(0, docIDBytes)
+	res, err := bucket.GetBySecondary(context.TODO(), 0, docIDBytes) // TODO: context
 	if err != nil {
 		return "", fmt.Errorf("get object by doc id: %w", err)
 	}

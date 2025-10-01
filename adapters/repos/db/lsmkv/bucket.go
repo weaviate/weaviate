@@ -567,8 +567,8 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 // Similar to [Bucket.Get], GetBySecondary is limited to ReplaceStrategy. No
 // equivalent exists for Set and Map, as those do not support secondary
 // indexes.
-func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
-	bytes, _, err := b.GetBySecondaryWithBuffer(pos, key, nil)
+func (b *Bucket) GetBySecondary(ctx context.Context, pos int, key []byte) ([]byte, error) {
+	bytes, _, err := b.GetBySecondaryWithBuffer(ctx, pos, key, nil)
 	return bytes, err
 }
 
@@ -581,21 +581,23 @@ func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 // Similar to [Bucket.Get], GetBySecondaryWithBuffer is limited to ReplaceStrategy. No
 // equivalent exists for Set and Map, as those do not support secondary
 // indexes.
-func (b *Bucket) GetBySecondaryWithBuffer(pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
-	v, allocBuf, err := b.getBySecondary(pos, seckey, buffer)
+func (b *Bucket) GetBySecondaryWithBuffer(ctx context.Context, pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
+	v, allocBuf, err := b.getBySecondary(ctx, pos, seckey, buffer)
 	if err != nil && (errors.Is(err, lsmkv.Deleted) || errors.Is(err, lsmkv.NotFound)) {
 		return nil, buffer, nil
 	}
 	return v, allocBuf, err
 }
 
-func (b *Bucket) getBySecondary(pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
+func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
 	if pos >= int(b.secondaryIndices) {
 		return nil, nil, fmt.Errorf("no secondary index at pos %d", pos)
 	}
 
+	beforeAll := time.Now()
 	view := b.getConsistentView()
 	defer view.release()
+	tookView := time.Since(beforeAll)
 
 	memtableNames := []string{"active", "flushing"}
 	memtables := []memtable{view.Active}
@@ -603,6 +605,7 @@ func (b *Bucket) getBySecondary(pos int, seckey []byte, buffer []byte) ([]byte, 
 		memtables = append(memtables, view.Flushing)
 	}
 
+	var memtablesTook []time.Duration
 	for i := range memtables {
 		beforeMemtable := time.Now()
 		v, err := memtables[i].getBySecondary(pos, seckey)
@@ -612,6 +615,7 @@ func (b *Bucket) getBySecondary(pos int, seckey []byte, buffer []byte) ([]byte, 
 				"action":   fmt.Sprintf("lsm_bucket_getbysecondary_%s_memtable", memtableNames[i]),
 			}).Debug("Waited more than 100ms to retrieve object from memtable")
 		}
+		memtablesTook = append(memtablesTook, time.Since(beforeMemtable))
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
 			// is replace
@@ -627,17 +631,40 @@ func (b *Bucket) getBySecondary(pos int, seckey []byte, buffer []byte) ([]byte, 
 		}
 	}
 
+	beforeSegments := time.Now()
 	k, v, allocBuf, err := b.disk.getBySecondaryWithSegmentList(pos, seckey, buffer, view.Disk)
 	if err != nil {
 		return nil, nil, err
 	}
+	segmentsTook := time.Since(beforeSegments)
 
+	// TODO: this should use the same view, no need to get a second view here
 	// additional validation to ensure the primary key has not been marked as deleted
+	beforeReCheck := time.Now()
 	if _, err := b.get(k); err != nil {
 		return nil, nil, err
 	}
+	recheckTook := time.Since(beforeReCheck)
+
+	helpers.AnnotateSlowQueryLogAppend(ctx, "lsm_get_by_secondary", slowLogAnnotation{
+		View:      tookView,
+		Memtables: memtablesTook,
+		Segments:  segmentsTook,
+		Recheck:   recheckTook,
+		Total:     time.Since(beforeAll),
+	})
+
+	fmt.Printf("\n\n\nannotate called\n\n\n")
 
 	return v, allocBuf, nil
+}
+
+type slowLogAnnotation struct {
+	Total     time.Duration
+	View      time.Duration
+	Memtables []time.Duration
+	Segments  time.Duration
+	Recheck   time.Duration
 }
 
 // SetList returns all Set entries for a given key.
