@@ -14,28 +14,27 @@ package common
 import (
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 func TestPagedArray(t *testing.T) {
-	arr := NewPagedArray[int](10, 10)
-	require.Equal(t, arr.Cap(), 0, "wrong initial cap")
+	arr := NewPagedArray[uint64](10, 10)
 
 	setN := func(n int) {
 		t.Helper()
 
 		for i := 0; i < n; i++ {
-			arr.AllocPageFor(uint64(i))
-			arr.Set(uint64(i), i)
+			p, slot := arr.EnsurePageFor(uint64(i))
+			atomic.StoreUint64(&p[slot], uint64(i))
 		}
 	}
 
 	checkN := func(n int) {
 		for i := 0; i < n; i++ {
-			v := arr.Get(uint64(i))
-			if v != i {
+			p, slot := arr.GetPageFor(uint64(i))
+			v := atomic.LoadUint64(&p[slot])
+			if v != uint64(i) {
 				t.Errorf("expected %d, got %d", i, v)
 			}
 		}
@@ -44,31 +43,9 @@ func TestPagedArray(t *testing.T) {
 	setN(10)
 	checkN(10)
 
-	arr.Grow(1000)
+	arr = NewPagedArray[uint64](1000, 10)
 	setN(1000)
 	checkN(1000)
-
-	arr.Reset()
-
-	setN(1000)
-	checkN(1000)
-
-	arr.Reset()
-
-	setN(100)
-	require.Equal(t, 10, arr.Get(10))
-	require.Zero(t, arr.Get(140))
-
-	arr.Reset()
-	for i := 0; i < 100; i += 2 {
-		arr.Set(uint64(i), i)
-	}
-	for i := 0; i < 100; i += 2 {
-		require.Equal(t, i, arr.Get(uint64(i)))
-	}
-	for i := 1; i < 100; i += 2 {
-		require.Zero(t, arr.Get(uint64(i)))
-	}
 }
 
 func BenchmarkArraySparse(b *testing.B) {
@@ -81,26 +58,27 @@ func BenchmarkArraySparse(b *testing.B) {
 
 	b.Run("Set", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			buf := NewPagedArray[int](512, 1000_000)
+			buf := NewPagedArray[uint64](512, 1000_000)
 
 			for j := 0; j < 1000; j++ {
-				buf.AllocPageFor(keys[j])
-				buf.Set(keys[j], values[j])
+				p, slot := buf.EnsurePageFor(keys[j])
+				atomic.StoreUint64(&p[slot], uint64(values[j]))
 			}
 		}
 	})
 
-	pbbuf := NewPagedArray[int](512, 1000_000)
+	pbbuf := NewPagedArray[uint64](512, 1000_000)
 
 	for j := 0; j < 10_000; j++ {
-		pbbuf.AllocPageFor(keys[j])
-		pbbuf.Set(keys[j], values[j])
+		p, slot := pbbuf.EnsurePageFor(keys[j])
+		atomic.StoreUint64(&p[slot], uint64(values[j]))
 	}
 
 	b.Run("Get", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			for j := 0; j < 10_000; j++ {
-				_ = pbbuf.Get(keys[j])
+				p, slot := pbbuf.GetPageFor(keys[j])
+				_ = atomic.LoadUint64(&p[slot])
 			}
 		}
 	})
@@ -109,26 +87,27 @@ func BenchmarkArraySparse(b *testing.B) {
 func BenchmarkArrayMonotonic(b *testing.B) {
 	b.Run("Set", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			buf := NewPagedArray[int](20, 512)
+			buf := NewPagedArray[uint64](20, 512)
 
 			for j := 0; j < 10_000; j++ {
-				buf.AllocPageFor(uint64(j))
-				buf.Set(uint64(j), j)
+				p, slot := buf.EnsurePageFor(uint64(j))
+				atomic.StoreUint64(&p[slot], uint64(j))
 			}
 		}
 	})
 
-	pbbuf := NewPagedArray[int](20, 512)
+	pbbuf := NewPagedArray[uint64](20, 512)
 
 	for j := 0; j < 10_000; j++ {
-		pbbuf.AllocPageFor(uint64(j))
-		pbbuf.Set(uint64(j), j)
+		p, slot := pbbuf.EnsurePageFor(uint64(j))
+		atomic.StoreUint64(&p[slot], uint64(j))
 	}
 
 	b.Run("Get", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			for j := 0; j < 10_000; j++ {
-				_ = pbbuf.Get(uint64(j))
+				p, slot := pbbuf.GetPageFor(uint64(j))
+				_ = atomic.LoadUint64(&p[slot])
 			}
 		}
 	})
@@ -136,13 +115,12 @@ func BenchmarkArrayMonotonic(b *testing.B) {
 
 func TestPagedArrayConcurrentSetAndGet(t *testing.T) {
 	buf := NewPagedArray[uint64](20, 512)
-	locks := NewShardedRWLocks(20)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
 
 		for j := uint64(0); j < 1000; j++ {
-			buf.AllocPageFor(j)
+			buf.EnsurePageFor(j)
 		}
 
 		wg.Add(2)
@@ -150,18 +128,16 @@ func TestPagedArrayConcurrentSetAndGet(t *testing.T) {
 			defer wg.Done()
 
 			for j := uint64(0); j < 1000; j++ {
-				locks.Lock(j)
-				buf.Set(j, j)
-				locks.Unlock(j)
+				p, slot := buf.GetPageFor(j)
+				atomic.StoreUint64(&p[slot], uint64(i))
 			}
 		}(i)
 		go func(i int) {
 			defer wg.Done()
 
 			for j := uint64(0); j < 1000; j++ {
-				locks.RLock(j)
-				_ = buf.Get(j)
-				locks.RUnlock(j)
+				p, slot := buf.GetPageFor(j)
+				_ = atomic.LoadUint64(&p[slot])
 			}
 		}(i)
 	}
