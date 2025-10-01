@@ -435,14 +435,20 @@ func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) 
 
 	for i := range servers {
 		server := servers[i]
-		go func() {
+		go func(index int) {
 			if err := server.Shutdown(ctx); err != nil {
-				// Graceful shutdown failed, force close the server as fallback
-				_ = server.Close()
-				s.Logf("http server shutdown failed: %v", err)
+				if errors.Is(err, context.DeadlineExceeded) {
+					s.Logf("HTTP server #%d: graceful shutdown timed out after %v, forcing close", index, s.GracefulTimeout)
+				} else {
+					s.Logf("HTTP server #%d: graceful shutdown error: %v, forcing close", index, err)
+				}
+
+				if closeErr := server.Close(); closeErr != nil {
+					s.Logf("HTTP server #%d: fallback force close also failed: %v", index, closeErr)
+				}
 			}
-			shutdownChan <- true // Signal completion regardless of success/failure
-		}()
+			shutdownChan <- true
+		}(i)
 	}
 
 	// Wait for all servers to complete shutdown attempts with timeout protection (GracefulTimeout)
@@ -452,10 +458,11 @@ func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) 
 			// Server completed shutdown attempt with success or failure
 		case <-ctx.Done():
 			// Graceful timeout expired - log and continue with cleanup
-			s.Logf("timeout waiting for HTTP server %d shutdown after %v", len(servers)-i, s.GracefulTimeout)
+			s.Logf("timeout: %d/%d servers still shutting down after %v", len(servers)-i, len(servers), s.GracefulTimeout)
 			return
 		}
 	}
+	s.Logf("all %d servers completed shutdown sequence", len(servers))
 }
 
 // GetHandler returns a handler useful for testing
