@@ -146,7 +146,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
-const MinimumRequiredContextionaryVersion = "1.0.2"
+const (
+	MinimumRequiredContextionaryVersion = "1.0.2"
+	ReadinessProbeLeadTime              = 2 * time.Second
+)
 
 func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
 	return func(s *http.Server, scheme, addr string) {
@@ -815,6 +818,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	defer cancel()
 
 	appState := MakeAppState(ctx, connectorOptionGroup)
+	shutdownCoordinator := NewShutdownCoordinator(appState.Logger)
+	appState.SetShutdownGrpcTracker(shutdownCoordinator)
+	appState.SetShutdownRestTracker(shutdownCoordinator)
 
 	appState.Logger.WithFields(logrus.Fields{
 		"server_version": config.ServerVersion,
@@ -880,7 +886,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
 
-	grpcServer := createGrpcServer(appState, grpcInstrument...)
+	grpcServer, grpcHealthServer := createGrpcServer(appState, grpcInstrument...)
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
 
@@ -924,6 +930,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// gracefully stop gRPC server
+		grpcHealthServer.Shutdown()
 		grpcServer.GracefulStop()
 
 		if appState.ServerConfig.Config.Sentry.Enabled {

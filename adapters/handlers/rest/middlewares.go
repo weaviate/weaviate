@@ -123,6 +123,7 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		if appState.ServerConfig.Config.Monitoring.Enabled {
 			handler = makeAddMonitoring(appState.Metrics)(handler)
 		}
+		handler = makeShutdownMiddleware(appState)(handler)
 		handler = addPreflight(handler, appState.ServerConfig.Config.CORS)
 		handler = addLiveAndReadyness(appState, handler)
 		handler = addHandleRoot(handler)
@@ -207,6 +208,28 @@ func makeAddMonitoring(metrics *monitoring.PrometheusMetrics) func(http.Handler)
 
 				metrics.BatchSizeBytes.WithLabelValues("rest").Observe(float64(r.ContentLength))
 			}
+		})
+	}
+}
+
+func makeShutdownMiddleware(s *state.State) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if s.IsShuttingDown() {
+				s.Logger.WithField("method", r.Method).
+					WithField("path", r.URL.Path).
+					Debug("rejecting request during shutdown")
+
+				w.Header().Set("Connection", "close")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, err := w.Write([]byte("Service is shutting down"))
+				if err != nil {
+					s.Logger.WithError(err).Error("failed to write response")
+					return
+				}
+				return
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }
