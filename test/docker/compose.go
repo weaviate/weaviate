@@ -504,6 +504,13 @@ func (d *Compose) WithWeaviate() *Compose {
 	return d.With1NodeCluster()
 }
 
+func (d *Compose) WithWeaviateWithAllPorts() *Compose {
+	d.With1NodeCluster()
+	d.withWeaviateExposeGRPCPort = true
+	d.withWeaviateExposeDebugPort = true
+	return d
+}
+
 func (d *Compose) WithWeaviateWithGRPC() *Compose {
 	d.With1NodeCluster()
 	d.withWeaviateExposeGRPCPort = true
