@@ -654,8 +654,6 @@ func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buf
 		Total:     time.Since(beforeAll),
 	})
 
-	fmt.Printf("\n\n\nannotate called\n\n\n")
-
 	return v, allocBuf, nil
 }
 
