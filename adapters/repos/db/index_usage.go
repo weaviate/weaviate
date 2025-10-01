@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -147,7 +148,7 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 	}
 
 	collectionUsage.UniqueShardCount = uniqueShardCount
-
+	sort.Sort(collectionUsage.Shards)
 	return collectionUsage, nil
 }
 
@@ -231,6 +232,7 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard ShardLike, 
 	}); err != nil {
 		return nil, err
 	}
+	sort.Sort(shardUsage.NamedVectors)
 	return shardUsage, nil
 }
 
@@ -276,6 +278,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName stri
 
 		shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
 	}
+	sort.Sort(shardUsage.NamedVectors)
 	return shardUsage, err
 }
 

@@ -13,6 +13,7 @@ package usage
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/pkg/errors"
@@ -81,6 +82,7 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 
 		usage.Collections = append(usage.Collections, collectionUsage)
 	}
+	sort.Sort(usage.Collections)
 
 	// Get backup usage from all enabled backup backends
 	for _, backend := range s.backups.EnabledBackupBackends() {
