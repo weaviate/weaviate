@@ -209,8 +209,8 @@ func (w *Worker) Loop(ctx context.Context) error {
 		default:
 			if ctx.Err() != nil {
 				// Context canceled, exit loop
-				w.logger.WithField("action", "shutdown_worker_loop").Info("shutting down worker loop")
-				return nil
+				w.logger.WithField("action", "shutdown_worker_loop").Error("shutting down worker loop due to cancellation")
+				return ctx.Err()
 			}
 			time.Sleep(10 * time.Millisecond) // Prevent busy waiting
 		}

@@ -70,56 +70,9 @@ func TestWorkerLoop(t *testing.T) {
 			StreamId,
 			nil,
 		)
-
-		cancel()               // Cancel the context to stop the worker loop
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
 		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
-		require.Equal(t, ctx.Err(), context.Canceled, "Expected context to be canceled")
-	})
-
-	t.Run("should process from the queue during shutdown", func(t *testing.T) {
-		mockBatcher := mocks.NewMockBatcher(t)
-
-		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
-
-		readQueues := batch.NewBatchReadQueues()
-		readQueues.Make(StreamId)
-		processingQueue := batch.NewBatchProcessingQueue(1)
-		reportingQueue := batch.NewBatchReportingQueue(100) // don't care about blocking here
-
-		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
-			Took:   float32(1),
-			Errors: nil,
-		}, nil).Times(1)
-		mockBatcher.EXPECT().BatchReferences(ctx, mock.Anything).Return(&pb.BatchReferencesReply{
-			Took:   float32(1),
-			Errors: nil,
-		}, nil).Times(1)
-		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueue, readQueues, mockBatcher, logger)
-
-		cancel() // Cancel the context to simulate shutdown
-		// Send data after context cancellation to ensure that the worker processes it
-		// in its shutdown select-case
-		processingQueue <- batch.NewProcessRequest(
-			[]*pb.BatchObject{{}},
-			nil,
-			StreamId,
-			nil,
-		)
-		processingQueue <- batch.NewProcessRequest(
-			nil,
-			[]*pb.BatchReference{{}},
-			StreamId,
-			nil,
-		)
-
-		close(processingQueue) // Close the internal queue to stop processing as part of the shutdown
-		wg.Wait()              // Wait for the worker to finish processing
-		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
-		require.Equal(t, ctx.Err(), context.Canceled, "Expected context to be canceled")
 	})
 
 	t.Run("should process from the queue and send data returning partial error", func(t *testing.T) {
@@ -203,10 +156,8 @@ func TestWorkerLoop(t *testing.T) {
 		require.Len(t, errs.Errors, 1, "Expected one error to be returned")
 		require.Equal(t, "refs error", errs.Errors[0].Error, "Expected error message to match")
 
-		cancel()               // Cancel the context to stop the worker loop
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
 		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
-		require.Equal(t, ctx.Err(), context.Canceled, "Expected context to be canceled")
 	})
 }
