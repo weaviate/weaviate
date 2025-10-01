@@ -20,10 +20,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// UserConfig defines the configuration options for the SPFresh index.
-// Will be populated once we decide what should be exposed.
-type UserConfig struct{}
-
 type Config struct {
 	Logger                    logrus.FieldLogger
 	Distancer                 distancer.Provider
