@@ -417,7 +417,7 @@ func (s *Server) Shutdown() error {
 
 func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) {
 	defer wg.Done()
-	// Always invoke the API shutdown hook, even if HTTP servers fail to shutdown gracefully.
+	// Always invoke the API shutdown hook, even if servers fail to shutdown gracefully.
 	// This ensures critical cleanup always happens no matter if the server shutdown completed
 	// successfully or not.
 	defer s.api.ServerShutdown()
@@ -430,7 +430,7 @@ func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) 
 	// first execute the pre-shutdown hook
 	s.api.PreServerShutdown()
 
-	// Wait for all HTTP servers to attempt graceful shutdown
+	// Wait for all servers to attempt graceful shutdown
 	shutdownChan := make(chan bool, len(servers))
 
 	for i := range servers {
@@ -438,13 +438,13 @@ func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) 
 		go func(index int) {
 			if err := server.Shutdown(ctx); err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
-					s.Logf("HTTP server #%d: graceful shutdown timed out after %v, forcing close", index, s.GracefulTimeout)
+					s.Logf("server #%d: graceful shutdown timed out after %v, forcing close", index, s.GracefulTimeout)
 				} else {
-					s.Logf("HTTP server #%d: graceful shutdown error: %v, forcing close", index, err)
+					s.Logf("server #%d: graceful shutdown error: %v, forcing close", index, err)
 				}
 
 				if closeErr := server.Close(); closeErr != nil {
-					s.Logf("HTTP server #%d: fallback force close also failed: %v", index, closeErr)
+					s.Logf("server #%d: fallback force close also failed: %v", index, closeErr)
 				}
 			}
 			shutdownChan <- true
