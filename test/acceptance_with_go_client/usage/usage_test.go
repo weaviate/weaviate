@@ -250,6 +250,7 @@ func TestRestart(t *testing.T) {
 	compose, err := docker.New().
 		WithWeaviateWithDebugPort().
 		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
+		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true"). // lazy shards are shown as inactive, which would break the test
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -311,11 +312,12 @@ func TestRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, usage)
 
-	// timeout := time.Minute
-	// require.NoError(t, compose.StopAt(ctx, 0, &timeout))
-	// require.NoError(t, compose.StartAt(ctx, 0))
+	require.NoError(t, compose.Stop(ctx, compose.GetWeaviate().Name(), nil))
 
-	usage2, err := getDebugUsageWithPort(debug)
+	err = compose.Start(ctx, compose.GetWeaviate().Name())
+	require.NoError(t, err)
+
+	usage2, err := getDebugUsageWithPort(compose.GetWeaviate().DebugURI())
 	require.NoError(t, err)
 	require.NotNil(t, usage2)
 	require.NoError(t, ReportsDifference(usage, usage2))
