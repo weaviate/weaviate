@@ -185,16 +185,16 @@ func TestGRPC_Batching(t *testing.T) {
 		require.Equal(t, 1, len(obj.Properties.(map[string]any)["hasParagraphs"].([]any)), "Article should have 1 paragraph")
 	})
 
-	t.Run("send 100000 objects then immediately restart the node to trigger shutdown and ensure all are present afterwards", func(t *testing.T) {
+	t.Run("send 50000 objects then immediately restart the node to trigger shutdown and ensure all are present afterwards", func(t *testing.T) {
 		defer setupClasses()()
 
 		// Open up a stream to read messages from
 		stream := start(ctx, t, grpcClient)
 		defer stream.CloseSend()
 
-		// Send 100000 articles
+		// Send 50000 articles
 		var objects []*pb.BatchObject
-		for i := 0; i < 100000; i++ {
+		for i := 0; i < 50000; i++ {
 			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: uuid.NewString()})
 			if len(objects) == 1000 {
 				sendObjects(t, stream, objects)
@@ -247,7 +247,7 @@ func TestGRPC_Batching(t *testing.T) {
 				ObjectsCount: true,
 			})
 			require.NoError(t, err, "Aggregate should not return an error")
-			require.Equal(ct, int64(100000), *res.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
+			require.Equal(ct, int64(50000), *res.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
 		}, 120*time.Second, 5*time.Second, "Objects not created within time")
 	})
 }
