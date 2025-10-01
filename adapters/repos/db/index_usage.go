@@ -129,7 +129,11 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 				// active tenants can be either fully loaded or lazy loaded. Lazy shards should _not_ be loaded just for
 				// usage calculation and are treated like inactive shards
 				if lazyShard, ok := shard.(*LazyLoadShard); ok && !lazyShard.isLoaded() {
-					shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName)
+					// Lazy shard that is not loaded yet - calculate usage from disk and prevent it from being loaded
+					// in the meantime
+					lazyShard.ExecuteWithLock(func() {
+						shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName)
+					})
 				} else {
 					shardUsage, err2 = i.calculateLoadedShardUsage(ctx, shard, exactObjectCount)
 				}

@@ -815,3 +815,9 @@ func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) (int64, error) {
 	idx := l.shardOpts.index
 	return shardusage.CalculateUnloadedVectorsMetrics(ctx, idx.logger, idx.path(), l.shardOpts.name, idx.GetVectorIndexConfigs())
 }
+
+func (l *LazyLoadShard) ExecuteWithLock(f func()) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	f()
+}
