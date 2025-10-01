@@ -136,11 +136,14 @@ func (s *schema) MultiTenancy(class string) models.MultiTenancyConfig {
 }
 
 // Read performs a read operation `reader` on the specified class and sharding state
-func (s *schema) Read(class string, reader func(*models.Class, *sharding.State) error) error {
+func (s *schema) Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error {
 	meta := s.metaClass(class)
 	if meta == nil {
-		// don't retry
-		return backoff.Permanent(ErrClassNotFound)
+		if retryIfClassNotFound {
+			return ErrClassNotFound
+		} else {
+			return backoff.Permanent(ErrClassNotFound)
+		}
 	}
 	return meta.RLockGuard(reader)
 }

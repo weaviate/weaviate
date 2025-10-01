@@ -67,7 +67,7 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 	// the entire state for the duration of the potentially long-running usage calculation. Therefore, we do this in steps:
 	// 1) lock sharding state using schemaReader.Read while we collect all local shards and their status
 	// 2) calculate usage depending on shard state below where only the given shard is locked (below)
-	err := i.schemaReader.Read(i.Config.ClassName.String(), func(_ *models.Class, ss *sharding.State) error {
+	err := i.schemaReader.Read(i.Config.ClassName.String(), false, func(_ *models.Class, ss *sharding.State) error {
 		for shardName := range ss.Physical {
 			isLocal := ss.IsLocalShard(shardName)
 			if !isLocal {

@@ -737,8 +737,8 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	require.NoError(t, index.Shutdown(ctx))
 
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
-		func(_ string, fn func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
 			return fn(nil, shardState)
 		},
 	)

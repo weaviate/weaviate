@@ -74,8 +74,8 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	shardingState.SetLocalName(nodeName)
 
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
-		func(_ string, fn func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
 			return fn(nil, shardingState)
 		},
 	)
@@ -194,8 +194,8 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	mockSchema.EXPECT().TenantsShards(mock.Anything, className, hotTenant).Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, nil)
 	mockSchema.EXPECT().OptimisticTenantStatus(mock.Anything, className, hotTenant).Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, errors.New(""))
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(className, mock.Anything).RunAndReturn(
-		func(_ string, fn func(*models.Class, *sharding.State) error) error {
+	mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
 			return fn(nil, shardingState)
 		},
 	)
