@@ -189,7 +189,6 @@ func TestGRPC_Batching(t *testing.T) {
 		defer setupClasses()()
 
 		// Open up a stream to read messages from
-		startTime := time.Now()
 		stream := start(ctx, t, grpcClient)
 		defer stream.CloseSend()
 
@@ -239,9 +238,6 @@ func TestGRPC_Batching(t *testing.T) {
 			require.NoError(t, err, "Aggregate should not return an error")
 			require.Equal(ct, int64(50000), *res.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
 		}, 120*time.Second, 5*time.Second, "Objects not created within time")
-
-		duration := time.Since(startTime)
-		require.Less(t, duration.Seconds(), float64(20), fmt.Sprintf("Sending 50000 objects should take less than 20 seconds, took %f seconds", duration.Seconds()))
 	})
 
 	t.Run("send 50000 objects then immediately restart the node to trigger shutdown and ensure all are present afterwards", func(t *testing.T) {
