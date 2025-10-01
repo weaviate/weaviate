@@ -88,18 +88,6 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	return nil
 }
 
-func (h *StreamHandler) wait(ctx context.Context) error {
-	ticker := time.NewTicker(POLLING_INTERVAL)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-		}
-	}
-}
-
 func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
 	defer h.sendWg.Done()
 	// shuttingDown acts as a soft cancel here so we can send the shutting down message to the client.
