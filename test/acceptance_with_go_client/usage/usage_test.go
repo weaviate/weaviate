@@ -16,13 +16,11 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/docker"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -246,16 +244,17 @@ func TestCollectionDeletion(t *testing.T) {
 }
 
 func TestRestart(t *testing.T) {
+	t.Skip("debug endpoint needs to be available for compose")
 	ctx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviate().
-		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
+	//compose, err := docker.New().
+	//	WithWeaviate().
+	//	WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
+	//	Start(ctx)
+	//require.NoError(t, err)
+	//defer func() {
+	//	require.NoError(t, compose.Terminate(ctx))
+	//}()
 
 	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
 	require.NoError(t, err)
@@ -309,12 +308,12 @@ func TestRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, usage)
 
-	timeout := time.Minute
-	require.NoError(t, compose.StopAt(ctx, 0, &timeout))
-	require.NoError(t, compose.StartAt(ctx, 0))
+	// timeout := time.Minute
+	// require.NoError(t, compose.StopAt(ctx, 0, &timeout))
+	// require.NoError(t, compose.StartAt(ctx, 0))
 
 	usage2, err := getDebugUsage()
 	require.NoError(t, err)
 	require.NotNil(t, usage2)
-	require.False(t, ReportsAreDifferent(usage, usage2))
+	require.NoError(t, ReportsDifference(usage, usage2))
 }
