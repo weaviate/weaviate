@@ -106,16 +106,18 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 				}
 				return ctx.Err()
 			case <-shuttingDown:
+				// If shutting down context has been set by shutdown.Drain then send the shutdown triggered message to the client
+				// so that it can backoff accordingly if it wants to
 				if innerErr := stream.Send(newBatchShutdownTriggeredMessage()); innerErr != nil {
 					h.logger.WithField("streamId", streamId).WithError(innerErr).Error("failed to send shutdown triggered message")
 					return innerErr
 				}
 				shuttingDown = nil // only send once
 			case readObj, ok := <-readQueue:
-				// readQueue is closed when all the workers are done processing for this stream
+				// readQueue is closed by the scheduler when all the workers are done processing for this stream
 				if !ok {
-					// If this stream is being stopped by the client sending the stop sentinel then send the finishing stop message to the client
 					if stopping, ok := h.stopping.Load(streamId); ok && stopping.(bool) {
+						// If this stream is being stopped by the client sending the stop sentinel then send the finishing stop message to the client
 						if innerErr := stream.Send(newBatchStopMessage()); innerErr != nil {
 							h.logger.WithField("streamId", streamId).WithError(innerErr).Error("failed to send stop message")
 							return innerErr
