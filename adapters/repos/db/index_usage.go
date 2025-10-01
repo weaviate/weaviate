@@ -131,9 +131,13 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 				if lazyShard, ok := shard.(*LazyLoadShard); ok && !lazyShard.isLoaded() {
 					// Lazy shard that is not loaded yet - calculate usage from disk and prevent it from being loaded
 					// in the meantime
-					lazyShard.ExecuteWithLock(func() {
+					wasExecuted := lazyShard.ExecuteForUnloadedWithLock(func() {
 						shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName)
 					})
+					if !wasExecuted {
+						// shard got loaded in the meantime - calculate usage as loaded shard
+						shardUsage, err2 = i.calculateLoadedShardUsage(ctx, lazyShard, exactObjectCount)
+					}
 				} else {
 					shardUsage, err2 = i.calculateLoadedShardUsage(ctx, shard, exactObjectCount)
 				}
