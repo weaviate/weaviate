@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -84,8 +85,8 @@ type replicatedIndices struct {
 	// requestQueue buffers requests until they're picked up by a worker, goal is to avoid
 	// overwhelming the system with requests during spikes (also allows for backpressure)
 	requestQueue chan queuedRequest
-	// shutdown management
-	shutdown chan struct{}
+	// set to true when shutting down
+	isShutdown atomic.Bool
 	// workerWg waits for all workers to finish
 	workerWg sync.WaitGroup
 	// shutdownOnce ensures that the shutdown is only done once
@@ -138,7 +139,6 @@ func NewReplicatedIndices(
 		maintenanceModeEnabled: maintenanceModeEnabled,
 		requestQueue:           make(chan queuedRequest, requestQueueConfig.QueueSize),
 		requestQueueConfig:     requestQueueConfig,
-		shutdown:               make(chan struct{}),
 		logger:                 logger,
 	}
 	i.startWorkers()
@@ -157,20 +157,15 @@ func (i *replicatedIndices) startWorkers() {
 		i.workerWg.Add(1)
 		enterrors.GoWrapper(func() {
 			defer i.workerWg.Done()
-			for {
-				select {
-				case rq := <-i.requestQueue:
-					if rq.r.Context().Err() != nil {
-						if rq.wg != nil {
-							rq.wg.Done()
-						}
-						rq.w.WriteHeader(http.StatusRequestTimeout)
-						continue
+			for rq := range i.requestQueue {
+				if rq.r.Context().Err() != nil {
+					if rq.wg != nil {
+						rq.wg.Done()
 					}
-					i.handleRequest(rq)
-				case <-i.shutdown:
-					return
+					rq.w.WriteHeader(http.StatusRequestTimeout)
+					continue
 				}
+				i.handleRequest(rq)
 			}
 		}, i.logger)
 	}
@@ -188,11 +183,9 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 		}
 
 		// Check if we're shutting down
-		select {
-		case <-i.shutdown:
+		if i.isShutdown.Load() {
 			http.Error(w, "503 Service Unavailable - shutting down", http.StatusServiceUnavailable)
 			return
-		default:
 		}
 
 		// if the request queue is enabled, add the request to the queue
@@ -201,9 +194,6 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			wg.Add(1)
 			select {
 			case i.requestQueue <- queuedRequest{r: r, w: w, wg: &wg}:
-			case <-i.shutdown:
-				http.Error(w, "503 Service Unavailable - shutting down", http.StatusServiceUnavailable)
-				return
 			default:
 				http.Error(w, "too many buffered requests", i.requestQueueConfig.QueueFullHttpStatus)
 				wg.Done()
@@ -991,11 +981,9 @@ func localIndexNotReady(resp replica.SimpleResponse) bool {
 
 // Close gracefully shuts down the replicatedIndices by draining the queue and waiting for workers to finish
 func (i *replicatedIndices) Close(ctx context.Context) error {
+	i.isShutdown.Store(true)
 	var err error
 	i.shutdownOnce.Do(func() {
-		// Signal shutdown to all workers
-		close(i.shutdown)
-
 		// Set a timeout for graceful shutdown
 		shutdownTimeoutSeconds := i.requestQueueConfig.QueueShutdownTimeoutSeconds
 		if shutdownTimeoutSeconds == 0 {
@@ -1013,6 +1001,7 @@ func (i *replicatedIndices) Close(ctx context.Context) error {
 			close(done)
 		}, i.logger)
 
+		close(i.requestQueue)
 		select {
 		case <-done:
 			// Workers finished gracefully
