@@ -116,9 +116,27 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 	totalObjectCount := int64(0)
 	for _, index := range o.db.indices {
 		index.ForEachShard(func(name string, shard ShardLike) error {
+			index.shardCreateLocks.Lock(name)
+			defer index.shardCreateLocks.Unlock(name)
+			exists, err := index.tenantDirExists(name)
+			if err != nil {
+				o.db.logger.
+					WithField("action", "observe_node_wide_metrics").
+					WithField("shard", name).
+					WithField("class", index.Config.ClassName).
+					Warnf("error while checking if shard exists: %v", err)
+				return nil
+			}
+			if !exists {
+				// shard was deleted in the meantime or is newly created and hasn't been written to disk, skip
+				return nil
+			}
 			objectCount, err := shard.ObjectCountAsync(context.Background())
 			if err != nil {
-				o.db.logger.Warnf("error while getting object count for shard %s: %w", shard.Name(), err)
+				o.db.logger.WithField("action", "observe_node_wide_metrics").
+					WithField("shard", name).
+					WithField("class", index.Config.ClassName).
+					Warnf("error while getting object count for shard: %v", err)
 			}
 			totalObjectCount += objectCount
 			return nil
