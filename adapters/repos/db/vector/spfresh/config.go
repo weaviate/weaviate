@@ -17,6 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -68,4 +69,8 @@ func DefaultConfig() *Config {
 		RNGFactor:                 10.0,
 		MaxDistanceRatio:          10_000,
 	}
+}
+
+func ValidateUserConfigUpdate(initial, updated schemaconfig.VectorIndexConfig) error {
+	panic("ValidateUserConfigUpdate not implemented")
 }
