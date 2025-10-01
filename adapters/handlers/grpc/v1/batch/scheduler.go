@@ -234,6 +234,7 @@ func (s *Scheduler) isWaitingForWorkers(streamId string) bool {
 }
 
 func (s *Scheduler) waitForWorkers(streamId string) {
+	defer s.wg.Done()
 	if ok := s.isWaitingForWorkers(streamId); ok {
 		// already waiting for this stream
 		return
@@ -245,7 +246,6 @@ func (s *Scheduler) waitForWorkers(streamId string) {
 	s.statsPerStream.Delete(streamId)
 	s.wgPerStream.Delete(streamId)
 	s.logger.WithField("streamId", streamId).Info("stream fully processed and cleaned up")
-	s.wg.Done()
 }
 
 type workerStats struct {
