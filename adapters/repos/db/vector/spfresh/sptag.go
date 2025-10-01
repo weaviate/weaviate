@@ -12,61 +12,41 @@
 package spfresh
 
 import (
+	"iter"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-var _ SPTAG = (*BruteForceSPTAG)(nil)
-
-type SPTAG interface {
-	Init(dims int32, distancer distancer.Provider)
-	// Get returns the centroid for the given ID or nil if not found.
-	// The centroid may have been marked as deleted.
-	Get(id uint64) *Centroid
-	Exists(id uint64) bool
-	Upsert(id uint64, centroid *Centroid) error
-	IsMarkedAsDeleted(id uint64) bool
-	MarkAsDeleted(id uint64) error
-	Search(query Vector, k int) ([]SearchResult, error)
-	Quantizer() *compressionhelpers.RotationalQuantizer
-}
-
-type SearchResult struct {
-	ID       uint64
-	Distance float32
-}
-
 type Centroid struct {
-	Vector Vector
-	Radius float32
+	Vector  Vector
+	Deleted bool
 }
 
 type BruteForceSPTAG struct {
-	m          sync.RWMutex
-	centroids  map[uint64]Centroid
-	tombstones map[uint64]struct{}
-	quantizer  *compressionhelpers.RotationalQuantizer
-	distancer  *Distancer
-	metrics    *Metrics
+	quantizer *compressionhelpers.RotationalQuantizer
+	distancer *Distancer
+	metrics   *Metrics
+
+	centroids *common.PagedArray[atomic.Pointer[Centroid]]
+	idLock    sync.RWMutex
+	ids       []uint64
+	counter   atomic.Int32
 }
 
-func NewBruteForceSPTAG(metrics *Metrics) *BruteForceSPTAG {
+func NewBruteForceSPTAG(metrics *Metrics, pages, pageSize uint64) *BruteForceSPTAG {
 	return &BruteForceSPTAG{
-		centroids:  make(map[uint64]Centroid),
-		tombstones: make(map[uint64]struct{}),
-		metrics:    metrics,
+		metrics:   metrics,
+		centroids: common.NewPagedArray[atomic.Pointer[Centroid]](pages, pageSize),
 	}
 }
 
 func (s *BruteForceSPTAG) Init(dims int32, distancer distancer.Provider) {
-	s.m.Lock()
-	defer s.m.Unlock()
-
 	// TODO: seed
 	seed := uint64(42)
 	s.quantizer = compressionhelpers.NewRotationalQuantizer(int(dims), seed, 8, distancer)
@@ -77,109 +57,194 @@ func (s *BruteForceSPTAG) Init(dims int32, distancer distancer.Provider) {
 }
 
 func (s *BruteForceSPTAG) Get(id uint64) *Centroid {
-	s.m.RLock()
-	defer s.m.RUnlock()
-
-	centroid, exists := s.centroids[id]
-	if !exists {
+	page, slot := s.centroids.GetPageFor(id)
+	if page == nil {
 		return nil
 	}
 
-	return &centroid
+	return page[slot].Load()
 }
 
-func (s *BruteForceSPTAG) Upsert(id uint64, centroid *Centroid) error {
-	s.m.Lock()
-	defer s.m.Unlock()
-
-	if _, deleted := s.tombstones[id]; deleted {
-		return errors.New("cannot upsert a centroid that is marked as deleted")
+func (s *BruteForceSPTAG) Insert(id uint64, vector Vector) error {
+	page, slot := s.centroids.EnsurePageFor(id)
+	if page == nil {
+		return errors.New("failed to allocate page")
 	}
 
-	_, exists := s.centroids[id]
-	if !exists {
-		s.metrics.SetPostings(len(s.centroids) + 1 - len(s.tombstones))
-	}
+	page[slot].Store(&Centroid{
+		Vector: vector,
+	})
 
-	s.centroids[id] = *centroid
+	s.idLock.Lock()
+	s.ids = append(s.ids, id)
+	s.idLock.Unlock()
+
+	s.metrics.SetPostings(int(s.counter.Add(1)))
 
 	return nil
 }
 
 func (s *BruteForceSPTAG) MarkAsDeleted(id uint64) error {
-	s.m.Lock()
-	defer s.m.Unlock()
+	for {
+		page, slot := s.centroids.GetPageFor(id)
+		if page == nil {
+			return nil
+		}
+		centroid := page[slot].Load()
+		if centroid == nil {
+			return errors.New("centroid not found")
+		}
 
-	if _, deleted := s.tombstones[id]; deleted {
-		return errors.New("centroid already marked as deleted")
+		if centroid.Deleted {
+			return errors.New("centroid already marked as deleted")
+		}
+
+		newCentroid := Centroid{
+			Vector:  centroid.Vector,
+			Deleted: true,
+		}
+
+		if page[slot].CompareAndSwap(centroid, &newCentroid) {
+			s.metrics.SetPostings(int(s.counter.Add(-1)))
+			break
+		}
 	}
-
-	s.tombstones[id] = struct{}{}
-
-	s.metrics.SetPostings(len(s.centroids) - len(s.tombstones))
 
 	return nil
 }
 
-func (s *BruteForceSPTAG) IsMarkedAsDeleted(id uint64) bool {
-	s.m.RLock()
-	defer s.m.RUnlock()
+func (s *BruteForceSPTAG) Exists(id uint64) bool {
+	centroid := s.Get(id)
+	if centroid == nil {
+		return false
+	}
 
-	_, deleted := s.tombstones[id]
-	return deleted
+	return !centroid.Deleted
 }
 
 func (s *BruteForceSPTAG) Quantizer() *compressionhelpers.RotationalQuantizer {
 	return s.quantizer
 }
 
-func (s *BruteForceSPTAG) Search(query Vector, k int) ([]SearchResult, error) {
+var idsPool = sync.Pool{
+	New: func() any {
+		buf := make([]uint64, 0, 1024)
+		return &buf
+	},
+}
+
+func (s *BruteForceSPTAG) Search(query Vector, k int) (*ResultSet, error) {
 	start := time.Now()
 	defer s.metrics.CentroidSearchDuration(start)
 
-	s.m.RLock()
-	defer s.m.RUnlock()
-
-	// if quantizer is null, the index is empty
-	if s.quantizer == nil {
+	if k == 0 {
 		return nil, nil
 	}
 
-	q := priorityqueue.NewMax[uint64](k)
-	for id, centroid := range s.centroids {
-		if _, deleted := s.tombstones[id]; deleted {
+	ids := *(idsPool.Get().(*[]uint64))
+	ids = ids[:0]
+	defer idsPool.Put(&ids)
+
+	s.idLock.RLock()
+	ids = append(ids, s.ids...) // copy to avoid races
+	s.idLock.RUnlock()
+
+	max := uint64(len(ids))
+
+	q := NewResultSet(k)
+
+	for i := range max {
+		c := s.Get(ids[i])
+		if c == nil || c.Deleted {
 			continue
 		}
 
-		dist, err := centroid.Vector.Distance(s.distancer, query)
+		dist, err := c.Vector.Distance(s.distancer, query)
 		if err != nil {
 			return nil, err
 		}
 
-		q.Insert(id, dist)
-		if q.Len() > k {
-			q.Pop()
-		}
+		q.Insert(ids[i], dist)
 	}
 
-	results := make([]SearchResult, q.Len())
-	i := len(results) - 1
-	for q.Len() > 0 {
-		element := q.Pop()
-		results[i] = SearchResult{ID: element.ID, Distance: element.Dist}
-		i--
-	}
-
-	return results, nil
+	return q, nil
 }
 
-func (s *BruteForceSPTAG) Exists(id uint64) bool {
-	s.m.RLock()
-	defer s.m.RUnlock()
+type Result struct {
+	ID       uint64
+	Distance float32
+}
 
-	if _, deleted := s.tombstones[id]; deleted {
-		return false
+// ResultSet maintains the k smallest elements by distance in a sorted array.
+// It creates a fixed-size array of length k and inserts new elements in sorted order.
+// It performs about 3x faster than the priority queue approach, as it avoids
+// the overhead of heap operations and memory allocations.
+type ResultSet struct {
+	data []Result
+	k    int
+}
+
+func NewResultSet(k int) *ResultSet {
+	return &ResultSet{
+		data: make([]Result, 0, k),
+		k:    k,
 	}
-	_, exists := s.centroids[id]
-	return exists
+}
+
+// Insert adds a new element, maintaining only k smallest elements by distance
+func (ks *ResultSet) Insert(id uint64, dist float32) {
+	item := Result{ID: id, Distance: dist}
+
+	// If array isn't full yet, just insert in sorted position
+	if len(ks.data) < ks.k {
+		pos := ks.searchByDistance(dist)
+		ks.data = append(ks.data, Result{})
+		copy(ks.data[pos+1:], ks.data[pos:])
+		ks.data[pos] = item
+		return
+	}
+
+	// If array is full, only insert if distance is smaller than max (last element)
+	if dist < ks.data[ks.k-1].Distance {
+		pos := ks.searchByDistance(dist)
+		// Shift elements to the right and insert
+		copy(ks.data[pos+1:], ks.data[pos:ks.k-1])
+		ks.data[pos] = item
+	}
+}
+
+// searchByDistance finds the insertion position for a given distance
+func (ks *ResultSet) searchByDistance(dist float32) int {
+	left, right := 0, len(ks.data)
+	for left < right {
+		mid := (left + right) / 2
+		if ks.data[mid].Distance < dist {
+			left = mid + 1
+		} else {
+			right = mid
+		}
+	}
+	return left
+}
+
+func (ks *ResultSet) Len() int {
+	return len(ks.data)
+}
+
+func (ks *ResultSet) Iter() iter.Seq2[uint64, float32] {
+	return func(yield func(uint64, float32) bool) {
+		for _, item := range ks.data {
+			if !yield(item.ID, item.Distance) {
+				break
+			}
+		}
+	}
+}
+
+func (ks *ResultSet) Reset(k int) {
+	ks.data = ks.data[:0]
+	if cap(ks.data) < k {
+		ks.data = make([]Result, 0, k)
+	}
+	ks.k = k
 }
