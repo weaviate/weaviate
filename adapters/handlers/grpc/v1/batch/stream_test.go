@@ -50,11 +50,7 @@ func TestStreamHandler(t *testing.T) {
 			}
 		}).Times(2)
 
-		mockStream.EXPECT().Send(&pb.BatchStreamReply{
-			Message: &pb.BatchStreamReply_Stop_{
-				Stop: &pb.BatchStreamReply_Stop{},
-			},
-		}).Return(nil).Once()
+		mockStream.EXPECT().Send(newBatchStreamShutdownFinishedReply()).Return(nil).Once() // Cancellation of the stream handler will trigger shutdown signal to the client
 
 		numWorkers := 1
 		shutdown := batch.NewShutdown(context.Background())
@@ -124,7 +120,7 @@ func TestStreamHandler(t *testing.T) {
 			}
 		}).Times(3)
 		mockStream.EXPECT().Send(newBatchStreamErrReply("batcher error", obj)).Return(nil).Once()
-		mockStream.EXPECT().Send(newBatchStreamStopReply()).Return(nil).Once()
+		mockStream.EXPECT().Send(newBatchStreamShutdownFinishedReply()).Return(nil).Once() // Cancellation of the stream handler will trigger shutdown signal to the client
 
 		numWorkers := 1
 		shutdown := batch.NewShutdown(context.Background())
