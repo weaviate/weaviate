@@ -48,6 +48,7 @@ var _ common.VectorIndex = (*SPFresh)(nil)
 // while exposing a synchronous API for searching and updating vectors.
 // Note: this is a work in progress and not all features are implemented yet.
 type SPFresh struct {
+	id      string
 	logger  logrus.FieldLogger
 	config  *Config // Config contains internal configuration settings.
 	metrics *Metrics
@@ -98,6 +99,7 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 	}
 
 	s := SPFresh{
+		id:      cfg.ID,
 		logger:  cfg.Logger.WithField("component", "SPFresh"),
 		config:  cfg,
 		metrics: metrics,
@@ -167,7 +169,9 @@ func (s *SPFresh) Type() common.IndexType {
 }
 
 func (s *SPFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
-	return errors.New("UpdateUserConfig is not supported for the spfresh index")
+	// TODO: add update user config
+	//return errors.New("UpdateUserConfig is not supported for the spfresh index")
+	return nil
 }
 
 func (s *SPFresh) Drop(ctx context.Context) error {

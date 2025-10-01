@@ -72,5 +72,7 @@ func DefaultConfig() *Config {
 }
 
 func ValidateUserConfigUpdate(initial, updated schemaconfig.VectorIndexConfig) error {
-	panic("ValidateUserConfigUpdate not implemented")
+	// TODO: add validation
+	// panic("ValidateUserConfigUpdate not implemented")
+	return nil
 }

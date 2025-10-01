@@ -13,6 +13,7 @@ package spfresh
 
 import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
 // UserConfig defines the configuration options for the SPFresh index.
@@ -26,7 +27,9 @@ func (u UserConfig) IndexType() string {
 }
 
 func (u UserConfig) DistanceName() string {
-	panic("distanceName not implemented")
+	// TODO: add distance name
+	//panic("distanceName not implemented")
+	return common.DistanceL2Squared
 }
 
 func (u UserConfig) IsMultiVector() bool {
@@ -35,7 +38,8 @@ func (u UserConfig) IsMultiVector() bool {
 
 // SetDefaults in the user-specifyable part of the config
 func (u *UserConfig) SetDefaults() {
-	panic("setDefaults not implemented")
+	// TODO: add defaults
+	//panic("setDefaults not implemented")
 }
 
 func NewDefaultUserConfig() UserConfig {
@@ -47,5 +51,9 @@ func NewDefaultUserConfig() UserConfig {
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
 func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig.VectorIndexConfig, error) {
-	panic("parseAndValidateConfig not implemented")
+	// TODO: add validation
+	//panic("parseAndValidateConfig not implemented")
+	uc := UserConfig{}
+	uc.SetDefaults()
+	return uc, nil
 }

@@ -74,14 +74,14 @@ var (
 	vectorIndexTypeToString = map[VectorIndexType]string{
 		VectorIndexTypeHNSW:    vIndex.VectorIndexTypeHNSW,
 		VectorIndexTypeFlat:    vIndex.VectorIndexTypeFLAT,
-		VectorIndexTypeEmpty:   "",
 		VectorIndexTypeSPFresh: vIndex.VectorIndexTypeSPFresh,
+		VectorIndexTypeEmpty:   "",
 	}
 	stringToVectorIndexType = map[string]VectorIndexType{
 		vIndex.VectorIndexTypeHNSW:    VectorIndexTypeHNSW,
 		vIndex.VectorIndexTypeFLAT:    VectorIndexTypeFlat,
-		"":                            VectorIndexTypeEmpty,
 		vIndex.VectorIndexTypeSPFresh: VectorIndexTypeSPFresh,
+		"":                            VectorIndexTypeEmpty,
 	}
 )
 
