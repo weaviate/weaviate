@@ -13,6 +13,7 @@ package batch
 
 import (
 	"context"
+	"math"
 	"sync"
 	"time"
 
@@ -21,30 +22,108 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-type Scheduler struct {
-	logger        logrus.FieldLogger
-	writeQueues   *WriteQueues
-	internalQueue internalQueue
+type stats struct {
+	lock              sync.RWMutex
+	processingTimeEma float64
+	batchSize         int
 }
 
-func NewScheduler(writeQueues *WriteQueues, internalQueue internalQueue, logger logrus.FieldLogger) *Scheduler {
+func newStats() *stats {
+	return &stats{
+		processingTimeEma: 0,
+		batchSize:         100,
+	}
+}
+
+func (s *stats) updateBatchSize(processingTime time.Duration, processingQueueLen int) {
+	ideal := 1.0 // seconds
+	// Optimum is that each worker takes at most 1s to process a batch so that shutdown does not take too long
+	alpha := 1 - math.Exp(-math.Log(2)/float64(processingQueueLen))
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.processingTimeEma = alpha*processingTime.Seconds() + (1-alpha)*s.processingTimeEma
+	s.batchSize = int(float64(s.batchSize) * (ideal / s.processingTimeEma))
+	if s.batchSize < 10 {
+		s.batchSize = 10
+	}
+	if s.batchSize > 10000 {
+		s.batchSize = 10000
+	}
+}
+
+func (s *stats) getBatchSize() int {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.batchSize
+}
+
+func (s *stats) getProcessingTimeEma() time.Duration {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return time.Duration(s.processingTimeEma * time.Second.Seconds())
+}
+
+type Scheduler struct {
+	logger           logrus.FieldLogger
+	writeQueues      *WriteQueues
+	readQueues       *ReadQueues
+	processingQueue  processingQueue
+	reportingQueue   reportingQueue
+	statsPerStream   *sync.Map // map[string]*stats
+	metrics          *BatchStreamingCallbacks
+	wgPerStream      *sync.Map // map[string]*sync.WaitGroup
+	waitingPerStream *sync.Map // map[string]struct{}
+	wg               *sync.WaitGroup
+}
+
+func (s *Scheduler) stats(streamId string) *stats {
+	st, _ := s.statsPerStream.LoadOrStore(streamId, newStats())
+	return st.(*stats)
+}
+
+func NewScheduler(writeQueues *WriteQueues, readQueues *ReadQueues, processingQueue processingQueue, reportingQueue reportingQueue, metrics *BatchStreamingCallbacks, logger logrus.FieldLogger) *Scheduler {
 	return &Scheduler{
-		logger:        logger,
-		writeQueues:   writeQueues,
-		internalQueue: internalQueue,
+		logger:           logger,
+		writeQueues:      writeQueues,
+		readQueues:       readQueues,
+		processingQueue:  processingQueue,
+		reportingQueue:   reportingQueue,
+		metrics:          metrics,
+		statsPerStream:   &sync.Map{},
+		wgPerStream:      &sync.Map{},
+		waitingPerStream: &sync.Map{},
+		wg:               &sync.WaitGroup{},
 	}
 }
 
 func (s *Scheduler) Loop(ctx context.Context) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
+
+	enterrors.GoWrapper(func() {
+		for workerStats := range s.reportingQueue {
+			stats := s.stats(workerStats.streamId)
+			stats.updateBatchSize(workerStats.processingTime, len(s.processingQueue))
+			if s.metrics != nil {
+				s.metrics.OnSchedulerReport(workerStats.streamId, stats.getBatchSize(), stats.getProcessingTimeEma())
+			}
+			s.wgForStream(workerStats.streamId).Done()
+		}
+	}, s.logger)
+
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Info("shutting down scheduler loop")
+			log := s.logger.WithField("action", "shutdown_scheduler_loop")
+			log.Info("shutting down scheduler loop")
 			s.loop(s.drain)
-			// Close the internal queue so that the workers can exit once they've drained the queue
-			close(s.internalQueue)
+			log.Info("all streams drained, closing processing queue")
+			// Close the processing queue so that the workers can exit once they've drained the queue
+			close(s.processingQueue)
+			log.Info("processing queue closed")
+			log.Info("waiting for all workers to finish")
+			s.wg.Wait()
+			log.Info("all workers finished, exiting scheduler loop")
 			return
 		case <-ticker.C:
 			s.loop(s.schedule)
@@ -52,19 +131,30 @@ func (s *Scheduler) Loop(ctx context.Context) {
 	}
 }
 
-func (s *Scheduler) loop(op func(streamId string, wq *WriteQueue)) {
-	for _, uuid := range s.writeQueues.Uuids() {
+func (s *Scheduler) loop(op func(streamId string, wq *WriteQueue) bool) {
+	uuids := s.writeQueues.Uuids()
+	if len(uuids) == 0 {
+		return
+	}
+	s.logger.WithField("action", "scheduler_loop").WithField("uuids", uuids).Debug("scheduling streams")
+	for _, uuid := range uuids {
 		wq, ok := s.writeQueues.Get(uuid)
 		if !ok {
+			s.logger.WithField("action", "scheduler_loop").WithField("streamId", uuid).Warn("stream disappeared before it could be scheduled")
 			continue
 		}
-		op(uuid, wq)
+		if done := op(uuid, wq); done {
+			s.wg.Add(1)
+			enterrors.GoWrapper(func() { s.waitForWorkers(uuid) }, s.logger)
+			s.logger.WithField("streamId", uuid).Debug("stream completed and removed from scheduler")
+		}
 	}
 }
 
-func (s *Scheduler) drain(streamId string, wq *WriteQueue) {
-	objs := make([]*pb.BatchObject, 0, 1000)
-	refs := make([]*pb.BatchReference, 0, 1000)
+func (s *Scheduler) drain(streamId string, wq *WriteQueue) bool {
+	batchSize := s.stats(streamId).getBatchSize()
+	objs := make([]*pb.BatchObject, 0, batchSize)
+	refs := make([]*pb.BatchReference, 0, batchSize)
 	for obj := range wq.queue {
 		if obj.Object != nil {
 			objs = append(objs, obj.Object)
@@ -72,46 +162,59 @@ func (s *Scheduler) drain(streamId string, wq *WriteQueue) {
 		if obj.Reference != nil {
 			refs = append(refs, obj.Reference)
 		}
-		if len(objs) >= 1000 || len(refs) >= 1000 || obj.Stop {
-			req := newProcessRequest(objs, refs, streamId, obj.Stop, wq)
-			s.internalQueue <- req
-			// Reset the queues
-			objs = make([]*pb.BatchObject, 0, 1000)
-			refs = make([]*pb.BatchReference, 0, 1000)
+		if len(objs) >= batchSize || len(refs) >= batchSize {
+			s.logger.WithField("streamId", streamId).WithField("numObjects", len(objs)).WithField("numReferences", len(refs)).Debug("draining batch objects")
+			req := NewProcessRequest(objs, refs, streamId, wq.consistencyLevel)
+			s.wgForStream(streamId).Add(1)
+			s.processingQueue <- req
+			// Reset the batches
+			batchSize = s.stats(streamId).getBatchSize()
+			objs = make([]*pb.BatchObject, 0, batchSize)
+			refs = make([]*pb.BatchReference, 0, batchSize)
 		}
 	}
 	if len(objs) > 0 || len(refs) > 0 {
-		req := newProcessRequest(objs, refs, streamId, false, wq)
-		s.internalQueue <- req
+		s.logger.WithField("streamId", streamId).WithField("numObjects", len(objs)).WithField("numReferences", len(refs)).Info("draining final batch objects")
+		s.wgForStream(streamId).Add(1)
+		s.processingQueue <- NewProcessRequest(objs, refs, streamId, wq.consistencyLevel)
 	}
+	return true
 }
 
-func (s *Scheduler) schedule(streamId string, wq *WriteQueue) {
-	objs, refs, stop := s.pull(wq.queue, 1000)
-	req := newProcessRequest(objs, refs, streamId, stop, wq)
-	if (req.Objects != nil && len(req.Objects.Values) > 0) || (req.References != nil && len(req.References.Values) > 0) || req.Stop {
-		s.internalQueue <- req
+func (s *Scheduler) schedule(streamId string, wq *WriteQueue) bool {
+	objs, refs, stop := s.pull(wq.queue, s.stats(streamId).getBatchSize())
+	if len(objs) == 0 && len(refs) == 0 && !stop {
+		// nothing to do
+		return false
 	}
+	s.logger.
+		WithField("streamId", streamId).
+		WithField("numObjects", len(objs)).
+		WithField("numReferences", len(refs)).
+		WithField("stop", stop).
+		Debug("scheduling batch objects")
+	if len(objs) > 0 || len(refs) > 0 {
+		s.wgForStream(streamId).Add(1)
+		s.processingQueue <- NewProcessRequest(objs, refs, streamId, wq.consistencyLevel)
+	}
+	return stop
 }
 
 func (s *Scheduler) pull(queue writeQueue, max int) ([]*pb.BatchObject, []*pb.BatchReference, bool) {
 	objs := make([]*pb.BatchObject, 0, max)
 	refs := make([]*pb.BatchReference, 0, max)
-	for i := 0; i < max && len(queue) > 0; i++ {
+	for i := 0; i < max && len(queue) >= 0; i++ {
 		select {
 		case obj, ok := <-queue:
 			if !ok {
-				// channel is closed
-				return objs, refs, false
+				// channel is closed, stop processing
+				return objs, refs, true
 			}
 			if obj.Object != nil {
 				objs = append(objs, obj.Object)
 			}
 			if obj.Reference != nil {
 				refs = append(refs, obj.Reference)
-			}
-			if obj.Stop {
-				return objs, refs, true
 			}
 		default:
 			return objs, refs, false
@@ -120,33 +223,66 @@ func (s *Scheduler) pull(queue writeQueue, max int) ([]*pb.BatchObject, []*pb.Ba
 	return objs, refs, false
 }
 
-func newProcessRequest(objs []*pb.BatchObject, refs []*pb.BatchReference, streamId string, stop bool, wq *WriteQueue) *ProcessRequest {
-	req := &ProcessRequest{
+func (s *Scheduler) wgForStream(streamId string) *sync.WaitGroup {
+	actual, _ := s.wgPerStream.LoadOrStore(streamId, &sync.WaitGroup{})
+	return actual.(*sync.WaitGroup)
+}
+
+func (s *Scheduler) isWaitingForWorkers(streamId string) bool {
+	_, ok := s.waitingPerStream.LoadOrStore(streamId, struct{}{})
+	return ok
+}
+
+func (s *Scheduler) waitForWorkers(streamId string) {
+	defer s.wg.Done()
+	if ok := s.isWaitingForWorkers(streamId); ok {
+		// already waiting for this stream
+		return
+	}
+	wg := s.wgForStream(streamId)
+	wg.Wait() // Wait for all processing requests to complete
+	s.writeQueues.Delete(streamId)
+	s.readQueues.Close(streamId)
+	s.statsPerStream.Delete(streamId)
+	s.wgPerStream.Delete(streamId)
+	s.logger.WithField("streamId", streamId).Info("stream fully processed and cleaned up")
+}
+
+type workerStats struct {
+	processingTime time.Duration
+	streamId       string
+}
+
+func NewWorkersStats(processingTime time.Duration, streamId string) *workerStats {
+	return &workerStats{
+		processingTime: processingTime,
+		streamId:       streamId,
+	}
+}
+
+func NewProcessRequest(objs []*pb.BatchObject, refs []*pb.BatchReference, streamId string, consistencyLevel *pb.ConsistencyLevel) *processRequest {
+	req := &processRequest{
 		StreamId: streamId,
-		Stop:     stop,
 	}
 	if len(objs) > 0 {
 		req.Objects = &SendObjects{
 			Values:           objs,
-			ConsistencyLevel: wq.consistencyLevel,
-			Index:            wq.objIndex,
+			ConsistencyLevel: consistencyLevel,
 		}
-		wq.objIndex += int32(len(objs))
 	}
 	if len(refs) > 0 {
 		req.References = &SendReferences{
 			Values:           refs,
-			ConsistencyLevel: wq.consistencyLevel,
-			Index:            wq.refIndex,
+			ConsistencyLevel: consistencyLevel,
 		}
-		wq.refIndex += int32(len(refs))
 	}
 	return req
 }
 
-func StartScheduler(ctx context.Context, wg *sync.WaitGroup, writeQueues *WriteQueues, internalQueue internalQueue, logger logrus.FieldLogger) {
-	scheduler := NewScheduler(writeQueues, internalQueue, logger)
+func StartScheduler(ctx context.Context, wg *sync.WaitGroup, writeQueues *WriteQueues, readQueues *ReadQueues, processingQueue processingQueue, reportingQueue reportingQueue, metrics *BatchStreamingCallbacks, logger logrus.FieldLogger) {
+	scheduler := NewScheduler(writeQueues, readQueues, processingQueue, reportingQueue, metrics, logger)
 	wg.Add(1)
+	logger.WithField("action", "batch_stream_start").Info("entering scheduler loop")
 	enterrors.GoWrapper(func() {
 		defer wg.Done()
 		scheduler.Loop(ctx)

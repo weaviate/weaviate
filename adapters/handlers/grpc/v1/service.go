@@ -17,11 +17,12 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -52,9 +53,10 @@ type Service struct {
 	authorizer           authorization.Authorizer
 	logger               logrus.FieldLogger
 
-	authenticator      *authHandler
+	authenticator      *auth.Handler
 	batchHandler       *batch.Handler
-	batchQueuesHandler *batch.QueuesHandler
+	batchStreamHandler *batch.StreamHandler
+	batchMetrics       *batch.BatchStreamingCallbacks
 }
 
 func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
@@ -62,18 +64,9 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	batchManager *objects.BatchManager, config *config.Config, authorization authorization.Authorizer,
 	logger logrus.FieldLogger, shutdown *batch.Shutdown,
 ) *Service {
-	authenticator := NewAuthHandler(allowAnonymousAccess, authComposer)
-	internalQueue := batch.NewBatchInternalQueue()
-	batchWriteQueues := batch.NewBatchWriteQueues()
-	batchReadQueues := batch.NewBatchReadQueues()
-
+	authenticator := auth.NewHandler(allowAnonymousAccess, authComposer)
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchQueuesHandler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.SendWg, shutdown.StreamWg, shutdown.ShutdownFinished, batchWriteQueues, batchReadQueues, logger)
-
-	numWorkers := _NUMCPU
-	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, numWorkers, internalQueue, batchReadQueues, batchHandler, logger)
-	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, batchWriteQueues, internalQueue, logger)
-
+	batchStreamHandler, batchMetrics := batch.Start(authenticator, authorization, batchHandler, prometheus.DefaultRegisterer, shutdown, _NUMCPU, logger)
 	return &Service{
 		traverser:            traverser,
 		authComposer:         authComposer,
@@ -85,7 +78,8 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		authorizer:           authorization,
 		authenticator:        authenticator,
 		batchHandler:         batchHandler,
-		batchQueuesHandler:   batchQueuesHandler,
+		batchStreamHandler:   batchStreamHandler,
+		batchMetrics:         batchMetrics,
 	}
 }
 
@@ -266,20 +260,20 @@ func (s *Service) BatchReferences(ctx context.Context, req *pb.BatchReferencesRe
 //
 // This method therefore does not work in isolation, it has to be used in conjunction with other methods.
 // It should be used as part of the automatic batching process provided in clients.
-func (s *Service) BatchSend(ctx context.Context, req *pb.BatchSendRequest) (*pb.BatchSendReply, error) {
-	var result *pb.BatchSendReply
-	var errInner error
+// func (s *Service) BatchSend(ctx context.Context, req *pb.BatchSendRequest) (*pb.BatchSendReply, error) {
+// 	var result *pb.BatchSendReply
+// 	var errInner error
 
-	if err := enterrors.GoWrapperWithBlock(func() {
-		result, errInner = s.batchQueuesHandler.Send(ctx, req)
-	}, s.logger); err != nil {
-		return nil, err
-	}
+// 	if err := enterrors.GoWrapperWithBlock(func() {
+// 		result, errInner = s.batchStreamHandler.Send(ctx, req)
+// 	}, s.logger); err != nil {
+// 		return nil, err
+// 	}
 
-	return result, errInner
-}
+// 	return result, errInner
+// }
 
-// BatchStream defines a UnaryStream gRPC method whereby the server streams messages back to the client in order to
+// BatchStream defines a StreamStream gRPC method whereby the server streams messages back to the client in order to
 // asynchronously report on any errors that have occurred during the automatic batching process.
 //
 // The initial request contains the consistency level that is desired when batch inserting in this processing context.
@@ -295,15 +289,12 @@ func (s *Service) BatchSend(ctx context.Context, req *pb.BatchSendRequest) (*pb.
 // reconnect to a different available node. At that point, the batching process resumes on the other node as if nothing happened.
 //
 // It should be used as part of the automatic batching process provided in clients.
-func (s *Service) BatchStream(req *pb.BatchStreamRequest, stream pb.Weaviate_BatchStreamServer) error {
-	id, err := uuid.NewRandom()
-	if err != nil {
-		return fmt.Errorf("stream ID generation failed: %w", err)
+func (s *Service) BatchStream(stream pb.Weaviate_BatchStreamServer) error {
+	if s.batchMetrics != nil {
+		s.batchMetrics.OnStreamStart()
+		defer s.batchMetrics.OnStreamStop()
 	}
-	streamId := id.String()
-	s.batchQueuesHandler.Setup(streamId, req)
-	defer s.batchQueuesHandler.Teardown(streamId)
-	return s.batchQueuesHandler.Stream(stream.Context(), streamId, stream)
+	return s.batchStreamHandler.Handle(stream)
 }
 
 func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {

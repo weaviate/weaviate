@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -29,35 +30,46 @@ type Batcher interface {
 }
 
 type Worker struct {
-	batcher       Batcher
-	logger        logrus.FieldLogger
-	readQueues    *ReadQueues
-	internalQueue internalQueue
-	wgs           *sync.Map // map[string]*sync.WaitGroup; streamID -> wg
+	batcher         Batcher
+	logger          logrus.FieldLogger
+	readQueues      *ReadQueues
+	processingQueue processingQueue
+	reportingQueue  reportingQueue
 }
 
 type SendObjects struct {
 	Values           []*pb.BatchObject
 	ConsistencyLevel *pb.ConsistencyLevel
-	Index            int32
 }
 
 type SendReferences struct {
 	Values           []*pb.BatchReference
 	ConsistencyLevel *pb.ConsistencyLevel
-	Index            int32
 }
 
-type ProcessRequest struct {
+type processRequest struct {
 	StreamId   string
 	Objects    *SendObjects
 	References *SendReferences
-	Stop       bool
 }
 
-func (w *Worker) wgForStream(streamId string) *sync.WaitGroup {
-	actual, _ := w.wgs.LoadOrStore(streamId, &sync.WaitGroup{})
-	return actual.(*sync.WaitGroup)
+func StartBatchWorkers(ctx context.Context, wg *sync.WaitGroup, concurrency int, processingQueue processingQueue, reportingQueue reportingQueue, readQueues *ReadQueues, batcher Batcher, logger logrus.FieldLogger) {
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	logger.WithField("action", "batch_stream_start").WithField("concurrency", concurrency).Info("entering worker loop(s)")
+	for range concurrency {
+		wg.Add(1)
+		eg.Go(func() error {
+			defer wg.Done()
+			w := &Worker{batcher: batcher, logger: logger, readQueues: readQueues, processingQueue: processingQueue, reportingQueue: reportingQueue}
+			return w.Loop(ctx)
+		})
+	}
+	eg.Go(func() error {
+		wg.Wait()             // wait for all workers to finish
+		close(reportingQueue) // close reporting queue to stop the stats reporter in the scheduler
+		readQueues.CloseAll() // close all read queues to stop the reply handlers in the stream handler
+		return nil
+	})
 }
 
 func (w *Worker) isReplicationError(err string) bool {
@@ -66,129 +78,155 @@ func (w *Worker) isReplicationError(err string) bool {
 		(strings.Contains(err, "status code: 404, error: request not found")) // failed to find request on shutdown node
 }
 
-func (w *Worker) sendObjects(ctx context.Context, wg *sync.WaitGroup, streamId string, req *SendObjects) error {
+func (w *Worker) sendObjects(ctx context.Context, streamId string, req *SendObjects, retries int) error {
 	if req == nil {
+		w.logger.WithField("streamId", streamId).Error("received nil sendObjects request")
 		return fmt.Errorf("received nil sendObjects request")
 	}
-	wg.Add(1)
-	defer wg.Done()
+	start := time.Now()
 	reply, err := w.batcher.BatchObjects(ctx, &pb.BatchObjectsRequest{
 		Objects:          req.Values,
 		ConsistencyLevel: req.ConsistencyLevel,
 	})
+	end := time.Now()
 	if err != nil {
+		w.logger.WithField("streamId", streamId).WithError(err).Error("failed to batch objects")
 		return err
 	}
+
+	// Handle errors
 	if len(reply.GetErrors()) > 0 {
-		errs := make([]*pb.BatchStreamMessage_Error, 0, len(reply.GetErrors()))
+		retriable := make([]*pb.BatchObject, 0, len(reply.GetErrors()))
+		errs := make([]*pb.BatchStreamReply_Error, 0, len(reply.GetErrors()))
 		for _, err := range reply.GetErrors() {
 			if err == nil {
 				continue
 			}
-			errs = append(errs, &pb.BatchStreamMessage_Error{
-				Error:       err.Error,
-				IsObject:    true,
-				Index:       req.Index + int32(err.Index),
-				IsRetriable: w.isReplicationError(err.Error),
+			if w.isReplicationError(err.Error) && retries < 3 {
+				retriable = append(retriable, req.Values[err.Index])
+				continue
+			}
+			errs = append(errs, &pb.BatchStreamReply_Error{
+				Error:  err.Error,
+				Detail: &pb.BatchStreamReply_Error_Object{Object: req.Values[err.Index]},
 			})
 		}
-		if ch, ok := w.readQueues.Get(streamId); ok {
-			ch <- &readObject{Errors: errs}
+		// Log errors
+		if len(errs) > 0 {
+			w.reportErrors(streamId, errs)
+		}
+		if len(retriable) > 0 {
+			return w.sendObjects(ctx, streamId, &SendObjects{
+				Values:           retriable,
+				ConsistencyLevel: req.ConsistencyLevel,
+			}, retries+1)
 		}
 	}
+	// Log processing time
+	w.reportStats(streamId, end.Sub(start))
 	return nil
 }
 
-func (w *Worker) sendReferences(ctx context.Context, wg *sync.WaitGroup, streamId string, req *SendReferences) error {
+func (w *Worker) sendReferences(ctx context.Context, streamId string, req *SendReferences, retries int) error {
 	if req == nil {
 		return fmt.Errorf("received nil sendReferences request")
 	}
-	wg.Add(1)
-	defer wg.Done()
+	start := time.Now()
 	reply, err := w.batcher.BatchReferences(ctx, &pb.BatchReferencesRequest{
 		References:       req.Values,
 		ConsistencyLevel: req.ConsistencyLevel,
 	})
+	end := time.Now()
 	if err != nil {
 		return err
 	}
+	// Handle errors
 	if len(reply.GetErrors()) > 0 {
-		errs := make([]*pb.BatchStreamMessage_Error, 0, len(reply.GetErrors()))
+		retriable := make([]*pb.BatchReference, 0, len(reply.GetErrors()))
+		errs := make([]*pb.BatchStreamReply_Error, 0, len(reply.GetErrors()))
 		for _, err := range reply.GetErrors() {
 			if err == nil {
 				continue
 			}
-			errs = append(errs, &pb.BatchStreamMessage_Error{
-				Error:       err.Error,
-				IsReference: true,
-				Index:       req.Index + int32(err.Index),
-				IsRetriable: w.isReplicationError(err.Error),
+			if w.isReplicationError(err.Error) && retries < 3 {
+				retriable = append(retriable, req.Values[err.Index])
+				continue
+			}
+			errs = append(errs, &pb.BatchStreamReply_Error{
+				Error:  err.Error,
+				Detail: &pb.BatchStreamReply_Error_Reference{Reference: req.Values[err.Index]},
 			})
 		}
-		if ch, ok := w.readQueues.Get(streamId); ok {
-			ch <- &readObject{Errors: errs}
+		if len(errs) > 0 {
+			w.reportErrors(streamId, errs)
+		}
+		if len(retriable) > 0 {
+			return w.sendReferences(ctx, streamId, &SendReferences{
+				Values:           retriable,
+				ConsistencyLevel: req.ConsistencyLevel,
+			}, retries+1)
 		}
 	}
+	// Log processing time
+	w.reportStats(streamId, end.Sub(start))
 	return nil
+}
+
+func (w *Worker) reportErrors(streamId string, errs []*pb.BatchStreamReply_Error) {
+	if ok := w.readQueues.Send(streamId, errs); !ok {
+		w.logger.WithField("streamId", streamId).Warn("timed out sending errors to read queue, maybe the client disconnected?")
+	}
+}
+
+func (w *Worker) reportStats(streamId string, processingTime time.Duration) {
+	for {
+		select {
+		case w.reportingQueue <- NewWorkersStats(processingTime, streamId):
+			return
+		case <-time.After(1 * time.Second):
+			w.logger.WithField("streamId", streamId).Warn("timed out sending stats to read queue, maybe the client disconnected?")
+			return
+		}
+	}
 }
 
 // Loop processes objects from the write queue, sending them to the batcher and handling shutdown signals.
 func (w *Worker) Loop(ctx context.Context) error {
 	for {
 		select {
-		case <-ctx.Done():
-			// Drain the write queue and process any remaining requests
-			for req := range w.internalQueue {
-				if err := w.process(ctx, req); err != nil {
-					return fmt.Errorf("failed to process batch request: %w", err)
-				}
-			}
-			return nil
-		case req, ok := <-w.internalQueue:
+		case req, ok := <-w.processingQueue:
 			if req != nil {
+				log := w.logger.WithField("streamId", req.StreamId)
+				log.Debug("received processing request")
 				if err := w.process(ctx, req); err != nil {
-					return fmt.Errorf("failed to process batch request: %w", err)
+					log.Error(fmt.Errorf("failed to process batch request: %w", err))
 				}
 			}
 			if !ok {
+				w.logger.Debug("processing queue closed, shutting down worker")
 				return nil // channel closed, exit loop
 			}
+		default:
+			if ctx.Err() != nil {
+				// Context canceled, exit loop
+				w.logger.WithField("action", "shutdown_worker_loop").Error("shutting down worker loop due to cancellation")
+				return ctx.Err()
+			}
+			time.Sleep(10 * time.Millisecond) // Prevent busy waiting
 		}
 	}
 }
 
-func (w *Worker) process(ctx context.Context, req *ProcessRequest) error {
-	wg := w.wgForStream(req.StreamId)
+func (w *Worker) process(ctx context.Context, req *processRequest) error {
 	if req.Objects != nil {
-		if err := w.sendObjects(ctx, wg, req.StreamId, req.Objects); err != nil {
+		if err := w.sendObjects(ctx, req.StreamId, req.Objects, 0); err != nil {
 			return err
 		}
 	}
 	if req.References != nil {
-		if err := w.sendReferences(ctx, wg, req.StreamId, req.References); err != nil {
+		if err := w.sendReferences(ctx, req.StreamId, req.References, 0); err != nil {
 			return err
 		}
 	}
-	// This should only ever be received once so it’s okay to wait on the shared wait group here
-	// If the scheduler does send more than one stop per stream then deadlocks may occur
-	if req.Stop {
-		wg.Wait() // Wait for all processing requests to complete
-		// Signal to the reply handler that we are done
-		w.readQueues.Close(req.StreamId)
-		w.wgs.Delete(req.StreamId) // Clean up the wait group map
-	}
 	return nil
-}
-
-func StartBatchWorkers(ctx context.Context, wg *sync.WaitGroup, concurrency int, internalQueue internalQueue, readQueues *ReadQueues, batcher Batcher, logger logrus.FieldLogger) {
-	eg := enterrors.NewErrorGroupWrapper(logger)
-	wgs := sync.Map{}
-	for range concurrency {
-		wg.Add(1)
-		eg.Go(func() error {
-			defer wg.Done()
-			w := &Worker{batcher: batcher, logger: logger, readQueues: readQueues, internalQueue: internalQueue, wgs: &wgs}
-			return w.Loop(ctx)
-		})
-	}
 }

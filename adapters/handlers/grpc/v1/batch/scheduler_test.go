@@ -23,7 +23,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-func TestScheduler(t *testing.T) {
+func TestSchedulerLoop(t *testing.T) {
 	ctx := context.Background()
 
 	logger := logrus.New()
@@ -32,36 +32,50 @@ func TestScheduler(t *testing.T) {
 		shutdownCtx, shutdownCancel := context.WithCancel(ctx)
 		defer shutdownCancel()
 
-		writeQueues := batch.NewBatchWriteQueues()
-		internalQueue := batch.NewBatchInternalQueue()
+		writeQueues := batch.NewBatchWriteQueues(1)
+		readQueues := batch.NewBatchReadQueues()
+		processingQueue := batch.NewBatchProcessingQueue(1)
+		reportingQueue := batch.NewBatchReportingQueue(1)
 
-		writeQueues.Make("test-stream", nil, 0, 0)
+		writeQueues.Make(StreamId, nil)
+		readQueues.Make(StreamId)
 		var wg sync.WaitGroup
-		batch.StartScheduler(shutdownCtx, &wg, writeQueues, internalQueue, logger)
+		batch.StartScheduler(shutdownCtx, &wg, writeQueues, readQueues, processingQueue, reportingQueue, nil, logger)
 
-		queue, ok := writeQueues.GetQueue("test-stream")
+		wq, ok := writeQueues.GetQueue(StreamId)
 		require.True(t, ok, "Expected write queue to exist")
+		rq, ok := readQueues.Get(StreamId)
+		require.True(t, ok, "Expected read queue to exist")
 
 		obj := &pb.BatchObject{}
-		queue <- batch.NewWriteObject(obj)
+		wq <- batch.NewWriteObject(obj)
 
 		require.Eventually(t, func() bool {
 			select {
-			case receivedObj := <-internalQueue:
+			case receivedObj := <-processingQueue:
 				return receivedObj.Objects.Values[0] == obj
 			default:
 				return false
 			}
-		}, 1*time.Second, 10*time.Millisecond, "Expected object to be sent to internal queue")
+		}, 1*time.Second, 10*time.Millisecond, "Expected object to be sent to processing queue")
+
+		// Simulate worker reporting back to scheduler
+		reportingQueue <- batch.NewWorkersStats(100*time.Millisecond, StreamId)
 
 		shutdownCancel() // Trigger shutdown
-		close(queue)     // Close the write queue as part of shutdown
-		wg.Wait()
+		close(wq)        // Close the write queue as part of shutdown
+		wg.Wait()        // Wait for the scheduler to finish
 
-		require.Empty(t, internalQueue, "Expected internal queue to be empty after shutdown")
-		ch, ok := writeQueues.GetQueue("test-stream")
-		require.True(t, ok, "Expected write queue to still exist after shutdown")
-		require.Empty(t, ch, "Expected write queue to be empty after shutdown")
+		require.Empty(t, processingQueue, "Expected processing queue to be empty after shutdown; %d items left", len(processingQueue))
+		_, ok = <-processingQueue
+		require.False(t, ok, "Expected processing queue to be closed")
+		select {
+		case _, ok = <-rq:
+			require.False(t, ok, "Expected read queue to be closed")
+		default:
+			t.Fatal("Expected read queue to be closed, but it is not")
+		}
+		require.False(t, ok, "Expected read queue to be closed")
 		require.Equal(t, context.Canceled, shutdownCtx.Err(), "Expected context to be canceled")
 	})
 }

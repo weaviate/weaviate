@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package v1
+package auth
 
 import (
 	"context"
@@ -20,13 +20,13 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-type authHandler struct {
+type Handler struct {
 	allowAnonymousAccess bool
 	authComposer         composer.TokenFunc
 }
 
-func NewAuthHandler(allowAnonymousAccess bool, authComposer composer.TokenFunc) *authHandler {
-	return &authHandler{
+func NewHandler(allowAnonymousAccess bool, authComposer composer.TokenFunc) *Handler {
+	return &Handler{
 		allowAnonymousAccess: allowAnonymousAccess,
 		authComposer:         authComposer,
 	}
@@ -37,35 +37,35 @@ func NewAuthHandler(allowAnonymousAccess bool, authComposer composer.TokenFunc) 
 // straight from the endpoint. But the moment we add a second endpoint, this
 // should be called from a central place. This way we can make sure it's
 // impossible to forget to add it to a new endpoint.
-func (a *authHandler) PrincipalFromContext(ctx context.Context) (*models.Principal, error) {
+func (h *Handler) PrincipalFromContext(ctx context.Context) (*models.Principal, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return a.tryAnonymous()
+		return h.tryAnonymous()
 	}
 
 	// the grpc library will lowercase all md keys, so we need to make sure to
 	// check a lowercase key
 	authValue, ok := md["authorization"]
 	if !ok {
-		return a.tryAnonymous()
+		return h.tryAnonymous()
 	}
 
 	if len(authValue) == 0 {
-		return a.tryAnonymous()
+		return h.tryAnonymous()
 	}
 
 	if !strings.HasPrefix(authValue[0], "Bearer ") {
-		return a.tryAnonymous()
+		return h.tryAnonymous()
 	}
 
 	token := strings.TrimPrefix(authValue[0], "Bearer ")
-	return a.authComposer(token, nil)
+	return h.authComposer(token, nil)
 }
 
-func (a *authHandler) tryAnonymous() (*models.Principal, error) {
-	if a.allowAnonymousAccess {
+func (h *Handler) tryAnonymous() (*models.Principal, error) {
+	if h.allowAnonymousAccess {
 		return nil, nil
 	}
 
-	return a.authComposer("", nil)
+	return h.authComposer("", nil)
 }
