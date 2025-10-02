@@ -28,11 +28,11 @@ func CancelFromRestartJourney(t *testing.T, cluster *docker.DockerCompose, nodeN
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	nodeStopTimeout := 10 * time.Second
+	nodeStopTimeout := 2 * time.Second
 	className := "CancelClass"
 	backupID := fmt.Sprintf("%s-backup-cancel", backend)
-	numObjects := 20_000
-	batchSize := 200
+	numObjects := 100_000
+	batchSize := 100
 
 	t.Run("create class", func(t *testing.T) {
 		helper.CreateClass(t, &models.Class{
@@ -67,8 +67,20 @@ func CancelFromRestartJourney(t *testing.T, cluster *docker.DockerCompose, nodeN
 	})
 
 	t.Run("restart node mid-backup", func(t *testing.T) {
+		require.Eventually(t, func() bool {
+			resp, err := helper.CreateBackupStatus(t, backend, backupID, "", "")
+			if err != nil || resp == nil || resp.Payload == nil || resp.Payload.Status == nil {
+				return false
+			}
+			status := *resp.Payload.Status
+			return status == string(backup.Started) ||
+				status == string(backup.Transferring)
+		}, 30*time.Second, 1*time.Second, "backup never started")
+
+		t.Logf("stopping node %s with timeout %s", nodeName, nodeStopTimeout.String())
 		err := cluster.Stop(ctx, nodeName, &nodeStopTimeout)
 		require.Nil(t, err)
+
 		err = cluster.Start(ctx, nodeName)
 		require.Nil(t, err)
 		helper.SetupClient(cluster.GetWeaviate().URI())
