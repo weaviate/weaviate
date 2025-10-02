@@ -95,12 +95,12 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 			Info("snapshots disabled, loading from commit log")
 	}
 
-	fileNames, err := getCommitFileNames(h.rootPath, h.id, stateTimestamp)
+	fileNames, err := getCommitFileNames(h.rootPath, h.id, stateTimestamp, h.fs)
 	if err != nil {
 		return err
 	}
 
-	state, err = loadCommitLoggerState(h.logger, fileNames, state, h.metrics)
+	state, err = loadCommitLoggerState(h.fs, h.logger, fileNames, state, h.metrics)
 	if err != nil {
 		return errors.Wrap(err, "load commit logger state")
 	}
