@@ -20,12 +20,19 @@ import (
 var (
 	ObjectsBucket              = []byte("objects")
 	ObjectsBucketLSM           = "objects"
-	VectorsCompressedBucketLSM = "vectors_compressed"
 	VectorsBucketLSM           = "vectors"
 	DimensionsBucketLSM        = "dimensions"
+	VectorsCompressedBucketLSM = "vectors_compressed"
 )
 
 const ObjectsBucketLSMDocIDSecondaryIndex int = 0
+
+func GetCompressedBucketName(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s_%s", VectorsCompressedBucketLSM, targetVector)
+	}
+	return VectorsCompressedBucketLSM
+}
 
 // MetaCountProp helps create an internally used propName for meta props that
 // don't explicitly exist in the user schema, but are required for proper
