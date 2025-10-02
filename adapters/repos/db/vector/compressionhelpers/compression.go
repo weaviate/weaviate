@@ -746,6 +746,7 @@ func NewRQCompressor(
 	allocChecker memwatch.AllocChecker,
 	bits int,
 	dim int,
+	targetVector string,
 ) (VectorCompressor, error) {
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
@@ -756,6 +757,7 @@ func NewRQCompressor(
 			compressedStore: store,
 			storeId:         binary.BigEndian.PutUint64,
 			loadId:          binary.BigEndian.Uint64,
+			targetVector:    targetVector,
 			logger:          logger,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore(); err != nil {
@@ -771,6 +773,7 @@ func NewRQCompressor(
 			compressedStore: store,
 			storeId:         binary.BigEndian.PutUint64,
 			loadId:          binary.BigEndian.Uint64,
+			targetVector:    targetVector,
 			logger:          logger,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
@@ -798,6 +801,7 @@ func RestoreRQCompressor(
 	rounding []float32,
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
+	targetVector string,
 ) (VectorCompressor, error) {
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
@@ -811,6 +815,7 @@ func RestoreRQCompressor(
 			compressedStore: store,
 			storeId:         binary.BigEndian.PutUint64,
 			loadId:          binary.BigEndian.Uint64,
+			targetVector:    targetVector,
 			logger:          logger,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore(); err != nil {
@@ -829,6 +834,7 @@ func RestoreRQCompressor(
 			compressedStore: store,
 			storeId:         binary.BigEndian.PutUint64,
 			loadId:          binary.BigEndian.Uint64,
+			targetVector:    targetVector,
 			logger:          logger,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
@@ -851,6 +857,7 @@ func NewRQMultiCompressor(
 	allocChecker memwatch.AllocChecker,
 	bits int,
 	dim int,
+	targetVector string,
 ) (VectorCompressor, error) {
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
@@ -861,6 +868,7 @@ func NewRQMultiCompressor(
 			compressedStore: store,
 			storeId:         binary.BigEndian.PutUint64,
 			loadId:          binary.BigEndian.Uint64,
+			targetVector:    targetVector,
 			logger:          logger,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore(); err != nil {
@@ -876,6 +884,7 @@ func NewRQMultiCompressor(
 			compressedStore: store,
 			storeId:         binary.BigEndian.PutUint64,
 			loadId:          binary.BigEndian.Uint64,
+			targetVector:    targetVector,
 			logger:          logger,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
@@ -903,6 +912,7 @@ func RestoreRQMultiCompressor(
 	rounding []float32,
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
+	targetVector string,
 ) (VectorCompressor, error) {
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
@@ -916,6 +926,7 @@ func RestoreRQMultiCompressor(
 			compressedStore: store,
 			storeId:         binary.BigEndian.PutUint64,
 			loadId:          binary.BigEndian.Uint64,
+			targetVector:    targetVector,
 			logger:          logger,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore(); err != nil {
@@ -934,6 +945,7 @@ func RestoreRQMultiCompressor(
 			compressedStore: store,
 			storeId:         binary.BigEndian.PutUint64,
 			loadId:          binary.BigEndian.Uint64,
+			targetVector:    targetVector,
 			logger:          logger,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {

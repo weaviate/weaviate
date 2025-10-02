@@ -276,6 +276,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 				nil,
 				h.store,
 				h.allocChecker,
+				h.getTargetVector(),
 			)
 		})
 	} else {
@@ -293,6 +294,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 				nil,
 				h.store,
 				h.allocChecker,
+				h.getTargetVector(),
 			)
 		})
 	}
@@ -317,6 +319,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQD
 				data.Rounding,
 				h.store,
 				h.allocChecker,
+				h.getTargetVector(),
 			)
 		})
 	} else {
@@ -334,6 +337,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQD
 				data.Rounding,
 				h.store,
 				h.allocChecker,
+				h.getTargetVector(),
 			)
 		})
 	}
