@@ -168,7 +168,7 @@ func Test_Migration(t *testing.T) {
 	dimAfterRecalculation := getDimensionsFromRepo(context.Background(), repo, "Test")
 	require.Equal(t, 12800, dimAfterRecalculation, "dimensions should be counted now")
 
-	// shut down and test calculation from unloaded shard with enw repo
+	// shut down and test calculation from unloaded shard with new repo
 	require.NoError(t, repo.Shutdown(context.Background()))
 	repoNew, err := New(logger, Config{
 		RootPath:                  dirName,
