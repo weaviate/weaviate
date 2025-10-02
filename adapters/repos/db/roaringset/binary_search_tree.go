@@ -254,18 +254,19 @@ func (n *BinarySearchNode) flattenInOrder() []*BinarySearchNode {
 		right = n.right.flattenInOrder()
 	}
 
-	key := make([]byte, len(n.Key))
-	copy(key, n.Key)
-
 	// Node's Value has to be copied, not to be mutated when BST is updated.
-	// Since memtable flush needs condensing, Condense here serves as cloning here
+	// Since memtable flush needs condensing, Condense serves as cloning here
 	// instead of separate clone + optional condense calls
-	right = append([]*BinarySearchNode{{
-		Key: key,
+	right = append([]*BinarySearchNode{n.shallowCopy()}, right...)
+	return append(left, right...)
+}
+
+func (n *BinarySearchNode) shallowCopy() *BinarySearchNode {
+	return &BinarySearchNode{
+		Key: n.Key,
 		Value: BitmapLayer{
 			Additions: Condense(n.Value.Additions),
 			Deletions: Condense(n.Value.Deletions),
 		},
-	}}, right...)
-	return append(left, right...)
+	}
 }
