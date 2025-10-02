@@ -539,10 +539,11 @@ type Raft struct {
 	SnapshotThreshold uint64
 	TrailingLogs      uint64
 
-	HeartbeatTimeout       time.Duration
-	ElectionTimeout        time.Duration
-	LeaderLeaseTimeout     time.Duration
-	TimeoutsMultiplier     int
+	HeartbeatTimeout   time.Duration
+	ElectionTimeout    time.Duration
+	LeaderLeaseTimeout time.Duration
+	TimeoutsMultiplier int
+
 	ConsistencyWaitTimeout time.Duration
 
 	BootstrapTimeout   time.Duration

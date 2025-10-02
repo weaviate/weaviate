@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 func (s *SPFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
@@ -56,6 +57,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	// and compressed size
 	s.initDimensionsOnce.Do(func() {
 		s.dims = int32(len(vector))
+		s.setMaxPostingSize()
 		s.SPTAG.Init(s.dims, s.config.Distancer)
 		compressed = s.SPTAG.Quantizer().Encode(vector)
 		s.distancer = &Distancer{
@@ -84,22 +86,17 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 	}
 
 	// if there are no postings found, ensure an initial posting is created
-	if len(targets) == 0 {
+	if targets.Len() == 0 {
 		targets, err = s.ensureInitialPosting(v)
 		if err != nil {
 			return err
 		}
 	}
 
-	for i, target := range targets {
-		_, err = s.append(ctx, v, target, false)
+	for id := range targets.Iter() {
+		_, err = s.append(ctx, v, id, false)
 		if err != nil {
-			if i == 0 {
-				// if the first append fails, the vector was not added anywhere.
-				// we must delete the version from the version map
-				s.VersionMap.Delete(id)
-			}
-			return errors.Wrapf(err, "failed to append vector %d to posting %d", id, target.ID)
+			return errors.Wrapf(err, "failed to append vector %d to posting %d", id, id)
 		}
 	}
 
@@ -107,7 +104,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 }
 
 // ensureInitialPosting creates a new posting for vector v if the index is empty
-func (s *SPFresh) ensureInitialPosting(v Vector) ([]SearchResult, error) {
+func (s *SPFresh) ensureInitialPosting(v Vector) (*ResultSet, error) {
 	s.initialPostingLock.Lock()
 	defer s.initialPostingLock.Unlock()
 
@@ -118,21 +115,17 @@ func (s *SPFresh) ensureInitialPosting(v Vector) ([]SearchResult, error) {
 	}
 
 	// if no postings were found, create a new posting while holding the lock
-	if len(targets) == 0 {
+	if targets.Len() == 0 {
 		postingID := s.IDs.Next()
 		s.PostingSizes.AllocPageFor(postingID)
 		// use the vector as the centroid and register it in the SPTAG
-		err = s.SPTAG.Upsert(postingID, &Centroid{
-			Vector: v,
-		})
+		err = s.SPTAG.Insert(postingID, v)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
 		}
 		// return the new posting ID
-		targets = append(targets, SearchResult{
-			ID: postingID,
-			// distance is zero since we are using the vector as the centroid
-		})
+		targets = NewResultSet(1)
+		targets.data = append(targets.data, Result{ID: postingID, Distance: 0})
 	}
 
 	return targets, nil
@@ -141,39 +134,39 @@ func (s *SPFresh) ensureInitialPosting(v Vector) ([]SearchResult, error) {
 // Append adds a vector to the specified posting.
 // It returns true if the vector was successfully added, false if the posting no longer exists.
 // It is called synchronously during imports but also asynchronously by reassign operations.
-func (s *SPFresh) append(ctx context.Context, vector Vector, centroid SearchResult, reassigned bool) (bool, error) {
-	s.postingLocks.Lock(centroid.ID)
+func (s *SPFresh) append(ctx context.Context, vector Vector, centroidID uint64, reassigned bool) (bool, error) {
+	s.postingLocks.Lock(centroidID)
 
 	// check if the posting still exists
-	if !s.SPTAG.Exists(centroid.ID) {
+	if !s.SPTAG.Exists(centroidID) {
 		// the posting might have been deleted concurrently,
 		// might happen if we are reassigning
 		if s.VersionMap.Get(vector.ID()) == vector.Version() {
-			err := s.enqueueReassign(ctx, centroid.ID, vector)
+			err := s.enqueueReassign(ctx, centroidID, vector)
 			if err != nil {
-				s.postingLocks.Unlock(centroid.ID)
+				s.postingLocks.Unlock(centroidID)
 				return false, err
 			}
 		}
 
-		s.postingLocks.Unlock(centroid.ID)
+		s.postingLocks.Unlock(centroidID)
 		return false, nil
 	}
 
 	// append the new vector to the existing posting
-	err := s.Store.Append(ctx, centroid.ID, vector)
+	err := s.Store.Append(ctx, centroidID, vector)
 	if err != nil {
-		s.postingLocks.Unlock(centroid.ID)
+		s.postingLocks.Unlock(centroidID)
 		return false, err
 	}
 
 	// increment the size of the posting
-	s.PostingSizes.Inc(centroid.ID, 1)
+	s.PostingSizes.Inc(centroidID, 1)
 
-	s.postingLocks.Unlock(centroid.ID)
+	s.postingLocks.Unlock(centroidID)
 
 	// ensure the posting size is within the configured limits
-	count := s.PostingSizes.Get(centroid.ID)
+	count := s.PostingSizes.Get(centroidID)
 
 	// If the posting is too big, we need to split it.
 	// During an insert, we want to split asynchronously
@@ -186,9 +179,9 @@ func (s *SPFresh) append(ctx context.Context, vector Vector, centroid SearchResu
 	}
 	if count > max {
 		if reassigned {
-			err = s.doSplit(centroid.ID, false)
+			err = s.doSplit(centroidID, false)
 		} else {
-			err = s.enqueueSplit(ctx, centroid.ID)
+			err = s.enqueueSplit(ctx, centroidID)
 		}
 		if err != nil {
 			return false, err
@@ -209,4 +202,35 @@ func (s *SPFresh) ValidateBeforeInsert(vector []float32) error {
 	}
 
 	return nil
+}
+
+// MaxPostingVectors returns how many vectors can fit in one posting
+// given the dimensions, compression and I/O budget.
+// I/O budget: SPANN recommends 12KB per posting for byte vectors
+// and 48KB for float32 vectors.
+// Dims is the number of dimensions of the vector, after compression
+// if applicable.
+func computeMaxPostingSize(dims int, compressed bool) uint32 {
+	bytesPerDim := 4
+	maxBytes := 48 * 1024 // default to float32 budget
+	metadata := 4 + 1     // id + version
+	if compressed {
+		bytesPerDim = 1
+		maxBytes = 12 * 1024                          // compressed budget
+		metadata += compressionhelpers.RQMetadataSize // RQ metadata
+	}
+
+	vBytes := dims*bytesPerDim + metadata
+
+	return uint32(maxBytes / vBytes)
+}
+
+func (s *SPFresh) setMaxPostingSize() {
+	if s.config.MaxPostingSize == 0 {
+		isCompressed := s.Compressed()
+		s.config.MaxPostingSize = computeMaxPostingSize(int(s.dims), isCompressed)
+	}
+	if s.config.MaxPostingSize < s.config.MinPostingSize { // either set by the user or computed by the index we want to make sure it's at least the min posting size
+		s.config.MaxPostingSize = s.config.MinPostingSize
+	}
 }

@@ -61,7 +61,7 @@ type SPFresh struct {
 	distancer          *Distancer
 
 	// Internal components
-	SPTAG        SPTAG                   // Provides access to the SPTAG index for centroid operations.
+	SPTAG        *BruteForceSPTAG        // Provides access to the SPTAG index for centroid operations.
 	Store        *LSMStore               // Used for managing persistence of postings.
 	IDs          common.MonotonicCounter // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap   *VersionMap             // Stores vector versions in-memory.
@@ -101,18 +101,18 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 		logger:  cfg.Logger.WithField("component", "SPFresh"),
 		config:  cfg,
 		metrics: metrics,
-		SPTAG:   NewBruteForceSPTAG(metrics),
 		Store:   postingStore,
+		SPTAG:   NewBruteForceSPTAG(metrics, 1024*1024, 1024),
 		// Capacity of the version map: 8k pages, 1M vectors each -> 8B vectors
 		// - An empty version map consumes 240KB of memory
 		// - Each allocated page consumes 1MB of memory
 		// - A fully used version map consumes 8GB of memory
-		VersionMap: NewVersionMap(8*1024, 1024*1024),
+		VersionMap: NewVersionMap(8*1024*1024, 1024),
 		// Capacity of the posting sizes: 1k pages, 1M postings each -> 1B postings
 		// - An empty posting sizes buffer consumes 240KB of memory
 		// - Each allocated page consumes 4MB of memory
 		// - A fully used posting sizes consumes 4GB of memory
-		PostingSizes: NewPostingSizes(metrics, 1024, 1024*1024),
+		PostingSizes: NewPostingSizes(metrics, 1024*1024, 1024),
 
 		postingLocks: common.NewDefaultShardedRWLocks(),
 		// TODO: Eventually, we'll create sharded workers between all instances of SPFresh

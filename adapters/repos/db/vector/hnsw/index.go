@@ -201,6 +201,8 @@ type hnsw struct {
 	docIDVectors  map[uint64][]uint64
 	vecIDcounter  uint64
 	maxDocID      uint64
+
+	fs common.FS
 }
 
 type CommitLogger interface {
@@ -355,6 +357,7 @@ func New(cfg Config, uc ent.UserConfig,
 
 		docIDVectors:  make(map[uint64][]uint64),
 		muveraEncoder: muveraEncoder,
+		fs:            common.NewOSFS(),
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 

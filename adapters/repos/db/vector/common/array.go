@@ -13,17 +13,23 @@ package common
 
 import (
 	"math/bits"
+	"sync"
+	"sync/atomic"
 )
 
-// PagedArray is a array that stores elements in pages of a fixed size.
+// PagedArray is an array that stores elements in pages of a fixed size.
 // It is optimized for concurrent access patterns where multiple goroutines may read and write to different pages simultaneously.
-// The thread-safety is delegated to the caller, a typical pattern is to use an exclusive lock when allocating pages
-// and atomic operations for reading and writing individual elements within a page.
+// The API is thread-safe and returns direct references to the pages, allowing for efficient concurrent access.
+// Caller is responsible for ensuring that reads and writes to the returned pages are performed safely,
+// using either atomic operations or mutexes.
 type PagedArray[T any] struct {
-	buf      [][]T
-	pageSize uint64 // Size of each page
-	pageBits uint8  // log2(pageSize)
-	pageMask uint64 // pageSize - 1
+	buf      []atomic.Pointer[[]T]
+	pageSize uint64
+	pageBits uint8
+	pageMask uint64
+
+	// mu protects the allocation of new pages
+	mu sync.Mutex
 }
 
 // NewPagedArray creates a new PagedArray with the given page size.
@@ -38,111 +44,69 @@ func NewPagedArray[T any](pages, pageSize uint64) *PagedArray[T] {
 		pageSize: pageSize,
 		pageBits: uint8(bits.TrailingZeros64(pageSize)),
 		pageMask: pageSize - 1,
-		buf:      make([][]T, pages),
+		buf:      make([]atomic.Pointer[[]T], pages),
 	}
 }
 
 func nextPow2(v uint64) uint64 {
-	if v == 0 {
+	if v <= 1 {
 		return 1
 	}
 	if (v & (v - 1)) == 0 {
 		return v
 	}
-	return 1 << bits.Len64(v)
-}
-
-// Get returns the element at the given index.
-// If the page does not exist, it returns both zero value and false.
-func (p *PagedArray[T]) Get(id uint64) T {
-	pageID := id >> p.pageBits
-	slotID := id & p.pageMask
-
-	if int(pageID) >= len(p.buf) || p.buf[pageID] == nil {
-		var zero T
-		return zero
+	l := bits.Len64(v - 1)
+	// avoid 1<<64 overflow
+	if l >= 63 {
+		return 1 << 63
 	}
-
-	return p.buf[pageID][slotID]
+	return 1 << l
 }
 
 // GetPageFor takes an ID and returns the associated page and its index.
 // If the page does not exist, it returns nil.
 // It doesn't return a copy of the page, so modifications to the returned slice will affect the original data.
+// Caller is responsible for ensuring that reads and writes to the returned page are performed safely,
+// using either atomic operations or mutexes.
 func (p *PagedArray[T]) GetPageFor(id uint64) ([]T, int) {
 	pageID := id >> p.pageBits
-	if int(pageID) >= len(p.buf) || p.buf[pageID] == nil {
+
+	if int(pageID) >= len(p.buf) {
 		return nil, -1
 	}
-	slotID := id & p.pageMask
 
-	return p.buf[pageID], int(slotID)
+	pg := p.buf[pageID].Load()
+	if pg == nil {
+		return nil, -1
+	}
+
+	return (*pg), int(id & p.pageMask)
 }
 
-// Set stores the element at the given index, assuming the page exists.
-// Callers need to ensure the page is allocated before calling this method.
-func (p *PagedArray[T]) Set(id uint64, value T) {
+// EnsurePageFor makes sure that a page exists for the given ID.
+// If the page already exists, it does nothing.
+// It returns the page and its index within the page for the given ID.
+func (p *PagedArray[T]) EnsurePageFor(id uint64) ([]T, int) {
+	// first do a quick check without locking
+	page, slot := p.GetPageFor(id)
+	if page != nil {
+		return page, slot
+	}
+
+	// double-checked locking
+	p.mu.Lock()
+	page, _ = p.GetPageFor(id)
+	if page != nil {
+		p.mu.Unlock()
+		return page, slot
+	}
+
+	// allocate a new page
 	pageID := id >> p.pageBits
-	slotID := id & p.pageMask
+	pg := make([]T, p.pageSize)
+	p.buf[pageID].Store(&pg)
 
-	p.buf[pageID][slotID] = value
-}
+	p.mu.Unlock()
 
-// Delete sets the element to zero value.
-// If the page does not exist, it does nothing and returns false.
-func (p *PagedArray[T]) Delete(id uint64) bool {
-	pageID := id >> p.pageBits
-	slotID := id & p.pageMask
-
-	if int(pageID) >= len(p.buf) || p.buf[pageID] == nil {
-		return false
-	}
-
-	var zero T
-	p.buf[pageID][slotID] = zero
-	return true
-}
-
-// AllocPageFor allocates a page for the given ID if it does not already exist.
-func (p *PagedArray[T]) AllocPageFor(id uint64) {
-	pageID := id >> p.pageBits
-	if p.buf[pageID] == nil {
-		p.buf[pageID] = make([]T, p.pageSize)
-	}
-}
-
-// Grow ensures the buffer has space for `newPageCount` pages.
-// It does not zero or allocate the individual pages unless needed.
-func (p *PagedArray[T]) Grow(newPageCount uint64) {
-	if int(newPageCount) <= len(p.buf) {
-		return
-	}
-	newBuf := make([][]T, newPageCount)
-	copy(newBuf, p.buf)
-	p.buf = newBuf
-}
-
-// Cap returns the total capacity across all allocated pages.
-func (p *PagedArray[T]) Cap() int {
-	total := 0
-	for _, page := range p.buf {
-		if page != nil {
-			total += len(page)
-		}
-	}
-	return total
-}
-
-// Len returns the number of pages allocated.
-func (p *PagedArray[T]) Len() int {
-	return len(p.buf)
-}
-
-// Reset clears all pages but retains the allocated memory.
-func (p *PagedArray[T]) Reset() {
-	for i := range p.buf {
-		if p.buf[i] != nil {
-			clear(p.buf[i])
-		}
-	}
+	return pg, int(id & p.pageMask)
 }

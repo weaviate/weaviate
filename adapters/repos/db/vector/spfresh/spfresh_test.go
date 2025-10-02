@@ -13,12 +13,17 @@ package spfresh
 
 import (
 	"fmt"
+	"log"
+	"net/http"
 	_ "net/http/pprof"
+	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -37,25 +42,25 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 
 // Uncomment to enable pprof and prometheus metrics when running tests
 
-// func TestMain(m *testing.M) {
-// 	runtime.SetMutexProfileFraction(1)
+func TestMain(m *testing.M) {
+	runtime.SetMutexProfileFraction(1)
 
-// 	go func() {
-// 		addr := "127.0.0.1:6060"
-// 		log.Printf("pprof listening at http://%s/debug/pprof/\n", addr)
-// 		_ = http.ListenAndServe(addr, nil) // DefaultServeMux has pprof handlers
-// 	}()
+	go func() {
+		addr := "127.0.0.1:6060"
+		log.Printf("pprof listening at http://%s/debug/pprof/\n", addr)
+		_ = http.ListenAndServe(addr, nil) // DefaultServeMux has pprof handlers
+	}()
 
-// 	go func() {
-// 		mux := http.NewServeMux()
-// 		mux.Handle("/metrics", promhttp.Handler())
-// 		if err := http.ListenAndServe(":2112", mux); err != nil {
-// 			fmt.Printf("metrics server on %s stopped: %v\n", ":2112", err)
-// 		}
-// 	}()
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		if err := http.ListenAndServe(":2112", mux); err != nil {
+			fmt.Printf("metrics server on %s stopped: %v\n", ":2112", err)
+		}
+	}()
 
-// 	os.Exit(m.Run())
-// }
+	os.Exit(m.Run())
+}
 
 func TestSPFreshRecall(t *testing.T) {
 	cfg := DefaultConfig()
@@ -99,7 +104,7 @@ func TestSPFreshRecall(t *testing.T) {
 			fmt.Printf("indexing vectors %d/%d\n", cur, vectors_size)
 			fmt.Println("background tasks: split", index.splitCh.Len(), "reassign", index.reassignCh.Len(), "merge", index.mergeCh.Len())
 		}
-		if cur%10000 == 0 {
+		if cur%50000 == 0 {
 			err := index.Flush()
 			require.NoError(t, err)
 		}
@@ -115,7 +120,7 @@ func TestSPFreshRecall(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	fmt.Printf("all background tasks done,took: %s\n", time.Since(before))
+	fmt.Println("all background tasks done, took: ", time.Since(before))
 
 	recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
 	fmt.Println(recall, latency)
