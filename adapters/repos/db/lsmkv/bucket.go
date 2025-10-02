@@ -646,23 +646,22 @@ func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buf
 	}
 	recheckTook := time.Since(beforeReCheck)
 
-	helpers.AnnotateSlowQueryLogAppend(ctx, "lsm_get_by_secondary", slowLogAnnotation{
-		View:      tookView,
-		Memtables: memtablesTook,
-		Segments:  segmentsTook,
-		Recheck:   recheckTook,
-		Total:     time.Since(beforeAll),
+	activeMemtableTook := memtablesTook[0]
+	var flushingMemtableTook time.Duration
+	if len(memtablesTook) > 1 {
+		flushingMemtableTook = memtablesTook[1]
+	}
+
+	helpers.AnnotateSlowQueryLogAppend(ctx, "lsm_get_by_secondary", BucketSlowLogEntry{
+		View:             tookView,
+		ActiveMemtable:   activeMemtableTook,
+		FlushingMemtable: flushingMemtableTook,
+		Segments:         segmentsTook,
+		Recheck:          recheckTook,
+		Total:            time.Since(beforeAll),
 	})
 
 	return v, allocBuf, nil
-}
-
-type slowLogAnnotation struct {
-	Total     time.Duration
-	View      time.Duration
-	Memtables []time.Duration
-	Segments  time.Duration
-	Recheck   time.Duration
 }
 
 // SetList returns all Set entries for a given key.

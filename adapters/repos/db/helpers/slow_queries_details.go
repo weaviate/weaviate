@@ -56,7 +56,7 @@ func AnnotateSlowQueryLog(ctx context.Context, key string, value any) {
 	}
 }
 
-func AnnotateSlowQueryLogAppend(ctx context.Context, key string, value any) {
+func AnnotateSlowQueryLogAppend[T any](ctx context.Context, key string, value T) {
 	val := ctx.Value("slow_query_details")
 	if val == nil {
 		return
@@ -72,16 +72,44 @@ func AnnotateSlowQueryLogAppend(ctx context.Context, key string, value any) {
 
 	prev, ok := details.values[key]
 	if !ok {
-		prev = make([]any, 0)
+		prev = make([]T, 0)
 	}
 
-	asList, ok := prev.([]any)
+	asList, ok := prev.([]T)
 	if !ok {
 		return
 	}
 
 	asList = append(asList, value)
 	details.values[key] = asList
+}
+
+func ReplaceSlowQueryEntry[in any, out any](ctx context.Context, key string, replaceFunc func(old in) out) {
+	val := ctx.Value("slow_query_details")
+	if val == nil {
+		return
+	}
+
+	details, ok := val.(*SlowQueryDetails)
+	if !ok {
+		return
+	}
+
+	details.Lock()
+	defer details.Unlock()
+
+	prev, ok := details.values[key]
+	if !ok {
+		return // nothing to replace
+	}
+
+	typed, ok := prev.(in)
+	if !ok {
+		fmt.Printf("\n\n\nwrong type for key %s: %T\n\n\n", key, prev)
+		return
+	}
+
+	details.values[key] = replaceFunc(typed)
 }
 
 func SprintfWithNesting(nesting int, format string, args ...any) string {
