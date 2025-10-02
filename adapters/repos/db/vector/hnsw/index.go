@@ -794,6 +794,9 @@ func (h *hnsw) DistancerProvider() distancer.Provider {
 }
 
 func (h *hnsw) ShouldUpgrade() (bool, int) {
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+
 	if h.sqConfig.Enabled {
 		return h.sqConfig.Enabled, h.sqConfig.TrainingLimit
 	}

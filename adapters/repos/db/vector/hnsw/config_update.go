@@ -111,9 +111,11 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 		return nil
 	}
 
+	h.compressActionLock.Lock()
 	h.pqConfig = parsed.PQ
 	h.sqConfig = parsed.SQ
 	h.bqConfig = parsed.BQ
+	h.compressActionLock.Unlock()
 	if asyncEnabled() {
 		callback()
 		return nil
