@@ -269,16 +269,19 @@ func addInjectHeadersIntoContext(next http.Handler) http.Handler {
 
 func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.String() == "/v1/.well-known/live" {
+		switch r.URL.Path {
+		case "/v1/.well-known/live":
 			w.WriteHeader(http.StatusOK)
 			return
-		}
 
-		if r.URL.String() == "/v1/.well-known/ready" {
+		case "/v1/.well-known/ready":
 			code := http.StatusOK
-			// if this node is in maintenance mode, we want to return live but not ready
-			// so that kubernetes will allow this pod to run but not send traffic to it
-			if state.Cluster.MaintenanceModeEnabledForLocalhost() {
+
+			w.Header().Set("Cache-Control", "no-store")
+
+			if state.IsShuttingDown() {
+				code = http.StatusServiceUnavailable
+			} else if state.Cluster.MaintenanceModeEnabledForLocalhost() {
 				code = http.StatusServiceUnavailable
 			} else if !state.ClusterService.Ready() || state.Cluster.ClusterHealthScore() != 0 {
 				code = http.StatusServiceUnavailable
@@ -288,10 +291,11 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 					code = http.StatusServiceUnavailable
 				}
 			}
+
+			state.Logger.WithField("response_code", code).Debug("readiness probe response")
 			w.WriteHeader(code)
 			return
 		}
-
 		next.ServeHTTP(w, r)
 	})
 }
