@@ -220,7 +220,7 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, stream pb.Wea
 		select {
 		case request = <-reqCh:
 		case err = <-errCh:
-		case <-time.After(1 * time.Second):
+		case <-time.After(1 * time.Minute):
 			log.Debug("waiting for client request")
 			if h.shuttingDown.Load() {
 				log.Debug("shutting down, closing write queue for this stream")
