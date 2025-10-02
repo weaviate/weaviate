@@ -209,6 +209,9 @@ func (w *WriteQueue) thresholdCubicBackoff(usageRatio float64) float64 {
 func (w *WriteQueue) NextBatchSize() int64 {
 	w.lock.RLock()
 	defer w.lock.RUnlock()
+	if w.nextBatchSize < 1 {
+		return 1
+	}
 	return w.nextBatchSize
 }
 
