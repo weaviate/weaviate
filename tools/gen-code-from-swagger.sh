@@ -20,7 +20,7 @@ if [ "$version" != "$TEMPLATE_COMPATIBLE_VERSION" ]; then
   echo "  Template is compatible with: $TEMPLATE_COMPATIBLE_VERSION"
   echo ""
   echo "Please update the custom template in: swagger/templates/generator/templates/"
-  echo "Download compatible gotmpl files from: https://raw.githubusercontent.com/go-swagger/go-swagger/$version/generator/templates"
+  echo "Download compatible gotmpl files from: https://github.com/go-swagger/go-swagger/tree/$version/generator/templates"
   echo "Then reapply all custom changes and update TEMPLATE_COMPATIBLE_VERSION in this script."
   exit 1
 fi
