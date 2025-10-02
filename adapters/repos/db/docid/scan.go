@@ -12,6 +12,7 @@
 package docid
 
 import (
+	"context"
 	"encoding/binary"
 
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -94,7 +95,7 @@ func (os *objectScannerLSM) scan() error {
 	)
 	for _, id := range os.pointers {
 		binary.LittleEndian.PutUint64(docIDBytes, id)
-		res, err := os.objectsBucket.GetBySecondary(0, docIDBytes)
+		res, err := os.objectsBucket.GetBySecondary(context.TODO(), 0, docIDBytes) // TODO: Context!
 		if err != nil {
 			return err
 		}

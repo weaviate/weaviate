@@ -174,7 +174,7 @@ func (h *lsmSorterHelper) getSortedDocIDs(ctx context.Context, docIDs helpers.Al
 
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		objData, err := h.bucket.GetBySecondary(0, docIDBytes)
+		objData, err := h.bucket.GetBySecondary(ctx, 0, docIDBytes)
 		if err != nil {
 			return nil, errors.Wrapf(err, "lsm sorter - could not get obj by doc id %d", docID)
 		}
@@ -197,7 +197,7 @@ func (h *lsmSorterHelper) getSortedDocIDsAndDistances(ctx context.Context, docID
 
 	for i, docID := range docIDs {
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		objData, err := h.bucket.GetBySecondary(0, docIDBytes)
+		objData, err := h.bucket.GetBySecondary(ctx, 0, docIDBytes)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "lsm sorter - could not get obj by doc id %d", docID)
 		}

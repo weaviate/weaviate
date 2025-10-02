@@ -62,7 +62,7 @@ func TestCreateBloomOnFlush(t *testing.T) {
 
 	valuePrimary, err := b2.Get([]byte("hello"))
 	require.Nil(t, err)
-	valueSecondary, err := b2.GetBySecondary(0, []byte("bonjour"))
+	valueSecondary, err := b2.GetBySecondary(ctx, 0, []byte("bonjour"))
 	require.Nil(t, err)
 
 	assert.Equal(t, []byte("world"), valuePrimary)
@@ -230,7 +230,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	defer b2.Shutdown(ctx)
 
 	value := make([]byte, 5)
-	value, _, err = b2.GetBySecondaryWithBuffer(0, []byte("bonjour"), value)
+	value, _, err = b2.GetBySecondaryWithBuffer(ctx, 0, []byte("bonjour"), value)
 	assert.Nil(t, err)
 	assert.Equal(t, []byte("world"), value)
 
@@ -241,7 +241,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Nil(t, v)
 
-	value, _, err = b2.GetBySecondaryWithBuffer(0, []byte("bonjour"), value)
+	value, _, err = b2.GetBySecondaryWithBuffer(ctx, 0, []byte("bonjour"), value)
 	assert.Nil(t, err)
 	assert.Nil(t, value)
 }
@@ -279,7 +279,7 @@ func TestRepairCorruptedBloomSecondaryOnInitIntoMemory(t *testing.T) {
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
-	value, err := b2.GetBySecondary(0, []byte("bonjour"))
+	value, err := b2.GetBySecondary(ctx, 0, []byte("bonjour"))
 	assert.Nil(t, err)
 	assert.Equal(t, []byte("world"), value)
 }
@@ -316,7 +316,7 @@ func TestRepairTooShortBloomSecondaryOnInit(t *testing.T) {
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
-	value, err := b2.GetBySecondary(0, []byte("bonjour"))
+	value, err := b2.GetBySecondary(ctx, 0, []byte("bonjour"))
 	assert.Nil(t, err)
 	assert.Equal(t, []byte("world"), value)
 }
@@ -435,7 +435,7 @@ func dontCreateBloom(ctx context.Context, t *testing.T, opts []BucketOption) {
 	t.Run("search", func(t *testing.T) {
 		valuePrimary, err := b.Get([]byte("hello"))
 		require.NoError(t, err)
-		valueSecondary, err := b.GetBySecondary(0, []byte("bonjour"))
+		valueSecondary, err := b.GetBySecondary(ctx, 0, []byte("bonjour"))
 		require.NoError(t, err)
 
 		assert.Equal(t, []byte("world"), valuePrimary)
@@ -478,7 +478,7 @@ func dontRecreateBloom(ctx context.Context, t *testing.T, opts []BucketOption) {
 	t.Run("search", func(t *testing.T) {
 		valuePrimary, err := b2.Get([]byte("hello"))
 		require.NoError(t, err)
-		valueSecondary, err := b2.GetBySecondary(0, []byte("bonjour"))
+		valueSecondary, err := b2.GetBySecondary(ctx, 0, []byte("bonjour"))
 		require.NoError(t, err)
 
 		assert.Equal(t, []byte("world"), valuePrimary)
@@ -523,11 +523,11 @@ func dontPrecomputeBloom(ctx context.Context, t *testing.T, opts []BucketOption)
 	t.Run("search", func(t *testing.T) {
 		valuePrimary, err := b.Get([]byte("hello"))
 		require.NoError(t, err)
-		valueSecondary, err := b.GetBySecondary(0, []byte("bonjour"))
+		valueSecondary, err := b.GetBySecondary(ctx, 0, []byte("bonjour"))
 		require.NoError(t, err)
 		value2Primary, err := b.Get([]byte("hello2"))
 		require.NoError(t, err)
-		value2Secondary, err := b.GetBySecondary(0, []byte("bonjour2"))
+		value2Secondary, err := b.GetBySecondary(ctx, 0, []byte("bonjour2"))
 		require.NoError(t, err)
 
 		assert.Equal(t, []byte("world"), valuePrimary)

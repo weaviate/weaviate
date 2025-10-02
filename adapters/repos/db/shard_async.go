@@ -228,7 +228,7 @@ func (s *Shard) iterateOnLSMObjects(
 
 		binary.LittleEndian.PutUint64(buf, i)
 
-		v, err := bucket.GetBySecondary(0, buf)
+		v, err := bucket.GetBySecondary(ctx, 0, buf)
 		if err != nil {
 			return errors.Wrap(err, "get last indexed object")
 		}
