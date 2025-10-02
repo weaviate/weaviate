@@ -47,7 +47,7 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	}
 }
 
-func run(ctx context.Context, dirName string, logger *logrus.Logger, compression string, vectorCache bool,
+func run(ctx context.Context, dirName string, logger *logrus.Logger, compression CompressionType, vectorCache bool,
 	vectors [][]float32, queries [][]float32, k int, truths [][]uint64,
 	extraVectorsForDelete [][]float32, allowIds []uint64,
 	distancer distancer.Provider, concurrentCacheReads int,
@@ -76,15 +76,15 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 		Enabled: false,
 	}
 	switch compression {
-	case compressionPQ:
+	case CompressionPQ:
 		pq.Enabled = true
 		pq.RescoreLimit = 100 * k
 		pq.Cache = vectorCache
-	case compressionBQ:
+	case CompressionBQ:
 		bq.Enabled = true
 		bq.RescoreLimit = 100 * k
 		bq.Cache = vectorCache
-	case compressionRQ:
+	case CompressionRQ1:
 		rq.Enabled = true
 		rq.RescoreLimit = 100 * k
 		rq.Cache = vectorCache
@@ -193,18 +193,18 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	}
 
 	extraVectorsForDelete, _ := testinghelpers.RandomVecs(5_000, 0, dimensions)
-	for _, compression := range []string{compressionNone, compressionBQ, compressionRQ} {
-		t.Run("compression: "+compression, func(t *testing.T) {
+	for _, compression := range []CompressionType{CompressionNone, CompressionBQ, CompressionRQ1} {
+		t.Run("compression: "+compression.String(), func(t *testing.T) {
 			for _, cache := range []bool{false, true} {
 				t.Run("cache: "+strconv.FormatBool(cache), func(t *testing.T) {
-					if compression == compressionNone && cache == true {
+					if compression == CompressionNone && cache == true {
 						return
 					}
 					targetRecall := float32(0.99)
-					if compression == compressionBQ {
+					if compression == CompressionBQ {
 						targetRecall = 0.8
 					}
-					if compression == compressionRQ {
+					if compression == CompressionRQ1 {
 						targetRecall = 0.7 // RQ has lower recall due to 1-bit quantization
 					}
 					t.Run("recall", func(t *testing.T) {
@@ -228,8 +228,8 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 			}
 		})
 	}
-	for _, compression := range []string{compressionNone, compressionBQ, compressionRQ} {
-		t.Run("compression: "+compression, func(t *testing.T) {
+	for _, compression := range []CompressionType{CompressionNone, CompressionBQ, CompressionRQ1} {
+		t.Run("compression: "+compression.String(), func(t *testing.T) {
 			for _, cache := range []bool{false, true} {
 				t.Run("cache: "+strconv.FormatBool(cache), func(t *testing.T) {
 					from := 0
@@ -243,10 +243,10 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 						allowIds = append(allowIds, i)
 					}
 					targetRecall := float32(0.99)
-					if compression == compressionBQ {
+					if compression == CompressionBQ {
 						targetRecall = 0.8
 					}
-					if compression == compressionRQ {
+					if compression == CompressionRQ1 {
 						targetRecall = 0.7 // RQ has lower recall due to 1-bit quantization
 					}
 
@@ -368,7 +368,7 @@ func TestConcurrentReads(t *testing.T) {
 	for i := range concurrentReads {
 		t.Run("concurrent reads: "+strconv.Itoa(concurrentReads[i]), func(t *testing.T) {
 			targetRecall := float32(0.8)
-			recall, latency, err := run(ctx, dirName, logger, compressionRQ, true, vectors, queries, k, truths, nil, nil, distancer, concurrentReads[i])
+			recall, latency, err := run(ctx, dirName, logger, CompressionRQ1, true, vectors, queries, k, truths, nil, nil, distancer, concurrentReads[i])
 			require.Nil(t, err)
 
 			fmt.Println(recall, latency)
@@ -460,15 +460,15 @@ func TestFlat_RQPersistence(t *testing.T) {
 	require.Nil(t, err)
 
 	// Verify RQ quantizer was created
-	require.NotNil(t, index.rq)
+	require.NotNil(t, index.quantizer)
 
 	// Test encoding
-	encoded := index.rq.Encode(testVector)
+	encoded := index.quantizer.Encode(testVector)
 	require.NotNil(t, encoded)
 	require.Greater(t, len(encoded), 0)
 
 	// Test distance calculation - RQ distances can be negative
-	distance, err := index.rq.DistanceBetweenCompressedVectors(encoded, encoded)
+	distance, err := index.quantizer.DistanceBetweenCompressedVectors(encoded, encoded)
 	require.Nil(t, err)
 	require.IsType(t, float32(0), distance) // Just verify it returns a float32
 
@@ -498,10 +498,10 @@ func TestFlat_RQPersistence(t *testing.T) {
 	defer index2.Shutdown(context.Background())
 
 	// Verify RQ quantizer was restored
-	require.NotNil(t, index2.rq)
+	require.NotNil(t, index2.quantizer)
 
 	// Test that the restored quantizer works
-	encoded2 := index2.rq.Encode(testVector)
+	encoded2 := index2.quantizer.Encode(testVector)
 	require.NotNil(t, encoded2)
 
 	// The encoded vectors should be identical (same seed)
@@ -511,7 +511,7 @@ func TestFlat_RQPersistence(t *testing.T) {
 	}
 
 	// Test distance calculation with restored quantizer
-	distance2, err := index2.rq.DistanceBetweenCompressedVectors(encoded2, encoded2)
+	distance2, err := index2.quantizer.DistanceBetweenCompressedVectors(encoded2, encoded2)
 	require.Nil(t, err)
 	require.IsType(t, float32(0), distance2) // Just verify it returns a float32
 

@@ -206,7 +206,7 @@ func (index *flat) setDimensions(dimensions int32) error {
 // RQ data persistence and restoration functions
 
 func (index *flat) persistRQData() error {
-	if !index.isRQ() || index.rq == nil {
+	if index.compression != CompressionRQ1 || index.quantizer == nil {
 		return nil // No RQ data to persist
 	}
 
@@ -224,7 +224,7 @@ func (index *flat) persistRQData() error {
 
 		// Create a simple commit logger to capture RQ data
 		logger := &flatCommitLogger{bucket: b}
-		index.rq.PersistCompression(logger)
+		index.quantizer.PersistCompression(logger)
 
 		return nil
 	})
@@ -236,7 +236,7 @@ func (index *flat) persistRQData() error {
 }
 
 func (index *flat) restoreRQData() error {
-	if !index.isRQ() {
+	if index.compression != CompressionRQ1 {
 		return nil // No RQ to restore
 	}
 
@@ -367,7 +367,7 @@ func (index *flat) restoreRQData() error {
 
 	if brqData != nil {
 		// Restore the RQ quantizer
-		index.rq, err = compressionhelpers.RestoreBinaryRotationalQuantizer(
+		rq, err := compressionhelpers.RestoreBinaryRotationalQuantizer(
 			int(brqData.InputDim),
 			int(brqData.Rotation.OutputDim),
 			int(brqData.Rotation.Rounds),
@@ -379,6 +379,8 @@ func (index *flat) restoreRQData() error {
 		if err != nil {
 			return errors.Wrap(err, "restore binary rotational quantizer")
 		}
+		// Wrap it in the generic interface
+		index.quantizer = &RotationalQuantizerWrapper{BinaryRotationalQuantizer: rq}
 	}
 
 	return nil
