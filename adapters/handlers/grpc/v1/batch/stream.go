@@ -169,34 +169,42 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 func (h *StreamHandler) recv(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
 	log := h.logger.WithField("streamId", streamId)
 	closed := false
-	close := func() {
+	done := func() {
 		if !closed {
 			h.writeQueues.Close(streamId)
 			h.recvWg.Done()
 		}
 		closed = true
 	}
-	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
 
-		reqCh := make(chan *pb.BatchStreamRequest)
-		errCh := make(chan error)
-		// Receive from stream in child goroutine so we can also listen for shutdown signals
-		// once the stream is empty
-		enterrors.GoWrapper(func() {
+	reqCh := make(chan *pb.BatchStreamRequest)
+	errCh := make(chan error)
+	defer close(reqCh)
+	defer close(errCh)
+	// Receive from stream in child goroutine so we can also listen for shutdown signals in loop below
+	// once the stream is empty
+	enterrors.GoWrapper(func() {
+		for {
 			req, err := stream.Recv()
 			if err != nil {
 				errCh <- err
 				return
 			}
 			reqCh <- req
-		}, h.logger)
+		}
+	}, h.logger)
 
-		// Wait for either a request, an error, or a shutdown signal
-		// if there's a shutdown signal whilst there are no request in the stream
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		// Wait for either a request, an error, or a shutdown signal from the looping stream.Recv goroutine
+		// if there's a shutdown signal whilst there are no requests in the stream
 		// then we close the write queue and block waiting until the client hangs-up
+		// in the meantime, the send method will communicate to the client that the server is shutting down
+		// and the client will deal with that appropriately. If they send more requests after that point
+		// they will be lost since we will be blocking until we get io.EOF from the client
 		var request *pb.BatchStreamRequest
 		var err error
 		select {
@@ -206,7 +214,7 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, stream pb.Wea
 			log.Debug("waiting for client request")
 			if h.shuttingDownCtx.Err() != nil {
 				log.Debug("shutting down, closing write queue for this stream")
-				close()
+				done()
 				return nil
 			}
 			continue
@@ -215,13 +223,13 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, stream pb.Wea
 		if errors.Is(err, io.EOF) {
 			// Client has closed the stream, we close the write queue and return
 			log.Debug("client closed stream, closing write queue for this stream")
-			close()
+			done()
 			return nil
 		}
 		if err != nil {
 			log.WithError(err).Error("failed to receive batch stream request")
 			// Tell the scheduler to stop processing this stream because of a client hangup error
-			close()
+			done()
 			return err
 		}
 		objs := make([]*writeObject, 0, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues())+1)
@@ -236,12 +244,12 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, stream pb.Wea
 		} else if request.GetStop() != nil {
 			h.stopping.Store(streamId, true)
 		} else {
-			close()
+			done()
 			return fmt.Errorf("invalid batch send request: neither objects, references nor stop signal provided")
 		}
 		if !h.writeQueues.Exists(streamId) {
 			log.Error("write queue not found")
-			close()
+			done()
 			return fmt.Errorf("write queue for stream %s not found", streamId)
 		}
 		if len(objs) > 0 {
@@ -251,7 +259,7 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, stream pb.Wea
 		}
 		if stopping, ok := h.stopping.Load(streamId); ok && stopping.(bool) {
 			// Will loop back and block on stream.Recv() until io.EOF is returned
-			close()
+			done()
 			continue
 		}
 		h.writeQueues.UpdateBatchSize(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues()))
