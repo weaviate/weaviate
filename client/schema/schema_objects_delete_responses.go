@@ -17,6 +17,7 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *SchemaObjectsDeleteReader) ReadResponse(response runtime.ClientResponse
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[DELETE /schema/{className}] schema.objects.delete", response, response.Code())
 	}
 }
 
@@ -79,8 +80,7 @@ SchemaObjectsDeleteOK describes a response with status code 200, with default he
 
 Removed the Object class from the schema.
 */
-type SchemaObjectsDeleteOK struct {
-}
+type SchemaObjectsDeleteOK struct{}
 
 // IsSuccess returns true when this schema objects delete o k response has a 2xx status code
 func (o *SchemaObjectsDeleteOK) IsSuccess() bool {
@@ -113,15 +113,14 @@ func (o *SchemaObjectsDeleteOK) Code() int {
 }
 
 func (o *SchemaObjectsDeleteOK) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteOK ", 200)
+	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteOK", 200)
 }
 
 func (o *SchemaObjectsDeleteOK) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteOK ", 200)
+	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteOK", 200)
 }
 
 func (o *SchemaObjectsDeleteOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -170,11 +169,13 @@ func (o *SchemaObjectsDeleteBadRequest) Code() int {
 }
 
 func (o *SchemaObjectsDeleteBadRequest) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteBadRequest %s", 400, payload)
 }
 
 func (o *SchemaObjectsDeleteBadRequest) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteBadRequest %s", 400, payload)
 }
 
 func (o *SchemaObjectsDeleteBadRequest) GetPayload() *models.ErrorResponse {
@@ -182,7 +183,6 @@ func (o *SchemaObjectsDeleteBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsDeleteBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -203,8 +203,7 @@ SchemaObjectsDeleteUnauthorized describes a response with status code 401, with 
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsDeleteUnauthorized struct {
-}
+type SchemaObjectsDeleteUnauthorized struct{}
 
 // IsSuccess returns true when this schema objects delete unauthorized response has a 2xx status code
 func (o *SchemaObjectsDeleteUnauthorized) IsSuccess() bool {
@@ -237,15 +236,14 @@ func (o *SchemaObjectsDeleteUnauthorized) Code() int {
 }
 
 func (o *SchemaObjectsDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteUnauthorized", 401)
 }
 
 func (o *SchemaObjectsDeleteUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteUnauthorized", 401)
 }
 
 func (o *SchemaObjectsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -294,11 +292,13 @@ func (o *SchemaObjectsDeleteForbidden) Code() int {
 }
 
 func (o *SchemaObjectsDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteForbidden %s", 403, payload)
 }
 
 func (o *SchemaObjectsDeleteForbidden) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteForbidden %s", 403, payload)
 }
 
 func (o *SchemaObjectsDeleteForbidden) GetPayload() *models.ErrorResponse {
@@ -306,7 +306,6 @@ func (o *SchemaObjectsDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -362,11 +361,13 @@ func (o *SchemaObjectsDeleteInternalServerError) Code() int {
 }
 
 func (o *SchemaObjectsDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteInternalServerError %s", 500, payload)
 }
 
 func (o *SchemaObjectsDeleteInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteInternalServerError %s", 500, payload)
 }
 
 func (o *SchemaObjectsDeleteInternalServerError) GetPayload() *models.ErrorResponse {
@@ -374,7 +375,6 @@ func (o *SchemaObjectsDeleteInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaObjectsDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

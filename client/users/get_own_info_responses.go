@@ -17,6 +17,7 @@ package users
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -59,7 +60,7 @@ func (o *GetOwnInfoReader) ReadResponse(response runtime.ClientResponse, consume
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /users/own-info] getOwnInfo", response, response.Code())
 	}
 }
 
@@ -108,11 +109,13 @@ func (o *GetOwnInfoOK) Code() int {
 }
 
 func (o *GetOwnInfoOK) Error() string {
-	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoOK %s", 200, payload)
 }
 
 func (o *GetOwnInfoOK) String() string {
-	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoOK %s", 200, payload)
 }
 
 func (o *GetOwnInfoOK) GetPayload() *models.UserOwnInfo {
@@ -120,7 +123,6 @@ func (o *GetOwnInfoOK) GetPayload() *models.UserOwnInfo {
 }
 
 func (o *GetOwnInfoOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.UserOwnInfo)
 
 	// response payload
@@ -141,8 +143,7 @@ GetOwnInfoUnauthorized describes a response with status code 401, with default h
 
 Unauthorized or invalid credentials.
 */
-type GetOwnInfoUnauthorized struct {
-}
+type GetOwnInfoUnauthorized struct{}
 
 // IsSuccess returns true when this get own info unauthorized response has a 2xx status code
 func (o *GetOwnInfoUnauthorized) IsSuccess() bool {
@@ -175,15 +176,14 @@ func (o *GetOwnInfoUnauthorized) Code() int {
 }
 
 func (o *GetOwnInfoUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoUnauthorized ", 401)
+	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoUnauthorized", 401)
 }
 
 func (o *GetOwnInfoUnauthorized) String() string {
-	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoUnauthorized ", 401)
+	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoUnauthorized", 401)
 }
 
 func (o *GetOwnInfoUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -232,11 +232,13 @@ func (o *GetOwnInfoInternalServerError) Code() int {
 }
 
 func (o *GetOwnInfoInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoInternalServerError %s", 500, payload)
 }
 
 func (o *GetOwnInfoInternalServerError) String() string {
-	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoInternalServerError %s", 500, payload)
 }
 
 func (o *GetOwnInfoInternalServerError) GetPayload() *models.ErrorResponse {
@@ -244,7 +246,6 @@ func (o *GetOwnInfoInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetOwnInfoInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -300,11 +301,13 @@ func (o *GetOwnInfoNotImplemented) Code() int {
 }
 
 func (o *GetOwnInfoNotImplemented) Error() string {
-	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoNotImplemented  %+v", 501, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoNotImplemented %s", 501, payload)
 }
 
 func (o *GetOwnInfoNotImplemented) String() string {
-	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoNotImplemented  %+v", 501, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /users/own-info][%d] getOwnInfoNotImplemented %s", 501, payload)
 }
 
 func (o *GetOwnInfoNotImplemented) GetPayload() *models.ErrorResponse {
@@ -312,7 +315,6 @@ func (o *GetOwnInfoNotImplemented) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetOwnInfoNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

@@ -17,6 +17,7 @@ package objects
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *ObjectsValidateReader) ReadResponse(response runtime.ClientResponse, co
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /objects/validate] objects.validate", response, response.Code())
 	}
 }
 
@@ -79,8 +80,7 @@ ObjectsValidateOK describes a response with status code 200, with default header
 
 Successfully validated.
 */
-type ObjectsValidateOK struct {
-}
+type ObjectsValidateOK struct{}
 
 // IsSuccess returns true when this objects validate o k response has a 2xx status code
 func (o *ObjectsValidateOK) IsSuccess() bool {
@@ -113,15 +113,14 @@ func (o *ObjectsValidateOK) Code() int {
 }
 
 func (o *ObjectsValidateOK) Error() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateOK ", 200)
+	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateOK", 200)
 }
 
 func (o *ObjectsValidateOK) String() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateOK ", 200)
+	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateOK", 200)
 }
 
 func (o *ObjectsValidateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -135,8 +134,7 @@ ObjectsValidateUnauthorized describes a response with status code 401, with defa
 
 Unauthorized or invalid credentials.
 */
-type ObjectsValidateUnauthorized struct {
-}
+type ObjectsValidateUnauthorized struct{}
 
 // IsSuccess returns true when this objects validate unauthorized response has a 2xx status code
 func (o *ObjectsValidateUnauthorized) IsSuccess() bool {
@@ -169,15 +167,14 @@ func (o *ObjectsValidateUnauthorized) Code() int {
 }
 
 func (o *ObjectsValidateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnauthorized", 401)
 }
 
 func (o *ObjectsValidateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnauthorized", 401)
 }
 
 func (o *ObjectsValidateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -226,11 +223,13 @@ func (o *ObjectsValidateForbidden) Code() int {
 }
 
 func (o *ObjectsValidateForbidden) Error() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateForbidden %s", 403, payload)
 }
 
 func (o *ObjectsValidateForbidden) String() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateForbidden %s", 403, payload)
 }
 
 func (o *ObjectsValidateForbidden) GetPayload() *models.ErrorResponse {
@@ -238,7 +237,6 @@ func (o *ObjectsValidateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsValidateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -294,11 +292,13 @@ func (o *ObjectsValidateUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsValidateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsValidateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsValidateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -306,7 +306,6 @@ func (o *ObjectsValidateUnprocessableEntity) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsValidateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -362,11 +361,13 @@ func (o *ObjectsValidateInternalServerError) Code() int {
 }
 
 func (o *ObjectsValidateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsValidateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsValidateInternalServerError) GetPayload() *models.ErrorResponse {
@@ -374,7 +375,6 @@ func (o *ObjectsValidateInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsValidateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

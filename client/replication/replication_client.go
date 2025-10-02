@@ -20,12 +20,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new replication API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new replication API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new replication API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -36,8 +62,32 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
+
+// This client is generated with a few options you might find useful for your swagger spec.
+//
+// Feel free to add you own set of options.
+
+// WithContentType allows the client to force the Content-Type header
+// to negotiate a specific Consumer from the server.
+//
+// You may use this option to set arbitrary extensions to your MIME media type.
+func WithContentType(mime string) ClientOption {
+	return func(r *runtime.ClientOperation) {
+		r.ConsumesMediaTypes = []string{mime}
+	}
+}
+
+// WithContentTypeApplicationJSON sets the Content-Type header to "application/json".
+func WithContentTypeApplicationJSON(r *runtime.ClientOperation) {
+	r.ConsumesMediaTypes = []string{"application/json"}
+}
+
+// WithContentTypeApplicationYaml sets the Content-Type header to "application/yaml".
+func WithContentTypeApplicationYaml(r *runtime.ClientOperation) {
+	r.ConsumesMediaTypes = []string{"application/yaml"}
+}
 
 // ClientService is the interface for Client methods
 type ClientService interface {
@@ -75,7 +125,7 @@ func (a *Client) CancelReplication(params *CancelReplicationParams, authInfo run
 		Method:             "POST",
 		PathPattern:        "/replication/replicate/{id}/cancel",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &CancelReplicationReader{formats: a.formats},
@@ -114,7 +164,7 @@ func (a *Client) DeleteAllReplications(params *DeleteAllReplicationsParams, auth
 		Method:             "DELETE",
 		PathPattern:        "/replication/replicate",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &DeleteAllReplicationsReader{formats: a.formats},
@@ -155,7 +205,7 @@ func (a *Client) DeleteReplication(params *DeleteReplicationParams, authInfo run
 		Method:             "DELETE",
 		PathPattern:        "/replication/replicate/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &DeleteReplicationReader{formats: a.formats},
@@ -196,7 +246,7 @@ func (a *Client) ForceDeleteReplications(params *ForceDeleteReplicationsParams, 
 		Method:             "POST",
 		PathPattern:        "/replication/replicate/force-delete",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ForceDeleteReplicationsReader{formats: a.formats},
@@ -237,7 +287,7 @@ func (a *Client) GetCollectionShardingState(params *GetCollectionShardingStatePa
 		Method:             "GET",
 		PathPattern:        "/replication/sharding-state",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &GetCollectionShardingStateReader{formats: a.formats},
@@ -278,7 +328,7 @@ func (a *Client) ListReplication(params *ListReplicationParams, authInfo runtime
 		Method:             "GET",
 		PathPattern:        "/replication/replicate/list",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ListReplicationReader{formats: a.formats},
@@ -319,7 +369,7 @@ func (a *Client) Replicate(params *ReplicateParams, authInfo runtime.ClientAuthI
 		Method:             "POST",
 		PathPattern:        "/replication/replicate",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ReplicateReader{formats: a.formats},
@@ -360,7 +410,7 @@ func (a *Client) ReplicationDetails(params *ReplicationDetailsParams, authInfo r
 		Method:             "GET",
 		PathPattern:        "/replication/replicate/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ReplicationDetailsReader{formats: a.formats},

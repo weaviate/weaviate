@@ -62,7 +62,7 @@ func (o *GetUsersForRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewGetUsersForRoleParams()
+	Params := NewGetUsersForRoleParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -83,14 +83,12 @@ func (o *GetUsersForRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }
 
 // GetUsersForRoleOKBodyItems0 get users for role o k body items0
 //
 // swagger:model GetUsersForRoleOKBodyItems0
 type GetUsersForRoleOKBodyItems0 struct {
-
 	// user Id
 	UserID string `json:"userId,omitempty" yaml:"userId,omitempty"`
 
@@ -114,7 +112,6 @@ func (o *GetUsersForRoleOKBodyItems0) Validate(formats strfmt.Registry) error {
 }
 
 func (o *GetUsersForRoleOKBodyItems0) validateUserType(formats strfmt.Registry) error {
-
 	if err := validate.Required("userType", "body", o.UserType); err != nil {
 		return err
 	}
@@ -152,7 +149,6 @@ func (o *GetUsersForRoleOKBodyItems0) ContextValidate(ctx context.Context, forma
 }
 
 func (o *GetUsersForRoleOKBodyItems0) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
-
 	if o.UserType != nil {
 		if err := o.UserType.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {

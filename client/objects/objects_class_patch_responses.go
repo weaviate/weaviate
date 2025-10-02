@@ -17,6 +17,7 @@ package objects
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -77,7 +78,7 @@ func (o *ObjectsClassPatchReader) ReadResponse(response runtime.ClientResponse, 
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[PATCH /objects/{className}/{id}] objects.class.patch", response, response.Code())
 	}
 }
 
@@ -91,8 +92,7 @@ ObjectsClassPatchNoContent describes a response with status code 204, with defau
 
 Successfully applied. No content provided.
 */
-type ObjectsClassPatchNoContent struct {
-}
+type ObjectsClassPatchNoContent struct{}
 
 // IsSuccess returns true when this objects class patch no content response has a 2xx status code
 func (o *ObjectsClassPatchNoContent) IsSuccess() bool {
@@ -125,15 +125,14 @@ func (o *ObjectsClassPatchNoContent) Code() int {
 }
 
 func (o *ObjectsClassPatchNoContent) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchNoContent ", 204)
+	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchNoContent", 204)
 }
 
 func (o *ObjectsClassPatchNoContent) String() string {
-	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchNoContent ", 204)
+	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchNoContent", 204)
 }
 
 func (o *ObjectsClassPatchNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -182,11 +181,13 @@ func (o *ObjectsClassPatchBadRequest) Code() int {
 }
 
 func (o *ObjectsClassPatchBadRequest) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchBadRequest %s", 400, payload)
 }
 
 func (o *ObjectsClassPatchBadRequest) String() string {
-	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchBadRequest %s", 400, payload)
 }
 
 func (o *ObjectsClassPatchBadRequest) GetPayload() *models.ErrorResponse {
@@ -194,7 +195,6 @@ func (o *ObjectsClassPatchBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsClassPatchBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -215,8 +215,7 @@ ObjectsClassPatchUnauthorized describes a response with status code 401, with de
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassPatchUnauthorized struct {
-}
+type ObjectsClassPatchUnauthorized struct{}
 
 // IsSuccess returns true when this objects class patch unauthorized response has a 2xx status code
 func (o *ObjectsClassPatchUnauthorized) IsSuccess() bool {
@@ -249,15 +248,14 @@ func (o *ObjectsClassPatchUnauthorized) Code() int {
 }
 
 func (o *ObjectsClassPatchUnauthorized) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchUnauthorized ", 401)
+	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchUnauthorized", 401)
 }
 
 func (o *ObjectsClassPatchUnauthorized) String() string {
-	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchUnauthorized ", 401)
+	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchUnauthorized", 401)
 }
 
 func (o *ObjectsClassPatchUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -306,11 +304,13 @@ func (o *ObjectsClassPatchForbidden) Code() int {
 }
 
 func (o *ObjectsClassPatchForbidden) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchForbidden %s", 403, payload)
 }
 
 func (o *ObjectsClassPatchForbidden) String() string {
-	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchForbidden %s", 403, payload)
 }
 
 func (o *ObjectsClassPatchForbidden) GetPayload() *models.ErrorResponse {
@@ -318,7 +318,6 @@ func (o *ObjectsClassPatchForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsClassPatchForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -339,8 +338,7 @@ ObjectsClassPatchNotFound describes a response with status code 404, with defaul
 
 Successful query result but no resource was found.
 */
-type ObjectsClassPatchNotFound struct {
-}
+type ObjectsClassPatchNotFound struct{}
 
 // IsSuccess returns true when this objects class patch not found response has a 2xx status code
 func (o *ObjectsClassPatchNotFound) IsSuccess() bool {
@@ -373,15 +371,14 @@ func (o *ObjectsClassPatchNotFound) Code() int {
 }
 
 func (o *ObjectsClassPatchNotFound) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchNotFound ", 404)
+	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchNotFound", 404)
 }
 
 func (o *ObjectsClassPatchNotFound) String() string {
-	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchNotFound ", 404)
+	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchNotFound", 404)
 }
 
 func (o *ObjectsClassPatchNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -430,11 +427,13 @@ func (o *ObjectsClassPatchUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsClassPatchUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsClassPatchUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsClassPatchUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -442,7 +441,6 @@ func (o *ObjectsClassPatchUnprocessableEntity) GetPayload() *models.ErrorRespons
 }
 
 func (o *ObjectsClassPatchUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -498,11 +496,13 @@ func (o *ObjectsClassPatchInternalServerError) Code() int {
 }
 
 func (o *ObjectsClassPatchInternalServerError) Error() string {
-	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsClassPatchInternalServerError) String() string {
-	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsClassPatchInternalServerError) GetPayload() *models.ErrorResponse {
@@ -510,7 +510,6 @@ func (o *ObjectsClassPatchInternalServerError) GetPayload() *models.ErrorRespons
 }
 
 func (o *ObjectsClassPatchInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

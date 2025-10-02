@@ -29,7 +29,6 @@ import (
 //
 // swagger:model ReplicationShardingState
 type ReplicationShardingState struct {
-
 	// The name of the collection.
 	Collection string `json:"collection,omitempty"`
 
@@ -92,10 +91,13 @@ func (m *ReplicationShardingState) ContextValidate(ctx context.Context, formats 
 }
 
 func (m *ReplicationShardingState) contextValidateShards(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.Shards); i++ {
-
 		if m.Shards[i] != nil {
+
+			if swag.IsZero(m.Shards[i]) { // not required
+				return nil
+			}
+
 			if err := m.Shards[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("shards" + "." + strconv.Itoa(i))
@@ -105,7 +107,6 @@ func (m *ReplicationShardingState) contextValidateShards(ctx context.Context, fo
 				return err
 			}
 		}
-
 	}
 
 	return nil

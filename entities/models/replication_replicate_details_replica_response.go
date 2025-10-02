@@ -31,7 +31,6 @@ import (
 //
 // swagger:model ReplicationReplicateDetailsReplicaResponse
 type ReplicationReplicateDetailsReplicaResponse struct {
-
 	// The name of the collection to which the shard being replicated belongs.
 	// Required: true
 	Collection *string `json:"collection"`
@@ -68,7 +67,7 @@ type ReplicationReplicateDetailsReplicaResponse struct {
 
 	// Indicates whether the operation is a 'COPY' (source replica remains) or a 'MOVE' (source replica is removed after successful transfer).
 	// Required: true
-	// Enum: [COPY MOVE]
+	// Enum: ["COPY","MOVE"]
 	Type *string `json:"type"`
 
 	// Whether the replica operation is uncancelable.
@@ -121,7 +120,6 @@ func (m *ReplicationReplicateDetailsReplicaResponse) Validate(formats strfmt.Reg
 }
 
 func (m *ReplicationReplicateDetailsReplicaResponse) validateCollection(formats strfmt.Registry) error {
-
 	if err := validate.Required("collection", "body", m.Collection); err != nil {
 		return err
 	}
@@ -130,7 +128,6 @@ func (m *ReplicationReplicateDetailsReplicaResponse) validateCollection(formats 
 }
 
 func (m *ReplicationReplicateDetailsReplicaResponse) validateID(formats strfmt.Registry) error {
-
 	if err := validate.Required("id", "body", m.ID); err != nil {
 		return err
 	}
@@ -143,7 +140,6 @@ func (m *ReplicationReplicateDetailsReplicaResponse) validateID(formats strfmt.R
 }
 
 func (m *ReplicationReplicateDetailsReplicaResponse) validateShard(formats strfmt.Registry) error {
-
 	if err := validate.Required("shard", "body", m.Shard); err != nil {
 		return err
 	}
@@ -152,7 +148,6 @@ func (m *ReplicationReplicateDetailsReplicaResponse) validateShard(formats strfm
 }
 
 func (m *ReplicationReplicateDetailsReplicaResponse) validateSourceNode(formats strfmt.Registry) error {
-
 	if err := validate.Required("sourceNode", "body", m.SourceNode); err != nil {
 		return err
 	}
@@ -161,7 +156,6 @@ func (m *ReplicationReplicateDetailsReplicaResponse) validateSourceNode(formats 
 }
 
 func (m *ReplicationReplicateDetailsReplicaResponse) validateStatus(formats strfmt.Registry) error {
-
 	if err := validate.Required("status", "body", m.Status); err != nil {
 		return err
 	}
@@ -207,7 +201,6 @@ func (m *ReplicationReplicateDetailsReplicaResponse) validateStatusHistory(forma
 }
 
 func (m *ReplicationReplicateDetailsReplicaResponse) validateTargetNode(formats strfmt.Registry) error {
-
 	if err := validate.Required("targetNode", "body", m.TargetNode); err != nil {
 		return err
 	}
@@ -245,7 +238,6 @@ func (m *ReplicationReplicateDetailsReplicaResponse) validateTypeEnum(path, loca
 }
 
 func (m *ReplicationReplicateDetailsReplicaResponse) validateType(formats strfmt.Registry) error {
-
 	if err := validate.Required("type", "body", m.Type); err != nil {
 		return err
 	}
@@ -277,7 +269,6 @@ func (m *ReplicationReplicateDetailsReplicaResponse) ContextValidate(ctx context
 }
 
 func (m *ReplicationReplicateDetailsReplicaResponse) contextValidateStatus(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Status != nil {
 		if err := m.Status.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -293,10 +284,13 @@ func (m *ReplicationReplicateDetailsReplicaResponse) contextValidateStatus(ctx c
 }
 
 func (m *ReplicationReplicateDetailsReplicaResponse) contextValidateStatusHistory(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.StatusHistory); i++ {
-
 		if m.StatusHistory[i] != nil {
+
+			if swag.IsZero(m.StatusHistory[i]) { // not required
+				return nil
+			}
+
 			if err := m.StatusHistory[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("statusHistory" + "." + strconv.Itoa(i))
@@ -306,7 +300,6 @@ func (m *ReplicationReplicateDetailsReplicaResponse) contextValidateStatusHistor
 				return err
 			}
 		}
-
 	}
 
 	return nil

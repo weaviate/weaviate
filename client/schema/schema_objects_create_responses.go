@@ -17,6 +17,7 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *SchemaObjectsCreateReader) ReadResponse(response runtime.ClientResponse
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /schema] schema.objects.create", response, response.Code())
 	}
 }
 
@@ -114,11 +115,13 @@ func (o *SchemaObjectsCreateOK) Code() int {
 }
 
 func (o *SchemaObjectsCreateOK) Error() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateOK %s", 200, payload)
 }
 
 func (o *SchemaObjectsCreateOK) String() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateOK %s", 200, payload)
 }
 
 func (o *SchemaObjectsCreateOK) GetPayload() *models.Class {
@@ -126,7 +129,6 @@ func (o *SchemaObjectsCreateOK) GetPayload() *models.Class {
 }
 
 func (o *SchemaObjectsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Class)
 
 	// response payload
@@ -147,8 +149,7 @@ SchemaObjectsCreateUnauthorized describes a response with status code 401, with 
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsCreateUnauthorized struct {
-}
+type SchemaObjectsCreateUnauthorized struct{}
 
 // IsSuccess returns true when this schema objects create unauthorized response has a 2xx status code
 func (o *SchemaObjectsCreateUnauthorized) IsSuccess() bool {
@@ -181,15 +182,14 @@ func (o *SchemaObjectsCreateUnauthorized) Code() int {
 }
 
 func (o *SchemaObjectsCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnauthorized", 401)
 }
 
 func (o *SchemaObjectsCreateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnauthorized", 401)
 }
 
 func (o *SchemaObjectsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -238,11 +238,13 @@ func (o *SchemaObjectsCreateForbidden) Code() int {
 }
 
 func (o *SchemaObjectsCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateForbidden %s", 403, payload)
 }
 
 func (o *SchemaObjectsCreateForbidden) String() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateForbidden %s", 403, payload)
 }
 
 func (o *SchemaObjectsCreateForbidden) GetPayload() *models.ErrorResponse {
@@ -250,7 +252,6 @@ func (o *SchemaObjectsCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -306,11 +307,13 @@ func (o *SchemaObjectsCreateUnprocessableEntity) Code() int {
 }
 
 func (o *SchemaObjectsCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *SchemaObjectsCreateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *SchemaObjectsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -318,7 +321,6 @@ func (o *SchemaObjectsCreateUnprocessableEntity) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaObjectsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -374,11 +376,13 @@ func (o *SchemaObjectsCreateInternalServerError) Code() int {
 }
 
 func (o *SchemaObjectsCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateInternalServerError %s", 500, payload)
 }
 
 func (o *SchemaObjectsCreateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateInternalServerError %s", 500, payload)
 }
 
 func (o *SchemaObjectsCreateInternalServerError) GetPayload() *models.ErrorResponse {
@@ -386,7 +390,6 @@ func (o *SchemaObjectsCreateInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaObjectsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

@@ -18,6 +18,7 @@ package authz
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -74,7 +75,7 @@ func (o *RevokeRoleFromUserReader) ReadResponse(response runtime.ClientResponse,
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /authz/users/{id}/revoke] revokeRoleFromUser", response, response.Code())
 	}
 }
 
@@ -88,8 +89,7 @@ RevokeRoleFromUserOK describes a response with status code 200, with default hea
 
 Role revoked successfully
 */
-type RevokeRoleFromUserOK struct {
-}
+type RevokeRoleFromUserOK struct{}
 
 // IsSuccess returns true when this revoke role from user o k response has a 2xx status code
 func (o *RevokeRoleFromUserOK) IsSuccess() bool {
@@ -122,15 +122,14 @@ func (o *RevokeRoleFromUserOK) Code() int {
 }
 
 func (o *RevokeRoleFromUserOK) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserOK ", 200)
+	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserOK", 200)
 }
 
 func (o *RevokeRoleFromUserOK) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserOK ", 200)
+	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserOK", 200)
 }
 
 func (o *RevokeRoleFromUserOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -179,11 +178,13 @@ func (o *RevokeRoleFromUserBadRequest) Code() int {
 }
 
 func (o *RevokeRoleFromUserBadRequest) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserBadRequest %s", 400, payload)
 }
 
 func (o *RevokeRoleFromUserBadRequest) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserBadRequest %s", 400, payload)
 }
 
 func (o *RevokeRoleFromUserBadRequest) GetPayload() *models.ErrorResponse {
@@ -191,7 +192,6 @@ func (o *RevokeRoleFromUserBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *RevokeRoleFromUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -212,8 +212,7 @@ RevokeRoleFromUserUnauthorized describes a response with status code 401, with d
 
 Unauthorized or invalid credentials.
 */
-type RevokeRoleFromUserUnauthorized struct {
-}
+type RevokeRoleFromUserUnauthorized struct{}
 
 // IsSuccess returns true when this revoke role from user unauthorized response has a 2xx status code
 func (o *RevokeRoleFromUserUnauthorized) IsSuccess() bool {
@@ -246,15 +245,14 @@ func (o *RevokeRoleFromUserUnauthorized) Code() int {
 }
 
 func (o *RevokeRoleFromUserUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserUnauthorized", 401)
 }
 
 func (o *RevokeRoleFromUserUnauthorized) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserUnauthorized", 401)
 }
 
 func (o *RevokeRoleFromUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -303,11 +301,13 @@ func (o *RevokeRoleFromUserForbidden) Code() int {
 }
 
 func (o *RevokeRoleFromUserForbidden) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserForbidden %s", 403, payload)
 }
 
 func (o *RevokeRoleFromUserForbidden) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserForbidden %s", 403, payload)
 }
 
 func (o *RevokeRoleFromUserForbidden) GetPayload() *models.ErrorResponse {
@@ -315,7 +315,6 @@ func (o *RevokeRoleFromUserForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *RevokeRoleFromUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -371,11 +370,13 @@ func (o *RevokeRoleFromUserNotFound) Code() int {
 }
 
 func (o *RevokeRoleFromUserNotFound) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserNotFound %s", 404, payload)
 }
 
 func (o *RevokeRoleFromUserNotFound) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserNotFound %s", 404, payload)
 }
 
 func (o *RevokeRoleFromUserNotFound) GetPayload() *models.ErrorResponse {
@@ -383,7 +384,6 @@ func (o *RevokeRoleFromUserNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *RevokeRoleFromUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -439,11 +439,13 @@ func (o *RevokeRoleFromUserInternalServerError) Code() int {
 }
 
 func (o *RevokeRoleFromUserInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserInternalServerError %s", 500, payload)
 }
 
 func (o *RevokeRoleFromUserInternalServerError) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleFromUserInternalServerError %s", 500, payload)
 }
 
 func (o *RevokeRoleFromUserInternalServerError) GetPayload() *models.ErrorResponse {
@@ -451,7 +453,6 @@ func (o *RevokeRoleFromUserInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *RevokeRoleFromUserInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -467,7 +468,6 @@ RevokeRoleFromUserBody revoke role from user body
 swagger:model RevokeRoleFromUserBody
 */
 type RevokeRoleFromUserBody struct {
-
 	// the roles that revoked from the key or user
 	Roles []string `json:"roles"`
 
@@ -521,6 +521,9 @@ func (o *RevokeRoleFromUserBody) ContextValidate(ctx context.Context, formats st
 }
 
 func (o *RevokeRoleFromUserBody) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
+	if swag.IsZero(o.UserType) { // not required
+		return nil
+	}
 
 	if err := o.UserType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {

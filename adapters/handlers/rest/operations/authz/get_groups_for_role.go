@@ -64,7 +64,7 @@ func (o *GetGroupsForRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewGetGroupsForRoleParams()
+	Params := NewGetGroupsForRoleParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -85,14 +85,12 @@ func (o *GetGroupsForRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }
 
 // GetGroupsForRoleOKBodyItems0 get groups for role o k body items0
 //
 // swagger:model GetGroupsForRoleOKBodyItems0
 type GetGroupsForRoleOKBodyItems0 struct {
-
 	// group Id
 	GroupID string `json:"groupId,omitempty" yaml:"groupId,omitempty"`
 
@@ -116,7 +114,6 @@ func (o *GetGroupsForRoleOKBodyItems0) Validate(formats strfmt.Registry) error {
 }
 
 func (o *GetGroupsForRoleOKBodyItems0) validateGroupType(formats strfmt.Registry) error {
-
 	if err := validate.Required("groupType", "body", o.GroupType); err != nil {
 		return err
 	}
@@ -154,7 +151,6 @@ func (o *GetGroupsForRoleOKBodyItems0) ContextValidate(ctx context.Context, form
 }
 
 func (o *GetGroupsForRoleOKBodyItems0) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
-
 	if o.GroupType != nil {
 		if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {

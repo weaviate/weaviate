@@ -996,7 +996,6 @@ func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) 
 			result[name] = o.BearerAuthenticator(name, func(token string, scopes []string) (interface{}, error) {
 				return o.OidcAuth(token, scopes)
 			})
-
 		}
 	}
 	return result
@@ -1491,6 +1490,6 @@ func (o *WeaviateAPI) AddMiddlewareFor(method, path string, builder middleware.B
 	}
 	o.Init()
 	if h, ok := o.handlers[um][path]; ok {
-		o.handlers[method][path] = builder(h)
+		o.handlers[um][path] = builder(h)
 	}
 }

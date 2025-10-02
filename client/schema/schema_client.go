@@ -20,12 +20,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new schema API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new schema API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new schema API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -36,8 +62,32 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
+
+// This client is generated with a few options you might find useful for your swagger spec.
+//
+// Feel free to add you own set of options.
+
+// WithContentType allows the client to force the Content-Type header
+// to negotiate a specific Consumer from the server.
+//
+// You may use this option to set arbitrary extensions to your MIME media type.
+func WithContentType(mime string) ClientOption {
+	return func(r *runtime.ClientOperation) {
+		r.ConsumesMediaTypes = []string{mime}
+	}
+}
+
+// WithContentTypeApplicationJSON sets the Content-Type header to "application/json".
+func WithContentTypeApplicationJSON(r *runtime.ClientOperation) {
+	r.ConsumesMediaTypes = []string{"application/json"}
+}
+
+// WithContentTypeApplicationYaml sets the Content-Type header to "application/yaml".
+func WithContentTypeApplicationYaml(r *runtime.ClientOperation) {
+	r.ConsumesMediaTypes = []string{"application/yaml"}
+}
 
 // ClientService is the interface for Client methods
 type ClientService interface {
@@ -97,7 +147,7 @@ func (a *Client) AliasesCreate(params *AliasesCreateParams, authInfo runtime.Cli
 		Method:             "POST",
 		PathPattern:        "/aliases",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &AliasesCreateReader{formats: a.formats},
@@ -138,7 +188,7 @@ func (a *Client) AliasesDelete(params *AliasesDeleteParams, authInfo runtime.Cli
 		Method:             "DELETE",
 		PathPattern:        "/aliases/{aliasName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &AliasesDeleteReader{formats: a.formats},
@@ -179,7 +229,7 @@ func (a *Client) AliasesGet(params *AliasesGetParams, authInfo runtime.ClientAut
 		Method:             "GET",
 		PathPattern:        "/aliases",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &AliasesGetReader{formats: a.formats},
@@ -220,7 +270,7 @@ func (a *Client) AliasesGetAlias(params *AliasesGetAliasParams, authInfo runtime
 		Method:             "GET",
 		PathPattern:        "/aliases/{aliasName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &AliasesGetAliasReader{formats: a.formats},
@@ -261,7 +311,7 @@ func (a *Client) AliasesUpdate(params *AliasesUpdateParams, authInfo runtime.Cli
 		Method:             "PUT",
 		PathPattern:        "/aliases/{aliasName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &AliasesUpdateReader{formats: a.formats},
@@ -302,7 +352,7 @@ func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAut
 		Method:             "GET",
 		PathPattern:        "/schema",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaDumpReader{formats: a.formats},
@@ -343,7 +393,7 @@ func (a *Client) SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo
 		Method:             "POST",
 		PathPattern:        "/schema",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaObjectsCreateReader{formats: a.formats},
@@ -384,7 +434,7 @@ func (a *Client) SchemaObjectsDelete(params *SchemaObjectsDeleteParams, authInfo
 		Method:             "DELETE",
 		PathPattern:        "/schema/{className}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaObjectsDeleteReader{formats: a.formats},
@@ -423,7 +473,7 @@ func (a *Client) SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runti
 		Method:             "GET",
 		PathPattern:        "/schema/{className}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaObjectsGetReader{formats: a.formats},
@@ -462,7 +512,7 @@ func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddPa
 		Method:             "POST",
 		PathPattern:        "/schema/{className}/properties",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaObjectsPropertiesAddReader{formats: a.formats},
@@ -503,7 +553,7 @@ func (a *Client) SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, au
 		Method:             "GET",
 		PathPattern:        "/schema/{className}/shards",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaObjectsShardsGetReader{formats: a.formats},
@@ -544,7 +594,7 @@ func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdatePara
 		Method:             "PUT",
 		PathPattern:        "/schema/{className}/shards/{shardName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaObjectsShardsUpdateReader{formats: a.formats},
@@ -585,7 +635,7 @@ func (a *Client) SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo
 		Method:             "PUT",
 		PathPattern:        "/schema/{className}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaObjectsUpdateReader{formats: a.formats},
@@ -626,7 +676,7 @@ func (a *Client) TenantExists(params *TenantExistsParams, authInfo runtime.Clien
 		Method:             "HEAD",
 		PathPattern:        "/schema/{className}/tenants/{tenantName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &TenantExistsReader{formats: a.formats},
@@ -667,7 +717,7 @@ func (a *Client) TenantsCreate(params *TenantsCreateParams, authInfo runtime.Cli
 		Method:             "POST",
 		PathPattern:        "/schema/{className}/tenants",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &TenantsCreateReader{formats: a.formats},
@@ -706,7 +756,7 @@ func (a *Client) TenantsDelete(params *TenantsDeleteParams, authInfo runtime.Cli
 		Method:             "DELETE",
 		PathPattern:        "/schema/{className}/tenants",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &TenantsDeleteReader{formats: a.formats},
@@ -747,7 +797,7 @@ func (a *Client) TenantsGet(params *TenantsGetParams, authInfo runtime.ClientAut
 		Method:             "GET",
 		PathPattern:        "/schema/{className}/tenants",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &TenantsGetReader{formats: a.formats},
@@ -788,7 +838,7 @@ func (a *Client) TenantsGetOne(params *TenantsGetOneParams, authInfo runtime.Cli
 		Method:             "GET",
 		PathPattern:        "/schema/{className}/tenants/{tenantName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &TenantsGetOneReader{formats: a.formats},
@@ -829,7 +879,7 @@ func (a *Client) TenantsUpdate(params *TenantsUpdateParams, authInfo runtime.Cli
 		Method:             "PUT",
 		PathPattern:        "/schema/{className}/tenants",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &TenantsUpdateReader{formats: a.formats},

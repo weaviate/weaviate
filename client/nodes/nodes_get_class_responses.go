@@ -17,6 +17,7 @@ package nodes
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -71,7 +72,7 @@ func (o *NodesGetClassReader) ReadResponse(response runtime.ClientResponse, cons
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /nodes/{className}] nodes.get.class", response, response.Code())
 	}
 }
 
@@ -120,11 +121,13 @@ func (o *NodesGetClassOK) Code() int {
 }
 
 func (o *NodesGetClassOK) Error() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassOK %s", 200, payload)
 }
 
 func (o *NodesGetClassOK) String() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassOK %s", 200, payload)
 }
 
 func (o *NodesGetClassOK) GetPayload() *models.NodesStatusResponse {
@@ -132,7 +135,6 @@ func (o *NodesGetClassOK) GetPayload() *models.NodesStatusResponse {
 }
 
 func (o *NodesGetClassOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.NodesStatusResponse)
 
 	// response payload
@@ -153,8 +155,7 @@ NodesGetClassUnauthorized describes a response with status code 401, with defaul
 
 Unauthorized or invalid credentials.
 */
-type NodesGetClassUnauthorized struct {
-}
+type NodesGetClassUnauthorized struct{}
 
 // IsSuccess returns true when this nodes get class unauthorized response has a 2xx status code
 func (o *NodesGetClassUnauthorized) IsSuccess() bool {
@@ -187,15 +188,14 @@ func (o *NodesGetClassUnauthorized) Code() int {
 }
 
 func (o *NodesGetClassUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassUnauthorized ", 401)
+	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassUnauthorized", 401)
 }
 
 func (o *NodesGetClassUnauthorized) String() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassUnauthorized ", 401)
+	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassUnauthorized", 401)
 }
 
 func (o *NodesGetClassUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -244,11 +244,13 @@ func (o *NodesGetClassForbidden) Code() int {
 }
 
 func (o *NodesGetClassForbidden) Error() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassForbidden %s", 403, payload)
 }
 
 func (o *NodesGetClassForbidden) String() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassForbidden %s", 403, payload)
 }
 
 func (o *NodesGetClassForbidden) GetPayload() *models.ErrorResponse {
@@ -256,7 +258,6 @@ func (o *NodesGetClassForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetClassForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -312,11 +313,13 @@ func (o *NodesGetClassNotFound) Code() int {
 }
 
 func (o *NodesGetClassNotFound) Error() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassNotFound %s", 404, payload)
 }
 
 func (o *NodesGetClassNotFound) String() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassNotFound %s", 404, payload)
 }
 
 func (o *NodesGetClassNotFound) GetPayload() *models.ErrorResponse {
@@ -324,7 +327,6 @@ func (o *NodesGetClassNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetClassNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -380,11 +382,13 @@ func (o *NodesGetClassUnprocessableEntity) Code() int {
 }
 
 func (o *NodesGetClassUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassUnprocessableEntity %s", 422, payload)
 }
 
 func (o *NodesGetClassUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassUnprocessableEntity %s", 422, payload)
 }
 
 func (o *NodesGetClassUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -392,7 +396,6 @@ func (o *NodesGetClassUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetClassUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -448,11 +451,13 @@ func (o *NodesGetClassInternalServerError) Code() int {
 }
 
 func (o *NodesGetClassInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassInternalServerError %s", 500, payload)
 }
 
 func (o *NodesGetClassInternalServerError) String() string {
-	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /nodes/{className}][%d] nodesGetClassInternalServerError %s", 500, payload)
 }
 
 func (o *NodesGetClassInternalServerError) GetPayload() *models.ErrorResponse {
@@ -460,7 +465,6 @@ func (o *NodesGetClassInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetClassInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

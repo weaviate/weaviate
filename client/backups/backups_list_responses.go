@@ -17,6 +17,7 @@ package backups
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *BackupsListReader) ReadResponse(response runtime.ClientResponse, consum
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /backups/{backend}] backups.list", response, response.Code())
 	}
 }
 
@@ -114,11 +115,13 @@ func (o *BackupsListOK) Code() int {
 }
 
 func (o *BackupsListOK) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListOK %s", 200, payload)
 }
 
 func (o *BackupsListOK) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListOK %s", 200, payload)
 }
 
 func (o *BackupsListOK) GetPayload() models.BackupListResponse {
@@ -126,7 +129,6 @@ func (o *BackupsListOK) GetPayload() models.BackupListResponse {
 }
 
 func (o *BackupsListOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -145,8 +147,7 @@ BackupsListUnauthorized describes a response with status code 401, with default 
 
 Unauthorized or invalid credentials.
 */
-type BackupsListUnauthorized struct {
-}
+type BackupsListUnauthorized struct{}
 
 // IsSuccess returns true when this backups list unauthorized response has a 2xx status code
 func (o *BackupsListUnauthorized) IsSuccess() bool {
@@ -179,15 +180,14 @@ func (o *BackupsListUnauthorized) Code() int {
 }
 
 func (o *BackupsListUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListUnauthorized ", 401)
+	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListUnauthorized", 401)
 }
 
 func (o *BackupsListUnauthorized) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListUnauthorized ", 401)
+	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListUnauthorized", 401)
 }
 
 func (o *BackupsListUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -236,11 +236,13 @@ func (o *BackupsListForbidden) Code() int {
 }
 
 func (o *BackupsListForbidden) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListForbidden %s", 403, payload)
 }
 
 func (o *BackupsListForbidden) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListForbidden %s", 403, payload)
 }
 
 func (o *BackupsListForbidden) GetPayload() *models.ErrorResponse {
@@ -248,7 +250,6 @@ func (o *BackupsListForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsListForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -304,11 +305,13 @@ func (o *BackupsListUnprocessableEntity) Code() int {
 }
 
 func (o *BackupsListUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListUnprocessableEntity %s", 422, payload)
 }
 
 func (o *BackupsListUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListUnprocessableEntity %s", 422, payload)
 }
 
 func (o *BackupsListUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -316,7 +319,6 @@ func (o *BackupsListUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsListUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -372,11 +374,13 @@ func (o *BackupsListInternalServerError) Code() int {
 }
 
 func (o *BackupsListInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListInternalServerError %s", 500, payload)
 }
 
 func (o *BackupsListInternalServerError) String() string {
-	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}][%d] backupsListInternalServerError %s", 500, payload)
 }
 
 func (o *BackupsListInternalServerError) GetPayload() *models.ErrorResponse {
@@ -384,7 +388,6 @@ func (o *BackupsListInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsListInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

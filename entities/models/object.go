@@ -29,7 +29,6 @@ import (
 //
 // swagger:model Object
 type Object struct {
-
 	// additional
 	Additional AdditionalProperties `json:"additional,omitempty"`
 
@@ -178,6 +177,9 @@ func (m *Object) ContextValidate(ctx context.Context, formats strfmt.Registry) e
 }
 
 func (m *Object) contextValidateAdditional(ctx context.Context, formats strfmt.Registry) error {
+	if swag.IsZero(m.Additional) { // not required
+		return nil
+	}
 
 	if err := m.Additional.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
@@ -192,7 +194,6 @@ func (m *Object) contextValidateAdditional(ctx context.Context, formats strfmt.R
 }
 
 func (m *Object) contextValidateVector(ctx context.Context, formats strfmt.Registry) error {
-
 	if err := m.Vector.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("vector")
@@ -206,6 +207,9 @@ func (m *Object) contextValidateVector(ctx context.Context, formats strfmt.Regis
 }
 
 func (m *Object) contextValidateVectors(ctx context.Context, formats strfmt.Registry) error {
+	if swag.IsZero(m.Vectors) { // not required
+		return nil
+	}
 
 	if err := m.Vectors.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {

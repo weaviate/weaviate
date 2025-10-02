@@ -17,6 +17,7 @@ package objects
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *ObjectsReferencesCreateReader) ReadResponse(response runtime.ClientResp
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /objects/{id}/references/{propertyName}] objects.references.create", response, response.Code())
 	}
 }
 
@@ -79,8 +80,7 @@ ObjectsReferencesCreateOK describes a response with status code 200, with defaul
 
 Successfully added the reference.
 */
-type ObjectsReferencesCreateOK struct {
-}
+type ObjectsReferencesCreateOK struct{}
 
 // IsSuccess returns true when this objects references create o k response has a 2xx status code
 func (o *ObjectsReferencesCreateOK) IsSuccess() bool {
@@ -113,15 +113,14 @@ func (o *ObjectsReferencesCreateOK) Code() int {
 }
 
 func (o *ObjectsReferencesCreateOK) Error() string {
-	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateOK ", 200)
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateOK", 200)
 }
 
 func (o *ObjectsReferencesCreateOK) String() string {
-	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateOK ", 200)
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateOK", 200)
 }
 
 func (o *ObjectsReferencesCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -135,8 +134,7 @@ ObjectsReferencesCreateUnauthorized describes a response with status code 401, w
 
 Unauthorized or invalid credentials.
 */
-type ObjectsReferencesCreateUnauthorized struct {
-}
+type ObjectsReferencesCreateUnauthorized struct{}
 
 // IsSuccess returns true when this objects references create unauthorized response has a 2xx status code
 func (o *ObjectsReferencesCreateUnauthorized) IsSuccess() bool {
@@ -169,15 +167,14 @@ func (o *ObjectsReferencesCreateUnauthorized) Code() int {
 }
 
 func (o *ObjectsReferencesCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateUnauthorized", 401)
 }
 
 func (o *ObjectsReferencesCreateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateUnauthorized", 401)
 }
 
 func (o *ObjectsReferencesCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -226,11 +223,13 @@ func (o *ObjectsReferencesCreateForbidden) Code() int {
 }
 
 func (o *ObjectsReferencesCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateForbidden %s", 403, payload)
 }
 
 func (o *ObjectsReferencesCreateForbidden) String() string {
-	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateForbidden %s", 403, payload)
 }
 
 func (o *ObjectsReferencesCreateForbidden) GetPayload() *models.ErrorResponse {
@@ -238,7 +237,6 @@ func (o *ObjectsReferencesCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsReferencesCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -294,11 +292,13 @@ func (o *ObjectsReferencesCreateUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsReferencesCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsReferencesCreateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsReferencesCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -306,7 +306,6 @@ func (o *ObjectsReferencesCreateUnprocessableEntity) GetPayload() *models.ErrorR
 }
 
 func (o *ObjectsReferencesCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -362,11 +361,13 @@ func (o *ObjectsReferencesCreateInternalServerError) Code() int {
 }
 
 func (o *ObjectsReferencesCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsReferencesCreateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsReferencesCreateInternalServerError) GetPayload() *models.ErrorResponse {
@@ -374,7 +375,6 @@ func (o *ObjectsReferencesCreateInternalServerError) GetPayload() *models.ErrorR
 }
 
 func (o *ObjectsReferencesCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

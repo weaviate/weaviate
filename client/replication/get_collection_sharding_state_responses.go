@@ -17,6 +17,7 @@ package replication
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -77,7 +78,7 @@ func (o *GetCollectionShardingStateReader) ReadResponse(response runtime.ClientR
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /replication/sharding-state] getCollectionShardingState", response, response.Code())
 	}
 }
 
@@ -126,11 +127,13 @@ func (o *GetCollectionShardingStateOK) Code() int {
 }
 
 func (o *GetCollectionShardingStateOK) Error() string {
-	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateOK %s", 200, payload)
 }
 
 func (o *GetCollectionShardingStateOK) String() string {
-	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateOK %s", 200, payload)
 }
 
 func (o *GetCollectionShardingStateOK) GetPayload() *models.ReplicationShardingStateResponse {
@@ -138,7 +141,6 @@ func (o *GetCollectionShardingStateOK) GetPayload() *models.ReplicationShardingS
 }
 
 func (o *GetCollectionShardingStateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ReplicationShardingStateResponse)
 
 	// response payload
@@ -194,11 +196,13 @@ func (o *GetCollectionShardingStateBadRequest) Code() int {
 }
 
 func (o *GetCollectionShardingStateBadRequest) Error() string {
-	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateBadRequest %s", 400, payload)
 }
 
 func (o *GetCollectionShardingStateBadRequest) String() string {
-	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateBadRequest %s", 400, payload)
 }
 
 func (o *GetCollectionShardingStateBadRequest) GetPayload() *models.ErrorResponse {
@@ -206,7 +210,6 @@ func (o *GetCollectionShardingStateBadRequest) GetPayload() *models.ErrorRespons
 }
 
 func (o *GetCollectionShardingStateBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -227,8 +230,7 @@ GetCollectionShardingStateUnauthorized describes a response with status code 401
 
 Unauthorized or invalid credentials.
 */
-type GetCollectionShardingStateUnauthorized struct {
-}
+type GetCollectionShardingStateUnauthorized struct{}
 
 // IsSuccess returns true when this get collection sharding state unauthorized response has a 2xx status code
 func (o *GetCollectionShardingStateUnauthorized) IsSuccess() bool {
@@ -261,15 +263,14 @@ func (o *GetCollectionShardingStateUnauthorized) Code() int {
 }
 
 func (o *GetCollectionShardingStateUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateUnauthorized ", 401)
+	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateUnauthorized", 401)
 }
 
 func (o *GetCollectionShardingStateUnauthorized) String() string {
-	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateUnauthorized ", 401)
+	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateUnauthorized", 401)
 }
 
 func (o *GetCollectionShardingStateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -318,11 +319,13 @@ func (o *GetCollectionShardingStateForbidden) Code() int {
 }
 
 func (o *GetCollectionShardingStateForbidden) Error() string {
-	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateForbidden %s", 403, payload)
 }
 
 func (o *GetCollectionShardingStateForbidden) String() string {
-	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateForbidden %s", 403, payload)
 }
 
 func (o *GetCollectionShardingStateForbidden) GetPayload() *models.ErrorResponse {
@@ -330,7 +333,6 @@ func (o *GetCollectionShardingStateForbidden) GetPayload() *models.ErrorResponse
 }
 
 func (o *GetCollectionShardingStateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -386,11 +388,13 @@ func (o *GetCollectionShardingStateNotFound) Code() int {
 }
 
 func (o *GetCollectionShardingStateNotFound) Error() string {
-	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateNotFound %s", 404, payload)
 }
 
 func (o *GetCollectionShardingStateNotFound) String() string {
-	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateNotFound %s", 404, payload)
 }
 
 func (o *GetCollectionShardingStateNotFound) GetPayload() *models.ErrorResponse {
@@ -398,7 +402,6 @@ func (o *GetCollectionShardingStateNotFound) GetPayload() *models.ErrorResponse 
 }
 
 func (o *GetCollectionShardingStateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -454,11 +457,13 @@ func (o *GetCollectionShardingStateInternalServerError) Code() int {
 }
 
 func (o *GetCollectionShardingStateInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateInternalServerError %s", 500, payload)
 }
 
 func (o *GetCollectionShardingStateInternalServerError) String() string {
-	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateInternalServerError %s", 500, payload)
 }
 
 func (o *GetCollectionShardingStateInternalServerError) GetPayload() *models.ErrorResponse {
@@ -466,7 +471,6 @@ func (o *GetCollectionShardingStateInternalServerError) GetPayload() *models.Err
 }
 
 func (o *GetCollectionShardingStateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -522,11 +526,13 @@ func (o *GetCollectionShardingStateNotImplemented) Code() int {
 }
 
 func (o *GetCollectionShardingStateNotImplemented) Error() string {
-	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateNotImplemented  %+v", 501, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateNotImplemented %s", 501, payload)
 }
 
 func (o *GetCollectionShardingStateNotImplemented) String() string {
-	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateNotImplemented  %+v", 501, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /replication/sharding-state][%d] getCollectionShardingStateNotImplemented %s", 501, payload)
 }
 
 func (o *GetCollectionShardingStateNotImplemented) GetPayload() *models.ErrorResponse {
@@ -534,7 +540,6 @@ func (o *GetCollectionShardingStateNotImplemented) GetPayload() *models.ErrorRes
 }
 
 func (o *GetCollectionShardingStateNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

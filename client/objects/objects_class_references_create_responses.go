@@ -17,6 +17,7 @@ package objects
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -77,7 +78,7 @@ func (o *ObjectsClassReferencesCreateReader) ReadResponse(response runtime.Clien
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /objects/{className}/{id}/references/{propertyName}] objects.class.references.create", response, response.Code())
 	}
 }
 
@@ -91,8 +92,7 @@ ObjectsClassReferencesCreateOK describes a response with status code 200, with d
 
 Successfully added the reference.
 */
-type ObjectsClassReferencesCreateOK struct {
-}
+type ObjectsClassReferencesCreateOK struct{}
 
 // IsSuccess returns true when this objects class references create o k response has a 2xx status code
 func (o *ObjectsClassReferencesCreateOK) IsSuccess() bool {
@@ -125,15 +125,14 @@ func (o *ObjectsClassReferencesCreateOK) Code() int {
 }
 
 func (o *ObjectsClassReferencesCreateOK) Error() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateOK ", 200)
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateOK", 200)
 }
 
 func (o *ObjectsClassReferencesCreateOK) String() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateOK ", 200)
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateOK", 200)
 }
 
 func (o *ObjectsClassReferencesCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -182,11 +181,13 @@ func (o *ObjectsClassReferencesCreateBadRequest) Code() int {
 }
 
 func (o *ObjectsClassReferencesCreateBadRequest) Error() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateBadRequest %s", 400, payload)
 }
 
 func (o *ObjectsClassReferencesCreateBadRequest) String() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateBadRequest %s", 400, payload)
 }
 
 func (o *ObjectsClassReferencesCreateBadRequest) GetPayload() *models.ErrorResponse {
@@ -194,7 +195,6 @@ func (o *ObjectsClassReferencesCreateBadRequest) GetPayload() *models.ErrorRespo
 }
 
 func (o *ObjectsClassReferencesCreateBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -215,8 +215,7 @@ ObjectsClassReferencesCreateUnauthorized describes a response with status code 4
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassReferencesCreateUnauthorized struct {
-}
+type ObjectsClassReferencesCreateUnauthorized struct{}
 
 // IsSuccess returns true when this objects class references create unauthorized response has a 2xx status code
 func (o *ObjectsClassReferencesCreateUnauthorized) IsSuccess() bool {
@@ -249,15 +248,14 @@ func (o *ObjectsClassReferencesCreateUnauthorized) Code() int {
 }
 
 func (o *ObjectsClassReferencesCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnauthorized", 401)
 }
 
 func (o *ObjectsClassReferencesCreateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnauthorized", 401)
 }
 
 func (o *ObjectsClassReferencesCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -306,11 +304,13 @@ func (o *ObjectsClassReferencesCreateForbidden) Code() int {
 }
 
 func (o *ObjectsClassReferencesCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateForbidden %s", 403, payload)
 }
 
 func (o *ObjectsClassReferencesCreateForbidden) String() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateForbidden %s", 403, payload)
 }
 
 func (o *ObjectsClassReferencesCreateForbidden) GetPayload() *models.ErrorResponse {
@@ -318,7 +318,6 @@ func (o *ObjectsClassReferencesCreateForbidden) GetPayload() *models.ErrorRespon
 }
 
 func (o *ObjectsClassReferencesCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -339,8 +338,7 @@ ObjectsClassReferencesCreateNotFound describes a response with status code 404, 
 
 Source object doesn't exist.
 */
-type ObjectsClassReferencesCreateNotFound struct {
-}
+type ObjectsClassReferencesCreateNotFound struct{}
 
 // IsSuccess returns true when this objects class references create not found response has a 2xx status code
 func (o *ObjectsClassReferencesCreateNotFound) IsSuccess() bool {
@@ -373,15 +371,14 @@ func (o *ObjectsClassReferencesCreateNotFound) Code() int {
 }
 
 func (o *ObjectsClassReferencesCreateNotFound) Error() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateNotFound ", 404)
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateNotFound", 404)
 }
 
 func (o *ObjectsClassReferencesCreateNotFound) String() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateNotFound ", 404)
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateNotFound", 404)
 }
 
 func (o *ObjectsClassReferencesCreateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -430,11 +427,13 @@ func (o *ObjectsClassReferencesCreateUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsClassReferencesCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsClassReferencesCreateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsClassReferencesCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -442,7 +441,6 @@ func (o *ObjectsClassReferencesCreateUnprocessableEntity) GetPayload() *models.E
 }
 
 func (o *ObjectsClassReferencesCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -498,11 +496,13 @@ func (o *ObjectsClassReferencesCreateInternalServerError) Code() int {
 }
 
 func (o *ObjectsClassReferencesCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsClassReferencesCreateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsClassReferencesCreateInternalServerError) GetPayload() *models.ErrorResponse {
@@ -510,7 +510,6 @@ func (o *ObjectsClassReferencesCreateInternalServerError) GetPayload() *models.E
 }
 
 func (o *ObjectsClassReferencesCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

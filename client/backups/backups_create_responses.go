@@ -17,6 +17,7 @@ package backups
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *BackupsCreateReader) ReadResponse(response runtime.ClientResponse, cons
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /backups/{backend}] backups.create", response, response.Code())
 	}
 }
 
@@ -114,11 +115,13 @@ func (o *BackupsCreateOK) Code() int {
 }
 
 func (o *BackupsCreateOK) Error() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateOK %s", 200, payload)
 }
 
 func (o *BackupsCreateOK) String() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateOK %s", 200, payload)
 }
 
 func (o *BackupsCreateOK) GetPayload() *models.BackupCreateResponse {
@@ -126,7 +129,6 @@ func (o *BackupsCreateOK) GetPayload() *models.BackupCreateResponse {
 }
 
 func (o *BackupsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.BackupCreateResponse)
 
 	// response payload
@@ -147,8 +149,7 @@ BackupsCreateUnauthorized describes a response with status code 401, with defaul
 
 Unauthorized or invalid credentials.
 */
-type BackupsCreateUnauthorized struct {
-}
+type BackupsCreateUnauthorized struct{}
 
 // IsSuccess returns true when this backups create unauthorized response has a 2xx status code
 func (o *BackupsCreateUnauthorized) IsSuccess() bool {
@@ -181,15 +182,14 @@ func (o *BackupsCreateUnauthorized) Code() int {
 }
 
 func (o *BackupsCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateUnauthorized", 401)
 }
 
 func (o *BackupsCreateUnauthorized) String() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateUnauthorized", 401)
 }
 
 func (o *BackupsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -238,11 +238,13 @@ func (o *BackupsCreateForbidden) Code() int {
 }
 
 func (o *BackupsCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateForbidden %s", 403, payload)
 }
 
 func (o *BackupsCreateForbidden) String() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateForbidden %s", 403, payload)
 }
 
 func (o *BackupsCreateForbidden) GetPayload() *models.ErrorResponse {
@@ -250,7 +252,6 @@ func (o *BackupsCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -306,11 +307,13 @@ func (o *BackupsCreateUnprocessableEntity) Code() int {
 }
 
 func (o *BackupsCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *BackupsCreateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *BackupsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -318,7 +321,6 @@ func (o *BackupsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -374,11 +376,13 @@ func (o *BackupsCreateInternalServerError) Code() int {
 }
 
 func (o *BackupsCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateInternalServerError %s", 500, payload)
 }
 
 func (o *BackupsCreateInternalServerError) String() string {
-	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateInternalServerError %s", 500, payload)
 }
 
 func (o *BackupsCreateInternalServerError) GetPayload() *models.ErrorResponse {
@@ -386,7 +390,6 @@ func (o *BackupsCreateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

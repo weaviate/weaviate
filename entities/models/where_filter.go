@@ -31,13 +31,12 @@ import (
 //
 // swagger:model WhereFilter
 type WhereFilter struct {
-
 	// combine multiple where filters, requires 'And' or 'Or' operator
 	Operands []*WhereFilter `json:"operands"`
 
 	// operator to use
 	// Example: GreaterThanEqual
-	// Enum: [And Or Equal Like NotEqual GreaterThan GreaterThanEqual LessThan LessThanEqual WithinGeoRange IsNull ContainsAny ContainsAll ContainsNone Not]
+	// Enum: ["And","Or","Equal","Like","NotEqual","GreaterThan","GreaterThanEqual","LessThan","LessThanEqual","WithinGeoRange","IsNull","ContainsAny","ContainsAll","ContainsNone","Not"]
 	Operator string `json:"operator,omitempty"`
 
 	// path to the property currently being filtered
@@ -263,10 +262,13 @@ func (m *WhereFilter) ContextValidate(ctx context.Context, formats strfmt.Regist
 }
 
 func (m *WhereFilter) contextValidateOperands(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.Operands); i++ {
-
 		if m.Operands[i] != nil {
+
+			if swag.IsZero(m.Operands[i]) { // not required
+				return nil
+			}
+
 			if err := m.Operands[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("operands" + "." + strconv.Itoa(i))
@@ -276,15 +278,18 @@ func (m *WhereFilter) contextValidateOperands(ctx context.Context, formats strfm
 				return err
 			}
 		}
-
 	}
 
 	return nil
 }
 
 func (m *WhereFilter) contextValidateValueGeoRange(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.ValueGeoRange != nil {
+
+		if swag.IsZero(m.ValueGeoRange) { // not required
+			return nil
+		}
+
 		if err := m.ValueGeoRange.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("valueGeoRange")

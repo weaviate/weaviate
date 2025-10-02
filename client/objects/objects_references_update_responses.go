@@ -17,6 +17,7 @@ package objects
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *ObjectsReferencesUpdateReader) ReadResponse(response runtime.ClientResp
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[PUT /objects/{id}/references/{propertyName}] objects.references.update", response, response.Code())
 	}
 }
 
@@ -79,8 +80,7 @@ ObjectsReferencesUpdateOK describes a response with status code 200, with defaul
 
 Successfully replaced all the references.
 */
-type ObjectsReferencesUpdateOK struct {
-}
+type ObjectsReferencesUpdateOK struct{}
 
 // IsSuccess returns true when this objects references update o k response has a 2xx status code
 func (o *ObjectsReferencesUpdateOK) IsSuccess() bool {
@@ -113,15 +113,14 @@ func (o *ObjectsReferencesUpdateOK) Code() int {
 }
 
 func (o *ObjectsReferencesUpdateOK) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateOK ", 200)
+	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateOK", 200)
 }
 
 func (o *ObjectsReferencesUpdateOK) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateOK ", 200)
+	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateOK", 200)
 }
 
 func (o *ObjectsReferencesUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -135,8 +134,7 @@ ObjectsReferencesUpdateUnauthorized describes a response with status code 401, w
 
 Unauthorized or invalid credentials.
 */
-type ObjectsReferencesUpdateUnauthorized struct {
-}
+type ObjectsReferencesUpdateUnauthorized struct{}
 
 // IsSuccess returns true when this objects references update unauthorized response has a 2xx status code
 func (o *ObjectsReferencesUpdateUnauthorized) IsSuccess() bool {
@@ -169,15 +167,14 @@ func (o *ObjectsReferencesUpdateUnauthorized) Code() int {
 }
 
 func (o *ObjectsReferencesUpdateUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnauthorized", 401)
 }
 
 func (o *ObjectsReferencesUpdateUnauthorized) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnauthorized", 401)
 }
 
 func (o *ObjectsReferencesUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -226,11 +223,13 @@ func (o *ObjectsReferencesUpdateForbidden) Code() int {
 }
 
 func (o *ObjectsReferencesUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateForbidden %s", 403, payload)
 }
 
 func (o *ObjectsReferencesUpdateForbidden) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateForbidden %s", 403, payload)
 }
 
 func (o *ObjectsReferencesUpdateForbidden) GetPayload() *models.ErrorResponse {
@@ -238,7 +237,6 @@ func (o *ObjectsReferencesUpdateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsReferencesUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -294,11 +292,13 @@ func (o *ObjectsReferencesUpdateUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsReferencesUpdateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsReferencesUpdateUnprocessableEntity) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsReferencesUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -306,7 +306,6 @@ func (o *ObjectsReferencesUpdateUnprocessableEntity) GetPayload() *models.ErrorR
 }
 
 func (o *ObjectsReferencesUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -362,11 +361,13 @@ func (o *ObjectsReferencesUpdateInternalServerError) Code() int {
 }
 
 func (o *ObjectsReferencesUpdateInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsReferencesUpdateInternalServerError) String() string {
-	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsReferencesUpdateInternalServerError) GetPayload() *models.ErrorResponse {
@@ -374,7 +375,6 @@ func (o *ObjectsReferencesUpdateInternalServerError) GetPayload() *models.ErrorR
 }
 
 func (o *ObjectsReferencesUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

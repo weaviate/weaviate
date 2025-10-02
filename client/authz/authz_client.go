@@ -20,12 +20,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new authz API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new authz API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new authz API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -36,8 +62,32 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
+
+// This client is generated with a few options you might find useful for your swagger spec.
+//
+// Feel free to add you own set of options.
+
+// WithContentType allows the client to force the Content-Type header
+// to negotiate a specific Consumer from the server.
+//
+// You may use this option to set arbitrary extensions to your MIME media type.
+func WithContentType(mime string) ClientOption {
+	return func(r *runtime.ClientOperation) {
+		r.ConsumesMediaTypes = []string{mime}
+	}
+}
+
+// WithContentTypeApplicationJSON sets the Content-Type header to "application/json".
+func WithContentTypeApplicationJSON(r *runtime.ClientOperation) {
+	r.ConsumesMediaTypes = []string{"application/json"}
+}
+
+// WithContentTypeApplicationYaml sets the Content-Type header to "application/yaml".
+func WithContentTypeApplicationYaml(r *runtime.ClientOperation) {
+	r.ConsumesMediaTypes = []string{"application/yaml"}
+}
 
 // ClientService is the interface for Client methods
 type ClientService interface {
@@ -93,7 +143,7 @@ func (a *Client) AddPermissions(params *AddPermissionsParams, authInfo runtime.C
 		Method:             "POST",
 		PathPattern:        "/authz/roles/{id}/add-permissions",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &AddPermissionsReader{formats: a.formats},
@@ -132,7 +182,7 @@ func (a *Client) AssignRoleToGroup(params *AssignRoleToGroupParams, authInfo run
 		Method:             "POST",
 		PathPattern:        "/authz/groups/{id}/assign",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &AssignRoleToGroupReader{formats: a.formats},
@@ -171,7 +221,7 @@ func (a *Client) AssignRoleToUser(params *AssignRoleToUserParams, authInfo runti
 		Method:             "POST",
 		PathPattern:        "/authz/users/{id}/assign",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &AssignRoleToUserReader{formats: a.formats},
@@ -210,7 +260,7 @@ func (a *Client) CreateRole(params *CreateRoleParams, authInfo runtime.ClientAut
 		Method:             "POST",
 		PathPattern:        "/authz/roles",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &CreateRoleReader{formats: a.formats},
@@ -249,7 +299,7 @@ func (a *Client) DeleteRole(params *DeleteRoleParams, authInfo runtime.ClientAut
 		Method:             "DELETE",
 		PathPattern:        "/authz/roles/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &DeleteRoleReader{formats: a.formats},
@@ -290,7 +340,7 @@ func (a *Client) GetGroups(params *GetGroupsParams, authInfo runtime.ClientAuthI
 		Method:             "GET",
 		PathPattern:        "/authz/groups/{groupType}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &GetGroupsReader{formats: a.formats},
@@ -331,7 +381,7 @@ func (a *Client) GetGroupsForRole(params *GetGroupsForRoleParams, authInfo runti
 		Method:             "GET",
 		PathPattern:        "/authz/roles/{id}/group-assignments",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &GetGroupsForRoleReader{formats: a.formats},
@@ -370,7 +420,7 @@ func (a *Client) GetRole(params *GetRoleParams, authInfo runtime.ClientAuthInfoW
 		Method:             "GET",
 		PathPattern:        "/authz/roles/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &GetRoleReader{formats: a.formats},
@@ -409,7 +459,7 @@ func (a *Client) GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInf
 		Method:             "GET",
 		PathPattern:        "/authz/roles",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &GetRolesReader{formats: a.formats},
@@ -450,7 +500,7 @@ func (a *Client) GetRolesForGroup(params *GetRolesForGroupParams, authInfo runti
 		Method:             "GET",
 		PathPattern:        "/authz/groups/{id}/roles/{groupType}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &GetRolesForGroupReader{formats: a.formats},
@@ -489,7 +539,7 @@ func (a *Client) GetRolesForUser(params *GetRolesForUserParams, authInfo runtime
 		Method:             "GET",
 		PathPattern:        "/authz/users/{id}/roles/{userType}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &GetRolesForUserReader{formats: a.formats},
@@ -528,7 +578,7 @@ func (a *Client) GetRolesForUserDeprecated(params *GetRolesForUserDeprecatedPara
 		Method:             "GET",
 		PathPattern:        "/authz/users/{id}/roles",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &GetRolesForUserDeprecatedReader{formats: a.formats},
@@ -567,7 +617,7 @@ func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime
 		Method:             "GET",
 		PathPattern:        "/authz/roles/{id}/user-assignments",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &GetUsersForRoleReader{formats: a.formats},
@@ -606,7 +656,7 @@ func (a *Client) GetUsersForRoleDeprecated(params *GetUsersForRoleDeprecatedPara
 		Method:             "GET",
 		PathPattern:        "/authz/roles/{id}/users",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &GetUsersForRoleDeprecatedReader{formats: a.formats},
@@ -645,7 +695,7 @@ func (a *Client) HasPermission(params *HasPermissionParams, authInfo runtime.Cli
 		Method:             "POST",
 		PathPattern:        "/authz/roles/{id}/has-permission",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &HasPermissionReader{formats: a.formats},
@@ -684,7 +734,7 @@ func (a *Client) RemovePermissions(params *RemovePermissionsParams, authInfo run
 		Method:             "POST",
 		PathPattern:        "/authz/roles/{id}/remove-permissions",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &RemovePermissionsReader{formats: a.formats},
@@ -723,7 +773,7 @@ func (a *Client) RevokeRoleFromGroup(params *RevokeRoleFromGroupParams, authInfo
 		Method:             "POST",
 		PathPattern:        "/authz/groups/{id}/revoke",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &RevokeRoleFromGroupReader{formats: a.formats},
@@ -762,7 +812,7 @@ func (a *Client) RevokeRoleFromUser(params *RevokeRoleFromUserParams, authInfo r
 		Method:             "POST",
 		PathPattern:        "/authz/users/{id}/revoke",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &RevokeRoleFromUserReader{formats: a.formats},

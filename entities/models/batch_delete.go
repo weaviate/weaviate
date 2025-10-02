@@ -28,7 +28,6 @@ import (
 //
 // swagger:model BatchDelete
 type BatchDelete struct {
-
 	// Timestamp of deletion in milliseconds since epoch UTC.
 	DeletionTimeUnixMilli *int64 `json:"deletionTimeUnixMilli,omitempty"`
 
@@ -90,8 +89,12 @@ func (m *BatchDelete) ContextValidate(ctx context.Context, formats strfmt.Regist
 }
 
 func (m *BatchDelete) contextValidateMatch(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Match != nil {
+
+		if swag.IsZero(m.Match) { // not required
+			return nil
+		}
+
 		if err := m.Match.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("match")
@@ -127,7 +130,6 @@ func (m *BatchDelete) UnmarshalBinary(b []byte) error {
 //
 // swagger:model BatchDeleteMatch
 type BatchDeleteMatch struct {
-
 	// Class (name) which objects will be deleted.
 	// Example: City
 	Class string `json:"class,omitempty"`
@@ -184,8 +186,12 @@ func (m *BatchDeleteMatch) ContextValidate(ctx context.Context, formats strfmt.R
 }
 
 func (m *BatchDeleteMatch) contextValidateWhere(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Where != nil {
+
+		if swag.IsZero(m.Where) { // not required
+			return nil
+		}
+
 		if err := m.Where.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("match" + "." + "where")

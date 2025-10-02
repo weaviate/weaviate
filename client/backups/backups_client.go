@@ -20,12 +20,38 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new backups API client.
 func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
+}
+
+// New creates a new backups API client with basic auth credentials.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - user: user for basic authentication header.
+// - password: password for basic authentication header.
+func NewClientWithBasicAuth(host, basePath, scheme, user, password string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BasicAuth(user, password)
+	return &Client{transport: transport, formats: strfmt.Default}
+}
+
+// New creates a new backups API client with a bearer token for authentication.
+// It takes the following parameters:
+// - host: http host (github.com).
+// - basePath: any base path for the API client ("/v1", "/v3").
+// - scheme: http scheme ("http", "https").
+// - bearerToken: bearer token for Bearer authentication header.
+func NewClientWithBearerToken(host, basePath, scheme, bearerToken string) ClientService {
+	transport := httptransport.New(host, basePath, []string{scheme})
+	transport.DefaultAuthentication = httptransport.BearerToken(bearerToken)
+	return &Client{transport: transport, formats: strfmt.Default}
 }
 
 /*
@@ -36,8 +62,32 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-// ClientOption is the option for Client methods
+// ClientOption may be used to customize the behavior of Client methods.
 type ClientOption func(*runtime.ClientOperation)
+
+// This client is generated with a few options you might find useful for your swagger spec.
+//
+// Feel free to add you own set of options.
+
+// WithContentType allows the client to force the Content-Type header
+// to negotiate a specific Consumer from the server.
+//
+// You may use this option to set arbitrary extensions to your MIME media type.
+func WithContentType(mime string) ClientOption {
+	return func(r *runtime.ClientOperation) {
+		r.ConsumesMediaTypes = []string{mime}
+	}
+}
+
+// WithContentTypeApplicationJSON sets the Content-Type header to "application/json".
+func WithContentTypeApplicationJSON(r *runtime.ClientOperation) {
+	r.ConsumesMediaTypes = []string{"application/json"}
+}
+
+// WithContentTypeApplicationYaml sets the Content-Type header to "application/yaml".
+func WithContentTypeApplicationYaml(r *runtime.ClientOperation) {
+	r.ConsumesMediaTypes = []string{"application/yaml"}
+}
 
 // ClientService is the interface for Client methods
 type ClientService interface {
@@ -71,7 +121,7 @@ func (a *Client) BackupsCancel(params *BackupsCancelParams, authInfo runtime.Cli
 		Method:             "DELETE",
 		PathPattern:        "/backups/{backend}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &BackupsCancelReader{formats: a.formats},
@@ -112,7 +162,7 @@ func (a *Client) BackupsCreate(params *BackupsCreateParams, authInfo runtime.Cli
 		Method:             "POST",
 		PathPattern:        "/backups/{backend}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &BackupsCreateReader{formats: a.formats},
@@ -153,7 +203,7 @@ func (a *Client) BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo
 		Method:             "GET",
 		PathPattern:        "/backups/{backend}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &BackupsCreateStatusReader{formats: a.formats},
@@ -194,7 +244,7 @@ func (a *Client) BackupsList(params *BackupsListParams, authInfo runtime.ClientA
 		Method:             "GET",
 		PathPattern:        "/backups/{backend}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &BackupsListReader{formats: a.formats},
@@ -235,7 +285,7 @@ func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.C
 		Method:             "POST",
 		PathPattern:        "/backups/{backend}/{id}/restore",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &BackupsRestoreReader{formats: a.formats},
@@ -276,7 +326,7 @@ func (a *Client) BackupsRestoreStatus(params *BackupsRestoreStatusParams, authIn
 		Method:             "GET",
 		PathPattern:        "/backups/{backend}/{id}/restore",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/yaml", "application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &BackupsRestoreStatusReader{formats: a.formats},

@@ -17,6 +17,7 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *SchemaObjectsPropertiesAddReader) ReadResponse(response runtime.ClientR
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /schema/{className}/properties] schema.objects.properties.add", response, response.Code())
 	}
 }
 
@@ -114,11 +115,13 @@ func (o *SchemaObjectsPropertiesAddOK) Code() int {
 }
 
 func (o *SchemaObjectsPropertiesAddOK) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddOK %s", 200, payload)
 }
 
 func (o *SchemaObjectsPropertiesAddOK) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddOK %s", 200, payload)
 }
 
 func (o *SchemaObjectsPropertiesAddOK) GetPayload() *models.Property {
@@ -126,7 +129,6 @@ func (o *SchemaObjectsPropertiesAddOK) GetPayload() *models.Property {
 }
 
 func (o *SchemaObjectsPropertiesAddOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Property)
 
 	// response payload
@@ -147,8 +149,7 @@ SchemaObjectsPropertiesAddUnauthorized describes a response with status code 401
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsPropertiesAddUnauthorized struct {
-}
+type SchemaObjectsPropertiesAddUnauthorized struct{}
 
 // IsSuccess returns true when this schema objects properties add unauthorized response has a 2xx status code
 func (o *SchemaObjectsPropertiesAddUnauthorized) IsSuccess() bool {
@@ -181,15 +182,14 @@ func (o *SchemaObjectsPropertiesAddUnauthorized) Code() int {
 }
 
 func (o *SchemaObjectsPropertiesAddUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddUnauthorized ", 401)
+	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddUnauthorized", 401)
 }
 
 func (o *SchemaObjectsPropertiesAddUnauthorized) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddUnauthorized ", 401)
+	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddUnauthorized", 401)
 }
 
 func (o *SchemaObjectsPropertiesAddUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -238,11 +238,13 @@ func (o *SchemaObjectsPropertiesAddForbidden) Code() int {
 }
 
 func (o *SchemaObjectsPropertiesAddForbidden) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddForbidden %s", 403, payload)
 }
 
 func (o *SchemaObjectsPropertiesAddForbidden) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddForbidden %s", 403, payload)
 }
 
 func (o *SchemaObjectsPropertiesAddForbidden) GetPayload() *models.ErrorResponse {
@@ -250,7 +252,6 @@ func (o *SchemaObjectsPropertiesAddForbidden) GetPayload() *models.ErrorResponse
 }
 
 func (o *SchemaObjectsPropertiesAddForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -306,11 +307,13 @@ func (o *SchemaObjectsPropertiesAddUnprocessableEntity) Code() int {
 }
 
 func (o *SchemaObjectsPropertiesAddUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddUnprocessableEntity %s", 422, payload)
 }
 
 func (o *SchemaObjectsPropertiesAddUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddUnprocessableEntity %s", 422, payload)
 }
 
 func (o *SchemaObjectsPropertiesAddUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -318,7 +321,6 @@ func (o *SchemaObjectsPropertiesAddUnprocessableEntity) GetPayload() *models.Err
 }
 
 func (o *SchemaObjectsPropertiesAddUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -374,11 +376,13 @@ func (o *SchemaObjectsPropertiesAddInternalServerError) Code() int {
 }
 
 func (o *SchemaObjectsPropertiesAddInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddInternalServerError %s", 500, payload)
 }
 
 func (o *SchemaObjectsPropertiesAddInternalServerError) String() string {
-	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddInternalServerError %s", 500, payload)
 }
 
 func (o *SchemaObjectsPropertiesAddInternalServerError) GetPayload() *models.ErrorResponse {
@@ -386,7 +390,6 @@ func (o *SchemaObjectsPropertiesAddInternalServerError) GetPayload() *models.Err
 }
 
 func (o *SchemaObjectsPropertiesAddInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

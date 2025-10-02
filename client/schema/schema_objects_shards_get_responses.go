@@ -17,6 +17,7 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -65,7 +66,7 @@ func (o *SchemaObjectsShardsGetReader) ReadResponse(response runtime.ClientRespo
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /schema/{className}/shards] schema.objects.shards.get", response, response.Code())
 	}
 }
 
@@ -114,11 +115,13 @@ func (o *SchemaObjectsShardsGetOK) Code() int {
 }
 
 func (o *SchemaObjectsShardsGetOK) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetOK %s", 200, payload)
 }
 
 func (o *SchemaObjectsShardsGetOK) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetOK %s", 200, payload)
 }
 
 func (o *SchemaObjectsShardsGetOK) GetPayload() models.ShardStatusList {
@@ -126,7 +129,6 @@ func (o *SchemaObjectsShardsGetOK) GetPayload() models.ShardStatusList {
 }
 
 func (o *SchemaObjectsShardsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -145,8 +147,7 @@ SchemaObjectsShardsGetUnauthorized describes a response with status code 401, wi
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsShardsGetUnauthorized struct {
-}
+type SchemaObjectsShardsGetUnauthorized struct{}
 
 // IsSuccess returns true when this schema objects shards get unauthorized response has a 2xx status code
 func (o *SchemaObjectsShardsGetUnauthorized) IsSuccess() bool {
@@ -179,15 +180,14 @@ func (o *SchemaObjectsShardsGetUnauthorized) Code() int {
 }
 
 func (o *SchemaObjectsShardsGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetUnauthorized", 401)
 }
 
 func (o *SchemaObjectsShardsGetUnauthorized) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetUnauthorized", 401)
 }
 
 func (o *SchemaObjectsShardsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -236,11 +236,13 @@ func (o *SchemaObjectsShardsGetForbidden) Code() int {
 }
 
 func (o *SchemaObjectsShardsGetForbidden) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetForbidden %s", 403, payload)
 }
 
 func (o *SchemaObjectsShardsGetForbidden) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetForbidden %s", 403, payload)
 }
 
 func (o *SchemaObjectsShardsGetForbidden) GetPayload() *models.ErrorResponse {
@@ -248,7 +250,6 @@ func (o *SchemaObjectsShardsGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsShardsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -304,11 +305,13 @@ func (o *SchemaObjectsShardsGetNotFound) Code() int {
 }
 
 func (o *SchemaObjectsShardsGetNotFound) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetNotFound %s", 404, payload)
 }
 
 func (o *SchemaObjectsShardsGetNotFound) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetNotFound  %+v", 404, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetNotFound %s", 404, payload)
 }
 
 func (o *SchemaObjectsShardsGetNotFound) GetPayload() *models.ErrorResponse {
@@ -316,7 +319,6 @@ func (o *SchemaObjectsShardsGetNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsShardsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -372,11 +374,13 @@ func (o *SchemaObjectsShardsGetInternalServerError) Code() int {
 }
 
 func (o *SchemaObjectsShardsGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetInternalServerError %s", 500, payload)
 }
 
 func (o *SchemaObjectsShardsGetInternalServerError) String() string {
-	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetInternalServerError %s", 500, payload)
 }
 
 func (o *SchemaObjectsShardsGetInternalServerError) GetPayload() *models.ErrorResponse {
@@ -384,7 +388,6 @@ func (o *SchemaObjectsShardsGetInternalServerError) GetPayload() *models.ErrorRe
 }
 
 func (o *SchemaObjectsShardsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

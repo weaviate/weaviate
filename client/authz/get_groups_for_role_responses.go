@@ -18,6 +18,7 @@ package authz
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -75,7 +76,7 @@ func (o *GetGroupsForRoleReader) ReadResponse(response runtime.ClientResponse, c
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /authz/roles/{id}/group-assignments] getGroupsForRole", response, response.Code())
 	}
 }
 
@@ -124,11 +125,13 @@ func (o *GetGroupsForRoleOK) Code() int {
 }
 
 func (o *GetGroupsForRoleOK) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleOK %s", 200, payload)
 }
 
 func (o *GetGroupsForRoleOK) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleOK %s", 200, payload)
 }
 
 func (o *GetGroupsForRoleOK) GetPayload() []*GetGroupsForRoleOKBodyItems0 {
@@ -136,7 +139,6 @@ func (o *GetGroupsForRoleOK) GetPayload() []*GetGroupsForRoleOKBodyItems0 {
 }
 
 func (o *GetGroupsForRoleOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -190,11 +192,13 @@ func (o *GetGroupsForRoleBadRequest) Code() int {
 }
 
 func (o *GetGroupsForRoleBadRequest) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleBadRequest %s", 400, payload)
 }
 
 func (o *GetGroupsForRoleBadRequest) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleBadRequest %s", 400, payload)
 }
 
 func (o *GetGroupsForRoleBadRequest) GetPayload() *models.ErrorResponse {
@@ -202,7 +206,6 @@ func (o *GetGroupsForRoleBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetGroupsForRoleBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -223,8 +226,7 @@ GetGroupsForRoleUnauthorized describes a response with status code 401, with def
 
 Unauthorized or invalid credentials.
 */
-type GetGroupsForRoleUnauthorized struct {
-}
+type GetGroupsForRoleUnauthorized struct{}
 
 // IsSuccess returns true when this get groups for role unauthorized response has a 2xx status code
 func (o *GetGroupsForRoleUnauthorized) IsSuccess() bool {
@@ -257,15 +259,14 @@ func (o *GetGroupsForRoleUnauthorized) Code() int {
 }
 
 func (o *GetGroupsForRoleUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleUnauthorized", 401)
 }
 
 func (o *GetGroupsForRoleUnauthorized) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleUnauthorized", 401)
 }
 
 func (o *GetGroupsForRoleUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -314,11 +315,13 @@ func (o *GetGroupsForRoleForbidden) Code() int {
 }
 
 func (o *GetGroupsForRoleForbidden) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleForbidden %s", 403, payload)
 }
 
 func (o *GetGroupsForRoleForbidden) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleForbidden %s", 403, payload)
 }
 
 func (o *GetGroupsForRoleForbidden) GetPayload() *models.ErrorResponse {
@@ -326,7 +329,6 @@ func (o *GetGroupsForRoleForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GetGroupsForRoleForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -347,8 +349,7 @@ GetGroupsForRoleNotFound describes a response with status code 404, with default
 
 The specified role was not found.
 */
-type GetGroupsForRoleNotFound struct {
-}
+type GetGroupsForRoleNotFound struct{}
 
 // IsSuccess returns true when this get groups for role not found response has a 2xx status code
 func (o *GetGroupsForRoleNotFound) IsSuccess() bool {
@@ -381,15 +382,14 @@ func (o *GetGroupsForRoleNotFound) Code() int {
 }
 
 func (o *GetGroupsForRoleNotFound) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleNotFound", 404)
 }
 
 func (o *GetGroupsForRoleNotFound) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleNotFound", 404)
 }
 
 func (o *GetGroupsForRoleNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -438,11 +438,13 @@ func (o *GetGroupsForRoleInternalServerError) Code() int {
 }
 
 func (o *GetGroupsForRoleInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleInternalServerError %s", 500, payload)
 }
 
 func (o *GetGroupsForRoleInternalServerError) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /authz/roles/{id}/group-assignments][%d] getGroupsForRoleInternalServerError %s", 500, payload)
 }
 
 func (o *GetGroupsForRoleInternalServerError) GetPayload() *models.ErrorResponse {
@@ -450,7 +452,6 @@ func (o *GetGroupsForRoleInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *GetGroupsForRoleInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -466,7 +467,6 @@ GetGroupsForRoleOKBodyItems0 get groups for role o k body items0
 swagger:model GetGroupsForRoleOKBodyItems0
 */
 type GetGroupsForRoleOKBodyItems0 struct {
-
 	// group Id
 	GroupID string `json:"groupId,omitempty"`
 
@@ -490,7 +490,6 @@ func (o *GetGroupsForRoleOKBodyItems0) Validate(formats strfmt.Registry) error {
 }
 
 func (o *GetGroupsForRoleOKBodyItems0) validateGroupType(formats strfmt.Registry) error {
-
 	if err := validate.Required("groupType", "body", o.GroupType); err != nil {
 		return err
 	}
@@ -528,7 +527,6 @@ func (o *GetGroupsForRoleOKBodyItems0) ContextValidate(ctx context.Context, form
 }
 
 func (o *GetGroupsForRoleOKBodyItems0) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
-
 	if o.GroupType != nil {
 		if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {

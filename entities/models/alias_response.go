@@ -29,7 +29,6 @@ import (
 //
 // swagger:model AliasResponse
 type AliasResponse struct {
-
 	// Array of alias objects, each containing an alias-to-collection mapping.
 	Aliases []*Alias `json:"aliases"`
 }
@@ -89,10 +88,13 @@ func (m *AliasResponse) ContextValidate(ctx context.Context, formats strfmt.Regi
 }
 
 func (m *AliasResponse) contextValidateAliases(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.Aliases); i++ {
-
 		if m.Aliases[i] != nil {
+
+			if swag.IsZero(m.Aliases[i]) { // not required
+				return nil
+			}
+
 			if err := m.Aliases[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("aliases" + "." + strconv.Itoa(i))
@@ -102,7 +104,6 @@ func (m *AliasResponse) contextValidateAliases(ctx context.Context, formats strf
 				return err
 			}
 		}
-
 	}
 
 	return nil

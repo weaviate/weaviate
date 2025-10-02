@@ -17,6 +17,7 @@ package objects
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -77,7 +78,7 @@ func (o *ObjectsListReader) ReadResponse(response runtime.ClientResponse, consum
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[GET /objects] objects.list", response, response.Code())
 	}
 }
 
@@ -126,11 +127,13 @@ func (o *ObjectsListOK) Code() int {
 }
 
 func (o *ObjectsListOK) Error() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects][%d] objectsListOK %s", 200, payload)
 }
 
 func (o *ObjectsListOK) String() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListOK  %+v", 200, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects][%d] objectsListOK %s", 200, payload)
 }
 
 func (o *ObjectsListOK) GetPayload() *models.ObjectsListResponse {
@@ -138,7 +141,6 @@ func (o *ObjectsListOK) GetPayload() *models.ObjectsListResponse {
 }
 
 func (o *ObjectsListOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ObjectsListResponse)
 
 	// response payload
@@ -194,11 +196,13 @@ func (o *ObjectsListBadRequest) Code() int {
 }
 
 func (o *ObjectsListBadRequest) Error() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects][%d] objectsListBadRequest %s", 400, payload)
 }
 
 func (o *ObjectsListBadRequest) String() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects][%d] objectsListBadRequest %s", 400, payload)
 }
 
 func (o *ObjectsListBadRequest) GetPayload() *models.ErrorResponse {
@@ -206,7 +210,6 @@ func (o *ObjectsListBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsListBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -227,8 +230,7 @@ ObjectsListUnauthorized describes a response with status code 401, with default 
 
 Unauthorized or invalid credentials.
 */
-type ObjectsListUnauthorized struct {
-}
+type ObjectsListUnauthorized struct{}
 
 // IsSuccess returns true when this objects list unauthorized response has a 2xx status code
 func (o *ObjectsListUnauthorized) IsSuccess() bool {
@@ -261,15 +263,14 @@ func (o *ObjectsListUnauthorized) Code() int {
 }
 
 func (o *ObjectsListUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListUnauthorized ", 401)
+	return fmt.Sprintf("[GET /objects][%d] objectsListUnauthorized", 401)
 }
 
 func (o *ObjectsListUnauthorized) String() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListUnauthorized ", 401)
+	return fmt.Sprintf("[GET /objects][%d] objectsListUnauthorized", 401)
 }
 
 func (o *ObjectsListUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -318,11 +319,13 @@ func (o *ObjectsListForbidden) Code() int {
 }
 
 func (o *ObjectsListForbidden) Error() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects][%d] objectsListForbidden %s", 403, payload)
 }
 
 func (o *ObjectsListForbidden) String() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects][%d] objectsListForbidden %s", 403, payload)
 }
 
 func (o *ObjectsListForbidden) GetPayload() *models.ErrorResponse {
@@ -330,7 +333,6 @@ func (o *ObjectsListForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsListForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -351,8 +353,7 @@ ObjectsListNotFound describes a response with status code 404, with default head
 
 Successful query result but no resource was found.
 */
-type ObjectsListNotFound struct {
-}
+type ObjectsListNotFound struct{}
 
 // IsSuccess returns true when this objects list not found response has a 2xx status code
 func (o *ObjectsListNotFound) IsSuccess() bool {
@@ -385,15 +386,14 @@ func (o *ObjectsListNotFound) Code() int {
 }
 
 func (o *ObjectsListNotFound) Error() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListNotFound ", 404)
+	return fmt.Sprintf("[GET /objects][%d] objectsListNotFound", 404)
 }
 
 func (o *ObjectsListNotFound) String() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListNotFound ", 404)
+	return fmt.Sprintf("[GET /objects][%d] objectsListNotFound", 404)
 }
 
 func (o *ObjectsListNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -442,11 +442,13 @@ func (o *ObjectsListUnprocessableEntity) Code() int {
 }
 
 func (o *ObjectsListUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects][%d] objectsListUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsListUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListUnprocessableEntity  %+v", 422, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects][%d] objectsListUnprocessableEntity %s", 422, payload)
 }
 
 func (o *ObjectsListUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -454,7 +456,6 @@ func (o *ObjectsListUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsListUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -510,11 +511,13 @@ func (o *ObjectsListInternalServerError) Code() int {
 }
 
 func (o *ObjectsListInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects][%d] objectsListInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsListInternalServerError) String() string {
-	return fmt.Sprintf("[GET /objects][%d] objectsListInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[GET /objects][%d] objectsListInternalServerError %s", 500, payload)
 }
 
 func (o *ObjectsListInternalServerError) GetPayload() *models.ErrorResponse {
@@ -522,7 +525,6 @@ func (o *ObjectsListInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsListInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

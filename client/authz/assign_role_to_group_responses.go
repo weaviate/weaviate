@@ -18,6 +18,7 @@ package authz
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -74,7 +75,7 @@ func (o *AssignRoleToGroupReader) ReadResponse(response runtime.ClientResponse, 
 		}
 		return nil, result
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("[POST /authz/groups/{id}/assign] assignRoleToGroup", response, response.Code())
 	}
 }
 
@@ -88,8 +89,7 @@ AssignRoleToGroupOK describes a response with status code 200, with default head
 
 Role assigned successfully
 */
-type AssignRoleToGroupOK struct {
-}
+type AssignRoleToGroupOK struct{}
 
 // IsSuccess returns true when this assign role to group o k response has a 2xx status code
 func (o *AssignRoleToGroupOK) IsSuccess() bool {
@@ -122,15 +122,14 @@ func (o *AssignRoleToGroupOK) Code() int {
 }
 
 func (o *AssignRoleToGroupOK) Error() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupOK ", 200)
+	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupOK", 200)
 }
 
 func (o *AssignRoleToGroupOK) String() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupOK ", 200)
+	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupOK", 200)
 }
 
 func (o *AssignRoleToGroupOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -179,11 +178,13 @@ func (o *AssignRoleToGroupBadRequest) Code() int {
 }
 
 func (o *AssignRoleToGroupBadRequest) Error() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupBadRequest %s", 400, payload)
 }
 
 func (o *AssignRoleToGroupBadRequest) String() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupBadRequest  %+v", 400, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupBadRequest %s", 400, payload)
 }
 
 func (o *AssignRoleToGroupBadRequest) GetPayload() *models.ErrorResponse {
@@ -191,7 +192,6 @@ func (o *AssignRoleToGroupBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AssignRoleToGroupBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -212,8 +212,7 @@ AssignRoleToGroupUnauthorized describes a response with status code 401, with de
 
 Unauthorized or invalid credentials.
 */
-type AssignRoleToGroupUnauthorized struct {
-}
+type AssignRoleToGroupUnauthorized struct{}
 
 // IsSuccess returns true when this assign role to group unauthorized response has a 2xx status code
 func (o *AssignRoleToGroupUnauthorized) IsSuccess() bool {
@@ -246,15 +245,14 @@ func (o *AssignRoleToGroupUnauthorized) Code() int {
 }
 
 func (o *AssignRoleToGroupUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupUnauthorized", 401)
 }
 
 func (o *AssignRoleToGroupUnauthorized) String() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupUnauthorized", 401)
 }
 
 func (o *AssignRoleToGroupUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -303,11 +301,13 @@ func (o *AssignRoleToGroupForbidden) Code() int {
 }
 
 func (o *AssignRoleToGroupForbidden) Error() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupForbidden %s", 403, payload)
 }
 
 func (o *AssignRoleToGroupForbidden) String() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupForbidden  %+v", 403, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupForbidden %s", 403, payload)
 }
 
 func (o *AssignRoleToGroupForbidden) GetPayload() *models.ErrorResponse {
@@ -315,7 +315,6 @@ func (o *AssignRoleToGroupForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AssignRoleToGroupForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -336,8 +335,7 @@ AssignRoleToGroupNotFound describes a response with status code 404, with defaul
 
 role or group is not found.
 */
-type AssignRoleToGroupNotFound struct {
-}
+type AssignRoleToGroupNotFound struct{}
 
 // IsSuccess returns true when this assign role to group not found response has a 2xx status code
 func (o *AssignRoleToGroupNotFound) IsSuccess() bool {
@@ -370,15 +368,14 @@ func (o *AssignRoleToGroupNotFound) Code() int {
 }
 
 func (o *AssignRoleToGroupNotFound) Error() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupNotFound ", 404)
+	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupNotFound", 404)
 }
 
 func (o *AssignRoleToGroupNotFound) String() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupNotFound ", 404)
+	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupNotFound", 404)
 }
 
 func (o *AssignRoleToGroupNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -427,11 +424,13 @@ func (o *AssignRoleToGroupInternalServerError) Code() int {
 }
 
 func (o *AssignRoleToGroupInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupInternalServerError %s", 500, payload)
 }
 
 func (o *AssignRoleToGroupInternalServerError) String() string {
-	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupInternalServerError  %+v", 500, o.Payload)
+	payload, _ := json.Marshal(o.Payload)
+	return fmt.Sprintf("[POST /authz/groups/{id}/assign][%d] assignRoleToGroupInternalServerError %s", 500, payload)
 }
 
 func (o *AssignRoleToGroupInternalServerError) GetPayload() *models.ErrorResponse {
@@ -439,7 +438,6 @@ func (o *AssignRoleToGroupInternalServerError) GetPayload() *models.ErrorRespons
 }
 
 func (o *AssignRoleToGroupInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -455,7 +453,6 @@ AssignRoleToGroupBody assign role to group body
 swagger:model AssignRoleToGroupBody
 */
 type AssignRoleToGroupBody struct {
-
 	// group type
 	GroupType models.GroupType `json:"groupType,omitempty"`
 
@@ -509,6 +506,9 @@ func (o *AssignRoleToGroupBody) ContextValidate(ctx context.Context, formats str
 }
 
 func (o *AssignRoleToGroupBody) contextValidateGroupType(ctx context.Context, formats strfmt.Registry) error {
+	if swag.IsZero(o.GroupType) { // not required
+		return nil
+	}
 
 	if err := o.GroupType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
