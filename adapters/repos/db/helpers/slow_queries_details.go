@@ -105,7 +105,6 @@ func ReplaceSlowQueryEntry[in any, out any](ctx context.Context, key string, rep
 
 	typed, ok := prev.(in)
 	if !ok {
-		fmt.Printf("\n\n\nwrong type for key %s: %T\n\n\n", key, prev)
 		return
 	}
 
