@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,6 +35,7 @@ type StreamHandler struct {
 	sendWg          *sync.WaitGroup
 	stopping        *sync.Map // map[string]bool
 	metrics         *BatchStreamingCallbacks
+	shuttingDown    atomic.Bool
 }
 
 const POLLING_INTERVAL = 100 * time.Millisecond
@@ -92,7 +94,7 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 	defer h.sendWg.Done()
 	// shuttingDown acts as a soft cancel here so we can send the shutting down message to the client.
 	// Once the workers are drained then h.shutdownFinished will be closed and we will shutdown completely
-	shuttingDown := h.shuttingDownCtx.Done()
+	shuttingDownDone := h.shuttingDownCtx.Done()
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -105,14 +107,15 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 					return innerErr
 				}
 				return ctx.Err()
-			case <-shuttingDown:
+			case <-shuttingDownDone:
 				// If shutting down context has been set by shutdown.Drain then send the shutdown triggered message to the client
 				// so that it can backoff accordingly
 				if innerErr := stream.Send(newBatchShutdownTriggeredMessage()); innerErr != nil {
 					h.logger.WithField("streamId", streamId).WithError(innerErr).Error("failed to send shutdown triggered message")
 					return innerErr
 				}
-				shuttingDown = nil // only send once
+				shuttingDownDone = nil // only send once
+				h.shuttingDown.Store(true)
 			case readObj, ok := <-readQueue:
 				// readQueue is closed by the scheduler when all the workers are done processing for this stream
 				if !ok {
@@ -141,7 +144,11 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 					}
 				}
 			case <-ticker.C:
+				// Don't send backoff ticks if we're stopping or shutting down
 				if stopping, ok := h.stopping.Load(streamId); ok && stopping.(bool) {
+					continue
+				}
+				if h.shuttingDown.Load() {
 					continue
 				}
 				if writeQueue, ok := h.writeQueues.Get(streamId); ok {
@@ -214,7 +221,7 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, stream pb.Wea
 		case err = <-errCh:
 		case <-time.After(1 * time.Second):
 			log.Debug("waiting for client request")
-			if h.shuttingDownCtx.Err() != nil {
+			if h.shuttingDown.Load() {
 				log.Debug("shutting down, closing write queue for this stream")
 				done()
 				return nil
