@@ -107,7 +107,7 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 				return ctx.Err()
 			case <-shuttingDown:
 				// If shutting down context has been set by shutdown.Drain then send the shutdown triggered message to the client
-				// so that it can backoff accordingly if it wants to
+				// so that it can backoff accordingly
 				if innerErr := stream.Send(newBatchShutdownTriggeredMessage()); innerErr != nil {
 					h.logger.WithField("streamId", streamId).WithError(innerErr).Error("failed to send shutdown triggered message")
 					return innerErr
@@ -179,11 +179,13 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, stream pb.Wea
 
 	reqCh := make(chan *pb.BatchStreamRequest)
 	errCh := make(chan error)
-	defer close(reqCh)
-	defer close(errCh)
 	// Receive from stream in child goroutine so we can also listen for shutdown signals in loop below
 	// once the stream is empty
 	enterrors.GoWrapper(func() {
+		defer func() {
+			close(errCh)
+			close(reqCh)
+		}()
 		for {
 			req, err := stream.Recv()
 			if err != nil {
