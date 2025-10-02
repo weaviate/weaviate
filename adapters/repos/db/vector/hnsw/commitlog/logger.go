@@ -15,15 +15,15 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
-	"os"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 )
 
 type Logger struct {
-	file *os.File
+	file common.File
 	bufw *bufWriter
 }
 
@@ -50,8 +50,8 @@ const (
 	AddBRQ
 )
 
-func NewLogger(fileName string) *Logger {
-	file, err := os.Create(fileName)
+func NewLogger(fileName string, fs common.FS) *Logger {
+	file, err := fs.Create(fileName)
 	if err != nil {
 		panic(err)
 	}
@@ -59,7 +59,7 @@ func NewLogger(fileName string) *Logger {
 	return &Logger{file: file, bufw: NewWriter(file)}
 }
 
-func NewLoggerWithFile(file *os.File) *Logger {
+func NewLoggerWithFile(file common.File) *Logger {
 	return &Logger{file: file, bufw: NewWriterSize(file, 32*1024)}
 }
 
