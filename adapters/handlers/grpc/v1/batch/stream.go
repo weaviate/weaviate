@@ -183,6 +183,7 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, stream pb.Wea
 		}
 		closed = true
 	}
+	defer done()
 
 	reqCh := make(chan *pb.BatchStreamRequest)
 	errCh := make(chan error)
@@ -223,7 +224,6 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, stream pb.Wea
 			log.Debug("waiting for client request")
 			if h.shuttingDown.Load() {
 				log.Debug("shutting down, closing write queue for this stream")
-				done()
 				return nil
 			}
 			continue
@@ -232,13 +232,11 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, stream pb.Wea
 		if errors.Is(err, io.EOF) {
 			// Client has closed the stream, we close the write queue and return
 			log.Debug("client closed stream, closing write queue for this stream")
-			done()
 			return nil
 		}
 		if err != nil {
 			log.WithError(err).Error("failed to receive batch stream request")
 			// Tell the scheduler to stop processing this stream because of a client hangup error
-			done()
 			return err
 		}
 		objs := make([]*writeObject, 0, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues())+1)
@@ -253,12 +251,10 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, stream pb.Wea
 		} else if request.GetStop() != nil {
 			h.stopping.Store(streamId, true)
 		} else {
-			done()
 			return fmt.Errorf("invalid batch send request: neither objects, references nor stop signal provided")
 		}
 		if !h.writeQueues.Exists(streamId) {
 			log.Error("write queue not found")
-			done()
 			return fmt.Errorf("write queue for stream %s not found", streamId)
 		}
 		if len(objs) > 0 {
@@ -268,7 +264,7 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, stream pb.Wea
 		}
 		if stopping, ok := h.stopping.Load(streamId); ok && stopping.(bool) {
 			// Will loop back and block on stream.Recv() until io.EOF is returned
-			done()
+			done() // Close queue and mark wg as done, done is idempotent
 			continue
 		}
 		h.writeQueues.UpdateBatchSize(streamId, len(request.GetObjects().GetValues())+len(request.GetReferences().GetValues()))
