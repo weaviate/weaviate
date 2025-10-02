@@ -335,12 +335,12 @@ func (w *WriteQueues) Close(streamId string) {
 func (w *WriteQueues) Make(streamId string, consistencyLevel *pb.ConsistencyLevel) int {
 	w.lock.Lock()
 	defer w.lock.Unlock()
-	buffer := 1000 * w.numWorkers
-	// Ensure buffer is at least 1000 and at most 10000
-	if buffer < 1000 {
+	buffer := 100 * w.numWorkers
+	// Ensure buffer is at least 100 and at most 1000
+	if buffer < 100 {
+		buffer = 100
+	} else if buffer > 1000 {
 		buffer = 1000
-	} else if buffer > 10000 {
-		buffer = 10000
 	}
 	if _, ok := w.queues[streamId]; !ok {
 		w.queues[streamId] = &WriteQueue{
