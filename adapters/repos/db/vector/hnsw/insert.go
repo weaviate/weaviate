@@ -437,14 +437,7 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.nodes[nodeId] = node
 	h.shardedNodeLocks.Unlock(nodeId)
 
-	singleVector := !h.multivector.Load() || h.muvera.Load()
-	if singleVector {
-		if h.compressed.Load() {
-			h.compressor.Preload(nodeId, vector)
-		} else {
-			h.cache.Preload(nodeId, vector)
-		}
-	}
+	h.Preload(node.id, vector)
 
 	h.insertMetrics.prepareAndInsertNode(before)
 	before = time.Now()
@@ -536,14 +529,7 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.nodes[node.id] = node
 	h.shardedNodeLocks.Unlock(node.id)
 
-	singleVector := !h.multivector.Load() || h.muvera.Load()
-	if singleVector {
-		if h.compressed.Load() {
-			h.compressor.Preload(node.id, nodeVec)
-		} else {
-			h.cache.Preload(node.id, nodeVec)
-		}
-	}
+	h.Preload(node.id, nodeVec)
 
 	// go h.insertHook(node.id, 0, node.connections)
 	return nil
@@ -551,4 +537,15 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 
 func (h *hnsw) generateLevel() uint8 {
 	return uint8(math.Floor(-math.Log(max(h.randFunc(), 1e-19)) * h.levelNormalizer))
+}
+
+func (h *hnsw) Preload(id uint64, vector []float32) {
+	singleVector := !h.multivector.Load() || h.muvera.Load()
+	if singleVector {
+		if h.compressed.Load() {
+			h.compressor.Preload(id, vector)
+		} else {
+			h.cache.Preload(id, vector)
+		}
+	}
 }

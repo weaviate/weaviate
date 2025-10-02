@@ -45,6 +45,7 @@ func TestNamedVectors_SingleNode_AsyncIndexing(t *testing.T) {
 	t.Run("tests", test_suits.AllTests(endpoint, true))
 	t.Run("legacy tests", test_suits.AllLegacyTests(endpoint))
 	t.Run("mixed vector tests", test_suits.AllMixedVectorsTests(endpoint))
+	t.Run("async indexing tests", test_suits.AsyncIndexigTests(endpoint))
 }
 
 func TestNamedVectors_SingleNode_Restart(t *testing.T) {
