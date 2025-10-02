@@ -42,6 +42,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -908,6 +909,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				defer cancel()
 				backupScheduler.CleanupUnfinishedBackups(ctx)
 			}, appState.Logger)
+	}
+	api.PreServerShutdown = func() {
+		appState.Logger.Info("pre-shutdown phase initiated")
+		shutdownCoordinator.NotifyShutdown()
+		grpcHealthServer.SetServingStatus("weaviate", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+		time.Sleep(ReadinessProbeLeadTime)
+		appState.Logger.Info("pre-shutdown phase completed")
 	}
 	api.ServerShutdown = func() {
 		if telemetryEnabled(appState) {
