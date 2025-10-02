@@ -746,11 +746,11 @@ func (h *hnsw) traverseHierarchyToGetEntryPoint(ctx context.Context, entryPointD
 
 func (h *hnsw) setStrategy(entryPointID uint64, allowList helpers.AllowList, isMultivec bool) FilterStrategy {
 	var strategy FilterStrategy
-	h.shardedNodeLocks.RLock(entryPointID)
-	entryPointNode := h.nodes[entryPointID]
-	h.shardedNodeLocks.RUnlock(entryPointID)
 	useAcorn := h.acornEnabled(allowList)
 	if useAcorn {
+		h.shardedNodeLocks.RLock(entryPointID)
+		entryPointNode := h.nodes[entryPointID]
+		h.shardedNodeLocks.RUnlock(entryPointID)
 		if entryPointNode == nil {
 			strategy = RRE
 		} else {
