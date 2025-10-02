@@ -3341,3 +3341,25 @@ func (i *Index) buildReadRoutingPlan(cl routerTypes.ConsistencyLevel, tenantName
 
 	return readPlan, nil
 }
+
+func (i *Index) DebugRequantizeIndex(ctx context.Context, shardName, targetVector string) error {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return err
+	}
+	if shard == nil {
+		return errors.New("shard not found")
+	}
+	defer release()
+
+	// Repair in the background
+	enterrors.GoWrapper(func() {
+		err := shard.RequantizeIndex(context.Background(), targetVector)
+		if err != nil {
+			i.logger.WithField("shard", shardName).WithError(err).Error("failed to requantize vector index")
+			return
+		}
+	}, i.logger)
+
+	return nil
+}

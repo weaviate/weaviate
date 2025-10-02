@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
@@ -195,12 +196,14 @@ type hnsw struct {
 	visitedListPoolMaxSize int
 
 	// only used for multivector mode
-	multivector   atomic.Bool
-	muvera        atomic.Bool
-	muveraEncoder *multivector.MuveraEncoder
-	docIDVectors  map[uint64][]uint64
-	vecIDcounter  uint64
-	maxDocID      uint64
+	multivector     atomic.Bool
+	muvera          atomic.Bool
+	muveraEncoder   *multivector.MuveraEncoder
+	docIDVectors    map[uint64][]uint64
+	vecIDcounter    uint64
+	maxDocID        uint64
+	MinMMapSize     int64
+	MaxWalReuseSize int64
 }
 
 type CommitLogger interface {
@@ -353,8 +356,10 @@ func New(cfg Config, uc ent.UserConfig,
 		allocChecker:           cfg.AllocChecker,
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
 
-		docIDVectors:  make(map[uint64][]uint64),
-		muveraEncoder: muveraEncoder,
+		docIDVectors:    make(map[uint64][]uint64),
+		muveraEncoder:   muveraEncoder,
+		MinMMapSize:     cfg.MinMMapSize,
+		MaxWalReuseSize: cfg.MaxWalReuseSize,
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
@@ -366,11 +371,11 @@ func New(cfg Config, uc ent.UserConfig,
 		if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.AllocChecker)
+				cfg.MinMMapSize, cfg.MaxWalReuseSize, cfg.AllocChecker, index.getTargetVector())
 		} else {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.AllocChecker)
+				cfg.MinMMapSize, cfg.MaxWalReuseSize, cfg.AllocChecker, index.getTargetVector())
 		}
 		if err != nil {
 			return nil, err
@@ -394,6 +399,9 @@ func New(cfg Config, uc ent.UserConfig,
 				lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
 				lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
 				lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+				lsmkv.WithAllocChecker(cfg.AllocChecker),
+				lsmkv.WithMinMMapSize(cfg.MinMMapSize),
+				lsmkv.WithMinWalThreshold(cfg.MaxWalReuseSize),
 			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
@@ -414,6 +422,14 @@ func New(cfg Config, uc ent.UserConfig,
 	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	return index, nil
+}
+
+func (h *hnsw) getTargetVector() string {
+	if name, found := strings.CutPrefix(h.id, fmt.Sprintf("%s_", helpers.VectorsBucketLSM)); found {
+		return name
+	}
+	// legacy vector index
+	return ""
 }
 
 // TODO: use this for incoming replication
