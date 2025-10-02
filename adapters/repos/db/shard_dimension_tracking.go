@@ -82,7 +82,7 @@ func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector str
 	if b == nil {
 		return types.Dimensionality{}, errors.Errorf("calcTargetVectorDimensions: no bucket dimensions")
 	}
-	return shardusage.CalcTargetVectorDimensionsFromBucket(ctx, b, targetVector)
+	return shardusage.CalculateTargetVectorDimensionsFromBucket(ctx, b, targetVector)
 }
 
 // DimensionMetrics represents the dimension tracking metrics for a vector.

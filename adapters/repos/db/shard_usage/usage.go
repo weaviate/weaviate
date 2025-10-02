@@ -63,7 +63,7 @@ func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLo
 	}
 	defer bucket.Shutdown(ctx)
 
-	return CalcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+	return CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
 }
 
 // CalculateUnloadedVectorsMetrics calculates vector storage size for a cold tenant without loading it into memory
@@ -94,7 +94,7 @@ func CalculateUnloadedVectorsMetrics(ctx context.Context, logger logrus.FieldLog
 			}
 			defer bucket.Shutdown(ctx)
 
-			dimensionality, err := CalcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+			dimensionality, err := CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
 			if err != nil {
 				return err
 			}
