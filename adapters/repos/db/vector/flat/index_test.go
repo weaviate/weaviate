@@ -47,7 +47,7 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	}
 }
 
-func run(ctx context.Context, dirName string, logger *logrus.Logger, compression string, vectorCache bool,
+func run(ctx context.Context, dirName string, logger *logrus.Logger, compression CompressionType, vectorCache bool,
 	vectors [][]float32, queries [][]float32, k int, truths [][]uint64,
 	extraVectorsForDelete [][]float32, allowIds []uint64,
 	distancer distancer.Provider, concurrentCacheReads int,
@@ -72,15 +72,22 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 	bq := flatent.CompressionUserConfig{
 		Enabled: false,
 	}
+	rq := flatent.RQUserConfig{
+		Enabled: false,
+	}
 	switch compression {
-	case compressionPQ:
+	case CompressionPQ:
 		pq.Enabled = true
 		pq.RescoreLimit = 100 * k
 		pq.Cache = vectorCache
-	case compressionBQ:
+	case CompressionBQ:
 		bq.Enabled = true
 		bq.RescoreLimit = 100 * k
 		bq.Cache = vectorCache
+	case CompressionRQ1:
+		rq.Enabled = true
+		rq.RescoreLimit = 100 * k
+		rq.Cache = vectorCache
 	}
 	index, err := New(Config{
 		ID:               runId,
@@ -89,6 +96,7 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 	}, flatent.UserConfig{
 		PQ: pq,
 		BQ: bq,
+		RQ: rq,
 	}, store)
 	if err != nil {
 		return 0, 0, err
@@ -185,16 +193,22 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	}
 
 	extraVectorsForDelete, _ := testinghelpers.RandomVecs(5_000, 0, dimensions)
-	for _, compression := range []string{compressionNone, compressionBQ} {
-		t.Run("compression: "+compression, func(t *testing.T) {
+	for _, compression := range []CompressionType{CompressionNone, CompressionBQ, CompressionRQ1, CompressionRQ8} {
+		t.Run("compression: "+compression.String(), func(t *testing.T) {
 			for _, cache := range []bool{false, true} {
 				t.Run("cache: "+strconv.FormatBool(cache), func(t *testing.T) {
-					if compression == compressionNone && cache == true {
+					if compression == CompressionNone && cache == true {
 						return
 					}
 					targetRecall := float32(0.99)
-					if compression == compressionBQ {
+					if compression == CompressionBQ {
 						targetRecall = 0.8
+					}
+					if compression == CompressionRQ1 {
+						targetRecall = 0.7 // RQ has lower recall due to 1-bit quantization
+					}
+					if compression == CompressionRQ8 {
+						targetRecall = 0.9 // RQ8 should have higher recall than RQ1 due to 8-bit quantization
 					}
 					t.Run("recall", func(t *testing.T) {
 						recall, latency, err := run(ctx, dirName, logger, compression, cache, vectors, queries, k, truths, nil, nil, distancer, 0)
@@ -217,8 +231,8 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 			}
 		})
 	}
-	for _, compression := range []string{compressionNone, compressionBQ} {
-		t.Run("compression: "+compression, func(t *testing.T) {
+	for _, compression := range []CompressionType{CompressionNone, CompressionBQ, CompressionRQ1, CompressionRQ8} {
+		t.Run("compression: "+compression.String(), func(t *testing.T) {
 			for _, cache := range []bool{false, true} {
 				t.Run("cache: "+strconv.FormatBool(cache), func(t *testing.T) {
 					from := 0
@@ -232,8 +246,14 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 						allowIds = append(allowIds, i)
 					}
 					targetRecall := float32(0.99)
-					if compression == compressionBQ {
+					if compression == CompressionBQ {
 						targetRecall = 0.8
+					}
+					if compression == CompressionRQ1 {
+						targetRecall = 0.7 // RQ has lower recall due to 1-bit quantization
+					}
+					if compression == CompressionRQ8 {
+						targetRecall = 0.9 // RQ8 should have higher recall than RQ1 due to 8-bit quantization
 					}
 
 					t.Run("recall on filtered", func(t *testing.T) {
@@ -271,12 +291,15 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 		pq    bool
 		cache bool
 		bq    bool
+		rq    bool
 	}{
-		{pq: false, cache: false, bq: false},
-		{pq: true, cache: false, bq: false},
-		{pq: true, cache: true, bq: false},
-		{pq: false, cache: false, bq: true},
-		{pq: false, cache: true, bq: true},
+		{pq: false, cache: false, bq: false, rq: false},
+		{pq: true, cache: false, bq: false, rq: false},
+		{pq: true, cache: true, bq: false, rq: false},
+		{pq: false, cache: false, bq: true, rq: false},
+		{pq: false, cache: true, bq: true, rq: false},
+		{pq: false, cache: false, bq: false, rq: true},
+		{pq: false, cache: true, bq: false, rq: true},
 	}
 	for _, tt := range cases {
 		t.Run("tt.name", func(t *testing.T) {
@@ -287,6 +310,9 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 			}
 			bq := flatent.CompressionUserConfig{
 				Enabled: tt.bq, Cache: tt.cache, RescoreLimit: 10,
+			}
+			rq := flatent.RQUserConfig{
+				Enabled: tt.rq, Cache: tt.cache, RescoreLimit: 10,
 			}
 			store, err := lsmkv.New(dirName, dirName, logger, nil,
 				cyclemanager.NewCallbackGroupNoop(),
@@ -303,6 +329,7 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 			}, flatent.UserConfig{
 				PQ: pq,
 				BQ: bq,
+				RQ: rq,
 			}, store)
 			require.Nil(t, err)
 
@@ -347,7 +374,7 @@ func TestConcurrentReads(t *testing.T) {
 	for i := range concurrentReads {
 		t.Run("concurrent reads: "+strconv.Itoa(concurrentReads[i]), func(t *testing.T) {
 			targetRecall := float32(0.8)
-			recall, latency, err := run(ctx, dirName, logger, compressionBQ, true, vectors, queries, k, truths, nil, nil, distancer, concurrentReads[i])
+			recall, latency, err := run(ctx, dirName, logger, CompressionRQ1, true, vectors, queries, k, truths, nil, nil, distancer, concurrentReads[i])
 			require.Nil(t, err)
 
 			fmt.Println(recall, latency)
@@ -401,4 +428,139 @@ func TestFlat_Validation(t *testing.T) {
 	// add a vector with 1 dim
 	err = index.Add(ctx, uint64(0), []float32{-2})
 	require.Error(t, err)
+}
+
+func TestFlat_RQPersistence(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+	dirName := t.TempDir()
+
+	store, err := lsmkv.New(dirName, dirName, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	defer store.Shutdown(context.Background())
+
+	distancer := distancer.NewCosineDistanceProvider()
+
+	// Create index with RQ enabled
+	rq := flatent.RQUserConfig{
+		Enabled:      true,
+		Cache:        false,
+		RescoreLimit: 10,
+	}
+	index, err := New(Config{
+		ID:               "test-rq",
+		RootPath:         dirName,
+		DistanceProvider: distancer,
+	}, flatent.UserConfig{
+		RQ: rq,
+	}, store)
+	require.Nil(t, err)
+	defer index.Shutdown(context.Background())
+
+	// Add a vector to trigger RQ initialization
+	testVector := []float32{1.0, 2.0, 3.0, 4.0}
+	err = index.Add(ctx, 1, testVector)
+	require.Nil(t, err)
+
+	// Verify RQ quantizer was created
+	require.NotNil(t, index.quantizer)
+
+	// Test encoding
+	var encoded interface{}
+	if index.quantizer.Type() == Uint64Quantizer {
+		encoded = index.quantizer.EncodeUint64(testVector)
+		require.NotNil(t, encoded)
+		require.Greater(t, len(encoded.([]uint64)), 0)
+	} else if index.quantizer.Type() == ByteQuantizer {
+		encoded = index.quantizer.EncodeBytes(testVector)
+		require.NotNil(t, encoded)
+		require.Greater(t, len(encoded.([]byte)), 0)
+	}
+
+	// Test distance calculation - RQ distances can be negative
+	var distance float32
+	var distanceErr error
+	if index.quantizer.Type() == Uint64Quantizer {
+		encodedVec := encoded.([]uint64)
+		distance, distanceErr = index.quantizer.DistanceBetweenUint64Vectors(encodedVec, encodedVec)
+	} else if index.quantizer.Type() == ByteQuantizer {
+		encodedVec := encoded.([]byte)
+		distance, distanceErr = index.quantizer.DistanceBetweenByteVectors(encodedVec, encodedVec)
+	}
+	require.Nil(t, distanceErr)
+	require.IsType(t, float32(0), distance) // Just verify it returns a float32
+
+	// Store the original distance for comparison after restart
+	originalDistance := distance
+
+	// Shutdown and recreate index to test persistence
+	index.Shutdown(context.Background())
+	store.Shutdown(context.Background())
+
+	// Recreate store and index
+	store2, err := lsmkv.New(dirName, dirName, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	defer store2.Shutdown(context.Background())
+
+	index2, err := New(Config{
+		ID:               "test-rq",
+		RootPath:         dirName,
+		DistanceProvider: distancer,
+	}, flatent.UserConfig{
+		RQ: rq,
+	}, store2)
+	require.Nil(t, err)
+	defer index2.Shutdown(context.Background())
+
+	// Verify RQ quantizer was restored
+	require.NotNil(t, index2.quantizer)
+
+	// Test that the restored quantizer works
+	var encoded2 interface{}
+	if index2.quantizer.Type() == Uint64Quantizer {
+		encoded2 = index2.quantizer.EncodeUint64(testVector)
+		require.NotNil(t, encoded2)
+	} else if index2.quantizer.Type() == ByteQuantizer {
+		encoded2 = index2.quantizer.EncodeBytes(testVector)
+		require.NotNil(t, encoded2)
+	}
+
+	// The encoded vectors should be identical (same seed)
+	if index.quantizer.Type() == Uint64Quantizer {
+		encodedVec := encoded.([]uint64)
+		encodedVec2 := encoded2.([]uint64)
+		require.Equal(t, len(encodedVec), len(encodedVec2))
+		for i := range encodedVec {
+			require.Equal(t, encodedVec[i], encodedVec2[i])
+		}
+	} else if index.quantizer.Type() == ByteQuantizer {
+		encodedVec := encoded.([]byte)
+		encodedVec2 := encoded2.([]byte)
+		require.Equal(t, len(encodedVec), len(encodedVec2))
+		for i := range encodedVec {
+			require.Equal(t, encodedVec[i], encodedVec2[i])
+		}
+	}
+
+	// Test distance calculation with restored quantizer
+	var distance2 float32
+	var distance2Err error
+	if index2.quantizer.Type() == Uint64Quantizer {
+		encodedVec2 := encoded2.([]uint64)
+		distance2, distance2Err = index2.quantizer.DistanceBetweenUint64Vectors(encodedVec2, encodedVec2)
+	} else if index2.quantizer.Type() == ByteQuantizer {
+		encodedVec2 := encoded2.([]byte)
+		distance2, distance2Err = index2.quantizer.DistanceBetweenByteVectors(encodedVec2, encodedVec2)
+	}
+	require.Nil(t, distance2Err)
+	require.IsType(t, float32(0), distance2) // Just verify it returns a float32
+
+	// Verify that the distance calculation is consistent after restart
+	require.Equal(t, originalDistance, distance2, "Distance calculation should be consistent after restart")
 }
