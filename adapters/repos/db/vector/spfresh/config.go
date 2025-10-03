@@ -15,9 +15,12 @@ import (
 	"io"
 	"runtime"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/schema/config"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -30,15 +33,18 @@ type Config struct {
 	ShardName                 string
 	ClassName                 string
 	PrometheusMetrics         *monitoring.PrometheusMetrics
-	MaxPostingSize            uint32  `json:"maxPostingSize,omitempty"`            // Maximum number of vectors in a posting
-	MinPostingSize            uint32  `json:"minPostingSize,omitempty"`            // Minimum number of vectors in a posting
-	SplitWorkers              int     `json:"splitWorkers,omitempty"`              // Number of concurrent workers for split operations
-	ReassignWorkers           int     `json:"reassignWorkers,omitempty"`           // Number of concurrent workers for reassign operations
-	InternalPostingCandidates int     `json:"internalPostingCandidates,omitempty"` // Number of candidates to consider when running a centroid search internally
-	ReassignNeighbors         int     `json:"reassignNeighbors,omitempty"`         // Number of neighboring centroids to consider for reassigning vectors
-	Replicas                  int     `json:"replicas,omitempty"`                  // Number of closure replicas to maintain
-	RNGFactor                 float32 `json:"rngFactor,omitempty"`                 // Distance factor used by the RNG rule to determine how spread out replica selections are
-	MaxDistanceRatio          float32 `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
+	MaxPostingSize            uint32                `json:"maxPostingSize,omitempty"`            // Maximum number of vectors in a posting
+	MinPostingSize            uint32                `json:"minPostingSize,omitempty"`            // Minimum number of vectors in a posting
+	SplitWorkers              int                   `json:"splitWorkers,omitempty"`              // Number of concurrent workers for split operations
+	ReassignWorkers           int                   `json:"reassignWorkers,omitempty"`           // Number of concurrent workers for reassign operations
+	InternalPostingCandidates int                   `json:"internalPostingCandidates,omitempty"` // Number of candidates to consider when running a centroid search internally
+	ReassignNeighbors         int                   `json:"reassignNeighbors,omitempty"`         // Number of neighboring centroids to consider for reassigning vectors
+	Replicas                  int                   `json:"replicas,omitempty"`                  // Number of closure replicas to maintain
+	RNGFactor                 float32               `json:"rngFactor,omitempty"`                 // Distance factor used by the RNG rule to determine how spread out replica selections are
+	MaxDistanceRatio          float32               `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
+	MinMMapSize               int64                 `json:"minMMapSize,omitempty"`               // Minimum size of the mmap for the store
+	MaxReuseWalSize           int64                 `json:"maxReuseWalSize,omitempty"`           // Maximum size of the reuse wal for the store
+	AllocChecker              memwatch.AllocChecker `json:"allocChecker,omitempty"`              // Alloc checker for the store
 }
 
 func (c *Config) Validate() error {
@@ -71,8 +77,18 @@ func DefaultConfig() *Config {
 	}
 }
 
-func ValidateUserConfigUpdate(initial, updated schemaconfig.VectorIndexConfig) error {
-	// TODO: add validation
-	// panic("ValidateUserConfigUpdate not implemented")
+func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
+	_, ok := initial.(ent.UserConfig)
+	if !ok {
+		return errors.Errorf("initial is not UserConfig, but %T", initial)
+	}
+
+	_, ok = updated.(ent.UserConfig)
+	if !ok {
+		return errors.Errorf("updated is not UserConfig, but %T", updated)
+	}
+
+	// TODO add immutable fields
+
 	return nil
 }

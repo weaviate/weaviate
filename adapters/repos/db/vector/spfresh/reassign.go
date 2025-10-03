@@ -101,7 +101,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 	if !ok {
 		// Increment fails if a concurrent Increment happened (similar to a CAS operation)
 		s.logger.WithField("vectorID", op.Vector.ID()).
-			Debug("Vector version increment failed, skipping reassign operation")
+			Error("Vector version increment failed, skipping reassign operation")
 		return nil
 	}
 
@@ -113,7 +113,7 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 		version = s.VersionMap.Get(newVector.ID())
 		if version.Deleted() || version.Version() > newVector.Version().Version() {
 			s.logger.WithField("vectorID", op.Vector.ID()).
-				Debug("Vector is deleted or has a newer version, skipping reassign operation")
+				Error("Vector is deleted or has a newer version, skipping reassign operation")
 			return nil
 		}
 

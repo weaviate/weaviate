@@ -233,6 +233,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		fmt.Println("creating spfresh index with default params")
 		configs := spfresh.DefaultConfig()
 		configs.ID = s.vectorIndexID(targetVector)
+		configs.MinMMapSize = s.index.Config.MinMMapSize
+		configs.MaxReuseWalSize = s.index.Config.MaxReuseWalSize
+		configs.AllocChecker = s.index.allocChecker
 		vi, err := spfresh.New(configs, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: spfresh index", s.ID())
