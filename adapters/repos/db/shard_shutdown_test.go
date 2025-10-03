@@ -141,8 +141,8 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	},
-		&fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{},
-		&fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		&FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{},
+		&FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 	)
 	require.NoError(t, err)
 

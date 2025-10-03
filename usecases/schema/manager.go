@@ -378,7 +378,7 @@ func (m *Manager) TenantsShards(ctx context.Context, class string, tenants ...st
 func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tenant string) (map[string]string, error) {
 	var foundTenant bool
 	var status string
-	err := m.schemaReader.Read(class, func(_ *models.Class, ss *sharding.State) error {
+	err := m.schemaReader.Read(class, true, func(_ *models.Class, ss *sharding.State) error {
 		t, ok := ss.Physical[tenant]
 		if !ok {
 			return nil
@@ -442,7 +442,7 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 
 func (m *Manager) AllowImplicitTenantActivation(class string) bool {
 	allow := false
-	m.schemaReader.Read(class, func(c *models.Class, _ *sharding.State) error {
+	m.schemaReader.Read(class, true, func(c *models.Class, _ *sharding.State) error {
 		allow = schema.AutoTenantActivationEnabled(c)
 		return nil
 	})

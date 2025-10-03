@@ -11,7 +11,9 @@
 
 package types
 
-import "github.com/weaviate/weaviate/entities/models"
+import (
+	"github.com/weaviate/weaviate/entities/models"
+)
 
 // Report represents the usage metrics report from the metrics endpoint
 type Report struct {
@@ -23,7 +25,7 @@ type Report struct {
 	Node string `json:"node,omitempty"`
 
 	// List of collections and their metrics
-	Collections []*CollectionUsage `json:"collections,omitempty"`
+	Collections CollectionsUsage `json:"collections,omitempty"`
 
 	// List of backups and their metrics
 	Backups []*BackupUsage `json:"backups,omitempty"`
@@ -47,7 +49,7 @@ type CollectionUsage struct {
 	UniqueShardCount int `json:"unique_shard_count,omitempty"`
 
 	// List of shards and their metrics
-	Shards []*ShardUsage `json:"shards,omitempty"`
+	Shards ShardsUsage `json:"shards,omitempty"`
 }
 
 // ShardUsage represents metrics for a single shard
@@ -68,7 +70,7 @@ type ShardUsage struct {
 	VectorStorageBytes uint64 `json:"vector_storage_bytes,omitempty"`
 
 	// List of named vectors and their metrics
-	NamedVectors []*VectorUsage `json:"named_vectors,omitempty"`
+	NamedVectors VectorsUsage `json:"named_vectors,omitempty"`
 }
 
 // VectorUsage represents metrics for a single vector index
@@ -91,7 +93,7 @@ type VectorUsage struct {
 	// The bits parameter for RQ compression (only set when Compression="rq")
 	Bits int16 `json:"bits,omitempty"`
 
-	// List of dimensionalities and their metrics
+	// List of dimensionalities and their metrics. Note: List is not needed here, but we keep it like this for the consumer
 	Dimensionalities []*Dimensionality `json:"dimensionalities,omitempty"`
 }
 
@@ -125,4 +127,56 @@ type BackupUsage struct {
 type ObjectUsage struct {
 	Count        int64
 	StorageBytes int64
+}
+
+// ByCollectionName implements sort.Interface for []*CollectionUsage based on the Name field.
+type CollectionsUsage []*CollectionUsage
+
+func (a CollectionsUsage) Len() int      { return len(a) }
+func (a CollectionsUsage) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a CollectionsUsage) Less(i, j int) bool {
+	if a[i] == nil && a[j] == nil {
+		return false
+	}
+	if a[i] == nil {
+		return true
+	}
+	if a[j] == nil {
+		return false
+	}
+	return a[i].Name < a[j].Name
+}
+
+type ShardsUsage []*ShardUsage
+
+func (a ShardsUsage) Len() int      { return len(a) }
+func (a ShardsUsage) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a ShardsUsage) Less(i, j int) bool {
+	if a[i] == nil && a[j] == nil {
+		return false
+	}
+	if a[i] == nil {
+		return true
+	}
+	if a[j] == nil {
+		return false
+	}
+	return a[i].Name < a[j].Name
+}
+
+type VectorsUsage []*VectorUsage
+
+func (a VectorsUsage) Len() int      { return len(a) }
+func (a VectorsUsage) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a VectorsUsage) Less(i, j int) bool {
+	if a[i] == nil && a[j] == nil {
+		return false
+	}
+	if a[i] == nil {
+		return true
+	}
+	if a[j] == nil {
+		return false
+	}
+	return a[i].Name < a[j].Name
 }

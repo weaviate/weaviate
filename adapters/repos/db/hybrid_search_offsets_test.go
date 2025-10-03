@@ -129,7 +129,7 @@ func TestHybridOffsets(t *testing.T) {
 		QueryMaximumResults:       queryMaximumResults,
 		QueryHybridMaximumResults: queryHybridMaximumResults[0],
 		MaxImportGoroutinesFactor: 60,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil)
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, nil, nil, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))

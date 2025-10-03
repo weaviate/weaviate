@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -208,7 +209,8 @@ func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 		return l.shard.ObjectCountAsync(ctx)
 	}
 	l.mutex.Unlock()
-	objectUsage, err := l.shardOpts.index.CalculateUnloadedObjectsMetrics(ctx, l.shardOpts.name)
+	idx := l.shardOpts.index
+	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(idx.logger, idx.path(), l.shardOpts.name)
 	if err != nil {
 		return 0, fmt.Errorf("error while getting object count for shard %s: %w", l.shardOpts.name, err)
 	}
@@ -225,7 +227,8 @@ func (l *LazyLoadShard) ObjectStorageSize(ctx context.Context) (int64, error) {
 
 	// For unloaded shards, calculate storage size by walking the file system
 	// This avoids loading the shard into memory entirely
-	objectUsage, err := l.shardOpts.index.CalculateUnloadedObjectsMetrics(ctx, l.shardOpts.name)
+	idx := l.shardOpts.index
+	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(idx.logger, idx.path(), l.shardOpts.name)
 	return objectUsage.StorageBytes, err
 }
 
@@ -483,7 +486,8 @@ func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string
 
 	// For unloaded shards, use the unloaded shard/tenant calculation method
 	// This avoids loading the shard into memory
-	return l.shardOpts.index.CalculateUnloadedDimensionsUsage(ctx, l.shardOpts.name, targetVector)
+	idx := l.shardOpts.index
+	return shardusage.CalculateUnloadedDimensionsUsage(ctx, idx.logger, idx.path(), l.shardOpts.name, targetVector)
 }
 
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
@@ -495,8 +499,12 @@ func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (in
 	l.mutex.Unlock()
 
 	// For unloaded shards, get dimensions from unloaded shard/tenant calculation
-	dimensionality, err := l.shardOpts.index.CalculateUnloadedDimensionsUsage(ctx, l.shardOpts.name, targetVector)
-	return dimensionality.Count * dimensionality.Dimensions, err
+	idx := l.shardOpts.index
+	dimensionality, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, idx.logger, idx.path(), l.shardOpts.name, targetVector)
+	if err != nil {
+		return 0, err
+	}
+	return dimensionality.Count * dimensionality.Dimensions, nil
 }
 
 func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error) {
@@ -804,5 +812,17 @@ func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) (int64, error) {
 
 	// For unloaded shards, use the existing cold tenant calculation method
 	// This avoids complex disk file calculations and uses the same logic as the index
-	return l.shardOpts.index.CalculateUnloadedVectorsMetrics(ctx, l.shardOpts.name)
+	idx := l.shardOpts.index
+	return shardusage.CalculateUnloadedVectorsMetrics(ctx, idx.logger, idx.path(), l.shardOpts.name, idx.GetVectorIndexConfigs())
+}
+
+// ExecuteForUnloadedWithLock executes the given function if the shard is not yet loaded and locks it during execution.
+func (l *LazyLoadShard) ExecuteForUnloadedWithLock(f func()) bool {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	if l.loaded {
+		return false
+	}
+	f()
+	return true
 }

@@ -29,8 +29,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
-	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
-	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -144,20 +142,6 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 }
 
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
-
-// IndexGetter interface defines the methods that the service uses from db.IndexGetter
-// This allows for better testability by using interfaces instead of concrete types
-type IndexGetter interface {
-	GetIndexLike(className schema.ClassName) IndexLike
-}
-
-// IndexLike interface defines the methods that the service uses from db.Index
-// This allows for better testability by using interfaces instead of concrete types
-type IndexLike interface {
-	ForEachShard(f func(name string, shard ShardLike) error) error
-	CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (usagetypes.ObjectUsage, error)
-	CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) (int64, error)
-}
 
 func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
@@ -274,15 +258,6 @@ type Config struct {
 	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled      func() bool
-}
-
-func (db *DB) GetIndexLike(className schema.ClassName) IndexLike {
-	index := db.GetIndex(className)
-	if index == nil {
-		return nil
-	}
-
-	return index
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -445,7 +420,7 @@ func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {
 	db.nodeSelector = nodeSelector
 }
 
-func (db *DB) SetSchemaReader(schemaReader clusterSchema.SchemaReader) {
+func (db *DB) SetSchemaReader(schemaReader schemaUC.SchemaReader) {
 	db.schemaReader = schemaReader
 }
 

@@ -586,7 +586,7 @@ func testConcurrentReadLockOperations(t *testing.T, s *schema) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				err := s.Read("TestClass", func(cls *models.Class, state *sharding.State) error {
+				err := s.Read("TestClass", true, func(cls *models.Class, state *sharding.State) error {
 					assert.Equal(t, "TestClass", cls.Class)
 					assert.NotNil(t, state)
 					return nil

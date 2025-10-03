@@ -333,7 +333,7 @@ func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Ten
 		}
 		return nil
 	}
-	return ts, h.schemaReader.Read(class, f)
+	return ts, h.schemaReader.Read(class, true, f)
 }
 
 // convert the new tenant names (that are only used as input) to the old tenant names that are used throughout the code

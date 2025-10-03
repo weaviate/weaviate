@@ -37,7 +37,7 @@ type SchemaReader interface {
 	ShardReplicas(class, shard string) ([]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardOwner(class, shard string) (string, error)
-	Read(class string, reader func(*models.Class, *sharding.State) error) error
+	Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 
 	// These schema reads function (...WithVersion) return the metadata once the local schema has caught up to the
