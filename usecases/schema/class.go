@@ -273,7 +273,6 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	}
 
 	initial := h.schemaReader.ReadOnlyClass(className)
-	var shardingState *sharding.State
 
 	if initial != nil {
 		_, err := validateUpdatingMT(initial, updated)
@@ -284,17 +283,12 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		initialRF := initial.ReplicationConfig.Factor
 		updatedRF := updated.ReplicationConfig.Factor
 
+		if updatedRF <= 0 {
+			return fmt.Errorf("replication factor must be at least 1, got %d", updatedRF)
+		}
+
 		if initialRF != updatedRF {
-			ss, _, err := h.schemaManager.QueryShardingState(className)
-			if err != nil {
-				return fmt.Errorf("query sharding state for %q: %w", className, err)
-			}
-			shardingState, err = h.scaleOut.Scale(ctx, className, ss.Config, initialRF, updatedRF)
-			if err != nil {
-				return fmt.Errorf(
-					"scale %q from %d replicas to %d: %w",
-					className, initialRF, updatedRF, err)
-			}
+			return fmt.Errorf("replication factor cannot be changed via schema update; use the replication API to update it")
 		}
 
 		if err := validateImmutableFields(initial, updated); err != nil {
@@ -302,7 +296,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		}
 	}
 
-	_, err := h.schemaManager.UpdateClass(ctx, updated, shardingState)
+	_, err := h.schemaManager.UpdateClass(ctx, updated, nil)
 	return err
 }
 

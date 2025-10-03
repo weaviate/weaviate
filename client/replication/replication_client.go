@@ -41,6 +41,8 @@ type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
 type ClientService interface {
+	ApplyReplicationScalePlan(params *ApplyReplicationScalePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ApplyReplicationScalePlanOK, error)
+
 	CancelReplication(params *CancelReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CancelReplicationNoContent, error)
 
 	DeleteAllReplications(params *DeleteAllReplicationsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteAllReplicationsNoContent, error)
@@ -51,6 +53,8 @@ type ClientService interface {
 
 	GetCollectionShardingState(params *GetCollectionShardingStateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetCollectionShardingStateOK, error)
 
+	GetReplicationScalePlan(params *GetReplicationScalePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetReplicationScalePlanOK, error)
+
 	ListReplication(params *ListReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ListReplicationOK, error)
 
 	Replicate(params *ReplicateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicateOK, error)
@@ -58,6 +62,47 @@ type ClientService interface {
 	ReplicationDetails(params *ReplicationDetailsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationDetailsOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
+}
+
+/*
+ApplyReplicationScalePlan applies replication scaling plan
+
+Apply a replication scaling plan that specifies nodes to add or remove per shard for a given collection.
+*/
+func (a *Client) ApplyReplicationScalePlan(params *ApplyReplicationScalePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ApplyReplicationScalePlanOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewApplyReplicationScalePlanParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "applyReplicationScalePlan",
+		Method:             "POST",
+		PathPattern:        "/replication/scale",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ApplyReplicationScalePlanReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*ApplyReplicationScalePlanOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for applyReplicationScalePlan: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -260,6 +305,47 @@ func (a *Client) GetCollectionShardingState(params *GetCollectionShardingStatePa
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for getCollectionShardingState: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+GetReplicationScalePlan gets replication scale plan
+
+Computes and returns a replication scale plan for a given collection and desired replication factor. The plan includes, for each shard, a list of nodes to be added and a list of nodes to be removed.
+*/
+func (a *Client) GetReplicationScalePlan(params *GetReplicationScalePlanParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetReplicationScalePlanOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetReplicationScalePlanParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "getReplicationScalePlan",
+		Method:             "GET",
+		PathPattern:        "/replication/scale",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &GetReplicationScalePlanReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*GetReplicationScalePlanOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for getReplicationScalePlan: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

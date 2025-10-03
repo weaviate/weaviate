@@ -15,13 +15,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 var ErrBadRequest = errors.New("bad request")
@@ -29,13 +32,15 @@ var ErrBadRequest = errors.New("bad request")
 type Manager struct {
 	replicationFSM *ShardReplicationFSM
 	schemaReader   schema.SchemaReader
+	nodeSelector   cluster.NodeSelector
 }
 
-func NewManager(schemaReader schema.SchemaReader, reg prometheus.Registerer) *Manager {
+func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelector, reg prometheus.Registerer) *Manager {
 	replicationFSM := NewShardReplicationFSM(reg)
 	return &Manager{
 		replicationFSM: replicationFSM,
 		schemaReader:   schemaReader,
+		nodeSelector:   nodeSelector,
 	}
 }
 
@@ -296,6 +301,169 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 		return nil, fmt.Errorf("could not marshal query response: %w", err)
 	}
 	return payload, nil
+}
+
+func (m *Manager) QueryReplicationScalePlan(c *cmd.QueryRequest) ([]byte, error) {
+	subCommand := cmd.ReplicationScalePlanRequest{}
+	if err := json.Unmarshal(c.SubCommand, &subCommand); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	shardingState := m.schemaReader.CopyShardingState(subCommand.Collection)
+	if shardingState == nil {
+		return nil, fmt.Errorf("%w: %s", ErrClassNotFound, subCommand.Collection)
+	}
+
+	currentShards := make(map[string][]string, len(shardingState.Physical))
+	desiredShards := make(map[string][]string, len(shardingState.Physical))
+
+	for name, shard := range shardingState.Physical {
+		currentShards[name] = make([]string, len(shard.BelongsToNodes))
+		copy(currentShards[name], shard.BelongsToNodes)
+
+		if err := shard.AdjustReplicas(int(subCommand.ReplicationFactor), m.nodeSelector); err != nil {
+			return nil, err
+		}
+
+		desiredShards[name] = make([]string, len(shard.BelongsToNodes))
+		copy(desiredShards[name], shard.BelongsToNodes)
+	}
+
+	scalePlan := cmd.ReplicationScalePlan{
+		PlanID:                       strfmt.UUID(uuid.New().String()),
+		Collection:                   subCommand.Collection,
+		ShardReplicationScaleActions: make(map[string]cmd.ShardReplicationScaleActions),
+	}
+
+	diff := diffNodesPerShard(currentShards, desiredShards)
+
+	for shardName, nodes := range diff {
+		if len(nodes.Added) == 0 && len(nodes.Removed) == 0 {
+			// No changes for this shard
+			continue
+		}
+
+		if len(nodes.Added) > 0 && len(nodes.Remaining) == 0 {
+			return nil, fmt.Errorf("cannot determine source node for shard %q: no remaining nodes", shardName)
+		}
+
+		scalePlan.ShardReplicationScaleActions[shardName] = cmd.ShardReplicationScaleActions{
+			RemoveNodes: make(map[string]struct{}, len(nodes.Removed)),
+			AddNodes:    make(map[string]string, len(nodes.Added)),
+		}
+
+		for node := range nodes.Removed {
+			if _, ok := nodes.Remaining[node]; ok {
+				return nil, fmt.Errorf("unexpected removed node %q is also in remaining for shard %q", node, shardName)
+			}
+			if _, ok := nodes.Added[node]; ok {
+				return nil, fmt.Errorf("unexpected removed node %q is also in added for shard %q", node, shardName)
+			}
+
+			scalePlan.ShardReplicationScaleActions[shardName].RemoveNodes[node] = struct{}{}
+		}
+
+		for node := range nodes.Added {
+			if _, ok := nodes.Remaining[node]; ok {
+				return nil, fmt.Errorf("unexpected added node %q is also in remaining for shard %q", node, shardName)
+			}
+			if _, ok := nodes.Removed[node]; ok {
+				return nil, fmt.Errorf("unexpected added node %q is also in removed for shard %q", node, shardName)
+			}
+
+			// pick a random source node from the remaining nodes
+			var sourceNode string
+			i := rand.Intn(len(nodes.Remaining))
+			j := 0
+			for n := range nodes.Remaining {
+				if j == i {
+					sourceNode = n
+					break
+				}
+				j++
+			}
+
+			scalePlan.ShardReplicationScaleActions[shardName].AddNodes[node] = sourceNode
+		}
+	}
+
+	response := cmd.ReplicationScalePlanResponse{
+		ReplicationScalePlan: scalePlan,
+	}
+
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return nil, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
+}
+
+func diffNodesPerShard(before, after map[string][]string) map[string]struct {
+	Remaining map[string]struct{}
+	Removed   map[string]struct{}
+	Added     map[string]struct{}
+} {
+	result := make(map[string]struct {
+		Remaining map[string]struct{}
+		Removed   map[string]struct{}
+		Added     map[string]struct{}
+	}, len(before))
+
+	for shardName, beforeShard := range before {
+		beforeSet := make(map[string]struct{}, len(beforeShard))
+		for _, n := range beforeShard {
+			beforeSet[n] = struct{}{}
+		}
+
+		afterShard, ok := after[shardName]
+		if !ok {
+			// Shard missing entirely in the new state — all previous nodes are removed
+			result[shardName] = struct {
+				Remaining map[string]struct{}
+				Removed   map[string]struct{}
+				Added     map[string]struct{}
+			}{
+				Remaining: make(map[string]struct{}),
+				Removed:   beforeSet,
+				Added:     make(map[string]struct{}),
+			}
+			continue
+		}
+
+		afterSet := make(map[string]struct{}, len(afterShard))
+		for _, n := range afterShard {
+			afterSet[n] = struct{}{}
+		}
+
+		remaining := make(map[string]struct{})
+		removed := make(map[string]struct{})
+		added := make(map[string]struct{})
+
+		for _, n := range beforeShard {
+			if _, ok := afterSet[n]; ok {
+				remaining[n] = struct{}{}
+			} else {
+				removed[n] = struct{}{}
+			}
+		}
+		for _, n := range afterShard {
+			if _, ok := beforeSet[n]; !ok {
+				added[n] = struct{}{}
+			}
+		}
+
+		result[shardName] = struct {
+			Remaining map[string]struct{}
+			Removed   map[string]struct{}
+			Added     map[string]struct{}
+		}{
+			Remaining: remaining,
+			Removed:   removed,
+			Added:     added,
+		}
+	}
+
+	return result
 }
 
 func makeReplicationDetailsResponse(op *ShardReplicationOp, status *ShardReplicationOpStatus) cmd.ReplicationDetailsResponse {
