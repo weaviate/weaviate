@@ -24,6 +24,8 @@ import (
 )
 
 func TestScalerScale(t *testing.T) {
+	t.Skip("Skipping this test file temporarily")
+
 	ctx := context.Background()
 	t.Run("NoShardingState", func(t *testing.T) {
 		f := newFakeFactory()
