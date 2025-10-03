@@ -24,6 +24,7 @@ const (
 	DefaultVectorCacheMaxObjects = 1e12
 	DefaultCompressionEnabled    = false
 	DefaultCompressionRescore    = -1 // indicates "let Weaviate pick"
+	DefaultRQBits                = 1
 )
 
 type CompressionUserConfig struct {
@@ -32,13 +33,20 @@ type CompressionUserConfig struct {
 	Cache        bool `json:"cache"`
 }
 
+type RQUserConfig struct {
+	Enabled      bool `json:"enabled"`
+	RescoreLimit int  `json:"rescoreLimit"`
+	Cache        bool `json:"cache"`
+	Bits         int  `json:"bits,omitempty"`
+}
+
 type UserConfig struct {
 	Distance              string                `json:"distance"`
 	VectorCacheMaxObjects int                   `json:"vectorCacheMaxObjects"`
 	PQ                    CompressionUserConfig `json:"pq"`
 	BQ                    CompressionUserConfig `json:"bq"`
 	SQ                    CompressionUserConfig `json:"sq"`
-	RQ                    CompressionUserConfig `json:"rq"`
+	RQ                    RQUserConfig          `json:"rq"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -70,6 +78,7 @@ func (u *UserConfig) SetDefaults() {
 	u.SQ.RescoreLimit = DefaultCompressionRescore
 	u.RQ.Enabled = DefaultCompressionEnabled
 	u.RQ.RescoreLimit = DefaultCompressionRescore
+	u.RQ.Bits = DefaultRQBits
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -162,13 +171,13 @@ func parseCompression(in map[string]interface{}, uc *UserConfig) error {
 	}
 
 	if rqOk {
-		err := parseCompressionMap(rqConfigValue, &uc.RQ)
+		err := parseRQConfig(rqConfigValue, &uc.RQ)
 		if err != nil {
 			return err
 		}
 	}
 
-	compressionConfigs := []CompressionUserConfig{uc.PQ, uc.BQ, uc.SQ, uc.RQ}
+	compressionConfigs := []CompressionUserConfig{uc.PQ, uc.BQ, uc.SQ}
 	totalEnabled := 0
 
 	for _, compressionConfig := range compressionConfigs {
@@ -177,6 +186,18 @@ func parseCompression(in map[string]interface{}, uc *UserConfig) error {
 		}
 		if compressionConfig.Enabled {
 			totalEnabled++
+		}
+	}
+
+	// Handle RQ separately since it has a different type
+	if uc.RQ.Cache && !uc.RQ.Enabled {
+		return errors.New("not possible to use the cache without compression")
+	}
+	if uc.RQ.Enabled {
+		totalEnabled++
+		// Validate RQ bits
+		if uc.RQ.Bits != 1 && uc.RQ.Bits != 8 {
+			return errors.New("RQ bits must be either 1 or 8")
 		}
 	}
 
@@ -192,6 +213,36 @@ func parseCompression(in map[string]interface{}, uc *UserConfig) error {
 		return errors.New("SQ is not currently supported for flat indices")
 	}
 
+	return nil
+}
+
+func parseRQConfig(in interface{}, rq *RQUserConfig) error {
+	configMap, ok := in.(map[string]interface{})
+	if ok {
+		if err := vectorindexcommon.OptionalBoolFromMap(configMap, "enabled", func(v bool) {
+			rq.Enabled = v
+		}); err != nil {
+			return err
+		}
+
+		if err := vectorindexcommon.OptionalBoolFromMap(configMap, "cache", func(v bool) {
+			rq.Cache = v
+		}); err != nil {
+			return err
+		}
+
+		if err := vectorindexcommon.OptionalIntFromMap(configMap, "rescoreLimit", func(v int) {
+			rq.RescoreLimit = v
+		}); err != nil {
+			return err
+		}
+
+		if err := vectorindexcommon.OptionalIntFromMap(configMap, "bits", func(v int) {
+			rq.Bits = v
+		}); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

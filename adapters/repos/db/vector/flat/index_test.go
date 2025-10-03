@@ -72,7 +72,7 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 	bq := flatent.CompressionUserConfig{
 		Enabled: false,
 	}
-	rq := flatent.CompressionUserConfig{
+	rq := flatent.RQUserConfig{
 		Enabled: false,
 	}
 	switch compression {
@@ -193,7 +193,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	}
 
 	extraVectorsForDelete, _ := testinghelpers.RandomVecs(5_000, 0, dimensions)
-	for _, compression := range []CompressionType{CompressionNone, CompressionBQ, CompressionRQ1} {
+	for _, compression := range []CompressionType{CompressionNone, CompressionBQ, CompressionRQ1, CompressionRQ8} {
 		t.Run("compression: "+compression.String(), func(t *testing.T) {
 			for _, cache := range []bool{false, true} {
 				t.Run("cache: "+strconv.FormatBool(cache), func(t *testing.T) {
@@ -206,6 +206,9 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					}
 					if compression == CompressionRQ1 {
 						targetRecall = 0.7 // RQ has lower recall due to 1-bit quantization
+					}
+					if compression == CompressionRQ8 {
+						targetRecall = 0.9 // RQ8 should have higher recall than RQ1 due to 8-bit quantization
 					}
 					t.Run("recall", func(t *testing.T) {
 						recall, latency, err := run(ctx, dirName, logger, compression, cache, vectors, queries, k, truths, nil, nil, distancer, 0)
@@ -228,7 +231,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 			}
 		})
 	}
-	for _, compression := range []CompressionType{CompressionNone, CompressionBQ, CompressionRQ1} {
+	for _, compression := range []CompressionType{CompressionNone, CompressionBQ, CompressionRQ1, CompressionRQ8} {
 		t.Run("compression: "+compression.String(), func(t *testing.T) {
 			for _, cache := range []bool{false, true} {
 				t.Run("cache: "+strconv.FormatBool(cache), func(t *testing.T) {
@@ -248,6 +251,9 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					}
 					if compression == CompressionRQ1 {
 						targetRecall = 0.7 // RQ has lower recall due to 1-bit quantization
+					}
+					if compression == CompressionRQ8 {
+						targetRecall = 0.9 // RQ8 should have higher recall than RQ1 due to 8-bit quantization
 					}
 
 					t.Run("recall on filtered", func(t *testing.T) {
@@ -305,7 +311,7 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 			bq := flatent.CompressionUserConfig{
 				Enabled: tt.bq, Cache: tt.cache, RescoreLimit: 10,
 			}
-			rq := flatent.CompressionUserConfig{
+			rq := flatent.RQUserConfig{
 				Enabled: tt.rq, Cache: tt.cache, RescoreLimit: 10,
 			}
 			store, err := lsmkv.New(dirName, dirName, logger, nil,
@@ -439,7 +445,7 @@ func TestFlat_RQPersistence(t *testing.T) {
 	distancer := distancer.NewCosineDistanceProvider()
 
 	// Create index with RQ enabled
-	rq := flatent.CompressionUserConfig{
+	rq := flatent.RQUserConfig{
 		Enabled:      true,
 		Cache:        false,
 		RescoreLimit: 10,
@@ -463,13 +469,28 @@ func TestFlat_RQPersistence(t *testing.T) {
 	require.NotNil(t, index.quantizer)
 
 	// Test encoding
-	encoded := index.quantizer.Encode(testVector)
-	require.NotNil(t, encoded)
-	require.Greater(t, len(encoded), 0)
+	var encoded interface{}
+	if index.quantizer.Type() == Uint64Quantizer {
+		encoded = index.quantizer.EncodeUint64(testVector)
+		require.NotNil(t, encoded)
+		require.Greater(t, len(encoded.([]uint64)), 0)
+	} else if index.quantizer.Type() == ByteQuantizer {
+		encoded = index.quantizer.EncodeBytes(testVector)
+		require.NotNil(t, encoded)
+		require.Greater(t, len(encoded.([]byte)), 0)
+	}
 
 	// Test distance calculation - RQ distances can be negative
-	distance, err := index.quantizer.DistanceBetweenCompressedVectors(encoded, encoded)
-	require.Nil(t, err)
+	var distance float32
+	var distanceErr error
+	if index.quantizer.Type() == Uint64Quantizer {
+		encodedVec := encoded.([]uint64)
+		distance, distanceErr = index.quantizer.DistanceBetweenUint64Vectors(encodedVec, encodedVec)
+	} else if index.quantizer.Type() == ByteQuantizer {
+		encodedVec := encoded.([]byte)
+		distance, distanceErr = index.quantizer.DistanceBetweenByteVectors(encodedVec, encodedVec)
+	}
+	require.Nil(t, distanceErr)
 	require.IsType(t, float32(0), distance) // Just verify it returns a float32
 
 	// Store the original distance for comparison after restart
@@ -501,18 +522,43 @@ func TestFlat_RQPersistence(t *testing.T) {
 	require.NotNil(t, index2.quantizer)
 
 	// Test that the restored quantizer works
-	encoded2 := index2.quantizer.Encode(testVector)
-	require.NotNil(t, encoded2)
+	var encoded2 interface{}
+	if index2.quantizer.Type() == Uint64Quantizer {
+		encoded2 = index2.quantizer.EncodeUint64(testVector)
+		require.NotNil(t, encoded2)
+	} else if index2.quantizer.Type() == ByteQuantizer {
+		encoded2 = index2.quantizer.EncodeBytes(testVector)
+		require.NotNil(t, encoded2)
+	}
 
 	// The encoded vectors should be identical (same seed)
-	require.Equal(t, len(encoded), len(encoded2))
-	for i := range encoded {
-		require.Equal(t, encoded[i], encoded2[i])
+	if index.quantizer.Type() == Uint64Quantizer {
+		encodedVec := encoded.([]uint64)
+		encodedVec2 := encoded2.([]uint64)
+		require.Equal(t, len(encodedVec), len(encodedVec2))
+		for i := range encodedVec {
+			require.Equal(t, encodedVec[i], encodedVec2[i])
+		}
+	} else if index.quantizer.Type() == ByteQuantizer {
+		encodedVec := encoded.([]byte)
+		encodedVec2 := encoded2.([]byte)
+		require.Equal(t, len(encodedVec), len(encodedVec2))
+		for i := range encodedVec {
+			require.Equal(t, encodedVec[i], encodedVec2[i])
+		}
 	}
 
 	// Test distance calculation with restored quantizer
-	distance2, err := index2.quantizer.DistanceBetweenCompressedVectors(encoded2, encoded2)
-	require.Nil(t, err)
+	var distance2 float32
+	var distance2Err error
+	if index2.quantizer.Type() == Uint64Quantizer {
+		encodedVec2 := encoded2.([]uint64)
+		distance2, distance2Err = index2.quantizer.DistanceBetweenUint64Vectors(encodedVec2, encodedVec2)
+	} else if index2.quantizer.Type() == ByteQuantizer {
+		encodedVec2 := encoded2.([]byte)
+		distance2, distance2Err = index2.quantizer.DistanceBetweenByteVectors(encodedVec2, encodedVec2)
+	}
+	require.Nil(t, distance2Err)
 	require.IsType(t, float32(0), distance2) // Just verify it returns a float32
 
 	// Verify that the distance calculation is consistent after restart
