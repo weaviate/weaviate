@@ -840,6 +840,9 @@ func (h *hnsw) iterateMulti(fn func(docID uint64) bool) {
 }
 
 func (h *hnsw) ShouldUpgrade() (bool, int) {
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+
 	if h.sqConfig.Enabled {
 		return h.sqConfig.Enabled, h.sqConfig.TrainingLimit
 	}
