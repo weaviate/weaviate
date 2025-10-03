@@ -394,6 +394,19 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		if currUpdateTime != u.StaleUpdateTime {
 
 			if currUpdateTime == u.LastUpdateTimeUnixMilli {
+				if locallyDeleted && !u.Deleted {
+					// local object was deleted at the same time as the incoming update
+					r := replica.RepairResponse{
+						ID:         id.String(),
+						Deleted:    locallyDeleted,
+						UpdateTime: currUpdateTime,
+						Err:        "conflict",
+					}
+
+					result = append(result, r)
+					continue
+				}
+
 				// local object was updated in the mean time, no need to do anything
 				continue
 			}
