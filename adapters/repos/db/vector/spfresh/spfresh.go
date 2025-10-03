@@ -202,7 +202,9 @@ func (s *SPFresh) Shutdown(ctx context.Context) error {
 }
 
 func (s *SPFresh) Flush() error {
-	return s.Store.Flush()
+	// nothing to do here
+	// Shard will take care of handling store's buckets
+	return nil
 }
 
 func (s *SPFresh) SwitchCommitLogs(ctx context.Context) error {
