@@ -16,8 +16,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/protobuf/proto"
@@ -52,7 +55,53 @@ func (s *Raft) UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.
 	if cls == nil || cls.Class == "" {
 		return 0, fmt.Errorf("nil class or empty class name: %w", schema.ErrBadRequest)
 	}
-	req := cmd.UpdateClassRequest{Class: cls, State: ss}
+
+	if ss != nil {
+		err := s.ForceDeleteReplicationsByCollection(ctx, cls.Class)
+		if err != nil {
+			return 0, fmt.Errorf("force delete replications for %q: %w", cls.Class, err)
+		}
+
+		ssBefore, _, err := s.QueryShardingState(cls.Class)
+		if err != nil {
+			return 0, fmt.Errorf("query sharding state for %q: %w", cls.Class, err)
+		}
+
+		diff := diffNodesPerShard(ssBefore, ss)
+
+		for shardName, nodes := range diff {
+			if len(nodes.Added) == 0 && len(nodes.Removed) == 0 {
+				continue
+			}
+
+			if len(nodes.Added) > 0 && len(nodes.Remaining) == 0 {
+				return 0, fmt.Errorf("cannot determine source node for shard %q: no remaining nodes", shardName)
+			}
+
+			for _, node := range nodes.Added {
+				id, err := uuid.NewRandom()
+				if err != nil {
+					return 0, fmt.Errorf("create uuid for new replica: %w", err)
+				}
+				uuid := strfmt.UUID(id.String())
+
+				sourceNode := nodes.Remaining[rand.Intn(len(nodes.Remaining))]
+
+				err = s.ReplicationReplicateReplica(ctx, uuid, sourceNode, cls.Class, shardName, node, cmd.COPY.String())
+				if err != nil {
+					return 0, fmt.Errorf("replication add replica to shard for %q: %w", cls.Class, err)
+				}
+			}
+
+			for _, node := range nodes.Removed {
+				if _, err := s.DeleteReplicaFromShard(ctx, cls.Class, shardName, node); err != nil {
+					return 0, fmt.Errorf("delete replica %s from shard %s: %w", node, shardName, err)
+				}
+			}
+		}
+	}
+
+	req := cmd.UpdateClassRequest{Class: cls}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return 0, fmt.Errorf("marshal request: %w", err)
@@ -62,7 +111,73 @@ func (s *Raft) UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.
 		Class:      cls.Class,
 		SubCommand: subCommand,
 	}
+
 	return s.Execute(ctx, command)
+}
+
+func diffNodesPerShard(before, after *sharding.State) map[string]struct {
+	Remaining []string
+	Removed   []string
+	Added     []string
+} {
+	result := make(map[string]struct {
+		Remaining []string
+		Removed   []string
+		Added     []string
+	}, len(before.Physical))
+
+	for shardName, beforeShard := range before.Physical {
+		afterShard, ok := after.Physical[shardName]
+		if !ok {
+			// Shard missing entirely in the new state — all previous nodes are removed
+			result[shardName] = struct {
+				Remaining []string
+				Removed   []string
+				Added     []string
+			}{
+				Remaining: nil,
+				Removed:   beforeShard.BelongsToNodes,
+				Added:     nil,
+			}
+			continue
+		}
+
+		beforeSet := make(map[string]struct{}, len(beforeShard.BelongsToNodes))
+		for _, n := range beforeShard.BelongsToNodes {
+			beforeSet[n] = struct{}{}
+		}
+
+		afterSet := make(map[string]struct{}, len(afterShard.BelongsToNodes))
+		for _, n := range afterShard.BelongsToNodes {
+			afterSet[n] = struct{}{}
+		}
+
+		var remaining, removed, added []string
+		for _, n := range beforeShard.BelongsToNodes {
+			if _, ok := afterSet[n]; ok {
+				remaining = append(remaining, n)
+			} else {
+				removed = append(removed, n)
+			}
+		}
+		for _, n := range afterShard.BelongsToNodes {
+			if _, ok := beforeSet[n]; !ok {
+				added = append(added, n)
+			}
+		}
+
+		result[shardName] = struct {
+			Remaining []string
+			Removed   []string
+			Added     []string
+		}{
+			Remaining: remaining,
+			Removed:   removed,
+			Added:     added,
+		}
+	}
+
+	return result
 }
 
 func (s *Raft) DeleteClass(ctx context.Context, name string) (uint64, error) {

@@ -273,6 +273,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	}
 
 	initial := h.schemaReader.ReadOnlyClass(className)
+
 	var shardingState *sharding.State
 
 	if initial != nil {
@@ -284,16 +285,22 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		initialRF := initial.ReplicationConfig.Factor
 		updatedRF := updated.ReplicationConfig.Factor
 
+		if updatedRF <= 0 {
+			return fmt.Errorf("replication factor must be at least 1, got %d", updatedRF)
+		}
+
 		if initialRF != updatedRF {
-			ss, _, err := h.schemaManager.QueryShardingState(className)
-			if err != nil {
-				return fmt.Errorf("query sharding state for %q: %w", className, err)
+			shardingState = h.schemaReader.CopyShardingState(className)
+
+			if !h.replicaMovementEnabled {
+				return fmt.Errorf("replication factor change from %d to %d is not allowed: replica movement is disabled", initialRF, updatedRF)
 			}
-			shardingState, err = h.scaleOut.Scale(ctx, className, ss.Config, initialRF, updatedRF)
-			if err != nil {
-				return fmt.Errorf(
-					"scale %q from %d replicas to %d: %w",
-					className, initialRF, updatedRF, err)
+
+			for name, shard := range shardingState.Physical {
+				if err := shard.AdjustReplicas(int(updatedRF), h.clusterState); err != nil {
+					return err
+				}
+				shardingState.Physical[name] = shard
 			}
 		}
 
