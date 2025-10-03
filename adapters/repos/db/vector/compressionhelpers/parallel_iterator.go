@@ -316,6 +316,11 @@ func (cpi *parallelIterator[T]) cleanUpTempAllocs(localResults []VecAndID[T], lo
 	// order is important. To get the correct mapping we need to iterated:
 	// - localResults from the back
 	// - fittingLocalBuf from the front
+
+	// make sure we don't go out of bounds.
+	// Note: this assumes localResults has enough capacity
+	localResults = localResults[:len(localResults)+entriesToRecopy]
+
 	for i := 0; i < entriesToRecopy; i++ {
 		localResults[len(localResults)-i-1].Vec = fittingLocalBuf[:lengthOneVec]
 		fittingLocalBuf = fittingLocalBuf[lengthOneVec:]
