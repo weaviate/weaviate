@@ -11,20 +11,14 @@
 
 package scaler
 
-import (
-	"fmt"
-
-	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/sharding"
-)
-
 type (
 	// ShardDist shard distribution over nodes
 	ShardDist map[string][]string
 	// nodeShardDist map a node its shard distribution
-	nodeShardDist map[string]ShardDist
+	// nodeShardDist map[string]ShardDist
 )
 
+/*
 // distributions returns shard distribution for local node as well as remote nodes
 func distributions(before, after *sharding.State) (ShardDist, nodeShardDist) {
 	localDist := make(ShardDist, len(before.Physical))
@@ -67,6 +61,7 @@ func hosts(nodes []string, resolver cluster.NodeSelector) ([]string, error) {
 	}
 	return hs, nil
 }
+*/
 
 // shards return names of all shards
 func (m ShardDist) shards() []string {
