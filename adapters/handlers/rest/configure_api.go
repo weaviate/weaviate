@@ -151,6 +151,10 @@ import (
 const (
 	MinimumRequiredContextionaryVersion = "1.0.2"
 	ReadinessProbeLeadTime              = 2 * time.Second
+	GrpcShutdownTimeout                 = 60 * time.Second
+	InternalServerTimeout               = 60 * time.Second
+	ClusterServiceTimeout               = 60 * time.Second
+	TelemetryStopTimeout                = 10 * time.Second
 )
 
 func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
