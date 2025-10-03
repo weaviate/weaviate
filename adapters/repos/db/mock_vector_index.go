@@ -592,6 +592,40 @@ func (_c *MockVectorIndex_PostStartup_Call) RunAndReturn(run func()) *MockVector
 	return _c
 }
 
+// Preload provides a mock function with given fields: id, vector
+func (_m *MockVectorIndex) Preload(id uint64, vector []float32) {
+	_m.Called(id, vector)
+}
+
+// MockVectorIndex_Preload_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Preload'
+type MockVectorIndex_Preload_Call struct {
+	*mock.Call
+}
+
+// Preload is a helper method to define mock.On call
+//   - id uint64
+//   - vector []float32
+func (_e *MockVectorIndex_Expecter) Preload(id interface{}, vector interface{}) *MockVectorIndex_Preload_Call {
+	return &MockVectorIndex_Preload_Call{Call: _e.mock.On("Preload", id, vector)}
+}
+
+func (_c *MockVectorIndex_Preload_Call) Run(run func(id uint64, vector []float32)) *MockVectorIndex_Preload_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(uint64), args[1].([]float32))
+	})
+	return _c
+}
+
+func (_c *MockVectorIndex_Preload_Call) Return() *MockVectorIndex_Preload_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockVectorIndex_Preload_Call) RunAndReturn(run func(uint64, []float32)) *MockVectorIndex_Preload_Call {
+	_c.Run(run)
+	return _c
+}
+
 // QueryVectorDistancer provides a mock function with given fields: queryVector
 func (_m *MockVectorIndex) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	ret := _m.Called(queryVector)

@@ -59,6 +59,6 @@ func TestSPFreshOptimizedPostingSize(t *testing.T) {
 		require.NoError(t, err)
 
 		maxPostingSize := index.config.MaxPostingSize
-		require.Equal(t, uint32(10), maxPostingSize)
+		require.Equal(t, int(10), int(maxPostingSize))
 	})
 }
