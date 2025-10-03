@@ -73,8 +73,7 @@ func CancelFromRestartJourney(t *testing.T, cluster *docker.DockerCompose, nodeN
 				return false
 			}
 			status := *resp.Payload.Status
-			return status == string(backup.Started) ||
-				status == string(backup.Transferring)
+			return status == string(backup.Transferring)
 		}, 30*time.Second, 1*time.Second, "backup never started")
 
 		t.Logf("stopping node %s with timeout %s", nodeName, nodeStopTimeout.String())
