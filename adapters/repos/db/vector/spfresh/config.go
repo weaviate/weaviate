@@ -17,12 +17,9 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
-
-// UserConfig defines the configuration options for the SPFresh index.
-// Will be populated once we decide what should be exposed.
-type UserConfig struct{}
 
 type Config struct {
 	Logger                    logrus.FieldLogger
@@ -69,4 +66,10 @@ func DefaultConfig() *Config {
 		RNGFactor:                 10.0,
 		MaxDistanceRatio:          10_000,
 	}
+}
+
+func ValidateUserConfigUpdate(initial, updated schemaconfig.VectorIndexConfig) error {
+	// TODO: add validation
+	// panic("ValidateUserConfigUpdate not implemented")
+	return nil
 }

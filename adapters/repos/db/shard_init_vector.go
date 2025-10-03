@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/spfresh"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -225,9 +226,23 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
 		}
 		vectorIndex = vi
+	case vectorindex.VectorIndexTypeSPFresh:
+		//spfreshUserConfig, ok := vectorIndexUserConfig.(spfreshent.UserConfig)
+		//if !ok {
+		//	return nil, errors.Errorf("spfresh vector index: config is not spfresh.UserConfig: %T",
+		//		vectorIndexUserConfig)
+		//}
+		fmt.Println("creating spfresh index with default params")
+		configs := spfresh.DefaultConfig()
+		configs.ID = s.vectorIndexID(targetVector)
+		vi, err := spfresh.New(configs, s.store)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: spfresh index", s.ID())
+		}
+		vectorIndex = vi
 	default:
-		return nil, fmt.Errorf("unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\"]",
-			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC)
+		return nil, fmt.Errorf("unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\", \"%s\"]",
+			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC, vectorindex.VectorIndexTypeSPFresh)
 	}
 	defer vectorIndex.PostStartup()
 	return vectorIndex, nil
