@@ -981,29 +981,29 @@ func makeServerShutdownHandler(
 			appState.DistributedTaskScheduler.Close()
 		}
 
-		shutdownGrpcWithTimeout(grpcServer, grpcHealthServer, 60*time.Second, appState.Logger)
+		shutdownGrpcWithTimeout(grpcServer, grpcHealthServer, GrpcShutdownTimeout, appState.Logger)
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
-			sentry.Flush(2 * time.Second)
+			sentry.Flush(TelemetryStopTimeout)
 		}
 
-		internalCtx, internalCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		internalCtx, internalCancel := context.WithTimeout(context.Background(), InternalServerTimeout)
+		defer internalCancel()
 		if err := appState.InternalServer.Close(internalCtx); err != nil {
 			appState.Logger.
 				WithError(err).
 				WithField("action", "shutdown").
 				Errorf("failed to gracefully shutdown internal server")
 		}
-		internalCancel()
 
-		clusterCtx, clusterCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		clusterCtx, clusterCancel := context.WithTimeout(context.Background(), ClusterServiceTimeout)
+		defer clusterCancel()
 		if err := appState.ClusterService.Close(clusterCtx); err != nil {
 			appState.Logger.
 				WithError(err).
 				WithField("action", "shutdown").
 				Errorf("failed to gracefully shutdown cluster service")
 		}
-		clusterCancel()
 
 		if err := appState.APIKey.Dynamic.Close(); err != nil {
 			appState.Logger.
