@@ -658,21 +658,28 @@ func (index *flat) findTopVectorsQuantizedCached(heap *priorityqueue.Queue[any],
 	// Encode query vector once outside the loop for performance
 	var queryQuantizedUint64 []uint64
 	var queryQuantizedBytes []byte
+	var outUint64 [][]uint64
+	var outBytes [][]byte
+	var errs []error
+	var pageSize uint64
 
-	if index.quantizer.Type() == Uint64Quantizer {
+	quantizerType := index.quantizer.Type()
+
+	if quantizerType == Uint64Quantizer {
 		queryQuantizedUint64 = index.quantizer.EncodeUint64(queryVector)
-	} else if index.quantizer.Type() == ByteQuantizer {
+		pageSize = index.cache.uint64Cache.PageSize()
+		outUint64 = make([][]uint64, pageSize)
+		errs = make([]error, pageSize)
+	} else if quantizerType == ByteQuantizer {
 		queryQuantizedBytes = index.quantizer.EncodeBytes(queryVector)
+		pageSize = index.cache.byteCache.PageSize()
+		outBytes = make([][]byte, pageSize)
+		errs = make([]error, pageSize)
 	}
 
-	// since keys are sorted, once key/id get greater than max allowed one
-	// further search can be stopped
-	for id < uint64(all) && (allow == nil || id <= allowMax) {
-
-		if index.quantizer.Type() == Uint64Quantizer {
-			out := make([][]uint64, index.cache.PageSize())
-			errs := make([]error, index.cache.PageSize())
-			vecs, errs, start, end := index.cache.GetAllUint64InCurrentLock(context.Background(), id, out, errs)
+	if quantizerType == Uint64Quantizer {
+		for id < uint64(all) && (allow == nil || id <= allowMax) {
+			vecs, errs, start, end := index.cache.uint64Cache.GetAllInCurrentLock(context.Background(), id, outUint64, errs)
 
 			for i, vec := range vecs {
 				if i < (int(end) - int(start)) {
@@ -696,10 +703,10 @@ func (index *flat) findTopVectorsQuantizedCached(heap *priorityqueue.Queue[any],
 				}
 			}
 			id = end
-		} else if index.quantizer.Type() == ByteQuantizer {
-			out := make([][]byte, index.cache.PageSize())
-			errs := make([]error, index.cache.PageSize())
-			vecs, errs, start, end := index.cache.GetAllBytesInCurrentLock(context.Background(), id, out, errs)
+		}
+	} else if quantizerType == ByteQuantizer {
+		for id < uint64(all) && (allow == nil || id <= allowMax) {
+			vecs, errs, start, end := index.cache.byteCache.GetAllInCurrentLock(context.Background(), id, outBytes, errs)
 
 			for i, vec := range vecs {
 				if i < (int(end) - int(start)) {
@@ -1192,13 +1199,13 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 					return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, index.cache.Len())
 				}
 				if index.quantizer.Type() == Uint64Quantizer {
-					vec, err := index.cache.GetUint64(context.Background(), nodeID)
+					vec, err := index.cache.uint64Cache.Get(context.Background(), nodeID)
 					if err != nil {
 						return 0, err
 					}
 					return index.quantizer.DistanceBetweenUint64Vectors(vec, queryVecEncodeUint64)
 				} else if index.quantizer.Type() == ByteQuantizer {
-					vec, err := index.cache.GetBytes(context.Background(), nodeID)
+					vec, err := index.cache.byteCache.Get(context.Background(), nodeID)
 					if err != nil {
 						return 0, err
 					}
