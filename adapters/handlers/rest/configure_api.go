@@ -42,6 +42,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/weaviate/fgprof"
@@ -938,42 +939,64 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			appState.DistributedTaskScheduler.Close()
 		}
 
-		// gracefully stop gRPC server
-		grpcHealthServer.Shutdown()
-		grpcServer.GracefulStop()
+		shutdownGrpcWithTimeout(grpcServer, grpcHealthServer, 60*time.Second, appState.Logger)
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-
-		if err := appState.InternalServer.Close(ctx); err != nil {
+		internalCtx, internalCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		if err := appState.InternalServer.Close(internalCtx); err != nil {
 			appState.Logger.
 				WithError(err).
 				WithField("action", "shutdown").
-				Errorf("failed to gracefully shutdown")
+				Errorf("failed to gracefully shutdown internal server")
 		}
+		internalCancel()
 
-		if err := appState.ClusterService.Close(ctx); err != nil {
+		clusterCtx, clusterCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		if err := appState.ClusterService.Close(clusterCtx); err != nil {
 			appState.Logger.
 				WithError(err).
 				WithField("action", "shutdown").
-				Errorf("failed to gracefully shutdown")
+				Errorf("failed to gracefully shutdown cluster service")
 		}
+		clusterCancel()
 
 		if err := appState.APIKey.Dynamic.Close(); err != nil {
 			appState.Logger.
 				WithError(err).
 				WithField("action", "shutdown db users").
-				Errorf("failed to gracefully shutdown")
+				Errorf("failed to gracefully shutdown db users")
 		}
 	}
 
 	startGrpcServer(grpcServer, appState)
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+}
+
+// shutdownGrpcWithTimeout handles graceful shutdown of gRPC servers with timeout.
+// It shuts down the health server first, then attempts a graceful stop of the main server.
+// If a graceful stop doesn't complete within the timeout, it forces an immediate stop to avoid
+// hanging forever.
+func shutdownGrpcWithTimeout(server *grpc.Server, healthServer *health.Server, timeout time.Duration, logger logrus.FieldLogger) {
+	healthServer.Shutdown()
+	done := make(chan struct{})
+
+	enterrors.GoWrapper(func() {
+		server.GracefulStop()
+		close(done)
+	}, logger)
+
+	select {
+	case <-done:
+		logger.Info("gRPC server stopped gracefully")
+	case <-time.After(timeout):
+		logger.WithField("timeout", timeout).
+			Warn("gRPC graceful stop timed out, forcing immediate stop")
+		server.Stop()
+	}
 }
 
 func startBackupScheduler(appState *state.State) *backup.Scheduler {
