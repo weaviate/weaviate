@@ -28,7 +28,7 @@ func CancelFromRestartJourney(t *testing.T, cluster *docker.DockerCompose, nodeN
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	nodeStopTimeout := 2 * time.Second
+	nodeStopTimeout := 5 * time.Second
 	className := "CancelClass"
 	backupID := fmt.Sprintf("%s-backup-cancel", backend)
 	numObjects := 100_000
