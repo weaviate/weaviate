@@ -133,29 +133,22 @@ func (s *Scaler) scaleOut(ctx context.Context, className string, ssBefore *shard
 		}
 		ssAfter.Physical[name] = shard
 	}
-	lDist, nodeDist := distributions(ssBefore, &ssAfter)
+
+	newNodesPerShard := newNodesPerShard(ssBefore, &ssAfter)
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(s.logger, ctx)
-	// resolve hosts beforehand
-	nodes := nodeDist.nodes()
-	hosts, err := hosts(nodes, s.cluster)
-	if err != nil {
-		return nil, err
-	}
-	for i, node := range nodes {
-		dist := nodeDist[node]
-		i := i
-		g.Go(func() error {
-			err := s.client.IncreaseReplicationFactor(ctx, hosts[i], className, dist)
-			if err != nil {
-				return fmt.Errorf("increase replication factor for class %q on node %q: %w", className, nodes[i], err)
-			}
-			return nil
-		})
-	}
 
 	g.Go(func() error {
-		if err := s.LocalScaleOut(ctx, className, lDist); err != nil {
-			return fmt.Errorf("increase local replication factor: %w", err)
+		for shard, nodes := range newNodesPerShard {
+			for _, node := range nodes {
+				host, ok := s.cluster.NodeHostname(node)
+				if !ok {
+					return fmt.Errorf("%w, %q", ErrUnresolvedName, node)
+				}
+
+				if err := s.client.CreateShard(ctx, host, className, shard); err != nil {
+					return fmt.Errorf("increase local replication factor: %w", err)
+				}
+			}
 		}
 		return nil
 	})
@@ -170,6 +163,16 @@ func (s *Scaler) scaleOut(ctx context.Context, className string, ssBefore *shard
 	// now that a copy of the local shard is present it will return true and
 	// serve the traffic.
 	return &ssAfter, nil
+}
+
+func newNodesPerShard(before, after *sharding.State) ShardDist {
+	res := make(ShardDist, len(before.Physical))
+
+	for name := range before.Physical {
+		res[name] = difference(after.Physical[name].BelongsToNodes, before.Physical[name].BelongsToNodes)
+	}
+
+	return res
 }
 
 // LocalScaleOut syncs local shards with new replicas.
