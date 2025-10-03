@@ -54,6 +54,16 @@ func (s *Shard) putBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	s.activityTrackerWrite.Add(1)
+
+	// Increment batch counter to track active batches
+	s.activeBatchCounter.Add(1)
+	defer s.activeBatchCounter.Add(-1)
+
+	// Check if shutdown is requested before starting batch
+	if s.shutdownRequested.Load() {
+		return []error{errors.New("shutdown in progress, rejecting new batch")}
+	}
+
 	if asyncEnabled() {
 		return s.putBatchAsync(ctx, objects)
 	}
@@ -74,13 +84,25 @@ func (s *Shard) putBatchAsync(ctx context.Context, objects []*storobj.Object) []
 	beforeBatch := time.Now()
 	defer s.metrics.BatchObject(beforeBatch, len(objects))
 
+	// Increment batch counter to track active batches
+	s.activeBatchCounter.Add(1)
+	defer s.activeBatchCounter.Add(-1)
+
+	// Check if shutdown is requested before starting batch
+	if s.shutdownRequested.Load() {
+		return []error{errors.New("shutdown in progress, rejecting new batch")}
+	}
+
 	batcher := newObjectsBatcher(s)
 
 	batcher.init(objects)
 	batcher.storeInObjectStore(ctx)
 	batcher.markDeletedInVectorStorage(ctx)
 	batcher.storeAdditionalStorageWithAsyncQueue(ctx)
-	batcher.flushWALs(ctx)
+
+	// Always flush WALs regardless of context cancellation to ensure data consistency
+	// This is critical for data persistence during shutdown
+	batcher.flushWALs(context.Background())
 
 	return batcher.errs
 }
@@ -114,7 +136,10 @@ func (ob *objectsBatcher) Objects(ctx context.Context,
 	ob.storeInObjectStore(ctx)
 	ob.markDeletedInVectorStorage(ctx)
 	ob.storeAdditionalStorageWithWorkers(ctx)
-	ob.flushWALs(ctx)
+
+	// Always flush WALs regardless of context cancellation to ensure data consistency
+	// This is critical for data persistence during shutdown
+	ob.flushWALs(context.Background())
 	return ob.errs
 }
 
@@ -147,13 +172,8 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 	errs := make([]error, len(batch))
 	errLock := &sync.Mutex{}
 
-	// if the context is expired fail all
-	if err := ctx.Err(); err != nil {
-		for i := range errs {
-			errs[i] = errors.Wrap(err, "begin batch")
-		}
-		return errs
-	}
+	// Use non-cancellable context to ensure all objects are stored even during shutdown
+	nonCancellableCtx := context.Background()
 
 	eg := enterrors.NewErrorGroupWrapper(ob.shard.Index().logger)
 	eg.SetLimit(_NUMCPU)
@@ -162,7 +182,7 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 		object := object
 		index := j
 		f := func() error {
-			if err := ob.storeObjectOfBatchInLSM(ctx, index, object); err != nil {
+			if err := ob.storeObjectOfBatchInLSM(nonCancellableCtx, index, object); err != nil {
 				errLock.Lock()
 				errs[index] = err
 				errLock.Unlock()
@@ -200,10 +220,7 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 
 	ob.setStatusForID(status, object.ID())
 
-	if err := ctx.Err(); err != nil {
-		return errors.Wrapf(err, "end store object %d of batch", objectIndex)
-	}
-
+	// Don't check context here to ensure object storage completes even during shutdown
 	return nil
 }
 
@@ -244,11 +261,8 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 // stores, such as the main vector index as well as the property-specific
 // indices, such as the geo-index.
 func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context) {
-	if ok := ob.checkContext(ctx); !ok {
-		// if the context is no longer OK, there's no point in continuing - abort
-		// early
-		return
-	}
+	// Check context but continue operations even if cancelled to ensure data persistence
+	// ob.checkContext(ctx)
 
 	ob.batchStartTime = time.Now()
 
@@ -259,22 +273,20 @@ func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context)
 		}
 
 		ob.wg.Add(1)
+		// Use a non-cancellable context for worker jobs to ensure they complete
 		ob.shard.addJobToQueue(job{
 			object:  object,
 			status:  status,
 			index:   i,
-			ctx:     ctx,
+			ctx:     context.Background(),
 			batcher: ob,
 		})
 	}
 }
 
 func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Context) {
-	if ok := ob.checkContext(ctx); !ok {
-		// if the context is no longer OK, there's no point in continuing - abort
-		// early
-		return
-	}
+	// Check context but continue operations even if cancelled to ensure data persistence
+	ob.checkContext(ctx)
 
 	ob.batchStartTime = time.Now()
 	shouldGeoIndex := ob.shard.hasGeoIndex()
@@ -331,7 +343,8 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 		if !ok {
 			ob.setErrorAtIndex(fmt.Errorf("queue not found for target vector %s", targetVector), 0)
 		} else {
-			err := queue.Insert(ctx, vectors...)
+			// Use non-cancellable context to ensure vector operations complete
+			err := queue.Insert(context.Background(), vectors...)
 			if err != nil {
 				ob.setErrorAtIndex(err, 0)
 			}
@@ -446,8 +459,8 @@ func (ob *objectsBatcher) setErrorAtIndex(err error, index int) {
 // the ctx error
 func (ob *objectsBatcher) checkContext(ctx context.Context) bool {
 	if err := ctx.Err(); err != nil {
-		for i, err := range ob.errs {
-			if err == nil {
+		for i, existingErr := range ob.errs {
+			if existingErr != nil {
 				// already has an error, ignore
 				continue
 			}

@@ -292,6 +292,8 @@ type Shard struct {
 
 	// shutdownRequested marks shard as requested for shutdown
 	shutdownRequested atomic.Bool
+	// activeBatchCounter tracks the number of active batch operations
+	activeBatchCounter atomic.Int64
 }
 
 func (s *Shard) ID() string {
@@ -529,6 +531,11 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 // Activity score for read and write
 func (s *Shard) Activity() (int32, int32) {
 	return s.activityTrackerRead.Load(), s.activityTrackerWrite.Load()
+}
+
+// ActiveBatchCount returns the number of currently active batch operations
+func (s *Shard) ActiveBatchCount() int64 {
+	return s.activeBatchCounter.Load()
 }
 
 func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) {

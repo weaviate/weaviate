@@ -75,6 +75,42 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 			Debugf("shard %q is still in use", s.name)
 		return fmt.Errorf("shard %q is still in use", s.name)
 	}
+
+	// Wait for active batches to complete with timeout
+	if s.activeBatchCounter.Load() > 0 {
+		s.index.logger.
+			WithField("action", "shutdown").
+			WithField("active_batches", s.activeBatchCounter.Load()).
+			Debugf("shard %q has active batches, waiting for completion", s.name)
+
+		// Wait up to 30 seconds for batches to complete
+		timeout := time.NewTimer(30 * time.Second)
+		defer timeout.Stop()
+
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-timeout.C:
+				s.index.logger.
+					WithField("action", "shutdown").
+					WithField("active_batches", s.activeBatchCounter.Load()).
+					Warnf("shard %q shutdown timeout waiting for batches", s.name)
+				// Continue with shutdown even if batches are still active
+				goto shutdownContinue
+			case <-ticker.C:
+				if s.activeBatchCounter.Load() == 0 {
+					s.index.logger.
+						WithField("action", "shutdown").
+						Debugf("shard %q all batches completed", s.name)
+					goto shutdownContinue
+				}
+			}
+		}
+	shutdownContinue:
+	}
+
 	s.shut.Store(true)
 	s.shutdownRequested.Store(false)
 	start := time.Now()

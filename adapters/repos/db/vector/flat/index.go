@@ -269,9 +269,8 @@ func shouldForceCompaction() bool {
 }
 
 func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+	// Flat vector operations are fast and atomic, so we don't check context
+	// to ensure data persistence even during shutdown
 	if len(ids) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
 	}
@@ -279,9 +278,6 @@ func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float
 		return errors.Errorf("insertBatch called with empty lists")
 	}
 	for i := range ids {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		if err := index.Add(ctx, ids[i], vectors[i]); err != nil {
 			return err
 		}
@@ -318,9 +314,8 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 }
 
 func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+	// Flat vector operations are fast and atomic, so we don't check context
+	// to ensure data persistence even during shutdown
 
 	index.trackDimensionsOnce.Do(func() {
 		size := int32(len(vector))
@@ -858,7 +853,7 @@ func (index *flat) PostStartup() {
 		"count":    count,
 		"took":     took,
 		"index_id": index.id,
-	}).Debugf("pre-loaded %d vectors in %s", count, took)
+	}).Warnf("pre-loaded %d vectors in %s", count, took)
 }
 
 func (index *flat) ContainsDoc(id uint64) bool {
