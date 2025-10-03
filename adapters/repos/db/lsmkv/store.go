@@ -122,6 +122,10 @@ func (s *Store) bucketDir(bucketName string) string {
 	return path.Join(s.dir, bucketName)
 }
 
+func (s *Store) GetDir() string {
+	return s.dir
+}
+
 // CreateOrLoadBucket registers a bucket with the given name. If state on disk
 // exists for this bucket it is loaded, otherwise created. Pass [BucketOptions]
 // to configure the strategy of a bucket. The strategy defaults to "replace".
