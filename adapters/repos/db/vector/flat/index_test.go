@@ -193,7 +193,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	}
 
 	extraVectorsForDelete, _ := testinghelpers.RandomVecs(5_000, 0, dimensions)
-	for _, compression := range []CompressionType{CompressionNone, CompressionBQ, CompressionRQ1} {
+	for _, compression := range []CompressionType{CompressionNone, CompressionBQ, CompressionRQ1, CompressionRQ8} {
 		t.Run("compression: "+compression.String(), func(t *testing.T) {
 			for _, cache := range []bool{false, true} {
 				t.Run("cache: "+strconv.FormatBool(cache), func(t *testing.T) {
@@ -206,6 +206,9 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					}
 					if compression == CompressionRQ1 {
 						targetRecall = 0.7 // RQ has lower recall due to 1-bit quantization
+					}
+					if compression == CompressionRQ8 {
+						targetRecall = 0.9 // RQ8 should have higher recall than RQ1 due to 8-bit quantization
 					}
 					t.Run("recall", func(t *testing.T) {
 						recall, latency, err := run(ctx, dirName, logger, compression, cache, vectors, queries, k, truths, nil, nil, distancer, 0)
@@ -228,7 +231,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 			}
 		})
 	}
-	for _, compression := range []CompressionType{CompressionNone, CompressionBQ, CompressionRQ1} {
+	for _, compression := range []CompressionType{CompressionNone, CompressionBQ, CompressionRQ1, CompressionRQ8} {
 		t.Run("compression: "+compression.String(), func(t *testing.T) {
 			for _, cache := range []bool{false, true} {
 				t.Run("cache: "+strconv.FormatBool(cache), func(t *testing.T) {
@@ -248,6 +251,9 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					}
 					if compression == CompressionRQ1 {
 						targetRecall = 0.7 // RQ has lower recall due to 1-bit quantization
+					}
+					if compression == CompressionRQ8 {
+						targetRecall = 0.9 // RQ8 should have higher recall than RQ1 due to 8-bit quantization
 					}
 
 					t.Run("recall on filtered", func(t *testing.T) {
