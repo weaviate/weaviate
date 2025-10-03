@@ -14,12 +14,10 @@ package scaler
 import (
 	"context"
 	"errors"
-	"io"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -39,7 +37,6 @@ type fakeFactory struct {
 	Nodes         []string
 	ShardingState fakeShardingState
 	NodeHostMap   map[string]string
-	Source        *fakeSource
 	Client        *fakeClient
 	logger        logrus.FieldLogger
 }
@@ -59,20 +56,18 @@ func newFakeFactory() *fakeFactory {
 			},
 		},
 		NodeHostMap: nodeHostMap,
-		Source:      &fakeSource{},
 		Client:      &fakeClient{},
 		logger:      logger,
 	}
 }
 
-func (f *fakeFactory) Scaler(dataPath string) *Scaler {
+func (f *fakeFactory) Scaler() *Scaler {
 	nodeResolver := newFakeNodeResolver(f.LocalNode, f.NodeHostMap)
 	scaler := New(
 		nodeResolver,
-		f.Source,
 		f.Client,
 		f.logger,
-		dataPath)
+	)
 	scaler.SetSchemaReader(&f.ShardingState)
 	return scaler
 }
@@ -116,47 +111,11 @@ func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
 	return host, ok
 }
 
-type fakeSource struct {
-	mock.Mock
-}
-
-func (s *fakeSource) ReleaseBackup(ctx context.Context, id, class string) error {
-	args := s.Called(ctx, id, class)
-	return args.Error(0)
-}
-
-func (s *fakeSource) ShardsBackup(
-	ctx context.Context, id, class string, shards []string,
-) (_ backup.ClassDescriptor, err error) {
-	args := s.Called(ctx, id, class, shards)
-	return args.Get(0).(backup.ClassDescriptor), args.Error(1)
-}
-
 type fakeClient struct {
 	mock.Mock
 }
 
-func (f *fakeClient) PutFile(ctx context.Context, host, class,
-	shard, filename string, payload io.ReadSeekCloser,
-) error {
-	args := f.Called(ctx, host, class, shard, filename, payload)
-	return args.Error(0)
-}
-
 func (f *fakeClient) CreateShard(ctx context.Context, host, class, name string) error {
 	args := f.Called(ctx, host, class, name)
-	return args.Error(0)
-}
-
-func (f *fakeClient) ReInitShard(ctx context.Context, host, class, shard string,
-) error {
-	args := f.Called(ctx, host, class, shard)
-	return args.Error(0)
-}
-
-func (f *fakeClient) IncreaseReplicationFactor(ctx context.Context,
-	host, class string, dist ShardDist,
-) error {
-	args := f.Called(ctx, host, class, dist)
 	return args.Error(0)
 }
