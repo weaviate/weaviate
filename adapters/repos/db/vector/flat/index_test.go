@@ -72,7 +72,7 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 	bq := flatent.CompressionUserConfig{
 		Enabled: false,
 	}
-	rq := flatent.CompressionUserConfig{
+	rq := flatent.RQUserConfig{
 		Enabled: false,
 	}
 	switch compression {
@@ -311,7 +311,7 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 			bq := flatent.CompressionUserConfig{
 				Enabled: tt.bq, Cache: tt.cache, RescoreLimit: 10,
 			}
-			rq := flatent.CompressionUserConfig{
+			rq := flatent.RQUserConfig{
 				Enabled: tt.rq, Cache: tt.cache, RescoreLimit: 10,
 			}
 			store, err := lsmkv.New(dirName, dirName, logger, nil,
@@ -445,7 +445,7 @@ func TestFlat_RQPersistence(t *testing.T) {
 	distancer := distancer.NewCosineDistanceProvider()
 
 	// Create index with RQ enabled
-	rq := flatent.CompressionUserConfig{
+	rq := flatent.RQUserConfig{
 		Enabled:      true,
 		Cache:        false,
 		RescoreLimit: 10,

@@ -206,7 +206,7 @@ func (index *flat) setDimensions(dimensions int32) error {
 // RQ data persistence and restoration functions
 
 func (index *flat) persistRQData() error {
-	if index.compression != CompressionRQ1 || index.quantizer == nil {
+	if (index.compression != CompressionRQ1 && index.compression != CompressionRQ8) || index.quantizer == nil {
 		return nil // No RQ data to persist
 	}
 
@@ -236,7 +236,7 @@ func (index *flat) persistRQData() error {
 }
 
 func (index *flat) restoreRQData() error {
-	if index.compression != CompressionRQ1 {
+	if index.compression != CompressionRQ1 && index.compression != CompressionRQ8 {
 		return nil // No RQ to restore
 	}
 
@@ -247,6 +247,7 @@ func (index *flat) restoreRQData() error {
 	defer index.closeMetadata()
 
 	var brqData *compressionhelpers.BRQData
+	var rqData *compressionhelpers.RQData
 	err = index.metadata.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(vectorMetadataBucket))
 		if b == nil {
@@ -259,105 +260,199 @@ func (index *flat) restoreRQData() error {
 			return nil // No RQ data to restore
 		}
 
-		// Deserialize BRQData
-		brqData = &compressionhelpers.BRQData{}
-		pos := 0
+		// Check compression type to determine which data structure to use
+		if index.compression == CompressionRQ1 {
+			// Handle BRQData for RQ1
+			brqData = &compressionhelpers.BRQData{}
+			pos := 0
 
-		// Read InputDim
-		if pos+4 > len(data) {
-			return errors.New("invalid RQ data: InputDim")
-		}
-		brqData.InputDim = binary.LittleEndian.Uint32(data[pos:])
-		pos += 4
-
-		// Read Rotation.OutputDim
-		if pos+4 > len(data) {
-			return errors.New("invalid RQ data: OutputDim")
-		}
-		outputDim := binary.LittleEndian.Uint32(data[pos:])
-		pos += 4
-
-		// Read Rotation.Rounds
-		if pos+4 > len(data) {
-			return errors.New("invalid RQ data: Rounds")
-		}
-		rounds := binary.LittleEndian.Uint32(data[pos:])
-		pos += 4
-
-		// Read Swaps
-		if pos+4 > len(data) {
-			return errors.New("invalid RQ data: Swaps length")
-		}
-		swapsLen := binary.LittleEndian.Uint32(data[pos:])
-		pos += 4
-
-		brqData.Rotation.Swaps = make([][]compressionhelpers.Swap, swapsLen)
-		for i := uint32(0); i < swapsLen; i++ {
+			// Read InputDim
 			if pos+4 > len(data) {
-				return errors.New("invalid RQ data: Swap array length")
+				return errors.New("invalid RQ data: InputDim")
 			}
-			swapLen := binary.LittleEndian.Uint32(data[pos:])
+			brqData.InputDim = binary.LittleEndian.Uint32(data[pos:])
 			pos += 4
 
-			brqData.Rotation.Swaps[i] = make([]compressionhelpers.Swap, swapLen)
-			for j := uint32(0); j < swapLen; j++ {
-				if pos+4 > len(data) {
-					return errors.New("invalid RQ data: Swap I")
-				}
-				brqData.Rotation.Swaps[i][j].I = binary.LittleEndian.Uint16(data[pos:])
-				pos += 2
-				if pos+2 > len(data) {
-					return errors.New("invalid RQ data: Swap J")
-				}
-				brqData.Rotation.Swaps[i][j].J = binary.LittleEndian.Uint16(data[pos:])
-				pos += 2
-			}
-		}
-
-		// Read Signs
-		if pos+4 > len(data) {
-			return errors.New("invalid RQ data: Signs length")
-		}
-		signsLen := binary.LittleEndian.Uint32(data[pos:])
-		pos += 4
-
-		brqData.Rotation.Signs = make([][]float32, signsLen)
-		for i := uint32(0); i < signsLen; i++ {
+			// Read Rotation.OutputDim
 			if pos+4 > len(data) {
-				return errors.New("invalid RQ data: Sign array length")
+				return errors.New("invalid RQ data: OutputDim")
 			}
-			signLen := binary.LittleEndian.Uint32(data[pos:])
+			outputDim := binary.LittleEndian.Uint32(data[pos:])
 			pos += 4
 
-			brqData.Rotation.Signs[i] = make([]float32, signLen)
-			for j := uint32(0); j < signLen; j++ {
+			// Read Rotation.Rounds
+			if pos+4 > len(data) {
+				return errors.New("invalid RQ data: Rounds")
+			}
+			rounds := binary.LittleEndian.Uint32(data[pos:])
+			pos += 4
+
+			// Read Swaps
+			if pos+4 > len(data) {
+				return errors.New("invalid RQ data: Swaps length")
+			}
+			swapsLen := binary.LittleEndian.Uint32(data[pos:])
+			pos += 4
+
+			brqData.Rotation.Swaps = make([][]compressionhelpers.Swap, swapsLen)
+			for i := uint32(0); i < swapsLen; i++ {
 				if pos+4 > len(data) {
-					return errors.New("invalid RQ data: Sign value")
+					return errors.New("invalid RQ data: Swap array length")
 				}
-				brqData.Rotation.Signs[i][j] = math.Float32frombits(binary.LittleEndian.Uint32(data[pos:]))
+				swapLen := binary.LittleEndian.Uint32(data[pos:])
+				pos += 4
+
+				brqData.Rotation.Swaps[i] = make([]compressionhelpers.Swap, swapLen)
+				for j := uint32(0); j < swapLen; j++ {
+					if pos+4 > len(data) {
+						return errors.New("invalid RQ data: Swap I")
+					}
+					brqData.Rotation.Swaps[i][j].I = binary.LittleEndian.Uint16(data[pos:])
+					pos += 2
+					if pos+2 > len(data) {
+						return errors.New("invalid RQ data: Swap J")
+					}
+					brqData.Rotation.Swaps[i][j].J = binary.LittleEndian.Uint16(data[pos:])
+					pos += 2
+				}
+			}
+
+			// Read Signs
+			if pos+4 > len(data) {
+				return errors.New("invalid RQ data: Signs length")
+			}
+			signsLen := binary.LittleEndian.Uint32(data[pos:])
+			pos += 4
+
+			brqData.Rotation.Signs = make([][]float32, signsLen)
+			for i := uint32(0); i < signsLen; i++ {
+				if pos+4 > len(data) {
+					return errors.New("invalid RQ data: Sign array length")
+				}
+				signLen := binary.LittleEndian.Uint32(data[pos:])
+				pos += 4
+
+				brqData.Rotation.Signs[i] = make([]float32, signLen)
+				for j := uint32(0); j < signLen; j++ {
+					if pos+4 > len(data) {
+						return errors.New("invalid RQ data: Sign value")
+					}
+					brqData.Rotation.Signs[i][j] = math.Float32frombits(binary.LittleEndian.Uint32(data[pos:]))
+					pos += 4
+				}
+			}
+
+			// Read Rounding
+			if pos+4 > len(data) {
+				return errors.New("invalid RQ data: Rounding length")
+			}
+			roundingLen := binary.LittleEndian.Uint32(data[pos:])
+			pos += 4
+
+			brqData.Rounding = make([]float32, roundingLen)
+			for i := uint32(0); i < roundingLen; i++ {
+				if pos+4 > len(data) {
+					return errors.New("invalid RQ data: Rounding value")
+				}
+				brqData.Rounding[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[pos:]))
 				pos += 4
 			}
-		}
 
-		// Read Rounding
-		if pos+4 > len(data) {
-			return errors.New("invalid RQ data: Rounding length")
-		}
-		roundingLen := binary.LittleEndian.Uint32(data[pos:])
-		pos += 4
+			// Set rotation metadata
+			brqData.Rotation.OutputDim = outputDim
+			brqData.Rotation.Rounds = rounds
+		} else if index.compression == CompressionRQ8 {
+			// Handle RQData for RQ8
+			rqData = &compressionhelpers.RQData{}
+			pos := 0
 
-		brqData.Rounding = make([]float32, roundingLen)
-		for i := uint32(0); i < roundingLen; i++ {
+			// Read InputDim
 			if pos+4 > len(data) {
-				return errors.New("invalid RQ data: Rounding value")
+				return errors.New("invalid RQ8 data: InputDim")
 			}
-			brqData.Rounding[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[pos:]))
+			rqData.InputDim = binary.LittleEndian.Uint32(data[pos:])
 			pos += 4
-		}
 
-		// Set rotation metadata
-		brqData.Rotation.OutputDim = outputDim
-		brqData.Rotation.Rounds = rounds
+			// Read Bits
+			if pos+4 > len(data) {
+				return errors.New("invalid RQ8 data: Bits")
+			}
+			rqData.Bits = binary.LittleEndian.Uint32(data[pos:])
+			pos += 4
+
+			// Read Rotation.OutputDim
+			if pos+4 > len(data) {
+				return errors.New("invalid RQ8 data: OutputDim")
+			}
+			outputDim := binary.LittleEndian.Uint32(data[pos:])
+			pos += 4
+
+			// Read Rotation.Rounds
+			if pos+4 > len(data) {
+				return errors.New("invalid RQ8 data: Rounds")
+			}
+			rounds := binary.LittleEndian.Uint32(data[pos:])
+			pos += 4
+
+			// Read Swaps
+			if pos+4 > len(data) {
+				return errors.New("invalid RQ8 data: Swaps length")
+			}
+			swapsLen := binary.LittleEndian.Uint32(data[pos:])
+			pos += 4
+
+			rqData.Rotation.Swaps = make([][]compressionhelpers.Swap, swapsLen)
+			for i := uint32(0); i < swapsLen; i++ {
+				if pos+4 > len(data) {
+					return errors.New("invalid RQ8 data: Swap array length")
+				}
+				swapLen := binary.LittleEndian.Uint32(data[pos:])
+				pos += 4
+
+				rqData.Rotation.Swaps[i] = make([]compressionhelpers.Swap, swapLen)
+				for j := uint32(0); j < swapLen; j++ {
+					if pos+4 > len(data) {
+						return errors.New("invalid RQ8 data: Swap I")
+					}
+					rqData.Rotation.Swaps[i][j].I = binary.LittleEndian.Uint16(data[pos:])
+					pos += 2
+					if pos+2 > len(data) {
+						return errors.New("invalid RQ8 data: Swap J")
+					}
+					rqData.Rotation.Swaps[i][j].J = binary.LittleEndian.Uint16(data[pos:])
+					pos += 2
+				}
+			}
+
+			// Read Signs
+			if pos+4 > len(data) {
+				return errors.New("invalid RQ8 data: Signs length")
+			}
+			signsLen := binary.LittleEndian.Uint32(data[pos:])
+			pos += 4
+
+			rqData.Rotation.Signs = make([][]float32, signsLen)
+			for i := uint32(0); i < signsLen; i++ {
+				if pos+4 > len(data) {
+					return errors.New("invalid RQ8 data: Sign array length")
+				}
+				signLen := binary.LittleEndian.Uint32(data[pos:])
+				pos += 4
+
+				rqData.Rotation.Signs[i] = make([]float32, signLen)
+				for j := uint32(0); j < signLen; j++ {
+					if pos+4 > len(data) {
+						return errors.New("invalid RQ8 data: Sign value")
+					}
+					rqData.Rotation.Signs[i][j] = math.Float32frombits(binary.LittleEndian.Uint32(data[pos:]))
+					pos += 4
+				}
+			}
+
+			// Set rotation metadata
+			rqData.Rotation.OutputDim = outputDim
+			rqData.Rotation.Rounds = rounds
+		}
 
 		return nil
 	})
@@ -366,7 +461,7 @@ func (index *flat) restoreRQData() error {
 	}
 
 	if brqData != nil {
-		// Restore the RQ quantizer
+		// Restore the RQ1 quantizer
 		rq, err := compressionhelpers.RestoreBinaryRotationalQuantizer(
 			int(brqData.InputDim),
 			int(brqData.Rotation.OutputDim),
@@ -381,6 +476,22 @@ func (index *flat) restoreRQData() error {
 		}
 		// Wrap it in the unified interface
 		index.quantizer = &BinaryRotationalQuantizerWrapper{BinaryRotationalQuantizer: rq}
+	} else if rqData != nil {
+		// Restore the RQ8 quantizer
+		rq, err := compressionhelpers.RestoreRotationalQuantizer(
+			int(rqData.InputDim),
+			int(rqData.Bits),
+			int(rqData.Rotation.OutputDim),
+			int(rqData.Rotation.Rounds),
+			rqData.Rotation.Swaps,
+			rqData.Rotation.Signs,
+			index.distancerProvider,
+		)
+		if err != nil {
+			return errors.Wrap(err, "restore rotational quantizer")
+		}
+		// Wrap it in the unified interface
+		index.quantizer = &RotationalQuantizerWrapper{RotationalQuantizer: rq}
 	}
 
 	return nil
@@ -392,8 +503,69 @@ type flatCommitLogger struct {
 }
 
 func (f *flatCommitLogger) AddRQCompression(data compressionhelpers.RQData) error {
-	// Not used for flat index
-	return nil
+	// Serialize RQData to bytes
+	var buf []byte
+
+	// Write InputDim
+	inputDimBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(inputDimBytes, data.InputDim)
+	buf = append(buf, inputDimBytes...)
+
+	// Write Bits
+	bitsBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(bitsBytes, data.Bits)
+	buf = append(buf, bitsBytes...)
+
+	// Write Rotation.OutputDim
+	outputDimBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(outputDimBytes, data.Rotation.OutputDim)
+	buf = append(buf, outputDimBytes...)
+
+	// Write Rotation.Rounds
+	roundsBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(roundsBytes, data.Rotation.Rounds)
+	buf = append(buf, roundsBytes...)
+
+	// Write Swaps
+	swapsLenBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(swapsLenBytes, uint32(len(data.Rotation.Swaps)))
+	buf = append(buf, swapsLenBytes...)
+
+	for _, swapArray := range data.Rotation.Swaps {
+		swapLenBytes := make([]byte, 4)
+		binary.LittleEndian.PutUint32(swapLenBytes, uint32(len(swapArray)))
+		buf = append(buf, swapLenBytes...)
+
+		for _, swap := range swapArray {
+			iBytes := make([]byte, 2)
+			binary.LittleEndian.PutUint16(iBytes, swap.I)
+			buf = append(buf, iBytes...)
+
+			jBytes := make([]byte, 2)
+			binary.LittleEndian.PutUint16(jBytes, swap.J)
+			buf = append(buf, jBytes...)
+		}
+	}
+
+	// Write Signs
+	signsLenBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(signsLenBytes, uint32(len(data.Rotation.Signs)))
+	buf = append(buf, signsLenBytes...)
+
+	for _, signArray := range data.Rotation.Signs {
+		signLenBytes := make([]byte, 4)
+		binary.LittleEndian.PutUint32(signLenBytes, uint32(len(signArray)))
+		buf = append(buf, signLenBytes...)
+
+		for _, sign := range signArray {
+			signBytes := make([]byte, 4)
+			binary.LittleEndian.PutUint32(signBytes, math.Float32bits(sign))
+			buf = append(buf, signBytes...)
+		}
+	}
+
+	// Store the serialized data
+	return f.bucket.Put([]byte("rq_data"), buf)
 }
 
 func (f *flatCommitLogger) AddBRQCompression(data compressionhelpers.BRQData) error {

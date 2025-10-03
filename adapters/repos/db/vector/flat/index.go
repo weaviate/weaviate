@@ -163,6 +163,9 @@ func extractCompression(uc flatent.UserConfig) CompressionType {
 	}
 
 	if uc.RQ.Enabled {
+		if uc.RQ.Bits == 8 {
+			return CompressionRQ8
+		}
 		return CompressionRQ1
 	}
 
@@ -359,7 +362,7 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 			index.quantizer = builder.CreateQuantizer(index.compression, size)
 
 			// Persist RQ data if needed
-			if index.compression == CompressionRQ1 {
+			if index.compression == CompressionRQ1 || index.compression == CompressionRQ8 {
 				if err := index.persistRQData(); err != nil {
 					index.logger.WithError(err).Error("could not persist RQ data")
 				}
