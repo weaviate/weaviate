@@ -149,6 +149,10 @@ func (sl *ShardedRWLocks) Lock(id uint64) {
 	sl.shards[(id/sl.PageSize)%sl.count].Lock()
 }
 
+func (sl *ShardedRWLocks) TryLock(id uint64) bool {
+	return sl.shards[(id/sl.PageSize)%sl.count].TryLock()
+}
+
 func (sl *ShardedRWLocks) Unlock(id uint64) {
 	sl.shards[(id/sl.PageSize)%sl.count].Unlock()
 }

@@ -86,7 +86,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		}
 	}()
 
-	if s.SPTAG.IsMarkedAsDeleted(postingID) {
+	if !s.SPTAG.Exists(postingID) {
 		return nil
 	}
 
@@ -118,10 +118,8 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		if err != nil {
 			return errors.Wrapf(err, "failed to put filtered posting %d after split operation", postingID)
 		}
-		// Note: the page associated to this posting is guaranteed to exist in the
-		// postingSizes. Update the size only after successful persist.
-		s.PostingSizes.Set(postingID, uint32(lf))
 
+		s.PostingSizes.Set(postingID, uint32(lf))
 		return nil
 	}
 
@@ -192,9 +190,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 		s.PostingSizes.Set(newPostingID, uint32(result[i].Posting.Len()))
 
 		// add the new centroid to the SPTAG index
-		err = s.SPTAG.Upsert(newPostingID, &Centroid{
-			Vector: NewAnonymousCompressedVector(result[i].Centroid),
-		})
+		err = s.SPTAG.Insert(newPostingID, NewAnonymousCompressedVector(result[i].Centroid))
 		if err != nil {
 			return errors.Wrapf(err, "failed to upsert new centroid %d after split operation", newPostingID)
 		}
@@ -343,22 +339,22 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 		seen[id] = struct{}{}
 	}
 	// for each neighboring centroid, check if any of its vectors is closer to one of the new centroids
-	for _, neighbor := range nearest {
-		_, exists := seen[neighbor.ID]
+	for neighborID := range nearest.Iter() {
+		_, exists := seen[neighborID]
 		if exists {
 			continue
 		}
-		seen[neighbor.ID] = struct{}{}
+		seen[neighborID] = struct{}{}
 
-		p, err := s.Store.Get(s.ctx, neighbor.ID)
+		p, err := s.Store.Get(s.ctx, neighborID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
-				s.logger.WithField("postingID", neighbor.ID).
+				s.logger.WithField("postingID", neighborID).
 					Debug("Posting not found, skipping reassign after split")
 				continue // Skip if the posting is not found
 			}
 
-			return errors.Wrapf(err, "failed to get posting %d for reassign after split", neighbor.ID)
+			return errors.Wrapf(err, "failed to get posting %d for reassign after split", neighborID)
 		}
 
 		for _, v := range p.Iter() {
@@ -369,9 +365,9 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 				continue
 			}
 
-			distNeighbor, err := s.SPTAG.Get(neighbor.ID).Vector.Distance(s.distancer, v)
+			distNeighbor, err := s.SPTAG.Get(neighborID).Vector.Distance(s.distancer, v)
 			if err != nil {
-				return errors.Wrapf(err, "failed to compute distance for vector %d in neighbor posting %d", vid, neighbor.ID)
+				return errors.Wrapf(err, "failed to compute distance for vector %d in neighbor posting %d", vid, neighborID)
 			}
 
 			distOld, err := oldCentroid.Vector.Distance(s.distancer, v)
@@ -401,7 +397,7 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 			}
 
 			// the vector is closer to one of the new centroids, it needs to be reassigned
-			err = s.enqueueReassign(s.ctx, neighbor.ID, v)
+			err = s.enqueueReassign(s.ctx, neighborID, v)
 			if err != nil {
 				return errors.Wrapf(err, "failed to enqueue reassign for vector %d after split", vid)
 			}
