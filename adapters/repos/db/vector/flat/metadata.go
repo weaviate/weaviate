@@ -379,8 +379,8 @@ func (index *flat) restoreRQData() error {
 		if err != nil {
 			return errors.Wrap(err, "restore binary rotational quantizer")
 		}
-		// Wrap it in the generic interface
-		index.quantizer = &RotationalQuantizerWrapper{BinaryRotationalQuantizer: rq}
+		// Wrap it in the unified interface
+		index.quantizer = &BinaryRotationalQuantizerWrapper{BinaryRotationalQuantizer: rq}
 	}
 
 	return nil
