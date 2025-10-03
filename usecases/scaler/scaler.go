@@ -14,65 +14,44 @@ package scaler
 import (
 	"context"
 	"fmt"
-	"runtime"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
-// TODOs: Performance
-//
-// 1. Improve performance of syncing a shard to multiple nodes (see rsync.Push).
-// We could concurrently sync same files to different nodes  while avoiding overlapping
-//
-// 2. To fail fast, we might consider creating all shards at once and re-initialize them in the final step
-//
-// 3. implement scaler.scaleIn
+type ShardDist map[string][]string
 
-var (
-	// ErrUnresolvedName cannot resolve the host address of a node
-	ErrUnresolvedName = errors.New("cannot resolve node name")
-	_NUMCPU           = runtime.NumCPU()
-)
+// client the client interface is used to communicate with remote nodes
+type client interface {
+	// CreateShard creates an empty shard on the remote node.
+	CreateShard(ctx context.Context, hostName, indexName, shardName string) error
+}
+
+// ErrUnresolvedName cannot resolve the host address of a node
+var ErrUnresolvedName = errors.New("cannot resolve node name")
 
 // Scaler scales out/in class replicas.
 //
 // It scales out a class by replicating its shards on new replicas
 type Scaler struct {
-	schemaReader    SchemaReader
-	cluster         cluster.NodeSelector
-	source          BackUpper // data source
-	client          client    // client for remote nodes
-	logger          logrus.FieldLogger
-	persistenceRoot string
+	schemaReader SchemaReader
+	cluster      cluster.NodeSelector
+	client       client // client for remote nodes
+	logger       logrus.FieldLogger
 }
 
 // New returns a new instance of Scaler
-func New(cl cluster.NodeSelector, source BackUpper,
-	c client, logger logrus.FieldLogger, persistenceRoot string,
-) *Scaler {
+func New(cl cluster.NodeSelector, c client, logger logrus.FieldLogger) *Scaler {
 	return &Scaler{
-		cluster:         cl,
-		source:          source,
-		client:          c,
-		logger:          logger,
-		persistenceRoot: persistenceRoot,
+		cluster: cl,
+		client:  c,
+		logger:  logger,
 	}
-}
-
-// BackUpper is used to back up shards of a specific class
-type BackUpper interface {
-	// ShardsBackup returns class backup descriptor for a list of shards
-	ShardsBackup(_ context.Context, id, class string, shards []string) (backup.ClassDescriptor, error)
-	// ReleaseBackup releases the backup specified by its id
-	ReleaseBackup(ctx context.Context, id, className string) error
 }
 
 // SchemaReader is used by the scaler to get and update sharding states
@@ -114,7 +93,6 @@ func (s *Scaler) Scale(ctx context.Context, className string,
 //
 // * It calculates new sharding state
 // * It pushes locally existing shards to new replicas
-// * It delegates replication of remote shards to owner nodes
 func (s *Scaler) scaleOut(ctx context.Context, className string, ssBefore *sharding.State,
 	updated config.Config, replFactor int64,
 ) (*sharding.State, error) {
@@ -146,7 +124,7 @@ func (s *Scaler) scaleOut(ctx context.Context, className string, ssBefore *shard
 				}
 
 				if err := s.client.CreateShard(ctx, host, className, shard); err != nil {
-					return fmt.Errorf("increase local replication factor: %w", err)
+					return fmt.Errorf("create shard %q at %q: %w", shard, host, err)
 				}
 			}
 		}
@@ -175,36 +153,8 @@ func newNodesPerShard(before, after *sharding.State) ShardDist {
 	return res
 }
 
-// LocalScaleOut syncs local shards with new replicas.
-//
-// This is the meat&bones of this implementation.
-// For each shard, we're roughly doing the following:
-//   - Create shards backup, so the shards are safe to copy
-//   - Figure out the copy targets (i.e. each node that is part of the after
-//     state, but wasn't part of the before state yet)
-//   - Create an empty shard on the target node
-//   - Copy over all files from the backup
-//   - ReInit the shard to recognize the copied files
-//   - Release the single-shard backup
 func (s *Scaler) LocalScaleOut(ctx context.Context,
 	className string, dist ShardDist,
 ) error {
-	if len(dist) < 1 {
-		return nil
-	}
-	// Create backup of the sin
-	bakID := fmt.Sprintf("_internal_scaler_%s", uuid.New().String()) // todo better name
-	bak, err := s.source.ShardsBackup(ctx, bakID, className, dist.shards())
-	if err != nil {
-		return fmt.Errorf("create snapshot: %w", err)
-	}
-
-	defer func() {
-		err := s.source.ReleaseBackup(context.Background(), bakID, className)
-		if err != nil {
-			s.logger.WithField("scaler", "releaseBackup").WithField("class", className).Error(err)
-		}
-	}()
-	rsync := newRSync(s.client, s.cluster, s.persistenceRoot)
-	return rsync.Push(ctx, bak.Shards, dist, className, s.logger)
+	return fmt.Errorf("not supported anymore")
 }
