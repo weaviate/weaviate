@@ -34,7 +34,8 @@ type LSMStore struct {
 
 func NewLSMStore(store *lsmkv.Store, metrics *Metrics, bucketName string, minMMapSize int64,
 	maxWalReuseSize int64,
-	allocChecker memwatch.AllocChecker) (*LSMStore, error) {
+	allocChecker memwatch.AllocChecker,
+) (*LSMStore, error) {
 	err := store.CreateOrLoadBucket(context.Background(),
 		bucketName,
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
@@ -164,7 +165,7 @@ func (l *LSMStore) Append(ctx context.Context, postingID uint64, vector Vector) 
 }
 
 func (l *LSMStore) Flush() error {
-	//return l.bucket.FlushMemtable()
+	// return l.bucket.FlushMemtable()
 	return nil
 }
 

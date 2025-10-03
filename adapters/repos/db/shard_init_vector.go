@@ -230,7 +230,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		//	return nil, errors.Errorf("spfresh vector index: config is not spfresh.UserConfig: %T",
 		//		vectorIndexUserConfig)
 		//}
-		fmt.Println("creating spfresh index with default params")
+		//fmt.Println("creating spfresh index with default params")
 		configs := spfresh.DefaultConfig()
 		configs.ID = s.vectorIndexID(targetVector)
 		configs.MinMMapSize = s.index.Config.MinMMapSize

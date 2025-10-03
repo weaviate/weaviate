@@ -28,7 +28,7 @@ func (u UserConfig) IndexType() string {
 
 func (u UserConfig) DistanceName() string {
 	// TODO: add distance name
-	//panic("distanceName not implemented")
+	// panic("distanceName not implemented")
 	return common.DistanceL2Squared
 }
 
@@ -39,7 +39,7 @@ func (u UserConfig) IsMultiVector() bool {
 // SetDefaults in the user-specifyable part of the config
 func (u *UserConfig) SetDefaults() {
 	// TODO: add defaults
-	//panic("setDefaults not implemented")
+	// panic("setDefaults not implemented")
 }
 
 func NewDefaultUserConfig() UserConfig {
@@ -52,7 +52,7 @@ func NewDefaultUserConfig() UserConfig {
 // specified in the API to allow of exchanging the index type
 func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig.VectorIndexConfig, error) {
 	// TODO: add validation
-	//panic("parseAndValidateConfig not implemented")
+	// panic("parseAndValidateConfig not implemented")
 	uc := UserConfig{}
 	uc.SetDefaults()
 	return uc, nil

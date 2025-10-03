@@ -170,7 +170,7 @@ func (s *SPFresh) Type() common.IndexType {
 
 func (s *SPFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
 	// TODO: add update user config
-	//return errors.New("UpdateUserConfig is not supported for the spfresh index")
+	// return errors.New("UpdateUserConfig is not supported for the spfresh index")
 	return nil
 }
 
