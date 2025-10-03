@@ -14,7 +14,6 @@ package replication
 import (
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/hashicorp/go-multierror"
@@ -538,7 +537,7 @@ func findAndDeleteOp(id uint64, ops []ShardReplicationOp) ([]ShardReplicationOp,
 		}
 	}
 	if ok {
-		ops = slices.Delete(ops, indexToDelete, indexToDelete+1)
+		ops = append(ops[:indexToDelete], ops[indexToDelete+1:]...)
 	}
 	return ops, ok
 }
