@@ -368,9 +368,6 @@ func (h *hnsw) prefillCache() {
 		}
 
 		h.cachePrefilled.Store(true)
-		h.logger.WithFields(logrus.Fields{
-			"action": "prefill_cache",
-		}).Info("cache prefill completed")
 	}
 
 	if h.waitForCachePrefill {
