@@ -23,6 +23,8 @@ const (
 )
 
 var availableVoyageAIModels = []string{
+	"rerank-2.5",
+	"rerank-2.5-lite"
 	"rerank-2",
 	"rerank-2-lite",
 	"rerank-lite-1",
