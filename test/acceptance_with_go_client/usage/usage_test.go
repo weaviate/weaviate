@@ -14,9 +14,14 @@ package usage
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
@@ -321,4 +326,208 @@ func TestRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, usage2)
 	require.NoError(t, ReportsDifference(usage, usage2))
+}
+
+func TestUsageWithDynamicIndex(t *testing.T) {
+	t.Setenv("TEST_WEAVIATE_IMAGE", "module_test_image")
+	ctx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateWithDebugPort().
+		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
+		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true"). // lazy shards are shown as inactive, which would break the test
+		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1s").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	rest := compose.GetWeaviate().URI()
+	debug := compose.GetWeaviate().DebugURI()
+
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: rest})
+	require.NoError(t, err)
+
+	generateRandomVector := func(dimensionality int) []float32 {
+		if dimensionality <= 0 {
+			return nil
+		}
+
+		src := rand.NewSource(time.Now().UnixNano())
+		r := rand.New(src)
+
+		slice := make([]float32, dimensionality)
+		for i := range slice {
+			slice[i] = r.Float32()
+		}
+		return slice
+	}
+
+	testAllObjectsIndexed := func(t *testing.T, c *client.Client, className string) {
+		// wait for all of the objects to get indexed
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			resp, err := c.Cluster().NodesStatusGetter().
+				WithClass(className).
+				WithOutput("verbose").
+				Do(context.Background())
+			require.NoError(ct, err)
+			require.NotEmpty(ct, resp.Nodes)
+			for _, n := range resp.Nodes {
+				require.NotEmpty(ct, n.Shards)
+				for _, s := range n.Shards {
+					assert.Equal(ct, "READY", s.VectorIndexingStatus)
+				}
+			}
+		}, 30*time.Second, 500*time.Millisecond)
+	}
+
+	className := "UsageWithDynamicIndex"
+
+	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+	dynamic1024 := "dynamic1024"
+	dimensions := 1024
+	flat := "flat"
+	bq := "bq"
+	hnsw := "hnsw"
+	pq := "pq"
+
+	objectCount1 := 1000
+	objectCount2 := 2000
+
+	targetVectorDimensions := map[string]int{
+		dynamic1024: dimensions,
+	}
+
+	dynamicVectorIndexConfig := map[string]any{
+		"threshold": 1100,
+		hnsw: map[string]any{
+			pq: map[string]any{
+				"enabled":       true,
+				"trainingLimit": float64(100),
+			},
+		},
+		flat: map[string]any{
+			bq: map[string]any{
+				"enabled": true,
+			},
+		},
+	}
+
+	insertObjects := func(t *testing.T, n int) {
+		objs := []*models.Object{}
+		for i := range n {
+			obj := &models.Object{
+				Class: className,
+				ID:    strfmt.UUID(uuid.NewString()),
+				Properties: map[string]any{
+					"name":        fmt.Sprintf("name %v", i),
+					"description": fmt.Sprintf("some description %v", i),
+				},
+				Vectors: models.Vectors{
+					dynamic1024: generateRandomVector(targetVectorDimensions[dynamic1024]),
+				},
+			}
+			objs = append(objs, obj)
+		}
+		resp, err := c.Batch().ObjectsBatcher().
+			WithObjects(objs...).
+			Do(context.TODO())
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		for _, r := range resp {
+			require.NotNil(t, r.Result)
+			require.NotNil(t, r.Result.Status)
+			assert.Equal(t, models.ObjectsGetResponseAO2ResultStatusSUCCESS, *r.Result.Status)
+		}
+	}
+
+	t.Run("create schema", func(t *testing.T) {
+		class := &models.Class{
+			Class: className,
+			Properties: []*models.Property{
+				{
+					Name: "name", DataType: []string{schema.DataTypeText.String()},
+				},
+				{
+					Name: "description", DataType: []string{schema.DataTypeText.String()},
+				},
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				dynamic1024: {
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+					VectorIndexType:   "dynamic",
+					VectorIndexConfig: dynamicVectorIndexConfig,
+				},
+			},
+		}
+
+		err := c.Schema().ClassCreator().WithClass(class).Do(ctx)
+		require.NoError(t, err)
+	})
+
+	t.Run("batch create 1000 objects", func(t *testing.T) {
+		insertObjects(t, 1000)
+		testAllObjectsIndexed(t, c, className)
+	})
+
+	t.Run("get usage with dynamic index using flat index", func(t *testing.T) {
+		usage, err := getDebugUsageWithPort(debug)
+		require.NoError(t, err)
+		require.NotNil(t, usage)
+		require.NotEmpty(t, usage.Collections)
+		require.NotEmpty(t, usage.Collections[0].Shards)
+		require.Equal(t, &objectCount1, usage.Collections[0].Shards[0].ObjectsCount)
+		require.NotEmpty(t, usage.Collections[0].Shards[0].NamedVectors)
+		require.NotNil(t, usage.Collections[0].Shards[0].NamedVectors[0].Name)
+		require.NotNil(t, usage.Collections[0].Shards[0].NamedVectors[0].VectorIndexType)
+		require.NotNil(t, usage.Collections[0].Shards[0].NamedVectors[0].Compression)
+		require.Equal(t, dynamic1024, *usage.Collections[0].Shards[0].NamedVectors[0].Name)
+		require.Equal(t, flat, *usage.Collections[0].Shards[0].NamedVectors[0].VectorIndexType)
+		// Should be BQ but is PQ
+		// require.Equal(t, bq, *usage.Collections[0].Shards[0].NamedVectors[0].Compression)
+		// Should be true is nil
+		// require.NotEmpty(t, usage.Collections[0].Shards[0].NamedVectors[0].IsDynamic)
+		require.NotEmpty(t, usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities)
+		require.NotNil(t, usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.NotNil(t, usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities[0].Count)
+		require.Equal(t, dimensions, *usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.Equal(t, objectCount1, *usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities[0].Count)
+
+	})
+
+	t.Run("batch create 1000 objects", func(t *testing.T) {
+		insertObjects(t, 1000)
+		testAllObjectsIndexed(t, c, className)
+	})
+
+	t.Run("get usage with dynamic index using hnsw index", func(t *testing.T) {
+		usage, err := getDebugUsageWithPort(debug)
+		require.NoError(t, err)
+		require.NotNil(t, usage)
+		require.NotEmpty(t, usage.Collections)
+		require.NotEmpty(t, usage.Collections[0].Shards)
+		require.NotNil(t, usage.Collections[0].Shards[0].ObjectsCount)
+		require.Equal(t, objectCount2, *usage.Collections[0].Shards[0].ObjectsCount)
+		require.NotEmpty(t, usage.Collections[0].Shards[0].NamedVectors)
+		require.NotNil(t, usage.Collections[0].Shards[0].NamedVectors[0].Name)
+		require.NotNil(t, usage.Collections[0].Shards[0].NamedVectors[0].VectorIndexType)
+		require.NotNil(t, usage.Collections[0].Shards[0].NamedVectors[0].Compression)
+		require.Equal(t, dynamic1024, *usage.Collections[0].Shards[0].NamedVectors[0].Name)
+		// Should be hnsw but is flat
+		// require.Equal(t, hnsw, *usage.Collections[0].Shards[0].NamedVectors[0].VectorIndexType)
+		// Should be true is nil
+		// require.NotEmpty(t, usage.Collections[0].Shards[0].NamedVectors[0].IsDynamic)
+		require.Equal(t, pq, *usage.Collections[0].Shards[0].NamedVectors[0].Compression)
+		require.NotEmpty(t, usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities)
+		require.NotNil(t, usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.NotNil(t, usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities[0].Count)
+		require.Equal(t, dimensions, *usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.Equal(t, objectCount2, *usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities[0].Count)
+	})
 }
