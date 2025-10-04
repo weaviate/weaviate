@@ -9,6 +9,22 @@ version=v0.30.4
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SWAGGER=$DIR/swagger-${version}
 
+# We use custom templates in swagger/templates/generator/templates/ (see `--template-dir` below) to override
+# generated code (e.g., fixing `handleShutdown` in server.go). Templates are version-specific,
+# so if the go-swagger version changes, all custom templates must be updated from the new
+# version and modifications reapplied. This check prevents generating broken code with mismatched versions.
+TEMPLATE_COMPATIBLE_VERSION="v0.30.4"
+if [ "$version" != "$TEMPLATE_COMPATIBLE_VERSION" ]; then
+  echo "ERROR: go-swagger version changed!"
+  echo "  Current version: $version"
+  echo "  Template is compatible with: $TEMPLATE_COMPATIBLE_VERSION"
+  echo ""
+  echo "Please update the custom template in: swagger/templates/generator/templates/"
+  echo "Download compatible gotmpl files from: https://github.com/go-swagger/go-swagger/tree/$version/generator/templates"
+  echo "Then reapply all custom changes and update TEMPLATE_COMPATIBLE_VERSION in this script."
+  exit 1
+fi
+
 GOARCH=$(go env GOARCH)
 GOOS=$(go env GOOS)
 if [ ! -f "$SWAGGER" ]; then
@@ -29,7 +45,7 @@ go install golang.org/x/tools/cmd/goimports@v0.1.12
 # Remove old stuff.
 (cd "$DIR"/..; rm -rf entities/models client adapters/handlers/rest/operations/)
 
-(cd "$DIR"/..; $SWAGGER generate server --name=weaviate --model-package=entities/models --server-package=adapters/handlers/rest --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https --struct-tags=yaml --struct-tags=json)
+(cd "$DIR"/..; $SWAGGER generate server --name=weaviate --model-package=entities/models --server-package=adapters/handlers/rest --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https --struct-tags=yaml --struct-tags=json --template-dir=swagger/templates/generator/templates)
 (cd "$DIR"/..; $SWAGGER generate client --name=weaviate --model-package=entities/models --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
 
 echo Generate Deprecation code...
