@@ -249,6 +249,7 @@ type Config struct {
 	HNSWWaitForCachePrefill                      bool
 	HNSWFlatSearchConcurrency                    int
 	HNSWAcornFilterRatio                         float64
+	HNSWGeoIndexEF                               int
 	VisitedListPoolMaxSize                       int
 
 	TenantActivityReadLogLevel  *configRuntime.DynamicValue[string]
