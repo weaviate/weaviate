@@ -136,10 +136,15 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 					})
 					if !wasExecuted {
 						// shard got loaded in the meantime - calculate usage as loaded shard
-						shardUsage, err2 = i.calculateLoadedShardUsage(ctx, lazyShard, exactObjectCount)
+
+						shardUsage, err2 = i.calculateLoadedShardUsage(ctx, lazyShard.shard, exactObjectCount)
 					}
 				} else {
-					shardUsage, err2 = i.calculateLoadedShardUsage(ctx, shard, exactObjectCount)
+					loadedShard, ok := shard.(*Shard)
+					if !ok {
+						return fmt.Errorf("expected loaded shard, got %T", shard)
+					}
+					shardUsage, err2 = i.calculateLoadedShardUsage(ctx, loadedShard, exactObjectCount)
 				}
 			case models.TenantActivityStatusINACTIVE:
 				shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName)
@@ -160,7 +165,7 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 	return collectionUsage, nil
 }
 
-func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard ShardLike, exactCount bool) (*types.ShardUsage, error) {
+func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exactCount bool) (*types.ShardUsage, error) {
 	objectStorageSize, err := shard.ObjectStorageSize(ctx)
 	if err != nil {
 		return nil, err
