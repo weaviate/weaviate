@@ -22,7 +22,7 @@ func TestMapWritePathRefCount(t *testing.T) {
 	b := Bucket{
 		strategy: StrategyMapCollection,
 		disk:     &SegmentGroup{segments: []Segment{}},
-		active:   newTestMemtableMap(nil),
+		active:   newTestMemtableMap(t, nil),
 	}
 
 	expectedRefs := 0

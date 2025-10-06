@@ -121,8 +121,8 @@ func (f *fakeSegment) getLevel() uint16 {
 	panic("not implemented") // TODO: Implement
 }
 
-func (f *fakeSegment) getSize() int64 {
-	panic("not implemented") // TODO: Implement
+func (f *fakeSegment) Size() int64 {
+	return 0 // TODO: Implement
 }
 
 func (f *fakeSegment) setSize(size int64) {

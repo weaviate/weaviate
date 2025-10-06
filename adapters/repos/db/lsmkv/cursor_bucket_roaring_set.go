@@ -12,6 +12,8 @@
 package lsmkv
 
 import (
+	"time"
+
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
@@ -61,6 +63,10 @@ func (b *Bucket) CursorRoaringSetKeyOnly() CursorRoaringSet {
 func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSet)
 
+	cursorOpenedAt := time.Now()
+	b.metrics.IncBucketOpenedCursorsByStrategy(b.strategy)
+	b.metrics.IncBucketOpenCursorsByStrategy(b.strategy)
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -81,6 +87,9 @@ func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 		combinedCursor: roaringset.NewCombinedCursor(innerCursors, keyOnly),
 		unlock: func() {
 			unlockSegmentGroup()
+
+			b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+			b.metrics.ObserveBucketCursorDurationByStrategy(b.strategy, time.Since(cursorOpenedAt))
 		},
 	}
 }

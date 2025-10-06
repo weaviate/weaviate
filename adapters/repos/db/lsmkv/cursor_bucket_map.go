@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -42,6 +43,10 @@ type innerCursorMap interface {
 }
 
 func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
+	cursorOpenedAt := time.Now()
+	b.metrics.IncBucketOpenedCursorsByStrategy(b.strategy)
+	b.metrics.IncBucketOpenCursorsByStrategy(b.strategy)
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -65,6 +70,9 @@ func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
 	return &CursorMap{
 		unlock: func() {
 			unlockSegmentGroup()
+
+			b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+			b.metrics.ObserveBucketCursorDurationByStrategy(b.strategy, time.Since(cursorOpenedAt))
 		},
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top

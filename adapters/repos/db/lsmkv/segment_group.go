@@ -359,6 +359,9 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		}
 		sg.segments[segmentIndex] = segment
 		segmentIndex++
+
+		sg.metrics.IncSegmentTotalByStrategy(sg.strategy)
+		sg.metrics.ObserveSegmentSize(sg.strategy, segment.Size())
 	}
 
 	sg.segments = sg.segments[:segmentIndex]
@@ -516,6 +519,9 @@ func (sg *SegmentGroup) add(path string) error {
 	}
 
 	sg.segments = append(sg.segments, segment)
+	sg.metrics.IncSegmentTotalByStrategy(sg.strategy)
+	sg.metrics.ObserveSegmentSize(sg.strategy, segment.Size())
+
 	return nil
 }
 
@@ -544,7 +550,15 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 	}
 }
 
-func (sg *SegmentGroup) addInitializedSegment(segment Segment) error {
+func (sg *SegmentGroup) addInitializedSegment(segment Segment) (err error) {
+	defer func() {
+		if err != nil {
+			return
+		}
+		sg.metrics.IncSegmentTotalByStrategy(sg.strategy)
+		sg.metrics.ObserveSegmentSize(sg.strategy, segment.Size())
+	}()
+
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 

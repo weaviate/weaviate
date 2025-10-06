@@ -537,7 +537,7 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 		},
 	}
 
-	initialMemtable := newTestMemtableReplace(map[string][]byte{
+	initialMemtable := newTestMemtableReplace(t, map[string][]byte{
 		"key2": []byte("value2"),
 	})
 
@@ -586,7 +586,7 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 
 	// prove that we can switch memtables despite having an open consistent view
 	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-		return newTestMemtableReplace(map[string][]byte{
+		return newTestMemtableReplace(t, map[string][]byte{
 			"key3": []byte("value3"),
 		}), nil
 	})
@@ -672,7 +672,7 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 	t.Parallel()
 
 	b := Bucket{
-		active: newTestMemtableReplace(map[string][]byte{
+		active: newTestMemtableReplace(t, map[string][]byte{
 			"key1": []byte("value1"),
 		}),
 		disk: &SegmentGroup{
@@ -694,7 +694,7 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 		// switch memtable into flushing and add new. This also proves that we can
 		// switch memtables despite having an active writer.
 		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-			return newTestMemtableReplace(nil), nil
+			return newTestMemtableReplace(t, nil), nil
 		})
 		require.NoError(t, err)
 		require.True(t, switched)
@@ -749,7 +749,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 		},
 	}
 
-	initialMemtable := newTestMemtableRoaringSet(map[string][]uint64{
+	initialMemtable := newTestMemtableRoaringSet(t, map[string][]uint64{
 		"key1": {2},
 	})
 
@@ -786,7 +786,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 
 	// prove that we can switch memtables despite having an open consistent view
 	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-		return newTestMemtableRoaringSet(map[string][]uint64{
+		return newTestMemtableRoaringSet(t, map[string][]uint64{
 			"key1": {3},
 		}), nil
 	})
@@ -848,7 +848,7 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 	t.Parallel()
 
 	b := Bucket{
-		active: newTestMemtableRoaringSet(map[string][]uint64{
+		active: newTestMemtableRoaringSet(t, map[string][]uint64{
 			"key1": {1},
 		}),
 		disk:     &SegmentGroup{segments: []Segment{}},
@@ -864,7 +864,7 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 	go func() {
 		// Switch active -> flushing, new empty active installed
 		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-			return newTestMemtableRoaringSet(nil), nil
+			return newTestMemtableRoaringSet(t, nil), nil
 		})
 		require.NoError(t, err)
 		require.True(t, switched)
@@ -925,7 +925,7 @@ func TestBucketRoaringSetRangeStrategyConsistentViewUsingReader(t *testing.T) {
 		},
 	}
 
-	initialMemtable := newTestMemtableRoaringSetRange(map[uint64][]uint64{
+	initialMemtable := newTestMemtableRoaringSetRange(t, map[uint64][]uint64{
 		key1: {2},
 	})
 
@@ -943,7 +943,7 @@ func TestBucketRoaringSetRangeStrategyConsistentViewUsingReader(t *testing.T) {
 
 	// prove that we can switch memtables despite having an open reader
 	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-		return newTestMemtableRoaringSetRange(map[uint64][]uint64{
+		return newTestMemtableRoaringSetRange(t, map[uint64][]uint64{
 			key1: {3},
 		}), nil
 	})
@@ -1004,7 +1004,7 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlush(t *testing.T) {
 
 	key1 := uint64(1)
 	b := Bucket{
-		active: newTestMemtableRoaringSetRange(map[uint64][]uint64{
+		active: newTestMemtableRoaringSetRange(t, map[uint64][]uint64{
 			key1: {1},
 		}),
 		disk:     &SegmentGroup{segments: []Segment{}},
@@ -1020,7 +1020,7 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlush(t *testing.T) {
 	go func() {
 		// Switch active -> flushing, new empty active installed
 		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-			return newTestMemtableRoaringSetRange(nil), nil
+			return newTestMemtableRoaringSetRange(t, nil), nil
 		})
 		require.NoError(t, err)
 		require.True(t, switched)
@@ -1064,7 +1064,7 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 		},
 	}
 
-	initialMemtable := newTestMemtableSet(map[string][][]byte{
+	initialMemtable := newTestMemtableSet(t, map[string][][]byte{
 		"key2": {[]byte("a2")},
 	})
 
@@ -1103,7 +1103,7 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 
 	// Switch: move active->flushing (key2), new active with key3 -> {"a3"}
 	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-		return newTestMemtableSet(map[string][][]byte{
+		return newTestMemtableSet(t, map[string][][]byte{
 			"key3": {[]byte("a3")},
 		}), nil
 	})
@@ -1165,7 +1165,7 @@ func TestBucketSetStrategyWriteVsFlush(t *testing.T) {
 	t.Parallel()
 
 	b := Bucket{
-		active:   newTestMemtableSet(map[string][][]byte{"key1": {[]byte("v1")}}),
+		active:   newTestMemtableSet(t, map[string][][]byte{"key1": {[]byte("v1")}}),
 		disk:     &SegmentGroup{segments: []Segment{}},
 		strategy: StrategySetCollection,
 	}
@@ -1179,7 +1179,7 @@ func TestBucketSetStrategyWriteVsFlush(t *testing.T) {
 
 	go func() {
 		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-			return newTestMemtableSet(nil), nil
+			return newTestMemtableSet(t, nil), nil
 		})
 		require.NoError(t, err)
 		require.True(t, switched)
@@ -1225,7 +1225,7 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 		},
 	}
 
-	initialMemtable := newTestMemtableMap(map[string][]MapPair{
+	initialMemtable := newTestMemtableMap(t, map[string][]MapPair{
 		"key2": {{Key: []byte("ak1"), Value: []byte("av1")}},
 	})
 
@@ -1264,7 +1264,7 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 
 	// Switch: move active->flushing (key2), new active with key3 -> {"a3"}
 	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-		return newTestMemtableMap(map[string][]MapPair{
+		return newTestMemtableMap(t, map[string][]MapPair{
 			"key3": {{Key: []byte("ak2"), Value: []byte("av2")}},
 		}), nil
 	})
@@ -1344,7 +1344,7 @@ func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
 		},
 	}
 
-	initialMemtable := newTestMemtableMap(map[string][]MapPair{
+	initialMemtable := newTestMemtableMap(t, map[string][]MapPair{
 		"key2": {mapFromDocPointers(1, 0.8, 4)},
 	})
 
@@ -1383,7 +1383,7 @@ func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
 
 	// Switch: move active->flushing (key2), new active with key3 -> {"a3"}
 	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-		return newTestMemtableMap(map[string][]MapPair{
+		return newTestMemtableMap(t, map[string][]MapPair{
 			"key3": {mapFromDocPointers(2, 0.6, 2)},
 		}), nil
 	})
@@ -1453,7 +1453,7 @@ func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
 	t.Parallel()
 
 	b := Bucket{
-		active: newTestMemtableMap(map[string][]MapPair{"key1": {
+		active: newTestMemtableMap(t, map[string][]MapPair{"key1": {
 			{Key: []byte("k1"), Value: []byte("v1")},
 		}}),
 		disk:     &SegmentGroup{segments: []Segment{}},
@@ -1471,7 +1471,7 @@ func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
 
 	go func() {
 		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-			return newTestMemtableMap(nil), nil
+			return newTestMemtableMap(t, nil), nil
 		})
 		require.NoError(t, err)
 		require.True(t, switched)
@@ -1524,16 +1524,18 @@ func TestBucketInvertedStrategyConsistentView(t *testing.T) {
 		},
 	}
 
-	initialMemtable := newTestMemtableInverted(map[string][]MapPair{
+	initialMemtable := newTestMemtableInverted(t, map[string][]MapPair{
 		"key1": {NewMapPairFromDocIdAndTf(1, 3, 1, false)},
 	})
 
 	b := Bucket{
-		active:             initialMemtable,
-		disk:               diskSegments,
-		strategy:           StrategyInverted,
-		newSegmentBlockMax: newSegmentBlockMaxForFakeSegment,
-		logger:             logrus.New(),
+		active:   initialMemtable,
+		disk:     diskSegments,
+		strategy: StrategyInverted,
+		newSegmentBlockMax: func(s Segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+			return newSegmentBlockMaxForFakeSegment(t, s, key, queryTermIndex, idf, propertyBoost, tombstones, filterDocIds, averagePropLength, config)
+		},
+		logger: logrus.New(),
 	}
 
 	err := validateMapPairListVsBlockMaxSearch(ctx, &b, []kv{
@@ -1568,7 +1570,7 @@ func TestBucketInvertedStrategyConsistentView(t *testing.T) {
 
 	// Switch: move active->flushing (key2), new active with key3 -> {"a3"}
 	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-		return newTestMemtableInverted(map[string][]MapPair{
+		return newTestMemtableInverted(t, map[string][]MapPair{
 			"key1": {NewMapPairFromDocIdAndTf(2, 4, 1, false)},
 		}), nil
 	})
@@ -1623,7 +1625,7 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 	ctx := context.Background()
 
 	b := Bucket{
-		active: newTestMemtableInverted(map[string][]MapPair{
+		active: newTestMemtableInverted(t, map[string][]MapPair{
 			"key1": {NewMapPairFromDocIdAndTf(0, 3, 1, false)},
 		}),
 		disk:     &SegmentGroup{segments: []Segment{}},
@@ -1641,7 +1643,7 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 
 	go func() {
 		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-			return newTestMemtableInverted(nil), nil
+			return newTestMemtableInverted(t, nil), nil
 		})
 		require.NoError(t, err)
 		require.True(t, switched)
@@ -1681,7 +1683,7 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 			},
 		},
 	}
-	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx, view.Disk[0], expected))
+	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSingleSegment(t, ctx, view.Disk[0], expected))
 }
 
 type testMemtable struct {
@@ -1700,12 +1702,16 @@ func (t *testMemtable) decWriterCount() {
 	t.Memtable.decWriterCount()
 }
 
-func newTestMemtableReplace(initialData map[string][]byte) *testMemtable {
+func newTestMemtableReplace(t *testing.T, initialData map[string][]byte) *testMemtable {
+	t.Helper()
+	metrics, err := newMemtableMetrics(nil, "", "")
+	require.NoError(t, err)
+
 	m := &Memtable{
 		strategy:  StrategyReplace,
 		key:       &binarySearchTree{},
 		commitlog: newDummyCommitLogger(),
-		metrics:   newMemtableMetrics(nil, "", ""),
+		metrics:   metrics,
 	}
 
 	for k, v := range initialData {
@@ -1716,12 +1722,16 @@ func newTestMemtableReplace(initialData map[string][]byte) *testMemtable {
 	return &testMemtable{Memtable: m}
 }
 
-func newTestMemtableRoaringSet(initialData map[string][]uint64) *testMemtable {
+func newTestMemtableRoaringSet(t *testing.T, initialData map[string][]uint64) *testMemtable {
+	t.Helper()
+	metrics, err := newMemtableMetrics(nil, "", "")
+	require.NoError(t, err)
+
 	m := &Memtable{
 		strategy:   StrategyRoaringSet,
 		roaringSet: &roaringset.BinarySearchTree{},
 		commitlog:  newDummyCommitLogger(),
-		metrics:    newMemtableMetrics(nil, "", ""),
+		metrics:    metrics,
 	}
 
 	for k, v := range initialData {
@@ -1732,14 +1742,17 @@ func newTestMemtableRoaringSet(initialData map[string][]uint64) *testMemtable {
 	return &testMemtable{Memtable: m}
 }
 
-func newTestMemtableRoaringSetRange(initialData map[uint64][]uint64) *testMemtable {
+func newTestMemtableRoaringSetRange(t *testing.T, initialData map[uint64][]uint64) *testMemtable {
+	t.Helper()
 	logger, _ := test.NewNullLogger()
+	metrics, err := newMemtableMetrics(nil, "", "")
+	require.NoError(t, err)
 
 	m := &Memtable{
 		strategy:        StrategyRoaringSetRange,
 		roaringSetRange: roaringsetrange.NewMemtable(logger),
 		commitlog:       newDummyCommitLogger(),
-		metrics:         newMemtableMetrics(nil, "", "'"),
+		metrics:         metrics,
 	}
 
 	for k, v := range initialData {
@@ -1750,12 +1763,16 @@ func newTestMemtableRoaringSetRange(initialData map[uint64][]uint64) *testMemtab
 	return &testMemtable{Memtable: m}
 }
 
-func newTestMemtableSet(initialData map[string][][]byte) *testMemtable {
+func newTestMemtableSet(t *testing.T, initialData map[string][][]byte) *testMemtable {
+	t.Helper()
+	metrics, err := newMemtableMetrics(nil, "", "")
+	require.NoError(t, err)
+
 	m := &Memtable{
 		strategy:  StrategySetCollection,
 		keyMulti:  &binarySearchTreeMulti{},
 		commitlog: newDummyCommitLogger(),
-		metrics:   newMemtableMetrics(nil, "", ""),
+		metrics:   metrics,
 	}
 
 	for k, v := range initialData {
@@ -1765,12 +1782,16 @@ func newTestMemtableSet(initialData map[string][][]byte) *testMemtable {
 	return &testMemtable{Memtable: m}
 }
 
-func newTestMemtableMap(initialData map[string][]MapPair) *testMemtable {
+func newTestMemtableMap(t *testing.T, initialData map[string][]MapPair) *testMemtable {
+	t.Helper()
+	metrics, err := newMemtableMetrics(nil, "", "")
+	require.NoError(t, err)
+
 	m := &Memtable{
 		strategy:  StrategyMapCollection,
 		keyMap:    &binarySearchTreeMap{},
 		commitlog: newDummyCommitLogger(),
-		metrics:   newMemtableMetrics(nil, "", ""),
+		metrics:   metrics,
 	}
 
 	for k, v := range initialData {
@@ -1782,12 +1803,16 @@ func newTestMemtableMap(initialData map[string][]MapPair) *testMemtable {
 	return &testMemtable{Memtable: m}
 }
 
-func newTestMemtableInverted(initialData map[string][]MapPair) *testMemtable {
+func newTestMemtableInverted(t *testing.T, initialData map[string][]MapPair) *testMemtable {
+	t.Helper()
+	metrics, err := newMemtableMetrics(nil, "", "")
+	require.NoError(t, err)
+
 	m := &Memtable{
 		strategy:   StrategyInverted,
 		keyMap:     &binarySearchTreeMap{},
 		commitlog:  newDummyCommitLogger(),
-		metrics:    newMemtableMetrics(nil, "", ""),
+		metrics:    metrics,
 		tombstones: sroar.NewBitmap(),
 	}
 
@@ -2004,11 +2029,11 @@ func validateMapPairListVsBlockMaxSearchFromView(ctx context.Context, bucket *Bu
 	return nil
 }
 
-func validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx context.Context, segment Segment, expectedMultiKey []kv) error {
-	return validateMapPairListVsBlockMaxSearchFromSegments(ctx, []Segment{segment}, expectedMultiKey)
+func validateMapPairListVsBlockMaxSearchFromSingleSegment(t *testing.T, ctx context.Context, segment Segment, expectedMultiKey []kv) error {
+	return validateMapPairListVsBlockMaxSearchFromSegments(t, ctx, []Segment{segment}, expectedMultiKey)
 }
 
-func validateMapPairListVsBlockMaxSearchFromSegments(ctx context.Context, segments []Segment, expectedMultiKey []kv) error {
+func validateMapPairListVsBlockMaxSearchFromSegments(t *testing.T, ctx context.Context, segments []Segment, expectedMultiKey []kv) error {
 	for _, termPair := range expectedMultiKey {
 		expected := termPair.values
 		mapKey := termPair.key
@@ -2024,7 +2049,7 @@ func validateMapPairListVsBlockMaxSearchFromSegments(ctx context.Context, segmen
 		duplicateTextBoosts[0] = 1
 		diskTerms := make([][]*SegmentBlockMax, 0, len(segments))
 		for _, segment := range segments {
-			bmws := newSegmentBlockMaxForFakeSegment(segment, mapKey, 0, 1, 1, nil, nil, 3, bm25config)
+			bmws := newSegmentBlockMaxForFakeSegment(t, segment, mapKey, 0, 1, 1, nil, nil, 3, bm25config)
 			diskTerms = append(diskTerms, []*SegmentBlockMax{bmws})
 		}
 
@@ -2059,7 +2084,7 @@ func validateMapPairListVsBlockMaxSearchFromSegments(ctx context.Context, segmen
 	return nil
 }
 
-func newSegmentBlockMaxForFakeSegment(s Segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+func newSegmentBlockMaxForFakeSegment(t *testing.T, s Segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
 	// we're taking a bit of a creative route to make this work with a fake
 	// segment. We have existing functions to create a SegmentBlockMax from a
 	// memtable which are used with real memtables. So if we convert the fake
@@ -2074,7 +2099,7 @@ func newSegmentBlockMaxForFakeSegment(s Segment, key []byte, queryTermIndex int,
 		keys[k] = mv
 	}
 
-	mt := newTestMemtableInverted(keys)
+	mt := newTestMemtableInverted(t, keys)
 	bmwd := NewSegmentBlockMaxDecoded(key, 0, propertyBoost, filterDocIds, averagePropLength, config)
 
 	fillTerm(mt, key, bmwd, filterDocIds)

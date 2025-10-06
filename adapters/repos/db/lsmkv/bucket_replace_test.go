@@ -22,7 +22,7 @@ func TestBucketReplaceWritePathRefCount(t *testing.T) {
 	b := Bucket{
 		strategy:       StrategyReplace,
 		disk:           &SegmentGroup{segments: []Segment{}},
-		active:         newTestMemtableReplace(nil),
+		active:         newTestMemtableReplace(t, nil),
 		keepTombstones: true,
 	}
 

@@ -111,6 +111,7 @@ type hnsw struct {
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
+	cachePrefilled      atomic.Bool
 
 	commitLog CommitLogger
 
@@ -305,6 +306,7 @@ func New(cfg Config, uc ent.UserConfig,
 		nodes:                 make([]*vertex, cache.InitialSize),
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
+		cachePrefilled:        atomic.Bool{}, // Will be set appropriately in init()
 		vectorForID:           vectorCache.Get,
 		multiVectorForID:      vectorCache.MultiGet,
 		id:                    cfg.ID,
@@ -821,6 +823,11 @@ func (h *hnsw) DistancerProvider() distancer.Provider {
 }
 
 func (h *hnsw) ShouldUpgrade() (bool, int) {
+	// Don't upgrade if cache is not prefilled yet
+	if !h.cachePrefilled.Load() {
+		return false, 0
+	}
+
 	if h.sqConfig.Enabled {
 		return h.sqConfig.Enabled, h.sqConfig.TrainingLimit
 	}

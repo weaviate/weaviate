@@ -54,7 +54,7 @@ func TestRoaringSetRangeReaderConsistentView(t *testing.T) {
 	}
 
 	// Active memtable contains key3->{3}
-	initialMemtable := newTestMemtableRoaringSetRange(map[uint64][]uint64{
+	initialMemtable := newTestMemtableRoaringSetRange(t, map[uint64][]uint64{
 		key3: {3},
 	})
 
@@ -75,7 +75,7 @@ func TestRoaringSetRangeReaderConsistentView(t *testing.T) {
 
 	// 2) Switch memtables (new empty active, old active -> flushing)
 	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-		return newTestMemtableRoaringSetRange(nil), nil
+		return newTestMemtableRoaringSetRange(t, nil), nil
 	})
 	require.NoError(t, err)
 	require.True(t, switched)
@@ -138,7 +138,7 @@ func TestRoaringSetRangeWritePathRefCount(t *testing.T) {
 	b := Bucket{
 		strategy: StrategyRoaringSetRange,
 		disk:     &SegmentGroup{segments: []Segment{}},
-		active:   newTestMemtableRoaringSetRange(nil),
+		active:   newTestMemtableRoaringSetRange(t, nil),
 	}
 
 	expectedRefs := 0

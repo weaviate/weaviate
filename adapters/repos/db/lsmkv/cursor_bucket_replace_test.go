@@ -55,7 +55,7 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 		},
 	}
 
-	initialMemtable := newTestMemtableReplace(map[string][]byte{
+	initialMemtable := newTestMemtableReplace(t, map[string][]byte{
 		"key3": []byte("value3"),
 	})
 
@@ -97,7 +97,7 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 
 	// switch memtables while the cursor is open
 	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-		return newTestMemtableReplace(nil), nil
+		return newTestMemtableReplace(t, nil), nil
 	})
 	require.NoError(t, err)
 	require.True(t, switched)
