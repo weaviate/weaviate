@@ -79,7 +79,7 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("schemareader: %w", err)
 	}
 
 	var uniqueShardCount int
@@ -115,7 +115,7 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 			// tenants that were deleted in the meantime, but as we record zero usage, it doesn't matter
 			exists, err := i.tenantDirExists(shardName)
 			if err != nil {
-				return err
+				return fmt.Errorf("tenant exists: %w", err)
 			}
 			if !exists {
 				collectionUsage.Shards = append(collectionUsage.Shards, emptyShardUsageWithNameAndActivity(shardName, localStatus))
@@ -125,7 +125,7 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 			var err2 error
 			var shardUsage *types.ShardUsage
 			switch localStatus {
-			case models.TenantActivityStatusACTIVE:
+			case models.TenantActivityStatusACTIVE, models.TenantActivityStatusHOT:
 				// active tenants can be either fully loaded or lazy loaded. Lazy shards should _not_ be loaded just for
 				// usage calculation and are treated like inactive shards
 				lazyShard, isLazy := shard.(*LazyLoadShard)
@@ -138,8 +138,10 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 
 						if lazyShard.loaded {
 							shardUsage, err2 = i.calculateLoadedShardUsage(ctx, lazyShard.shard, exactObjectCount)
+							err2 = fmt.Errorf("loaded lazy shard %s: %w", shardName, err2)
 						} else {
 							shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName)
+							err2 = fmt.Errorf("unloaded lazy shard %s: %w", shardName, err2)
 						}
 					}()
 				} else {
@@ -148,9 +150,16 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 						return fmt.Errorf("expected loaded shard, got %T", shard)
 					}
 					shardUsage, err2 = i.calculateLoadedShardUsage(ctx, loadedShard, exactObjectCount)
+					err2 = fmt.Errorf("non-lazy shard %s: %w", shardName, err2)
 				}
-			case models.TenantActivityStatusINACTIVE:
+			case models.TenantActivityStatusINACTIVE, models.TenantActivityStatusCOLD:
 				shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName)
+				err2 = fmt.Errorf("inactive shard %s: %w", shardName, err2)
+			case models.TenantActivityStatusFROZEN, models.TenantActivityStatusOFFLOADING, models.TenantActivityStatusOFFLOADED, models.TenantActivityStatusONLOADING, models.TenantActivityStatusUNFREEZING, models.TenantActivityStatusFREEZING:
+				// skip for now and handle after we stabilized them
+			default:
+				// should not happen as we only collected local shards from the sharding state
+				return fmt.Errorf("shard %s has unknown local status %s", shardName, localStatus)
 			}
 			if err2 != nil {
 				return err2

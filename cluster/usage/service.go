@@ -13,6 +13,7 @@ package usage
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 
@@ -79,7 +80,7 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("collection %s: %w", collection.Class, err)
 		}
 
 		usage.Collections = append(usage.Collections, collectionUsage)
