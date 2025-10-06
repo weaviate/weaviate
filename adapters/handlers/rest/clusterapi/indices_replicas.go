@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"sync"
@@ -92,6 +93,8 @@ type replicatedIndices struct {
 	// shutdownOnce ensures that the shutdown is only done once
 	shutdownOnce sync.Once
 	logger       logrus.FieldLogger
+
+	dummySleepLock sync.Mutex
 }
 
 var (
@@ -214,6 +217,17 @@ func (i *replicatedIndices) handleRequest(qr queuedRequest) {
 	r := qr.r
 	w := qr.w
 	path := r.URL.Path
+
+	i.dummySleepLock.Lock()
+	defer i.dummySleepLock.Unlock()
+	if os.Getenv("REPLICATED_INDICES_SLEEP") != "" {
+		s := os.Getenv("REPLICATED_INDICES_SLEEP")
+		duration, err := time.ParseDuration(s)
+		if err != nil {
+			http.Error(w, "REPLICATED_INDICES_SLEEP is not a valid duration", http.StatusInternalServerError)
+		}
+		time.Sleep(duration)
+	}
 
 	// NOTE if you update any of these handler methods/paths, also update the indices_replicas_test.go
 	// TestMaintenanceModeReplicatedIndices test to include the new methods/paths.
