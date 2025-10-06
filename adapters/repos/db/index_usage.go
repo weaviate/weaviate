@@ -138,10 +138,14 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 
 						if lazyShard.loaded {
 							shardUsage, err2 = i.calculateLoadedShardUsage(ctx, lazyShard.shard, exactObjectCount)
-							err2 = fmt.Errorf("loaded lazy shard %s: %w", shardName, err2)
+							if err2 != nil {
+								err2 = fmt.Errorf("loaded lazy shard %s: %w", shardName, err2)
+							}
 						} else {
 							shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName)
-							err2 = fmt.Errorf("unloaded lazy shard %s: %w", shardName, err2)
+							if err2 != nil {
+								err2 = fmt.Errorf("unloaded lazy shard %s: %w", shardName, err2)
+							}
 						}
 					}()
 				} else {
@@ -150,19 +154,20 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 						return fmt.Errorf("expected loaded shard, got %T", shard)
 					}
 					shardUsage, err2 = i.calculateLoadedShardUsage(ctx, loadedShard, exactObjectCount)
-					err2 = fmt.Errorf("non-lazy shard %s: %w", shardName, err2)
+					if err2 != nil {
+						err2 = fmt.Errorf("non-lazy shard %s: %w", shardName, err2)
+					}
 				}
 			case models.TenantActivityStatusINACTIVE, models.TenantActivityStatusCOLD:
 				shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName)
-				err2 = fmt.Errorf("inactive shard %s: %w", shardName, err2)
+				if err2 != nil {
+					err2 = fmt.Errorf("inactive shard %s: %w", shardName, err2)
+				}
 			case models.TenantActivityStatusFROZEN, models.TenantActivityStatusOFFLOADING, models.TenantActivityStatusOFFLOADED, models.TenantActivityStatusONLOADING, models.TenantActivityStatusUNFREEZING, models.TenantActivityStatusFREEZING:
 				// skip for now and handle after we stabilized them
 			default:
 				// should not happen as we only collected local shards from the sharding state
 				return fmt.Errorf("shard %s has unknown local status %s", shardName, localStatus)
-			}
-			if err2 != nil {
-				return err2
 			}
 			collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
 
