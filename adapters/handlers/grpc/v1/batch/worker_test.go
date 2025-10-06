@@ -77,7 +77,6 @@ func TestWorkerLoop(t *testing.T) {
 		)
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
-		close(listeningQueue)
 		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
 	})
 
@@ -158,7 +157,6 @@ func TestWorkerLoop(t *testing.T) {
 		require.Empty(t, rq, "Expected reporting queue to be empty after reading all messages")
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
-		close(listeningQueue)
 		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
 	})
 }
