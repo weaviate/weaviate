@@ -61,7 +61,12 @@ func NewStreamHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.Wait
 		processWgsPerStream:  &sync.Map{},
 		stopped:              &sync.Map{},
 	}
+	// Listens to workers and decrements the wg for the stream when a worker reports back
+	// This way we can track when all workers are done for a given stream
 	enterrors.GoWrapper(h.listenToWorkers, logger)
+	// Waits for all receivers to finish and then closes the processing queue
+	// This relies on clients hanging up their connections when they receive the shutdown message
+	enterrors.GoWrapper(h.waitForReceivers, logger)
 	return h
 }
 
@@ -242,65 +247,39 @@ func (h *StreamHandler) listenToWorkers() {
 	}
 }
 
+func (h *StreamHandler) waitForReceivers() {
+	// block until shutdown is triggered
+	<-h.shuttingDownCtx.Done()
+	// wait for all receivers to finish
+	h.recvWg.Wait()
+	// then close the processing queue to signal to workers that no more requests will be coming
+	h.logger.WithField("action", "wait_for_receivers").Info("all receivers finished, closing processing queue")
+	close(h.processingQueue)
+}
+
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
 func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, stream pb.Weaviate_BatchStreamServer) error {
 	defer h.recvWg.Done()
 	defer h.close(streamId)
 	log := h.logger.WithField("streamId", streamId)
-
-	// reqCh := make(chan *pb.BatchStreamRequest)
-	// errCh := make(chan error)
-	// Receive from stream in child goroutine so we can also listen for shutdown signals in loop below
-	// once the stream is empty
-	// enterrors.GoWrapper(func() {
-	// 	defer func() {
-	// 		close(errCh)
-	// 		close(reqCh)
-	// 	}()
-	// 	for {
-	// 		req, err := stream.Recv()
-	// 		if err != nil {
-	// 			errCh <- err
-	// 			return
-	// 		}
-	// 		reqCh <- req
-	// 	}
-	// }, h.logger)
-
+	maxAllowedMessagesAfterShutdown := 5
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-
-		// Wait for either a request, an error, or a shutdown signal from the looping stream.Recv goroutine
-		// if there's a shutdown signal whilst there are no requests in the stream
-		// then we close the write queue and block waiting until the client hangs-up
-		// in the meantime, the send method will communicate to the client that the server is shutting down
-		// and the client will deal with that appropriately. If they send more requests after that point
-		// they will be lost since we will be blocking until we get io.EOF from the client
-		// var request *pb.BatchStreamRequest
-		// var err error
-		// select {
-		// case request = <-reqCh:
-		// case err = <-errCh:
-		// case <-time.After(1 * time.Minute):
-		// 	log.Debug("waiting for client request")
-		// 	if h.shuttingDown.Load() {
-		// 		log.Debug("shutting down due to shutdown signal")
-		// 		return nil
-		// 	}
-		// 	continue
-		// }
 		request, err := stream.Recv()
-		// Recevied from stream.Recv() so log that a worker is processing a request
-		// We add to the wg here and mark as done when the worker has reported back to the stream handler
-		// that it has finished processing this request
-		// This ensures that if the client closes the stream we wait until all workers are done before closing the reporting queue
-		// and thus allowing the send() method to finish gracefully
-		// If the server is shutting down we stop accepting new requests but we must still wait until all workers are done
-		// before closing the reporting queue
 		h.processWg(streamId).Add(1)
-
+		if h.shuttingDown.Load() {
+			// If we're shutting down, we allow a few more messages to be processed
+			// before we return an error to the client
+			if maxAllowedMessagesAfterShutdown <= 0 {
+				h.processWg(streamId).Done() // remove the one we just added above since we're not processing a request
+				log.Debug("server is shutting down, refusing to process further requests")
+				return ErrShutdown
+			}
+			maxAllowedMessagesAfterShutdown--
+			log.WithField("remaining", maxAllowedMessagesAfterShutdown).Debug("server is shutting down, will process a few more requests before refusing further ones")
+		}
 		if errors.Is(err, io.EOF) {
 			log.Debug("client closed stream")
 			h.processWg(streamId).Done() // remove the one we added above since we're not processing a request
