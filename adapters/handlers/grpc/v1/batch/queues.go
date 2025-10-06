@@ -27,44 +27,22 @@ func newBatchErrorMessage(err *pb.BatchStreamReply_Error) *pb.BatchStreamReply {
 	}
 }
 
-func newBatchStopMessage() *pb.BatchStreamReply {
+func newBatchShuttingDownMessage() *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_Stop_{
-			Stop: &pb.BatchStreamReply_Stop{},
+		Message: &pb.BatchStreamReply_ShuttingDown_{
+			ShuttingDown: &pb.BatchStreamReply_ShuttingDown{},
 		},
 	}
 }
 
-func newBatchShutdownFinishedMessage() *pb.BatchStreamReply {
-	return &pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_ShutdownFinished_{
-			ShutdownFinished: &pb.BatchStreamReply_ShutdownFinished{},
-		},
-	}
-}
-
-func newBatchShutdownTriggeredMessage() *pb.BatchStreamReply {
-	return &pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_ShutdownTriggered_{
-			ShutdownTriggered: &pb.BatchStreamReply_ShutdownTriggered{},
-		},
-	}
-}
-
-type readObject struct {
+type report struct {
 	Errors []*pb.BatchStreamReply_Error
-}
-
-type writeObject struct {
-	Object    *pb.BatchObject
-	Reference *pb.BatchReference
+	Stats  *workerStats
 }
 
 type (
 	processingQueue chan *processRequest
-	reportingQueue  chan *workerStats
-	writeQueue      chan *writeObject
-	readQueue       chan *readObject
+	reportingQueue  chan *report
 )
 
 // NewBatchWriteQueue creates a buffered channel to store objects for batch writing.
@@ -80,55 +58,34 @@ func NewBatchReportingQueue(bufferSize int) reportingQueue {
 	return make(reportingQueue, bufferSize)
 }
 
-func NewBatchWriteQueue(bufferSize int) writeQueue {
-	return make(writeQueue, bufferSize)
-}
-
-func NewBatchWriteQueues(numWorkers int) *WriteQueues {
-	return &WriteQueues{
-		numWorkers: numWorkers,
-		queues:     make(map[string]*WriteQueue),
-	}
-}
-
-func NewBatchReadQueues() *ReadQueues {
-	return &ReadQueues{
-		queues: make(map[string]readQueue),
+func NewBatchReportingQueues() *ReportingQueues {
+	return &ReportingQueues{
+		queues: make(map[string]reportingQueue),
 		closed: make(map[string]struct{}),
 	}
 }
 
-func NewBatchReadQueue() readQueue {
-	return make(readQueue)
-}
-
-func NewErrorsObject(errs []*pb.BatchStreamReply_Error) *readObject {
-	return &readObject{
+func NewErrorsObject(errs []*pb.BatchStreamReply_Error) *report {
+	return &report{
 		Errors: errs,
 	}
 }
 
-func NewWriteObject(obj *pb.BatchObject) *writeObject {
-	return &writeObject{
-		Object: obj,
-	}
-}
-
-type ReadQueues struct {
+type ReportingQueues struct {
 	lock   sync.RWMutex
-	queues map[string]readQueue
+	queues map[string]reportingQueue
 	closed map[string]struct{}
 }
 
 // Get retrieves the read queue for the given stream ID.
-func (r *ReadQueues) Get(streamId string) (readQueue, bool) {
+func (r *ReportingQueues) Get(streamId string) (reportingQueue, bool) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 	queue, ok := r.queues[streamId]
 	return queue, ok
 }
 
-func (r *ReadQueues) Close(streamId string) {
+func (r *ReportingQueues) Close(streamId string) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	if queue, ok := r.queues[streamId]; ok {
@@ -140,7 +97,7 @@ func (r *ReadQueues) Close(streamId string) {
 	}
 }
 
-func (r *ReadQueues) CloseAll() {
+func (r *ReportingQueues) CloseAll() {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	for streamId, queue := range r.queues {
@@ -151,14 +108,14 @@ func (r *ReadQueues) CloseAll() {
 	}
 }
 
-func (r *ReadQueues) Delete(streamId string) {
+func (r *ReportingQueues) Delete(streamId string) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	delete(r.queues, streamId)
 	delete(r.closed, streamId)
 }
 
-func (r *ReadQueues) Send(streamId string, errs []*pb.BatchStreamReply_Error) bool {
+func (r *ReportingQueues) Send(streamId string, errs []*pb.BatchStreamReply_Error, stats *workerStats) bool {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 	queue, ok := r.queues[streamId]
@@ -166,7 +123,7 @@ func (r *ReadQueues) Send(streamId string, errs []*pb.BatchStreamReply_Error) bo
 		return false
 	}
 	select {
-	case queue <- &readObject{Errors: errs}:
+	case queue <- &report{Errors: errs, Stats: stats}:
 		return true
 	case <-time.After(1 * time.Second):
 		return false
@@ -174,182 +131,70 @@ func (r *ReadQueues) Send(streamId string, errs []*pb.BatchStreamReply_Error) bo
 }
 
 // Make initializes a read queue for the given stream ID if it does not already exist.
-func (r *ReadQueues) Make(streamId string) {
+func (r *ReportingQueues) Make(streamId string) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	if _, ok := r.queues[streamId]; !ok {
-		r.queues[streamId] = make(readQueue)
+		r.queues[streamId] = make(reportingQueue)
 	}
 }
 
-type WriteQueue struct {
-	queue            writeQueue
-	consistencyLevel *pb.ConsistencyLevel
-
-	lock        sync.RWMutex // Used when concurrently re-calculating NextBatchSize in Send method
-	emaQueueLen float64      // Exponential moving average of the queue length
-	buffer      int          // Buffer size for the write queue
-	alpha       float64      // Smoothing factor for EMA, typically between 0 and 1
-
-	nextBatchSize  int64   // Current batch size to be used for sending
-	backoffSeconds float64 // Current backoff time in seconds before sending the next batch
+type workerStats struct {
+	processingTime time.Duration
 }
 
-// Cubic backoff function: backoff(r) = b * max(0, (r - 0.6) / 0.4) ^ 3, with b = 10s
-// E.g.
-//   - usageRatio = 0.6 -> 0s
-//   - usageRatio = 0.8 -> 1.3s
-//   - usageRatio = 0.9 -> 4.22s
-//   - usageRatio = 1.0 -> 10s
-func (w *WriteQueue) thresholdCubicBackoff(usageRatio float64) float64 {
-	maximumBackoffSeconds := float64(10.0) // Adjust this value as needed, defines maximum backoff in seconds
-	return maximumBackoffSeconds * float64(math.Pow(float64(max(0, (usageRatio-0.6)/0.4)), 3))
-}
-
-func (w *WriteQueue) NextBatchSize() int64 {
-	w.lock.RLock()
-	defer w.lock.RUnlock()
-	if w.nextBatchSize < 1 {
-		return 1
-	}
-	return w.nextBatchSize
-}
-
-func (w *WriteQueue) BackoffSeconds() float64 {
-	w.lock.RLock()
-	defer w.lock.RUnlock()
-	return w.backoffSeconds
-}
-
-func (w *WriteQueue) UpdateBatchSize(batchSize int) {
-	w.lock.Lock()
-	defer w.lock.Unlock()
-
-	maxSize := w.buffer * 2 / 5
-	nowLen := len(w.queue)
-
-	if w.emaQueueLen == 0 {
-		w.emaQueueLen = float64(nowLen)
-	} else {
-		w.emaQueueLen = w.alpha*float64(nowLen) + (1-w.alpha)*w.emaQueueLen
-	}
-	usageRatio := w.emaQueueLen / float64(w.buffer)
-
-	// threshold linear batch size scaling
-	if usageRatio < 0.5 {
-		// If usage is lower than 50% threshold, increase by an order of magnitude and cap at 40% of the buffer size
-		w.nextBatchSize = int64(min(maxSize, batchSize*10))
-		w.backoffSeconds = w.thresholdCubicBackoff(usageRatio)
-	}
-
-	scaledSize := int64(float64(maxSize) * (1 - float64(usageRatio)))
-	if scaledSize < 1 {
-		scaledSize = 1 // Ensure at least one object is always sent in worst-case scenario
-	}
-
-	w.nextBatchSize = scaledSize
-	w.backoffSeconds = w.thresholdCubicBackoff(usageRatio)
-}
-
-type WriteQueues struct {
-	lock       sync.RWMutex
-	numWorkers int
-	queues     map[string]*WriteQueue
-	uuids      []string
-}
-
-func (w *WriteQueues) Uuids() []string {
-	w.lock.RLock()
-	defer w.lock.RUnlock()
-	return w.uuids
-}
-
-func (w *WriteQueues) UpdateBatchSize(streamId string, batchSize int) {
-	wq, ok := w.Get(streamId)
-	if !ok {
-		return
-	}
-	wq.UpdateBatchSize(batchSize)
-}
-
-func (w *WriteQueues) Get(streamId string) (*WriteQueue, bool) {
-	w.lock.RLock()
-	defer w.lock.RUnlock()
-	queue, ok := w.queues[streamId]
-	if !ok {
-		return nil, false
-	}
-	return queue, true
-}
-
-func (w *WriteQueues) GetQueue(streamId string) (writeQueue, bool) {
-	w.lock.RLock()
-	defer w.lock.RUnlock()
-	queue, ok := w.queues[streamId]
-	if !ok {
-		return nil, false
-	}
-	return queue.queue, true
-}
-
-func (w *WriteQueues) Exists(streamId string) bool {
-	w.lock.RLock()
-	defer w.lock.RUnlock()
-	_, ok := w.queues[streamId]
-	return ok
-}
-
-func (w *WriteQueues) Write(streamId string, objs []*writeObject) {
-	w.lock.RLock()
-	defer w.lock.RUnlock()
-	queue, ok := w.queues[streamId]
-	if !ok {
-		return
-	}
-	for _, obj := range objs {
-		queue.queue <- obj
+func NewWorkersStats(processingTime time.Duration) *workerStats {
+	return &workerStats{
+		processingTime: processingTime,
 	}
 }
 
-func (w *WriteQueues) Delete(streamId string) {
-	w.lock.Lock()
-	defer w.lock.Unlock()
-	delete(w.queues, streamId)
-	// Remove from uuids slice
-	for i, uuid := range w.uuids {
-		if uuid == streamId {
-			w.uuids = append(w.uuids[:i], w.uuids[i+1:]...)
-			break
-		}
+func NewProcessRequest(objs []*pb.BatchObject, refs []*pb.BatchReference, streamId string, cl *pb.ConsistencyLevel) *processRequest {
+	return &processRequest{
+		StreamId:         streamId,
+		ConsistencyLevel: cl,
+		Objects:          objs,
+		References:       refs,
 	}
 }
 
-func (w *WriteQueues) Close(streamId string) {
-	w.lock.Lock()
-	defer w.lock.Unlock()
-	if queue, ok := w.queues[streamId]; ok {
-		close(queue.queue)
+type stats struct {
+	lock              sync.RWMutex
+	processingTimeEma float64
+	batchSize         int
+}
+
+func newStats() *stats {
+	return &stats{
+		processingTimeEma: 0,
+		batchSize:         100,
 	}
 }
 
-func (w *WriteQueues) Make(streamId string, consistencyLevel *pb.ConsistencyLevel) int {
-	w.lock.Lock()
-	defer w.lock.Unlock()
-	buffer := 100 * w.numWorkers
-	// Ensure buffer is at least 100 and at most 1000
-	if buffer < 100 {
-		buffer = 100
-	} else if buffer > 1000 {
-		buffer = 1000
+func (s *stats) updateBatchSize(processingTime time.Duration, processingQueueLen int) {
+	ideal := 1.0 // seconds
+	// Optimum is that each worker takes at most 1s to process a batch so that shutdown does not take too long
+	alpha := 1 - math.Exp(-math.Log(2)/float64(processingQueueLen))
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.processingTimeEma = alpha*processingTime.Seconds() + (1-alpha)*s.processingTimeEma
+	s.batchSize = int(float64(s.batchSize) * (ideal / s.processingTimeEma))
+	if s.batchSize < 10 {
+		s.batchSize = 10
 	}
-	if _, ok := w.queues[streamId]; !ok {
-		w.queues[streamId] = &WriteQueue{
-			queue:            NewBatchWriteQueue(buffer),
-			consistencyLevel: consistencyLevel,
-			buffer:           buffer,
-			alpha:            0.2, // Smoothing factor for EMA of queue length
-		}
-		w.uuids = append(w.uuids, streamId)
+	if s.batchSize > 10000 {
+		s.batchSize = 10000
 	}
-	return buffer
+}
+
+func (s *stats) getBatchSize() int {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.batchSize
+}
+
+func (s *stats) getProcessingTimeEma() time.Duration {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return time.Duration(s.processingTimeEma * time.Second.Seconds())
 }

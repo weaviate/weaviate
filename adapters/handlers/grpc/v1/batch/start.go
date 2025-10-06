@@ -31,13 +31,10 @@ func Start(
 
 	internalBuffer := 10 * numWorkers // Higher numbers make shutdown slower but lower numbers make throughput worse
 	processingQueue := NewBatchProcessingQueue(internalBuffer)
-	reportingQueue := NewBatchReportingQueue(internalBuffer)
-	writeQueues := NewBatchWriteQueues(numWorkers)
-	readQueues := NewBatchReadQueues()
+	reportingQueues := NewBatchReportingQueues()
 
-	streamHandler := NewStreamHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, writeQueues, readQueues, metrics, logger)
-	StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, writeQueues, readQueues, processingQueue, reportingQueue, metrics, logger)
-	StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, numWorkers, processingQueue, reportingQueue, readQueues, batchHandler, logger)
+	streamHandler := NewStreamHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, reportingQueues, processingQueue, metrics, logger)
+	StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, numWorkers, processingQueue, reportingQueues, batchHandler, logger)
 
 	return streamHandler, metrics
 }

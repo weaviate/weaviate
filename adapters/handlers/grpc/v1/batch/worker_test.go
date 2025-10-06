@@ -41,10 +41,9 @@ func TestWorkerLoop(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 
-		readQueues := batch.NewBatchReadQueues()
-		readQueues.Make(StreamId)
+		reportingQueues := batch.NewBatchReportingQueues()
+		reportingQueues.Make(StreamId)
 		processingQueue := batch.NewBatchProcessingQueue(1)
-		reportingQueue := batch.NewBatchReportingQueue(100) // don't care about blocking here
 
 		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
 			Took:   float32(1),
@@ -55,7 +54,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: nil,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueue, readQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
 
 		// Send data
 		processingQueue <- batch.NewProcessRequest(
@@ -81,10 +80,9 @@ func TestWorkerLoop(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 
-		readQueues := batch.NewBatchReadQueues()
-		readQueues.Make(StreamId)
+		reportingQueues := batch.NewBatchReportingQueues()
+		reportingQueues.Make(StreamId)
 		processingQueue := batch.NewBatchProcessingQueue(1)
-		reportingQueue := batch.NewBatchReportingQueue(100) // don't care about blocking here
 
 		errorsObj := []*pb.BatchObjectsReply_BatchError{
 			{
@@ -118,44 +116,36 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: errorsRefs,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueue, readQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
 
 		// Send data
 		obj := &pb.BatchObject{}
+		ref := &pb.BatchReference{}
 		// must use goroutine to avoid deadlock due to one worker sending error over read stream
 		// while next send to processing queue is blocked by there only being one worker
 		go func() {
 			processingQueue <- batch.NewProcessRequest(
 				[]*pb.BatchObject{obj, obj, obj},
-				nil,
-				StreamId,
-				nil,
-			)
-			ref := &pb.BatchReference{}
-			processingQueue <- batch.NewProcessRequest(
-				nil,
 				[]*pb.BatchReference{ref, ref},
 				StreamId,
 				nil,
 			)
 		}()
 
-		ch, ok := readQueues.Get(StreamId)
-		require.True(t, ok, "Expected read queue to exist and to contain message")
+		rq, ok := reportingQueues.Get(StreamId)
+		require.True(t, ok, "Expected reporting queue to exist and to contain message")
 
-		// Read first error
-		errs := <-ch
-		require.NotNil(t, errs.Errors, "Expected errors to be returned")
-		require.Len(t, errs.Errors, 1, "Expected one error to be returned")
-		require.Equal(t, "objs error", errs.Errors[0].Error, "Expected error message to match")
-		require.Equal(t, obj, errs.Errors[0].GetObject(), "Expected object to match")
+		// Read first report from worker
+		report := <-rq
+		require.NotNil(t, report.Errors, "Expected errors to be returned")
+		require.NotNil(t, report.Stats, "Expected stats to be returned")
+		require.Len(t, report.Errors, 2, "Expected two errors to be returned")
+		require.Equal(t, "objs error", report.Errors[0].Error, "Expected error message to match")
+		require.Equal(t, obj, report.Errors[0].GetObject(), "Expected object to match")
+		require.Equal(t, "refs error", report.Errors[1].Error, "Expected error message to match")
+		require.Equal(t, ref, report.Errors[1].GetReference(), "Expected reference to match")
 
-		// Read second error
-		errs = <-ch
-		require.NotNil(t, errs.Errors, "Expected errors to be returned")
-		require.Len(t, errs.Errors, 1, "Expected one error to be returned")
-		require.Equal(t, "refs error", errs.Errors[0].Error, "Expected error message to match")
-
+		require.Empty(t, rq, "Expected reporting queue to be empty after reading all messages")
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
 		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")

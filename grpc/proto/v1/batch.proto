@@ -23,28 +23,24 @@ message BatchStreamRequest {
   message Start {
     optional ConsistencyLevel consistency_level = 1;
   }
-  message Stop {
-  }
-  message Objects {
-    repeated BatchObject values = 1;
-  }
-  message References {
-    repeated BatchReference values = 1;
-  }
-  oneof message {
+  message Data {
+    message Objects {
+      repeated BatchObject values = 1;
+    }
+    message References {
+      repeated BatchReference values = 1;
+    }
     Objects objects = 1;
     References references = 2;
-    Start start = 3;
-    Stop stop = 4;
+  }
+  oneof message {
+    Start start = 1;
+    Data data = 2;
   }
 }
 
 message BatchStreamReply {
-  message Stop {
-  }
-  message ShutdownFinished {
-  }
-  message ShutdownTriggered {
+  message ShuttingDown {
   }
   message Error {
     string error = 1;
@@ -59,10 +55,8 @@ message BatchStreamReply {
   }
   oneof message {
     Error error = 1;
-    Stop stop = 2;
-    ShutdownFinished shutdown_finished = 3;
-    ShutdownTriggered shutdown_triggered = 4;
-    Backoff backoff = 5;
+    ShuttingDown shutting_down = 2;
+    Backoff backoff = 3;
   }
 }
 

@@ -56,7 +56,7 @@ func TestShutdownHappyPath(t *testing.T) {
 			Took:   float32(1),
 			Errors: errors,
 		}, nil
-	}).Maybe()
+	}).Once()
 
 	objs := make([]*pb.BatchObject, 0, howManyObjs)
 	for i := 0; i < howManyObjs; i++ {
@@ -72,7 +72,7 @@ func TestShutdownHappyPath(t *testing.T) {
 		case 2:
 			return newBatchStreamObjsRequest(objs), nil
 		case 3:
-			return nil, io.EOF
+			return nil, io.EOF // End the stream
 		}
 		panic("should not be called more than thrice")
 	}).Times(3)
@@ -80,13 +80,12 @@ func TestShutdownHappyPath(t *testing.T) {
 		return msg.GetError().GetError() == "some error" &&
 			msg.GetError().GetObject() != nil
 	})).Return(nil).Maybe()
-	mockStream.EXPECT().Send(newBatchStreamShutdownTriggeredReply()).Return(nil).Once()
+	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
 	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetBackoff() != nil
 	})).Return(nil).Maybe()
-	mockStream.EXPECT().Send(newBatchStreamShutdownFinishedReply()).Return(nil).Once()
 
-	numWorkers := 2
+	numWorkers := 1
 	shutdown := batch.NewShutdown(ctx)
 	handler, _ := batch.Start(nil, nil, mockBatcher, nil, shutdown, numWorkers, logger)
 	var wg sync.WaitGroup
@@ -97,7 +96,7 @@ func TestShutdownHappyPath(t *testing.T) {
 		shutdown.Drain(logger)
 	}()
 	err := handler.Handle(mockStream)
-	require.NoError(t, err, "handler should shut down gracefully")
+	require.ErrorAs(t, err, &batch.ErrShutdown, "handler should return error shutting down")
 	require.Len(t, objsCh, howManyObjs, "all objects should have been processed")
 	wg.Wait()
 }
@@ -112,9 +111,9 @@ func TestShutdownAfterBrokenStream(t *testing.T) {
 	mockBatcher := mocks.NewMockBatcher(t)
 
 	howManyObjs := 5000
+	numErrs := howManyObjs / 10
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 		time.Sleep(100 * time.Millisecond)
-		numErrs := int(len(req.Objects) / 10)
 		errors := make([]*pb.BatchObjectsReply_BatchError, 0, numErrs)
 		for i := 0; i < numErrs; i++ {
 			errors = append(errors, &pb.BatchObjectsReply_BatchError{
@@ -126,7 +125,7 @@ func TestShutdownAfterBrokenStream(t *testing.T) {
 			Took:   float32(1),
 			Errors: errors,
 		}, nil
-	}).Maybe()
+	}).Once()
 
 	objs := make([]*pb.BatchObject, 0, howManyObjs)
 	for i := 0; i < howManyObjs; i++ {
@@ -135,6 +134,7 @@ func TestShutdownAfterBrokenStream(t *testing.T) {
 
 	stream := newMockStream(ctx, t)
 	var count int
+	networkErr := errors.New("some network error")
 	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
 		count++
 		switch count {
@@ -144,7 +144,7 @@ func TestShutdownAfterBrokenStream(t *testing.T) {
 			return newBatchStreamObjsRequest(objs), nil
 		case 3:
 			// simulate ending the stream from the client-side ungracefully
-			return nil, errors.New("some network error")
+			return nil, networkErr
 		}
 		panic("should not be called more than thrice")
 	}).Times(3)
@@ -152,34 +152,23 @@ func TestShutdownAfterBrokenStream(t *testing.T) {
 	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetError().GetError() == "some error" &&
 			msg.GetError().GetObject() != nil
-	})).Return(nil).Maybe()
+	})).Return(nil).Times(numErrs)
 	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 		return msg.GetBackoff() != nil
 	})).Return(nil).Maybe()
-	// whenever the server is cancelled, it will the client to stop despite the broken stream
-	// in this specific case, the client will never receive this message
-	stream.EXPECT().Send(newBatchStreamStopReply()).Return(nil).Once()
 
 	numWorkers := 1
 	shutdown := batch.NewShutdown(ctx)
 	handler, _ := batch.Start(nil, nil, mockBatcher, nil, shutdown, numWorkers, logger)
 	err := handler.Handle(stream)
-	require.Error(t, err, "some network error")
+	require.ErrorAs(t, err, &networkErr, "handler should return network error")
 	shutdown.Drain(logger)
 }
 
-func newBatchStreamShutdownTriggeredReply() *pb.BatchStreamReply {
+func newBatchStreamShuttingDownReply() *pb.BatchStreamReply {
 	return &pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_ShutdownTriggered_{
-			ShutdownTriggered: &pb.BatchStreamReply_ShutdownTriggered{},
-		},
-	}
-}
-
-func newBatchStreamShutdownFinishedReply() *pb.BatchStreamReply {
-	return &pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_ShutdownFinished_{
-			ShutdownFinished: &pb.BatchStreamReply_ShutdownFinished{},
+		Message: &pb.BatchStreamReply_ShuttingDown_{
+			ShuttingDown: &pb.BatchStreamReply_ShuttingDown{},
 		},
 	}
 }

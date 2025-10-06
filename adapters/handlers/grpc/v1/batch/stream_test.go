@@ -30,7 +30,7 @@ func TestStreamHandler(t *testing.T) {
 	ctx := context.Background()
 	logger := logrus.New()
 
-	t.Run("start and stop due to cancellation", func(t *testing.T) {
+	t.Run("start and stop ungracefully", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 
@@ -50,8 +50,6 @@ func TestStreamHandler(t *testing.T) {
 			}
 		}).Times(2)
 
-		mockStream.EXPECT().Send(newBatchStreamShutdownFinishedReply()).Return(nil).Once() // Cancellation of the stream handler will trigger shutdown signal to the client
-
 		numWorkers := 1
 		shutdown := batch.NewShutdown(context.Background())
 		handler, _ := batch.Start(nil, nil, mockBatcher, nil, shutdown, numWorkers, logger)
@@ -59,7 +57,7 @@ func TestStreamHandler(t *testing.T) {
 		require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 	})
 
-	t.Run("start and stop due to sentinel", func(t *testing.T) {
+	t.Run("start and stop gracefully", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 
@@ -73,15 +71,14 @@ func TestStreamHandler(t *testing.T) {
 			case 1:
 				return newBatchStreamStartRequest(), nil // Send start message
 			case 2:
-				return newBatchStreamStopRequest(), nil // Send stop message
-			case 3:
 				return nil, io.EOF // End the stream
 			default:
 				panic(fmt.Sprintf("should not be called more than twice, was called %d times", recvCount))
 			}
-		}).Times(3)
-
-		mockStream.EXPECT().Send(newBatchStreamStopReply()).Return(nil).Once()
+		}).Times(2)
+		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+			return msg.GetBackoff() != nil
+		})).Return(nil).Maybe()
 
 		numWorkers := 1
 		shutdown := batch.NewShutdown(context.Background())
@@ -90,7 +87,7 @@ func TestStreamHandler(t *testing.T) {
 		require.NoError(t, err, "Expected no error when streaming")
 	})
 
-	t.Run("start error and stop due to cancellation", func(t *testing.T) {
+	t.Run("start error and stop ungracefully", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 
@@ -120,7 +117,9 @@ func TestStreamHandler(t *testing.T) {
 			}
 		}).Times(3)
 		mockStream.EXPECT().Send(newBatchStreamErrReply("batcher error", obj)).Return(nil).Once()
-		mockStream.EXPECT().Send(newBatchStreamShutdownFinishedReply()).Return(nil).Once() // Cancellation of the stream handler will trigger shutdown signal to the client
+		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+			return msg.GetBackoff() != nil
+		})).Return(nil).Once()
 
 		numWorkers := 1
 		shutdown := batch.NewShutdown(context.Background())
@@ -129,7 +128,7 @@ func TestStreamHandler(t *testing.T) {
 		require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 	})
 
-	t.Run("start error and stop due to sentinel", func(t *testing.T) {
+	t.Run("start error and stop gracefully", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 
@@ -153,16 +152,15 @@ func TestStreamHandler(t *testing.T) {
 			case 2:
 				return newBatchStreamObjsRequest([]*pb.BatchObject{obj}), nil // Send 1 object
 			case 3:
-				return newBatchStreamStopRequest(), nil // Send stop message
-			case 4:
 				return nil, io.EOF // End the stream
 			default:
-				panic(fmt.Sprintf("should not be called more than four times, was called %d times", recvCount))
+				panic(fmt.Sprintf("should not be called more than thrice, was called %d times", recvCount))
 			}
-		}).Times(4)
-
+		}).Times(3)
 		mockStream.EXPECT().Send(newBatchStreamErrReply("batcher error", obj)).Return(nil).Once()
-		mockStream.EXPECT().Send(newBatchStreamStopReply()).Return(nil).Once()
+		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+			return msg.GetBackoff() != nil
+		})).Return(nil).Maybe()
 
 		numWorkers := 1
 		shutdown := batch.NewShutdown(context.Background())
@@ -191,7 +189,7 @@ func TestStreamHandler(t *testing.T) {
 				Took:   float32(time.Since(start).Seconds()),
 				Errors: nil,
 			}, nil
-		}).Maybe()
+		}).Once()
 
 		objs := make([]*pb.BatchObject, 0, numObjs)
 		for i := 0; i < numObjs; i++ {
@@ -207,18 +205,15 @@ func TestStreamHandler(t *testing.T) {
 			case 2:
 				return newBatchStreamObjsRequest(objs), nil // Send 10000 objects
 			case 3:
-				return newBatchStreamStopRequest(), nil // Send stop message
-			case 4:
 				return nil, io.EOF // End the stream
 			default:
-				panic(fmt.Sprintf("should not be called more than 4 times, was called %d times", recvCount))
+				panic(fmt.Sprintf("should not be called more than thrice, was called %d times", recvCount))
 			}
-		}).Times(4)
+		}).Times(3)
 
 		mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
 			return msg.GetBackoff() != nil
 		})).Return(nil).Maybe()
-		mockStream.EXPECT().Send(newBatchStreamStopReply()).Return(nil).Once()
 
 		numWorkers := 1
 		shutdown := batch.NewShutdown(context.Background())
@@ -239,26 +234,12 @@ func newBatchStreamStartRequest() *pb.BatchStreamRequest {
 
 func newBatchStreamObjsRequest(objs []*pb.BatchObject) *pb.BatchStreamRequest {
 	return &pb.BatchStreamRequest{
-		Message: &pb.BatchStreamRequest_Objects_{
-			Objects: &pb.BatchStreamRequest_Objects{
-				Values: objs,
+		Message: &pb.BatchStreamRequest_Data_{
+			Data: &pb.BatchStreamRequest_Data{
+				Objects: &pb.BatchStreamRequest_Data_Objects{
+					Values: objs,
+				},
 			},
-		},
-	}
-}
-
-func newBatchStreamStopRequest() *pb.BatchStreamRequest {
-	return &pb.BatchStreamRequest{
-		Message: &pb.BatchStreamRequest_Stop_{
-			Stop: &pb.BatchStreamRequest_Stop{},
-		},
-	}
-}
-
-func newBatchStreamStopReply() *pb.BatchStreamReply {
-	return &pb.BatchStreamReply{
-		Message: &pb.BatchStreamReply_Stop_{
-			Stop: &pb.BatchStreamReply_Stop{},
 		},
 	}
 }
