@@ -66,6 +66,11 @@ func NewStreamHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.Wait
 }
 
 func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
+	if h.shuttingDown.Load() {
+		// If the server is already shutting down, we refuse new streams
+		return ErrShutdown
+	}
+
 	id, err := uuid.NewRandom()
 	if err != nil {
 		return fmt.Errorf("stream ID generation failed: %w", err)
@@ -145,7 +150,7 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 						}
 					}
 				}
-				// Context cancelled, send error to client
+				// Context cancelled, return error ending the stream
 				return ctx.Err()
 			case recvErr := <-errCh:
 				if recvErr != nil {
@@ -162,6 +167,11 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 								h.logger.WithField("streamId", streamId).WithError(innerErr).Error("failed to send error message")
 							}
 						}
+					}
+					if h.shuttingDown.Load() {
+						// the server must be shutting down on its own, so return an error saying so
+						h.logger.WithField("streamId", streamId).Info("stream closed due to server shutdown")
+						return ErrShutdown
 					}
 					// Context cancelled, send error to client
 					return recvErr
