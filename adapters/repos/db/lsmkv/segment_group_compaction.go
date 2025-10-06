@@ -408,6 +408,9 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 		}).Error("failed to delete file already marked for deletion")
 	}
 
+	sg.metrics.DecSegmentTotalByStrategy(sg.strategy)
+	sg.metrics.ObserveSegmentSize(sg.strategy, newSegment.Size())
+
 	return true, nil
 }
 

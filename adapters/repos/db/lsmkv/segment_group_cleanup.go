@@ -206,7 +206,7 @@ func (c *segmentCleanerCommon) getSegmentIdsAndSizes(segments []Segment) ([]int6
 				return nil, nil, fmt.Errorf("parse segment id %q: %w", idStr, err)
 			}
 			ids[i] = id
-			sizes[i] = seg.getSize()
+			sizes[i] = seg.Size()
 		}
 	}
 

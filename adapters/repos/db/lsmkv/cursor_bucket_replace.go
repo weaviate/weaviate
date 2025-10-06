@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -60,8 +61,15 @@ type cursorStateReplace struct {
 // initialization can be quite costly if memtables are large.
 func (b *Bucket) Cursor() *CursorReplace {
 	MustBeExpectedStrategy(b.strategy, StrategyReplace)
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
+
+	cursorOpenedAt := time.Now()
+	b.metrics.IncBucketOpenedCursorsByStrategy(b.strategy)
+	b.metrics.IncBucketOpenCursorsByStrategy(b.strategy)
+
+	b.flushLock.RLock()
 
 	innerCursors, unlockSegmentGroup := b.disk.newCursors()
 
@@ -81,6 +89,9 @@ func (b *Bucket) Cursor() *CursorReplace {
 		innerCursors: innerCursors,
 		unlock: func() {
 			unlockSegmentGroup()
+
+			b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+			b.metrics.ObserveBucketCursorDurationByStrategy(b.strategy, time.Since(cursorOpenedAt))
 		},
 	}
 }
