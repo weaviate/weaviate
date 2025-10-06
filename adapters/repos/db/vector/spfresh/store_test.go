@@ -22,14 +22,14 @@ func TestStore(t *testing.T) {
 	ctx := t.Context()
 	t.Run("get", func(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
-		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", 1024, 1024, nil, false)
+		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", 1024, 1024, nil, false, false, false)
 		require.NoError(t, err)
 		s.Init(10)
 
 		// unknown posting
 		p, err := s.Get(ctx, 1)
-		require.ErrorIs(t, err, ErrPostingNotFound)
-		require.Nil(t, p)
+		require.Nil(t, err)
+		require.Equal(t, len(p.(*CompressedPosting).data), 0)
 
 		// create a posting
 		posting := CompressedPosting{
@@ -46,13 +46,13 @@ func TestStore(t *testing.T) {
 
 		// get a different posting
 		p, err = s.Get(ctx, 2)
-		require.ErrorIs(t, err, ErrPostingNotFound)
-		require.Nil(t, p)
+		require.Nil(t, err)
+		require.Equal(t, len(p.(*CompressedPosting).data), 0)
 	})
 
 	t.Run("multi-get", func(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
-		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", 1024, 1024, nil, false)
+		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", 1024, 1024, nil, false, false, false)
 		require.NoError(t, err)
 		s.Init(10)
 
@@ -63,8 +63,10 @@ func TestStore(t *testing.T) {
 
 		// unknown postings
 		ps, err = s.MultiGet(ctx, []uint64{1, 2, 3})
-		require.ErrorIs(t, err, ErrPostingNotFound)
-		require.Empty(t, ps)
+		require.Nil(t, err)
+		require.Equal(t, len(ps[0].(*CompressedPosting).data), 0)
+		require.Equal(t, len(ps[1].(*CompressedPosting).data), 0)
+		require.Equal(t, len(ps[2].(*CompressedPosting).data), 0)
 
 		var postings []*CompressedPosting
 		// create a few postings
@@ -89,7 +91,7 @@ func TestStore(t *testing.T) {
 
 	t.Run("put", func(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
-		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", 1024, 1024, nil, false)
+		s, err := NewLSMStore(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", 1024, 1024, nil, false, false, false)
 		require.NoError(t, err)
 		s.Init(10)
 
