@@ -548,6 +548,11 @@ func (s *Shard) RequantizeIndex(ctx context.Context, targetVector string) error 
 		return nil
 	}
 
+	if !vectorIndex.Compressed() {
+		s.index.logger.WithField("targetVector", targetVector).WithField("action", "requantize").Info("vector index is not compressed, skipping requantizing")
+		return nil
+	}
+
 	normalize := false
 	if vectorIndexConfig := s.index.GetVectorIndexConfigs()[targetVector]; vectorIndexConfig != nil && vectorIndexConfig.DistanceName() == vectorIndexCommon.DistanceCosine {
 		normalize = true
