@@ -802,20 +802,6 @@ func (l *LazyLoadShard) pathLSM() string {
 	return shardPathLSM(l.shardOpts.index.path(), l.shardOpts.name)
 }
 
-func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) (int64, error) {
-	l.mutex.Lock()
-	if l.loaded {
-		l.mutex.Unlock()
-		return l.shard.VectorStorageSize(ctx)
-	}
-	l.mutex.Unlock()
-
-	// For unloaded shards, use the existing cold tenant calculation method
-	// This avoids complex disk file calculations and uses the same logic as the index
-	idx := l.shardOpts.index
-	return shardusage.CalculateUnloadedVectorsMetrics(ctx, idx.logger, idx.path(), l.shardOpts.name, idx.GetVectorIndexConfigs())
-}
-
 // ExecuteForUnloadedWithLock executes the given function if the shard is not yet loaded and locks it during execution.
 func (l *LazyLoadShard) ExecuteForUnloadedWithLock(f func()) bool {
 	l.mutex.Lock()

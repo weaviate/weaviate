@@ -79,7 +79,6 @@ type ShardLike interface {
 	ObjectCount(ctx context.Context) (int, error)
 	ObjectCountAsync(ctx context.Context) (int64, error)
 	ObjectStorageSize(ctx context.Context) (int64, error)
-	VectorStorageSize(ctx context.Context) (int64, error)
 	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
 	PutObject(context.Context, *storobj.Object) error
