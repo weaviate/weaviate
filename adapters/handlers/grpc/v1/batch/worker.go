@@ -74,7 +74,9 @@ func StartBatchWorkers(ctx context.Context, wg *sync.WaitGroup, concurrency int,
 	enterrors.GoWrapper(func() {
 		log := logger.WithField("action", "batch_workers_shutdown")
 		log.Info("waiting for all workers to finish")
-		wg.Wait()
+		if err := eg.Wait(); err != nil {
+			log.WithError(err).Error("batch workers exited with error")
+		}
 		log.Info("all batch workers finished")
 		log.Info("closing listening queue")
 		close(listeningQueue)
