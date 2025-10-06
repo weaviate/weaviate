@@ -152,13 +152,20 @@ def parse_report(data):
 
 
 def get_debug_usage() -> Report:
-    with httpx.Client() as client:
-        response = client.get(
-            "http://localhost:6060/debug/usage", params={"exactObjectCount": "true"}, timeout=30
-        )
-        response.raise_for_status()
-        data = response.json()
-    return parse_report(data)
+    try:
+        with httpx.Client() as client:
+            response = client.get(
+                "http://localhost:6060/debug/usage", params={"exactObjectCount": "true"}, timeout=30
+            )
+            response.raise_for_status()
+            data = response.json()
+        return parse_report(data)
+    except httpx.HTTPStatusError as exc:
+        print(f"HTTP error: {exc.response.status_code} - {exc.response.text}")
+        raise exc
+    except httpx.RequestError as exc:
+        print(f"Request error: {exc}")
+        raise exc
 
 
 def get_debug_usage_for_collection(collection: str) -> CollectionUsage:
