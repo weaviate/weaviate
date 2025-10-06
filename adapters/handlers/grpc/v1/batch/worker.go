@@ -24,6 +24,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
+const perProcessTimeout = 90 * time.Second
+
 type Batcher interface {
 	BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error)
 	BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (*pb.BatchReferencesReply, error)
@@ -178,32 +180,23 @@ func (w *Worker) report(streamId string, errs []*pb.BatchStreamReply_Error, stat
 
 // Loop processes objects from the write queue, sending them to the batcher and handling shutdown signals.
 func (w *Worker) Loop(ctx context.Context) error {
-	for {
-		select {
-		case req, ok := <-w.processingQueue:
-			if req != nil {
-				log := w.logger.WithField("streamId", req.StreamId)
-				log.Debug("received processing request")
-				if err := w.process(ctx, req); err != nil {
-					log.Error(fmt.Errorf("failed to process batch request: %w", err))
-				}
+	for req := range w.processingQueue {
+		if req != nil {
+			log := w.logger.WithField("streamId", req.StreamId)
+			log.Debug("received processing request")
+			if err := w.process(ctx, req); err != nil {
+				log.Error(fmt.Errorf("failed to process batch request: %w", err))
 			}
-			if !ok {
-				w.logger.Debug("processing queue closed, shutting down worker")
-				return nil // channel closed, exit loop
-			}
-		default:
-			if ctx.Err() != nil {
-				// Context canceled, exit loop
-				w.logger.WithField("action", "shutdown_worker_loop").Error("shutting down worker loop due to cancellation")
-				return ctx.Err()
-			}
-			time.Sleep(10 * time.Millisecond) // Prevent busy waiting
 		}
 	}
+	w.logger.Debug("processing queue closed, shutting down worker")
+	return nil // channel closed, exit loop
 }
 
 func (w *Worker) process(ctx context.Context, req *processRequest) error {
+	ctx, cancel := context.WithTimeout(ctx, perProcessTimeout)
+	defer cancel()
+
 	start := time.Now()
 	errCh := make(chan *pb.BatchStreamReply_Error, len(req.Objects)+len(req.References))
 	if req.Objects != nil {

@@ -46,11 +46,11 @@ func TestWorkerLoop(t *testing.T) {
 		processingQueue := batch.NewBatchProcessingQueue(1)
 		listeningQueue := batch.NewListeningQueue()
 
-		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
+		mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).Return(&pb.BatchObjectsReply{
 			Took:   float32(1),
 			Errors: nil,
 		}, nil).Times(1)
-		mockBatcher.EXPECT().BatchReferences(ctx, mock.Anything).Return(&pb.BatchReferencesReply{
+		mockBatcher.EXPECT().BatchReferences(mock.Anything, mock.Anything).Return(&pb.BatchReferencesReply{
 			Took:   float32(1),
 			Errors: nil,
 		}, nil).Times(1)
@@ -108,17 +108,17 @@ func TestWorkerLoop(t *testing.T) {
 			},
 		}
 		// Return one retriable error and one regular error for objects
-		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
+		mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).Return(&pb.BatchObjectsReply{
 			Took:   float32(1),
 			Errors: errorsObj,
 		}, nil).Times(1)
 		// Verify that the retriable error is sent again and no error is returned this time
-		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
+		mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).Return(&pb.BatchObjectsReply{
 			Took:   float32(1),
 			Errors: nil,
 		}, nil).Times(1)
 		// Return one regular error for references
-		mockBatcher.EXPECT().BatchReferences(ctx, mock.Anything).Return(&pb.BatchReferencesReply{
+		mockBatcher.EXPECT().BatchReferences(mock.Anything, mock.Anything).Return(&pb.BatchReferencesReply{
 			Took:   float32(1),
 			Errors: errorsRefs,
 		}, nil).Times(1)
