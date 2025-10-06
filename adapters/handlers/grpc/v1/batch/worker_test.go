@@ -44,6 +44,7 @@ func TestWorkerLoop(t *testing.T) {
 		reportingQueues := batch.NewBatchReportingQueues()
 		reportingQueues.Make(StreamId)
 		processingQueue := batch.NewBatchProcessingQueue(1)
+		listeningQueue := batch.NewListeningQueue()
 
 		mockBatcher.EXPECT().BatchObjects(ctx, mock.Anything).Return(&pb.BatchObjectsReply{
 			Took:   float32(1),
@@ -54,7 +55,12 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: nil,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueues, listeningQueue, mockBatcher, logger)
+
+		go func() {
+			for range listeningQueue {
+			}
+		}()
 
 		// Send data
 		processingQueue <- batch.NewProcessRequest(
@@ -71,6 +77,7 @@ func TestWorkerLoop(t *testing.T) {
 		)
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
+		close(listeningQueue)
 		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
 	})
 
@@ -83,6 +90,7 @@ func TestWorkerLoop(t *testing.T) {
 		reportingQueues := batch.NewBatchReportingQueues()
 		reportingQueues.Make(StreamId)
 		processingQueue := batch.NewBatchProcessingQueue(1)
+		listeningQueue := batch.NewListeningQueue()
 
 		errorsObj := []*pb.BatchObjectsReply_BatchError{
 			{
@@ -116,7 +124,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: errorsRefs,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueues, listeningQueue, mockBatcher, logger)
 
 		// Send data
 		obj := &pb.BatchObject{}
@@ -130,6 +138,8 @@ func TestWorkerLoop(t *testing.T) {
 				StreamId,
 				nil,
 			)
+			for range listeningQueue {
+			}
 		}()
 
 		rq, ok := reportingQueues.Get(StreamId)
@@ -148,6 +158,7 @@ func TestWorkerLoop(t *testing.T) {
 		require.Empty(t, rq, "Expected reporting queue to be empty after reading all messages")
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
+		close(listeningQueue)
 		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
 	})
 }

@@ -35,6 +35,7 @@ type StreamHandler struct {
 	logger               logrus.FieldLogger
 	reportingQueues      *ReportingQueues
 	processingQueue      processingQueue
+	listeningQueue       listeningQueue
 	recvWg               *sync.WaitGroup
 	sendWg               *sync.WaitGroup
 	metrics              *BatchStreamingCallbacks
@@ -46,12 +47,13 @@ type StreamHandler struct {
 
 const POLLING_INTERVAL = 100 * time.Millisecond
 
-func NewStreamHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.WaitGroup, reportingQueues *ReportingQueues, processingQueue processingQueue, metrics *BatchStreamingCallbacks, logger logrus.FieldLogger) *StreamHandler {
-	return &StreamHandler{
+func NewStreamHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.WaitGroup, reportingQueues *ReportingQueues, processingQueue processingQueue, listeningQueue listeningQueue, metrics *BatchStreamingCallbacks, logger logrus.FieldLogger) *StreamHandler {
+	h := &StreamHandler{
 		shuttingDownCtx:      shuttingDownCtx,
 		logger:               logger,
 		reportingQueues:      reportingQueues,
 		processingQueue:      processingQueue,
+		listeningQueue:       listeningQueue,
 		recvWg:               recvWg,
 		sendWg:               sendWg,
 		metrics:              metrics,
@@ -59,6 +61,8 @@ func NewStreamHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.Wait
 		processWgsPerStream:  &sync.Map{},
 		stopped:              &sync.Map{},
 	}
+	enterrors.GoWrapper(h.listenToWorkers, logger)
+	return h
 }
 
 func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
@@ -85,14 +89,15 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	ctx, cancel := context.WithCancel(stream.Context())
 	defer cancel()
 
-	// g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, ctx)
-	errCh := make(chan error, 2)
+	// Channel to communicate receive errors from recv to the send loop
+	errCh := make(chan error)
 	h.recvWg.Add(1)
-	enterrors.GoWrapper(func() { errCh <- h.recv(ctx, streamId, startReq.ConsistencyLevel, stream) }, h.logger)
+	enterrors.GoWrapper(func() {
+		errCh <- h.recv(ctx, streamId, startReq.ConsistencyLevel, stream)
+		close(errCh)
+	}, h.logger)
 	h.sendWg.Add(1)
-	enterrors.GoWrapper(func() { errCh <- h.send(ctx, streamId, stream) }, h.logger)
-
-	return <-errCh
+	return h.send(ctx, streamId, stream, errCh)
 }
 
 func (h *StreamHandler) close(streamId string) {
@@ -109,10 +114,12 @@ func (h *StreamHandler) close(streamId string) {
 		h.reportingQueues.Close(streamId)
 		h.logger.WithField("streamId", streamId).Debug("all workers done, closed reporting queue")
 		h.stopped.Delete(streamId)
+		h.processWgsPerStream.Delete(streamId)
+		h.workerStatsPerStream.Delete(streamId)
 	}, h.logger)
 }
 
-func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer) error {
+func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer, errCh chan error) error {
 	defer h.sendWg.Done()
 
 	// shuttingDown acts as a soft cancel here so we can send the shutting down message to the client.
@@ -129,7 +136,6 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 				// drain reporting queue in effort to communicate any inflight errors back to client
 				// despite the context being cancelled somewhere
 				for report := range reportingQueue {
-					h.processWg(streamId).Done()
 					for _, err := range report.Errors {
 						if h.metrics != nil {
 							h.metrics.OnStreamError(streamId)
@@ -141,6 +147,25 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 				}
 				// Context cancelled, send error to client
 				return ctx.Err()
+			case recvErr := <-errCh:
+				if recvErr != nil {
+					h.logger.WithField("streamId", streamId).WithError(recvErr).Error("receive error, closing stream")
+					h.close(streamId)
+					// drain reporting queue in effort to communicate any inflight errors back to client
+					// despite the recv side of the stream failing in some way
+					for report := range reportingQueue {
+						for _, err := range report.Errors {
+							if h.metrics != nil {
+								h.metrics.OnStreamError(streamId)
+							}
+							if innerErr := stream.Send(newBatchErrorMessage(err)); innerErr != nil {
+								h.logger.WithField("streamId", streamId).WithError(innerErr).Error("failed to send error message")
+							}
+						}
+					}
+					// Context cancelled, send error to client
+					return recvErr
+				}
 			case <-shuttingDownDone:
 				h.logger.WithField("streamId", streamId).Debug("server is shutting down, will stop accepting new requests soon")
 				// If shutting down context has been set by shutdown.Drain then send the shutdown triggered message to the client
@@ -166,7 +191,6 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 					return nil
 				}
 				// Received a report from a worker
-				h.processWg(streamId).Done()
 				for _, err := range report.Errors {
 					if h.metrics != nil {
 						h.metrics.OnStreamError(streamId)
@@ -197,6 +221,14 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 			h.logger.WithField("streamId", streamId).Error("read queue not found")
 			return fmt.Errorf("read queue for stream %s not found", streamId)
 		}
+	}
+}
+
+func (h *StreamHandler) listenToWorkers() {
+	// Will exit once the listening queue is closed by the batch worker shutdown logic in StartBatchWorkers
+	for listen := range h.listeningQueue {
+		h.logger.WithField("streamId", listen.streamId).Debug("listener received listen request")
+		h.processWg(listen.streamId).Done()
 	}
 }
 

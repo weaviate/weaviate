@@ -96,6 +96,7 @@ func TestShutdownHappyPath(t *testing.T) {
 		shutdown.Drain(logger)
 	}()
 	err := handler.Handle(mockStream)
+	require.NotNil(t, err, "handler should return error shutting down")
 	require.ErrorAs(t, err, &batch.ErrShutdown, "handler should return error shutting down")
 	require.Len(t, objsCh, howManyObjs, "all objects should have been processed")
 	wg.Wait()
@@ -161,6 +162,7 @@ func TestShutdownAfterBrokenStream(t *testing.T) {
 	shutdown := batch.NewShutdown(ctx)
 	handler, _ := batch.Start(nil, nil, mockBatcher, nil, shutdown, numWorkers, logger)
 	err := handler.Handle(stream)
+	require.NotNil(t, err, "handler should return error shutting down")
 	require.ErrorAs(t, err, &networkErr, "handler should return network error")
 	shutdown.Drain(logger)
 }

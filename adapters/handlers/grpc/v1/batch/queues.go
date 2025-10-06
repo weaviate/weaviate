@@ -40,7 +40,12 @@ type report struct {
 	Stats  *workerStats
 }
 
+type listen struct {
+	streamId string
+}
+
 type (
+	listeningQueue  chan *listen
 	processingQueue chan *processRequest
 	reportingQueue  chan *report
 )
@@ -56,6 +61,10 @@ func NewBatchProcessingQueue(bufferSize int) processingQueue {
 
 func NewBatchReportingQueue(bufferSize int) reportingQueue {
 	return make(reportingQueue, bufferSize)
+}
+
+func NewListeningQueue() listeningQueue {
+	return make(listeningQueue)
 }
 
 func NewBatchReportingQueues() *ReportingQueues {
