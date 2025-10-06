@@ -274,6 +274,9 @@ func (s *SPFresh) CompressionStats() compressionhelpers.CompressionStats {
 	return s.SPTAG.Quantizer().Stats()
 }
 
+func (s *SPFresh) Preload(id uint64, vector []float32) {
+}
+
 // deduplicator is a simple thread-safe structure to prevent duplicate values.
 type deduplicator struct {
 	mu sync.RWMutex

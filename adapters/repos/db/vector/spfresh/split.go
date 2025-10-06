@@ -349,7 +349,7 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 		p, err := s.Store.Get(s.ctx, neighborID)
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
-				s.logger.WithField("postingID", neighbor.ID).
+				s.logger.WithField("postingID", neighborID).
 					Error("Posting not found, skipping reassign after split")
 				continue // Skip if the posting is not found
 			}

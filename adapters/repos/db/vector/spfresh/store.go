@@ -88,10 +88,6 @@ func (l *LSMStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
 
-	if len(list) == 0 {
-		return nil, errors.WithStack(ErrPostingNotFound)
-	}
-
 	posting := CompressedPosting{
 		vectorSize: int(vectorSize),
 		data:       make([]byte, 0, len(list)*(8+1+int(vectorSize))),
