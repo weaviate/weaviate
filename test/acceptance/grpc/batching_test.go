@@ -37,8 +37,6 @@ import (
 
 func TestGRPC_Batching(t *testing.T) {
 	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	defer cancel()
 
 	compose, err := docker.New().
 		WithWeaviateWithGRPC().
@@ -297,8 +295,6 @@ func TestGRPC_Batching(t *testing.T) {
 
 func TestGRPC_ClusterBatching(t *testing.T) {
 	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	defer cancel()
 
 	compose, err := docker.New().
 		WithWeaviateClusterWithGRPC().
