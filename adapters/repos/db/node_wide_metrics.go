@@ -301,6 +301,9 @@ func (o *nodeWideMetricsObserver) getCurrentActivity() activityByCollection {
 		cn := index.Config.ClassName.String()
 		current[cn] = make(activityByTenant)
 		index.ForEachShard(func(name string, shard ShardLike) error {
+			index.shardCreateLocks.Lock(name)
+			defer index.shardCreateLocks.Unlock(name)
+
 			act := activity{}
 			act.read, act.write = shard.Activity()
 			current[cn][name] = act
@@ -376,6 +379,10 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 	o.db.indexLock.RLock()
 	indices := make(map[string]*Index, len(o.db.indices))
 	maps.Copy(indices, o.db.indices)
+	for _, index := range indices {
+		index.dropIndex.RLock()
+		defer index.dropIndex.RUnlock() // hold until we're done with all indices, eg end of function
+	}
 	o.db.indexLock.RUnlock()
 
 	var total DimensionMetrics
@@ -404,6 +411,9 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 
 		// Avoid loading cold shards, as it may create I/O spikes.
 		index.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
+			index.shardCreateLocks.Lock(shardName)
+			defer index.shardCreateLocks.Unlock(shardName)
+
 			dim := calculateShardDimensionMetrics(ctx, sl)
 			total = total.Add(dim)
 
