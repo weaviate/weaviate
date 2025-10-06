@@ -64,16 +64,13 @@ func DefaultConfig() *Config {
 	w := runtime.GOMAXPROCS(0)
 
 	return &Config{
-		Logger:         logrus.New(),
-		Distancer:      distancer.NewL2SquaredProvider(),
-		MinPostingSize: 10,
-		// Use 2x the number of CPUs as default for workers.
-		// Workers are mostly idle waiting for I/O, so having
-		// more workers than CPUs makes sense.
-		SplitWorkers:              w * 2,
-		ReassignWorkers:           w * 2,
+		Logger:                    logrus.New(),
+		Distancer:                 distancer.NewL2SquaredProvider(),
+		MinPostingSize:            10,
+		SplitWorkers:              w,
+		ReassignWorkers:           w,
 		InternalPostingCandidates: 64,
-		ReassignNeighbors:         64,
+		ReassignNeighbors:         8,
 		Replicas:                  8,
 		RNGFactor:                 10.0,
 		MaxDistanceRatio:          10_000,
