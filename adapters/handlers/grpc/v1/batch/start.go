@@ -12,6 +12,8 @@
 package batch
 
 import (
+	"context"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
@@ -35,7 +37,8 @@ func Start(
 	listeningQueue := NewListeningQueue()
 
 	streamHandler := NewStreamHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, reportingQueues, processingQueue, listeningQueue, metrics, logger)
-	StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, numWorkers, processingQueue, reportingQueues, listeningQueue, batchHandler, logger)
+	// batch workers set their own per-process timeout and should not be cancelled on shutdown
+	StartBatchWorkers(context.Background(), shutdown.WorkersWg, numWorkers, processingQueue, reportingQueues, listeningQueue, batchHandler, logger)
 
 	return streamHandler, metrics
 }
