@@ -81,7 +81,7 @@ func TestSetCursorConsistentView(t *testing.T) {
 	}
 
 	// Active memtable contains key3->{3}
-	initialMemtable := newTestMemtableSet(map[string][][]byte{
+	initialMemtable := newTestMemtableSet(t, map[string][][]byte{
 		"key3": {[]byte("value3")},
 	})
 
@@ -111,7 +111,7 @@ func TestSetCursorConsistentView(t *testing.T) {
 
 	// 2) Switch memtables (new empty active, old active -> flushing)
 	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-		return newTestMemtableSet(nil), nil
+		return newTestMemtableSet(t, nil), nil
 	})
 	require.NoError(t, err)
 	require.True(t, switched)

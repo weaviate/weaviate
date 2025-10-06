@@ -62,14 +62,12 @@ type cursorStateReplace struct {
 func (b *Bucket) Cursor() *CursorReplace {
 	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
-
 	cursorOpenedAt := time.Now()
 	b.metrics.IncBucketOpenedCursorsByStrategy(b.strategy)
 	b.metrics.IncBucketOpenCursorsByStrategy(b.strategy)
 
 	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
 
 	innerCursors, unlockSegmentGroup := b.disk.newCursors()
 
