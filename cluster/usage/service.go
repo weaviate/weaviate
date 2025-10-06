@@ -57,6 +57,8 @@ func (s *service) SetJitterInterval(interval time.Duration) {
 
 // Usage service collects usage metrics for the node and shall return error in case of any error
 // to avoid reporting partial data
+// exactObjectCount will return the correct object count (including memtables) when set to true. This is mainly for
+// testing via the debug api. In production, this should be false to avoid the performance hit
 func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Report, error) {
 	scheme := s.schemaManager.GetSchemaSkipAuth().Objects
 	collections := scheme.Classes
