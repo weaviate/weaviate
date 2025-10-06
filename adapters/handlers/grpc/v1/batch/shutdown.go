@@ -19,39 +19,26 @@ import (
 )
 
 type Shutdown struct {
-	HandlersCtx     context.Context
-	HandlersCancel  context.CancelFunc
-	RecvWg          *sync.WaitGroup
-	SendWg          *sync.WaitGroup
-	SchedulerCtx    context.Context
-	SchedulerCancel context.CancelFunc
-	SchedulerWg     *sync.WaitGroup
-	WorkersCtx      context.Context
-	WorkersCancel   context.CancelFunc
-	WorkersWg       *sync.WaitGroup
+	HandlersCtx    context.Context
+	HandlersCancel context.CancelFunc
+	RecvWg         *sync.WaitGroup
+	SendWg         *sync.WaitGroup
+	WorkersWg      *sync.WaitGroup
 }
 
 func NewShutdown(ctx context.Context) *Shutdown {
 	var recvWg sync.WaitGroup
 	var sendWg sync.WaitGroup
-	var schedulerWg sync.WaitGroup
 	var workersWg sync.WaitGroup
 
 	hCtx, hCancel := context.WithCancel(ctx)
-	sCtx, sCancel := context.WithCancel(ctx)
-	wCtx, wCancel := context.WithCancel(ctx)
 
 	return &Shutdown{
-		HandlersCtx:     hCtx,
-		HandlersCancel:  hCancel,
-		RecvWg:          &recvWg,
-		SendWg:          &sendWg,
-		SchedulerCtx:    sCtx,
-		SchedulerCancel: sCancel,
-		SchedulerWg:     &schedulerWg,
-		WorkersCtx:      wCtx,
-		WorkersCancel:   wCancel,
-		WorkersWg:       &workersWg,
+		HandlersCtx:    hCtx,
+		HandlersCancel: hCancel,
+		RecvWg:         &recvWg,
+		SendWg:         &sendWg,
+		WorkersWg:      &workersWg,
 	}
 }
 
@@ -81,17 +68,11 @@ func (s *Shutdown) Drain(logger logrus.FieldLogger) {
 	log := logger.WithField("action", "shutdown_drain")
 	// stop handlers first
 	s.HandlersCancel()
-	log.Info("wait for all receivers to finish adding to write queues")
+	log.Info("wait for all receivers to finish adding to processing queue")
 	s.RecvWg.Wait()
 	log.Info("all receivers finished")
-	// stop the scheduler
-	s.SchedulerCancel()
-	log.Info("shutting down grpc batch scheduler")
-	// wait for all objs in write queues to be added to internal queue
-	s.SchedulerWg.Wait()
-	// stop the workers now
-	s.WorkersCancel()
-	log.Info("shutting down grpc batch workers")
+	// wait for all workers to finish
+	log.Info("waiting for all workers to finish processing internal queue")
 	// wait for all the objects to be processed from the internal queue
 	s.WorkersWg.Wait()
 	log.Info("finished draining the internal queues")
