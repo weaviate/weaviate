@@ -34,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -78,7 +77,6 @@ type ShardLike interface {
 	Counter() *indexcounter.Counter
 	ObjectCount(ctx context.Context) (int, error)
 	ObjectCountAsync(ctx context.Context) (int64, error)
-	ObjectStorageSize(ctx context.Context) (int64, error)
 	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
 	PutObject(context.Context, *storobj.Object) error
@@ -143,8 +141,6 @@ type ShardLike interface {
 
 	// Dimensions returns the total number of dimensions for a given vector
 	Dimensions(ctx context.Context, targetVector string) (int, error)
-	// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
-	DimensionsUsage(ctx context.Context, targetVector string) (usagetypes.Dimensionality, error)
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error)
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error

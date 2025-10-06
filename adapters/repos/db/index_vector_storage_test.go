@@ -533,7 +533,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.NotNil(t, shard)
 
 				// Get active metrics BEFORE releasing the shard
-				dimensionality, err := shard.DimensionsUsage(ctx, tt.targetVector)
+				lazyShard, ok := shard.(*LazyLoadShard)
+				require.True(t, ok)
+				require.NoError(t, lazyShard.Load(ctx))
+
+				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector)
 				require.NoError(t, err)
 
 				assert.Equal(t, tt.expectedCount, dimensionality.Count)
@@ -560,7 +564,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.NotNil(t, shard)
 
 				// Get active metrics BEFORE releasing the shard
-				dimensionality, err := shard.DimensionsUsage(ctx, tt.targetVector)
+				lazyShard, ok := shard.(*LazyLoadShard)
+				require.True(t, ok)
+				require.NoError(t, lazyShard.Load(ctx))
+
+				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector)
 				require.NoError(t, err)
 
 				assert.Equal(t, tt.expectedCount, dimensionality.Count)
@@ -714,7 +722,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	activeVectorStorageSize, err := shard.VectorStorageSize(ctx)
 
 	require.NoError(t, err)
-	dimensionality, err := activeShard.DimensionsUsage(ctx, "")
+	dimensionality, err := shard.DimensionsUsage(ctx, "")
 	require.NoError(t, err)
 	activeObjectCount, err := activeShard.ObjectCount(ctx)
 	require.NoError(t, err)

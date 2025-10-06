@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -215,21 +214,6 @@ func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("error while getting object count for shard %s: %w", l.shardOpts.name, err)
 	}
 	return objectUsage.Count, nil
-}
-
-func (l *LazyLoadShard) ObjectStorageSize(ctx context.Context) (int64, error) {
-	l.mutex.Lock()
-	if l.loaded {
-		l.mutex.Unlock()
-		return l.shard.ObjectStorageSize(ctx)
-	}
-	l.mutex.Unlock()
-
-	// For unloaded shards, calculate storage size by walking the file system
-	// This avoids loading the shard into memory entirely
-	idx := l.shardOpts.index
-	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(idx.logger, idx.path(), l.shardOpts.name)
-	return objectUsage.StorageBytes, err
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
@@ -474,20 +458,6 @@ func (l *LazyLoadShard) SetPropertyLengths(props []inverted.Property) error {
 func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
 	l.mustLoad()
 	return l.shard.AnalyzeObject(object)
-}
-
-func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (usagetypes.Dimensionality, error) {
-	l.mutex.Lock()
-	if l.loaded {
-		l.mutex.Unlock()
-		return l.shard.DimensionsUsage(ctx, targetVector)
-	}
-	l.mutex.Unlock()
-
-	// For unloaded shards, use the unloaded shard/tenant calculation method
-	// This avoids loading the shard into memory
-	idx := l.shardOpts.index
-	return shardusage.CalculateUnloadedDimensionsUsage(ctx, idx.logger, idx.path(), l.shardOpts.name, targetVector)
 }
 
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {

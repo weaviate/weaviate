@@ -193,9 +193,13 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 				require.NotNil(t, shard)
 				defer release()
 
-				objectStorageSize, err := shard.ObjectStorageSize(ctx)
+				lazyShard, ok := shard.(*LazyLoadShard)
+				require.True(t, ok)
+				require.NoError(t, lazyShard.Load(ctx))
+
+				objectStorageSize, err := lazyShard.shard.ObjectStorageSize(ctx)
 				require.NoError(t, err)
-				objectCount, err := shard.ObjectCount(ctx)
+				objectCount, err := lazyShard.shard.ObjectCount(ctx)
 				require.NoError(t, err)
 
 				// Verify object count
@@ -214,7 +218,11 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 				require.NotNil(t, shard)
 				defer release()
 
-				objectStorageSize, err := shard.ObjectStorageSize(ctx)
+				lazyShard, ok := shard.(*LazyLoadShard)
+				require.True(t, ok)
+				require.NoError(t, lazyShard.Load(ctx))
+
+				objectStorageSize, err := lazyShard.shard.ObjectStorageSize(ctx)
 				require.NoError(t, err)
 				objectCount, err := shard.ObjectCount(ctx)
 				require.NoError(t, err)
@@ -349,9 +357,12 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	require.NotNil(t, objectsBucket)
 	require.NoError(t, objectsBucket.FlushMemtable())
 
-	activeObjectStorageSize, err := activeShard.ObjectStorageSize(ctx)
+	loadedShard, ok := activeShard.(*Shard)
+	require.True(t, ok)
+
+	activeObjectStorageSize, err := loadedShard.ObjectStorageSize(ctx)
 	require.NoError(t, err)
-	activeObjectCount, err := activeShard.ObjectCount(ctx)
+	activeObjectCount, err := loadedShard.ObjectCount(ctx)
 	require.NoError(t, err)
 	assert.Greater(t, activeObjectStorageSize, int64(0), "Active shard calculation should have object storage size > 0")
 
