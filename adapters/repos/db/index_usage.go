@@ -169,6 +169,9 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 				// should not happen as we only collected local shards from the sharding state
 				return fmt.Errorf("shard %s has unknown local status %s", shardName, localStatus)
 			}
+			if err2 != nil {
+				return err2
+			}
 			collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
 
 			return nil
