@@ -35,6 +35,9 @@ type LSMStore struct {
 func NewLSMStore(store *lsmkv.Store, metrics *Metrics, bucketName string, minMMapSize int64,
 	maxWalReuseSize int64,
 	allocChecker memwatch.AllocChecker,
+	lazyLoadSegments bool,
+	writeSegmentInfoIntoFileName bool,
+	writeMetadataFilesEnabled bool,
 ) (*LSMStore, error) {
 	err := store.CreateOrLoadBucket(context.Background(),
 		bucketName,
@@ -42,6 +45,9 @@ func NewLSMStore(store *lsmkv.Store, metrics *Metrics, bucketName string, minMMa
 		lsmkv.WithAllocChecker(allocChecker),
 		lsmkv.WithMinMMapSize(minMMapSize),
 		lsmkv.WithMinWalThreshold(maxWalReuseSize),
+		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
+		lsmkv.WithWriteSegmentInfoIntoFileName(writeSegmentInfoIntoFileName),
+		lsmkv.WithWriteMetadata(writeMetadataFilesEnabled),
 	)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bucketName)

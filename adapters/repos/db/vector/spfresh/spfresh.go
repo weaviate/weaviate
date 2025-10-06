@@ -93,7 +93,7 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
-	postingStore, err := NewLSMStore(store, metrics, bucketName(cfg.ID), cfg.MinMMapSize, cfg.MaxReuseWalSize, cfg.AllocChecker)
+	postingStore, err := NewLSMStore(store, metrics, bucketName(cfg.ID), cfg.MinMMapSize, cfg.MaxReuseWalSize, cfg.AllocChecker, cfg.LazyLoadSegments, cfg.WriteSegmentInfoIntoFileName, cfg.WriteMetadataFilesEnabled)
 	if err != nil {
 		return nil, err
 	}

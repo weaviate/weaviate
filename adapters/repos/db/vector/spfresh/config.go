@@ -25,26 +25,29 @@ import (
 )
 
 type Config struct {
-	Logger                    logrus.FieldLogger
-	Distancer                 distancer.Provider
-	RootPath                  string
-	ID                        string
-	TargetVector              string
-	ShardName                 string
-	ClassName                 string
-	PrometheusMetrics         *monitoring.PrometheusMetrics
-	MaxPostingSize            uint32                `json:"maxPostingSize,omitempty"`            // Maximum number of vectors in a posting
-	MinPostingSize            uint32                `json:"minPostingSize,omitempty"`            // Minimum number of vectors in a posting
-	SplitWorkers              int                   `json:"splitWorkers,omitempty"`              // Number of concurrent workers for split operations
-	ReassignWorkers           int                   `json:"reassignWorkers,omitempty"`           // Number of concurrent workers for reassign operations
-	InternalPostingCandidates int                   `json:"internalPostingCandidates,omitempty"` // Number of candidates to consider when running a centroid search internally
-	ReassignNeighbors         int                   `json:"reassignNeighbors,omitempty"`         // Number of neighboring centroids to consider for reassigning vectors
-	Replicas                  int                   `json:"replicas,omitempty"`                  // Number of closure replicas to maintain
-	RNGFactor                 float32               `json:"rngFactor,omitempty"`                 // Distance factor used by the RNG rule to determine how spread out replica selections are
-	MaxDistanceRatio          float32               `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
-	MinMMapSize               int64                 `json:"minMMapSize,omitempty"`               // Minimum size of the mmap for the store
-	MaxReuseWalSize           int64                 `json:"maxReuseWalSize,omitempty"`           // Maximum size of the reuse wal for the store
-	AllocChecker              memwatch.AllocChecker `json:"allocChecker,omitempty"`              // Alloc checker for the store
+	Logger                       logrus.FieldLogger
+	Distancer                    distancer.Provider
+	RootPath                     string
+	ID                           string
+	TargetVector                 string
+	ShardName                    string
+	ClassName                    string
+	PrometheusMetrics            *monitoring.PrometheusMetrics
+	MaxPostingSize               uint32                `json:"maxPostingSize,omitempty"`               // Maximum number of vectors in a posting
+	MinPostingSize               uint32                `json:"minPostingSize,omitempty"`               // Minimum number of vectors in a posting
+	SplitWorkers                 int                   `json:"splitWorkers,omitempty"`                 // Number of concurrent workers for split operations
+	ReassignWorkers              int                   `json:"reassignWorkers,omitempty"`              // Number of concurrent workers for reassign operations
+	InternalPostingCandidates    int                   `json:"internalPostingCandidates,omitempty"`    // Number of candidates to consider when running a centroid search internally
+	ReassignNeighbors            int                   `json:"reassignNeighbors,omitempty"`            // Number of neighboring centroids to consider for reassigning vectors
+	Replicas                     int                   `json:"replicas,omitempty"`                     // Number of closure replicas to maintain
+	RNGFactor                    float32               `json:"rngFactor,omitempty"`                    // Distance factor used by the RNG rule to determine how spread out replica selections are
+	MaxDistanceRatio             float32               `json:"maxDistanceRatio,omitempty"`             // Maximum distance ratio for the search, used to filter out candidates that are too far away
+	MinMMapSize                  int64                 `json:"minMMapSize,omitempty"`                  // Minimum size of the mmap for the store
+	MaxReuseWalSize              int64                 `json:"maxReuseWalSize,omitempty"`              // Maximum size of the reuse wal for the store
+	AllocChecker                 memwatch.AllocChecker `json:"allocChecker,omitempty"`                 // Alloc checker for the store
+	LazyLoadSegments             bool                  `json:"lazyLoadSegments,omitempty"`             // Lazy load segments for the store
+	WriteSegmentInfoIntoFileName bool                  `json:"writeSegmentInfoIntoFileName,omitempty"` // Write segment info into file name for the store
+	WriteMetadataFilesEnabled    bool                  `json:"writeMetadataFilesEnabled,omitempty"`    // Write metadata files for the store
 }
 
 func (c *Config) Validate() error {
