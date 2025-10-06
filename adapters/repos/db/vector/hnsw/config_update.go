@@ -158,7 +158,7 @@ func (h *hnsw) compressThenCallback(callback func()) {
 		SQ: h.sqConfig,
 	}
 	if err := h.compress(uc); err != nil {
-		h.logger.WithField("shardName", h.shardName).WithField("vectorName", h.getTargetVector()).Error(err)
+		h.logger.WithField("shard", h.shardName).WithField("targetVector", h.getTargetVector()).Error(err)
 		return
 	}
 	h.logger.WithField("action", "compress").Info("vector compression complete")
