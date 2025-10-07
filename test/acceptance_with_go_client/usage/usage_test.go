@@ -362,7 +362,7 @@ func generateRandomVector(dimensionality int) []float32 {
 	return slice
 }
 
-func insertObjects(t *testing.T, n int, c *client.Client, className, tenant string, vector models.Vectors) {
+func insertObjects(t *testing.T, n int, c *client.Client, className, tenant string, vectors models.Vectors, vector models.C11yVector) {
 	objs := []*models.Object{}
 	for i := range n {
 		obj := &models.Object{
@@ -372,7 +372,8 @@ func insertObjects(t *testing.T, n int, c *client.Client, className, tenant stri
 				"name":        fmt.Sprintf("name %v", i),
 				"description": fmt.Sprintf("some description %v", i),
 			},
-			Vectors: vector,
+			Vectors: vectors,
+			Vector:  vector,
 		}
 		if tenant != "" {
 			obj.Tenant = tenant
@@ -472,17 +473,11 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 		insertObjects(t, 1000, c, className, "", models.Vectors{
 			dynamic1024: generateRandomVector(targetVectorDimensions[dynamic1024]),
-		})
+		}, nil)
 		testAllObjectsIndexed(t, c, className)
 
-		var colUsage CollectionUsage
-		report, err := getDebugUsageWithPort(debug)
+		colUsage, err := getDebugUsageWithPortAndCollection(debug, className)
 		require.NoError(t, err)
-		for _, col := range report.Collections {
-			if col.Name != nil && *col.Name == className {
-				colUsage = col
-			}
-		}
 		require.NotNil(t, colUsage)
 
 		require.Len(t, colUsage.Shards, 1)
@@ -501,18 +496,12 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 		insertObjects(t, 1000, c, className, "", models.Vectors{
 			dynamic1024: generateRandomVector(targetVectorDimensions[dynamic1024]),
-		})
+		}, nil)
 		testAllObjectsIndexed(t, c, className)
 
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			var colUsageHnsw CollectionUsage
-			reportHnsw, err := getDebugUsageWithPort(debug)
+			colUsageHnsw, err := getDebugUsageWithPortAndCollection(debug, className)
 			require.NoError(ct, err)
-			for _, col := range reportHnsw.Collections {
-				if col.Name != nil && *col.Name == className {
-					colUsageHnsw = col
-				}
-			}
 			require.NotNil(ct, colUsageHnsw)
 
 			require.Len(ct, colUsageHnsw.Shards, 1)
@@ -562,7 +551,7 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 		insertObjects(t, 1000, c, className, tenantName, models.Vectors{
 			dynamic1024: generateRandomVector(targetVectorDimensions[dynamic1024]),
-		})
+		}, nil)
 		testAllObjectsIndexed(t, c, className)
 
 		colHot, err := getDebugUsageWithPortAndCollection(debug, className)
@@ -603,6 +592,50 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		require.NotNil(t, shardCold.NamedVectors[0].Dimensionalities[0].Count)
 		require.Equal(t, dimensions, *shardCold.NamedVectors[0].Dimensionalities[0].Dimensions)
 		require.Equal(t, objectCount1, *shardCold.NamedVectors[0].Dimensionalities[0].Count)
+	})
+
+	t.Run("legacy vectorConfig", func(t *testing.T) {
+		className := sanitizeName("Class" + t.Name())
+
+		c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+		defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+		class := &models.Class{
+			Class: className,
+			Properties: []*models.Property{
+				{
+					Name: "name", DataType: []string{schema.DataTypeText.String()},
+				},
+				{
+					Name: "description", DataType: []string{schema.DataTypeText.String()},
+				},
+			},
+			Vectorizer:        "none",
+			VectorIndexConfig: dynamicVectorIndexConfig,
+			VectorIndexType:   "dynamic",
+		}
+
+		require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+		insertObjects(t, 1000, c, className, "", nil, generateRandomVector(targetVectorDimensions[dynamic1024]))
+		testAllObjectsIndexed(t, c, className)
+
+		colUsage, err := getDebugUsageWithPortAndCollection(debug, className)
+		require.NoError(t, err)
+		require.NotNil(t, colUsage)
+
+		require.Len(t, colUsage.Shards, 1)
+		shard := colUsage.Shards[0]
+		require.Equal(t, &objectCount1, shard.ObjectsCount)
+		require.Len(t, shard.NamedVectors, 1)
+		require.Equal(t, flat, *shard.NamedVectors[0].VectorIndexType)
+		require.Equal(t, bq, *shard.NamedVectors[0].Compression)
+		require.NotEmpty(t, shard.NamedVectors[0].IsDynamic)
+		require.NotEmpty(t, shard.NamedVectors[0].Dimensionalities)
+		require.NotNil(t, shard.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.NotNil(t, shard.NamedVectors[0].Dimensionalities[0].Count)
+		require.Equal(t, dimensions, *shard.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.Equal(t, objectCount1, *shard.NamedVectors[0].Dimensionalities[0].Count)
 	})
 }
 
