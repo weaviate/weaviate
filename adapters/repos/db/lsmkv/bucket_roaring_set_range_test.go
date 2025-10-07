@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -112,6 +113,91 @@ func TestRoaringSetRangeReaderConsistentView(t *testing.T) {
 		key3: roaringset.NewBitmap(3),
 	}, sroar.NewBitmap())
 	newSegmentReplacer(b.disk, 0, 1, segABC).switchInMemory()
+
+	// Cursor still sees only key1..key3
+	validateOriginalReader(t)
+	reader1.Close()
+
+	// 6) A new cursor now sees the latest state: key1..key4 (key4 is in active)
+	reader2 := b.ReaderRoaringSetRange()
+	defer reader2.Close()
+
+	createValidateReader(reader2, map[uint64][]uint64{
+		key1: {1},
+		key2: {2},
+		key3: {3},
+		key4: {4},
+	})(t)
+}
+
+func TestRoaringSetRangeReaderConsistentViewInMemo(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := test.NewNullLogger()
+	key1, key2, key3, key4 := uint64(1), uint64(2), uint64(3), uint64(4)
+	createValidateReader := func(reader ReaderRoaringSetRange, expected map[uint64][]uint64) func(*testing.T) {
+		return func(t *testing.T) {
+			t.Helper()
+			for k, expectedV := range expected {
+				v, release, err := reader.Read(context.Background(), k, filters.OperatorEqual)
+
+				require.NoError(t, err)
+				require.Equal(t, expectedV, v.ToArray())
+				release()
+			}
+		}
+	}
+
+	// Active memtable contains key3->{3}
+	initialMemtable := newTestMemtableRoaringSetRange(t, map[uint64][]uint64{
+		key3: {3},
+	})
+
+	// Initial segment in memo: (key1->{1}, key2->{2})
+	mt := roaringsetrange.NewMemtable(logger)
+	mt.Insert(key1, []uint64{1})
+	mt.Insert(key2, []uint64{2})
+	segInMemo := roaringsetrange.NewSegmentInMemory(logger)
+	segInMemo.MergeMemtableEventually(mt)
+
+	b := Bucket{
+		active: initialMemtable,
+		disk: &SegmentGroup{
+			segments:                       []Segment{},
+			roaringSetRangeSegmentInMemory: segInMemo,
+		},
+		strategy:             StrategyRoaringSetRange,
+		keepSegmentsInMemory: true,
+		bitmapBufPool:        roaringset.NewBitmapBufPoolNoop(),
+	}
+
+	// Open the reader that should see key1..key3 only and stay stable
+	reader1 := b.ReaderRoaringSetRange()
+	validateOriginalReader := createValidateReader(reader1, map[uint64][]uint64{
+		key1: {1},
+		key2: {2},
+		key3: {3},
+	})
+	validateOriginalReader(t)
+
+	// 2) Switch memtables (new empty active, old active -> flushing)
+	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
+		return newTestMemtableRoaringSetRange(t, nil), nil
+	})
+	require.NoError(t, err)
+	require.True(t, switched)
+
+	// Reader remains stable (still key1..key3)
+	validateOriginalReader(t)
+
+	// 3) New write to the new active: key4->{4}
+	require.NoError(t, b.RoaringSetRangeAdd(key4, 4))
+
+	// Reader must still NOT see key4
+	validateOriginalReader(t)
+
+	// 4) Flush the flushing memtable (which holds key3) to disk
+	b.atomicallyAddDiskSegmentAndRemoveFlushing(&fakeSegment{})
 
 	// Cursor still sees only key1..key3
 	validateOriginalReader(t)

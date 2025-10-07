@@ -15,6 +15,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -74,8 +75,8 @@ func (b *Bucket) readerRoaringSetRangeFromSegments() ReaderRoaringSetRange {
 
 func (b *Bucket) readerRoaringSetRangeFromSegmentInMemo() ReaderRoaringSetRange {
 	var active, flushing memtable
-	var readerInMemo roaringsetrange.InnerReader
-	var releaseInMemo func()
+	var readers []roaringsetrange.InnerReader
+	var release func()
 
 	func() {
 		beforeFlushLock := time.Now()
@@ -84,20 +85,20 @@ func (b *Bucket) readerRoaringSetRangeFromSegmentInMemo() ReaderRoaringSetRange 
 		defer b.flushLock.RUnlock()
 
 		if took := time.Since(beforeFlushLock); took > 100*time.Millisecond {
-			b.logger.WithField("duration", took).
-				WithField("action", "lsm_bucket_get_acquire_flush_lock").
-				Debugf("Waited more than 100ms to obtain a flush lock during get")
+			b.logger.WithFields(logrus.Fields{
+				"duration": took,
+				"action":   "lsm_bucket_get_acquire_flush_lock",
+			}).Debugf("Waited more than 100ms to obtain a flush lock during get")
 		}
 
-		readerInMemo, releaseInMemo = roaringsetrange.NewSegmentInMemoryReader(b.disk.roaringSetRangeSegmentInMemory, b.bitmapBufPool)
 		active, flushing = b.active, b.flushing
+		readers, release = b.disk.roaringSetRangeSegmentInMemory.Readers(b.bitmapBufPool)
 	}()
 
-	readers := []roaringsetrange.InnerReader{readerInMemo}
 	if flushing != nil {
 		readers = append(readers, flushing.newRoaringSetRangeReader())
 	}
 	readers = append(readers, active.newRoaringSetRangeReader())
 
-	return roaringsetrange.NewCombinedReader(readers, releaseInMemo, concurrency.SROAR_MERGE, b.logger)
+	return roaringsetrange.NewCombinedReader(readers, release, concurrency.SROAR_MERGE, b.logger)
 }

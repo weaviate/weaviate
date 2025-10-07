@@ -451,7 +451,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	case StrategyRoaringSetRange:
 		if cfg.keepSegmentsInMemory {
 			t := time.Now()
-			sg.roaringSetRangeSegmentInMemory = roaringsetrange.NewSegmentInMemory()
+			sg.roaringSetRangeSegmentInMemory = roaringsetrange.NewSegmentInMemory(sg.logger)
 			for _, seg := range sg.segments {
 				cursor := seg.newRoaringSetRangeCursor()
 				if err := sg.roaringSetRangeSegmentInMemory.MergeSegmentByCursor(cursor); err != nil {

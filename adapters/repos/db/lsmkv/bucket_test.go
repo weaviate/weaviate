@@ -986,6 +986,98 @@ func TestBucketRoaringSetRangeStrategyConsistentViewUsingReader(t *testing.T) {
 	validateThirdReader(t)
 }
 
+// TestBucketRoaringSetRangeStrategyConsistentViewUsingReaderInMemo behaves similarly to
+// [TestBucketReplaceStrategyConsistentView], but for the "RoaringSetRange"
+// strategy and with usage of ReaderRoaringSetRange. See other test for detailed comments.
+func TestBucketRoaringSetRangeStrategyConsistentViewUsingReaderInMemo(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := test.NewNullLogger()
+
+	key1 := uint64(1)
+	createValidateReader := func(reader ReaderRoaringSetRange, expected map[uint64][]uint64) func(*testing.T) {
+		return func(t *testing.T) {
+			t.Helper()
+			for k, expectedV := range expected {
+				v, release, err := reader.Read(context.Background(), k, filters.OperatorEqual)
+
+				require.NoError(t, err)
+				require.Equal(t, expectedV, v.ToArray())
+				release()
+			}
+		}
+	}
+
+	initialMemtable := newTestMemtableRoaringSetRange(t, map[uint64][]uint64{
+		key1: {2},
+	})
+
+	mt := roaringsetrange.NewMemtable(logger)
+	mt.Insert(key1, []uint64{1})
+	segInMemo := roaringsetrange.NewSegmentInMemory(logger)
+	segInMemo.MergeMemtableEventually(mt)
+
+	b := Bucket{
+		active: initialMemtable,
+		disk: &SegmentGroup{
+			segments:                       []Segment{},
+			roaringSetRangeSegmentInMemory: segInMemo,
+		},
+		strategy:             StrategyRoaringSetRange,
+		keepSegmentsInMemory: true,
+		bitmapBufPool:        roaringset.NewBitmapBufPoolNoop(),
+	}
+
+	// validate initial data before making any changes
+	reader1 := b.ReaderRoaringSetRange()
+	defer reader1.Close()
+	validateOriginalReader := createValidateReader(reader1, map[uint64][]uint64{key1: {1, 2}})
+	validateOriginalReader(t)
+
+	// prove that we can switch memtables despite having an open reader
+	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
+		return newTestMemtableRoaringSetRange(t, map[uint64][]uint64{
+			key1: {3},
+		}), nil
+	})
+	require.NoError(t, err)
+	require.True(t, switched)
+
+	// prove that the open reader still sees the same data
+	validateOriginalReader(t)
+
+	// prove that a new reader sees the new state
+	reader2 := b.ReaderRoaringSetRange()
+	defer reader2.Close()
+	validateSecondReader := createValidateReader(reader2, map[uint64][]uint64{key1: {1, 2, 3}})
+	validateSecondReader(t)
+
+	// prove that we can flush the flushing mt into a disk segment without
+	// affecting our two open readers
+	b.atomicallyAddDiskSegmentAndRemoveFlushing(&fakeSegment{})
+	validateOriginalReader(t)
+	validateSecondReader(t)
+
+	// validate that a new reader sees the current state
+	reader3 := b.ReaderRoaringSetRange()
+	defer reader3.Close()
+	validateThirdReader := createValidateReader(reader3, map[uint64][]uint64{key1: {1, 2, 3}})
+	validateThirdReader(t)
+
+	require.NoError(t, b.active.roaringSetRangeAdd(key1, 4))
+
+	// validate that last reader sees the final state
+	reader4 := b.ReaderRoaringSetRange()
+	defer reader4.Close()
+	validateFourthReader := createValidateReader(reader4, map[uint64][]uint64{key1: {1, 2, 3, 4}})
+	validateFourthReader(t)
+
+	// prove that the open readers still see the same data
+	validateOriginalReader(t)
+	validateSecondReader(t)
+	validateThirdReader(t)
+}
+
 // TestBucketRoaringSetRangeStrategyWriteVsFlush verifies that writers can keep
 // updating a RoaringSetRange while a flush-and-switch is in progress, and that all
 // writes are preserved once the flush completes.
@@ -1009,6 +1101,80 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlush(t *testing.T) {
 		}),
 		disk:     &SegmentGroup{segments: []Segment{}},
 		strategy: StrategyRoaringSetRange,
+	}
+
+	active, freeRefs := b.getActiveMemtableForWrite()
+	require.NoError(t, active.roaringSetRangeAdd(key1, 2))
+
+	// Simulate a FlushAndSwitch() running concurrently
+	switchComplete := make(chan struct{})
+	flushComplete := make(chan struct{})
+	go func() {
+		// Switch active -> flushing, new empty active installed
+		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
+			return newTestMemtableRoaringSetRange(t, nil), nil
+		})
+		require.NoError(t, err)
+		require.True(t, switched)
+		close(switchComplete)
+
+		b.waitForZeroWriters(b.flushing)
+
+		seg := flushRoaringSetRangeTestMemtableIntoTestSegment(b.flushing)
+		b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+		close(flushComplete)
+	}()
+
+	// Ensure the switch has happened (we still hold a writer ref to the old active)
+	<-switchComplete
+
+	// Second write after switch: still writing through the old active reference
+	require.NoError(t, active.roaringSetRangeAdd(key1, 3))
+
+	// Release writer refs to allow the flush to proceed
+	freeRefs()
+	<-flushComplete
+
+	// Validate: key1 has {1,2,3} on disk (active memtable is empty)
+	reader := b.ReaderRoaringSetRange()
+	defer reader.Close()
+
+	v, release, err := reader.Read(context.Background(), key1, filters.OperatorEqual)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{1, 2, 3}, v.ToArray())
+	release()
+}
+
+// TestBucketRoaringSetRangeStrategyWriteVsFlushInMemo verifies that writers can keep
+// updating a RoaringSetRange while a flush-and-switch is in progress, and that all
+// writes are preserved once the flush completes.
+//
+// Timeline:
+//
+//  1. Initial active has key `1` -> {1}.
+//  2. First write adds {2} to key `1` via the active memtable reference.
+//  3. Concurrent flush-and-switch moves the active to flushing and installs a
+//     new empty active.
+//  4. Second write adds {3} to key `1` through the still-held active reference.
+//  5. Flush persists key `1` -> {1,2,3} to disk.
+//  6. Validation: a reader observes {1,2,3} for key `1` on disk.
+func TestBucketRoaringSetRangeStrategyWriteVsFlushInMemo(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := test.NewNullLogger()
+
+	key1 := uint64(1)
+	b := Bucket{
+		active: newTestMemtableRoaringSetRange(t, map[uint64][]uint64{
+			key1: {1},
+		}),
+		disk: &SegmentGroup{
+			segments:                       []Segment{},
+			roaringSetRangeSegmentInMemory: roaringsetrange.NewSegmentInMemory(logger),
+		},
+		strategy:             StrategyRoaringSetRange,
+		keepSegmentsInMemory: true,
+		bitmapBufPool:        roaringset.NewBitmapBufPoolNoop(),
 	}
 
 	active, freeRefs := b.getActiveMemtableForWrite()
