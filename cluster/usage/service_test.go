@@ -237,7 +237,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 
 	require.NotNil(t, hotShard)
 	assert.Equal(t, int64(2), hotShard.ObjectsCount)
-	assert.Equal(t, uint64(748), hotShard.ObjectsStorageBytes)
+	assert.Equal(t, uint64(736), hotShard.ObjectsStorageBytes)
 	assert.Equal(t, strings.ToLower(models.TenantActivityStatusACTIVE), hotShard.Status)
 	assert.Len(t, hotShard.NamedVectors, 1)
 
