@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -432,24 +433,24 @@ func (s *Shard) ObjectCountAsync(_ context.Context) (int64, error) {
 }
 
 func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	if bucket == nil {
-		// we return no error, because we could have shards without the objects bucket
-		// the error is needed to satisfy the interface for lazy loaded shards possible errors
-		return 0, nil
+	metrics, err := shardusage.CalculateUnloadedObjectsMetrics(s.index.logger, s.index.path(), s.name)
+	if err != nil {
+		return 0, err
 	}
-
-	return bucket.DiskSize() + bucket.MetadataSize(), nil
+	return metrics.StorageBytes, nil
 }
 
 // VectorStorageSize calculates the total storage size of all vector indexes in the shard
 // Always use the dimensions bucket for tracking total vectors and dimensions
 // This ensures we get accurate counts regardless of cache size or shard state
 // This method is only called for active tenants, so we can always use direct vector index compression.
-func (s *Shard) VectorStorageSize(ctx context.Context) (int64, error) {
-	totalSize := int64(0)
+func (s *Shard) VectorStorageSize(ctx context.Context) (int64, int64, error) {
+	vectorSize, err := shardusage.CalculateUnloadedVectorsMetrics(s.index.path(), s.name)
+	if err != nil {
+		return 0, 0, err
+	}
 
-	// Iterate over all vector indexes to calculate storage size for both default and targeted vectors
+	uncompressedSize := int64(0)
 	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// Get dimensions and object count from the dimensions bucket for this specific target vector
 		dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector)
@@ -462,20 +463,13 @@ func (s *Shard) VectorStorageSize(ctx context.Context) (int64, error) {
 		}
 
 		// Calculate uncompressed size (float32 = 4 bytes per dimension)
-		uncompressedSize := int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
-
-		// For active tenants, always use the direct vector index compression rate
-		compressionRate := index.CompressionStats().CompressionRatio(dimensionality.Dimensions)
-
-		// Calculate total size using actual compression rate
-		totalSize += int64(float64(uncompressedSize) * compressionRate)
-
+		uncompressedSize += int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
 		return nil
 	}); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
-	return totalSize, nil
+	return vectorSize, uncompressedSize, nil
 }
 
 func (s *Shard) isFallbackToSearchable() bool {

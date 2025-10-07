@@ -204,7 +204,7 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		}
 	}
 
-	vectorStorageSize, err := shard.VectorStorageSize(ctx)
+	vectorStorageSize, uncompressedVectorSize, err := shard.VectorStorageSize(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -215,8 +215,8 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		Name:                shard.Name(),
 		Status:              strings.ToLower(models.TenantActivityStatusACTIVE),
 		ObjectsCount:        objectCount,
-		ObjectsStorageBytes: uint64(objectStorageSize),
-		VectorStorageBytes:  uint64(vectorStorageSize),
+		ObjectsStorageBytes: uint64(objectStorageSize) - uint64(uncompressedVectorSize),
+		VectorStorageBytes:  uint64(vectorStorageSize) + uint64(uncompressedVectorSize),
 	}
 	// Get vector usage for each named vector
 	if err = shard.ForEachVectorIndex(func(targetVector string, vectorIndex VectorIndex) error {
@@ -281,7 +281,14 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName stri
 		return nil, err
 	}
 
-	vectorStorageSize, err := shardusage.CalculateUnloadedVectorsMetrics(ctx, i.logger, i.path(), tenantName, i.GetVectorIndexConfigs())
+	vectorIndexConfigs := i.GetVectorIndexConfigs()
+
+	vectorStorageSize, err := shardusage.CalculateUnloadedVectorsMetrics(i.path(), tenantName)
+	if err != nil {
+		return nil, err
+	}
+
+	uncompressedVectorSize, err := shardusage.CalculateUnloadedUncompressedVectorSize(ctx, i.logger, i.path(), tenantName, vectorIndexConfigs)
 	if err != nil {
 		return nil, err
 	}
@@ -290,8 +297,8 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName stri
 		Name:                tenantName,
 		ObjectsCount:        objectUsage.Count,
 		Status:              strings.ToLower(models.TenantActivityStatusINACTIVE),
-		ObjectsStorageBytes: uint64(objectUsage.StorageBytes),
-		VectorStorageBytes:  uint64(vectorStorageSize),
+		ObjectsStorageBytes: uint64(objectUsage.StorageBytes) - uint64(uncompressedVectorSize),
+		VectorStorageBytes:  uint64(vectorStorageSize) + uint64(uncompressedVectorSize),
 	}
 
 	// Get named vector data for cold shards from schema configuration

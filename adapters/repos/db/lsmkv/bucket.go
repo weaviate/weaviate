@@ -1936,22 +1936,6 @@ func (b *Bucket) GetAveragePropertyLength() (float64, error) {
 	return float64(propLengthSum) / float64(propLengthCount), nil
 }
 
-// DiskSize returns the total size from the disk segment group (cold path)
-func (b *Bucket) DiskSize() int64 {
-	if b.disk != nil {
-		return b.disk.Size()
-	}
-	return 0
-}
-
-// MetadataSize returns the total size of metadata files (.bloom and .cna) from segments in memory
-func (b *Bucket) MetadataSize() int64 {
-	if b.disk == nil {
-		return 0
-	}
-	return b.disk.MetadataSize()
-}
-
 func DetermineUnloadedBucketStrategy(bucketPath string) (string, error) {
 	return DetermineUnloadedBucketStrategyAmong(bucketPath, prioritizedAllStrategies)
 }
