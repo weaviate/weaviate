@@ -334,13 +334,7 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.nodes[nodeId] = node
 	h.shardedNodeLocks.Unlock(nodeId)
 
-	if h.compressed.Load() && !h.multivector.Load() {
-		h.compressor.Preload(node.id, vector)
-	} else {
-		if !h.multivector.Load() {
-			h.cache.Preload(node.id, vector)
-		}
-	}
+	h.Preload(node.id, vector)
 
 	h.insertMetrics.prepareAndInsertNode(before)
 	before = time.Now()
@@ -439,4 +433,14 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 
 	// go h.insertHook(node.id, 0, node.connections)
 	return nil
+}
+
+func (h *hnsw) Preload(id uint64, vector []float32) {
+	if h.compressed.Load() && !h.multivector.Load() {
+		h.compressor.Preload(id, vector)
+	} else {
+		if !h.multivector.Load() {
+			h.cache.Preload(id, vector)
+		}
+	}
 }

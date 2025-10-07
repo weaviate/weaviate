@@ -619,6 +619,46 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
+	http.HandleFunc("/debug/index/requantize/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		colName := r.URL.Query().Get("collection")
+		shardName := r.URL.Query().Get("shard")
+		targetVector := r.URL.Query().Get("vector")
+
+		if colName == "" || shardName == "" {
+			http.Error(w, "collection and shard are required", http.StatusBadRequest)
+			return
+		}
+
+		idx := appState.DB.GetIndex(schema.ClassName(colName))
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found")
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		err := idx.DebugRequantizeIndex(context.Background(), shardName, targetVector)
+		if err != nil {
+			logger.
+				WithField("shard", shardName).
+				WithField("targetVector", targetVector).
+				WithError(err).
+				Error("failed to requantize vector index")
+			if errTxt := err.Error(); strings.Contains(errTxt, "not found") {
+				http.Error(w, "shard not found", http.StatusNotFound)
+			}
+
+			http.Error(w, "failed to requantize vector index", http.StatusInternalServerError)
+			return
+		}
+
+		logger.
+			WithField("shard", shardName).
+			WithField("targetVector", targetVector).
+			Info("requantize started")
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
 	http.HandleFunc("/debug/stats/collection/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/debug/stats/collection/"))
 		parts := strings.Split(path, "/")
