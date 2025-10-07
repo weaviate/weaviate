@@ -163,7 +163,8 @@ func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, shardName 
 	totalDiskSize := int64(0)
 
 	// Use a single walk to avoid multiple filepath.Walk calls and reduce file descriptors
-	if err := filepath.Walk(shardPathObjectsLSM(path, shardName), func(path string, info os.FileInfo, err error) error {
+	objectStore := shardPathObjectsLSM(path, shardName)
+	if err := filepath.Walk(objectStore, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}

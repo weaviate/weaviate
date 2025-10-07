@@ -14,11 +14,13 @@ package db
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/schema"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -56,18 +58,19 @@ func TestShard_ObjectStorageSize_DifferentStatuses(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			var store *lsmkv.Store
+			dirName := t.TempDir()
+			defer os.RemoveAll(dirName)
+			className := "classCompactionNonObjects"
 
 			if tc.expectError {
 				// For loading status, create empty store without bucket
 				store = &lsmkv.Store{}
 			} else {
 				// For ready/readonly status, create a proper store with bucket
-				dirName := t.TempDir()
-				defer os.RemoveAll(dirName)
 				logger, _ := test.NewNullLogger()
 
 				var err error
-				store, err = lsmkv.New(dirName, dirName, logger, nil,
+				store, err = lsmkv.New(filepath.Join(dirName, className, "shard", "lsm"), dirName, logger, nil,
 					cyclemanager.NewCallbackGroup("classCompactionObjects", logger, 1),
 					cyclemanager.NewCallbackGroup("classCompactionNonObjects", logger, 1),
 					cyclemanager.NewCallbackGroupNoop())
@@ -92,7 +95,9 @@ func TestShard_ObjectStorageSize_DifferentStatuses(t *testing.T) {
 
 			shard := &Shard{
 				store:  store,
+				name:   "shard",
 				status: ShardStatus{Status: tc.status},
+				index:  &Index{Config: IndexConfig{ClassName: schema.ClassName(className), RootPath: dirName}},
 			}
 
 			ctx := context.Background()
