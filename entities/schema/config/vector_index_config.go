@@ -26,7 +26,7 @@ type VectorIndexConfig interface {
 }
 
 func ExtractVectorConfigs(class *models.Class) (map[string]models.VectorConfig, error) {
-	if len(class.VectorConfig) == 0 || modelsext.ClassHasLegacyVectorIndex(class) {
+	if len(class.VectorConfig) == 0 && modelsext.ClassHasLegacyVectorIndex(class) {
 		vectorIndexConfig, ok := class.VectorIndexConfig.(VectorIndexConfig)
 		if !ok {
 			return nil, fmt.Errorf("class '%s' vector index: config is not schema.VectorIndexConfig: %T",
