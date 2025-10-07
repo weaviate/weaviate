@@ -616,6 +616,7 @@ func TestGetDimensionCategory(t *testing.T) {
 		config           schemaConfig.VectorIndexConfig
 		expectedCategory DimensionCategory
 		expectedSegments int
+		upgradedDynamic  bool
 	}{
 		// HNSW Tests
 		{
@@ -732,7 +733,7 @@ func TestGetDimensionCategory(t *testing.T) {
 			expectedSegments: 0,
 		},
 		{
-			name: "Dynamic with HNSW PQ enabled (HNSW takes priority)",
+			name: "upgraded Dynamic with HNSW PQ enabled",
 			config: dynamicent.UserConfig{
 				HnswUC: enthnsw.UserConfig{
 					PQ: enthnsw.PQConfig{Enabled: true, Segments: 12},
@@ -746,9 +747,10 @@ func TestGetDimensionCategory(t *testing.T) {
 			},
 			expectedCategory: DimensionCategoryPQ,
 			expectedSegments: 12,
+			upgradedDynamic:  true,
 		},
 		{
-			name: "Dynamic with HNSW BQ enabled (HNSW takes priority)",
+			name: "Dynamic with HNSW BQ enabled",
 			config: dynamicent.UserConfig{
 				HnswUC: enthnsw.UserConfig{
 					PQ: enthnsw.PQConfig{Enabled: false},
@@ -760,17 +762,18 @@ func TestGetDimensionCategory(t *testing.T) {
 					BQ: flatent.CompressionUserConfig{Enabled: true},
 				},
 			},
+			upgradedDynamic:  true,
 			expectedCategory: DimensionCategoryBQ,
 			expectedSegments: 0,
 		},
 		{
-			name: "Dynamic with HNSW standard, Flat BQ enabled (falls back to Flat)",
+			name: "not-upgraded Dynamic with HNSW RQ, Flat BQ enabled",
 			config: dynamicent.UserConfig{
 				HnswUC: enthnsw.UserConfig{
 					PQ: enthnsw.PQConfig{Enabled: false},
 					BQ: enthnsw.BQConfig{Enabled: false},
 					SQ: enthnsw.SQConfig{Enabled: false},
-					RQ: enthnsw.RQConfig{Enabled: false},
+					RQ: enthnsw.RQConfig{Enabled: true},
 				},
 				FlatUC: flatent.UserConfig{
 					BQ: flatent.CompressionUserConfig{Enabled: true},
@@ -809,7 +812,7 @@ func TestGetDimensionCategory(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			category, segments := GetDimensionCategory(tt.config, false)
+			category, segments := GetDimensionCategory(tt.config, tt.upgradedDynamic)
 
 			assert.Equal(t, tt.expectedCategory, category,
 				"Expected category %v, got %v", tt.expectedCategory, category)
