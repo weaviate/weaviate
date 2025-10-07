@@ -67,11 +67,56 @@ func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLo
 }
 
 // CalculateUnloadedVectorsMetrics calculates vector storage size for a cold tenant without loading it into memory
-func CalculateUnloadedVectorsMetrics(ctx context.Context, logger logrus.FieldLogger, path, tenantName string, vectorConfig map[string]schemaConfig.VectorIndexConfig) (int64, error) {
+func CalculateUnloadedVectorsMetrics(path, shard string) (int64, error) {
 	totalSize := int64(0)
 
+	// vector storage consists of:
+	// 1) size of vector folder - these are:
+	//     - the compressed vectors stored in their own folder each
+	//     - the flat index extra copy of the uncompressed vectors (if flat index is used)
+	// 2) size of uncompressed vectors stored in dimensions bucket. The size of these is calculated based on the number
+	// of objects and their dimensionality. They need to be subtracted from the object bucket size to not count them twice.
+
+	sumDir := func(dirPath string) (int64, error) {
+		size := int64(0)
+		err := filepath.Walk(dirPath, func(_ string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if !info.IsDir() {
+				size += info.Size()
+			}
+			return nil
+		})
+		return size, err
+	}
+
+	// check all vector folders and add their sizes
+	lsmPath := filepath.Join(path, shard, "lsm")
+	entries, err := os.ReadDir(lsmPath)
+	if err != nil {
+		return 0, err
+	}
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), "vector") {
+			continue
+		}
+		if entry.IsDir() {
+			fullPath := filepath.Join(lsmPath, entry.Name())
+			dirSize, err := sumDir(fullPath)
+			if err != nil {
+				return 0, err
+			}
+			totalSize += dirSize
+		}
+	}
+	return totalSize, nil
+}
+
+func CalculateUnloadedUncompressedVectorSize(ctx context.Context, logger logrus.FieldLogger, path, tenantName string, vectorConfig map[string]schemaConfig.VectorIndexConfig) (int64, error) {
+	uncompressedSize := int64(0)
 	// For each target vector, calculate storage size using dimensions bucket and config-based compression
-	for targetVector, config := range vectorConfig {
+	for targetVector := range vectorConfig {
 		err := func() error {
 			bucketPath := shardPathDimensionsLSM(path, tenantName)
 			strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, lsmkv.DimensionsBucketPrioritizedStrategies)
@@ -100,12 +145,7 @@ func CalculateUnloadedVectorsMetrics(ctx context.Context, logger logrus.FieldLog
 			}
 
 			if dimensionality.Count != 0 && dimensionality.Dimensions != 0 {
-				// Calculate uncompressed size (float32 = 4 bytes per dimension)
-				uncompressedSize := int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
-
-				// For inactive tenants, use vector index config for dimension tracking
-				// This is similar to the original shard dimension tracking approach
-				totalSize += int64(float64(uncompressedSize) / helpers.CompressionRatioFromConfig(config, dimensionality.Dimensions))
+				uncompressedSize += int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
 			}
 			return nil
 		}()
@@ -113,8 +153,7 @@ func CalculateUnloadedVectorsMetrics(ctx context.Context, logger logrus.FieldLog
 			return 0, err
 		}
 	}
-
-	return totalSize, nil
+	return uncompressedSize, nil
 }
 
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
