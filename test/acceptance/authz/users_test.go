@@ -815,7 +815,7 @@ func TestGetLastUsageMultinode(t *testing.T) {
 				return true
 			}
 			return !state.Running
-		}, shutdownTimeout+30*time.Second, time.Second, "container should stop within timeout")
+		}, shutdownTimeout, time.Second, "container should stop within timeout")
 
 		helper.ResetClient()
 		helper.SetupClient(secondNode.URI())
