@@ -398,7 +398,7 @@ def test_object_storage(collection_factory: CollectionFactory):
     collection.tenants.deactivate("tenant")
 
     usage_collection_cold = debug_usage.get_debug_usage_for_collection(collection.name)
-    assert usage_collection_cold.name == usage_collection_cold.name
+    assert usage_collection_cold.name == collection.name
     assert len(usage_collection_cold.shards) == 1
     shard_cold = usage_collection_cold.shards[0]
 
@@ -460,7 +460,7 @@ def test_storage_vectors(collection_factory: CollectionFactory):
     collection.tenants.deactivate("tenant")
 
     usage_collection_cold = debug_usage.get_debug_usage_for_collection(collection.name)
-    assert usage_collection_cold.name == usage_collection_cold.name
+    assert usage_collection_cold.name == collection.name
     assert len(usage_collection_cold.shards) == 1
     shard_cold = usage_collection_cold.shards[0]
     assert len(shard_cold.named_vectors) == 2

@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"testing"
 
-	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -129,13 +128,4 @@ func TestSegmentGroup_Size_WithEnqueuedSegments(t *testing.T) {
 
 	result := sg.Size()
 	assert.Equal(t, expectedSize, result, "should include both regular and enqueued segments")
-}
-
-// createTestBloomFilter creates a bloom filter with some data for testing
-func createTestBloomFilter() *bloom.BloomFilter {
-	// Create a bloom filter with the same parameters as the actual implementation
-	// The actual implementation uses: bloom.NewWithEstimates(uint(len(keys)), 0.001)
-	bf := bloom.NewWithEstimates(10, 0.001)
-	bf.Add([]byte("test"))
-	return bf
 }
