@@ -10,75 +10,124 @@
 //
 
 //go:build benchmark
+// +build benchmark
 
 package datasets
 
 import (
+	"math"
 	"testing"
 
 	"github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/assert"
 )
 
-func TestLoadTrainData(t *testing.T) {
+func TestLoadDataset(t *testing.T) {
 	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
-	hf := NewHubDataset("tobias-weaviate/fiqa_gemma300m_d768_cosine", logger)
+	hf := NewHubDataset("trengrj/ann-datasets", "dbpedia-openai-ada002-1536-angular-100k", logger)
+
+	// Load training data
+	t.Log("Loading training data...")
 	ids, vectors, err := hf.LoadTrainData()
 	if err != nil {
 		t.Fatalf("Failed to load training data: %v", err)
 	}
 
-	n := 54351
-	d := 768
-	assert.Equal(t, len(ids), n)
-	assert.Equal(t, len(vectors), n)
-	assert.Equal(t, len(vectors[0]), d)
-	for i := range n {
-		assert.Equal(t, ids[i], uint64(i))
+	// Assert training data structure
+	if len(vectors) == 0 {
+		t.Fatal("Expected non-zero number of training vectors")
+	}
+	if len(ids) != len(vectors) {
+		t.Fatalf("Expected equal number of IDs (%d) and vectors (%d)", len(ids), len(vectors))
+	}
+	if len(vectors) < 100000 {
+		t.Errorf("Expected at least 100,000 training vectors, got %d", len(vectors))
 	}
 
-	expectedValues := []float32{-0.0458683, -0.022633573, -0.023361705, 0.08714058}
-	actualValues := vectors[8763][634:638]
-	for i := range expectedValues {
-		assert.Equal(t, expectedValues[i], actualValues[i])
-	}
-}
+	t.Logf("Loaded %d training vectors", len(vectors))
 
-func TestLoadTestData(t *testing.T) {
-	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
-	hf := NewHubDataset("tobias-weaviate/fiqa_gemma300m_d768_cosine", logger)
-	neighbors, vectors, err := hf.LoadTestData()
+	// Assert first training vector structure and values
+	if len(vectors) >= 1 {
+		vector1 := vectors[0]
+		if len(vector1) == 0 {
+			t.Fatal("Expected non-zero vector dimensions")
+		}
+
+		// Check first 5 dimensions match expected values (with tolerance for floating point)
+		expectedDims1 := []float32{-0.013902083, 0.016943572, 0.013771547, -0.0066899695, -0.026394377}
+		if len(vector1) >= 5 {
+			for i, expected := range expectedDims1 {
+				if math.Abs(float64(vector1[i]-expected)) > 1e-6 {
+					t.Errorf("Training vector 1 dimension %d: expected %f, got %f", i, expected, vector1[i])
+				}
+			}
+			t.Logf("Training vector 1 (ID: %d) first 5 dimensions: %v", ids[0], vector1[:5])
+		}
+	}
+
+	// Load test data
+	t.Log("Loading test data...")
+	neighbors, testVectors, err := hf.LoadTestData()
 	if err != nil {
 		t.Fatalf("Failed to load test data: %v", err)
 	}
 
-	n := 6640
-	assert.Equal(t, len(neighbors), n)
-	assert.Equal(t, len(vectors), n)
-
-	d := 768
-	for _, v := range vectors {
-		assert.Equal(t, d, len(v))
+	// Assert test data structure
+	if len(testVectors) == 0 {
+		t.Fatal("Expected non-zero number of test vectors")
+	}
+	if len(neighbors) != len(testVectors) {
+		t.Fatalf("Expected equal number of neighbors (%d) and test vectors (%d)", len(neighbors), len(testVectors))
+	}
+	if len(testVectors) < 900 {
+		t.Errorf("Expected at least 900 test vectors, got %d", len(testVectors))
 	}
 
-	// Verify that the neighbors are right in a sample location.
-	expectedValues := []uint64{11196, 24739, 44342}
-	actualValues := neighbors[3116][34:37]
-	for i := range expectedValues {
-		assert.Equal(t, expectedValues[i], actualValues[i])
-	}
+	t.Logf("Loaded %d test vectors and %d neighbor lists", len(testVectors), len(neighbors))
 
-	// Verify that vectors are correct in a sample location
-	assert.Equal(t, float32(-0.1131085529923439), vectors[5001][0])
-	assert.Equal(t, float32(-0.02702171355485916), vectors[5001][767])
+	// Assert first test vector structure and values
+	if len(testVectors) >= 1 {
+		testVector1 := testVectors[0]
+		if len(testVector1) == 0 {
+			t.Fatal("Expected non-zero test vector dimensions")
+		}
+
+		// Check first 5 dimensions match expected values
+		expectedTestDims1 := []float32{-0.027109032, -0.019073945, 0.016458161, -0.023066457, -0.0012101129}
+		if len(testVector1) >= 5 {
+			for i, expected := range expectedTestDims1 {
+				if math.Abs(float64(testVector1[i]-expected)) > 1e-6 {
+					t.Errorf("Test vector 1 dimension %d: expected %f, got %f", i, expected, testVector1[i])
+				}
+			}
+			t.Logf("Test vector 1 first 5 dimensions: %v", testVector1[:5])
+		}
+
+		// Assert neighbors structure
+		if len(neighbors) > 0 {
+			neighbors1 := neighbors[0]
+			if len(neighbors1) == 0 {
+				t.Fatal("Expected non-zero number of neighbors")
+			}
+			if len(neighbors1) < 100 {
+				t.Errorf("Expected at least 100 neighbors, got %d", len(neighbors1))
+			}
+
+			// Check that neighbors are valid IDs (within training set range)
+			for _, neighborID := range neighbors1 {
+				if neighborID >= uint64(len(vectors)) {
+					t.Errorf("Invalid neighbor ID: %d (should be 0-%d)", neighborID, len(vectors)-1)
+				}
+			}
+
+			t.Logf("Test vector 1 neighbors count: %d", len(neighbors1))
+		}
+	}
 }
 
 func BenchmarkLoadData(b *testing.B) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
-	hf := NewHubDataset("tobias-weaviate/fiqa_gemma300m_d768_cosine", logger)
+	hf := NewHubDataset("trengrj/ann-datasets", "dbpedia-openai-ada002-1536-angular-100k", logger)
 	// Warmup runs to ensure that the data is downloaded.
 	ids, vectors, _ := hf.LoadTrainData()
 	n, d := len(ids), len(vectors[0])

@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/gomlx/go-huggingface/hub"
@@ -27,54 +26,43 @@ import (
 const defaultBatchSize = 1000
 
 type HubDataset struct {
-	repo    *hub.Repo
-	hubPath string // Path to dataset on the huggingface Hub, e.g. <user>/<dataset>
-	logger  logrus.FieldLogger
+	repo      *hub.Repo
+	datasetID string
+	subset    string
+	logger    logrus.FieldLogger
 }
 
-func NewHubDataset(hubPath string, logger logrus.FieldLogger) *HubDataset {
+func NewHubDataset(datasetID string, subset string, logger logrus.FieldLogger) *HubDataset {
 	hfAuthToken := os.Getenv("HF_TOKEN")
 	if hfAuthToken == "" {
 		logger.Warn("HF_TOKEN environment variable not set. Some datasets may require authentication.")
 	}
-	repo := hub.New(hubPath).
+	repo := hub.New(datasetID).
 		WithType(hub.RepoTypeDataset).
 		WithAuth(hfAuthToken)
 	return &HubDataset{
-		repo:    repo,
-		hubPath: hubPath,
-		logger:  logger,
+		repo:      repo,
+		datasetID: datasetID,
+		subset:    subset,
+		logger:    logger,
 	}
 }
 
 func (h *HubDataset) downloadParquetFile(name string) (string, error) {
-	var downloadPath string
-	for fileName, err := range h.repo.IterFileNames() {
-		if err != nil {
-			h.logger.Errorf("Failed to list files in repo: %v", err)
-			return "", err
-		}
-		if strings.HasSuffix(fileName, name+".parquet") {
-			downloadPath = fileName
-		}
-	}
+	filePath := fmt.Sprintf("%s/%s/%s.parquet", h.subset, name, name)
 
-	if downloadPath == "" {
-		return "", fmt.Errorf("failed to find file %s.parquet in repo", name)
-	}
-
-	h.logger.Infof("Starting download of %s", downloadPath)
+	h.logger.Infof("Starting download of %s", filePath)
 	startTime := time.Now()
 
-	localPath, err := h.repo.DownloadFile(downloadPath)
+	localPath, err := h.repo.DownloadFile(filePath)
 
 	duration := time.Since(startTime)
 	if err != nil {
-		h.logger.Errorf("Failed to download %s after %v: %v", downloadPath, duration, err)
+		h.logger.Errorf("Failed to download %s after %v: %v", filePath, duration, err)
 		return "", err
 	}
 
-	h.logger.Infof("Successfully downloaded %s in %v", downloadPath, duration)
+	h.logger.Infof("Successfully downloaded %s in %v", filePath, duration)
 	return localPath, nil
 }
 
