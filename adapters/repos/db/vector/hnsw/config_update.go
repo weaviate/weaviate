@@ -111,9 +111,11 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 		return nil
 	}
 
+	h.compressActionLock.Lock()
 	h.pqConfig = parsed.PQ
 	h.sqConfig = parsed.SQ
 	h.bqConfig = parsed.BQ
+	h.compressActionLock.Unlock()
 	if asyncEnabled() {
 		callback()
 		return nil
@@ -156,7 +158,7 @@ func (h *hnsw) compressThenCallback(callback func()) {
 		SQ: h.sqConfig,
 	}
 	if err := h.compress(uc); err != nil {
-		h.logger.Error(err)
+		h.logger.WithField("shard", h.shardName).WithField("targetVector", h.getTargetVector()).Error(err)
 		return
 	}
 	h.logger.WithField("action", "compress").Info("vector compression complete")

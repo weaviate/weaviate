@@ -805,6 +805,152 @@ func TestShard_UpgradeIndex(t *testing.T) {
 	}, 300*time.Second, 1*time.Second)
 }
 
+func TestShard_RequantizeIndex(t *testing.T) {
+	hnswConfig := hnsw.NewDefaultUserConfig()
+	hnswConfig.BQ = hnsw.BQConfig{Enabled: true}
+
+	flatConfig := flat.NewDefaultUserConfig()
+	flatConfig.BQ = flat.CompressionUserConfig{Enabled: true, Cache: true}
+
+	tests := []struct {
+		name                   string
+		targetVector           string
+		multiVector            bool
+		cfg                    schemaConfig.VectorIndexConfig
+		idxOpt                 func(*Index)
+		getVectorIndexAndQueue func(ShardLike) (VectorIndex, *VectorIndexQueue)
+	}{
+		{
+			name:         "hnsw",
+			cfg:          hnswConfig,
+			targetVector: "",
+			getVectorIndexAndQueue: func(shd ShardLike) (VectorIndex, *VectorIndexQueue) {
+				return getVectorIndexAndQueue(t, shd, "")
+			},
+		},
+		{
+			name:         "hnsw with target vectors",
+			targetVector: "foo",
+			cfg:          hnswConfig,
+			idxOpt: func(i *Index) {
+				i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)
+				i.vectorIndexUserConfigs["foo"] = hnswConfig
+			},
+			getVectorIndexAndQueue: func(shd ShardLike) (VectorIndex, *VectorIndexQueue) {
+				return getVectorIndexAndQueue(t, shd, "foo")
+			},
+		},
+		{
+			name:         "flat",
+			cfg:          flatConfig,
+			targetVector: "",
+			getVectorIndexAndQueue: func(shd ShardLike) (VectorIndex, *VectorIndexQueue) {
+				return getVectorIndexAndQueue(t, shd, "")
+			},
+		},
+		{
+			name:         "flat with target vectors",
+			targetVector: "foo",
+			cfg:          flatConfig,
+			idxOpt: func(i *Index) {
+				i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)
+				i.vectorIndexUserConfigs["foo"] = flatConfig
+			},
+			getVectorIndexAndQueue: func(shd ShardLike) (VectorIndex, *VectorIndexQueue) {
+				return getVectorIndexAndQueue(t, shd, "foo")
+			},
+		},
+	}
+
+	for testIndex, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			className := fmt.Sprintf("TestClass%d", testIndex)
+			var opts []func(*Index)
+			if test.idxOpt != nil {
+				opts = append(opts, test.idxOpt)
+			}
+			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, true, opts...)
+
+			amount := 50
+
+			defer func(path string) {
+				err := os.RemoveAll(path)
+				if err != nil {
+					fmt.Println(err)
+				}
+			}(shd.Index().Config.RootPath)
+
+			var objs []*storobj.Object
+			for i := 0; i < amount; i++ {
+				obj := testObject(className)
+				if test.targetVector != "" {
+					obj.Vectors = map[string][]float32{
+						test.targetVector: randVector(3),
+					}
+				} else {
+					obj.Vector = randVector(3)
+				}
+				objs = append(objs, obj)
+			}
+
+			errs := shd.PutObjectBatch(ctx, objs)
+			for _, err := range errs {
+				require.Nil(t, err)
+			}
+
+			vidx, _ := test.getVectorIndexAndQueue(shd)
+
+			// For HNSW, the compressed bucket name uses the index name, not the target vector
+			compressedBucketName := helpers.GetCompressedBucketName(test.targetVector)
+			compressedBucket := shd.Store().Bucket(compressedBucketName)
+			require.NotNil(t, compressedBucket)
+
+			// store original vectors for comparison
+			originalVectors := make(map[uint64][]byte)
+			for i := 10; i < amount; i++ {
+				idBytes := make([]byte, 8)
+				binary.BigEndian.PutUint64(idBytes, uint64(i))
+				compressedVector, err := compressedBucket.Get(idBytes)
+				require.NoError(t, err)
+				require.NotEmpty(t, compressedVector)
+				originalVectors[uint64(i)] = compressedVector
+			}
+
+			// delete those IDs from the vector index
+			for i := 10; i < amount; i++ {
+				if test.multiVector {
+					err := vidx.DeleteMulti(uint64(i))
+					require.NoError(t, err)
+				} else {
+					err := vidx.Delete(uint64(i))
+					require.NoError(t, err)
+				}
+			}
+
+			// run requantize index
+			err := shd.RequantizeIndex(ctx, test.targetVector)
+			require.NoError(t, err)
+
+			// check that vectors are identical after requantization
+			for i := 10; i < amount; i++ {
+				idBytes := make([]byte, 8)
+				binary.BigEndian.PutUint64(idBytes, uint64(i))
+				compressedVector, err := compressedBucket.Get(idBytes)
+				require.NoError(t, err)
+				require.NotEmpty(t, compressedVector)
+
+				originalVector, exists := originalVectors[uint64(i)]
+				require.True(t, exists, "original vector should exist for ID %d", i)
+				require.Equal(t, originalVector, compressedVector, "vectors should be identical for ID %d", i)
+			}
+
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		})
+	}
+}
+
 func getVectorIndexAndQueue(t *testing.T, shard ShardLike, targetVector string) (VectorIndex, *VectorIndexQueue) {
 	idx, vok := shard.GetVectorIndex(targetVector)
 	q, qok := shard.GetVectorIndexQueue(targetVector)
