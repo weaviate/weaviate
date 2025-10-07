@@ -772,8 +772,6 @@ func TestCompressionTypes(t *testing.T) {
 	t.Run("String method", func(t *testing.T) {
 		require.Equal(t, "none", CompressionNone.String())
 		require.Equal(t, "bq", CompressionBQ.String())
-		require.Equal(t, "pq", CompressionPQ.String())
-		require.Equal(t, "sq", CompressionSQ.String())
 		require.Equal(t, "rq-1", CompressionRQ1.String())
 		require.Equal(t, "rq-8", CompressionRQ8.String())
 	})
@@ -781,8 +779,6 @@ func TestCompressionTypes(t *testing.T) {
 	t.Run("IsQuantized method", func(t *testing.T) {
 		require.False(t, CompressionNone.IsQuantized())
 		require.True(t, CompressionBQ.IsQuantized())
-		require.False(t, CompressionPQ.IsQuantized())
-		require.False(t, CompressionSQ.IsQuantized())
 		require.True(t, CompressionRQ1.IsQuantized())
 		require.True(t, CompressionRQ8.IsQuantized())
 	})
@@ -841,20 +837,6 @@ func TestQuantizerBuilder(t *testing.T) {
 		{
 			name:              "CreateQuantizer for unsupported CompressionNone",
 			compressionType:   CompressionNone,
-			expectedQuantizer: nil,
-			shouldBeNil:       true,
-			testEncoding:      nil,
-		},
-		{
-			name:              "CreateQuantizer for unsupported CompressionPQ",
-			compressionType:   CompressionPQ,
-			expectedQuantizer: nil,
-			shouldBeNil:       true,
-			testEncoding:      nil,
-		},
-		{
-			name:              "CreateQuantizer for unsupported CompressionSQ",
-			compressionType:   CompressionSQ,
 			expectedQuantizer: nil,
 			shouldBeNil:       true,
 			testEncoding:      nil,

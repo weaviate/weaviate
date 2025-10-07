@@ -154,14 +154,6 @@ func extractCompression(uc flatent.UserConfig) CompressionType {
 		return CompressionBQ
 	}
 
-	if uc.PQ.Enabled {
-		return CompressionPQ
-	}
-
-	if uc.SQ.Enabled {
-		return CompressionSQ
-	}
-
 	if uc.RQ.Enabled {
 		if uc.RQ.Bits == 8 {
 			return CompressionRQ8
@@ -175,13 +167,9 @@ func extractCompression(uc flatent.UserConfig) CompressionType {
 func extractCompressionRescore(uc flatent.UserConfig) int64 {
 	compression := extractCompression(uc)
 	switch compression {
-	case CompressionPQ:
-		return int64(uc.PQ.RescoreLimit)
 	case CompressionBQ:
 		return int64(uc.BQ.RescoreLimit)
-	case CompressionSQ:
-		return int64(uc.SQ.RescoreLimit)
-	case CompressionRQ1:
+	case CompressionRQ1, CompressionRQ8:
 		return int64(uc.RQ.RescoreLimit)
 	default:
 		return 0
@@ -444,9 +432,6 @@ func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, 
 	switch index.compression {
 	case CompressionBQ, CompressionRQ1, CompressionRQ8:
 		return index.searchByVectorQuantized(ctx, vector, k, allow)
-	case CompressionPQ:
-		// use uncompressed for now
-		fallthrough
 	default:
 		return index.searchByVector(ctx, vector, k, allow)
 	}
@@ -761,15 +746,6 @@ func (index *flat) extractHeap(heap *priorityqueue.Queue[any],
 	return ids, dists
 }
 
-func (index *flat) getQuantizerFromCompressedBytesMethod() func([]byte, *[]uint64) []uint64 {
-	if index.quantizer == nil {
-		return nil
-	}
-
-	// Return the unified quantizer's FromCompressedBytesToUint64 method
-	return index.quantizer.FromCompressedBytesToUint64
-}
-
 func (index *flat) normalized(vector []float32) []float32 {
 	if index.distancerProvider.Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine
@@ -1048,11 +1024,8 @@ func (index *flat) ContainsDoc(id uint64) bool {
 	// logic modeled after SearchByVector which indicates that the PQ bucket is
 	// the same as the uncompressed bucket "for now"
 	switch index.compression {
-	case CompressionBQ, CompressionRQ1:
+	case CompressionBQ, CompressionRQ1, CompressionRQ8:
 		bucketName = index.getCompressedBucketName()
-	case CompressionPQ:
-		// use uncompressed for now
-		fallthrough
 	default:
 		bucketName = index.getBucketName()
 	}
@@ -1073,11 +1046,8 @@ func (index *flat) Iterate(fn func(docID uint64) bool) {
 	// logic modeled after SearchByVector which indicates that the PQ bucket is
 	// the same as the uncompressed bucket "for now"
 	switch index.compression {
-	case CompressionBQ, CompressionRQ1:
+	case CompressionBQ, CompressionRQ1, CompressionRQ8:
 		bucketName = index.getCompressedBucketName()
-	case CompressionPQ:
-		// use uncompressed for now
-		fallthrough
 	default:
 		bucketName = index.getBucketName()
 	}
@@ -1222,9 +1192,6 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 				return 0, fmt.Errorf("unsupported quantizer data type: %v", index.quantizer.Type())
 			}
 		}
-	case CompressionPQ:
-		// use uncompressed for now
-		fallthrough
 	default:
 		distFunc = func(nodeID uint64) (float32, error) {
 			vec, err := index.vectorById(nodeID)
