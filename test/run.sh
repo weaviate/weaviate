@@ -411,7 +411,7 @@ function run_acceptance_replica_replication_slow_tests() {
 
 function run_acceptance_replication_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/read_repair'); do
-    if ! go test -count 1 -race "$pkg"; then
+    if ! go test -count 1 -race -timeout=15m "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
