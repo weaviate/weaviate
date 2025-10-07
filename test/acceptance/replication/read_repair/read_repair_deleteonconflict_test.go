@@ -33,7 +33,6 @@ func (suite *ReplicationTestSuite) TestReadRepairDeleteOnConflict() {
 	compose, err := docker.New().
 		With3NodeCluster().
 		WithText2VecContextionary().
-		WithWeaviateEnv("RAFT_TIMEOUTS_MULTIPLIER", "1").
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {

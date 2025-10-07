@@ -34,7 +34,6 @@ func (suite *ReplicationTestSuite) TestGraphqlSearch() {
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
-		WithWeaviateEnv("RAFT_TIMEOUTS_MULTIPLIER", "1").
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
