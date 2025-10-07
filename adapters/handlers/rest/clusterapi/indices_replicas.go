@@ -85,8 +85,9 @@ type replicatedIndices struct {
 	requestQueueConfig cluster.RequestQueueConfig
 	// requestQueue buffers requests until they're picked up by a worker, goal is to avoid
 	// overwhelming the system with requests during spikes (also allows for backpressure)
+	requestQueue chan queuedRequest
+	// startWorkersOnce ensures that the workers are started only once
 	startWorkersOnce sync.Once
-	requestQueue     chan queuedRequest
 	// set to true when shutting down
 	isShutdown atomic.Bool
 	// workerWg waits for all workers to finish
