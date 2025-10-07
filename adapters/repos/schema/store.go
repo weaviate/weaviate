@@ -28,6 +28,7 @@ import (
 	ucs "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	bolt "go.etcd.io/bbolt"
+	bolterrors "go.etcd.io/bbolt/errors"
 )
 
 var (
@@ -392,7 +393,7 @@ func (r *store) saveAllTx(ctx context.Context, root *bolt.Bucket, ss ucs.State) 
 		for cls, _ := rootCursor.First(); cls != nil; {
 			if cls[0] == eTypeClass {
 				err := root.DeleteBucket(cls)
-				if err != nil && !errors.Is(err, bolt.ErrBucketNotFound) {
+				if err != nil && !errors.Is(err, bolterrors.ErrBucketNotFound) {
 					return err
 				}
 			}

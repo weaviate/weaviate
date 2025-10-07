@@ -425,6 +425,72 @@ func TestStore_Apply_ErrorHandling(t *testing.T) {
 	}
 }
 
+func TestStore_Apply_DeleteClass_CaseInsensitive(t *testing.T) {
+	// This test verifies the case-insensitive handling during RAFT log replay
+	t.Run("Case-insensitive deletion during RAFT replay", func(t *testing.T) {
+		// Use the existing setupApplyTest helper to avoid mock setup issues
+		ms, _ := setupApplyTest(t)
+
+		// Enable schemaOnly mode by setting lastAppliedIndexToDB high
+		ms.store.lastAppliedIndexToDB.Store(100)
+
+		// Create a class with mixed case
+		cls := &models.Class{
+			Class: "FooBar",
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}
+
+		// Step 1: Add class "FooBar"
+		addLog := &raft.Log{
+			Index: 1,
+			Type:  raft.LogCommand,
+			Data:  cmdAsBytes("FooBar", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{Class: cls, State: &sharding.State{}}, nil),
+		}
+
+		// Setup mocks for adding class (schemaOnly mode - no AddClass on database)
+		ms.parser.On("ParseClass", mock.Anything).Return(nil)
+
+		// Apply add operation
+		result := ms.store.Apply(addLog)
+		resp, ok := result.(Response)
+		assert.True(t, ok)
+		assert.NoError(t, resp.Error, "Failed to add FooBar class")
+
+		// Verify FooBar exists in memory schema
+		schemaReader := ms.store.SchemaReader()
+		foundClass := schemaReader.ClassEqual("FooBar")
+		assert.Equal(t, "FooBar", foundClass, "FooBar should exist in memory schema")
+
+		// Step 2: Delete class "foobar" (different case) during RAFT replay
+		deleteLog := &raft.Log{
+			Index: 2,
+			Type:  raft.LogCommand,
+			Data:  cmdAsBytes("foobar", api.ApplyRequest_TYPE_DELETE_CLASS, nil, nil),
+		}
+
+		// Apply delete operation
+		result = ms.store.Apply(deleteLog)
+		resp, ok = result.(Response)
+		assert.True(t, ok)
+		assert.NoError(t, resp.Error, "Case-insensitive deletion should succeed")
+
+		// Step 3: Verify that FooBar was deleted from memory schema
+		// This is the key test - case-insensitive handling should have found and deleted FooBar
+		foundClass = schemaReader.ClassEqual("FooBar")
+		assert.Empty(t, foundClass, "FooBar should be deleted from memory schema after case-insensitive deletion")
+
+		// Also verify case-insensitive search returns empty
+		foundClassCaseInsensitive := schemaReader.ClassEqual("foobar")
+		assert.Empty(t, foundClassCaseInsensitive, "Case-insensitive search should return empty after deletion")
+
+		// Verify mock expectations
+		ms.indexer.AssertExpectations(t)
+		ms.parser.AssertExpectations(t)
+	})
+}
+
 func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 	mockStore := NewMockStore(t, "Node-1", 0)
 	mockStore.store.metrics = newStoreMetrics("Node-1", prometheus.NewPedanticRegistry())

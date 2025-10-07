@@ -16,15 +16,19 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"sync"
 	"time"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -35,7 +39,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -46,7 +49,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-const FlushAfterDirtyDefault = 60 * time.Second
+const (
+	FlushAfterDirtyDefault = 60 * time.Second
+	unsetStrategy          = "UNSET"
+	contextCheckInterval   = 50 // check context every 50 iterations, every iteration adds too much overhead
+)
 
 type BucketCreator interface {
 	NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
@@ -187,7 +194,9 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
 	defaultFlushAfterDirty := FlushAfterDirtyDefault
-	defaultStrategy := StrategyReplace
+	// this is not the nicest way of doing this check, but we will make strategy a required parameter in the future on
+	// main
+	defaultStrategy := unsetStrategy
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
@@ -218,6 +227,10 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		if err := opt(b); err != nil {
 			return nil, err
 		}
+	}
+
+	if b.strategy == unsetStrategy {
+		return nil, errors.New("strategy needs to be explicitly set for all buckets")
 	}
 
 	if b.memtableResizer != nil {
@@ -339,9 +352,45 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	return nil
 }
 
+func (b *Bucket) pauseCompaction(ctx context.Context) error {
+	return b.disk.pauseCompaction(ctx)
+}
+
+func (b *Bucket) resumeCompaction(ctx context.Context) error {
+	return b.disk.resumeCompaction(ctx)
+}
+
+// ApplyToObjectDigests iterates over all objects in the bucket, both in memtable
+// and on disk, and applies the given function to each object.
+// The afterInMemCallback is called after the in-memory memtable has been processed.
+// This allows the caller to perform actions that need to happen after the in-memory
+// objects have been processed.
+// The function f is called for each object, and if it returns an error, the
+// processing is stopped and the error is returned.
+// Note: this function pauses compaction while it is running, to ensure a consistent view of the data.
 func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 	afterInMemCallback func(), f func(object *storobj.Object) error,
 ) error {
+	err := b.pauseCompaction(ctx)
+	if err != nil {
+		afterInMemCallback()
+		return fmt.Errorf("pausing compaction: %w", err)
+	}
+	defer func() {
+		ec := errorcompounder.New()
+
+		if err != nil {
+			ec.AddWrap(err, "during ApplyToObjectDigests")
+		}
+
+		err = b.resumeCompaction(ctx)
+		if err != nil {
+			ec.AddWrap(err, "resuming compaction after ApplyToObjectDigests")
+		}
+
+		err = ec.ToError()
+	}()
+
 	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
 	onDiskCursor := b.CursorOnDisk()
 	defer onDiskCursor.Close()
@@ -349,7 +398,7 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 	inmemProcessedDocIDs := make(map[uint64]struct{})
 
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
-	err := func() error {
+	err = func() error {
 		defer afterInMemCallback()
 
 		inMemCursor := b.CursorInMem()
@@ -844,7 +893,7 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 
 	segments := [][]MapPair{}
 	// before := time.Now()
-	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(key)
+	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(ctx, key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
@@ -1093,7 +1142,7 @@ func (b *Bucket) setNewActiveMemtable() error {
 	return nil
 }
 
-func (b *Bucket) Count() int {
+func (b *Bucket) Count(ctx context.Context) (int, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -1103,13 +1152,22 @@ func (b *Bucket) Count() int {
 
 	memtableCount := 0
 	if b.flushing == nil {
-		// only consider active
-		memtableCount += b.memtableNetCount(b.active.countStats(), nil)
+		count, err := b.memtableNetCount(ctx, b.active.countStats(), nil)
+		if err != nil {
+			return 0, err
+		}
+		memtableCount += count
 	} else {
 		flushingCountStats := b.flushing.countStats()
 		activeCountStats := b.active.countStats()
-		deltaActive := b.memtableNetCount(activeCountStats, flushingCountStats)
-		deltaFlushing := b.memtableNetCount(flushingCountStats, nil)
+		deltaActive, err := b.memtableNetCount(ctx, activeCountStats, flushingCountStats)
+		if err != nil {
+			return 0, err
+		}
+		deltaFlushing, err := b.memtableNetCount(ctx, flushingCountStats, nil)
+		if err != nil {
+			return 0, err
+		}
 
 		memtableCount = deltaActive + deltaFlushing
 	}
@@ -1119,7 +1177,7 @@ func (b *Bucket) Count() int {
 	if b.monitorCount {
 		b.metrics.ObjectCount(memtableCount + diskCount)
 	}
-	return memtableCount + diskCount
+	return memtableCount + diskCount, nil
 }
 
 // CountAsync ignores the current memtable, that makes it async because it only
@@ -1130,25 +1188,31 @@ func (b *Bucket) CountAsync() int {
 	return b.disk.count()
 }
 
-func (b *Bucket) memtableNetCount(stats *countStats, previousMemtable *countStats) int {
+func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previousMemtable *countStats) (int, error) {
 	netCount := 0
 
 	// TODO: this uses regular get, given that this may be called quite commonly,
 	// we might consider building a pure Exists(), which skips reading the value
 	// and only checks for tombstones, etc.
-	for _, key := range stats.upsertKeys {
+	for i, key := range stats.upsertKeys {
+		if i%contextCheckInterval == 0 && ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
 		if !b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
 			netCount++
 		}
 	}
 
-	for _, key := range stats.tombstonedKeys {
+	for i, key := range stats.tombstonedKeys {
+		if i%contextCheckInterval == 0 && ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
 		if b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
 			netCount--
 		}
 	}
 
-	return netCount
+	return netCount, nil
 }
 
 func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byte) bool {
@@ -1540,7 +1604,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	}
 
 	segments := [][]terms.DocPointerWithScore{}
-	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(key)
+	disk, segmentsDisk, release, err := b.disk.getCollectionAndSegments(ctx, key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
@@ -1554,7 +1618,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 
 	for i := range disk {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("docPointerWithScoreList: %w", ctx.Err())
 		}
 		propLengths := make(map[uint64]uint32)
 		if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
@@ -1737,6 +1801,11 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		idfCounts[queryTerm] = n
 	}
 
+	if ctx.Err() != nil {
+		release()
+		return nil, nil, func() {}, fmt.Errorf("after memtable terms: %w", ctx.Err())
+	}
+
 	for j := len(segmentsDisk) - 1; j >= 0; j-- {
 		segment := segmentsDisk[j]
 		output[j] = make([]*SegmentBlockMax, 0, len(query))
@@ -1875,4 +1944,116 @@ func (b *Bucket) MetadataSize() int64 {
 		return 0
 	}
 	return b.disk.MetadataSize()
+}
+
+func DetermineUnloadedBucketStrategy(bucketPath string) (string, error) {
+	return DetermineUnloadedBucketStrategyAmong(bucketPath, prioritizedAllStrategies)
+}
+
+func DetermineUnloadedBucketStrategyAmong(bucketPath string, prioritizedStrategies []string) (string, error) {
+	if len(prioritizedStrategies) == 0 {
+		return "", fmt.Errorf("no prioritizedStrategies given")
+	}
+	defaultStrategy := prioritizedStrategies[0]
+
+	entries, err := os.ReadDir(bucketPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		return defaultStrategy, nil
+	}
+	if len(entries) == 0 {
+		return defaultStrategy, nil
+	}
+
+	// check wals only after checking all segments
+	var walEntries []os.DirEntry
+	ec := errorcompounder.New()
+	ecMismatchStrategy := errorcompounder.New()
+	bufHeader := make([]byte, segmentindex.HeaderSize)
+
+	for _, entry := range entries {
+		switch filepath.Ext(entry.Name()) {
+		case ".db":
+			info, err := entry.Info()
+			if err != nil {
+				ec.Add(fmt.Errorf("%q:%w", entry.Name(), err))
+				continue
+			}
+			if info.Size() <= 0 {
+				continue
+			}
+
+			strategy, err := func() (string, error) {
+				file, err := os.Open(filepath.Join(bucketPath, entry.Name()))
+				if err != nil {
+					return "", err
+				}
+				defer file.Close()
+
+				_, err = io.ReadFull(file, bufHeader)
+				if err != nil {
+					return "", err
+				}
+
+				header, err := segmentindex.ParseHeader(bufHeader)
+				if err != nil {
+					return "", err
+				}
+
+				return header.Strategy.String(), nil
+			}()
+			if err != nil {
+				ec.Add(fmt.Errorf("%q:%w", entry.Name(), err))
+				continue
+			}
+			if !slices.Contains(prioritizedStrategies, strategy) {
+				ecMismatchStrategy.Add(fmt.Errorf("%q:strategy %q does not match %v", entry.Name(), strategy, prioritizedStrategies))
+				continue
+			}
+			return strategy, nil
+
+		case ".wal":
+			info, err := entry.Info()
+			if err != nil {
+				ec.Add(fmt.Errorf("%q:%w", entry.Name(), err))
+				continue
+			}
+			if info.Size() <= 0 {
+				continue
+			}
+			walEntries = append(walEntries, entry)
+
+		default:
+			continue
+		}
+	}
+
+	if err := ecMismatchStrategy.ToError(); err != nil {
+		return "", err
+	}
+
+	// strategy not yet determined. proceed with wal files
+	for _, entry := range walEntries {
+		strategy, err := func() (string, error) {
+			file, err := os.Open(filepath.Join(bucketPath, entry.Name()))
+			if err != nil {
+				return "", err
+			}
+			defer file.Close()
+
+			return guessCommitLogStrategyAmong(file, prioritizedStrategies)
+		}()
+		if err != nil {
+			ec.Add(fmt.Errorf("%q:strategy %q does not match %v", entry.Name(), strategy, prioritizedStrategies))
+			continue
+		}
+		return strategy, nil
+	}
+
+	if err := ec.ToError(); err != nil {
+		return "", err
+	}
+	return defaultStrategy, nil
 }

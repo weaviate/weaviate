@@ -74,7 +74,7 @@ func TestShard_ObjectStorageSize_DifferentStatuses(t *testing.T) {
 				require.NoError(t, err)
 
 				// Create the objects bucket
-				err = store.CreateOrLoadBucket(context.Background(), helpers.ObjectsBucketLSM)
+				err = store.CreateOrLoadBucket(context.Background(), helpers.ObjectsBucketLSM, lsmkv.WithStrategy(lsmkv.StrategyReplace))
 				require.NoError(t, err)
 
 				// Add some data to the bucket to ensure it has a non-zero size

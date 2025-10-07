@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"path"
@@ -57,7 +58,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
-const IdLockPoolSize = 128
+const IdLockPoolSize uint64 = 1024
 
 var (
 	errAlreadyShutdown    = errors.New("already shut or dropped")
@@ -75,7 +76,7 @@ type ShardLike interface {
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) // Search and return document ids
 
 	Counter() *indexcounter.Counter
-	ObjectCount() int
+	ObjectCount(ctx context.Context) (int, error)
 	ObjectCountAsync(ctx context.Context) (int64, error)
 	ObjectStorageSize(ctx context.Context) (int64, error)
 	VectorStorageSize(ctx context.Context) (int64, error)
@@ -145,7 +146,7 @@ type ShardLike interface {
 	Dimensions(ctx context.Context, targetVector string) (int, error)
 	// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
 	DimensionsUsage(ctx context.Context, targetVector string) (usagetypes.Dimensionality, error)
-	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
+	QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error)
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
 	resetDimensionsLSM(ctx context.Context) error
@@ -191,6 +192,7 @@ type ShardLike interface {
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
 	RepairIndex(ctx context.Context, targetVector string) error
+	RequantizeIndex(ctx context.Context, targetVector string) error
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
@@ -311,15 +313,24 @@ func (s *Shard) pathHashTree() string {
 
 func (s *Shard) vectorIndexID(targetVector string) string {
 	if targetVector != "" {
-		return fmt.Sprintf("vectors_%s", targetVector)
+		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, targetVector)
 	}
 	return "main"
 }
 
-func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
-	// use the last byte of the uuid to determine which locking-pool a given object should use. The last byte is used
-	// as uuids probably often have some kind of order and the last byte will in general be the one that changes the most
-	return idBytes[15] % IdLockPoolSize
+// uuidToIdLockPoolId computes a lock pool id for a given uuid. The lock pool
+// is used to synchronize access to the same uuid. The pool size is fixed and
+// defined by IdLockPoolSize.
+// The function uses the XOR of the two halves of the UUID to ensure a good
+// distribution of UUIDs to lock pool ids. This helps to minimize lock
+// contention when multiple goroutines are accessing different UUIDs.
+// The result is then taken modulo the pool size to ensure it fits within the
+// bounds of the lock pool array.
+func (s *Shard) uuidToIdLockPoolId(uuidBytes []byte) uint {
+	lo := binary.LittleEndian.Uint64(uuidBytes[:8])
+	hi := binary.LittleEndian.Uint64(uuidBytes[8:16])
+
+	return uint((lo ^ hi) % IdLockPoolSize)
 }
 
 func (s *Shard) memtableDirtyConfig() lsmkv.BucketOption {
@@ -404,13 +415,13 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 }
 
 // ObjectCount returns the exact count at any moment
-func (s *Shard) ObjectCount() int {
+func (s *Shard) ObjectCount(ctx context.Context) (int, error) {
 	b := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
-		return 0
+		return 0, errors.New("object bucket does not exist")
 	}
 
-	return b.Count()
+	return b.Count(ctx)
 }
 
 // ObjectCountAsync returns the eventually consistent "async" count which is
@@ -447,9 +458,10 @@ func (s *Shard) VectorStorageSize(ctx context.Context) (int64, error) {
 	// Iterate over all vector indexes to calculate storage size for both default and targeted vectors
 	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// Get dimensions and object count from the dimensions bucket for this specific target vector
-		dimensionality := calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
-			return len(v), dimLen
-		})
+		dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector)
+		if err != nil {
+			return err
+		}
 
 		if dimensionality.Count == 0 || dimensionality.Dimensions == 0 {
 			return nil

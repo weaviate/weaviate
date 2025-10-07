@@ -21,6 +21,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
@@ -62,7 +63,7 @@ func createCommitlogTestData(t *testing.T, dir string, filenameSizes ...any) {
 	for i := 0; i < len(filenameSizes); i += 2 {
 		filename := fmt.Sprintf("%s/%s", dir, filenameSizes[i])
 		size := filenameSizes[i+1].(int)
-		cl := commitlog.NewLogger(filename)
+		cl := commitlog.NewLogger(filename, common.NewOSFS())
 
 		generateFakeCommitLogData(t, cl, int64(size))
 

@@ -46,11 +46,11 @@ func createSingleNodeEnvironment(ctx context.Context, jinaApiKey string,
 		WithWeaviateWithGRPC().
 		WithWeaviateEnv("MODULES_CLIENT_TIMEOUT", fmt.Sprintf("%.0fs", companies.DefaultTimeout.Seconds())).
 		Start(ctx)
-	return
+	return compose, err
 }
 
 func composeModules(jinaApiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecJinaAI(jinaApiKey)
-	return
+	return composeModules
 }

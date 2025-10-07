@@ -585,7 +585,7 @@ func corruptBloomFileByTruncatingIt(fname string) error {
 		return err
 	}
 
-	data = data[:2]
+	data = data[:len(data)-2]
 
 	f, err = os.Create(fname)
 	if err != nil {
