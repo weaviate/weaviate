@@ -1541,7 +1541,6 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("precompute metadata: %w", err)
 	}
 
-	flushing := b.flushing
 	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {
 		return fmt.Errorf("add segment and remove flushing: %w", err)
 	}
@@ -1587,13 +1586,6 @@ func (b *Bucket) FlushAndSwitch() error {
 				return nil
 			}(); err != nil {
 				return fmt.Errorf("add tombstones: %w", err)
-			}
-		}
-
-	case StrategyRoaringSetRange:
-		if b.keepSegmentsInMemory {
-			if err := b.disk.roaringSetRangeSegmentInMemory.MergeMemtable(flushing.extractRoaringSetRange()); err != nil {
-				return fmt.Errorf("merge roaringsetrange memtable to segment-in-memory: %w", err)
 			}
 		}
 	}
@@ -1692,7 +1684,22 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 	if err := b.disk.addInitializedSegment(seg); err != nil {
 		return err
 	}
+	flushing := b.flushing
 	b.flushing = nil
+
+	switch b.strategy {
+	case StrategyReplace:
+		if b.monitorCount {
+			// having just flushed the memtable we now have the most up2date count which
+			// is a good place to update the metric
+			b.metrics.ObjectCount(b.disk.count())
+		}
+
+	case StrategyRoaringSetRange:
+		if b.keepSegmentsInMemory {
+			b.disk.roaringSetRangeSegmentInMemory.MergeMemtableEventually(flushing.extractRoaringSetRange())
+		}
+	}
 
 	if b.strategy == StrategyReplace && b.monitorCount {
 		// having just flushed the memtable we now have the most up2date count which
