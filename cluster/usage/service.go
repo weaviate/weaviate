@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	backupent "github.com/weaviate/weaviate/entities/backup"
 	entschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
@@ -72,7 +73,11 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 
 	// Collect usage for each collection
 	for _, collection := range collections {
-		collectionUsage, err := s.db.UsageForIndex(ctx, entschema.ClassName(collection.Class), s.jitterInterval, exactObjectCount, collection.VectorConfig)
+		vectorConfig, err := config.ExtractVectorConfigs(collection)
+		if err != nil {
+			return nil, fmt.Errorf("collection %s: %w", collection.Class, err)
+		}
+		collectionUsage, err := s.db.UsageForIndex(ctx, entschema.ClassName(collection.Class), s.jitterInterval, exactObjectCount, vectorConfig)
 		// we lock the local index against being deleted while we collect usage, however we cannot lock the RAFT schema
 		// against being changed. If the class was deleted in the RAFT schema, we simply skip it here
 		// as it is no longer relevant for the current node usage

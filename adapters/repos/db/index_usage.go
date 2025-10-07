@@ -29,7 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, jitterInterval time.Duration, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
+func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, jitterInterval time.Duration, exactObjectCount bool, vectorsConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
 	var (
 		index  *Index
 		exists bool
@@ -52,7 +52,7 @@ func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, jit
 		index.dropIndex.RUnlock()
 	}()
 
-	return index.usageForCollection(ctx, jitterInterval, exactObjectCount, vectorConfig)
+	return index.usageForCollection(ctx, jitterInterval, exactObjectCount, vectorsConfig)
 }
 
 func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Duration, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
