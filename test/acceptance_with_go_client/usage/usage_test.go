@@ -637,6 +637,192 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		require.Equal(t, dimensions, *shard.NamedVectors[0].Dimensionalities[0].Dimensions)
 		require.Equal(t, objectCount1, *shard.NamedVectors[0].Dimensionalities[0].Count)
 	})
+
+	t.Run("storage size", func(t *testing.T) {
+		classNameHnsw := sanitizeName("Class" + t.Name() + "hnsw")
+		classNameFlat := sanitizeName("Class" + t.Name() + "flat")
+		classNameDynamic := sanitizeName("Class" + t.Name() + "dyna") // same lengt
+
+		hnsw1024 := "hnsw1024"
+		flat1024 := "flat1024"
+
+		classDynamic := &models.Class{
+			Class: classNameDynamic,
+			Properties: []*models.Property{
+				{
+					Name: "name", DataType: []string{schema.DataTypeText.String()},
+				},
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				dynamic1024: {
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+					VectorIndexType:   "dynamic",
+					VectorIndexConfig: dynamicVectorIndexConfig,
+				},
+			},
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		}
+
+		classFlat := &models.Class{
+			Class: classNameFlat,
+			Properties: []*models.Property{
+				{
+					Name: "name", DataType: []string{schema.DataTypeText.String()},
+				},
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				flat1024: {
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+					VectorIndexType:   "flat",
+					VectorIndexConfig: dynamicVectorIndexConfig[flat],
+				},
+			},
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		}
+
+		classHnsw := &models.Class{
+			Class: classNameHnsw,
+			Properties: []*models.Property{
+				{
+					Name: "name", DataType: []string{schema.DataTypeText.String()},
+				},
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				hnsw1024: {
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+					VectorIndexConfig: dynamicVectorIndexConfig[hnsw],
+					VectorIndexType:   "hnsw",
+				},
+			},
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		}
+
+		tenant := "tenant"
+		for _, class := range []*models.Class{classDynamic, classFlat, classHnsw} {
+			c.Schema().ClassDeleter().WithClassName(class.Class).Do(ctx)
+			defer c.Schema().ClassDeleter().WithClassName(class.Class).Do(ctx) // intended to run at the end
+
+			require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+			require.NoError(t, c.Schema().TenantsCreator().WithClassName(class.Class).WithTenants(models.Tenant{Name: tenant}).Do(ctx))
+
+			vectors := generateRandomVector(targetVectorDimensions[dynamic1024])
+			key := ""
+			for k := range class.VectorConfig {
+				key = k
+			}
+			require.NotEqual(t, key, "")
+
+			insertObjects(t, objectCount1, c, class.Class, tenant, models.Vectors{
+				key: vectors,
+			}, nil)
+			testAllObjectsIndexed(t, c, class.Class)
+		}
+
+		// deactivate and activate to flush data to disk and have it comparable
+		for _, class := range []*models.Class{classDynamic, classFlat, classHnsw} {
+			require.NoError(t,
+				c.Schema().TenantsUpdater().WithClassName(class.Class).WithTenants(models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx),
+			)
+			require.NoError(t,
+				c.Schema().TenantsUpdater().WithClassName(class.Class).WithTenants(models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx),
+			)
+		}
+
+		// before upgrade, compare dynamic and flat
+		colFlat, err := getDebugUsageWithPortAndCollection(debug, classNameFlat)
+		require.NoError(t, err)
+		require.NotNil(t, colFlat)
+		require.Len(t, colFlat.Shards, 1)
+		shardFlat := colFlat.Shards[0]
+		require.Equal(t, &objectCount1, shardFlat.ObjectsCount)
+		require.Len(t, shardFlat.NamedVectors, 1)
+		vectorFlat := shardFlat.NamedVectors[0]
+
+		colDynamic, err := getDebugUsageWithPortAndCollection(debug, classNameDynamic)
+		require.NoError(t, err)
+		require.NotNil(t, colDynamic)
+		shardDynamic := colDynamic.Shards[0]
+		require.Equal(t, &objectCount1, shardDynamic.ObjectsCount)
+		require.Len(t, shardDynamic.NamedVectors, 1)
+		vectorDynamic := shardDynamic.NamedVectors[0]
+
+		require.InDelta(t, *shardDynamic.ObjectsStorageBytes, *shardFlat.ObjectsStorageBytes, float64(*shardDynamic.ObjectsStorageBytes)*0.05)
+		require.Equal(t, *shardDynamic.VectorStorageBytes, *shardFlat.VectorStorageBytes)
+		require.Equal(t, vectorDynamic.Dimensionalities, vectorFlat.Dimensionalities)
+
+		// now upgrade to hnsw and compare again
+		for _, class := range []*models.Class{classDynamic, classFlat, classHnsw} {
+			vectors := generateRandomVector(targetVectorDimensions[dynamic1024])
+			key := ""
+			for k := range class.VectorConfig {
+				key = k
+			}
+			require.NotEqual(t, key, "")
+
+			insertObjects(t, objectCount2-objectCount1+10, c, class.Class, tenant, models.Vectors{
+				key: vectors,
+			}, nil)
+			testAllObjectsIndexed(t, c, class.Class)
+		}
+
+		// this will block until the index has been switched to hnsw
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			colUsageHnsw, err := getDebugUsageWithPortAndCollection(debug, classNameDynamic)
+			require.NoError(ct, err)
+			require.NotNil(ct, colUsageHnsw)
+
+			require.Len(ct, colUsageHnsw.Shards, 1)
+			shardHnsw := colUsageHnsw.Shards[0]
+			require.Len(ct, shardHnsw.NamedVectors, 1)
+			require.NotNil(ct, shardHnsw.NamedVectors[0].Name)
+			require.NotNil(ct, shardHnsw.NamedVectors[0].VectorIndexType)
+			require.NotNil(ct, shardHnsw.NamedVectors[0].Compression)
+			require.Equal(ct, dynamic1024, *shardHnsw.NamedVectors[0].Name)
+			require.Equal(ct, hnsw, *shardHnsw.NamedVectors[0].VectorIndexType)
+		}, 5*time.Minute, 500*time.Millisecond)
+
+		// deactivate and activate to flush data to disk and have it comparable
+		for _, class := range []*models.Class{classDynamic, classFlat, classHnsw} {
+			require.NoError(t,
+				c.Schema().TenantsUpdater().WithClassName(class.Class).WithTenants(models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx),
+			)
+			require.NoError(t,
+				c.Schema().TenantsUpdater().WithClassName(class.Class).WithTenants(models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx),
+			)
+		}
+
+		colHNSW, err := getDebugUsageWithPortAndCollection(debug, classNameHnsw)
+		require.NoError(t, err)
+		require.NotNil(t, colHNSW)
+		require.Len(t, colHNSW.Shards, 1)
+		shardHNSW := colHNSW.Shards[0]
+		require.Equal(t, objectCount2+10, *shardHNSW.ObjectsCount)
+		require.Len(t, shardHNSW.NamedVectors, 1)
+		require.NotNil(t, shardHNSW.ObjectsStorageBytes)
+		require.NotNil(t, shardHNSW.VectorStorageBytes)
+		vectorHNSW := shardHNSW.NamedVectors[0]
+
+		colDynamicHNSW, err := getDebugUsageWithPortAndCollection(debug, classNameDynamic)
+		require.NoError(t, err)
+		require.NotNil(t, colDynamicHNSW)
+		shardDynamicHNSW := colDynamicHNSW.Shards[0]
+		require.Equal(t, objectCount2+10, *shardDynamicHNSW.ObjectsCount)
+		require.Len(t, shardDynamicHNSW.NamedVectors, 1)
+		require.NotNil(t, shardDynamicHNSW.ObjectsStorageBytes)
+		require.NotNil(t, shardDynamicHNSW.VectorStorageBytes)
+		vectorDynamicHNSW := shardDynamicHNSW.NamedVectors[0]
+
+		// there might be some small differences in the object storage due to class
+		require.InDelta(t, *shardDynamicHNSW.ObjectsStorageBytes, *shardHNSW.ObjectsStorageBytes, float64(*shardDynamicHNSW.ObjectsStorageBytes)*0.1)
+		require.Equal(t, *shardDynamicHNSW.VectorStorageBytes, *shardHNSW.VectorStorageBytes)
+		require.Equal(t, vectorDynamicHNSW.Dimensionalities, vectorHNSW.Dimensionalities)
+	})
 }
 
 func sanitizeName(name string) string {

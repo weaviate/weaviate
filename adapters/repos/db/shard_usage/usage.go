@@ -163,34 +163,37 @@ func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, shardName 
 	totalDiskSize := int64(0)
 
 	// Use a single walk to avoid multiple filepath.Walk calls and reduce file descriptors
-	if err := filepath.Walk(shardPathObjectsLSM(path, shardName), func(path string, info os.FileInfo, err error) error {
+	objectPath := shardPathObjectsLSM(path, shardName)
+	if err := filepath.Walk(objectPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
 		// Only count files, not directories
-		if !info.IsDir() {
-			totalDiskSize += info.Size()
+		if info.IsDir() {
+			return nil
+		}
 
-			// Look for .cna files (net count additions)
-			if strings.HasSuffix(info.Name(), lsmkv.CountNetAdditionsFileSuffix) {
-				count, err := lsmkv.ReadCountNetAdditionsFile(path)
-				if err != nil {
-					logger.WithField("path", path).WithField("shard", shardName).WithError(err).Warn("failed to read .cna file")
-					return err
-				}
-				totalObjectCount += count
-			}
+		totalDiskSize += info.Size()
 
-			// Look for .metadata files (bloom filters + count net additions)
-			if strings.HasSuffix(info.Name(), lsmkv.MetadataFileSuffix) {
-				count, err := lsmkv.ReadObjectCountFromMetadataFile(path)
-				if err != nil {
-					logger.WithField("path", path).WithField("shard", shardName).WithError(err).Warn("failed to read .metadata file")
-					return err
-				}
-				totalObjectCount += count
+		// Look for .cna files (net count additions)
+		if strings.HasSuffix(info.Name(), lsmkv.CountNetAdditionsFileSuffix) {
+			count, err := lsmkv.ReadCountNetAdditionsFile(path)
+			if err != nil {
+				logger.WithField("path", path).WithField("shard", shardName).WithError(err).Warn("failed to read .cna file")
+				return err
 			}
+			totalObjectCount += count
+		}
+
+		// Look for .metadata files (bloom filters + count net additions)
+		if strings.HasSuffix(info.Name(), lsmkv.MetadataFileSuffix) {
+			count, err := lsmkv.ReadObjectCountFromMetadataFile(path)
+			if err != nil {
+				logger.WithField("path", path).WithField("shard", shardName).WithError(err).Warn("failed to read .metadata file")
+				return err
+			}
+			totalObjectCount += count
 		}
 
 		return nil

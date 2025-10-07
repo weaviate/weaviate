@@ -62,7 +62,8 @@ func (s *Indexes) writeToMemory(w io.Writer) (int64, error) {
 	currentOffset += secondaryIndexCountSize
 
 	primaryIndex := s.buildPrimary(s.Keys)
-	currentOffset += uint64(primaryIndex.Size())
+	primaryIndexSize := uint64(primaryIndex.Size())
+	currentOffset += primaryIndexSize
 
 	offsetSecondaryStart := currentOffset
 	secondaryIndexSize := uint64(0)
@@ -79,7 +80,7 @@ func (s *Indexes) writeToMemory(w io.Writer) (int64, error) {
 		}
 	}
 
-	buf := make([]byte, uint64(primaryIndex.Size())+secondaryIndexCountSize+secondaryIndexSize)
+	buf := make([]byte, primaryIndexSize+secondaryIndexCountSize+secondaryIndexSize)
 	rw := byteops.NewReadWriter(buf)
 
 	for _, secondary := range secondaryTrees {
