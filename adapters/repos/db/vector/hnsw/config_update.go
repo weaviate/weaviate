@@ -15,6 +15,7 @@ import (
 	"os"
 	"sync/atomic"
 
+	"github.com/sirupsen/logrus"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -136,7 +137,12 @@ func asyncEnabled() bool {
 }
 
 func (h *hnsw) Upgrade(callback func()) error {
-	h.logger.WithField("action", "compress").Info("switching to compressed vectors")
+	h.logger.WithFields(logrus.Fields{
+		"action":       "compress",
+		"shard":        h.shardName,
+		"collection":   h.className,
+		"targetVector": h.getTargetVector(),
+	}).Info("switching to compressed vectors")
 
 	err := ent.ValidatePQConfig(h.pqConfig)
 	if err != nil {
@@ -161,5 +167,10 @@ func (h *hnsw) compressThenCallback(callback func()) {
 		h.logger.WithField("shard", h.shardName).WithField("targetVector", h.getTargetVector()).Error(err)
 		return
 	}
-	h.logger.WithField("action", "compress").Info("vector compression complete")
+	h.logger.WithFields(logrus.Fields{
+		"action":       "compress",
+		"shard":        h.shardName,
+		"collection":   h.className,
+		"targetVector": h.getTargetVector(),
+	}).Info("vector compression complete")
 }
