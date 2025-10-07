@@ -1151,6 +1151,10 @@ func ValidateUserConfigUpdate(initial, updated schemaConfig.VectorIndexConfig) e
 			name:     "rq",
 			accessor: func(c flatent.UserConfig) interface{} { return c.RQ.Enabled },
 		},
+		{
+			name:     "rq.bits",
+			accessor: func(c flatent.UserConfig) interface{} { return c.RQ.Bits },
+		},
 		// as of v1.25.2, updating the BQ cache setting is now possible.
 		// Note that the change does not take effect until the tenant is
 		// reloaded, either from a complete restart or from
