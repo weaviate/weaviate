@@ -301,7 +301,10 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName stri
 			VectorCompressionRatio: 1.0, // Default ratio for cold shards
 		}
 
-		vectorIndexConfig := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+		vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+		if !ok {
+			return nil, fmt.Errorf("vector index config for %q is not of expected type", targetVector)
+		}
 
 		vectorUsage.IsDynamic = vectorConfig.VectorIndexType == common.IndexTypeDynamic
 		if !vectorUsage.IsDynamic {

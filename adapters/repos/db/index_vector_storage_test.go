@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
@@ -621,6 +623,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled: true,
 		},
+		VectorConfig: map[string]models.VectorConfig{"": {VectorIndexConfig: flat.UserConfig{Distance: vectorIndex.DistanceCosine}}},
 	}
 
 	// Create fake schema
