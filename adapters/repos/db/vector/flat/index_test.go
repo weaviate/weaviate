@@ -404,26 +404,23 @@ func TestFlat_Validation(t *testing.T) {
 }
 
 func TestFlat_ValidateCount(t *testing.T) {
-	logger, _ := test.NewNullLogger()
 	ctx := t.Context()
 
-	dirName := t.TempDir()
+	store := testinghelpers.NewDummyStore(t)
+	rootPath := t.TempDir()
+	defer store.Shutdown(context.Background())
 
-	store, err := lsmkv.New(dirName, dirName, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
-	require.Nil(t, err)
-
+	indexID := "id"
 	distancer := distancer.NewCosineDistanceProvider()
+	config := flatent.UserConfig{}
+	config.SetDefaults()
 
 	index, err := New(Config{
-		ID:               "id",
-		RootPath:         t.TempDir(),
+		ID:               indexID,
+		RootPath:         rootPath,
 		DistanceProvider: distancer,
-	}, flatent.UserConfig{}, store)
+	}, config, store)
 	require.Nil(t, err)
-
 	vectors := [][]float32{{-2, 0}, {-2, 1}}
 
 	for i := range vectors {
@@ -436,17 +433,14 @@ func TestFlat_ValidateCount(t *testing.T) {
 
 	err = index.Shutdown(ctx)
 	require.Nil(t, err)
+	index = nil
 
 	index, err = New(Config{
-		ID:               "id",
-		RootPath:         t.TempDir(),
+		ID:               indexID,
+		RootPath:         rootPath,
 		DistanceProvider: distancer,
-	}, flatent.UserConfig{}, store)
+	}, config, store)
 	require.Nil(t, err)
-	countNoStartup := index.AlreadyIndexed()
-	require.Equal(t, uint64(0), countNoStartup)
-	index.PostStartup()
-
-	countPostStartup := index.AlreadyIndexed()
-	require.Equal(t, count, countPostStartup)
+	newCount := index.AlreadyIndexed()
+	require.Equal(t, count, newCount)
 }

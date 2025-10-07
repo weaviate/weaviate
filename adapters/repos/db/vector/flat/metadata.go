@@ -97,6 +97,7 @@ func (index *flat) initMetadata() error {
 	}
 
 	index.initDimensions()
+	index.initCount()
 
 	return nil
 }
@@ -191,6 +192,64 @@ func (index *flat) setDimensions(dimensions int32) error {
 	})
 	if err != nil {
 		return errors.Wrap(err, "set dimensions")
+	}
+
+	return nil
+}
+
+func (index *flat) initCount() {
+	count, err := index.fetchCount()
+	if err != nil {
+		index.logger.Warnf("flat index unable to fetch count: %v", err)
+	}
+	if count > 0 {
+		atomic.StoreUint64(&index.count, count)
+	}
+}
+
+func (index *flat) fetchCount() (uint64, error) {
+	if index.metadata == nil {
+		return 0, nil
+	}
+
+	var count uint64 = 0
+	err := index.metadata.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(vectorMetadataBucket))
+		if b == nil {
+			return nil
+		}
+		v := b.Get([]byte("count"))
+		if v == nil {
+			return nil
+		}
+		count = binary.LittleEndian.Uint64(v)
+		return nil
+	})
+	if err != nil {
+		return 0, errors.Wrap(err, "fetch count")
+	}
+
+	return count, nil
+}
+
+func (index *flat) setCount(count uint64) error {
+	err := index.openMetadata()
+	if err != nil {
+		return err
+	}
+	defer index.closeMetadata()
+
+	err = index.metadata.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(vectorMetadataBucket))
+		if b == nil {
+			return errors.New("failed to get bucket")
+		}
+		buf := make([]byte, 8)
+		binary.LittleEndian.PutUint64(buf, count)
+		return b.Put([]byte("count"), buf)
+	})
+	if err != nil {
+		return errors.Wrap(err, "set count")
 	}
 
 	return nil

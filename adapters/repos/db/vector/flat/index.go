@@ -352,6 +352,10 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 	}
 	newCount := atomic.LoadUint64(&index.count)
 	atomic.StoreUint64(&index.count, newCount+1)
+	err := index.setCount(newCount + 1)
+	if err != nil {
+		index.logger.WithError(err).Error("could not set count")
+	}
 	return nil
 }
 
