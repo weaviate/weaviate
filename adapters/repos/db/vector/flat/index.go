@@ -115,7 +115,36 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		return nil, err
 	}
 
+	if err := index.initCount(); err != nil {
+		return nil, err
+	}
+
 	return index, nil
+}
+
+func (flat *flat) initCount() error {
+	err := flat.store.CreateOrLoadBucket(context.Background(), "counter", lsmkv.WithStrategy(lsmkv.StrategyReplace))
+	if err != nil {
+		flat.logger.Warnf("flat index unable to create or load count bucket: %v", err)
+		return err
+	}
+	buf, err := flat.store.Bucket("counter").Get([]byte("count"))
+	if err != nil {
+		flat.logger.Warnf("flat index unable to get count: %v", err)
+		return err
+	}
+	if len(buf) == 8 {
+		count := binary.LittleEndian.Uint64(buf)
+		atomic.StoreUint64(&flat.count, count)
+	}
+	return nil
+}
+
+func (flat *flat) setCount(count uint64) error {
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, count)
+	flat.store.Bucket("counter").Put([]byte("count"), buf)
+	return nil
 }
 
 func (flat *flat) getBQVector(ctx context.Context, id uint64) ([]uint64, error) {
