@@ -78,7 +78,6 @@ func (b *Bucket) Cursor() *CursorReplace {
 	if b.flushing != nil {
 		innerCursors = append(innerCursors, b.flushing.newCursor())
 	}
-
 	innerCursors = append(innerCursors, b.active.newCursor())
 
 	return &CursorReplace{
@@ -152,15 +151,18 @@ func (b *Bucket) CursorOnDisk() *CursorReplace {
 // CursorWithSecondaryIndex holds a RLock for the flushing state. It needs to be closed using the
 // .Close() methods or otherwise the lock will never be released
 func (b *Bucket) CursorWithSecondaryIndex(pos int) *CursorReplace {
-	b.flushLock.RLock()
+	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 
-	if b.strategy != StrategyReplace {
-		panic("CursorWithSecondaryIndex() called on strategy other than 'replace'")
-	}
-
-	if b.secondaryIndices <= uint16(pos) {
+	if uint16(pos) >= b.secondaryIndices {
 		panic("CursorWithSecondaryIndex() called on a bucket without enough secondary indexes")
 	}
+
+	cursorOpenedAt := time.Now()
+	b.metrics.IncBucketOpenedCursorsByStrategy(b.strategy)
+	b.metrics.IncBucketOpenCursorsByStrategy(b.strategy)
+
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
 
 	innerCursors, unlockSegmentGroup := b.disk.newCursorsWithSecondaryIndex(pos)
 
@@ -170,7 +172,6 @@ func (b *Bucket) CursorWithSecondaryIndex(pos int) *CursorReplace {
 	if b.flushing != nil {
 		innerCursors = append(innerCursors, b.flushing.newCursorWithSecondaryIndex(pos))
 	}
-
 	innerCursors = append(innerCursors, b.active.newCursorWithSecondaryIndex(pos))
 
 	return &CursorReplace{
@@ -179,7 +180,9 @@ func (b *Bucket) CursorWithSecondaryIndex(pos int) *CursorReplace {
 		innerCursors: innerCursors,
 		unlock: func() {
 			unlockSegmentGroup()
-			b.flushLock.RUnlock()
+
+			b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+			b.metrics.ObserveBucketCursorDurationByStrategy(b.strategy, time.Since(cursorOpenedAt))
 		},
 	}
 }
