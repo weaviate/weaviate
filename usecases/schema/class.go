@@ -916,6 +916,9 @@ func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 		}
 		return nil
 	case vectorindex.VectorIndexTypeSPFresh:
+		if !h.config.SPFreshEnabled {
+			return fmt.Errorf("the spfresh index is available only in experimental mode")
+		}
 		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",
