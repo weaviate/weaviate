@@ -99,6 +99,19 @@ func getDebugUsageWithPort(host string) (*Report, error) {
 	return &report, nil
 }
 
+func getDebugUsageWithPortAndCollection(host, collection string) (CollectionUsage, error) {
+	report, err := getDebugUsageWithPort(host)
+	if err != nil {
+		return CollectionUsage{}, err
+	}
+	for _, col := range report.Collections {
+		if col.Name != nil && *col.Name == collection {
+			return col, nil
+		}
+	}
+	return CollectionUsage{}, fmt.Errorf("collection %s not found in debug usage report", collection)
+}
+
 // Get a specific collection by name
 func getDebugUsageForCollection(collection string) (*CollectionUsage, error) {
 	report, err := getDebugUsage()

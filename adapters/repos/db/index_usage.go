@@ -29,7 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, jitterInterval time.Duration, exactObjectCount bool) (*types.CollectionUsage, error) {
+func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, jitterInterval time.Duration, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
 	var (
 		index  *Index
 		exists bool
@@ -52,10 +52,10 @@ func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, jit
 		index.dropIndex.RUnlock()
 	}()
 
-	return index.usageForCollection(ctx, jitterInterval, exactObjectCount)
+	return index.usageForCollection(ctx, jitterInterval, exactObjectCount, vectorConfig)
 }
 
-func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Duration, exactObjectCount bool) (*types.CollectionUsage, error) {
+func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Duration, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
 	collectionUsage := &types.CollectionUsage{
 		Name:              i.Config.ClassName.String(),
 		ReplicationFactor: int(i.Config.ReplicationFactor),
@@ -142,7 +142,7 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 								err2 = fmt.Errorf("loaded lazy shard %s: %w", shardName, err2)
 							}
 						} else {
-							shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName)
+							shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, vectorConfig)
 							if err2 != nil {
 								err2 = fmt.Errorf("unloaded lazy shard %s: %w", shardName, err2)
 							}
@@ -159,7 +159,7 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 					}
 				}
 			case models.TenantActivityStatusINACTIVE, models.TenantActivityStatusCOLD:
-				shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName)
+				shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, vectorConfig)
 				if err2 != nil {
 					err2 = fmt.Errorf("inactive shard %s: %w", shardName, err2)
 				}
@@ -228,14 +228,19 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		} else {
 			return fmt.Errorf("vector index %s not found in config", targetVector)
 		}
-		category, _ := GetDimensionCategory(vectorIndexConfig)
 		indexType := vectorIndexConfig.IndexType()
 		bits := enthnsw.GetRQBits(vectorIndexConfig)
 
 		// For dynamic indexes, get the actual underlying index type
+		isDynamic := false
+		isDynamicUpgraded := false // only matters for dynamic
 		if dynamicIndex, ok := vectorIndex.(dynamic.Index); ok {
 			indexType = dynamicIndex.UnderlyingIndex().String()
+			isDynamic = true
+			isDynamicUpgraded = dynamicIndex.IsUpgraded()
 		}
+		category, _ := GetDimensionCategory(vectorIndexConfig, isDynamicUpgraded)
+
 		dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
 		if err != nil {
 			return err
@@ -247,7 +252,7 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 			Name:                   targetVector,
 			Compression:            category.String(),
 			VectorIndexType:        indexType,
-			IsDynamic:              common.IsDynamic(common.IndexType(indexType)),
+			IsDynamic:              isDynamic,
 			VectorCompressionRatio: compressionRatio,
 			Bits:                   bits,
 		}
@@ -269,16 +274,14 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 	return shardUsage, nil
 }
 
-func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName string) (*types.ShardUsage, error) {
+func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
 	// Cold tenant: calculate from disk without loading
 	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(i.logger, i.path(), tenantName)
 	if err != nil {
 		return nil, err
 	}
 
-	vectorIndexConfigs := i.GetVectorIndexConfigs()
-
-	vectorStorageSize, err := shardusage.CalculateUnloadedVectorsMetrics(ctx, i.logger, i.path(), tenantName, vectorIndexConfigs)
+	vectorStorageSize, err := shardusage.CalculateUnloadedVectorsMetrics(ctx, i.logger, i.path(), tenantName, i.GetVectorIndexConfigs())
 	if err != nil {
 		return nil, err
 	}
@@ -292,17 +295,22 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName stri
 	}
 
 	// Get named vector data for cold shards from schema configuration
-	for targetVector, vectorIndexConfig := range vectorIndexConfigs {
+	for targetVector, vectorConfig := range vectorConfigs {
 		vectorUsage := &types.VectorUsage{
 			Name:                   targetVector,
 			VectorCompressionRatio: 1.0, // Default ratio for cold shards
 		}
 
-		category, _ := GetDimensionCategory(vectorIndexConfig)
-		vectorUsage.Compression = category.String()
-		vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
-		vectorUsage.Bits = enthnsw.GetRQBits(vectorIndexConfig)
-		vectorUsage.IsDynamic = common.IsDynamic(common.IndexType(vectorUsage.VectorIndexType))
+		vectorIndexConfig := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+
+		vectorUsage.IsDynamic = vectorConfig.VectorIndexType == common.IndexTypeDynamic
+		if !vectorUsage.IsDynamic {
+			// for cold tenants we cannot distinguish know if dynamic has been upgraded or not. Do not include wrong data
+			category, _ := GetDimensionCategory(vectorIndexConfig, false)
+			vectorUsage.Compression = category.String()
+			vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
+		}
+
 		dimensionalities, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, i.logger, i.path(), tenantName, targetVector)
 		if err != nil {
 			return nil, err

@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -328,6 +329,68 @@ func TestRestart(t *testing.T) {
 	require.NoError(t, ReportsDifference(usage, usage2))
 }
 
+func testAllObjectsIndexed(t *testing.T, c *client.Client, className string) {
+	// wait for all of the objects to get indexed
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := c.Cluster().NodesStatusGetter().
+			WithClass(className).
+			WithOutput("verbose").
+			Do(context.Background())
+		require.NoError(ct, err)
+		require.NotEmpty(ct, resp.Nodes)
+		for _, n := range resp.Nodes {
+			require.NotEmpty(ct, n.Shards)
+			for _, s := range n.Shards {
+				assert.Equal(ct, "READY", s.VectorIndexingStatus)
+			}
+		}
+	}, 30*time.Second, 500*time.Millisecond)
+}
+
+func generateRandomVector(dimensionality int) []float32 {
+	if dimensionality <= 0 {
+		return nil
+	}
+
+	src := rand.NewSource(time.Now().UnixNano())
+	r := rand.New(src)
+
+	slice := make([]float32, dimensionality)
+	for i := range slice {
+		slice[i] = r.Float32()
+	}
+	return slice
+}
+
+func insertObjects(t *testing.T, n int, c *client.Client, className, tenant string, vector models.Vectors) {
+	objs := []*models.Object{}
+	for i := range n {
+		obj := &models.Object{
+			Class: className,
+			ID:    strfmt.UUID(uuid.NewString()),
+			Properties: map[string]any{
+				"name":        fmt.Sprintf("name %v", i),
+				"description": fmt.Sprintf("some description %v", i),
+			},
+			Vectors: vector,
+		}
+		if tenant != "" {
+			obj.Tenant = tenant
+		}
+		objs = append(objs, obj)
+	}
+	resp, err := c.Batch().ObjectsBatcher().
+		WithObjects(objs...).
+		Do(context.TODO())
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	for _, r := range resp {
+		require.NotNil(t, r.Result)
+		require.NotNil(t, r.Result.Status)
+		assert.Equal(t, models.ObjectsGetResponseAO2ResultStatusSUCCESS, *r.Result.Status)
+	}
+}
+
 func TestUsageWithDynamicIndex(t *testing.T) {
 	ctx := context.Background()
 
@@ -349,44 +412,6 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 	c, err := client.NewClient(client.Config{Scheme: "http", Host: rest})
 	require.NoError(t, err)
 
-	generateRandomVector := func(dimensionality int) []float32 {
-		if dimensionality <= 0 {
-			return nil
-		}
-
-		src := rand.NewSource(time.Now().UnixNano())
-		r := rand.New(src)
-
-		slice := make([]float32, dimensionality)
-		for i := range slice {
-			slice[i] = r.Float32()
-		}
-		return slice
-	}
-
-	testAllObjectsIndexed := func(t *testing.T, c *client.Client, className string) {
-		// wait for all of the objects to get indexed
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := c.Cluster().NodesStatusGetter().
-				WithClass(className).
-				WithOutput("verbose").
-				Do(context.Background())
-			require.NoError(ct, err)
-			require.NotEmpty(ct, resp.Nodes)
-			for _, n := range resp.Nodes {
-				require.NotEmpty(ct, n.Shards)
-				for _, s := range n.Shards {
-					assert.Equal(ct, "READY", s.VectorIndexingStatus)
-				}
-			}
-		}, 30*time.Second, 500*time.Millisecond)
-	}
-
-	className := "UsageWithDynamicIndex"
-
-	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-
 	dynamic1024 := "dynamic1024"
 	dimensions := 1024
 	flat := "flat"
@@ -402,7 +427,7 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 	}
 
 	dynamicVectorIndexConfig := map[string]any{
-		"threshold": 1100,
+		"threshold": 1001,
 		hnsw: map[string]any{
 			pq: map[string]any{
 				"enabled":       true,
@@ -416,35 +441,12 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		},
 	}
 
-	insertObjects := func(t *testing.T, n int) {
-		objs := []*models.Object{}
-		for i := range n {
-			obj := &models.Object{
-				Class: className,
-				ID:    strfmt.UUID(uuid.NewString()),
-				Properties: map[string]any{
-					"name":        fmt.Sprintf("name %v", i),
-					"description": fmt.Sprintf("some description %v", i),
-				},
-				Vectors: models.Vectors{
-					dynamic1024: generateRandomVector(targetVectorDimensions[dynamic1024]),
-				},
-			}
-			objs = append(objs, obj)
-		}
-		resp, err := c.Batch().ObjectsBatcher().
-			WithObjects(objs...).
-			Do(context.TODO())
-		require.NoError(t, err)
-		require.NotNil(t, resp)
-		for _, r := range resp {
-			require.NotNil(t, r.Result)
-			require.NotNil(t, r.Result.Status)
-			assert.Equal(t, models.ObjectsGetResponseAO2ResultStatusSUCCESS, *r.Result.Status)
-		}
-	}
+	t.Run("single tenant", func(t *testing.T) {
+		className := sanitizeName("Class" + t.Name())
 
-	t.Run("create schema", func(t *testing.T) {
+		c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+		defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
 		class := &models.Class{
 			Class: className,
 			Properties: []*models.Property{
@@ -466,68 +468,145 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 			},
 		}
 
-		err := c.Schema().ClassCreator().WithClass(class).Do(ctx)
-		require.NoError(t, err)
-	})
+		require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
 
-	t.Run("batch create 1000 objects", func(t *testing.T) {
-		insertObjects(t, 1000)
+		insertObjects(t, 1000, c, className, "", models.Vectors{
+			dynamic1024: generateRandomVector(targetVectorDimensions[dynamic1024]),
+		})
 		testAllObjectsIndexed(t, c, className)
-	})
 
-	t.Run("get usage with dynamic index using flat index", func(t *testing.T) {
-		usage, err := getDebugUsageWithPort(debug)
+		var colUsage CollectionUsage
+		report, err := getDebugUsageWithPort(debug)
 		require.NoError(t, err)
-		require.NotNil(t, usage)
-		require.NotEmpty(t, usage.Collections)
-		require.NotEmpty(t, usage.Collections[0].Shards)
-		require.Equal(t, &objectCount1, usage.Collections[0].Shards[0].ObjectsCount)
-		require.NotEmpty(t, usage.Collections[0].Shards[0].NamedVectors)
-		require.NotNil(t, usage.Collections[0].Shards[0].NamedVectors[0].Name)
-		require.NotNil(t, usage.Collections[0].Shards[0].NamedVectors[0].VectorIndexType)
-		require.NotNil(t, usage.Collections[0].Shards[0].NamedVectors[0].Compression)
-		require.Equal(t, dynamic1024, *usage.Collections[0].Shards[0].NamedVectors[0].Name)
-		require.Equal(t, flat, *usage.Collections[0].Shards[0].NamedVectors[0].VectorIndexType)
-		// Should be BQ but is PQ
-		// require.Equal(t, bq, *usage.Collections[0].Shards[0].NamedVectors[0].Compression)
-		// Should be true is nil
-		// require.NotEmpty(t, usage.Collections[0].Shards[0].NamedVectors[0].IsDynamic)
-		require.NotEmpty(t, usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities)
-		require.NotNil(t, usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.NotNil(t, usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities[0].Count)
-		require.Equal(t, dimensions, *usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.Equal(t, objectCount1, *usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities[0].Count)
+		for _, col := range report.Collections {
+			if col.Name != nil && *col.Name == className {
+				colUsage = col
+			}
+		}
+		require.NotNil(t, colUsage)
 
-	})
+		require.Len(t, colUsage.Shards, 1)
+		shard := colUsage.Shards[0]
+		require.Equal(t, &objectCount1, shard.ObjectsCount)
+		require.Len(t, shard.NamedVectors, 1)
+		require.Equal(t, dynamic1024, *shard.NamedVectors[0].Name)
+		require.Equal(t, flat, *shard.NamedVectors[0].VectorIndexType)
+		require.Equal(t, bq, *shard.NamedVectors[0].Compression)
+		require.NotEmpty(t, shard.NamedVectors[0].IsDynamic)
+		require.NotEmpty(t, shard.NamedVectors[0].Dimensionalities)
+		require.NotNil(t, shard.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.NotNil(t, shard.NamedVectors[0].Dimensionalities[0].Count)
+		require.Equal(t, dimensions, *shard.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.Equal(t, objectCount1, *shard.NamedVectors[0].Dimensionalities[0].Count)
 
-	t.Run("batch create 1000 objects", func(t *testing.T) {
-		insertObjects(t, 1000)
-	})
+		insertObjects(t, 1000, c, className, "", models.Vectors{
+			dynamic1024: generateRandomVector(targetVectorDimensions[dynamic1024]),
+		})
+		testAllObjectsIndexed(t, c, className)
 
-	t.Run("get usage with dynamic index using hnsw index", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			usage, err := getDebugUsageWithPort(debug)
+			var colUsageHnsw CollectionUsage
+			reportHnsw, err := getDebugUsageWithPort(debug)
 			require.NoError(ct, err)
-			require.NotNil(ct, usage)
-			require.NotEmpty(ct, usage.Collections)
-			require.NotEmpty(ct, usage.Collections[0].Shards)
-			require.NotNil(ct, usage.Collections[0].Shards[0].ObjectsCount)
-			require.Equal(ct, objectCount2, *usage.Collections[0].Shards[0].ObjectsCount)
-			require.NotEmpty(ct, usage.Collections[0].Shards[0].NamedVectors)
-			require.NotNil(ct, usage.Collections[0].Shards[0].NamedVectors[0].Name)
-			require.NotNil(ct, usage.Collections[0].Shards[0].NamedVectors[0].VectorIndexType)
-			require.NotNil(ct, usage.Collections[0].Shards[0].NamedVectors[0].Compression)
-			require.Equal(ct, dynamic1024, *usage.Collections[0].Shards[0].NamedVectors[0].Name)
-			assert.Equal(ct, hnsw, *usage.Collections[0].Shards[0].NamedVectors[0].VectorIndexType)
-			// Should be true is nil
-			// require.NotEmpty(ct, usage.Collections[0].Shards[0].NamedVectors[0].IsDynamic)
-			// assert.True(ct, *usage.Collections[0].Shards[0].NamedVectors[0].IsDynamic)
-			require.Equal(ct, pq, *usage.Collections[0].Shards[0].NamedVectors[0].Compression)
-			require.NotEmpty(ct, usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities)
-			require.NotNil(ct, usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities[0].Dimensions)
-			require.NotNil(ct, usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities[0].Count)
-			require.Equal(ct, dimensions, *usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities[0].Dimensions)
-			require.Equal(ct, objectCount2, *usage.Collections[0].Shards[0].NamedVectors[0].Dimensionalities[0].Count)
-		}, 30*time.Second, 500*time.Millisecond)
+			for _, col := range reportHnsw.Collections {
+				if col.Name != nil && *col.Name == className {
+					colUsageHnsw = col
+				}
+			}
+			require.NotNil(ct, colUsageHnsw)
+
+			require.Len(ct, colUsageHnsw.Shards, 1)
+			shardHnsw := colUsageHnsw.Shards[0]
+			require.NotNil(ct, shardHnsw.ObjectsCount)
+			require.Equal(ct, objectCount2, *shardHnsw.ObjectsCount)
+			require.Len(ct, shardHnsw.NamedVectors, 1)
+			require.NotNil(ct, shardHnsw.NamedVectors[0].Name)
+			require.NotNil(ct, shardHnsw.NamedVectors[0].VectorIndexType)
+			require.NotNil(ct, shardHnsw.NamedVectors[0].Compression)
+			require.Equal(ct, dynamic1024, *shardHnsw.NamedVectors[0].Name)
+			require.Equal(ct, hnsw, *shardHnsw.NamedVectors[0].VectorIndexType)
+			require.NotEmpty(ct, shardHnsw.NamedVectors[0].IsDynamic)
+			require.True(ct, *shardHnsw.NamedVectors[0].IsDynamic)
+			require.Equal(ct, pq, *shardHnsw.NamedVectors[0].Compression)
+			require.NotEmpty(ct, shardHnsw.NamedVectors[0].Dimensionalities)
+			require.NotNil(ct, shardHnsw.NamedVectors[0].Dimensionalities[0].Dimensions)
+			require.NotNil(ct, shardHnsw.NamedVectors[0].Dimensionalities[0].Count)
+			require.Equal(ct, dimensions, *shardHnsw.NamedVectors[0].Dimensionalities[0].Dimensions)
+			require.Equal(ct, objectCount2, *shardHnsw.NamedVectors[0].Dimensionalities[0].Count)
+		}, 5*time.Minute, 500*time.Millisecond)
 	})
+
+	t.Run("multi tenant", func(t *testing.T) {
+		className := sanitizeName("Class" + t.Name())
+		c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+		defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+		class := &models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				dynamic1024: {
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+					VectorIndexType:   "dynamic",
+					VectorIndexConfig: dynamicVectorIndexConfig,
+				},
+			},
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		}
+
+		require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+		tenantName := "tenant"
+		c.Schema().TenantsCreator().WithClassName(className).WithTenants(models.Tenant{Name: "tenant"}).Do(ctx)
+
+		insertObjects(t, 1000, c, className, tenantName, models.Vectors{
+			dynamic1024: generateRandomVector(targetVectorDimensions[dynamic1024]),
+		})
+		testAllObjectsIndexed(t, c, className)
+
+		colHot, err := getDebugUsageWithPortAndCollection(debug, className)
+		require.NoError(t, err)
+		require.NotNil(t, colHot)
+
+		require.Len(t, colHot.Shards, 1)
+		shardHot := colHot.Shards[0]
+		require.Equal(t, &objectCount1, shardHot.ObjectsCount)
+		require.Len(t, shardHot.NamedVectors, 1)
+		require.Equal(t, dynamic1024, *shardHot.NamedVectors[0].Name)
+		require.Equal(t, flat, *shardHot.NamedVectors[0].VectorIndexType)
+		require.Equal(t, bq, *shardHot.NamedVectors[0].Compression)
+		require.NotEmpty(t, shardHot.NamedVectors[0].IsDynamic)
+		require.NotEmpty(t, shardHot.NamedVectors[0].Dimensionalities)
+		require.NotNil(t, shardHot.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.NotNil(t, shardHot.NamedVectors[0].Dimensionalities[0].Count)
+		require.Equal(t, dimensions, *shardHot.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.Equal(t, objectCount1, *shardHot.NamedVectors[0].Dimensionalities[0].Count)
+
+		require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx))
+
+		colCold, err := getDebugUsageWithPortAndCollection(debug, className)
+		require.NoError(t, err)
+		require.NotNil(t, colCold)
+
+		require.Len(t, colCold.Shards, 1)
+		shardCold := colCold.Shards[0]
+		require.Len(t, shardCold.NamedVectors, 1)
+		require.Equal(t, dynamic1024, *shardCold.NamedVectors[0].Name)
+		// cold dynamic indices cannot easily determine the index type and compression
+		require.Nil(t, shardCold.NamedVectors[0].VectorIndexType)
+		require.Nil(t, shardCold.NamedVectors[0].Compression)
+		require.NotNil(t, shardCold.NamedVectors[0].IsDynamic)
+		require.True(t, *shardCold.NamedVectors[0].IsDynamic)
+		require.NotEmpty(t, shardCold.NamedVectors[0].Dimensionalities)
+		require.NotNil(t, shardCold.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.NotNil(t, shardCold.NamedVectors[0].Dimensionalities[0].Count)
+		require.Equal(t, dimensions, *shardCold.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.Equal(t, objectCount1, *shardCold.NamedVectors[0].Dimensionalities[0].Count)
+	})
+}
+
+func sanitizeName(name string) string {
+	name = strings.ReplaceAll(name, "/", "_")
+	return name
 }

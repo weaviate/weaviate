@@ -809,7 +809,7 @@ func TestGetDimensionCategory(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			category, segments := GetDimensionCategory(tt.config)
+			category, segments := GetDimensionCategory(tt.config, false)
 
 			assert.Equal(t, tt.expectedCategory, category,
 				"Expected category %v, got %v", tt.expectedCategory, category)

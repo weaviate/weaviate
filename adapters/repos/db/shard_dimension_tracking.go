@@ -160,7 +160,7 @@ func GetDimensionCategoryLegacy(cfg schemaConfig.VectorIndexConfig) (DimensionCa
 	return DimensionCategoryStandard, 0
 }
 
-func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
+func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig, dynamicUpgraded bool) (DimensionCategory, int) {
 	// We have special dimension tracking for BQ and PQ to represent reduced costs
 	// these are published under the separate vector_segments_dimensions metric
 	switch config := cfg.(type) {
@@ -169,7 +169,7 @@ func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory
 	case flatent.UserConfig:
 		return getFlatCompression(config)
 	case dynamicent.UserConfig:
-		return getDynamicCompression(config)
+		return getDynamicCompression(config, dynamicUpgraded)
 	default:
 		return DimensionCategoryStandard, 0
 	}
@@ -204,14 +204,12 @@ func getFlatCompression(config flatent.UserConfig) (DimensionCategory, int) {
 // getDynamicCompression extracts compression info from Dynamic configuration
 // Dynamic indices can switch between HNSW and Flat based on data size.
 // For metrics purposes, we check both configurations and return the first enabled compression.
-func getDynamicCompression(config dynamicent.UserConfig) (DimensionCategory, int) {
-	// Check HNSW configuration first (higher priority for dynamic indices)
-	if category, segments := getHNSWCompression(config.HnswUC); category != DimensionCategoryStandard {
-		return category, segments
+func getDynamicCompression(config dynamicent.UserConfig, dynamicUpgraded bool) (DimensionCategory, int) {
+	if dynamicUpgraded {
+		return getHNSWCompression(config.HnswUC)
+	} else {
+		return getFlatCompression(config.FlatUC)
 	}
-
-	// Fall back to Flat configuration
-	return getFlatCompression(config.FlatUC)
 }
 
 func correctEmptySegments(segments int, dimensions int) int {
