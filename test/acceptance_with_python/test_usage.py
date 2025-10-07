@@ -442,7 +442,7 @@ def test_storage_vectors(collection_factory: CollectionFactory):
     collection.tenants.deactivate("tenant")
     collection.tenants.activate("tenant")
 
-    # we have 100 objects now with 3 vectors each, with 100, 125 and 150 dimensions respectively
+    # we have 1000 objects now with 2 vectors each, with 100 and 125 dimensions respectively
     # uncompressed storage is 4 bytes per dimension
     # so total uncompressed storage is 1000 * (100 + 125) * 4 = 900000 bytes
     # with bq compression we have 32x compression, so storage should be around 28125 bytes in total
