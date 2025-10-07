@@ -85,7 +85,8 @@ type replicatedIndices struct {
 	requestQueueConfig cluster.RequestQueueConfig
 	// requestQueue buffers requests until they're picked up by a worker, goal is to avoid
 	// overwhelming the system with requests during spikes (also allows for backpressure)
-	requestQueue chan queuedRequest
+	startWorkersOnce sync.Once
+	requestQueue     chan queuedRequest
 	// set to true when shutting down
 	isShutdown atomic.Bool
 	// workerWg waits for all workers to finish
@@ -144,7 +145,9 @@ func NewReplicatedIndices(
 		requestQueueConfig:     requestQueueConfig,
 		logger:                 logger,
 	}
-	i.startWorkers()
+	if requestQueueConfig.IsEnabled != nil && requestQueueConfig.IsEnabled.Get() {
+		i.startWorkersOnce.Do(i.startWorkers)
+	}
 	return i
 }
 
@@ -193,6 +196,8 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 
 		// if the request queue is enabled, add the request to the queue
 		if i.requestQueueConfig.IsEnabled != nil && i.requestQueueConfig.IsEnabled.Get() {
+			// ensure the workers are started (if this didn't happen at startup)
+			i.startWorkersOnce.Do(i.startWorkers)
 			wg := sync.WaitGroup{}
 			wg.Add(1)
 			select {
