@@ -82,9 +82,6 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 
 	defer store.Shutdown(context.Background())
 
-	pq := flatent.CompressionUserConfig{
-		Enabled: false,
-	}
 	bq := flatent.CompressionUserConfig{
 		Enabled: false,
 	}
@@ -92,10 +89,6 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 		Enabled: false,
 	}
 	switch compression {
-	case CompressionPQ:
-		pq.Enabled = true
-		pq.RescoreLimit = 100 * k
-		pq.Cache = vectorCache
 	case CompressionBQ:
 		bq.Enabled = true
 		bq.RescoreLimit = 100 * k
@@ -104,13 +97,17 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 		rq.Enabled = true
 		rq.RescoreLimit = 100 * k
 		rq.Cache = vectorCache
+	case CompressionRQ8:
+		rq.Enabled = true
+		rq.RescoreLimit = 100 * k
+		rq.Bits = 8
+		rq.Cache = vectorCache
 	}
 	index, err := New(Config{
 		ID:               runId,
 		RootPath:         dirName,
 		DistanceProvider: distancer,
 	}, flatent.UserConfig{
-		PQ: pq,
 		BQ: bq,
 		RQ: rq,
 	}, store)
@@ -211,6 +208,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	extraVectorsForDelete, _ := testinghelpers.RandomVecs(5_000, 0, dimensions)
 	for _, compression := range []CompressionType{CompressionNone, CompressionBQ, CompressionRQ1, CompressionRQ8} {
 		t.Run("compression: "+compression.String(), func(t *testing.T) {
+			compressionDirName := t.TempDir()
 			for _, cache := range []bool{false, true} {
 				t.Run("cache: "+strconv.FormatBool(cache), func(t *testing.T) {
 					if compression == CompressionNone && cache == true {
@@ -221,13 +219,13 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 						targetRecall = 0.8
 					}
 					if compression == CompressionRQ1 {
-						targetRecall = 0.7 // RQ has lower recall due to 1-bit quantization
+						targetRecall = 0.7
 					}
 					if compression == CompressionRQ8 {
-						targetRecall = 0.9 // RQ8 should have higher recall than RQ1 due to 8-bit quantization
+						targetRecall = 0.9
 					}
 					t.Run("recall", func(t *testing.T) {
-						recall, latency, err := run(ctx, dirName, logger, compression, cache, vectors, queries, k, truths, nil, nil, distancer, 0)
+						recall, latency, err := run(ctx, compressionDirName, logger, compression, cache, vectors, queries, k, truths, nil, nil, distancer, 0)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
@@ -236,7 +234,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					})
 
 					t.Run("recall with deletes", func(t *testing.T) {
-						recall, latency, err := run(ctx, dirName, logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer, 0)
+						recall, latency, err := run(ctx, compressionDirName, logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer, 0)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
@@ -249,6 +247,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	}
 	for _, compression := range []CompressionType{CompressionNone, CompressionBQ, CompressionRQ1, CompressionRQ8} {
 		t.Run("compression: "+compression.String(), func(t *testing.T) {
+			compressionDirName := t.TempDir()
 			for _, cache := range []bool{false, true} {
 				t.Run("cache: "+strconv.FormatBool(cache), func(t *testing.T) {
 					from := 0
@@ -266,14 +265,14 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 						targetRecall = 0.8
 					}
 					if compression == CompressionRQ1 {
-						targetRecall = 0.7 // RQ has lower recall due to 1-bit quantization
+						targetRecall = 0.7
 					}
 					if compression == CompressionRQ8 {
-						targetRecall = 0.9 // RQ8 should have higher recall than RQ1 due to 8-bit quantization
+						targetRecall = 0.9
 					}
 
 					t.Run("recall on filtered", func(t *testing.T) {
-						recall, latency, err := run(ctx, dirName, logger, compression, cache, vectors, queries, k, truths, nil, allowIds, distancer, 0)
+						recall, latency, err := run(ctx, compressionDirName, logger, compression, cache, vectors, queries, k, truths, nil, allowIds, distancer, 0)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
@@ -282,7 +281,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					})
 
 					t.Run("recall on filtered with deletes", func(t *testing.T) {
-						recall, latency, err := run(ctx, dirName, logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer, 0)
+						recall, latency, err := run(ctx, compressionDirName, logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer, 0)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
