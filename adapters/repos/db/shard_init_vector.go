@@ -227,12 +227,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		}
 		vectorIndex = vi
 	case vectorindex.VectorIndexTypeSPFresh:
-		//spfreshUserConfig, ok := vectorIndexUserConfig.(spfreshent.UserConfig)
-		//if !ok {
-		//	return nil, errors.Errorf("spfresh vector index: config is not spfresh.UserConfig: %T",
-		//		vectorIndexUserConfig)
-		//}
-		//fmt.Println("creating spfresh index with default params")
+		if !s.index.SPFreshEnabled {
+			return nil, errors.New("spfresh index is available only in experimental mode")
+		}
 		configs := spfresh.DefaultConfig()
 		configs.ID = s.vectorIndexID(targetVector)
 		configs.MinMMapSize = s.index.Config.MinMMapSize

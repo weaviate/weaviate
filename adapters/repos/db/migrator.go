@@ -169,6 +169,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			QuerySlowLogThreshold:                        m.db.config.QuerySlowLogThreshold,
 			InvertedSorterDisabled:                       m.db.config.InvertedSorterDisabled,
 			MaintenanceModeEnabled:                       m.db.config.MaintenanceModeEnabled,
+			SPFreshEnabled:                               m.db.config.SPFreshEnabled,
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
@@ -741,6 +742,9 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		return dynamic.ValidateUserConfigUpdate(old, updated)
 	case vectorindex.VectorIndexTypeSPFresh:
+		if !m.db.config.SPFreshEnabled {
+			return errors.New("spfresh index is available only in experimental mode")
+		}
 		return spfresh.ValidateUserConfigUpdate(old, updated)
 	}
 	return fmt.Errorf("invalid index type: %s", old.IndexType())
