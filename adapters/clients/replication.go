@@ -323,7 +323,6 @@ func (c *replicationClient) Commit(ctx context.Context, host, index, shard strin
 		return fmt.Errorf("create http request: %w", err)
 	}
 	// attach the provided context so upstream cancellations/timeouts are honored
-	req = req.WithContext(ctx)
 	return c.do(c.timeoutUnit*90, req, nil, resp, 9)
 }
 
@@ -335,7 +334,6 @@ func (c *replicationClient) Abort(ctx context.Context, host, index, shard, reque
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 	// attach the provided context so upstream cancellations/timeouts are honored
-	req = req.WithContext(ctx)
 	err = c.do(c.timeoutUnit*5, req, nil, &resp, 9)
 	return resp, err
 }
