@@ -164,7 +164,11 @@ func (h *hnsw) compressThenCallback(callback func()) {
 		SQ: h.sqConfig,
 	}
 	if err := h.compress(uc); err != nil {
-		h.logger.WithField("shard", h.shardName).WithField("targetVector", h.getTargetVector()).Error(err)
+		h.logger.WithFields(logrus.Fields{
+			"shard":        h.shardName,
+			"collection":   h.className,
+			"targetVector": h.getTargetVector(),
+		}).Error(err)
 		return
 	}
 	h.logger.WithFields(logrus.Fields{
