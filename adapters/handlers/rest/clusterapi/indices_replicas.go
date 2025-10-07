@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"regexp"
 	"strconv"
 	"sync"
@@ -92,11 +91,7 @@ type replicatedIndices struct {
 	isShutdown atomic.Bool
 	// workerWg waits for all workers to finish
 	workerWg sync.WaitGroup
-	// shutdownOnce ensures that the shutdown is only done once
-	shutdownOnce sync.Once
-	logger       logrus.FieldLogger
-
-	dummySleepLock sync.Mutex
+	logger   logrus.FieldLogger
 }
 
 var (
@@ -223,17 +218,6 @@ func (i *replicatedIndices) handleRequest(qr queuedRequest) {
 	r := qr.r
 	w := qr.w
 	path := r.URL.Path
-
-	if os.Getenv("REPLICATED_INDICES_SLEEP") != "" {
-		i.dummySleepLock.Lock()
-		defer i.dummySleepLock.Unlock()
-		s := os.Getenv("REPLICATED_INDICES_SLEEP")
-		duration, err := time.ParseDuration(s)
-		if err != nil {
-			http.Error(w, "REPLICATED_INDICES_SLEEP is not a valid duration", http.StatusInternalServerError)
-		}
-		time.Sleep(duration)
-	}
 
 	// NOTE if you update any of these handler methods/paths, also update the indices_replicas_test.go
 	// TestMaintenanceModeReplicatedIndices test to include the new methods/paths.
@@ -1001,9 +985,7 @@ func localIndexNotReady(resp replica.SimpleResponse) bool {
 
 // Close gracefully shuts down the replicatedIndices by draining the queue and waiting for workers to finish
 func (i *replicatedIndices) Close(ctx context.Context) error {
-	i.isShutdown.Store(true)
-	var err error
-	i.shutdownOnce.Do(func() {
+	if i.isShutdown.CompareAndSwap(false, true) {
 		// Set a timeout for graceful shutdown
 		shutdownTimeoutSeconds := i.requestQueueConfig.QueueShutdownTimeoutSeconds
 		if shutdownTimeoutSeconds == 0 {
@@ -1027,20 +1009,20 @@ func (i *replicatedIndices) Close(ctx context.Context) error {
 			// Workers finished gracefully
 		case <-shutdownCtx.Done():
 			// Timeout reached, workers are still running
-			err = fmt.Errorf("shutdown timeout reached, some workers may still be running")
+			err := fmt.Errorf("shutdown timeout reached, some workers may still be running")
 			for {
 				select {
 				case rq, ok := <-i.requestQueue:
 					if !ok {
-						return
+						return err
 					}
 					rq.w.WriteHeader(http.StatusRequestTimeout)
 					rq.wg.Done()
 				default:
-					return
+					return err
 				}
 			}
 		}
-	})
-	return err
+	}
+	return nil
 }
