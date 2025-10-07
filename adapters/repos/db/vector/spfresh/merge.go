@@ -149,7 +149,7 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 	}
 
 	// search for the closest centroids
-	nearest, err := s.SPTAG.Search(oldCentroid.Vector, s.config.InternalPostingCandidates)
+	nearest, err := s.SPTAG.Search(oldCentroid.Uncompressed, s.config.InternalPostingCandidates)
 	if err != nil {
 		return errors.Wrapf(err, "failed to search for nearest centroid for posting %d", postingID)
 	}
@@ -246,12 +246,12 @@ func (s *SPFresh) doMerge(postingID uint64) error {
 		smallCentroid := s.SPTAG.Get(smallID)
 		largeCentroid := s.SPTAG.Get(largeID)
 		for _, v := range smallPosting.Iter() {
-			prevDist, err := smallCentroid.Vector.Distance(s.distancer, v)
+			prevDist, err := v.DistanceWithRaw(s.distancer, smallCentroid.Compressed)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in small posting %d", v.ID(), smallID)
 			}
 
-			newDist, err := largeCentroid.Vector.Distance(s.distancer, v)
+			newDist, err := v.DistanceWithRaw(s.distancer, largeCentroid.Compressed)
 			if err != nil {
 				return errors.Wrapf(err, "failed to compute distance for vector %d in large posting %d", v.ID(), largeID)
 			}

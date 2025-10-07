@@ -82,7 +82,8 @@ func (s *SPFresh) doReassign(op reassignOperation) error {
 
 	// perform a RNG selection to determine the postings where the vector should be
 	// reassigned to.
-	replicas, needsReassign, err := s.RNGSelect(op.Vector, op.PostingID)
+	q := s.SPTAG.quantizer.Restore(op.Vector.(CompressedVector).Data())
+	replicas, needsReassign, err := s.RNGSelect(q, op.PostingID)
 	if err != nil {
 		return errors.Wrap(err, "failed to select replicas")
 	}

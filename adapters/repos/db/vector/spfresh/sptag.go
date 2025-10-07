@@ -13,162 +13,156 @@ package spfresh
 
 import (
 	"iter"
-	"sync"
-	"sync/atomic"
-	"time"
-
-	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 type Centroid struct {
-	Vector  Vector
-	Deleted bool
+	Uncompressed []float32
+	Compressed   []byte
+	Deleted      bool
 }
 
-type BruteForceSPTAG struct {
-	quantizer *compressionhelpers.RotationalQuantizer
-	distancer *Distancer
-	metrics   *Metrics
+// type BruteForceSPTAG struct {
+// 	quantizer *compressionhelpers.RotationalQuantizer
+// 	distancer *Distancer
+// 	metrics   *Metrics
 
-	centroids *common.PagedArray[atomic.Pointer[Centroid]]
-	idLock    sync.RWMutex
-	ids       []uint64
-	counter   atomic.Int32
-}
+// 	centroids *common.PagedArray[atomic.Pointer[Centroid]]
+// 	idLock    sync.RWMutex
+// 	ids       []uint64
+// 	counter   atomic.Int32
+// }
 
-func NewBruteForceSPTAG(metrics *Metrics, pages, pageSize uint64) *BruteForceSPTAG {
-	return &BruteForceSPTAG{
-		metrics:   metrics,
-		centroids: common.NewPagedArray[atomic.Pointer[Centroid]](pages, pageSize),
-	}
-}
+// func NewBruteForceSPTAG(metrics *Metrics, pages, pageSize uint64) *BruteForceSPTAG {
+// 	return &BruteForceSPTAG{
+// 		metrics:   metrics,
+// 		centroids: common.NewPagedArray[atomic.Pointer[Centroid]](pages, pageSize),
+// 	}
+// }
 
-func (s *BruteForceSPTAG) Init(dims int32, distancer distancer.Provider) {
-	// TODO: seed
-	seed := uint64(42)
-	s.quantizer = compressionhelpers.NewRotationalQuantizer(int(dims), seed, 8, distancer)
-	s.distancer = &Distancer{
-		quantizer: s.quantizer,
-		distancer: distancer,
-	}
-}
+// func (s *BruteForceSPTAG) Init(dims int32, distancer distancer.Provider) {
+// 	// TODO: seed
+// 	seed := uint64(42)
+// 	s.quantizer = compressionhelpers.NewRotationalQuantizer(int(dims), seed, 8, distancer)
+// 	s.distancer = &Distancer{
+// 		quantizer: s.quantizer,
+// 		distancer: distancer,
+// 	}
+// }
 
-func (s *BruteForceSPTAG) Get(id uint64) *Centroid {
-	page, slot := s.centroids.GetPageFor(id)
-	if page == nil {
-		return nil
-	}
+// func (s *BruteForceSPTAG) Get(id uint64) *Centroid {
+// 	page, slot := s.centroids.GetPageFor(id)
+// 	if page == nil {
+// 		return nil
+// 	}
 
-	return page[slot].Load()
-}
+// 	return page[slot].Load()
+// }
 
-func (s *BruteForceSPTAG) Insert(id uint64, vector Vector) error {
-	page, slot := s.centroids.EnsurePageFor(id)
-	if page == nil {
-		return errors.New("failed to allocate page")
-	}
+// func (s *BruteForceSPTAG) Insert(id uint64, vector Vector) error {
+// 	page, slot := s.centroids.EnsurePageFor(id)
+// 	if page == nil {
+// 		return errors.New("failed to allocate page")
+// 	}
 
-	page[slot].Store(&Centroid{
-		Vector: vector,
-	})
+// 	page[slot].Store(&Centroid{
+// 		Vector: vector,
+// 	})
 
-	s.idLock.Lock()
-	s.ids = append(s.ids, id)
-	s.idLock.Unlock()
+// 	s.idLock.Lock()
+// 	s.ids = append(s.ids, id)
+// 	s.idLock.Unlock()
 
-	s.metrics.SetPostings(int(s.counter.Add(1)))
+// 	s.metrics.SetPostings(int(s.counter.Add(1)))
 
-	return nil
-}
+// 	return nil
+// }
 
-func (s *BruteForceSPTAG) MarkAsDeleted(id uint64) error {
-	for {
-		page, slot := s.centroids.GetPageFor(id)
-		if page == nil {
-			return nil
-		}
-		centroid := page[slot].Load()
-		if centroid == nil {
-			return errors.New("centroid not found")
-		}
+// func (s *BruteForceSPTAG) MarkAsDeleted(id uint64) error {
+// 	for {
+// 		page, slot := s.centroids.GetPageFor(id)
+// 		if page == nil {
+// 			return nil
+// 		}
+// 		centroid := page[slot].Load()
+// 		if centroid == nil {
+// 			return errors.New("centroid not found")
+// 		}
 
-		if centroid.Deleted {
-			return errors.New("centroid already marked as deleted")
-		}
+// 		if centroid.Deleted {
+// 			return errors.New("centroid already marked as deleted")
+// 		}
 
-		newCentroid := Centroid{
-			Vector:  centroid.Vector,
-			Deleted: true,
-		}
+// 		newCentroid := Centroid{
+// 			Uncompressed: centroid.Uncompressed,
+// 			Compressed:   centroid.Compressed,
+// 			Deleted:      true,
+// 		}
 
-		if page[slot].CompareAndSwap(centroid, &newCentroid) {
-			s.metrics.SetPostings(int(s.counter.Add(-1)))
-			break
-		}
-	}
+// 		if page[slot].CompareAndSwap(centroid, &newCentroid) {
+// 			s.metrics.SetPostings(int(s.counter.Add(-1)))
+// 			break
+// 		}
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
-func (s *BruteForceSPTAG) Exists(id uint64) bool {
-	centroid := s.Get(id)
-	if centroid == nil {
-		return false
-	}
+// func (s *BruteForceSPTAG) Exists(id uint64) bool {
+// 	centroid := s.Get(id)
+// 	if centroid == nil {
+// 		return false
+// 	}
 
-	return !centroid.Deleted
-}
+// 	return !centroid.Deleted
+// }
 
-func (s *BruteForceSPTAG) Quantizer() *compressionhelpers.RotationalQuantizer {
-	return s.quantizer
-}
+// func (s *BruteForceSPTAG) Quantizer() *compressionhelpers.RotationalQuantizer {
+// 	return s.quantizer
+// }
 
-var idsPool = sync.Pool{
-	New: func() any {
-		buf := make([]uint64, 0, 1024)
-		return &buf
-	},
-}
+// var idsPool = sync.Pool{
+// 	New: func() any {
+// 		buf := make([]uint64, 0, 1024)
+// 		return &buf
+// 	},
+// }
 
-func (s *BruteForceSPTAG) Search(query Vector, k int) (*ResultSet, error) {
-	start := time.Now()
-	defer s.metrics.CentroidSearchDuration(start)
+// func (s *BruteForceSPTAG) Search(query Vector, k int) (*ResultSet, error) {
+// 	start := time.Now()
+// 	defer s.metrics.CentroidSearchDuration(start)
 
-	if k == 0 {
-		return nil, nil
-	}
+// 	if k == 0 {
+// 		return nil, nil
+// 	}
 
-	ids := *(idsPool.Get().(*[]uint64))
-	ids = ids[:0]
-	defer idsPool.Put(&ids)
+// 	ids := *(idsPool.Get().(*[]uint64))
+// 	ids = ids[:0]
+// 	defer idsPool.Put(&ids)
 
-	s.idLock.RLock()
-	ids = append(ids, s.ids...) // copy to avoid races
-	s.idLock.RUnlock()
+// 	s.idLock.RLock()
+// 	ids = append(ids, s.ids...) // copy to avoid races
+// 	s.idLock.RUnlock()
 
-	max := uint64(len(ids))
+// 	max := uint64(len(ids))
 
-	q := NewResultSet(k)
+// 	q := NewResultSet(k)
 
-	for i := range max {
-		c := s.Get(ids[i])
-		if c == nil || c.Deleted {
-			continue
-		}
+// 	for i := range max {
+// 		c := s.Get(ids[i])
+// 		if c == nil || c.Deleted {
+// 			continue
+// 		}
 
-		dist, err := c.Vector.Distance(s.distancer, query)
-		if err != nil {
-			return nil, err
-		}
+// 		dist, err := c.Vector.Distance(s.distancer, query)
+// 		if err != nil {
+// 			return nil, err
+// 		}
 
-		q.Insert(ids[i], dist)
-	}
+// 		q.Insert(ids[i], dist)
+// 	}
 
-	return q, nil
-}
+// 	return q, nil
+// }
 
 type Result struct {
 	ID       uint64

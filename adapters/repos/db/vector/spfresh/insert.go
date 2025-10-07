@@ -80,14 +80,14 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 
 	v := NewCompressedVector(id, version, compressed)
 
-	targets, _, err := s.RNGSelect(v, 0)
+	targets, _, err := s.RNGSelect(vector, 0)
 	if err != nil {
 		return err
 	}
 
 	// if there are no postings found, ensure an initial posting is created
 	if targets.Len() == 0 {
-		targets, err = s.ensureInitialPosting(v)
+		targets, err = s.ensureInitialPosting(vector, compressed)
 		if err != nil {
 			return err
 		}
@@ -104,7 +104,7 @@ func (s *SPFresh) Add(ctx context.Context, id uint64, vector []float32) (err err
 }
 
 // ensureInitialPosting creates a new posting for vector v if the index is empty
-func (s *SPFresh) ensureInitialPosting(v Vector) (*ResultSet, error) {
+func (s *SPFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSet, error) {
 	s.initialPostingLock.Lock()
 	defer s.initialPostingLock.Unlock()
 
@@ -119,7 +119,11 @@ func (s *SPFresh) ensureInitialPosting(v Vector) (*ResultSet, error) {
 		postingID := s.IDs.Next()
 		s.PostingSizes.AllocPageFor(postingID)
 		// use the vector as the centroid and register it in the SPTAG
-		err = s.SPTAG.Insert(postingID, v)
+		err = s.SPTAG.Insert(postingID, &Centroid{
+			Uncompressed: v,
+			Compressed:   compressed,
+			Deleted:      false,
+		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
 		}

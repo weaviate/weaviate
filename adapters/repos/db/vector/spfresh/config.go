@@ -42,6 +42,7 @@ type Config struct {
 	Replicas                  int     `json:"replicas,omitempty"`                  // Number of closure replicas to maintain
 	RNGFactor                 float32 `json:"rngFactor,omitempty"`                 // Distance factor used by the RNG rule to determine how spread out replica selections are
 	MaxDistanceRatio          float32 `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
+	SearchProbe               int     `json:"searchProbe,omitempty"`               // Number of vectors to consider during search
 }
 
 func (c *Config) Validate() error {
@@ -64,6 +65,7 @@ func DefaultConfig() *Config {
 		SplitWorkers:              w,
 		ReassignWorkers:           w,
 		InternalPostingCandidates: 64,
+		SearchProbe:               128,
 		ReassignNeighbors:         8,
 		Replicas:                  8,
 		RNGFactor:                 10.0,

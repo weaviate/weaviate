@@ -32,7 +32,13 @@ type LSMStore struct {
 }
 
 func NewLSMStore(store *lsmkv.Store, metrics *Metrics, bucketName string) (*LSMStore, error) {
-	err := store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+	err := store.CreateOrLoadBucket(
+		context.Background(),
+		bucketName,
+		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
+		lsmkv.WithMinMMapSize(8192),
+		lsmkv.WithWalThreshold(4096),
+	)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bucketName)
 	}
@@ -70,10 +76,6 @@ func (l *LSMStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
 
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
-	}
-
-	if len(list) == 0 {
-		return nil, errors.WithStack(ErrPostingNotFound)
 	}
 
 	posting := CompressedPosting{

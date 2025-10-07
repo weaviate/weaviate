@@ -33,9 +33,9 @@ func (s *SPFresh) SearchByVector(ctx context.Context, vector []float32, k int, a
 
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
-	candidateNum := max(k, s.config.InternalPostingCandidates)
+	candidateNum := max(k, s.config.SearchProbe)
 
-	centroids, err := s.SPTAG.Search(queryVector, candidateNum)
+	centroids, err := s.SPTAG.Search(vector, candidateNum)
 	if err != nil {
 		return nil, nil, err
 	}

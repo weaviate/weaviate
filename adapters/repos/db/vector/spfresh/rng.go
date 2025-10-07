@@ -21,7 +21,7 @@ import (
 // postings that are not too close to already selected ones based on the RNGFactor.
 // If `reassignedFromID` is non-zero, the function will abort and return false
 // if one of the selected postings is equal to `reassignedFromID`.
-func (s *SPFresh) RNGSelect(query Vector, reassignedFromID uint64) (*ResultSet, bool, error) {
+func (s *SPFresh) RNGSelect(query []float32, reassignedFromID uint64) (*ResultSet, bool, error) {
 	replicas := NewResultSet(s.config.Replicas)
 	candidates, err := s.SPTAG.Search(query, s.config.InternalPostingCandidates)
 	if err != nil {
@@ -34,7 +34,7 @@ func (s *SPFresh) RNGSelect(query Vector, reassignedFromID uint64) (*ResultSet, 
 		tooClose := false
 		for _, r := range replicas.data {
 			rCenter := s.SPTAG.Get(r.ID)
-			centerDist, err := cCenter.Vector.Distance(s.distancer, rCenter.Vector)
+			centerDist, err := s.distancer.DistanceBetweenVectors(cCenter.Uncompressed, rCenter.Uncompressed)
 			if err != nil {
 				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", cID, r.ID)
 			}

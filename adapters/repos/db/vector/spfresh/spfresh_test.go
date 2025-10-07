@@ -72,7 +72,7 @@ func TestSPFreshRecall(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	vectors_size := 10_000
+	vectors_size := 100_000
 	queries_size := 100
 	dimensions := 64
 	k := 100
@@ -122,7 +122,21 @@ func TestSPFreshRecall(t *testing.T) {
 
 	fmt.Println("all background tasks done, took: ", time.Since(before))
 
+	index.config.SearchProbe = 64
 	recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
 	fmt.Println(recall, latency)
+
+	index.config.SearchProbe = 128
+	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
+	fmt.Println(index.config.SearchProbe, recall, latency)
+
+	index.config.SearchProbe = 512
+	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
+	fmt.Println(index.config.SearchProbe, recall, latency)
+
+	index.config.SearchProbe = 1024
+	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
+	fmt.Println(index.config.SearchProbe, recall, latency)
+
 	require.Greater(t, recall, float32(0.7))
 }
