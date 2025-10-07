@@ -735,8 +735,10 @@ func TestGetLastUsageMultinode(t *testing.T) {
 
 	require.NoError(t, err)
 	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := compose.Terminate(cleanupCtx); err != nil {
+			t.Logf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
 
