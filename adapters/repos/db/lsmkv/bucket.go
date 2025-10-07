@@ -26,9 +26,10 @@ import (
 	"sync"
 	"time"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+
+	entcfg "github.com/weaviate/weaviate/entities/config"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -195,8 +196,9 @@ func NewBucketCreator() *Bucket { return &Bucket{} }
 func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
 	metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 	opts ...BucketOption,
-) (*Bucket, error) {
+) (b *Bucket, err error) {
 	beforeAll := time.Now()
+
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
 	defaultFlushAfterDirty := FlushAfterDirtyDefault
@@ -204,16 +206,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	// main
 	defaultStrategy := unsetStrategy
 
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
-	}
-
-	files, err := diskio.GetFileWithSizes(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	b := &Bucket{
+	b = &Bucket{
 		dir:                          dir,
 		rootDir:                      rootDir,
 		memtableThreshold:            defaultMemTableThreshold,
@@ -248,6 +241,29 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	}
 
 	b.desiredStrategy = b.strategy
+
+	metrics.IncBucketInitCountByStrategy(b.strategy)
+	metrics.IncBucketInitInProgressByStrategy(b.strategy)
+
+	defer func(strategy string) {
+		metrics.DecBucketInitInProgressByStrategy(strategy)
+
+		if err != nil {
+			metrics.IncBucketInitFailureCountByStrategy(strategy)
+			return
+		}
+
+		metrics.ObserveBucketInitDurationByStrategy(strategy, time.Since(beforeAll))
+	}(b.strategy)
+
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+
+	files, err := diskio.GetFileWithSizes(dir)
+	if err != nil {
+		return nil, err
+	}
 
 	sg, err := newSegmentGroup(ctx, logger, metrics,
 		sgConfig{
@@ -497,16 +513,8 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
-	beforeMemtable := time.Now()
-	v, err := b.active.get(key)
-	if time.Since(beforeMemtable) > 100*time.Millisecond {
-		b.logger.WithField("duration", time.Since(beforeMemtable)).
-			WithField("action", "lsm_bucket_get_active_memtable").
-			Debugf("Waited more than 100ms to retrieve object from memtable")
-	}
+	v, err := b.getFromActiveMemtable(key)
 	if err == nil {
-		// item found and no error, return and stop searching, since the strategy
-		// is replace
 		return v, nil
 	}
 	if errors.Is(err, lsmkv.Deleted) {
@@ -514,43 +522,41 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 		// have to check the disk segments, return nil now
 		return nil, nil
 	}
-
 	if !errors.Is(err, lsmkv.NotFound) {
 		panic(fmt.Sprintf("unsupported error in bucket.Get: %v\n", err))
 	}
 
 	if b.flushing != nil {
-		beforeFlushMemtable := time.Now()
-		v, err := b.flushing.get(key)
-		if time.Since(beforeFlushMemtable) > 100*time.Millisecond {
-			b.logger.WithField("duration", time.Since(beforeFlushMemtable)).
-				WithField("action", "lsm_bucket_get_flushing_memtable").
-				Debugf("Waited over 100ms to retrieve object from flushing memtable")
-		}
+		v, err := b.getFromFlushingMemtable(key)
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
 			// is replace
 			return v, nil
 		}
 		if errors.Is(err, lsmkv.Deleted) {
-			// deleted in the now most recent memtable  means we don't have to check
-			// the disk segments, return nil now
+			// deleted in the mem-table (which is always the latest) means we don't
+			// have to check the disk segments, return nil now
 			return nil, nil
 		}
-
 		if !errors.Is(err, lsmkv.NotFound) {
 			panic("unsupported error in bucket.Get")
 		}
 	}
 
-	return b.disk.get(key)
+	v, err = b.getFromSegmentGroup(key)
+	if err != nil && (errors.Is(err, lsmkv.Deleted) || errors.Is(err, lsmkv.NotFound)) {
+		// deleted in the mem-table (which is always the latest) means we don't
+		// have to check the disk segments, return nil now
+		return nil, nil
+	}
+	return v, err
 }
 
 func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	v, err := b.active.get(key)
+	v, err := b.getFromActiveMemtable(key)
 	if err == nil {
 		// item found and no error, return and stop searching, since the strategy
 		// is replace
@@ -567,7 +573,7 @@ func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 	}
 
 	if b.flushing != nil {
-		v, err := b.flushing.get(key)
+		v, err := b.getFromFlushingMemtable(key)
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
 			// is replace
@@ -583,6 +589,85 @@ func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 			panic("unsupported error in bucket.Get")
 		}
 	}
+
+	return b.getFromSegmentGroup(key)
+}
+
+func (b *Bucket) getFromActiveMemtable(key []byte) (v []byte, err error) {
+	start := time.Now()
+
+	b.metrics.IncBucketReadOpCountByComponent("get", "active_memtable")
+	b.metrics.IncBucketReadOpOngoingByComponent("get", "active_memtable")
+	defer func() {
+		b.metrics.DecBucketReadOpOngoingByComponent("get", "active_memtable")
+
+		if err != nil && !errors.Is(err, lsmkv.NotFound) && !errors.Is(err, lsmkv.Deleted) {
+			b.metrics.IncBucketReadOpFailureCountByComponent("get", "active_memtable")
+			return
+		}
+
+		b.metrics.ObserveBucketReadOpDurationByComponent("get", "active_memtable", time.Since(start))
+	}()
+
+	v, err = b.active.get(key)
+	if time.Since(start) > 100*time.Millisecond {
+		b.logger.WithField("duration", time.Since(start)).
+			WithField("action", "lsm_bucket_get_active_memtable").
+			Debugf("Waited more than 100ms to retrieve object from memtable")
+	}
+	if err == nil {
+		// item found and no error, return and stop searching, since the strategy
+		// is replace
+		return v, nil
+	}
+	return nil, err
+}
+
+func (b *Bucket) getFromFlushingMemtable(key []byte) (v []byte, err error) {
+	start := time.Now()
+
+	b.metrics.IncBucketReadOpCountByComponent("get", "flushing_memtable")
+	b.metrics.IncBucketReadOpOngoingByComponent("get", "flushing_memtable")
+	defer func() {
+		b.metrics.DecBucketReadOpOngoingByComponent("get", "flushing_memtable")
+
+		if err != nil && !errors.Is(err, lsmkv.NotFound) && !errors.Is(err, lsmkv.Deleted) {
+			b.metrics.IncBucketReadOpFailureCountByComponent("get", "flushing_memtable")
+			return
+		}
+
+		b.metrics.ObserveBucketReadOpDurationByComponent("get", "flushing_memtable", time.Since(start))
+	}()
+
+	v, err = b.flushing.get(key)
+	if time.Since(start) > 100*time.Millisecond {
+		b.logger.WithField("duration", time.Since(start)).
+			WithField("action", "lsm_bucket_get_flushing_memtable").
+			Debugf("Waited over 100ms to retrieve object from flushing memtable")
+	}
+	if err == nil {
+		// item found and no error, return and stop searching, since the strategy
+		// is replace
+		return v, nil
+	}
+	return nil, err
+}
+
+func (b *Bucket) getFromSegmentGroup(key []byte) (v []byte, err error) {
+	start := time.Now()
+
+	b.metrics.IncBucketReadOpCountByComponent("get", "segment_group")
+	b.metrics.IncBucketReadOpOngoingByComponent("get", "segment_group")
+	defer func() {
+		b.metrics.DecBucketReadOpOngoingByComponent("get", "segment_group")
+
+		if err != nil && !errors.Is(err, lsmkv.NotFound) && !errors.Is(err, lsmkv.Deleted) {
+			b.metrics.IncBucketReadOpFailureCountByComponent("get", "segment_group")
+			return
+		}
+
+		b.metrics.ObserveBucketReadOpDurationByComponent("get", "segment_group", time.Since(start))
+	}()
 
 	return b.disk.getErrDeleted(key)
 }
@@ -739,7 +824,21 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 //
 // Put is limited to ReplaceStrategy, use [Bucket.SetAdd] for Set or
 // [Bucket.MapSet] and [Bucket.MapSetMulti].
-func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) error {
+func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) (err error) {
+	start := time.Now()
+	b.metrics.IncBucketWriteOpCount("put")
+	b.metrics.IncBucketWriteOpOngoing("put")
+	defer func() {
+		b.metrics.DecBucketWriteOpOngoing("put")
+
+		if err != nil {
+			b.metrics.IncBucketWriteOpFailureCount("put")
+			return
+		}
+
+		b.metrics.ObserveBucketWriteOpDuration("put", time.Since(start))
+	}()
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -1110,14 +1209,42 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 // Delete is specific to the Replace Strategy. For Maps, you can use
 // [Bucket.MapDeleteKey] to delete a single key-value pair, for Sets use
 // [Bucket.SetDeleteSingle] to delete a single set element.
-func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
+func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) (err error) {
+	start := time.Now()
+	b.metrics.IncBucketWriteOpCount("delete")
+	b.metrics.IncBucketWriteOpOngoing("delete")
+	defer func() {
+		b.metrics.DecBucketWriteOpOngoing("delete")
+
+		if err != nil {
+			b.metrics.IncBucketWriteOpFailureCount("delete")
+			return
+		}
+
+		b.metrics.ObserveBucketWriteOpDuration("delete", time.Since(start))
+	}()
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
 	return b.active.setTombstone(key, opts...)
 }
 
-func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) error {
+func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) (err error) {
+	start := time.Now()
+	b.metrics.IncBucketWriteOpCount("delete")
+	b.metrics.IncBucketWriteOpOngoing("delete")
+	defer func() {
+		b.metrics.DecBucketWriteOpOngoing("delete")
+
+		if err != nil {
+			b.metrics.IncBucketWriteOpFailureCount("delete")
+			return
+		}
+
+		b.metrics.ObserveBucketWriteOpDuration("delete", time.Since(start))
+	}()
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -1232,8 +1359,24 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 	return !previous.hasTombstone(key)
 }
 
-func (b *Bucket) Shutdown(ctx context.Context) error {
+func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	defer GlobalBucketRegistry.Remove(b.GetDir())
+
+	start := time.Now()
+
+	b.metrics.IncBucketShutdownCountByStrategy(b.strategy)
+	b.metrics.IncBucketShutdownInProgressByStrategy(b.strategy)
+
+	defer func() {
+		b.metrics.DecBucketShutdownInProgressByStrategy(b.strategy)
+
+		if err != nil {
+			b.metrics.IncBucketShutdownFailureCountByStrategy(b.strategy)
+			return
+		}
+
+		b.metrics.ObserveBucketShutdownDurationByStrategy(b.strategy, time.Since(start))
+	}()
 
 	if err := b.disk.shutdown(ctx); err != nil {
 		return err

@@ -996,8 +996,21 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 
 	if err := parsePositiveInt(
 		"RAFT_TIMEOUTS_MULTIPLIER",
-		func(val int) { cfg.TimeoutsMultiplier = val },
-		1, // raft default
+		func(val int) { cfg.TimeoutsMultiplier = runtime.NewDynamicValue(val) },
+		5,
+		// 5 is the default value for raft timeout multiplier
+		// we are using 5 to tolerate the network delay and avoid extensive leader election triggered more frequently
+		// which would cause Memeroy/CPU pressure.
+		// for production requirement,it's recommended to set it to 5
+		// example : https://developer.hashicorp.com/consul/docs/reference/architecture/server#production-server-requirements
+
+		// e.g. in PROD incase of heacy load environments while there is rollout in progress which by default will
+		// trigger leader election more frequently this will be pressure on the nodes and we don't want to add more pressure
+		// by triggering leader elections more frequently.
+
+		// e.g. pipeline flakiness because we are runnining tests in bounded memory environments
+		// and this would cause the tests to fail because nodes won't respond to requests in time.
+
 	); err != nil {
 		return cfg, err
 	}
@@ -1030,6 +1043,14 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		"RAFT_CONSISTENCY_WAIT_TIMEOUT",
 		func(val int) { cfg.ConsistencyWaitTimeout = time.Second * time.Duration(val) },
 		10,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveDuration(
+		"RAFT_DRAIN_SLEEP",
+		func(val time.Duration) { cfg.DrainSleep = runtime.NewDynamicValue(val) },
+		200*time.Millisecond,
 	); err != nil {
 		return cfg, err
 	}
@@ -1195,6 +1216,24 @@ func parseIntVerify(envName string, defaultValue int, cb func(val int), verify f
 	}
 
 	cb(asInt)
+	return nil
+}
+
+// parsePositiveDuration parses an environment variable as time.Duration using time.ParseDuration,
+// applies a default when unset, and validates it is > 0.
+func parsePositiveDuration(envName string, cb func(val time.Duration), defaultValue time.Duration) error {
+	asDuration := defaultValue
+	if v := os.Getenv(envName); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse %s as duration: %w", envName, err)
+		}
+		asDuration = d
+	}
+	if asDuration <= 0 {
+		return fmt.Errorf("%s must be a duration greater than 0. Got: %v", envName, asDuration)
+	}
+	cb(asDuration)
 	return nil
 }
 
@@ -1395,7 +1434,7 @@ func parseClusterConfig() (cluster.Config, error) {
 		},
 	}
 
-	cfg.FastFailureDetection = entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION"))
+	cfg.MemberlistFastFailureDetection = entcfg.Enabled(os.Getenv("MEMBERLIST_FAST_FAILURE_DETECTION")) || entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION")) // backward compatibility
 
 	// MAINTENANCE_NODES is experimental and subject to removal/change. It is an optional, comma
 	// separated list of hostnames that are in maintenance mode. In maintenance mode, the node will

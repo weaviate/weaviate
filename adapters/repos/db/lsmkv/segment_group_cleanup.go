@@ -213,7 +213,7 @@ func (c *segmentCleanerCommon) getSegmentIdsAndSizes() ([]int64, []int64, error)
 				return nil, nil, fmt.Errorf("parse segment id %q: %w", idStr, err)
 			}
 			ids[i] = id
-			sizes[i] = seg.getSize()
+			sizes[i] = seg.Size()
 		}
 	}
 
