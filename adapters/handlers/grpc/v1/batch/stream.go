@@ -232,8 +232,8 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 				if innerErr := stream.Send(&pb.BatchStreamReply{
 					Message: &pb.BatchStreamReply_Backoff_{
 						Backoff: &pb.BatchStreamReply_Backoff{
-							NextBatchSize: int32(stats.getBatchSize()),
-							// BackoffSeconds: float32(writeQueue.BackoffSeconds()),
+							NextBatchSize:  int32(stats.getBatchSize()),
+							BackoffSeconds: h.thresholdCubicBackoff(),
 						},
 					},
 				}); innerErr != nil {

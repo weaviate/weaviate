@@ -208,3 +208,16 @@ func (s *stats) getProcessingTimeEma() time.Duration {
 	defer s.lock.RUnlock()
 	return time.Duration(s.processingTimeEma * time.Second.Seconds())
 }
+
+// Cubic backoff function based on processing queue utilisation:
+// backoff(r) = b * max(0, (r - 0.6) / 0.4) ^ 3, with b = 1s
+// E.g.
+//   - usageRatio = 0.6 -> 0s
+//   - usageRatio = 0.8 -> 0.13s
+//   - usageRatio = 0.9 -> 0.42s
+//   - usageRatio = 1.0 -> 1s
+func (h *StreamHandler) thresholdCubicBackoff() float32 {
+	usageRatio := float32(len(h.processingQueue)) / float32(cap(h.processingQueue))
+	maximumBackoffSeconds := float32(1.0) // Aligns with ideal processing time of 1s
+	return maximumBackoffSeconds * float32(math.Pow(float64(max(0, (usageRatio-0.6)/0.4)), 3))
+}
