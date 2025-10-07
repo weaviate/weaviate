@@ -181,8 +181,9 @@ func newStats() *stats {
 }
 
 func (s *stats) updateBatchSize(processingTime time.Duration, processingQueueLen int) {
-	ideal := 1.0 // seconds
 	// Optimum is that each worker takes at most 1s to process a batch so that shutdown does not take too long
+	ideal := 1.0 // seconds
+	// Understand the smoothing factor of the EMA as the half-life of the queue length
 	alpha := 1 - math.Exp(-math.Log(2)/float64(processingQueueLen))
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -191,8 +192,8 @@ func (s *stats) updateBatchSize(processingTime time.Duration, processingQueueLen
 	if s.batchSize < 10 {
 		s.batchSize = 10
 	}
-	if s.batchSize > 10000 {
-		s.batchSize = 10000
+	if s.batchSize > 1000 {
+		s.batchSize = 1000
 	}
 }
 
