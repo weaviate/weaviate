@@ -218,9 +218,9 @@ func (i *replicatedIndices) handleRequest(qr queuedRequest) {
 	w := qr.w
 	path := r.URL.Path
 
-	i.dummySleepLock.Lock()
-	defer i.dummySleepLock.Unlock()
 	if os.Getenv("REPLICATED_INDICES_SLEEP") != "" {
+		i.dummySleepLock.Lock()
+		defer i.dummySleepLock.Unlock()
 		s := os.Getenv("REPLICATED_INDICES_SLEEP")
 		duration, err := time.ParseDuration(s)
 		if err != nil {
