@@ -165,10 +165,11 @@ func (h *hnsw) compressThenCallback(callback func()) {
 	}
 	if err := h.compress(uc); err != nil {
 		h.logger.WithFields(logrus.Fields{
+			"action":       "compress",
 			"shard":        h.shardName,
 			"collection":   h.className,
 			"targetVector": h.getTargetVector(),
-		}).Error(err)
+		}).WithError(err).Error("vector compression failed")
 		return
 	}
 	h.logger.WithFields(logrus.Fields{
