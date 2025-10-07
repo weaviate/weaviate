@@ -50,6 +50,12 @@ func Test_FlatUserConfig(t *testing.T) {
 					RescoreLimit: DefaultCompressionRescore,
 					Cache:        DefaultVectorCache,
 				},
+				RQ: RQUserConfig{
+					Enabled:      DefaultCompressionEnabled,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+					Bits:         DefaultRQBits,
+				},
 			},
 		},
 		{
@@ -80,6 +86,12 @@ func Test_FlatUserConfig(t *testing.T) {
 					Enabled:      DefaultCompressionEnabled,
 					RescoreLimit: DefaultCompressionRescore,
 					Cache:        DefaultVectorCache,
+				},
+				RQ: RQUserConfig{
+					Enabled:      DefaultCompressionEnabled,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+					Bits:         DefaultRQBits,
 				},
 			},
 		},
@@ -130,6 +142,205 @@ func Test_FlatUserConfig(t *testing.T) {
 			expectErr:    true,
 			expectErrMsg: "cannot enable multiple quantization methods at the same time",
 		},
+		{
+			name: "rq enabled with default bits",
+			input: map[string]interface{}{
+				"vectorCacheMaxObjects": float64(100),
+				"distance":              "cosine",
+				"rq": map[string]interface{}{
+					"enabled":      true,
+					"rescoreLimit": float64(100),
+					"cache":        true,
+				},
+			},
+			expected: UserConfig{
+				VectorCacheMaxObjects: 100,
+				Distance:              common.DefaultDistanceMetric,
+				PQ: CompressionUserConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+				},
+				BQ: CompressionUserConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+				},
+				SQ: CompressionUserConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+				},
+				RQ: RQUserConfig{
+					Enabled:      true,
+					RescoreLimit: 100,
+					Cache:        true,
+					Bits:         DefaultRQBits,
+				},
+			},
+		},
+		{
+			name: "rq enabled with 8 bits",
+			input: map[string]interface{}{
+				"vectorCacheMaxObjects": float64(100),
+				"distance":              "cosine",
+				"rq": map[string]interface{}{
+					"enabled":      true,
+					"rescoreLimit": float64(100),
+					"cache":        true,
+					"bits":         float64(8),
+				},
+			},
+			expected: UserConfig{
+				VectorCacheMaxObjects: 100,
+				Distance:              common.DefaultDistanceMetric,
+				PQ: CompressionUserConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+				},
+				BQ: CompressionUserConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+				},
+				SQ: CompressionUserConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+				},
+				RQ: RQUserConfig{
+					Enabled:      true,
+					RescoreLimit: 100,
+					Cache:        true,
+					Bits:         8,
+				},
+			},
+		},
+		{
+			name: "rq enabled with 1 bit",
+			input: map[string]interface{}{
+				"vectorCacheMaxObjects": float64(100),
+				"distance":              "cosine",
+				"rq": map[string]interface{}{
+					"enabled":      true,
+					"rescoreLimit": float64(100),
+					"cache":        true,
+					"bits":         float64(1),
+				},
+			},
+			expected: UserConfig{
+				VectorCacheMaxObjects: 100,
+				Distance:              common.DefaultDistanceMetric,
+				PQ: CompressionUserConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+				},
+				BQ: CompressionUserConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+				},
+				SQ: CompressionUserConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+				},
+				RQ: RQUserConfig{
+					Enabled:      true,
+					RescoreLimit: 100,
+					Cache:        true,
+					Bits:         1,
+				},
+			},
+		},
+		{
+			name: "rq enabled with invalid bits",
+			input: map[string]interface{}{
+				"vectorCacheMaxObjects": float64(100),
+				"distance":              "cosine",
+				"rq": map[string]interface{}{
+					"enabled":      true,
+					"rescoreLimit": float64(100),
+					"cache":        true,
+					"bits":         float64(4),
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "RQ bits must be either 1 or 8",
+		},
+		{
+			name: "rq enabled with cache but not enabled",
+			input: map[string]interface{}{
+				"vectorCacheMaxObjects": float64(100),
+				"distance":              "cosine",
+				"rq": map[string]interface{}{
+					"enabled":      false,
+					"rescoreLimit": float64(100),
+					"cache":        true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "not possible to use the cache without compression",
+		},
+		{
+			name: "rq and bq enabled together",
+			input: map[string]interface{}{
+				"vectorCacheMaxObjects": float64(100),
+				"distance":              "cosine",
+				"rq": map[string]interface{}{
+					"enabled":      true,
+					"rescoreLimit": float64(100),
+					"cache":        true,
+				},
+				"bq": map[string]interface{}{
+					"enabled":      true,
+					"rescoreLimit": float64(100),
+					"cache":        true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "cannot enable multiple quantization methods at the same time",
+		},
+		{
+			name: "rq and pq enabled together",
+			input: map[string]interface{}{
+				"vectorCacheMaxObjects": float64(100),
+				"distance":              "cosine",
+				"rq": map[string]interface{}{
+					"enabled":      true,
+					"rescoreLimit": float64(100),
+					"cache":        true,
+				},
+				"pq": map[string]interface{}{
+					"enabled":      true,
+					"rescoreLimit": float64(100),
+					"cache":        true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "cannot enable multiple quantization methods at the same time",
+		},
+		{
+			name: "rq and sq enabled together",
+			input: map[string]interface{}{
+				"vectorCacheMaxObjects": float64(100),
+				"distance":              "cosine",
+				"rq": map[string]interface{}{
+					"enabled":      true,
+					"rescoreLimit": float64(100),
+					"cache":        true,
+				},
+				"sq": map[string]interface{}{
+					"enabled":      true,
+					"rescoreLimit": float64(100),
+					"cache":        true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "cannot enable multiple quantization methods at the same time",
+		},
 	}
 
 	for _, test := range tests {
@@ -145,4 +356,20 @@ func Test_FlatUserConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_RQUserConfigDefaults(t *testing.T) {
+	t.Run("UserConfig SetDefaults includes RQ", func(t *testing.T) {
+		config := UserConfig{}
+		config.SetDefaults()
+
+		expectedRQ := RQUserConfig{
+			Enabled:      DefaultCompressionEnabled,
+			RescoreLimit: DefaultCompressionRescore,
+			Cache:        DefaultVectorCache,
+			Bits:         DefaultRQBits,
+		}
+
+		assert.Equal(t, expectedRQ, config.RQ)
+	})
 }

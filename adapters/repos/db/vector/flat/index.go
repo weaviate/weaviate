@@ -904,6 +904,10 @@ func (index *flat) GetKeys(id uint64) (uint64, uint64, error) {
 }
 
 func (index *flat) ValidateBeforeInsert(vector []float32) error {
+	if len(vector) == 0 {
+		return errors.Errorf("cannot insert vector of dimension 0")
+	}
+
 	dims := int(atomic.LoadInt32(&index.dims))
 
 	// no vectors exist
