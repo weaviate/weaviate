@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	esync "github.com/weaviate/weaviate/entities/sync"
 
 	"github.com/weaviate/weaviate/entities/tenantactivity"
 )
@@ -37,6 +38,7 @@ func TestShardActivity(t *testing.T) {
 				closingCtx:          context.Background(),
 				partitioningEnabled: true,
 				shards:              shardMap{},
+				shardCreateLocks:    esync.NewKeyLocker(),
 			},
 			"NonMT": {
 				Config: IndexConfig{
@@ -46,6 +48,7 @@ func TestShardActivity(t *testing.T) {
 				closingCtx:          context.Background(),
 				partitioningEnabled: false,
 				shards:              shardMap{},
+				shardCreateLocks:    esync.NewKeyLocker(),
 			},
 		},
 	}

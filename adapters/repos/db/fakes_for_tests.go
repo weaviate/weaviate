@@ -171,50 +171,50 @@ func fixedMultiShardState() *sharding.State {
 	return s
 }
 
-type fakeRemoteClient struct{}
+type FakeRemoteClient struct{}
 
-func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName, shardName string, objs []*storobj.Object, repl *additional.ReplicationProperties, schemaVersion uint64) []error {
+func (f *FakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName, shardName string, objs []*storobj.Object, repl *additional.ReplicationProperties, schemaVersion uint64) []error {
 	return nil
 }
 
-func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
+func (f *FakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
 	shardName string, obj *storobj.Object, schemaVersion uint64,
 ) error {
 	return nil
 }
 
-func (f *fakeRemoteClient) GetObject(ctx context.Context, hostName, indexName,
+func (f *FakeRemoteClient) GetObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
 	return nil, nil
 }
 
-func (f *fakeRemoteClient) Exists(ctx context.Context, hostName, indexName,
+func (f *FakeRemoteClient) Exists(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID,
 ) (bool, error) {
 	return false, nil
 }
 
-func (f *fakeRemoteClient) DeleteObject(ctx context.Context, hostName, indexName,
+func (f *FakeRemoteClient) DeleteObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
 ) error {
 	return nil
 }
 
-func (f *fakeRemoteClient) MergeObject(ctx context.Context, hostName, indexName,
+func (f *FakeRemoteClient) MergeObject(ctx context.Context, hostName, indexName,
 	shardName string, mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
 	return nil
 }
 
-func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexName,
+func (f *FakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexName,
 	shardName string, ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
 	return nil, nil
 }
 
-func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
+func (f *FakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []models.Vector, targetVector []string, distance float32, limit int,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
@@ -223,198 +223,198 @@ func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	return nil, nil, nil
 }
 
-func (f *fakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
+func (f *FakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
 	shardName string, params aggregation.Params,
 ) (*aggregation.Result, error) {
 	return nil, nil
 }
 
-func (f *fakeRemoteClient) BatchAddReferences(ctx context.Context, hostName,
+func (f *FakeRemoteClient) BatchAddReferences(ctx context.Context, hostName,
 	indexName, shardName string, refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
 	return nil
 }
 
-func (f *fakeRemoteClient) FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
+func (f *FakeRemoteClient) FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
 	filters *filters.LocalFilter,
 ) ([]strfmt.UUID, error) {
 	return nil, nil
 }
 
-func (f *fakeRemoteClient) DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
+func (f *FakeRemoteClient) DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) objects.BatchSimpleObjects {
 	return nil
 }
 
-func (f *fakeRemoteClient) GetShardQueueSize(ctx context.Context,
+func (f *FakeRemoteClient) GetShardQueueSize(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (int64, error) {
 	return 0, nil
 }
 
-func (f *fakeRemoteClient) GetShardStatus(ctx context.Context,
+func (f *FakeRemoteClient) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (string, error) {
 	return "", nil
 }
 
-func (f *fakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
+func (f *FakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
 	targetStatus string, schemaVersion uint64,
 ) error {
 	return nil
 }
 
-func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, shardName,
+func (f *FakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, shardName,
 	fileName string, payload io.ReadSeekCloser,
 ) error {
 	return nil
 }
 
-func (f *fakeRemoteClient) PauseFileActivity(ctx context.Context, hostName, indexName, shardName string, schemaVersion uint64) error {
+func (f *FakeRemoteClient) PauseFileActivity(ctx context.Context, hostName, indexName, shardName string, schemaVersion uint64) error {
 	return nil
 }
 
-func (f *fakeRemoteClient) ResumeFileActivity(ctx context.Context, hostName, indexName, shardName string) error {
+func (f *FakeRemoteClient) ResumeFileActivity(ctx context.Context, hostName, indexName, shardName string) error {
 	return nil
 }
 
-func (f *fakeRemoteClient) ListFiles(ctx context.Context, hostName, indexName, shardName string) ([]string, error) {
+func (f *FakeRemoteClient) ListFiles(ctx context.Context, hostName, indexName, shardName string) ([]string, error) {
 	return nil, nil
 }
 
-func (f *fakeRemoteClient) GetFileMetadata(ctx context.Context, hostName, indexName, shardName,
+func (f *FakeRemoteClient) GetFileMetadata(ctx context.Context, hostName, indexName, shardName,
 	fileName string,
 ) (file.FileMetadata, error) {
 	return file.FileMetadata{}, nil
 }
 
-func (f *fakeRemoteClient) GetFile(ctx context.Context, hostName, indexName, shardName,
+func (f *FakeRemoteClient) GetFile(ctx context.Context, hostName, indexName, shardName,
 	fileName string,
 ) (io.ReadCloser, error) {
 	return nil, nil
 }
 
-func (f *fakeRemoteClient) AddAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error {
+func (f *FakeRemoteClient) AddAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error {
 	return nil
 }
 
-func (f *fakeRemoteClient) RemoveAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+func (f *FakeRemoteClient) RemoveAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
 	return nil
 }
 
-type fakeNodeResolver struct{}
+type FakeNodeResolver struct{}
 
-func (f *fakeNodeResolver) AllHostnames() []string {
+func (f *FakeNodeResolver) AllHostnames() []string {
 	return nil
 }
 
-func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
+func (f *FakeNodeResolver) NodeHostname(string) (string, bool) {
 	return "", false
 }
 
-type fakeRemoteNodeClient struct{}
+type FakeRemoteNodeClient struct{}
 
-func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, shardName, output string) (*models.NodeStatus, error) {
+func (f *FakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, shardName, output string) (*models.NodeStatus, error) {
 	return &models.NodeStatus{}, nil
 }
 
-func (f *fakeRemoteNodeClient) GetStatistics(ctx context.Context, hostName string) (*models.Statistics, error) {
+func (f *FakeRemoteNodeClient) GetStatistics(ctx context.Context, hostName string) (*models.Statistics, error) {
 	return &models.Statistics{}, nil
 }
 
-type fakeReplicationClient struct{}
+type FakeReplicationClient struct{}
 
-var _ replica.Client = (*fakeReplicationClient)(nil)
+var _ replica.Client = (*FakeReplicationClient)(nil)
 
-func (f *fakeReplicationClient) PutObject(ctx context.Context, host, index, shard, requestID string,
+func (f *FakeReplicationClient) PutObject(ctx context.Context, host, index, shard, requestID string,
 	obj *storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
-func (f *fakeReplicationClient) DeleteObject(ctx context.Context, host, index, shard, requestID string,
+func (f *FakeReplicationClient) DeleteObject(ctx context.Context, host, index, shard, requestID string,
 	id strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
-func (f *fakeReplicationClient) PutObjects(ctx context.Context, host, index, shard, requestID string,
+func (f *FakeReplicationClient) PutObjects(ctx context.Context, host, index, shard, requestID string,
 	objs []*storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
-func (f *fakeReplicationClient) MergeObject(ctx context.Context, host, index, shard, requestID string,
+func (f *FakeReplicationClient) MergeObject(ctx context.Context, host, index, shard, requestID string,
 	mergeDoc *objects.MergeDocument, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
-func (f *fakeReplicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
+func (f *FakeReplicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
-func (f *fakeReplicationClient) AddReferences(ctx context.Context, host, index, shard, requestID string,
+func (f *FakeReplicationClient) AddReferences(ctx context.Context, host, index, shard, requestID string,
 	refs []objects.BatchReference, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
-func (f *fakeReplicationClient) Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error {
+func (f *FakeReplicationClient) Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error {
 	return nil
 }
 
-func (f *fakeReplicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (replica.SimpleResponse, error) {
+func (f *FakeReplicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
-func (fakeReplicationClient) Exists(ctx context.Context, hostName, indexName,
+func (FakeReplicationClient) Exists(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID,
 ) (bool, error) {
 	return false, nil
 }
 
-func (*fakeReplicationClient) FetchObject(ctx context.Context, hostName, indexName,
+func (*FakeReplicationClient) FetchObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties, numRetries int,
 ) (replica.Replica, error) {
 	return replica.Replica{}, nil
 }
 
-func (*fakeReplicationClient) DigestObjects(ctx context.Context,
+func (*FakeReplicationClient) DigestObjects(ctx context.Context,
 	hostName, indexName, shardName string, ids []strfmt.UUID, numRetries int,
 ) (result []types.RepairResponse, err error) {
 	return nil, nil
 }
 
-func (*fakeReplicationClient) FetchObjects(ctx context.Context, host,
+func (*FakeReplicationClient) FetchObjects(ctx context.Context, host,
 	index, shard string, ids []strfmt.UUID,
 ) ([]replica.Replica, error) {
 	return nil, nil
 }
 
-func (*fakeReplicationClient) OverwriteObjects(ctx context.Context,
+func (*FakeReplicationClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, objects []*objects.VObject,
 ) ([]types.RepairResponse, error) {
 	return nil, nil
 }
 
-func (*fakeReplicationClient) FindUUIDs(ctx context.Context,
+func (*FakeReplicationClient) FindUUIDs(ctx context.Context,
 	hostName, indexName, shardName string, filters *filters.LocalFilter,
 ) (result []strfmt.UUID, err error) {
 	return nil, nil
 }
 
-func (c *fakeReplicationClient) DigestObjectsInRange(ctx context.Context, host, index, shard string,
+func (c *FakeReplicationClient) DigestObjectsInRange(ctx context.Context, host, index, shard string,
 	initialUUID, finalUUID strfmt.UUID, limit int,
 ) ([]types.RepairResponse, error) {
 	return nil, nil
 }
 
-func (c *fakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string, level int,
+func (c *FakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 	discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
 	return nil, nil

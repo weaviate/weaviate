@@ -49,6 +49,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
+// since v1.34 StrategyRoaringSet will be default strategy for dimensions bucket
+var DimensionsBucketPrioritizedStrategies = []string{
+	StrategyMapCollection,
+	StrategyRoaringSet,
+}
+
 const (
 	FlushAfterDirtyDefault = 60 * time.Second
 	unsetStrategy          = "UNSET"

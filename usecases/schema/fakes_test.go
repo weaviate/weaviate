@@ -267,7 +267,7 @@ func (f *fakeSchemaManager) TenantsShardsWithVersion(ctx context.Context, versio
 	return map[string]string{args.String(0): args.String(1)}, args.Error(2)
 }
 
-func (f *fakeSchemaManager) Read(class string, reader func(*models.Class, *sharding.State) error) error {
+func (f *fakeSchemaManager) Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error {
 	args := f.Called(class, reader)
 	return args.Error(0)
 }

@@ -80,12 +80,12 @@ func (rs SchemaReader) MultiTenancy(class string) models.MultiTenancyConfig {
 }
 
 // Read performs a read operation `reader` on the specified class and sharding state
-func (rs SchemaReader) Read(class string, reader func(*models.Class, *sharding.State) error) error {
+func (rs SchemaReader) Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("Read"))
 	defer t.ObserveDuration()
 
 	return rs.retry(func(s *schema) error {
-		return s.Read(class, reader)
+		return s.Read(class, retryIfClassNotFound, reader)
 	})
 }
 

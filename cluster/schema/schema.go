@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
@@ -135,10 +136,14 @@ func (s *schema) MultiTenancy(class string) models.MultiTenancyConfig {
 }
 
 // Read performs a read operation `reader` on the specified class and sharding state
-func (s *schema) Read(class string, reader func(*models.Class, *sharding.State) error) error {
+func (s *schema) Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error {
 	meta := s.metaClass(class)
 	if meta == nil {
-		return ErrClassNotFound
+		if retryIfClassNotFound {
+			return ErrClassNotFound
+		} else {
+			return backoff.Permanent(ErrClassNotFound)
+		}
 	}
 	return meta.RLockGuard(reader)
 }

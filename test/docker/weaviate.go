@@ -36,7 +36,8 @@ const (
 func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
 	extraEnvSettings map[string]string, networkName string,
-	weaviateImage, hostname string, exposeGRPCPort bool,
+	weaviateImage, hostname string,
+	exposeGRPCPort, exposeDebugPort bool,
 	wellKnownEndpoint string,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
@@ -106,6 +107,11 @@ func startWeaviate(ctx context.Context,
 		exposedPorts = append(exposedPorts, "50051/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(grpcPort))
 	}
+	debugPort := nat.Port("6060/tcp")
+	if exposeDebugPort {
+		exposedPorts = append(exposedPorts, "6060/tcp")
+		waitStrategies = append(waitStrategies, wait.ForListeningPort(debugPort))
+	}
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
@@ -161,6 +167,13 @@ func startWeaviate(ctx context.Context,
 			return nil, err
 		}
 		endpoints[GRPC] = endpoint{grpcPort, grpcUri}
+	}
+	if exposeDebugPort {
+		debugUri, err := c.PortEndpoint(ctx, debugPort, "")
+		if err != nil {
+			return nil, err
+		}
+		endpoints[DEBUG] = endpoint{debugPort, debugUri}
 	}
 	return &DockerContainer{
 		name:        containerName,

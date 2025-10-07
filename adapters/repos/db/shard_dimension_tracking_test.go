@@ -55,7 +55,7 @@ func Benchmark_Migration(b *testing.B) {
 				QueryMaximumResults:       1000,
 				MaxImportGoroutinesFactor: 1,
 				TrackVectorDimensions:     true,
-			}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+			}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 			require.Nil(b, err)
 			repo.SetSchemaGetter(schemaGetter)
 			require.Nil(b, repo.WaitForStartup(testCtx()))
@@ -120,57 +120,71 @@ func Test_Migration(t *testing.T) {
 		QueryMaximumResults:       1000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer repo.Shutdown(context.Background())
 
 	migrator := NewMigrator(repo, logger)
 
-	t.Run("set schema", func(t *testing.T) {
-		class := &models.Class{
-			Class:               "Test",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: invertedConfig(),
-		}
-		schema := schema.Schema{
-			Objects: &models.Schema{
-				Classes: []*models.Class{class},
-			},
-		}
+	class := &models.Class{
+		Class:               "Test",
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+	}
+	schema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
 
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+	require.Nil(t,
+		migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 
-		schemaGetter.schema = schema
-	})
+	schemaGetter.schema = schema
 
 	repo.config.TrackVectorDimensions = false
 
-	t.Run("import objects with d=128", func(t *testing.T) {
-		dim := 128
-		for i := 0; i < 100; i++ {
-			vec := make([]float32, dim)
-			for j := range vec {
-				vec[j] = r.Float32()
-			}
-
-			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
-			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
-			require.Nil(t, err)
+	// import with dim=128
+	dim := 128
+	for i := 0; i < 100; i++ {
+		vec := make([]float32, dim)
+		for j := range vec {
+			vec[j] = r.Float32()
 		}
-		dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
-		require.Equal(t, 0, dimAfter, "dimensions should not have been calculated")
-	})
+
+		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+		obj := &models.Object{Class: "Test", ID: id}
+		err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
+		require.Nil(t, err)
+	}
+	dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
+	require.Equal(t, 0, dimAfter, "dimensions should not have been calculated")
 
 	dimBefore := getDimensionsFromRepo(context.Background(), repo, "Test")
 	require.Equal(t, 0, dimBefore, "dimensions should not have been calculated")
 	repo.config.TrackVectorDimensions = true
 	migrator.RecalculateVectorDimensions(context.TODO())
-	dimAfter := getDimensionsFromRepo(context.Background(), repo, "Test")
-	require.Equal(t, 12800, dimAfter, "dimensions should be counted now")
+	dimAfterRecalculation := getDimensionsFromRepo(context.Background(), repo, "Test")
+	require.Equal(t, 12800, dimAfterRecalculation, "dimensions should be counted now")
+
+	// shut down and test calculation from unloaded shard with new repo
+	require.NoError(t, repo.Shutdown(context.Background()))
+	repoNew, err := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       1000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+		DisableLazyLoadShards:     false,
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil)
+	require.Nil(t, err)
+	defer repoNew.Shutdown(context.Background())
+	repoNew.SetSchemaGetter(schemaGetter)
+
+	require.Nil(t, repoNew.WaitForStartup(testCtx()))
+
+	dimUnloadedAfter := getDimensionsFromRepo(context.Background(), repoNew, "Test")
+	require.Equal(t, 12800, dimUnloadedAfter, "dimensions should be counted now")
 }
 
 func Test_DimensionTracking(t *testing.T) {
@@ -188,7 +202,7 @@ func Test_DimensionTracking(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, monitoring.GetMetrics(), memwatch.NewDummyMonitor())
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, monitoring.GetMetrics(), memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -602,6 +616,7 @@ func TestGetDimensionCategory(t *testing.T) {
 		config           schemaConfig.VectorIndexConfig
 		expectedCategory DimensionCategory
 		expectedSegments int
+		upgradedDynamic  bool
 	}{
 		// HNSW Tests
 		{
@@ -718,7 +733,7 @@ func TestGetDimensionCategory(t *testing.T) {
 			expectedSegments: 0,
 		},
 		{
-			name: "Dynamic with HNSW PQ enabled (HNSW takes priority)",
+			name: "upgraded Dynamic with HNSW PQ enabled",
 			config: dynamicent.UserConfig{
 				HnswUC: enthnsw.UserConfig{
 					PQ: enthnsw.PQConfig{Enabled: true, Segments: 12},
@@ -732,9 +747,10 @@ func TestGetDimensionCategory(t *testing.T) {
 			},
 			expectedCategory: DimensionCategoryPQ,
 			expectedSegments: 12,
+			upgradedDynamic:  true,
 		},
 		{
-			name: "Dynamic with HNSW BQ enabled (HNSW takes priority)",
+			name: "Dynamic with HNSW BQ enabled",
 			config: dynamicent.UserConfig{
 				HnswUC: enthnsw.UserConfig{
 					PQ: enthnsw.PQConfig{Enabled: false},
@@ -746,17 +762,18 @@ func TestGetDimensionCategory(t *testing.T) {
 					BQ: flatent.CompressionUserConfig{Enabled: true},
 				},
 			},
+			upgradedDynamic:  true,
 			expectedCategory: DimensionCategoryBQ,
 			expectedSegments: 0,
 		},
 		{
-			name: "Dynamic with HNSW standard, Flat BQ enabled (falls back to Flat)",
+			name: "not-upgraded Dynamic with HNSW RQ, Flat BQ enabled",
 			config: dynamicent.UserConfig{
 				HnswUC: enthnsw.UserConfig{
 					PQ: enthnsw.PQConfig{Enabled: false},
 					BQ: enthnsw.BQConfig{Enabled: false},
 					SQ: enthnsw.SQConfig{Enabled: false},
-					RQ: enthnsw.RQConfig{Enabled: false},
+					RQ: enthnsw.RQConfig{Enabled: true},
 				},
 				FlatUC: flatent.UserConfig{
 					BQ: flatent.CompressionUserConfig{Enabled: true},
@@ -795,7 +812,7 @@ func TestGetDimensionCategory(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			category, segments := GetDimensionCategory(tt.config)
+			category, segments := GetDimensionCategory(tt.config, tt.upgradedDynamic)
 
 			assert.Equal(t, tt.expectedCategory, category,
 				"Expected category %v, got %v", tt.expectedCategory, category)

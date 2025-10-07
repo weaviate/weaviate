@@ -585,10 +585,12 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/usage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// appState.Cluster.LocalName(),
 		service := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, appState.Logger)
 
-		stats, err := service.Usage(r.Context())
+		exactCountParam := r.URL.Query().Get("exactObjectCount")
+		exactObjectCount := exactCountParam == "true" // false by default
+
+		stats, err := service.Usage(r.Context(), exactObjectCount)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
