@@ -99,6 +99,15 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	ctx, cancel := context.WithCancel(stream.Context())
 	defer cancel()
 
+	// Start a goroutine to cancel the context after a grace period once shutdown is triggered
+	// This ensures that we don't hang indefinitely if the client does not close the stream
+	// after receiving the shutdown message for any reason
+	enterrors.GoWrapper(func() {
+		<-h.shuttingDownCtx.Done()
+		<-time.After(2 * time.Minute)
+		cancel()
+	}, h.logger)
+
 	// Channel to communicate receive errors from recv to the send loop
 	errCh := make(chan error)
 	h.recvWg.Add(1)
@@ -262,24 +271,12 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 	defer h.recvWg.Done()
 	defer h.close(streamId)
 	log := h.logger.WithField("streamId", streamId)
-	maxAllowedMessagesAfterShutdown := 5
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		request, err := stream.Recv()
 		h.processWg(streamId).Add(1)
-		if h.shuttingDown.Load() {
-			// If we're shutting down, we allow a few more messages to be processed
-			// before we return an error to the client
-			if maxAllowedMessagesAfterShutdown <= 0 {
-				h.processWg(streamId).Done() // remove the one we just added above since we're not processing a request
-				log.Debug("server is shutting down, refusing to process further requests")
-				return ErrShutdown
-			}
-			maxAllowedMessagesAfterShutdown--
-			log.WithField("remaining", maxAllowedMessagesAfterShutdown).Debug("server is shutting down, will process a few more requests before refusing further ones")
-		}
 		if errors.Is(err, io.EOF) {
 			log.Debug("client closed stream")
 			h.processWg(streamId).Done() // remove the one we added above since we're not processing a request
