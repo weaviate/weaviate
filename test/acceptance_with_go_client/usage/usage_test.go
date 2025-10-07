@@ -641,7 +641,7 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 	t.Run("storage size", func(t *testing.T) {
 		classNameHnsw := sanitizeName("Class" + t.Name() + "hnsw")
 		classNameFlat := sanitizeName("Class" + t.Name() + "flat")
-		classNameDynamic := sanitizeName("Class" + t.Name() + "dyna") // same lengt
+		classNameDynamic := sanitizeName("Class" + t.Name() + "dyna") // same length
 
 		hnsw1024 := "hnsw1024"
 		flat1024 := "flat1024"
