@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"sync"
 	"time"
 
 	"google.golang.org/grpc/peer"
@@ -27,7 +26,6 @@ import (
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	pbv0 "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
@@ -124,16 +122,7 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 
 	grpc_health_v1.RegisterHealthServer(s, weaviateV1)
 
-	return s, func() {
-		var wg sync.WaitGroup
-		wg.Add(1)
-		enterrors.GoWrapper(func() {
-			defer wg.Done()
-			shutdown.Drain(state.Logger)
-		}, state.Logger)
-		s.GracefulStop()
-		wg.Wait()
-	}
+	return s, func() { shutdown.Drain(state.Logger) }
 }
 
 func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics) grpc.UnaryServerInterceptor {
