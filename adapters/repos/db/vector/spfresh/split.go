@@ -95,7 +95,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 	if err != nil {
 		if errors.Is(err, ErrPostingNotFound) {
 			s.logger.WithField("postingID", postingID).
-				Error("Posting not found, skipping split operation")
+				Debug("Posting not found, skipping split operation")
 			return nil
 		}
 
@@ -164,7 +164,7 @@ func (s *SPFresh) doSplit(postingID uint64, reassign bool) error {
 
 			if dist < splitReuseEpsilon {
 				s.logger.WithField("postingID", postingID).
-					Error("Reusing existing posting for split operation")
+					Debug("Reusing existing posting for split operation")
 				postingReused = true
 				newPostingIDs[i] = postingID
 				err = s.Store.Put(s.ctx, postingID, result[i].Posting)
@@ -350,7 +350,7 @@ func (s *SPFresh) enqueueReassignAfterSplit(oldPostingID uint64, newPostingIDs [
 		if err != nil {
 			if errors.Is(err, ErrPostingNotFound) {
 				s.logger.WithField("postingID", neighborID).
-					Error("Posting not found, skipping reassign after split")
+					Debug("Posting not found, skipping reassign after split")
 				continue // Skip if the posting is not found
 			}
 

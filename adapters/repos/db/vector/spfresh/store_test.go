@@ -29,7 +29,7 @@ func TestStore(t *testing.T) {
 		// unknown posting
 		p, err := s.Get(ctx, 1)
 		require.Nil(t, err)
-		require.Equal(t, len(p.(*CompressedPosting).data), 0)
+		require.Equal(t, p.Len(), 0)
 
 		// create a posting
 		posting := CompressedPosting{
@@ -47,7 +47,7 @@ func TestStore(t *testing.T) {
 		// get a different posting
 		p, err = s.Get(ctx, 2)
 		require.Nil(t, err)
-		require.Equal(t, len(p.(*CompressedPosting).data), 0)
+		require.Equal(t, p.Len(), 0)
 	})
 
 	t.Run("multi-get", func(t *testing.T) {
@@ -64,9 +64,9 @@ func TestStore(t *testing.T) {
 		// unknown postings
 		ps, err = s.MultiGet(ctx, []uint64{1, 2, 3})
 		require.Nil(t, err)
-		require.Equal(t, len(ps[0].(*CompressedPosting).data), 0)
-		require.Equal(t, len(ps[1].(*CompressedPosting).data), 0)
-		require.Equal(t, len(ps[2].(*CompressedPosting).data), 0)
+		require.Equal(t, ps[0].Len(), 0)
+		require.Equal(t, ps[1].Len(), 0)
+		require.Equal(t, ps[2].Len(), 0)
 
 		var postings []*CompressedPosting
 		// create a few postings

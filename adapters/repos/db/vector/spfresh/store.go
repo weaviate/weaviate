@@ -167,7 +167,8 @@ func (l *LSMStore) Append(ctx context.Context, postingID uint64, vector Vector) 
 }
 
 func (l *LSMStore) Flush() error {
-	// return l.bucket.FlushMemtable()
+	// nothing to do here
+	// Shard will take care of handling store's buckets
 	return nil
 }
 
