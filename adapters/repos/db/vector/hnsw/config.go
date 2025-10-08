@@ -47,6 +47,9 @@ type Config struct {
 	WriteSegmentInfoIntoFileName bool
 	WriteMetadataFilesEnabled    bool
 
+	MinMMapSize     int64
+	MaxWalReuseSize int64
+
 	// metadata for monitoring
 	ShardName string
 	ClassName string

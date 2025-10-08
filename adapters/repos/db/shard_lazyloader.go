@@ -565,6 +565,11 @@ func (l *LazyLoadShard) RepairIndex(ctx context.Context, targetVector string) er
 	return l.shard.RepairIndex(ctx, targetVector)
 }
 
+func (l *LazyLoadShard) RequantizeIndex(ctx context.Context, targetVector string) error {
+	l.mustLoad()
+	return l.shard.RequantizeIndex(ctx, targetVector)
+}
+
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	if !l.isLoaded() {
 		return nil

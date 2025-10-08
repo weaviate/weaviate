@@ -81,7 +81,10 @@ func (m *Manager) GetUsersOrGroupsWithRoles(isGroup bool, authType authenticatio
 			return nil, err
 		}
 		for _, userOrGroup := range users {
-			name, _ := conv.GetUserAndPrefix(userOrGroup)
+			name, _, err := conv.GetUserAndPrefix(userOrGroup)
+			if err != nil {
+				return nil, fmt.Errorf("GetUserAndPrefix: %w", err)
+			}
 			if isGroup {
 				// groups are only supported for OIDC
 				if authType == authentication.AuthTypeOIDC && strings.HasPrefix(userOrGroup, conv.OIDC_GROUP_NAME_PREFIX) {
@@ -308,7 +311,10 @@ func (m *Manager) GetUsersOrGroupForRole(roleName string, authType authenticatio
 	}
 	users := make([]string, 0, len(pusers))
 	for idx := range pusers {
-		userOrGroup, prefix := conv.GetUserAndPrefix(pusers[idx])
+		userOrGroup, prefix, err := conv.GetUserAndPrefix(pusers[idx])
+		if err != nil {
+			return nil, fmt.Errorf("GetUserAndPrefix: %w", err)
+		}
 		if userOrGroup == conv.InternalPlaceHolder {
 			continue
 		}

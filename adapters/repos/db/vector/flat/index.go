@@ -59,13 +59,14 @@ type flat struct {
 	trackDimensionsOnce sync.Once
 	rescore             int64
 
-	quantizer Quantizer
-	cache     *Cache
+	compressed      atomic.Bool
+	compressionType CompressionType
+	quantizer       Quantizer
+	cache           *Cache
 
 	pqResults *common.PqMaxPool
 	pool      *pools
 
-	compression          CompressionType
 	count                uint64
 	concurrentCacheReads int
 }
@@ -93,7 +94,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		metadataLock:         &sync.RWMutex{},
 		rescore:              extractCompressionRescore(uc),
 		pqResults:            common.NewPqMaxPool(100),
-		compression:          extractCompression(uc),
+		compressionType:      extractCompression(uc),
 		pool:                 newPools(),
 		store:                store,
 		concurrentCacheReads: runtime.GOMAXPROCS(0) * 2,
@@ -102,20 +103,22 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		return nil, fmt.Errorf("init flat index buckets: %w", err)
 	}
 
-	// Initialize quantizer and cache based on compression type
-	compression := extractCompression(uc)
-	if compression.IsQuantized() {
-		builder := NewQuantizerBuilder(cfg.DistanceProvider)
-		index.quantizer = builder.CreateQuantizer(compression, 0) // dimensions will be set later
-
-		// Create cache if enabled
-		if (compression == CompressionBQ && uc.BQ.Cache) || (compression == CompressionRQ1 && uc.RQ.Cache) || (compression == CompressionRQ8 && uc.RQ.Cache) {
-			index.cache = NewCache(index.getUint64QuantizedVector, index.getByteQuantizedVector, uc.VectorCacheMaxObjects, cfg.Logger, cfg.AllocChecker, index.quantizer.Type())
-		}
+	if err := index.restoreMetadata(); err != nil {
+		return nil, err
 	}
 
-	if err := index.initMetadata(); err != nil {
-		return nil, err
+	// If compression is BQ we create the quantizer and cache immediately
+	// For RQ we create when restoring from disk or on first batch
+	if index.compressionType == CompressionBQ {
+		index.compressed.Store(true)
+		builder := NewQuantizerBuilder(cfg.DistanceProvider)
+		index.quantizer = builder.CreateQuantizer(index.compressionType, 0)
+	}
+
+	cached, cacheType := extractCache(uc)
+	if cached {
+		index.cache = NewCache(index.getUint64QuantizedVector, index.getByteQuantizedVector, uc.VectorCacheMaxObjects,
+			cfg.Logger, cfg.AllocChecker, cacheType)
 	}
 
 	return index, nil
@@ -176,6 +179,21 @@ func extractCompressionRescore(uc flatent.UserConfig) int64 {
 	}
 }
 
+func extractCache(uc flatent.UserConfig) (bool, QuantizerType) {
+	if uc.BQ.Enabled {
+		return uc.BQ.Cache, Uint64Quantizer
+	}
+
+	if uc.RQ.Enabled {
+		if uc.RQ.Bits == 8 {
+			return uc.RQ.Cache, ByteQuantizer
+		}
+		return uc.RQ.Cache, Uint64Quantizer
+	}
+
+	return false, 0
+}
+
 func (index *flat) storeCompressedVector(id uint64, vector []byte) {
 	index.storeGenericVector(id, vector, index.getCompressedBucketName())
 }
@@ -190,16 +208,12 @@ func (index *flat) storeGenericVector(id uint64, vector []byte, bucket string) {
 	index.store.Bucket(bucket).Put(idBytes, vector)
 }
 
-func (index *flat) isQuantized() bool {
-	return index.compression.IsQuantized()
-}
-
-func (index *flat) isQuantizedCached() bool {
-	return index.cache != nil && index.cache.IsCached()
+func (index *flat) Cached() bool {
+	return index.compressed.Load() && index.cache != nil
 }
 
 func (index *flat) Compressed() bool {
-	return index.compression != CompressionNone
+	return index.compressed.Load()
 }
 
 func (index *flat) Multivector() bool {
@@ -214,10 +228,7 @@ func (index *flat) getBucketName() string {
 }
 
 func (index *flat) getCompressedBucketName() string {
-	if index.targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsCompressedBucketLSM, index.targetVector)
-	}
-	return helpers.VectorsCompressedBucketLSM
+	return helpers.GetCompressedBucketName(index.targetVector)
 }
 
 func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
@@ -249,7 +260,7 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 	); err != nil {
 		return fmt.Errorf("create or load flat vectors bucket: %w", err)
 	}
-	if index.isQuantized() {
+	if index.compressionType != CompressionNone {
 		if err := index.store.CreateOrLoadBucket(ctx, index.getCompressedBucketName(),
 			lsmkv.WithForceCompaction(forceCompaction),
 			lsmkv.WithUseBloomFilter(false),
@@ -337,27 +348,38 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 	}
 
 	index.trackDimensionsOnce.Do(func() {
-		size := int32(len(vector))
-		atomic.StoreInt32(&index.dims, size)
-		err := index.setDimensions(size)
-		if err != nil {
-			index.logger.WithError(err).Error("could not set dimensions")
+		dims := atomic.LoadInt32(&index.dims)
+
+		if dims == 0 {
+			size := int32(len(vector))
+			if size == 0 {
+				return
+			}
+			atomic.StoreInt32(&index.dims, size)
+			err := index.setDimensions(size)
+			dims = size
+			if err != nil {
+				index.logger.WithError(err).Error("could not set dimensions")
+			}
 		}
 
-		if index.isQuantized() {
-			// Initialize quantizer with actual dimensions
-			builder := NewQuantizerBuilder(index.distancerProvider)
-			index.quantizer = builder.CreateQuantizer(index.compression, size)
+		// Exit early
+		if index.Compressed() || dims == 0 {
+			return
+		}
 
-			// Persist RQ data if needed
-			if index.compression == CompressionRQ1 || index.compression == CompressionRQ8 {
-				if err := index.persistRQData(); err != nil {
-					index.logger.WithError(err).Error("could not persist RQ data")
-				}
+		if index.compressionType == CompressionRQ1 || index.compressionType == CompressionRQ8 {
+			builder := NewQuantizerBuilder(index.distancerProvider)
+			index.quantizer = builder.CreateQuantizer(index.compressionType, dims)
+			if err := index.persistRQData(); err != nil {
+				index.logger.WithError(err).Error("could not persist RQ data")
+			} else {
+				index.compressed.Store(true)
 			}
 		}
 	})
 
+	// TODO duplicate validation and we should remove
 	if err := index.ValidateBeforeInsert(vector); err != nil {
 		return err
 	}
@@ -366,26 +388,7 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 	slice := make([]byte, len(vector)*4)
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
 
-	if index.isQuantized() {
-		if index.quantizer.Type() == ByteQuantizer {
-			// For byte quantizer
-			vectorQuantized := index.quantizer.EncodeBytes(vector)
-			if index.isQuantizedCached() {
-				index.cache.Grow(id)
-				index.cache.PreloadBytes(id, vectorQuantized)
-			}
-			index.storeCompressedVector(id, vectorQuantized)
-		} else if index.quantizer.Type() == Uint64Quantizer {
-			// For uint64 quantizer
-			vectorQuantized := index.quantizer.EncodeUint64(vector)
-			if index.isQuantizedCached() {
-				index.cache.Grow(id)
-				index.cache.PreloadUint64(id, vectorQuantized)
-			}
-			slice = make([]byte, len(vectorQuantized)*8)
-			index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorQuantized, slice))
-		}
-	}
+	index.Preload(id, vector)
 
 	for {
 		oldCount := atomic.LoadUint64(&index.count)
@@ -399,7 +402,7 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 
 func (index *flat) Delete(ids ...uint64) error {
 	for i := range ids {
-		if index.isQuantizedCached() {
+		if index.Cached() {
 			index.cache.Delete(context.Background(), ids[i])
 		}
 		idBytes := make([]byte, 8)
@@ -409,7 +412,7 @@ func (index *flat) Delete(ids ...uint64) error {
 			return err
 		}
 
-		if index.isQuantized() {
+		if index.Compressed() {
 			if err := index.store.Bucket(index.getCompressedBucketName()).Delete(idBytes); err != nil {
 				return err
 			}
@@ -429,7 +432,7 @@ func (index *flat) searchTimeRescore(k int) int {
 }
 
 func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	switch index.compression {
+	switch index.compressionType {
 	case CompressionBQ, CompressionRQ1, CompressionRQ8:
 		return index.searchByVectorQuantized(ctx, vector, k, allow)
 	default:
@@ -478,7 +481,7 @@ func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32
 
 	vector = index.normalized(vector)
 
-	if index.isQuantizedCached() {
+	if index.Compressed() && index.Cached() {
 		if err := index.findTopVectorsQuantizedCached(heap, allow, rescore, vector); err != nil {
 			return nil, nil, err
 		}
@@ -900,8 +903,31 @@ func (index *flat) ValidateBeforeInsert(vector []float32) error {
 	return nil
 }
 
+func (index *flat) Preload(id uint64, vector []float32) {
+	if index.Compressed() {
+		if index.quantizer.Type() == ByteQuantizer {
+			// For byte quantizer
+			vectorQuantized := index.quantizer.EncodeBytes(vector)
+			if index.Cached() {
+				index.cache.Grow(id)
+				index.cache.PreloadBytes(id, vectorQuantized)
+			}
+			index.storeCompressedVector(id, vectorQuantized)
+		} else if index.quantizer.Type() == Uint64Quantizer {
+			// For uint64 quantizer
+			vectorQuantized := index.quantizer.EncodeUint64(vector)
+			if index.Cached() {
+				index.cache.Grow(id)
+				index.cache.PreloadUint64(id, vectorQuantized)
+			}
+			slice := make([]byte, len(vectorQuantized)*8)
+			index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorQuantized, slice))
+		}
+	}
+}
+
 func (index *flat) PostStartup() {
-	if !index.isQuantizedCached() {
+	if !index.Cached() || index.quantizer == nil {
 		return
 	}
 
@@ -1009,9 +1035,9 @@ func (index *flat) PostStartup() {
 	}
 
 	took := time.Since(before)
-	cacheType := index.compression.String()
 	index.logger.WithFields(logrus.Fields{
-		"action":   "preload_" + cacheType + "_cache",
+		"action":   "preload_cache",
+		"type":     index.compressionType.String(),
 		"count":    count,
 		"took":     took,
 		"index_id": index.id,
@@ -1023,7 +1049,7 @@ func (index *flat) ContainsDoc(id uint64) bool {
 
 	// logic modeled after SearchByVector which indicates that the PQ bucket is
 	// the same as the uncompressed bucket "for now"
-	switch index.compression {
+	switch index.compressionType {
 	case CompressionBQ, CompressionRQ1, CompressionRQ8:
 		bucketName = index.getCompressedBucketName()
 	default:
@@ -1045,7 +1071,7 @@ func (index *flat) Iterate(fn func(docID uint64) bool) {
 
 	// logic modeled after SearchByVector which indicates that the PQ bucket is
 	// the same as the uncompressed bucket "for now"
-	switch index.compression {
+	switch index.compressionType {
 	case CompressionBQ, CompressionRQ1, CompressionRQ8:
 		bucketName = index.getCompressedBucketName()
 	default:
@@ -1157,7 +1183,7 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 		}
 		return dist, nil
 	}
-	switch index.compression {
+	switch index.compressionType {
 	case CompressionBQ, CompressionRQ1, CompressionRQ8:
 		if index.cache == nil {
 			distFunc = defaultDistFunc

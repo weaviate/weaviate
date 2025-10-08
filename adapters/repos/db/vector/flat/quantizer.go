@@ -362,8 +362,3 @@ func (c *Cache) PreloadNoLockBytes(id uint64, vector []byte) {
 		c.byteCache.PreloadNoLock(id, vector)
 	}
 }
-
-// IsCached returns true if the cache is available
-func (c *Cache) IsCached() bool {
-	return c.dataType == Uint64Quantizer || c.dataType == ByteQuantizer
-}

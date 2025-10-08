@@ -139,6 +139,9 @@ func (i *Index) ContainsDoc(docID uint64) bool {
 	return false
 }
 
+func (i *Index) Preload(id uint64, vector []float32) {
+}
+
 func (i *Index) Iterate(fn func(id uint64) bool) {}
 
 func (i *Index) ShouldCompress() (bool, int) {

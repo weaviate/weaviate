@@ -111,7 +111,7 @@ func (index *flat) openMetadata() error {
 	return nil
 }
 
-func (index *flat) initMetadata() error {
+func (index *flat) restoreMetadata() error {
 	err := index.openMetadata()
 	if err != nil {
 		return err
@@ -240,7 +240,7 @@ func (index *flat) setDimensions(dimensions int32) error {
 // RQ data persistence and restoration functions
 
 func (index *flat) persistRQData() error {
-	if index.quantizer == nil || index.compression == CompressionBQ {
+	if index.quantizer == nil || index.compressionType == CompressionBQ {
 		return nil
 	}
 
@@ -262,7 +262,7 @@ func (index *flat) persistRQData() error {
 		}
 
 		// Determine compression type and serialize appropriate data
-		switch index.compression {
+		switch index.compressionType {
 		case CompressionRQ1:
 			container.CompressionType = CompressionTypeRQ1
 			rq1Data, err := index.serializeRQ1Data()
@@ -484,7 +484,7 @@ func (index *flat) handleDeserializedData(container *RQDataContainer) error {
 
 // getExpectedCompressionType returns the compression type string for the current index configuration
 func (index *flat) getExpectedCompressionType() string {
-	switch index.compression {
+	switch index.compressionType {
 	case CompressionRQ1:
 		return CompressionTypeRQ1
 	case CompressionRQ8:
@@ -510,7 +510,7 @@ func (index *flat) restoreRQ1FromMsgpack(rq1Data *RQ1Data) error {
 		return errors.Wrap(err, "restore binary rotational quantizer from msgpack")
 	}
 
-	// Wrap it in the unified interface
+	index.compressed.Store(true)
 	index.quantizer = &BinaryRotationalQuantizerWrapper{BinaryRotationalQuantizer: rq}
 	return nil
 }
@@ -531,7 +531,7 @@ func (index *flat) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
 		return errors.Wrap(err, "restore rotational quantizer from msgpack")
 	}
 
-	// Wrap it in the unified interface
+	index.compressed.Store(true)
 	index.quantizer = &RotationalQuantizerWrapper{RotationalQuantizer: rq}
 	return nil
 }

@@ -363,6 +363,128 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 	}
 }
 
+func TestFlat_Preload(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	cases := []struct {
+		name        string
+		distance    string
+		compression CompressionType
+		cache       bool
+	}{
+		{name: "euclidean_bq", distance: "l2-squared", compression: CompressionBQ, cache: true},
+		{name: "cosine_bq_cache", distance: "cosine-dot", compression: CompressionBQ, cache: true},
+		{name: "cosine_rq1_cache", distance: "cosine-dot", compression: CompressionRQ1, cache: true},
+		{name: "cosine_rq8_cache", distance: "cosine-dot", compression: CompressionRQ8, cache: true},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			dirName := t.TempDir()
+
+			var distanceProvider distancer.Provider
+			if tt.distance == "cosine-dot" {
+				distanceProvider = distancer.NewCosineDistanceProvider()
+			} else {
+				distanceProvider = distancer.NewL2SquaredProvider()
+			}
+
+			var config flatent.UserConfig
+			switch tt.compression {
+			case CompressionBQ:
+				config = flatent.UserConfig{
+					BQ: flatent.CompressionUserConfig{
+						Enabled: true, Cache: tt.cache, RescoreLimit: 10,
+					},
+				}
+			case CompressionRQ1:
+				config = flatent.UserConfig{
+					RQ: flatent.RQUserConfig{
+						Enabled: true, Cache: tt.cache, RescoreLimit: 10,
+					},
+				}
+			case CompressionRQ8:
+				config = flatent.UserConfig{
+					RQ: flatent.RQUserConfig{
+						Enabled: true, Cache: tt.cache, RescoreLimit: 10, Bits: 8,
+					},
+				}
+			}
+
+			store, err := lsmkv.New(dirName, dirName, logger, nil,
+				cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop())
+			require.Nil(t, err)
+			defer store.Shutdown(context.Background())
+
+			index, err := New(Config{
+				ID:               "test-preload",
+				RootPath:         dirName,
+				DistanceProvider: distanceProvider,
+			}, config, store)
+			require.Nil(t, err)
+			defer index.Shutdown(context.Background())
+
+			rawVector1 := []float32{4, -1, 4}
+			id1 := uint64(1)
+
+			ctx := context.Background()
+			err = index.Add(ctx, id1, rawVector1)
+			require.Nil(t, err)
+
+			// Test that vector gets cached after adding
+			if index.Cached() {
+				var vec1 interface{}
+				if index.quantizer.Type() == Uint64Quantizer {
+					vec1, err = index.cache.GetUint64(ctx, id1)
+				} else if index.quantizer.Type() == ByteQuantizer {
+					vec1, err = index.cache.GetBytes(ctx, id1)
+				}
+				require.NoError(t, err)
+				require.NotNil(t, vec1)
+			}
+
+			// Ensure deleting removes the cached vector
+			index.Delete(id1)
+			if index.Cached() {
+				var vec interface{}
+				if index.quantizer.Type() == Uint64Quantizer {
+					vec, err = index.cache.GetUint64(ctx, id1)
+				} else if index.quantizer.Type() == ByteQuantizer {
+					vec, err = index.cache.GetBytes(ctx, id1)
+				}
+				require.NoError(t, err)
+				require.Nil(t, vec)
+			}
+
+			// Test preload functionality - should not fail and should cache the vector
+			index.Preload(id1, rawVector1)
+			if index.Cached() {
+				var vec2 interface{}
+				if index.quantizer.Type() == Uint64Quantizer {
+					vec2, err = index.cache.GetUint64(ctx, id1)
+				} else if index.quantizer.Type() == ByteQuantizer {
+					vec2, err = index.cache.GetBytes(ctx, id1)
+				}
+				require.NoError(t, err)
+				require.NotNil(t, vec2)
+
+				// Verify the preloaded vector has the expected type and length
+				if index.quantizer.Type() == Uint64Quantizer {
+					uint64Vec, ok := vec2.([]uint64)
+					require.True(t, ok)
+					require.Greater(t, len(uint64Vec), 0)
+				} else if index.quantizer.Type() == ByteQuantizer {
+					byteVec, ok := vec2.([]byte)
+					require.True(t, ok)
+					require.Greater(t, len(byteVec), 0)
+				}
+			}
+		})
+	}
+}
+
 func TestConcurrentReads(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
@@ -667,7 +789,9 @@ func TestQuantizerInterfaces(t *testing.T) {
 		}, store)
 		require.Nil(t, err)
 		defer index.Shutdown(context.Background())
+		testData := []float32{1.0, 2.0, 3.0, 4.0}
 
+		index.Add(context.Background(), 0, testData)
 		require.NotNil(t, index.quantizer)
 		require.Equal(t, Uint64Quantizer, index.quantizer.Type())
 
@@ -691,8 +815,7 @@ func TestQuantizerInterfaces(t *testing.T) {
 		require.Contains(t, err.Error(), "rotational quantizer does not support byte vectors")
 
 		// Test FromCompressedBytes methods with proper data
-		// Create proper compressed data by encoding a test vector
-		testData := []float32{1.0, 2.0, 3.0, 4.0}
+
 		compressedData := index.quantizer.EncodeUint64(testData)
 
 		// Convert to bytes for testing
@@ -729,7 +852,9 @@ func TestQuantizerInterfaces(t *testing.T) {
 		}, store)
 		require.Nil(t, err)
 		defer index.Shutdown(context.Background())
+		testData := []float32{1.0, 2.0, 3.0, 4.0}
 
+		index.Add(context.Background(), 0, testData)
 		require.NotNil(t, index.quantizer)
 		require.Equal(t, ByteQuantizer, index.quantizer.Type())
 
@@ -753,8 +878,6 @@ func TestQuantizerInterfaces(t *testing.T) {
 		require.Contains(t, err.Error(), "byte quantizer does not support uint64 vectors")
 
 		// Test FromCompressedBytes methods with proper data
-		// Create proper compressed data by encoding a test vector
-		testData := []float32{1.0, 2.0, 3.0, 4.0}
 		compressedData := index.quantizer.EncodeBytes(testData)
 
 		var buffer []byte
@@ -875,7 +998,6 @@ func TestCacheFunctionality(t *testing.T) {
 
 		cache := NewCache(getUint64Vector, getByteVector, 100, logger, nil, Uint64Quantizer)
 		require.NotNil(t, cache)
-		require.True(t, cache.IsCached())
 
 		// Test Grow
 		cache.Grow(10)
@@ -931,7 +1053,6 @@ func TestCacheFunctionality(t *testing.T) {
 
 		cache := NewCache(getUint64Vector, getByteVector, 100, logger, nil, ByteQuantizer)
 		require.NotNil(t, cache)
-		require.True(t, cache.IsCached())
 
 		// Test Grow
 		cache.Grow(10)
@@ -1531,7 +1652,7 @@ func TestRQ1PersistenceAndRestoration(t *testing.T) {
 		// Verify quantizer and cache were created
 		require.NotNil(t, index.quantizer)
 		require.NotNil(t, index.cache)
-		require.True(t, index.isQuantizedCached())
+		require.True(t, index.Cached())
 
 		// Test search with cache
 		results, distances, err := index.SearchByVector(ctx, testVector, 1, nil)

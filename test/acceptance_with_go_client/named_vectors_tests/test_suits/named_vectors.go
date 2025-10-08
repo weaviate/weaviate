@@ -34,6 +34,7 @@ func AllTests(endpoint string, asyncIndexingEnabled bool) func(t *testing.T) {
 		t.Run("aggregate", testAggregate(endpoint))
 		t.Run("vector index types", testVectorIndexTypesConfigurations(endpoint))
 		t.Run("colbert", testColBERT(endpoint, asyncIndexingEnabled))
+		t.Run("legacy vector index with quantization", testCompressedLegacyVectorIndex(endpoint))
 	}
 }
 

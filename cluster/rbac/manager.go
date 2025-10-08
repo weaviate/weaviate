@@ -222,7 +222,10 @@ func (m *Manager) AddRolesForUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	reqs := migrateAssignRoles(req, m.authNconfig)
+	reqs, err := migrateAssignRoles(req, m.authNconfig)
+	if err != nil {
+		return fmt.Errorf("migrateAssign: %w", err)
+	}
 	for _, req := range reqs {
 		if err := m.authZ.AddRolesForUser(req.User, req.Roles); err != nil {
 			return err
@@ -265,7 +268,10 @@ func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	reqs := migrateRevokeRoles(req)
+	reqs, err := migrateRevokeRoles(req)
+	if err != nil {
+		return fmt.Errorf("migrateRevoke: %w", err)
+	}
 	for _, req := range reqs {
 		if err := m.authZ.RevokeRolesForUser(req.User, req.Roles...); err != nil {
 			return err
