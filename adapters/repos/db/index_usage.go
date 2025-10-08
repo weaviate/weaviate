@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/cluster/usage/types"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -221,12 +222,19 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		}
 	}
 
-	vectorStorageSize, uncompressedVectorSize, err := shard.VectorStorageSize(ctx)
+	lsmPath := shardPathLSM(i.path(), shard.Name())
+
+	_, directories, err := diskio.GetFileWithSizes(lsmPath)
 	if err != nil {
 		return nil, err
 	}
 
-	indexUsage, err := shardusage.CalculateUnloadedIndicesSize(i.path(), shard.Name())
+	vectorStorageSize, uncompressedVectorSize, err := shard.VectorStorageSize(ctx, lsmPath, directories)
+	if err != nil {
+		return nil, err
+	}
+
+	indexUsage, err := shardusage.CalculateUnloadedIndicesSize(lsmPath, directories)
 	if err != nil {
 		return nil, err
 	}
@@ -304,18 +312,25 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 }
 
 func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
+	lsmPath := shardPathLSM(i.path(), shardName)
+
+	_, directories, err := diskio.GetFileWithSizes(lsmPath)
+	if err != nil {
+		return nil, err
+	}
+
 	// Cold tenant: calculate from disk without loading
-	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(i.logger, i.path(), shardName)
+	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(i.logger, i.path(), shardName, true)
 	if err != nil {
 		return nil, err
 	}
 
-	vectorStorageSize, err := shardusage.CalculateUnloadedVectorsMetrics(i.path(), shardName)
+	vectorStorageSize, err := shardusage.CalculateUnloadedVectorsMetrics(lsmPath, directories)
 	if err != nil {
 		return nil, err
 	}
 
-	indexUsage, err := shardusage.CalculateUnloadedIndicesSize(i.path(), shardName)
+	indexUsage, err := shardusage.CalculateUnloadedIndicesSize(lsmPath, directories)
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +354,6 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		vectorUsage := &types.VectorUsage{
 			Name:                   targetVector,
 			VectorCompressionRatio: 1.0, // Default ratio for cold shards
-
 		}
 
 		vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
