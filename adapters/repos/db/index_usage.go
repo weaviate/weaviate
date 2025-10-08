@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
@@ -29,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, jitterInterval time.Duration, exactObjectCount bool, vectorsConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
+func (db *DB) UsageForIndex(ctx context.Context, logger logrus.FieldLogger, className schema.ClassName, jitterInterval time.Duration, exactObjectCount bool, vectorsConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
 	var (
 		index  *Index
 		exists bool
@@ -52,10 +53,10 @@ func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, jit
 		index.dropIndex.RUnlock()
 	}()
 
-	return index.usageForCollection(ctx, jitterInterval, exactObjectCount, vectorsConfig)
+	return index.usageForCollection(ctx, logger, jitterInterval, exactObjectCount, vectorsConfig)
 }
 
-func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Duration, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
+func (i *Index) usageForCollection(ctx context.Context, logger logrus.FieldLogger, jitterInterval time.Duration, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
 	collectionUsage := &types.CollectionUsage{
 		Name:              i.Config.ClassName.String(),
 		ReplicationFactor: int(i.Config.ReplicationFactor),
@@ -82,6 +83,7 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 		return nil, fmt.Errorf("schemareader: %w", err)
 	}
 
+	logger.WithField("class", i.Config.ClassName.String()).Debugf("Creating usage report with %d shards", len(localShards))
 	var uniqueShardCount int
 
 	// There is an important distinction between the state of the shard in the schema (in schemaReader) and the local
@@ -90,11 +92,16 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 	// After collection all local shards from the sharding state, we now need to iterate through these shards, lock them
 	// individually against changes in the _local_ state (i.e. loading/unloading) and then collect their usage based
 	// on this local state.
+	totalJitter := time.Duration(0)
+	counter := 0
+	start := time.Now()
 	for shardName := range localShards {
 		if err := func() error {
 			// Add jitter between tenant processing to not overload the system if there are many shards
 			if len(collectionUsage.Shards) > 0 {
+				start1 := time.Now()
 				addJitter(jitterInterval)
+				totalJitter += time.Since(start1)
 			}
 
 			i.shardCreateLocks.Lock(shardName)
@@ -177,6 +184,10 @@ func (i *Index) usageForCollection(ctx context.Context, jitterInterval time.Dura
 			return nil
 		}(); err != nil {
 			return nil, err
+		}
+		counter++
+		if counter%250 == 0 {
+			logger.WithFields(logrus.Fields{"class": i.Config.ClassName.String(), "processed_shards": counter, "total": len(localShards), "took": time.Since(start), "jitter_total": totalJitter}).Debug("Processed 250 shards for usage report")
 		}
 	}
 
