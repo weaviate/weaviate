@@ -321,10 +321,11 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_DATA_BIND_PORT":   "7111",
 			},
 			expectedResult: cluster.Config{
-				Hostname:         hostname,
-				GossipBindPort:   7100,
-				DataBindPort:     7111,
-				MaintenanceNodes: make([]string, 0),
+				Hostname:           hostname,
+				GossipBindPort:     7100,
+				DataBindPort:       7111,
+				MaintenanceNodes:   make([]string, 0),
+				RequestQueueConfig: defaultRequestQueueConfig,
 			},
 		},
 		{
