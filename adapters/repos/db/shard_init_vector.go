@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/spfresh"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -225,9 +226,26 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
 		}
 		vectorIndex = vi
+	case vectorindex.VectorIndexTypeSPFresh:
+		if !s.index.SPFreshEnabled {
+			return nil, errors.New("spfresh index is available only in experimental mode")
+		}
+		configs := spfresh.DefaultConfig()
+		configs.ID = s.vectorIndexID(targetVector)
+		configs.MinMMapSize = s.index.Config.MinMMapSize
+		configs.MaxReuseWalSize = s.index.Config.MaxReuseWalSize
+		configs.AllocChecker = s.index.allocChecker
+		configs.LazyLoadSegments = lazyLoadSegments
+		configs.WriteSegmentInfoIntoFileName = s.index.Config.SegmentInfoIntoFileNameEnabled
+		configs.WriteMetadataFilesEnabled = s.index.Config.WriteMetadataFilesEnabled
+		vi, err := spfresh.New(configs, s.store)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: spfresh index", s.ID())
+		}
+		vectorIndex = vi
 	default:
-		return nil, fmt.Errorf("unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\"]",
-			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC)
+		return nil, fmt.Errorf("unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\", \"%s\"]",
+			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC, vectorindex.VectorIndexTypeSPFresh)
 	}
 	defer vectorIndex.PostStartup()
 	return vectorIndex, nil
