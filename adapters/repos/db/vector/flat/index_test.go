@@ -89,6 +89,8 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 		Enabled: false,
 	}
 	switch compression {
+	case CompressionNone:
+		// no action
 	case CompressionBQ:
 		bq.Enabled = true
 		bq.RescoreLimit = 100 * k
