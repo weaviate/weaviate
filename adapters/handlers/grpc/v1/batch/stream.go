@@ -42,7 +42,7 @@ type StreamHandler struct {
 	shuttingDown         atomic.Bool
 	workerStatsPerStream *sync.Map // map[string]*stats
 	processWgsPerStream  *sync.Map // map[string]*sync.WaitGroup
-	stopped              *sync.Map // map[string]struct{}
+	closedPerStream      *sync.Map // map[string]struct{}
 }
 
 const POLLING_INTERVAL = 100 * time.Millisecond
@@ -59,7 +59,7 @@ func NewStreamHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.Wait
 		metrics:              metrics,
 		workerStatsPerStream: &sync.Map{},
 		processWgsPerStream:  &sync.Map{},
-		stopped:              &sync.Map{},
+		closedPerStream:      &sync.Map{},
 	}
 	// Listens to workers and decrements the wg for the stream when a worker reports back
 	// This way we can track when all workers are done for a given stream
@@ -105,6 +105,7 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	enterrors.GoWrapper(func() {
 		<-h.shuttingDownCtx.Done()
 		<-time.After(2 * time.Minute)
+		h.logger.WithField("streamId", streamId).Info("grace period after shutdown elapsed, cancelling stream context")
 		cancel()
 	}, h.logger)
 
@@ -112,19 +113,21 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	errCh := make(chan error)
 	h.recvWg.Add(1)
 	enterrors.GoWrapper(func() {
+		defer h.recvWg.Done()
 		errCh <- h.recv(ctx, streamId, startReq.ConsistencyLevel, stream)
 		close(errCh)
 	}, h.logger)
 	h.sendWg.Add(1)
+	defer h.sendWg.Done()
 	return h.send(ctx, streamId, stream, errCh)
 }
 
+// spawn a goroutine to wait until all workers are done before closing the reporting queue
+// this is only called in the defer of recv() so it is guaranteed to be called once per stream
+// and only when the stream is done receiving requests for whatever reason, thereby guaranteeing
+// that waiting on the workers is meaningful and that no new requests will be added to the processing queue
+// for this stream after the wait is done
 func (h *StreamHandler) close(streamId string) {
-	if _, loaded := h.stopped.LoadOrStore(streamId, struct{}{}); loaded {
-		// already closed
-		return
-	}
-	// spawn a goroutine to wait until all workers are done before closing the reporting queue
 	h.sendWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer h.sendWg.Done()
@@ -132,15 +135,13 @@ func (h *StreamHandler) close(streamId string) {
 		h.processWg(streamId).Wait()
 		h.reportingQueues.Close(streamId)
 		h.logger.WithField("streamId", streamId).Debug("all workers done, closed reporting queue")
-		h.stopped.Delete(streamId)
+		h.closedPerStream.Delete(streamId)
 		h.processWgsPerStream.Delete(streamId)
 		h.workerStatsPerStream.Delete(streamId)
 	}, h.logger)
 }
 
 func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer, errCh chan error) error {
-	defer h.sendWg.Done()
-
 	// shuttingDown acts as a soft cancel here so we can send the shutting down message to the client.
 	// Once the workers are drained then h.shutdownFinished will be closed and we will shutdown completely
 	shuttingDownDone := h.shuttingDownCtx.Done()
@@ -151,7 +152,6 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 			select {
 			case <-ctx.Done():
 				h.logger.WithField("streamId", streamId).Debug("context cancelled, closing stream")
-				h.close(streamId)
 				// drain reporting queue in effort to communicate any inflight errors back to client
 				// despite the context being cancelled somewhere
 				for report := range reportingQueue {
@@ -169,7 +169,6 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 			case recvErr := <-errCh:
 				if recvErr != nil {
 					h.logger.WithField("streamId", streamId).WithError(recvErr).Error("receive error, closing stream")
-					h.close(streamId)
 					// drain reporting queue in effort to communicate any inflight errors back to client
 					// despite the recv side of the stream failing in some way
 					for report := range reportingQueue {
@@ -200,7 +199,6 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 				}
 				shuttingDownDone = nil // only send once
 				h.shuttingDown.Store(true)
-				h.close(streamId)
 			case report, ok := <-reportingQueue:
 				h.logger.WithField("streamId", streamId).Debug("received report from worker")
 				// If the reporting queue is closed, we must finish the stream
@@ -248,27 +246,8 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 	}
 }
 
-func (h *StreamHandler) listenToWorkers() {
-	// Will exit once the listening queue is closed by the batch worker shutdown logic in StartBatchWorkers
-	for listen := range h.listeningQueue {
-		h.logger.WithField("streamId", listen.streamId).Debug("listener received listen request")
-		h.processWg(listen.streamId).Done()
-	}
-}
-
-func (h *StreamHandler) waitForReceivers() {
-	// block until shutdown is triggered
-	<-h.shuttingDownCtx.Done()
-	// wait for all receivers to finish
-	h.recvWg.Wait()
-	// then close the processing queue to signal to workers that no more requests will be coming
-	h.logger.WithField("action", "wait_for_receivers").Info("all receivers finished, closing processing queue")
-	close(h.processingQueue)
-}
-
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
 func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, stream pb.Weaviate_BatchStreamServer) error {
-	defer h.recvWg.Done()
 	defer h.close(streamId)
 	log := h.logger.WithField("streamId", streamId)
 	for {
@@ -301,6 +280,24 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 			return fmt.Errorf("invalid batch send request: data field is nil")
 		}
 	}
+}
+
+func (h *StreamHandler) listenToWorkers() {
+	// Will exit once the listening queue is closed by the batch worker shutdown logic in StartBatchWorkers
+	for listen := range h.listeningQueue {
+		h.logger.WithField("streamId", listen.streamId).Debug("listener received listen request")
+		h.processWg(listen.streamId).Done()
+	}
+}
+
+func (h *StreamHandler) waitForReceivers() {
+	// block until shutdown is triggered
+	<-h.shuttingDownCtx.Done()
+	// wait for all receivers to finish
+	h.recvWg.Wait()
+	// then close the processing queue to signal to workers that no more requests will be coming
+	h.logger.WithField("action", "wait_for_receivers").Info("all receivers finished, closing processing queue")
+	close(h.processingQueue)
 }
 
 func (h *StreamHandler) workerStats(streamId string) *stats {
