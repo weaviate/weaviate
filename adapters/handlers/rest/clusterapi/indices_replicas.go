@@ -985,7 +985,9 @@ func localIndexNotReady(resp replica.SimpleResponse) bool {
 
 // Close gracefully shuts down the replicatedIndices by draining the queue and waiting for workers to finish
 func (i *replicatedIndices) Close(ctx context.Context) error {
+	i.logger.WithField("action", "close_replicated_indices").Debug("attempting to shut down replicated indices")
 	if i.isShutdown.CompareAndSwap(false, true) {
+		i.logger.WithField("action", "close_replicated_indices").Debug("shutting down replicated indices")
 		// Set a timeout for graceful shutdown
 		shutdownTimeoutSeconds := i.requestQueueConfig.QueueShutdownTimeoutSeconds
 		if shutdownTimeoutSeconds == 0 {
@@ -1007,22 +1009,27 @@ func (i *replicatedIndices) Close(ctx context.Context) error {
 		select {
 		case <-done:
 			// Workers finished gracefully
+			i.logger.WithField("action", "close_replicated_indices").Debug("workers finished gracefully")
 		case <-shutdownCtx.Done():
 			// Timeout reached, workers are still running
 			err := fmt.Errorf("shutdown timeout reached, some workers may still be running")
+			i.logger.WithField("action", "close_replicated_indices").WithError(err).Warn("shutdown timeout reached, attempting to drain queue")
 			for {
 				select {
 				case rq, ok := <-i.requestQueue:
 					if !ok {
+						i.logger.WithField("action", "close_replicated_indices").Debug("queue closed")
 						return err
 					}
 					rq.w.WriteHeader(http.StatusRequestTimeout)
 					rq.wg.Done()
 				default:
+					i.logger.WithField("action", "close_replicated_indices").Debug("no more requests to drain")
 					return err
 				}
 			}
 		}
+		i.logger.WithField("action", "close_replicated_indices").Debug("replicated indices shutdown complete")
 	}
 	return nil
 }
