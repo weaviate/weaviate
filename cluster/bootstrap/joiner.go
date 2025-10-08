@@ -58,27 +58,56 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 	var resp *cmd.JoinPeerResponse
 	var err error
 	req := &cmd.JoinPeerRequest{Id: j.localNodeID, Address: j.localRaftAddr, Voter: j.voter}
-	lg.WithField("remoteNodes", remoteNodes).Info("attempting to join")
 
 	// For each server, try to join.
 	// If we have no error then we have a leader
-	// If we have an error check for err == NOT_FOUND and leader != "" -> we contacted a non-leader node part of the
+	// If we have an error check for err == NotLeaderRPCCode and leader != "" -> we contacted a non-leader node part of the
 	// cluster, let's join the leader.
 	// If no server allows us to join a cluster, return an error
-	for _, addr := range remoteNodes {
+	for name, addr := range remoteNodes {
+		lg.WithFields(logrus.Fields{
+			"action":         "join",
+			"node":           name,
+			"local_address":  j.localRaftAddr,
+			"remote_address": addr,
+		}).Info("attempting to join")
 		resp, err = j.peerJoiner.Join(ctx, addr, req)
 		if err == nil {
 			return addr, nil
 		}
-		st := status.Convert(err)
-		lg.WithField("remoteNode", addr).WithField("status", st.Code()).Info("attempted to join and failed")
+
+		rpcStatusCode := status.Convert(err).Code()
+		leaderAddr := resp.GetLeader()
+		// handle cases joining a cluster with no leader
+		// or election is in progress
+		if leaderAddr == "" {
+			continue
+		}
+
+		// avoid self multiple join attempts
+		if rpcStatusCode == rpc.NotLeaderRPCCode && leaderAddr == j.localRaftAddr {
+			return leaderAddr, nil
+		}
+
+		lg.WithFields(logrus.Fields{
+			"action":                  "join",
+			"trying_remote_node_addr": addr,
+			"leader_address":          leaderAddr,
+			"rpc_status_code":         rpcStatusCode,
+		}).Info("attempted to join and failed")
+
 		// Get the leader from response and if not empty try to join it
-		if leader := resp.GetLeader(); st.Code() == rpc.NotLeaderRPCCode && leader != "" {
-			_, err = j.peerJoiner.Join(ctx, leader, req)
+		if rpcStatusCode == rpc.NotLeaderRPCCode {
+			// join the actual leader
+			_, err = j.peerJoiner.Join(ctx, leaderAddr, req)
 			if err == nil {
-				return leader, nil
+				return leaderAddr, nil
 			}
-			lg.WithField("leader", leader).WithError(err).Info("attempted to follow to leader and failed")
+			lg.WithFields(logrus.Fields{
+				"action":          "join",
+				"leader_address":  leaderAddr,
+				"rpc_status_code": rpcStatusCode,
+			}).Info("attempted to follow to leader and failed")
 		}
 	}
 	return "", fmt.Errorf("could not join a cluster from %v", remoteNodes)

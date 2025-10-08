@@ -14,12 +14,14 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hashicorp/raft"
+	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -384,6 +386,17 @@ func TestRaftStoreInit(t *testing.T) {
 		store = m.store
 		addr  = fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
 	)
+
+	// Initialize raft stores for testing
+	var err error
+	store.logStore, err = raftbolt.NewBoltStore(filepath.Join(store.cfg.WorkDir, "raft.db"))
+	assert.NoError(t, err)
+
+	store.logCache, err = raft.NewLogCache(128, store.logStore)
+	assert.NoError(t, err)
+
+	store.snapshotStore, err = raft.NewFileSnapshotStore(store.cfg.WorkDir, 2, store.log.Out)
+	assert.NoError(t, err)
 
 	// NotOpen
 	assert.ErrorIs(t, store.Join(m.store.cfg.NodeID, addr, true), types.ErrNotOpen)

@@ -79,12 +79,14 @@ func startWeaviate(ctx context.Context,
 	}
 	env := map[string]string{
 		"AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED": "true",
-		"LOG_LEVEL":                 "debug",
-		"QUERY_DEFAULTS_LIMIT":      "20",
-		"PERSISTENCE_DATA_PATH":     "./data",
-		"DEFAULT_VECTORIZER_MODULE": "none",
-		"FAST_FAILURE_DETECTION":    "true",
-		"DISABLE_TELEMETRY":         "true",
+		"LOG_LEVEL":                         "debug",
+		"QUERY_DEFAULTS_LIMIT":              "20",
+		"PERSISTENCE_DATA_PATH":             "./data",
+		"DEFAULT_VECTORIZER_MODULE":         "none",
+		"MEMBERLIST_FAST_FAILURE_DETECTION": "true",
+		"DISABLE_TELEMETRY":                 "true",
+		"RAFT_DRAIN_SLEEP":                  "1ms", // almost as no sleep, no 0 because will fail validation
+		"RAFT_TIMEOUTS_MULTIPLIER":          "1",   // force raft timeouts to 1 to not affect tests which does do heavy restarts
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")
