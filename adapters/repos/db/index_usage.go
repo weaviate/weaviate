@@ -255,6 +255,7 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 			IsDynamic:              isDynamic,
 			VectorCompressionRatio: compressionRatio,
 			Bits:                   bits,
+			MultiVectorConfig:      multiVectorConfigFromConfig(vectorIndexConfig),
 		}
 
 		// Only add dimensionalities if there's valid data
@@ -299,6 +300,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName stri
 		vectorUsage := &types.VectorUsage{
 			Name:                   targetVector,
 			VectorCompressionRatio: 1.0, // Default ratio for cold shards
+
 		}
 
 		vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
@@ -319,7 +321,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName stri
 			return nil, err
 		}
 		vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &dimensionalities)
-
+		vectorUsage.MultiVectorConfig = multiVectorConfigFromConfig(vectorIndexConfig)
 		shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
 	}
 	sort.Sort(shardUsage.NamedVectors)
@@ -342,5 +344,21 @@ func emptyShardUsageWithNameAndActivity(shardName, activity string) *types.Shard
 		ObjectsCount:        0,
 		ObjectsStorageBytes: 0,
 		VectorStorageBytes:  0,
+	}
+}
+
+func multiVectorConfigFromConfig(vectorConfig schemaConfig.VectorIndexConfig) types.MultiVectorConfig {
+	hnswConfig, ok := vectorConfig.(enthnsw.UserConfig)
+	if !ok || !hnswConfig.Multivector.Enabled {
+		return types.MultiVectorConfig{Enabled: false}
+	}
+	return types.MultiVectorConfig{
+		Enabled: true,
+		MuveraConfig: &types.MuveraConfig{
+			Enabled:      hnswConfig.Multivector.MuveraConfig.Enabled,
+			KSim:         hnswConfig.Multivector.MuveraConfig.KSim,
+			DProjections: hnswConfig.Multivector.MuveraConfig.DProjections,
+			Repetitions:  hnswConfig.Multivector.MuveraConfig.Repetitions,
+		},
 	}
 }

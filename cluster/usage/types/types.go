@@ -95,6 +95,21 @@ type VectorUsage struct {
 
 	// List of dimensionalities and their metrics. Note: List is not needed here, but we keep it like this for the consumer
 	Dimensionalities []*Dimensionality `json:"dimensionalities,omitempty"`
+
+	// Configuration for Multi-Vector
+	MultiVectorConfig MultiVectorConfig `json:"multi_vector_config"`
+}
+
+type MultiVectorConfig struct {
+	Enabled      bool          `json:"enabled"`
+	MuveraConfig *MuveraConfig `json:"muvera_config,omitempty"`
+}
+
+type MuveraConfig struct {
+	Enabled      bool `json:"enabled"`
+	KSim         int  `json:"ksim"`
+	DProjections int  `json:"dprojections"`
+	Repetitions  int  `json:"repetitions"`
 }
 
 // Dimensionality represents metrics for a specific dimensionality
