@@ -436,16 +436,20 @@ func TestFlat_Preload(t *testing.T) {
 			err = index.Add(ctx, id1, rawVector1)
 			require.Nil(t, err)
 
+			var quantizedUint64 []uint64
+			var quantizedByte []byte
+
 			// Test that vector gets cached after adding
 			if index.Cached() {
-				var vec1 interface{}
 				if index.quantizer.Type() == Uint64Quantizer {
-					vec1, err = index.cache.GetUint64(ctx, id1)
+					quantizedUint64, err = index.cache.GetUint64(ctx, id1)
+					require.NoError(t, err)
+					require.NotNil(t, quantizedUint64)
 				} else if index.quantizer.Type() == ByteQuantizer {
-					vec1, err = index.cache.GetBytes(ctx, id1)
+					quantizedByte, err = index.cache.GetBytes(ctx, id1)
+					require.NoError(t, err)
+					require.NotNil(t, quantizedByte)
 				}
-				require.NoError(t, err)
-				require.NotNil(t, vec1)
 			}
 
 			// Ensure deleting removes the cached vector
@@ -461,27 +465,20 @@ func TestFlat_Preload(t *testing.T) {
 				require.Nil(t, vec)
 			}
 
-			// Test preload functionality - should not fail and should cache the vector
 			index.Preload(id1, rawVector1)
 			if index.Cached() {
-				var vec2 interface{}
 				if index.quantizer.Type() == Uint64Quantizer {
-					vec2, err = index.cache.GetUint64(ctx, id1)
+					requantizedUint64, err := index.cache.GetUint64(ctx, id1)
+					require.NoError(t, err)
+					dist, err := index.quantizer.DistanceBetweenUint64Vectors(quantizedUint64, requantizedUint64)
+					require.LessOrEqual(t, dist, float32(0.00))
+					require.NoError(t, err)
 				} else if index.quantizer.Type() == ByteQuantizer {
-					vec2, err = index.cache.GetBytes(ctx, id1)
-				}
-				require.NoError(t, err)
-				require.NotNil(t, vec2)
-
-				// Verify the preloaded vector has the expected type and length
-				if index.quantizer.Type() == Uint64Quantizer {
-					uint64Vec, ok := vec2.([]uint64)
-					require.True(t, ok)
-					require.Greater(t, len(uint64Vec), 0)
-				} else if index.quantizer.Type() == ByteQuantizer {
-					byteVec, ok := vec2.([]byte)
-					require.True(t, ok)
-					require.Greater(t, len(byteVec), 0)
+					requantizedByte, err := index.cache.GetBytes(ctx, id1)
+					require.NoError(t, err)
+					dist, err := index.quantizer.DistanceBetweenByteVectors(quantizedByte, requantizedByte)
+					require.LessOrEqual(t, dist, float32(0.01))
+					require.NoError(t, err)
 				}
 			}
 		})
