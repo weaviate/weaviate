@@ -387,6 +387,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 			batch := make([]*pb.BatchObject, 0, 1000)
 			for i := 0; i < 50000; i++ {
 				for shuttingDown.Load() {
+					stream.CloseSend()
 					fmt.Printf("%s Can't send, server is shutting down\n", time.Now().Format("15:04:05"))
 					time.Sleep(5 * time.Second)
 					continue
