@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/diskio"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 
@@ -271,7 +273,11 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				lazyShard, ok := shard.(*LazyLoadShard)
 				require.True(t, ok)
 				require.NoError(t, lazyShard.Load(ctx))
-				vectorStorageSize, uncompressed, err := lazyShard.shard.VectorStorageSize(ctx)
+				lsmPath := filepath.Join(index.path(), shard.Name(), "lsm")
+				_, directories, err := diskio.GetFileWithSizes(lsmPath)
+				require.NoError(t, err)
+
+				vectorStorageSize, uncompressed, err := lazyShard.shard.VectorStorageSize(ctx, lsmPath, directories)
 				vectorStorageSize += uncompressed
 				require.NoError(t, err)
 				dimensions, err := shard.Dimensions(ctx, "")
@@ -328,7 +334,12 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				lazyShard, ok := shard.(*LazyLoadShard)
 				require.True(t, ok)
 				require.NoError(t, lazyShard.Load(ctx))
-				vectorStorageSize, _, err := lazyShard.shard.VectorStorageSize(ctx)
+
+				lsmPath := filepath.Join(index.path(), shard.Name(), "lsm")
+				_, directories, err := diskio.GetFileWithSizes(lsmPath)
+				require.NoError(t, err)
+
+				vectorStorageSize, _, err := lazyShard.shard.VectorStorageSize(ctx, lsmPath, directories)
 				require.NoError(t, err)
 				dimensions, err := shard.Dimensions(ctx, "")
 				require.NoError(t, err)
@@ -723,7 +734,12 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 
 	shard, ok := activeShard.(*Shard)
 	require.True(t, ok)
-	activeVectorStorageSize, uncompressed, err := shard.VectorStorageSize(ctx)
+
+	lsmPath := filepath.Join(index.path(), shard.Name(), "lsm")
+	_, directories, err := diskio.GetFileWithSizes(lsmPath)
+	require.NoError(t, err)
+
+	activeVectorStorageSize, uncompressed, err := shard.VectorStorageSize(ctx, lsmPath, directories)
 	activeVectorStorageSize += uncompressed
 
 	require.NoError(t, err)
@@ -789,7 +805,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	newIndex.shards.LoadAndDelete(tenantNamePopulated)
 
 	// Compare active and inactive metrics
-	collectionUsage, err := newIndex.usageForCollection(ctx, time.Nanosecond, true, class.VectorConfig)
+	collectionUsage, err := newIndex.usageForCollection(ctx, logger, time.Nanosecond, true, class.VectorConfig)
 	require.NoError(t, err)
 	for _, tenant := range collectionUsage.Shards {
 		if tenant.Name == tenantNamePopulated {

@@ -54,25 +54,28 @@ func Fsync(path string) error {
 }
 
 // GetFileWithSizes gets all files in a directory including their filesize
-func GetFileWithSizes(dirPath string) (map[string]int64, error) {
+func GetFileWithSizes(dirPath string) (map[string]int64, []string, error) {
 	dir, err := os.Open(dirPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer dir.Close()
 
 	// Read all entries at once including file sizes
 	fileInfos, err := dir.Readdir(-1)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	fileSizes := make(map[string]int64)
+	var dirs []string
 	for _, info := range fileInfos {
 		if !info.IsDir() { // Skip directories
 			fileSizes[info.Name()] = info.Size()
+		} else {
+			dirs = append(dirs, info.Name())
 		}
 	}
 
-	return fileSizes, nil
+	return fileSizes, dirs, nil
 }
