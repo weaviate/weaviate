@@ -246,13 +246,10 @@ func TestStorageCalculation(t *testing.T) {
 	}
 
 	// calculate storage and compare
-	fulShardBytes, err := CalculateNonLSMStorage(dirName, "shard1")
-	require.NoError(t, err)
 	expectedTotal := uint64(0)
 	for _, size := range sizeTracker {
 		expectedTotal += size
 	}
-	require.Equal(t, expectedTotal, fulShardBytes)
 
 	objectsBytes, err := CalculateUnloadedObjectsMetrics(logger, dirName, "shard1")
 	require.NoError(t, err)
@@ -265,4 +262,8 @@ func TestStorageCalculation(t *testing.T) {
 	indexBytes, err := CalculateUnloadedIndicesSize(dirName, "shard1")
 	require.NoError(t, err)
 	require.Equal(t, sizeTracker["property_someProp_searchable"]+sizeTracker["property_someProp"]+sizeTracker["property__id"]+sizeTracker[helpers.DimensionsBucketLSM], indexBytes)
+
+	nonLSMBytes, err := CalculateNonLSMStorage(dirName, "shard1")
+	require.NoError(t, err)
+	require.Equal(t, expectedTotal, nonLSMBytes+indexBytes+uint64(objectsBytes.StorageBytes)+uint64(vectorBytes))
 }
