@@ -38,6 +38,14 @@ import (
 )
 
 type SegmentGroup struct {
+	// CAUTION: segments slice should not be internally mutated.
+	// It is safe to append the slice, but not to replace its elements.
+	//
+	// Due to copy-on-write approach SegmentGroup::getConsistentViewOfSegments()
+	// uses copy of reference to the slice, therefore every internal change to the slice
+	// will be reflected in consistent views.
+	// If slice needs to be mutated (due to segments' compaction or cleanup) it needs
+	// to be copied first.
 	segments []Segment
 	// Holds map of all segments currently in use (based on consistentView requests).
 	// Segments are added to the map when consistentView is acquired and removed from map
@@ -527,8 +535,7 @@ func (sg *SegmentGroup) add(path string) error {
 
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {
 	sg.maintenanceLock.RLock()
-	segments = make([]Segment, len(sg.segments))
-	copy(segments, sg.segments)
+	segments = sg.segments
 
 	sg.segmentRefCounterLock.Lock()
 	for _, seg := range segments {

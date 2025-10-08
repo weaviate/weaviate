@@ -87,10 +87,19 @@ func (sr *segmentReplacer) switchInMemory() error {
 	}
 	defer sr.sg.maintenanceLock.Unlock()
 
-	sr.sg.segments[sr.oldRightPos] = sr.newSeg
-	if !sr.replaceSingleSegment {
-		sr.sg.segments = append(sr.sg.segments[:sr.oldLeftPos], sr.sg.segments[sr.oldLeftPos+1:]...)
+	ln := len(sr.sg.segments)
+	var segments []Segment
+	if sr.replaceSingleSegment {
+		segments = make([]Segment, ln)
+		copy(segments, sr.sg.segments)
+		segments[sr.oldRightPos] = sr.newSeg
+	} else {
+		segments = make([]Segment, ln-1)
+		copy(segments[:sr.oldLeftPos], sr.sg.segments[:sr.oldLeftPos])
+		copy(segments[sr.oldLeftPos:], sr.sg.segments[sr.oldLeftPos+1:])
+		segments[sr.oldRightPos-1] = sr.newSeg // assumes rightPos > leftPos
 	}
+	sr.sg.segments = segments
 
 	sr.observeReplaceDuration(start)
 	return nil
