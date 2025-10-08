@@ -22,13 +22,13 @@ class VectorUsage:
 
 @dataclass
 class ShardUsage:
+    objects_count: int
+    objects_storage_bytes: int
+    vector_storage_bytes: int
+    index_storage_bytes: int
+    full_shard_storage_bytes: int
     name: Optional[str] = None
     status: Optional[str] = None
-    objects_count: Optional[int] = None
-    objects_storage_bytes: Optional[int] = None
-    vector_storage_bytes: Optional[int] = None
-    index_storage_bytes: Optional[int] = None
-    full_shard_storage_bytes: Optional[int] = None
     named_vectors: List[VectorUsage] = field(default_factory=list)
 
 
@@ -99,10 +99,10 @@ def parse_shard_usage(data):
         name=data.get("name"),
         status=data.get("status"),
         objects_count=data.get("objects_count"),
-        objects_storage_bytes=data.get("objects_storage_bytes"),
-        vector_storage_bytes=data.get("vector_storage_bytes"),
-        index_storage_bytes=data.get("index_storage_bytes"),
-        full_shard_storage_bytes=data.get("full_shard_storage_bytes"),
+        objects_storage_bytes=data.get("objects_storage_bytes", 0),
+        vector_storage_bytes=data.get("vector_storage_bytes", 0),
+        index_storage_bytes=data.get("index_storage_bytes", 0),
+        full_shard_storage_bytes=data.get("full_shard_storage_bytes", 0),
         named_vectors=[
             v
             for v in (parse_vector_usage(vv) for vv in data.get("named_vectors", []))
