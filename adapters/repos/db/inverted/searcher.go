@@ -618,7 +618,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 
 	propValuePairs := make([]*propValuePair, 0, len(terms))
 	for _, term := range terms {
-		if s.stopwords.IsStopword(term) {
+		if s.stopwords.IsStopword(term) && prop.Tokenization != models.PropertyTokenizationField {
 			continue
 		}
 		propValuePairs = append(propValuePairs, &propValuePair{
