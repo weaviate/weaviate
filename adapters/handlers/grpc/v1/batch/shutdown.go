@@ -70,17 +70,16 @@ func (s *Shutdown) Drain(logger logrus.FieldLogger) {
 	log := logger.WithField("action", "shutdown_drain")
 	// stop handlers first
 	s.HandlersCancel()
-	log.Info("wait for all receivers to finish adding to processing queue")
+	log.Info("waiting for all receivers to finish")
 	s.RecvWg.Wait()
 	log.Info("all receivers finished, closing processing queue")
 	// close the processing queue to signal to workers that no more requests will be coming and that they can exit
 	close(s.ProcessingQueue)
 	// wait for all workers to finish
-	log.Info("waiting for all workers to finish processing internal queue")
+	log.Info("waiting for all workers to drain the processing queue")
 	// wait for all the objects to be processed from the internal queue
 	s.WorkersWg.Wait()
-	log.Info("finished draining the internal queues")
-	log.Info("waiting for all sends to exit")
+	log.Info("all workers finished, waiting for all senders to finish")
 	// wait for all streams to exit, i.e. be hungup by their clients
 	s.SendWg.Wait()
 	log.Info("all senders exited, shutdown complete")

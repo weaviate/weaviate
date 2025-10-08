@@ -83,7 +83,7 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	defer cancel()
 
 	// Channel to communicate receive errors from recv to the send loop
-	errCh := make(chan error)
+	errCh := make(chan error, 1)
 	h.recvWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer h.recvWg.Done()
@@ -137,10 +137,10 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 					}
 					if h.shuttingDown.Load() {
 						// the server must be shutting down on its own, so return an error saying so
-						h.logger.WithField("streamId", streamId).Info("stream closed due to server shutdown")
+						h.logger.WithField("streamId", streamId).Infof("while server is shutting down, receiver errored: %v", recvErr)
 						return ErrShutdown
 					}
-					// Context cancelled, send error to client
+					// Receiver errored in some way, send error to client
 					return recvErr
 				}
 			case <-shuttingDownDone:
@@ -164,7 +164,7 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 					}
 					// otherwise, the client must be closing its side of the stream, so close gracefully
 					h.logger.WithField("streamId", streamId).Info("stream closed by client")
-					return nil
+					return <-errCh // will be nil if the client closed the stream gracefully or a recv error otherwise
 				}
 				// Received a report from a worker
 				for _, err := range report.Errors {
@@ -255,7 +255,7 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 		case request = <-reqCh:
 		case err = <-errCh:
 		case <-ctx.Done():
-			log.Error("context cancelled waiting for request from stream, closing recv stream")
+			log.Warn("context cancelled waiting for request from stream, closing recv stream")
 			return ctx.Err()
 		}
 		if errors.Is(err, io.EOF) {
