@@ -796,16 +796,17 @@ func (h *hnsw) plantSeeds(strategy FilterStrategy, allowList helpers.AllowList, 
 	visited := h.pools.visitedLists.Borrow()
 	h.pools.visitedListsLock.RUnlock()
 
-	h.shardedNodeLocks.RLockAll()
 	for found < seeds && !queue.IsEmpty() {
 		candidate, err := queue.Dequeue()
 		if err != nil {
 			return errors.Wrap(err, "knn search: smart seeeding")
 		}
 
+		h.shardedNodeLocks.RLock(candidate)
 		h.nodes[candidate].Lock()
 		h.nodes[candidate].connections.CopyLayer(connsSlice.Slice, 0)
 		h.nodes[candidate].Unlock()
+		h.shardedNodeLocks.RUnlock(candidate)
 		for _, nn := range connsSlice.Slice {
 			if visited.Visited(nn) {
 				continue
@@ -831,7 +832,6 @@ func (h *hnsw) plantSeeds(strategy FilterStrategy, allowList helpers.AllowList, 
 			queue.Enqueue(nn)
 		}
 	}
-	h.shardedNodeLocks.RUnlockAll()
 	h.pools.PutQueue(queue)
 	h.pools.tempVectorsUint64.Put(connsSlice)
 
