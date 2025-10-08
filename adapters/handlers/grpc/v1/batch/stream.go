@@ -213,16 +213,6 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// Start a goroutine to cancel the recv context after a grace period once shutdown is triggered
-	// This ensures that we don't hang indefinitely if the client does not close the stream
-	// after receiving the shutdown message for any reason
-	enterrors.GoWrapper(func() {
-		<-h.shuttingDownCtx.Done()
-		<-time.After(2 * time.Minute)
-		h.logger.WithField("streamId", streamId).Debug("grace period after shutdown elapsed, cancelling recv context")
-		cancel()
-	}, h.logger)
-
 	reqCh := make(chan *pb.BatchStreamRequest)
 	errCh := make(chan error)
 	enterrors.GoWrapper(func() {
@@ -254,9 +244,16 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 		select {
 		case request = <-reqCh:
 		case err = <-errCh:
-		case <-ctx.Done():
-			log.Warn("context cancelled waiting for request from stream, closing recv stream")
-			return ctx.Err()
+		case <-time.After(2 * time.Minute):
+			// This ensures that we don't hang indefinitely if the client does not close the stream
+			// after receiving the shutdown message for any reason
+			if h.shuttingDown.Load() {
+				log.Warn("context cancelled waiting for request from stream, closing recv stream")
+				cancel()
+				return ctx.Err()
+			}
+			// If not shutting down, just loop around again and wait for the next request
+			continue
 		}
 		if errors.Is(err, io.EOF) {
 			log.Debug("client closed stream")
