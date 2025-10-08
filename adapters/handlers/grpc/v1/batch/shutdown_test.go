@@ -241,9 +241,9 @@ func TestShutdownWithHangingClient(t *testing.T) {
 		shutdown.Drain(logger)
 	}()
 	err := handler.Handle(stream)
+	wg.Wait()
 	require.NotNil(t, err, "handler should return error shutting down")
 	require.ErrorAs(t, err, &context.Canceled, "handler should return context.Canceled error")
-	wg.Wait()
 }
 
 func newBatchStreamShuttingDownReply() *pb.BatchStreamReply {
