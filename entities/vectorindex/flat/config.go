@@ -24,7 +24,7 @@ const (
 	DefaultVectorCacheMaxObjects = 1e12
 	DefaultCompressionEnabled    = false
 	DefaultCompressionRescore    = -1 // indicates "let Weaviate pick"
-	DefaultRQBits                = 1
+	DefaultRQBits                = 8
 )
 
 type CompressionUserConfig struct {
