@@ -319,6 +319,9 @@ func (cpi *parallelIterator[T]) cleanUpTempAllocs(localResults []VecAndID[T], lo
 		copy(cp, localResults)
 		localResults = cp
 	}
+	if len(localResults) < entriesToRecopy {
+		localResults = localResults[:entriesToRecopy]
+	}
 
 	// order is important. To get the correct mapping we need to iterated:
 	// - localResults from the back

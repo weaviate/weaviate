@@ -840,6 +840,13 @@ func (index *flat) PostStartup() {
 	count := 0
 	for i := range vecs {
 		count++
+		// if we mix little and big endian IDs by mistake, we might get a very large
+		// maxID which would cause us to allocate a huge cache.
+		// In that case, we consider that anything larger than a trillion is an error
+		// and should be skipped.
+		if maxID > 1<<12 {
+			continue
+		}
 		if vecs[i].Id > maxID {
 			maxID = vecs[i].Id
 		}
