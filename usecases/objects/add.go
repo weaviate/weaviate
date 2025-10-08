@@ -17,9 +17,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/versioned"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 
@@ -28,6 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -77,8 +76,11 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, fmt.Errorf("invalid object: %w", err)
 	}
 
-	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}, fetchedClasses); err != nil {
+	// Ensure tenants are created if auto-tenant is enabled and wait for the newer schema version
+	if tenantSchemaVersion, _, err := m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}, fetchedClasses); err != nil {
 		return nil, err
+	} else if tenantSchemaVersion > schemaVersion {
+		schemaVersion = tenantSchemaVersion
 	}
 
 	class := fetchedClasses[object.Class].Class
