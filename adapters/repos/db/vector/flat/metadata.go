@@ -97,7 +97,6 @@ func (index *flat) initMetadata() error {
 	}
 
 	index.initDimensions()
-	index.initCount()
 
 	return nil
 }

@@ -430,6 +430,8 @@ func TestFlat_ValidateCount(t *testing.T) {
 
 	count := index.AlreadyIndexed()
 	require.Equal(t, count, uint64(len(vectors)))
+	err = index.store.Bucket(index.getBucketName()).FlushAndSwitch()
+	require.Nil(t, err)
 
 	err = index.Shutdown(ctx)
 	require.Nil(t, err)
