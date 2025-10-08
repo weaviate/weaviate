@@ -99,16 +99,6 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	ctx, cancel := context.WithCancel(stream.Context())
 	defer cancel()
 
-	// Start a goroutine to cancel the context after a grace period once shutdown is triggered
-	// This ensures that we don't hang indefinitely if the client does not close the stream
-	// after receiving the shutdown message for any reason
-	enterrors.GoWrapper(func() {
-		<-h.shuttingDownCtx.Done()
-		<-time.After(2 * time.Minute)
-		h.logger.WithField("streamId", streamId).Info("grace period after shutdown elapsed, cancelling stream context")
-		cancel()
-	}, h.logger)
-
 	// Channel to communicate receive errors from recv to the send loop
 	errCh := make(chan error)
 	h.recvWg.Add(1)
@@ -248,13 +238,55 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 
 // Send adds a batch send request to the write queue and returns the number of objects in the request.
 func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, stream pb.Weaviate_BatchStreamServer) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Start a goroutine to cancel the recv context after a grace period once shutdown is triggered
+	// This ensures that we don't hang indefinitely if the client does not close the stream
+	// after receiving the shutdown message for any reason
+	enterrors.GoWrapper(func() {
+		<-h.shuttingDownCtx.Done()
+		<-time.After(2 * time.Minute)
+		h.logger.WithField("streamId", streamId).Info("grace period after shutdown elapsed, cancelling recv context")
+		cancel()
+	}, h.logger)
+
+	reqCh := make(chan *pb.BatchStreamRequest)
+	errCh := make(chan error)
+	enterrors.GoWrapper(func() {
+		defer func() {
+			close(errCh)
+			close(reqCh)
+		}()
+		for {
+			// stream context is cancelled once the send() method returns
+			// cleaning up this goroutine
+			req, err := stream.Recv()
+			if err != nil {
+				errCh <- err
+				return
+			}
+			reqCh <- req
+		}
+	}, h.logger)
+
 	defer h.close(streamId)
 	log := h.logger.WithField("streamId", streamId)
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		request, err := stream.Recv()
+
+		var request *pb.BatchStreamRequest
+		var err error
+		select {
+		case request = <-reqCh:
+		case err = <-errCh:
+		case <-ctx.Done():
+			log.Error("context cancelled waiting for request from stream, closing recv stream")
+			return ctx.Err()
+		}
+
 		h.processWg(streamId).Add(1)
 		if errors.Is(err, io.EOF) {
 			log.Debug("client closed stream")
