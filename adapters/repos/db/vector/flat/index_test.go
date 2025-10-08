@@ -372,6 +372,7 @@ func TestFlat_Preload(t *testing.T) {
 		compression CompressionType
 		cache       bool
 	}{
+		{name: "no_quantization", distance: "cosine-dot", compression: CompressionNone, cache: false},
 		{name: "euclidean_bq", distance: "l2-squared", compression: CompressionBQ, cache: true},
 		{name: "cosine_bq_cache", distance: "cosine-dot", compression: CompressionBQ, cache: true},
 		{name: "cosine_rq1_cache", distance: "cosine-dot", compression: CompressionRQ1, cache: true},
