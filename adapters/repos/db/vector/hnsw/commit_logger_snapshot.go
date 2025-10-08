@@ -39,11 +39,12 @@ import (
 )
 
 const (
-	snapshotConcurrency   = 8 // number of goroutines handling snapshot's chunk reading
-	snapshotDirSuffix     = ".hnsw.snapshot.d"
-	snapshotCheckInterval = 10 * time.Minute
-	blockSize             = 4 * 1024 * 1024 // 4MB
-	maxExpectedConns      = 4096 * 4
+	snapshotConcurrency     = 8 // number of goroutines handling snapshot's chunk reading
+	snapshotDirSuffix       = ".hnsw.snapshot.d"
+	snapshotCheckInterval   = 10 * time.Minute
+	blockSize               = 4 * 1024 * 1024 // 4MB
+	maxExpectedConns        = 4096 * 4
+	maxExpectedMetadataSize = 4 * 1024 * 1024 // 4MB
 )
 
 const (
@@ -598,12 +599,11 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 
 func (l *hnswCommitLogger) readSnapshot(path string) (*DeserializationResult, error) {
 	start := time.Now()
-	defer func() {
-		l.logger.WithField("snapshot", path).WithField("took", time.Since(start).String()).Info("snapshot loaded")
-	}()
 
 	state, err := l.readStateFrom(path)
-	if err != nil {
+	if err == nil {
+		l.logger.WithField("snapshot", path).WithField("took", time.Since(start).String()).Info("snapshot loaded")
+	} else {
 		// if for any reason the snapshot file is not found or corrupted
 		// we need to remove the snapshot file and create a new one from the commit log.
 		_ = l.fs.Remove(path)
@@ -1178,8 +1178,13 @@ func (l *hnswCommitLogger) readSnapshotBody(f common.File, res *DeserializationR
 		})
 	}
 
+LOOP:
 	for i := 0; i < bodySize; i += int(l.snapshotBlockSize) {
-		ch <- i
+		select {
+		case <-ctx.Done():
+			break LOOP
+		case ch <- i:
+		}
 	}
 	close(ch)
 
@@ -1561,6 +1566,10 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 	}
 	read += n
 	metadataSize := int(binary.LittleEndian.Uint32(b[:4]))
+
+	if metadataSize <= 0 || metadataSize > maxExpectedMetadataSize {
+		return fmt.Errorf("invalid metadata size: %d", metadataSize)
+	}
 
 	// read full metadata
 	metadata := make([]byte, metadataSize)

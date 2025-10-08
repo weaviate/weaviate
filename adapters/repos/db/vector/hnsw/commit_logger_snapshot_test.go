@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -326,7 +327,12 @@ func TestCreateSnapshotCrashRecovery(t *testing.T) {
 		require.Equal(t, []string{"1001.snapshot"}, files)
 
 		// corrupt the snapshot
-		err = os.WriteFile(filepath.Join(sDir, "1001.snapshot"), []byte("corrupt"), 0o644)
+		content, err := os.ReadFile(filepath.Join(sDir, "1001.snapshot"))
+		require.NoError(t, err)
+
+		copy(content[125:], []byte{0xDE, 0xAD, 0xBE, 0xEF})
+
+		err = os.WriteFile(filepath.Join(sDir, "1001.snapshot"), content, 0o644)
 		require.NoError(t, err)
 
 		// add new files
@@ -1549,4 +1555,127 @@ func TestCommitLogger_Snapshot_Race(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestCreateSnapshotCrashSafety(t *testing.T) {
+	t.Run("fail on Write", func(t *testing.T) {
+		var stop bool
+		var i int
+		for i = 0; !stop; i++ {
+			t.Run(fmt.Sprintf("fails on write number %d", i+1), func(t *testing.T) {
+				dir := t.TempDir()
+				id := "main"
+				clDir := commitLogDirectory(dir, id)
+				sDir := snapshotDirectory(dir, id)
+
+				fs := common.NewTestFS()
+
+				var counter int
+
+				fs.OnOpenFile = func(f common.File) common.File {
+					return &common.TestFile{
+						File: f,
+						OnWrite: func(b []byte) (n int, err error) {
+							counter++
+							if counter == i+1 {
+								return 0, errors.Errorf("fake temp error: %d writes", counter)
+							}
+							return f.Write(b)
+						},
+					}
+				}
+
+				cl := createTestCommitLoggerForSnapshotsWithOpts(t, dir, id, WithFS(fs))
+				createCommitlogTestData(t, clDir, "1000.condensed", 200, "1001.condensed", 200, "1002.condensed", 200, "1003.condensed", 200)
+
+				// create snapshot once: should fail
+				created, _, err := cl.CreateSnapshot()
+				if created || err == nil {
+					stop = true
+					t.SkipNow()
+				}
+
+				require.False(t, created)
+				got := readDir(t, sDir)
+				require.Equal(t, []string{"1002.snapshot.tmp"}, got)
+
+				// create snapshot again: should succeed
+				created, _, err = cl.CreateSnapshot()
+				require.NoError(t, err)
+				require.True(t, created)
+				got = readDir(t, sDir)
+				require.Equal(t, []string{"1002.snapshot"}, got)
+			})
+		}
+		// ensure it failed at least once
+		require.Greater(t, i, 1, "should have failed at least once")
+	})
+
+	t.Run("fail on Rename", func(t *testing.T) {
+		dir := t.TempDir()
+		id := "main"
+		clDir := commitLogDirectory(dir, id)
+		sDir := snapshotDirectory(dir, id)
+
+		fs := common.NewTestFS()
+
+		var counter int
+		fs.OnRename = func(oldpath string, newpath string) error {
+			counter++
+			if counter > 1 {
+				return os.Rename(oldpath, newpath)
+			}
+			return errors.Errorf("fake temp error on rename")
+		}
+
+		cl := createTestCommitLoggerForSnapshotsWithOpts(t, dir, id, WithFS(fs))
+		createCommitlogTestData(t, clDir, "1000.condensed", 200, "1001.condensed", 200, "1002.condensed", 200, "1003.condensed", 200)
+
+		// create snapshot once: should fail
+		created, _, err := cl.CreateSnapshot()
+		require.Error(t, err)
+		require.False(t, created)
+
+		got := readDir(t, sDir)
+		require.Equal(t, []string{"1002.snapshot.tmp"}, got)
+
+		// create snapshot again: should succeed
+		created, _, err = cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.True(t, created)
+		got = readDir(t, sDir)
+		require.Equal(t, []string{"1002.snapshot"}, got)
+	})
+
+	t.Run("calls Fsync", func(t *testing.T) {
+		dir := t.TempDir()
+		id := "main"
+		clDir := commitLogDirectory(dir, id)
+		sDir := snapshotDirectory(dir, id)
+
+		fs := common.NewTestFS()
+
+		var fsyncCalled bool
+		fs.OnOpenFile = func(f common.File) common.File {
+			return &common.TestFile{
+				File: f,
+				OnSync: func() error {
+					fsyncCalled = true
+					return f.Sync()
+				},
+			}
+		}
+
+		cl := createTestCommitLoggerForSnapshotsWithOpts(t, dir, id, WithFS(fs))
+		createCommitlogTestData(t, clDir, "1000.condensed", 200, "1001.condensed", 200, "1002.condensed", 200, "1003.condensed", 200)
+
+		// create snapshot once: should succeed
+		created, _, err := cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.True(t, created)
+		require.True(t, fsyncCalled)
+
+		got := readDir(t, sDir)
+		require.Equal(t, []string{"1002.snapshot"}, got)
+	})
 }
