@@ -915,6 +915,11 @@ func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 			return fmt.Errorf("the dynamic index can only be created under async indexing environment (ASYNC_INDEXING=true)")
 		}
 		return nil
+	case vectorindex.VectorIndexTypeSPFresh:
+		if !h.config.SPFreshEnabled {
+			return fmt.Errorf("the spfresh index is available only in experimental mode")
+		}
+		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",
 			vectorIndexType)
