@@ -140,6 +140,7 @@ func (db *DB) init(ctx context.Context) error {
 				QuerySlowLogThreshold:                        db.config.QuerySlowLogThreshold,
 				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
 				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
+				SPFreshEnabled:                               db.config.SPFreshEnabled,
 			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),

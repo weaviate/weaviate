@@ -48,6 +48,7 @@ var _ common.VectorIndex = (*SPFresh)(nil)
 // while exposing a synchronous API for searching and updating vectors.
 // Note: this is a work in progress and not all features are implemented yet.
 type SPFresh struct {
+	id      string
 	logger  logrus.FieldLogger
 	config  *Config // Config contains internal configuration settings.
 	metrics *Metrics
@@ -61,7 +62,7 @@ type SPFresh struct {
 	distancer          *Distancer
 
 	// Internal components
-	SPTAG        SPTAG                   // Provides access to the SPTAG index for centroid operations.
+	SPTAG        *BruteForceSPTAG        // Provides access to the SPTAG index for centroid operations.
 	Store        *LSMStore               // Used for managing persistence of postings.
 	IDs          common.MonotonicCounter // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap   *VersionMap             // Stores vector versions in-memory.
@@ -92,27 +93,28 @@ func New(cfg *Config, store *lsmkv.Store) (*SPFresh, error) {
 
 	metrics := NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName)
 
-	postingStore, err := NewLSMStore(store, metrics, bucketName(cfg.ID))
+	postingStore, err := NewLSMStore(store, metrics, bucketName(cfg.ID), cfg.MinMMapSize, cfg.MaxReuseWalSize, cfg.AllocChecker, cfg.LazyLoadSegments, cfg.WriteSegmentInfoIntoFileName, cfg.WriteMetadataFilesEnabled)
 	if err != nil {
 		return nil, err
 	}
 
 	s := SPFresh{
+		id:      cfg.ID,
 		logger:  cfg.Logger.WithField("component", "SPFresh"),
 		config:  cfg,
 		metrics: metrics,
-		SPTAG:   NewBruteForceSPTAG(metrics),
 		Store:   postingStore,
+		SPTAG:   NewBruteForceSPTAG(metrics, 1024*1024, 1024),
 		// Capacity of the version map: 8k pages, 1M vectors each -> 8B vectors
 		// - An empty version map consumes 240KB of memory
 		// - Each allocated page consumes 1MB of memory
 		// - A fully used version map consumes 8GB of memory
-		VersionMap: NewVersionMap(8*1024, 1024*1024),
+		VersionMap: NewVersionMap(8*1024*1024, 1024),
 		// Capacity of the posting sizes: 1k pages, 1M postings each -> 1B postings
 		// - An empty posting sizes buffer consumes 240KB of memory
 		// - Each allocated page consumes 4MB of memory
 		// - A fully used posting sizes consumes 4GB of memory
-		PostingSizes: NewPostingSizes(metrics, 1024, 1024*1024),
+		PostingSizes: NewPostingSizes(metrics, 1024*1024, 1024),
 
 		postingLocks: common.NewDefaultShardedRWLocks(),
 		// TODO: Eventually, we'll create sharded workers between all instances of SPFresh
@@ -167,7 +169,9 @@ func (s *SPFresh) Type() common.IndexType {
 }
 
 func (s *SPFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
-	return errors.New("UpdateUserConfig is not supported for the spfresh index")
+	// TODO: add update user config
+	// return errors.New("UpdateUserConfig is not supported for the spfresh index")
+	return nil
 }
 
 func (s *SPFresh) Drop(ctx context.Context) error {
@@ -198,7 +202,9 @@ func (s *SPFresh) Shutdown(ctx context.Context) error {
 }
 
 func (s *SPFresh) Flush() error {
-	return s.Store.Flush()
+	// nothing to do here
+	// Shard will take care of handling store's buckets
+	return nil
 }
 
 func (s *SPFresh) SwitchCommitLogs(ctx context.Context) error {
@@ -266,6 +272,9 @@ func (s *SPFresh) QueryVectorDistancer(queryVector []float32) common.QueryVector
 
 func (s *SPFresh) CompressionStats() compressionhelpers.CompressionStats {
 	return s.SPTAG.Quantizer().Stats()
+}
+
+func (s *SPFresh) Preload(id uint64, vector []float32) {
 }
 
 // deduplicator is a simple thread-safe structure to prevent duplicate values.

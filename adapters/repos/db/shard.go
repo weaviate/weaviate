@@ -192,8 +192,9 @@ type ShardLike interface {
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
 	RepairIndex(ctx context.Context, targetVector string) error
-
-	// Debug method for docID lock debugging and contention detection and simulation
+	RequantizeIndex(ctx context.Context, targetVector string) error
+  
+  // Debug method for docID lock debugging and contention detection and simulation
 	DebugGetDocIdLockStatus() (bool, error)
 }
 
@@ -295,6 +296,8 @@ type Shard struct {
 
 	// shutdownRequested marks shard as requested for shutdown
 	shutdownRequested atomic.Bool
+
+	SPFreshEnabled bool
 }
 
 func (s *Shard) ID() string {
@@ -315,7 +318,7 @@ func (s *Shard) pathHashTree() string {
 
 func (s *Shard) vectorIndexID(targetVector string) string {
 	if targetVector != "" {
-		return fmt.Sprintf("vectors_%s", targetVector)
+		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, targetVector)
 	}
 	return "main"
 }
