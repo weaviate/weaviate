@@ -292,19 +292,22 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 		return // nothing to do
 	}
 
-	for v := range channel {
-		vecs = append(vecs, v...)
+	for vectors := range channel {
+		for _, v := range vectors {
+			// if we mix little and big endian IDs by mistake, we might get a very large
+			// maxID which would cause us to allocate a huge cache.
+			// In that case, we consider that anything larger than a quadrillion is an error
+			// and should be skipped.
+			if v.Id > 1<<15 {
+				continue
+			}
+
+			vecs = append(vecs, v)
+		}
 	}
 
 	for i := range vecs {
 		if vecs[i].Id > maxID {
-			// if we mix little and big endian IDs by mistake, we might get a very large
-			// maxID which would cause us to allocate a huge cache.
-			// In that case, we consider that anything larger than a trillion is an error
-			// and should be skipped.
-			if maxID > 1<<12 {
-				continue
-			}
 			maxID = vecs[i].Id
 		}
 	}
@@ -340,19 +343,22 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(docIDVectors 
 		return // nothing to do
 	}
 
-	for v := range channel {
-		vecs = append(vecs, v...)
+	for vectors := range channel {
+		for _, v := range vectors {
+			// if we mix little and big endian IDs by mistake, we might get a very large
+			// maxID which would cause us to allocate a huge cache.
+			// In that case, we consider that anything larger than a quadrillion is an error
+			// and should be skipped.
+			if v.Id > 1<<15 {
+				continue
+			}
+
+			vecs = append(vecs, v)
+		}
 	}
 
 	for i := range vecs {
 		if vecs[i].Id > maxID {
-			// if we mix little and big endian IDs by mistake, we might get a very large
-			// maxID which would cause us to allocate a huge cache.
-			// In that case, we consider that anything larger than a trillion is an error
-			// and should be skipped.
-			if maxID > 1<<12 {
-				continue
-			}
 			maxID = vecs[i].Id
 		}
 	}
