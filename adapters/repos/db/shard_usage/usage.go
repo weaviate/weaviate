@@ -318,6 +318,9 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 	return dimensionality, nil
 }
 
+// sumDir calculates the total size of all files in a directory recursively
+// Note that we sum up the logical file size, not the actual disk usage which might be slightly higher. This is only
+// relevant for very small files where the filesystem block size matters. In practice this is not relevant for us.
 func sumDir(dirPath string) (int64, error) {
 	size := int64(0)
 	err := filepath.Walk(dirPath, func(_ string, info os.FileInfo, err error) error {
