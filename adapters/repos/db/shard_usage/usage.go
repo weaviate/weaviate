@@ -29,6 +29,10 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
+func UsageTmpFilePath(indexPath, shardName string) string {
+	return path.Join(indexPath, shardName, "USAGE_TMP.tmp")
+}
+
 func shardPathLSM(indexPath, shardName string) string {
 	return path.Join(indexPath, shardName, "lsm")
 }

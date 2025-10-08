@@ -497,6 +497,73 @@ def test_storage_vectors(collection_factory: CollectionFactory):
     )
 
 
+def test_usage_with_caching(collection_factory: CollectionFactory):
+    collection = collection_factory(
+        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
+        vector_config=[
+            vectors.self_provided(
+                name="first",
+                quantizer=quantizer.bq(),
+                vector_index_config=wvc.config.Configure.VectorIndex.flat(),
+            ),
+            vectors.self_provided(name="second", quantizer=quantizer.bq()),
+        ],
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=True),
+    )
+
+    collection.tenants.create("tenant")
+    collection = collection.with_tenant("tenant")
+
+    collection.data.insert_many(
+        [
+            wvc.data.DataObject(
+                properties={"name": "object" + str(i)},
+                vector={
+                    vector_names[0]: [random.random() for _ in range(100)],
+                    vector_names[1]: [random.random() for _ in range(125)],
+                },
+            )
+            for i in range(100)
+        ]
+    )
+
+    # necessary that all cna files are written to disk
+    collection.tenants.deactivate("tenant")
+    collection.tenants.activate("tenant")
+    collection.tenants.deactivate("tenant")
+
+    usage_collection_cold1 = debug_usage.get_debug_usage_for_collection(collection.name)
+    usage_collection_cold2 = debug_usage.get_debug_usage_for_collection(collection.name)
+    assert usage_collection_cold1.name == collection.name
+    shard = usage_collection_cold2.shards[0]
+    assert shard.objects_count == 100
+    assert usage_collection_cold1 == usage_collection_cold2
+
+    # activate again and add more
+    collection.tenants.activate("tenant")
+    collection.data.insert_many(
+        [
+            wvc.data.DataObject(
+                properties={"name": "object" + str(i + 100)},
+                vector={
+                    vector_names[0]: [random.random() for _ in range(100)],
+                    vector_names[1]: [random.random() for _ in range(125)],
+                },
+            )
+            for i in range(10)
+        ]
+    )
+
+    # change has been picked up
+    collection.tenants.deactivate("tenant")
+    collection.tenants.activate("tenant")
+    collection.tenants.deactivate("tenant")
+
+    usage_collection_cold3 = debug_usage.get_debug_usage_for_collection(collection.name)
+    shard = usage_collection_cold3.shards[0]
+    assert shard.objects_count == 110
+
+
 def analyse_tenant(
     shard: ShardUsage,
     is_active: bool,
