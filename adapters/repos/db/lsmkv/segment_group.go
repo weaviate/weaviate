@@ -527,26 +527,22 @@ func (sg *SegmentGroup) add(path string) error {
 
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {
 	sg.maintenanceLock.RLock()
-	sg.segmentRefCounterLock.Lock()
-
 	segments = make([]Segment, len(sg.segments))
 	copy(segments, sg.segments)
 
+	sg.segmentRefCounterLock.Lock()
 	for i := range segments {
 		segments[i].incRef()
 	}
-
 	sg.segmentRefCounterLock.Unlock()
 	sg.maintenanceLock.RUnlock()
 
 	return segments, func() {
-		sg.maintenanceLock.RLock()
 		sg.segmentRefCounterLock.Lock()
 		for i := range segments {
 			segments[i].decRef()
 		}
 		sg.segmentRefCounterLock.Unlock()
-		sg.maintenanceLock.RUnlock()
 	}
 }
 
