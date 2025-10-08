@@ -366,7 +366,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		}, 30*time.Second, 3*time.Second, "Objects not replicated within time")
 	})
 
-	t.Run("test client-server behaviour when reconnecting between nodes due to shutdown", func(t *testing.T) {
+	t.Run("verify expected client-server behaviour when reconnecting between nodes due to shutdown", func(t *testing.T) {
 		defer setupClasses()()
 		firstNode := 2
 		secondNode := 1
@@ -474,6 +474,35 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 			require.NoError(t, err, "Aggregate should not return an error")
 			require.GreaterOrEqual(ct, *res.GetSingleResult().ObjectsCount, int64(50000), "Number of articles created should match the number sent")
 		}, 300*time.Second, 5*time.Second, "Objects not replicated within time")
+	})
+
+	t.Run("verify that server still shuts down if client hangs up without closing its end of the stream", func(t *testing.T) {
+		defer setupClasses()()
+		node := 2
+
+		helper.SetupClient(compose.GetWeaviateNode(node).URI())
+		grpcClient, _ = client(t, compose.GetWeaviateNode(node).GrpcURI())
+		stream := start(ctx, t, grpcClient)
+
+		batch := make([]*pb.BatchObject, 0, 1000)
+		for i := 0; i < 1000; i++ {
+			batch = append(batch, &pb.BatchObject{
+				Collection: clsA.Class,
+				Uuid:       helper.IntToUUID(uint64(i)).String(),
+			})
+		}
+		err := send(stream, batch, nil)
+		require.NoError(t, err, "sending Objects over the stream should not return an error")
+
+		// Restart node
+		t.Logf("Stopping node %v...", node)
+		common.StopNodeAtWithTimeout(ctx, t, compose, node-1, 300*time.Second)
+		t.Logf("Restarting node %v...", node)
+		common.StartNodeAt(ctx, t, compose, node-1)
+		t.Log("Node was restarted successfully in time")
+
+		// Setup again to allow cleanup to work in defer
+		helper.SetupClient(compose.GetWeaviateNode(node).URI())
 	})
 }
 
