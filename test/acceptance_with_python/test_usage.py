@@ -355,6 +355,140 @@ def test_multi_vector(collection_factory: CollectionFactory):
     assert named_vector_bq.vector_compression_ratio == 32
 
 
+def test_object_storage(collection_factory: CollectionFactory):
+    collection = collection_factory(
+        properties=[
+            wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT),
+            wvc.config.Property(name="description", data_type=wvc.config.DataType.TEXT),
+        ],
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=True),
+    )
+
+    collection.tenants.create("tenant")
+    collection = collection.with_tenant("tenant")
+
+    # Adding 100 objects with increasing size of text properties
+    # each object will have
+    #  - names of the properties "name" and "description" (11 bytes, 1100 bytes in total)
+    #  - content of the two properties with i bytes each => 9900 bytes in total
+    #  - collection name and tenant name overhead (let's assume 50 bytes, 5000 bytes in total)
+    # So total storage should be around 16000 bytes
+    #
+    # However, there is a lot of overhead in the storage engine as well, especially because we have the primary and two
+    # secondary indices, which are roughly the size of the data itself
+    guesstimate = 16000 * 2
+
+    collection.data.insert_many(
+        [
+            wvc.data.DataObject(properties={"name": "a" * i, "description": "b" * i})
+            for i in range(100)
+        ]
+    )
+
+    # deactivate and reactivate, to make sure that everything is written to disk
+    collection.tenants.deactivate("tenant")
+    collection.tenants.activate("tenant")
+
+    usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
+    assert usage_collection.name == collection.name
+    assert len(usage_collection.shards) == 1
+    shard = usage_collection.shards[0]
+    assert shard.objects_count == 100
+
+    collection.tenants.deactivate("tenant")
+
+    usage_collection_cold = debug_usage.get_debug_usage_for_collection(collection.name)
+    assert usage_collection_cold.name == collection.name
+    assert len(usage_collection_cold.shards) == 1
+    shard_cold = usage_collection_cold.shards[0]
+
+    assert (
+        shard_cold.objects_storage_bytes == shard.objects_storage_bytes
+    )  # hot and cold computation should result in the same value
+    assert shard_cold.objects_storage_bytes > guesstimate
+    assert shard_cold.objects_storage_bytes < 3 * guesstimate
+
+    assert shard_cold.index_storage_bytes == shard.index_storage_bytes
+    assert shard_cold.full_shard_storage_bytes == shard.full_shard_storage_bytes
+    # shard storage must be larger than sum of components
+    assert (
+        shard.full_shard_storage_bytes
+        > shard.vector_storage_bytes + shard.index_storage_bytes + shard.objects_storage_bytes
+    )
+
+
+def test_storage_vectors(collection_factory: CollectionFactory):
+    collection = collection_factory(
+        vector_config=[
+            vectors.self_provided(
+                name="first",
+                quantizer=quantizer.bq(),
+                vector_index_config=wvc.config.Configure.VectorIndex.flat(),
+            ),
+            vectors.self_provided(name="second", quantizer=quantizer.bq()),
+        ],
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=True),
+    )
+
+    collection.tenants.create("tenant")
+    collection = collection.with_tenant("tenant")
+
+    collection.data.insert_many(
+        [
+            wvc.data.DataObject(
+                properties={},
+                vector={
+                    vector_names[0]: [random.random() for _ in range(100)],
+                    vector_names[1]: [random.random() for _ in range(125)],
+                },
+            )
+            for _ in range(1000)
+        ]
+    )
+
+    # deactivate and reactivate, to make sure that all vector data is written to disk
+    collection.tenants.deactivate("tenant")
+    collection.tenants.activate("tenant")
+
+    # we have 1000 objects now with 2 vectors each, with 100 and 125 dimensions respectively
+    # uncompressed storage is 4 bytes per dimension
+    # so total uncompressed storage is 1000 * (100 + 125) * 4 = 900000 bytes
+    # with bq compression we have 32x compression, so storage should be around 28125 bytes in total
+    # resulting in 928125 bytes in total.
+    # Moreover, the flat index does use an additional bucket to store the uncompressed vectors, resulting in an
+    # additional 400000 bytes for the first vector, so total storage should be around 1328125 bytes
+
+    usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
+    assert usage_collection.name == collection.name
+    assert len(usage_collection.shards) == 1
+    shard = usage_collection.shards[0]
+    assert shard.objects_count == 1000
+    assert len(shard.named_vectors) == 2
+
+    collection.tenants.deactivate("tenant")
+
+    usage_collection_cold = debug_usage.get_debug_usage_for_collection(collection.name)
+    assert usage_collection_cold.name == collection.name
+    assert len(usage_collection_cold.shards) == 1
+    shard_cold = usage_collection_cold.shards[0]
+    assert len(shard_cold.named_vectors) == 2
+
+    assert (
+        shard_cold.vector_storage_bytes == shard.vector_storage_bytes
+    )  # hot and cold computation should result in the same value
+    # we want AT LEAST the calculated value, but it can be higher due to overhead
+    assert shard_cold.vector_storage_bytes > 1328125
+    assert shard_cold.vector_storage_bytes < 1328125 * 1.25  # allow 25% overhead
+
+    assert shard_cold.index_storage_bytes == shard.index_storage_bytes
+    assert shard_cold.full_shard_storage_bytes == shard.full_shard_storage_bytes
+    # shard storage must be larger than sum of components
+    assert (
+        shard.full_shard_storage_bytes
+        > shard.vector_storage_bytes + shard.index_storage_bytes + shard.objects_storage_bytes
+    )
+
+
 def analyse_tenant(
     shard: ShardUsage,
     is_active: bool,

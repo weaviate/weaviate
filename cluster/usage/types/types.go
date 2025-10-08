@@ -63,11 +63,17 @@ type ShardUsage struct {
 	// The number of objects in the shard
 	ObjectsCount int64 `json:"objects_count,omitempty"`
 
-	// The storage size in bytes
+	// The disk storage used by objects in bytes
 	ObjectsStorageBytes uint64 `json:"objects_storage_bytes,omitempty"`
 
-	// The actual memory storage bytes used by vectors
+	// The disk storage used by vectors in bytes
 	VectorStorageBytes uint64 `json:"vector_storage_bytes,omitempty"`
+
+	// The disk storage used by indices in bytes
+	IndexStorageBytes uint64 `json:"index_storage_bytes,omitempty"`
+
+	// The disk storage used by the full shard in bytes (objects + vectors + indices + hnsw commitlogs)
+	FullShardStorageBytes uint64 `json:"full_shard_storage_bytes,omitempty"`
 
 	// List of named vectors and their metrics
 	NamedVectors VectorsUsage `json:"named_vectors,omitempty"`
