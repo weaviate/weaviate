@@ -165,7 +165,7 @@ func TestShardUsage_OmitsEmptyFields(t *testing.T) {
 					{Name: "default"},
 				},
 			},
-			expected: `{"name":"test-shard","status":"active","objects_count":1000,"objects_storage_bytes":1024,"vector_storage_bytes":2048,"named_vectors":[{"name":"default","multi_vector_config":{"enabled":false}}]}`,
+			expected: `{"name":"test-shard","status":"active","objects_count":1000,"objects_storage_bytes":1024,"vector_storage_bytes":2048,"named_vectors":[{"name":"default"}]}`,
 		},
 	}
 
