@@ -97,7 +97,7 @@ type VectorUsage struct {
 	Dimensionalities []*Dimensionality `json:"dimensionalities,omitempty"`
 
 	// Configuration for Multi-Vector
-	MultiVectorConfig MultiVectorConfig `json:"multi_vector_config"`
+	MultiVectorConfig *MultiVectorConfig `json:"multi_vector_config,omitempty"`
 }
 
 type MultiVectorConfig struct {

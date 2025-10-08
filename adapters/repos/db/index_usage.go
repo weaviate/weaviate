@@ -347,12 +347,12 @@ func emptyShardUsageWithNameAndActivity(shardName, activity string) *types.Shard
 	}
 }
 
-func multiVectorConfigFromConfig(vectorConfig schemaConfig.VectorIndexConfig) types.MultiVectorConfig {
+func multiVectorConfigFromConfig(vectorConfig schemaConfig.VectorIndexConfig) *types.MultiVectorConfig {
 	hnswConfig, ok := vectorConfig.(enthnsw.UserConfig)
 	if !ok || !hnswConfig.Multivector.Enabled {
-		return types.MultiVectorConfig{Enabled: false}
+		return &types.MultiVectorConfig{Enabled: false}
 	}
-	return types.MultiVectorConfig{
+	return &types.MultiVectorConfig{
 		Enabled: true,
 		MuveraConfig: &types.MuveraConfig{
 			Enabled:      hnswConfig.Multivector.MuveraConfig.Enabled,
