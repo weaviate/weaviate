@@ -221,7 +221,7 @@ func TestStorageCalculation(t *testing.T) {
 	lsmFolder := shardPathLSM(dirName, "shard1")
 	require.NoError(t, os.MkdirAll(lsmFolder, 0o777))
 
-	buckets := []string{helpers.ObjectsBucketLSM, helpers.DimensionsBucketLSM, "vectors", "vectors_compressed", "property_someProp_searchable", "property_someProp", "property__id"}
+	buckets := []string{helpers.ObjectsBucketLSM, helpers.DimensionsBucketLSM, "vectors", "vectors_compressed", "vectors_compressed_named_vector", "property_someProp_searchable", "property_someProp", "property__id"}
 	sizeTracker := make(map[string]uint64, len(buckets))
 
 	// create different buckets with dummy files with varying sizes
@@ -260,7 +260,7 @@ func TestStorageCalculation(t *testing.T) {
 
 	vectorBytes, err := CalculateUnloadedVectorsMetrics(dirName, "shard1")
 	require.NoError(t, err)
-	require.Equal(t, sizeTracker["vectors"]+sizeTracker["vectors_compressed"], uint64(vectorBytes))
+	require.Equal(t, sizeTracker["vectors"]+sizeTracker["vectors_compressed"]+sizeTracker["vectors_compressed_named_vector"], uint64(vectorBytes))
 
 	indexBytes, err := CalculateUnloadedIndicesSize(dirName, "shard1")
 	require.NoError(t, err)

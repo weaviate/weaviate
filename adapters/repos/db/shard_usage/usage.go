@@ -18,6 +18,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -205,13 +206,9 @@ func CalculateUnloadedIndicesSize(path, shardName string) (uint64, error) {
 		return 0, err
 	}
 	for _, entry := range entries {
-		included := false
-		for _, prefix := range includedPrefixes {
-			if strings.HasPrefix(entry.Name(), prefix) {
-				included = true
-				break
-			}
-		}
+		included := slices.ContainsFunc(includedPrefixes, func(prefix string) bool {
+			return strings.HasPrefix(entry.Name(), prefix)
+		})
 		if !included {
 			continue
 		}
