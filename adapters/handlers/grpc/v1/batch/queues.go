@@ -40,12 +40,7 @@ type report struct {
 	Stats  *workerStats
 }
 
-type listen struct {
-	streamId string
-}
-
 type (
-	listeningQueue  chan *listen
 	processingQueue chan *processRequest
 	reportingQueue  chan *report
 )
@@ -55,20 +50,16 @@ type (
 // The buffer size can be adjusted based on expected load and performance requirements
 // to optimize throughput and resource usage. But is required so that there is a small buffer
 // that can be quickly flushed in the event of a shutdown.
-func NewBatchProcessingQueue(bufferSize int) processingQueue {
+func NewProcessingQueue(bufferSize int) processingQueue {
 	return make(processingQueue, bufferSize)
 }
 
-func NewBatchReportingQueue(bufferSize int) reportingQueue {
+func NewReportingQueue(bufferSize int) reportingQueue {
 	return make(reportingQueue, bufferSize)
 }
 
-func NewListeningQueue() listeningQueue {
-	return make(listeningQueue)
-}
-
-func NewBatchReportingQueues() *ReportingQueues {
-	return &ReportingQueues{
+func NewReportingQueues() *reportingQueues {
+	return &reportingQueues{
 		queues: make(map[string]reportingQueue),
 		closed: make(map[string]struct{}),
 	}
@@ -80,21 +71,21 @@ func NewErrorsObject(errs []*pb.BatchStreamReply_Error) *report {
 	}
 }
 
-type ReportingQueues struct {
+type reportingQueues struct {
 	lock   sync.RWMutex
 	queues map[string]reportingQueue
 	closed map[string]struct{}
 }
 
 // Get retrieves the read queue for the given stream ID.
-func (r *ReportingQueues) Get(streamId string) (reportingQueue, bool) {
+func (r *reportingQueues) Get(streamId string) (reportingQueue, bool) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 	queue, ok := r.queues[streamId]
 	return queue, ok
 }
 
-func (r *ReportingQueues) Close(streamId string) {
+func (r *reportingQueues) Close(streamId string) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	if queue, ok := r.queues[streamId]; ok {
@@ -106,7 +97,7 @@ func (r *ReportingQueues) Close(streamId string) {
 	}
 }
 
-func (r *ReportingQueues) CloseAll() {
+func (r *reportingQueues) CloseAll() {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	for streamId, queue := range r.queues {
@@ -117,14 +108,14 @@ func (r *ReportingQueues) CloseAll() {
 	}
 }
 
-func (r *ReportingQueues) Delete(streamId string) {
+func (r *reportingQueues) Delete(streamId string) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	delete(r.queues, streamId)
 	delete(r.closed, streamId)
 }
 
-func (r *ReportingQueues) Send(streamId string, errs []*pb.BatchStreamReply_Error, stats *workerStats) bool {
+func (r *reportingQueues) Send(streamId string, errs []*pb.BatchStreamReply_Error, stats *workerStats) bool {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 	queue, ok := r.queues[streamId]
@@ -140,7 +131,7 @@ func (r *ReportingQueues) Send(streamId string, errs []*pb.BatchStreamReply_Erro
 }
 
 // Make initializes a read queue for the given stream ID if it does not already exist.
-func (r *ReportingQueues) Make(streamId string) {
+func (r *reportingQueues) Make(streamId string) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	if _, ok := r.queues[streamId]; !ok {
@@ -158,12 +149,13 @@ func NewWorkersStats(processingTime time.Duration) *workerStats {
 	}
 }
 
-func NewProcessRequest(objs []*pb.BatchObject, refs []*pb.BatchReference, streamId string, cl *pb.ConsistencyLevel) *processRequest {
+func NewProcessRequest(objs []*pb.BatchObject, refs []*pb.BatchReference, streamId string, cl *pb.ConsistencyLevel, wg *sync.WaitGroup) *processRequest {
 	return &processRequest{
 		StreamId:         streamId,
 		ConsistencyLevel: cl,
 		Objects:          objs,
 		References:       refs,
+		Wg:               wg,
 	}
 }
 

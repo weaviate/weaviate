@@ -27,18 +27,15 @@ func Start(
 	reg prometheus.Registerer,
 	shutdown *Shutdown,
 	numWorkers int,
+	processingQueue processingQueue,
 	logger logrus.FieldLogger,
 ) (*StreamHandler, *BatchStreamingCallbacks) {
 	metrics := NewBatchStreamingCallbacks(reg)
 
-	internalBuffer := 10 * numWorkers // Higher numbers make shutdown slower but lower numbers make throughput worse
-	processingQueue := NewBatchProcessingQueue(internalBuffer)
-	reportingQueues := NewBatchReportingQueues()
-	listeningQueue := NewListeningQueue()
-
-	streamHandler := NewStreamHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, reportingQueues, processingQueue, listeningQueue, metrics, logger)
+	reportingQueues := NewReportingQueues()
+	streamHandler := NewStreamHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, reportingQueues, processingQueue, metrics, logger)
 	// batch workers set their own per-process timeout and should not be cancelled on shutdown
-	StartBatchWorkers(context.Background(), shutdown.WorkersWg, numWorkers, processingQueue, reportingQueues, listeningQueue, batchHandler, logger)
+	StartBatchWorkers(context.Background(), shutdown.WorkersWg, numWorkers, processingQueue, reportingQueues, batchHandler, logger)
 
 	return streamHandler, metrics
 }

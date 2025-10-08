@@ -34,9 +34,8 @@ type Batcher interface {
 type Worker struct {
 	batcher         Batcher
 	logger          logrus.FieldLogger
-	reportingQueues *ReportingQueues
+	reportingQueues *reportingQueues
 	processingQueue processingQueue
-	listeningQueue  listeningQueue
 }
 
 type SendObjects struct {
@@ -54,9 +53,18 @@ type processRequest struct {
 	ConsistencyLevel *pb.ConsistencyLevel
 	Objects          []*pb.BatchObject
 	References       []*pb.BatchReference
+	Wg               *sync.WaitGroup
 }
 
-func StartBatchWorkers(ctx context.Context, wg *sync.WaitGroup, concurrency int, processingQueue processingQueue, reportingQueues *ReportingQueues, listeningQueue listeningQueue, batcher Batcher, logger logrus.FieldLogger) {
+func StartBatchWorkers(
+	ctx context.Context,
+	wg *sync.WaitGroup,
+	concurrency int,
+	processingQueue processingQueue,
+	reportingQueues *reportingQueues,
+	batcher Batcher,
+	logger logrus.FieldLogger,
+) {
 	eg := enterrors.NewErrorGroupWrapper(logger)
 	logger.WithField("action", "batch_workers_start").WithField("concurrency", concurrency).Info("entering worker loop(s)")
 	for range concurrency {
@@ -68,21 +76,10 @@ func StartBatchWorkers(ctx context.Context, wg *sync.WaitGroup, concurrency int,
 				logger:          logger,
 				reportingQueues: reportingQueues,
 				processingQueue: processingQueue,
-				listeningQueue:  listeningQueue,
 			}
 			return w.Loop(ctx)
 		})
 	}
-	enterrors.GoWrapper(func() {
-		log := logger.WithField("action", "batch_workers_shutdown")
-		log.Info("waiting for all workers to finish")
-		if err := eg.Wait(); err != nil {
-			log.WithError(err).Error("batch workers exited with error")
-		}
-		log.Info("all batch workers finished")
-		log.Info("closing listening queue")
-		close(listeningQueue)
-	}, logger)
 }
 
 func (w *Worker) isReplicationError(err string) bool {
@@ -175,7 +172,6 @@ func (w *Worker) report(streamId string, errs []*pb.BatchStreamReply_Error, stat
 	if ok := w.reportingQueues.Send(streamId, errs, stats); !ok {
 		w.logger.WithField("streamId", streamId).Warn("timed out sending errors to read queue, maybe the client disconnected?")
 	}
-	w.listeningQueue <- &listen{streamId: streamId}
 }
 
 // Loop processes objects from the write queue, sending them to the batcher and handling shutdown signals.
@@ -189,11 +185,13 @@ func (w *Worker) Loop(ctx context.Context) error {
 			}
 		}
 	}
-	w.logger.Debug("processing queue closed, shutting down worker")
+	w.logger.Info("processing queue closed, shutting down worker")
 	return nil // channel closed, exit loop
 }
 
 func (w *Worker) process(ctx context.Context, req *processRequest) error {
+	defer req.Wg.Done()
+
 	ctx, cancel := context.WithTimeout(ctx, perProcessTimeout)
 	defer cancel()
 

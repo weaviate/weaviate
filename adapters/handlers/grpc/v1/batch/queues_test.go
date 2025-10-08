@@ -20,7 +20,7 @@ import (
 
 func Test_statsUpdateBatchSize(t *testing.T) {
 	t.Run("calculate new batch size when processing time is ideal", func(t *testing.T) {
-		queue := NewBatchProcessingQueue(100)
+		queue := NewProcessingQueue(100)
 		stats := newStats() // default batch size is 100
 		stats.updateBatchSize(time.Second, len(queue))
 		require.Equal(t, 100, stats.getBatchSize())
@@ -28,7 +28,7 @@ func Test_statsUpdateBatchSize(t *testing.T) {
 	})
 
 	t.Run("increase batch size when processing time is lesser in value than ideal", func(t *testing.T) {
-		queue := NewBatchProcessingQueue(100)
+		queue := NewProcessingQueue(100)
 		stats := newStats() // default batch size is 100
 		stats.updateBatchSize(500*time.Millisecond, len(queue))
 		require.Greater(t, stats.getBatchSize(), 100)
@@ -36,7 +36,7 @@ func Test_statsUpdateBatchSize(t *testing.T) {
 	})
 
 	t.Run("decrease batch size when processing time is greater in value than ideal", func(t *testing.T) {
-		queue := NewBatchProcessingQueue(100)
+		queue := NewProcessingQueue(100)
 		stats := newStats() // default batch size is 100
 		stats.updateBatchSize(2*time.Second, len(queue))
 		require.Less(t, stats.getBatchSize(), 100)
@@ -44,7 +44,7 @@ func Test_statsUpdateBatchSize(t *testing.T) {
 	})
 
 	t.Run("batch size should not go below 10", func(t *testing.T) {
-		queue := NewBatchProcessingQueue(100)
+		queue := NewProcessingQueue(100)
 		stats := newStats() // default batch size is 100
 		for i := 0; i < 100; i++ {
 			stats.updateBatchSize(10*time.Second, len(queue))
@@ -54,7 +54,7 @@ func Test_statsUpdateBatchSize(t *testing.T) {
 	})
 
 	t.Run("batch size should not go above 1000", func(t *testing.T) {
-		queue := NewBatchProcessingQueue(100)
+		queue := NewProcessingQueue(100)
 		stats := newStats() // default batch size is 100
 		for i := 0; i < 100; i++ {
 			stats.updateBatchSize(10*time.Millisecond, len(queue))

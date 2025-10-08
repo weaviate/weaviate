@@ -40,7 +40,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
-var _NUMCPU = runtime.GOMAXPROCS(0)
+var NUMCPU = runtime.GOMAXPROCS(0)
 
 type Service struct {
 	pb.UnimplementedWeaviateServer
@@ -66,7 +66,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 ) *Service {
 	authenticator := auth.NewHandler(allowAnonymousAccess, authComposer)
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchStreamHandler, batchMetrics := batch.Start(authenticator, authorization, batchHandler, prometheus.DefaultRegisterer, shutdown, _NUMCPU, logger)
+	batchStreamHandler, batchMetrics := batch.Start(authenticator, authorization, batchHandler, prometheus.DefaultRegisterer, shutdown, NUMCPU, shutdown.ProcessingQueue, logger)
 	return &Service{
 		traverser:            traverser,
 		authComposer:         authComposer,

@@ -86,8 +86,8 @@ func TestShutdownHappyPath(t *testing.T) {
 	})).Return(nil).Maybe()
 
 	numWorkers := 1
-	shutdown := batch.NewShutdown(ctx)
-	handler, _ := batch.Start(nil, nil, mockBatcher, nil, shutdown, numWorkers, logger)
+	shutdown := batch.NewShutdown(ctx, numWorkers)
+	handler, _ := batch.Start(nil, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -160,8 +160,8 @@ func TestShutdownAfterBrokenStream(t *testing.T) {
 	})).Return(nil).Maybe()
 
 	numWorkers := 1
-	shutdown := batch.NewShutdown(ctx)
-	handler, _ := batch.Start(nil, nil, mockBatcher, nil, shutdown, numWorkers, logger)
+	shutdown := batch.NewShutdown(ctx, numWorkers)
+	handler, _ := batch.Start(nil, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
 	err := handler.Handle(stream)
 	require.NotNil(t, err, "handler should return error shutting down")
 	require.ErrorAs(t, err, &networkErr, "handler should return network error")
@@ -227,8 +227,8 @@ func TestShutdownWithHangingClient(t *testing.T) {
 	})).Return(nil).Maybe()
 
 	numWorkers := 1
-	shutdown := batch.NewShutdown(ctx)
-	handler, _ := batch.Start(nil, nil, mockBatcher, nil, shutdown, numWorkers, logger)
+	shutdown := batch.NewShutdown(ctx, numWorkers)
+	handler, _ := batch.Start(nil, nil, mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -239,8 +239,6 @@ func TestShutdownWithHangingClient(t *testing.T) {
 	err := handler.Handle(stream)
 	require.NotNil(t, err, "handler should return error shutting down")
 	require.ErrorAs(t, err, &context.Canceled, "handler should return context.Canceled error")
-	// Should take two minutes to exhaust the grace period before force shutting down the recv loop
-	shutdown.Drain(logger)
 	wg.Wait()
 }
 

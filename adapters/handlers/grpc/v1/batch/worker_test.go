@@ -41,10 +41,9 @@ func TestWorkerLoop(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 
-		reportingQueues := batch.NewBatchReportingQueues()
+		reportingQueues := batch.NewReportingQueues()
 		reportingQueues.Make(StreamId)
-		processingQueue := batch.NewBatchProcessingQueue(1)
-		listeningQueue := batch.NewListeningQueue()
+		processingQueue := batch.NewProcessingQueue(1)
 
 		mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).Return(&pb.BatchObjectsReply{
 			Took:   float32(1),
@@ -55,25 +54,23 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: nil,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueues, listeningQueue, mockBatcher, logger)
-
-		go func() {
-			for range listeningQueue {
-			}
-		}()
+		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
 
 		// Send data
+		wg.Add(2)
 		processingQueue <- batch.NewProcessRequest(
 			[]*pb.BatchObject{{}},
 			nil,
 			StreamId,
 			nil,
+			&wg,
 		)
 		processingQueue <- batch.NewProcessRequest(
 			nil,
 			[]*pb.BatchReference{{}},
 			StreamId,
 			nil,
+			&wg,
 		)
 		close(processingQueue) // Allow the draining logic to exit naturally
 		wg.Wait()
@@ -86,10 +83,9 @@ func TestWorkerLoop(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 
-		reportingQueues := batch.NewBatchReportingQueues()
+		reportingQueues := batch.NewReportingQueues()
 		reportingQueues.Make(StreamId)
-		processingQueue := batch.NewBatchProcessingQueue(1)
-		listeningQueue := batch.NewListeningQueue()
+		processingQueue := batch.NewProcessingQueue(1)
 
 		errorsObj := []*pb.BatchObjectsReply_BatchError{
 			{
@@ -123,7 +119,7 @@ func TestWorkerLoop(t *testing.T) {
 			Errors: errorsRefs,
 		}, nil).Times(1)
 		var wg sync.WaitGroup
-		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueues, listeningQueue, mockBatcher, logger)
+		batch.StartBatchWorkers(ctx, &wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
 
 		// Send data
 		obj := &pb.BatchObject{}
@@ -131,14 +127,14 @@ func TestWorkerLoop(t *testing.T) {
 		// must use goroutine to avoid deadlock due to one worker sending error over read stream
 		// while next send to processing queue is blocked by there only being one worker
 		go func() {
+			wg.Add(1)
 			processingQueue <- batch.NewProcessRequest(
 				[]*pb.BatchObject{obj, obj, obj},
 				[]*pb.BatchReference{ref, ref},
 				StreamId,
 				nil,
+				&wg,
 			)
-			for range listeningQueue {
-			}
 		}()
 
 		rq, ok := reportingQueues.Get(StreamId)

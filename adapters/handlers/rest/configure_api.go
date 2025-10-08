@@ -47,7 +47,6 @@ import (
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
-	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
@@ -917,8 +916,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
 
-	grpcShutdown := batch.NewShutdown(context.Background())
-	grpcServer := createGrpcServer(appState, grpcShutdown, grpcInstrument...)
+	grpcServer, grpcShutdown := createGrpcServer(appState, grpcInstrument...)
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
@@ -943,9 +941,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}, appState.Logger)
 	}
 
-	api.PreServerShutdown = func() {
-		grpcShutdown.Drain(appState.Logger)
-	}
+	// api.PreServerShutdown = func() {
+	// 	grpcShutdown.Drain(appState.Logger)
+	// }
 
 	api.ServerShutdown = func() {
 		if telemetryEnabled(appState) {
@@ -967,8 +965,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			appState.DistributedTaskScheduler.Close()
 		}
 
+		// enterrors.GoWrapper(func() { grpcShutdown.Drain(appState.Logger) }, appState.Logger)
 		// gracefully stop gRPC server
-		grpcServer.GracefulStop()
+		// grpcServer.GracefulStop()
+		grpcShutdown()
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)

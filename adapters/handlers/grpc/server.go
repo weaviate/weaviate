@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc/peer"
@@ -26,6 +27,7 @@ import (
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	pbv0 "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
@@ -45,8 +47,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 )
 
+type ShutdownServer func()
+
 // CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
-func CreateGRPCServer(state *state.State, shutdown *batch.Shutdown, options ...grpc.ServerOption) *grpc.Server {
+func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.Server, ShutdownServer) {
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
 		grpc.MaxSendMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
@@ -96,6 +100,7 @@ func CreateGRPCServer(state *state.State, shutdown *batch.Shutdown, options ...g
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
 	}
 
+	shutdown := batch.NewShutdown(context.Background(), v1.NUMCPU)
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
 	weaviateV1 := v1.NewService(
@@ -119,7 +124,16 @@ func CreateGRPCServer(state *state.State, shutdown *batch.Shutdown, options ...g
 
 	grpc_health_v1.RegisterHealthServer(s, weaviateV1)
 
-	return s
+	return s, func() {
+		var wg sync.WaitGroup
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			shutdown.Drain(state.Logger)
+		}, state.Logger)
+		s.GracefulStop()
+		wg.Wait()
+	}
 }
 
 func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics) grpc.UnaryServerInterceptor {

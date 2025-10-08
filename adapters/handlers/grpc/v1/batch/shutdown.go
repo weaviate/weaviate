@@ -19,14 +19,15 @@ import (
 )
 
 type Shutdown struct {
-	HandlersCtx    context.Context
-	HandlersCancel context.CancelFunc
-	RecvWg         *sync.WaitGroup
-	SendWg         *sync.WaitGroup
-	WorkersWg      *sync.WaitGroup
+	HandlersCtx     context.Context
+	HandlersCancel  context.CancelFunc
+	RecvWg          *sync.WaitGroup
+	SendWg          *sync.WaitGroup
+	WorkersWg       *sync.WaitGroup
+	ProcessingQueue processingQueue
 }
 
-func NewShutdown(ctx context.Context) *Shutdown {
+func NewShutdown(ctx context.Context, numWorkers int) *Shutdown {
 	var recvWg sync.WaitGroup
 	var sendWg sync.WaitGroup
 	var workersWg sync.WaitGroup
@@ -34,11 +35,12 @@ func NewShutdown(ctx context.Context) *Shutdown {
 	hCtx, hCancel := context.WithCancel(ctx)
 
 	return &Shutdown{
-		HandlersCtx:    hCtx,
-		HandlersCancel: hCancel,
-		RecvWg:         &recvWg,
-		SendWg:         &sendWg,
-		WorkersWg:      &workersWg,
+		HandlersCtx:     hCtx,
+		HandlersCancel:  hCancel,
+		RecvWg:          &recvWg,
+		SendWg:          &sendWg,
+		WorkersWg:       &workersWg,
+		ProcessingQueue: NewProcessingQueue(numWorkers * 10), // buffer size of 10x workers
 	}
 }
 
@@ -70,7 +72,9 @@ func (s *Shutdown) Drain(logger logrus.FieldLogger) {
 	s.HandlersCancel()
 	log.Info("wait for all receivers to finish adding to processing queue")
 	s.RecvWg.Wait()
-	log.Info("all receivers finished")
+	log.Info("all receivers finished, closing processing queue")
+	// close the processing queue to signal to workers that no more requests will be coming and that they can exit
+	close(s.ProcessingQueue)
 	// wait for all workers to finish
 	log.Info("waiting for all workers to finish processing internal queue")
 	// wait for all the objects to be processed from the internal queue
