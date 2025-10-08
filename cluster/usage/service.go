@@ -71,7 +71,7 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 		Backups:     make([]*types.BackupUsage, 0),
 	}
 
-	s.logger.Debugf("Creating usage report with %d collections", len(collections))
+	s.logger.Infof("Creating usage report with %d collections", len(collections))
 	// Collect usage for each collection
 	for _, collection := range collections {
 		vectorConfig, err := config.ExtractVectorConfigs(collection)

@@ -186,8 +186,14 @@ func (i *Index) usageForCollection(ctx context.Context, logger logrus.FieldLogge
 			return nil, err
 		}
 		counter++
-		if counter%250 == 0 {
-			logger.WithFields(logrus.Fields{"class": i.Config.ClassName.String(), "processed_shards": counter, "total": len(localShards), "took": time.Since(start), "jitter_total": totalJitter}).Debug("Processed 250 shards for usage report")
+		if counter%1000 == 0 {
+			logger.WithFields(
+				logrus.Fields{
+					"class":            i.Config.ClassName.String(),
+					"processed_shards": counter,
+					"took":             time.Since(start).Seconds(),
+					"jitter_total":     totalJitter.Seconds(),
+				}).Debugf("Processed %d/%d shards for usage report", counter, len(localShards))
 		}
 	}
 
@@ -304,14 +310,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		return nil, err
 	}
 
-	vectorIndexConfigs := i.GetVectorIndexConfigs()
-
 	vectorStorageSize, err := shardusage.CalculateUnloadedVectorsMetrics(i.path(), shardName)
-	if err != nil {
-		return nil, err
-	}
-
-	uncompressedVectorSize, err := shardusage.CalculateUnloadedUncompressedVectorSize(ctx, i.logger, i.path(), shardName, vectorIndexConfigs)
 	if err != nil {
 		return nil, err
 	}
@@ -330,13 +329,12 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		Name:                  shardName,
 		ObjectsCount:          objectUsage.Count,
 		Status:                strings.ToLower(models.TenantActivityStatusINACTIVE),
-		ObjectsStorageBytes:   uint64(objectUsage.StorageBytes) - uint64(uncompressedVectorSize),
-		VectorStorageBytes:    uint64(vectorStorageSize) + uint64(uncompressedVectorSize),
 		IndexStorageBytes:     indexUsage,
 		FullShardStorageBytes: nonLSMStorage + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorStorageSize),
 	}
 
 	// Get named vector data for cold shards from schema configuration
+	uncompressedVectorSize := uint64(0) // calculate total uncompressed vector size for all vectors
 	for targetVector, vectorConfig := range vectorConfigs {
 		vectorUsage := &types.VectorUsage{
 			Name:                   targetVector,
@@ -361,10 +359,14 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		if err != nil {
 			return nil, err
 		}
+		uncompressedVectorSize += uint64(dimensionalities.Count) * uint64(dimensionalities.Dimensions) * 4
 		vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &dimensionalities)
 		vectorUsage.MultiVectorConfig = multiVectorConfigFromConfig(vectorIndexConfig)
 		shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
 	}
+	shardUsage.ObjectsStorageBytes = uint64(objectUsage.StorageBytes) - uncompressedVectorSize
+	shardUsage.VectorStorageBytes = uint64(vectorStorageSize) + uncompressedVectorSize
+
 	sort.Sort(shardUsage.NamedVectors)
 	return shardUsage, err
 }

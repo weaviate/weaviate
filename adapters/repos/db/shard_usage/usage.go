@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 func shardPathLSM(indexPath, shardName string) string {
@@ -97,49 +96,6 @@ func CalculateUnloadedVectorsMetrics(path, shard string) (int64, error) {
 		}
 	}
 	return totalSize, nil
-}
-
-func CalculateUnloadedUncompressedVectorSize(ctx context.Context, logger logrus.FieldLogger, path, tenantName string, vectorConfig map[string]schemaConfig.VectorIndexConfig) (int64, error) {
-	uncompressedSize := int64(0)
-	// For each target vector, calculate storage size using dimensions bucket and config-based compression
-	for targetVector := range vectorConfig {
-		err := func() error {
-			bucketPath := shardPathDimensionsLSM(path, tenantName)
-			strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, lsmkv.DimensionsBucketPrioritizedStrategies)
-			if err != nil {
-				return fmt.Errorf("determine dimensions bucket strategy: %w", err)
-			}
-
-			// Get dimensions and object count from the dimensions bucket
-			bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
-				bucketPath,
-				path,
-				logger,
-				nil,
-				cyclemanager.NewCallbackGroupNoop(),
-				cyclemanager.NewCallbackGroupNoop(),
-				lsmkv.WithStrategy(strategy),
-			)
-			if err != nil {
-				return err
-			}
-			defer bucket.Shutdown(ctx)
-
-			dimensionality, err := CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
-			if err != nil {
-				return err
-			}
-
-			if dimensionality.Count != 0 && dimensionality.Dimensions != 0 {
-				uncompressedSize += int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
-			}
-			return nil
-		}()
-		if err != nil {
-			return 0, err
-		}
-	}
-	return uncompressedSize, nil
 }
 
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size from disk
