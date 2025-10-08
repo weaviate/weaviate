@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -102,25 +101,17 @@ func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, shardName 
 
 	// Use a single walk to avoid multiple filepath.Walk calls and reduce file descriptors
 	objectStore := shardPathObjectsLSM(path, shardName)
-	entries, err := os.ReadDir(objectStore)
+	files, _, err := diskio.GetFileWithSizes(objectStore)
 	if err != nil {
 		return types.ObjectUsage{}, err
 	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return types.ObjectUsage{}, err
-		}
-
-		totalDiskSize += info.Size()
+	for file, size := range files {
+		totalDiskSize += size
 
 		if includeCount {
-			filePath := filepath.Join(objectStore, entry.Name())
+			filePath := filepath.Join(objectStore, file)
 			// Look for .cna files (net count additions)
-			if strings.HasSuffix(info.Name(), lsmkv.CountNetAdditionsFileSuffix) {
+			if strings.HasSuffix(file, lsmkv.CountNetAdditionsFileSuffix) {
 				count, err := lsmkv.ReadCountNetAdditionsFile(filePath)
 				if err != nil {
 					logger.WithField("path", filePath).WithField("shard", shardName).WithError(err).Warn("failed to read .cna file")
@@ -130,7 +121,7 @@ func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, shardName 
 			}
 
 			// Look for .metadata files (bloom filters + count net additions)
-			if strings.HasSuffix(info.Name(), lsmkv.MetadataFileSuffix) {
+			if strings.HasSuffix(file, lsmkv.MetadataFileSuffix) {
 				count, err := lsmkv.ReadObjectCountFromMetadataFile(filePath)
 				if err != nil {
 					logger.WithField("path", filePath).WithField("shard", shardName).WithError(err).Warn("failed to read .metadata file")
@@ -165,19 +156,12 @@ func CalculateUnloadedIndicesSize(lsmPath string, directories []string) (uint64,
 		}
 
 		fullPath := filepath.Join(lsmPath, directory)
-		folderEntries, err := os.ReadDir(fullPath)
+		files, _, err := diskio.GetFileWithSizes(fullPath)
 		if err != nil {
 			return 0, err
 		}
-		for _, entry := range folderEntries {
-			if entry.IsDir() {
-				continue
-			}
-			info, err := entry.Info()
-			if err != nil {
-				return 0, err
-			}
-			totalSize += uint64(info.Size())
+		for _, size := range files {
+			totalSize += uint64(size)
 		}
 	}
 	return totalSize, nil
@@ -188,40 +172,31 @@ func CalculateNonLSMStorage(path, shardName string) (uint64, error) {
 	totalSize := uint64(0)
 	shardPath := filepath.Join(path, shardName)
 
-	entries, err := os.ReadDir(shardPath)
+	files, dirs, err := diskio.GetFileWithSizes(shardPath)
 	if err != nil {
 		return 0, err
 	}
-	for _, entry := range entries {
-		if strings.Contains(entry.Name(), "lsm") {
+
+	// Add sizes of all files in the shard root directory
+	for _, size := range files {
+		totalSize += uint64(size)
+	}
+	for _, dir := range dirs {
+		if strings.Contains(dir, "lsm") {
 			// lsm folder is already calculated, no need to read two times
 			continue
 		}
-		if !entry.IsDir() {
-			info, err := entry.Info()
-			if err != nil {
-				return 0, err
-			}
-			totalSize += uint64(info.Size())
-		} else {
-			fullPath := filepath.Join(shardPath, entry.Name())
-			folderEntries, err := os.ReadDir(fullPath)
-			if err != nil {
-				return 0, err
-			}
 
-			for _, entry := range folderEntries {
-				if entry.IsDir() {
-					continue
-				}
-				info, err := entry.Info()
-				if err != nil {
-					return 0, err
-				}
-				totalSize += uint64(info.Size())
-			}
-
+		fullPath := filepath.Join(shardPath, dir)
+		filesSubFolder, _, err := diskio.GetFileWithSizes(fullPath)
+		if err != nil {
+			return 0, err
 		}
+
+		for _, size := range filesSubFolder {
+			totalSize += uint64(size)
+		}
+
 	}
 
 	return totalSize, nil
