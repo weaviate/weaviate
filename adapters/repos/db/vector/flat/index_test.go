@@ -409,6 +409,8 @@ func TestFlat_Preload(t *testing.T) {
 						Enabled: true, Cache: tt.cache, RescoreLimit: 10, Bits: 8,
 					},
 				}
+			default:
+				config = flatent.UserConfig{}
 			}
 
 			store, err := lsmkv.New(dirName, dirName, logger, nil,
