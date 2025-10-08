@@ -150,39 +150,41 @@ func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, shardName 
 
 	// Use a single walk to avoid multiple filepath.Walk calls and reduce file descriptors
 	objectStore := shardPathObjectsLSM(path, shardName)
-	if err := filepath.Walk(objectStore, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Only count files, not directories
-		if !info.IsDir() {
-			totalDiskSize += info.Size()
-
-			// Look for .cna files (net count additions)
-			if strings.HasSuffix(info.Name(), lsmkv.CountNetAdditionsFileSuffix) {
-				count, err := lsmkv.ReadCountNetAdditionsFile(path)
-				if err != nil {
-					logger.WithField("path", path).WithField("shard", shardName).WithError(err).Warn("failed to read .cna file")
-					return err
-				}
-				totalObjectCount += count
-			}
-
-			// Look for .metadata files (bloom filters + count net additions)
-			if strings.HasSuffix(info.Name(), lsmkv.MetadataFileSuffix) {
-				count, err := lsmkv.ReadObjectCountFromMetadataFile(path)
-				if err != nil {
-					logger.WithField("path", path).WithField("shard", shardName).WithError(err).Warn("failed to read .metadata file")
-					return err
-				}
-				totalObjectCount += count
-			}
-		}
-
-		return nil
-	}); err != nil {
+	entries, err := os.ReadDir(objectStore)
+	if err != nil {
 		return types.ObjectUsage{}, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return types.ObjectUsage{}, err
+		}
+
+		totalDiskSize += info.Size()
+		filePath := filepath.Join(objectStore, entry.Name())
+
+		// Look for .cna files (net count additions)
+		if strings.HasSuffix(info.Name(), lsmkv.CountNetAdditionsFileSuffix) {
+			count, err := lsmkv.ReadCountNetAdditionsFile(filePath)
+			if err != nil {
+				logger.WithField("path", filePath).WithField("shard", shardName).WithError(err).Warn("failed to read .cna file")
+				return types.ObjectUsage{}, err
+			}
+			totalObjectCount += count
+		}
+
+		// Look for .metadata files (bloom filters + count net additions)
+		if strings.HasSuffix(info.Name(), lsmkv.MetadataFileSuffix) {
+			count, err := lsmkv.ReadObjectCountFromMetadataFile(filePath)
+			if err != nil {
+				logger.WithField("path", filePath).WithField("shard", shardName).WithError(err).Warn("failed to read .metadata file")
+				return types.ObjectUsage{}, err
+			}
+			totalObjectCount += count
+		}
 	}
 
 	// If we can't determine object count, return the disk size as fallback
@@ -213,39 +215,70 @@ func CalculateUnloadedIndicesSize(path, shardName string) (uint64, error) {
 			continue
 		}
 
-		if entry.IsDir() {
-			fullPath := filepath.Join(lsmPath, entry.Name())
-			dirSize, err := sumDir(fullPath)
+		if !entry.IsDir() {
+			continue
+		}
+
+		fullPath := filepath.Join(lsmPath, entry.Name())
+		folderEntries, err := os.ReadDir(fullPath)
+		if err != nil {
+			return 0, err
+		}
+		for _, entry := range folderEntries {
+			if entry.IsDir() {
+				continue
+			}
+			info, err := entry.Info()
 			if err != nil {
 				return 0, err
 			}
-			totalSize += uint64(dirSize)
+			totalSize += uint64(info.Size())
 		}
 	}
 	return totalSize, nil
 }
 
-// CalculateShardStorage calculates the full storage used by a shard, including objects, vectors, and indices
-func CalculateShardStorage(path, shardName string) (uint64, error) {
+// CalculateNonLSMStorage calculates the full storage used by a shard, including objects, vectors, and indices
+func CalculateNonLSMStorage(path, shardName string) (uint64, error) {
 	totalSize := uint64(0)
-
-	// check all vector folders and add their sizes
 	shardPath := filepath.Join(path, shardName)
-	if err := filepath.Walk(shardPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
 
-		// Only count files, not directories
-		if info.IsDir() {
-			return nil
-		}
-		totalSize += uint64(info.Size())
-
-		return nil
-	}); err != nil {
+	entries, err := os.ReadDir(shardPath)
+	if err != nil {
 		return 0, err
 	}
+	for _, entry := range entries {
+		if strings.Contains(entry.Name(), "lsm") {
+			// lsm folder is already calculated, no need to read two times
+			continue
+		}
+		if !entry.IsDir() {
+			info, err := entry.Info()
+			if err != nil {
+				return 0, err
+			}
+			totalSize += uint64(info.Size())
+		} else {
+			fullPath := filepath.Join(shardPath, entry.Name())
+			folderEntries, err := os.ReadDir(fullPath)
+			if err != nil {
+				return 0, err
+			}
+
+			for _, entry := range folderEntries {
+				if entry.IsDir() {
+					continue
+				}
+				info, err := entry.Info()
+				if err != nil {
+					return 0, err
+				}
+				totalSize += uint64(info.Size())
+			}
+
+		}
+	}
+
 	return totalSize, nil
 }
 

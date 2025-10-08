@@ -214,7 +214,7 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		return nil, err
 	}
 
-	shardStorage, err := shardusage.CalculateShardStorage(i.path(), shard.Name())
+	nonLSMStorage, err := shardusage.CalculateNonLSMStorage(i.path(), shard.Name())
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +226,7 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		ObjectsStorageBytes:   uint64(objectStorageSize) - uint64(uncompressedVectorSize),
 		VectorStorageBytes:    uint64(vectorStorageSize) + uint64(uncompressedVectorSize),
 		IndexStorageBytes:     indexUsage,
-		FullShardStorageBytes: shardStorage,
+		FullShardStorageBytes: nonLSMStorage + indexUsage + uint64(objectStorageSize) + uint64(vectorStorageSize),
 	}
 	// Get vector usage for each named vector
 	vectorConfigs := i.GetVectorIndexConfigs()
@@ -310,7 +310,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		return nil, err
 	}
 
-	shardStorage, err := shardusage.CalculateShardStorage(i.path(), shardName)
+	nonLSMStorage, err := shardusage.CalculateNonLSMStorage(i.path(), shardName)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +322,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		ObjectsStorageBytes:   uint64(objectUsage.StorageBytes) - uint64(uncompressedVectorSize),
 		VectorStorageBytes:    uint64(vectorStorageSize) + uint64(uncompressedVectorSize),
 		IndexStorageBytes:     indexUsage,
-		FullShardStorageBytes: shardStorage,
+		FullShardStorageBytes: nonLSMStorage + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorStorageSize),
 	}
 
 	// Get named vector data for cold shards from schema configuration

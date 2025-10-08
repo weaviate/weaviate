@@ -246,7 +246,7 @@ func TestStorageCalculation(t *testing.T) {
 	}
 
 	// calculate storage and compare
-	fulShardBytes, err := CalculateShardStorage(dirName, "shard1")
+	fulShardBytes, err := CalculateNonLSMStorage(dirName, "shard1")
 	require.NoError(t, err)
 	expectedTotal := uint64(0)
 	for _, size := range sizeTracker {
