@@ -524,7 +524,7 @@ func (b *Bucket) getConsistentView() BucketConsistentView {
 // its secondary key
 func (b *Bucket) Get(key []byte) ([]byte, error) {
 	v, err := b.get(key)
-	if err != nil && (errors.Is(err, lsmkv.Deleted) || errors.Is(err, lsmkv.NotFound)) {
+	if err != nil && lsmkv.IsDeletedOrNotFound(err) {
 		return nil, nil
 	}
 	return v, err
@@ -538,6 +538,10 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 	view := b.getConsistentView()
 	defer view.release()
 
+	return b.getWithConsistentView(key, view)
+}
+
+func (b *Bucket) getWithConsistentView(key []byte, view BucketConsistentView) ([]byte, error) {
 	memtableNames := []string{"active_memtable", "flushing_memtable"}
 	memtables := []memtable{view.Active}
 	if view.Flushing != nil {
@@ -557,50 +561,11 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 			return nil, err
 		}
 		if !errors.Is(err, lsmkv.NotFound) {
-			return nil, fmt.Errorf("Bucket::get() memtable %q: %w", memtableNames[i], err)
+			return nil, fmt.Errorf("Bucket::get() %q: %w", memtableNames[i], err)
 		}
 	}
 
 	return b.getFromSegmentGroup(key, view.Disk)
-}
-
-func (b *Bucket) getFromMemtable(key []byte, memtable memtable, name string) (v []byte, err error) {
-	start := time.Now()
-	b.metrics.IncBucketReadOpCountByComponent("get", name)
-	b.metrics.IncBucketReadOpOngoingByComponent("get", name)
-	defer func() {
-		b.metrics.DecBucketReadOpOngoingByComponent("get", name)
-		if err != nil && !errors.Is(err, lsmkv.NotFound) && !errors.Is(err, lsmkv.Deleted) {
-			b.metrics.IncBucketReadOpFailureCountByComponent("get", name)
-			return
-		}
-		b.metrics.ObserveBucketReadOpDurationByComponent("get", name, time.Since(start))
-
-		if duration := time.Since(start); duration > 100*time.Millisecond {
-			b.logger.WithFields(logrus.Fields{
-				"duration": duration,
-				"action":   fmt.Sprintf("lsm_bucket_get_%s", name),
-			}).Debug("Waited more than 100ms to retrieve object from memtable")
-		}
-	}()
-
-	return memtable.get(key)
-}
-
-func (b *Bucket) getFromSegmentGroup(key []byte, segments []Segment) (v []byte, err error) {
-	start := time.Now()
-	b.metrics.IncBucketReadOpCountByComponent("get", "segment_group")
-	b.metrics.IncBucketReadOpOngoingByComponent("get", "segment_group")
-	defer func() {
-		b.metrics.DecBucketReadOpOngoingByComponent("get", "segment_group")
-		if err != nil && !errors.Is(err, lsmkv.NotFound) && !errors.Is(err, lsmkv.Deleted) {
-			b.metrics.IncBucketReadOpFailureCountByComponent("get", "segment_group")
-			return
-		}
-		b.metrics.ObserveBucketReadOpDurationByComponent("get", "segment_group", time.Since(start))
-	}()
-
-	return b.disk.getWithSegmentList(key, segments)
 }
 
 // GetBySecondary retrieves an object using one of its secondary keys. A bucket
@@ -630,7 +595,7 @@ func (b *Bucket) GetBySecondary(ctx context.Context, pos int, key []byte) ([]byt
 // indexes.
 func (b *Bucket) GetBySecondaryWithBuffer(ctx context.Context, pos int, seckey []byte, buffer []byte) ([]byte, []byte, error) {
 	v, allocBuf, err := b.getBySecondary(ctx, pos, seckey, buffer)
-	if err != nil && (errors.Is(err, lsmkv.Deleted) || errors.Is(err, lsmkv.NotFound)) {
+	if err != nil && lsmkv.IsDeletedOrNotFound(err) {
 		return nil, buffer, nil
 	}
 	return v, allocBuf, err
@@ -646,7 +611,7 @@ func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buf
 	defer view.release()
 	tookView := time.Since(beforeAll)
 
-	memtableNames := []string{"active", "flushing"}
+	memtableNames := []string{"active_memtable", "flushing_memtable"}
 	memtables := []memtable{view.Active}
 	if view.Flushing != nil {
 		memtables = append(memtables, view.Flushing)
@@ -655,13 +620,7 @@ func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buf
 	var memtablesTook []time.Duration
 	for i := range memtables {
 		beforeMemtable := time.Now()
-		v, err := memtables[i].getBySecondary(pos, seckey)
-		if duration := time.Since(beforeMemtable); duration > 100*time.Millisecond {
-			b.logger.WithFields(logrus.Fields{
-				"duration": duration,
-				"action":   fmt.Sprintf("lsm_bucket_getbysecondary_%s_memtable", memtableNames[i]),
-			}).Debug("Waited more than 100ms to retrieve object from memtable")
-		}
+		v, err := b.getBySecondaryFromMemtable(pos, seckey, memtables[i], memtableNames[i])
 		memtablesTook = append(memtablesTook, time.Since(beforeMemtable))
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
@@ -674,21 +633,20 @@ func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buf
 			return nil, nil, err
 		}
 		if !errors.Is(err, lsmkv.NotFound) {
-			return nil, nil, fmt.Errorf("Bucket::getBySecondary() memtable %q: %w", memtableNames[i], err)
+			return nil, nil, fmt.Errorf("Bucket::getBySecondary() %q: %w", memtableNames[i], err)
 		}
 	}
 
 	beforeSegments := time.Now()
-	k, v, allocBuf, err := b.disk.getBySecondaryWithSegmentList(pos, seckey, buffer, view.Disk)
+	k, v, allocBuf, err := b.getBySecondaryFromSegmentGroup(pos, seckey, buffer, view.Disk)
 	if err != nil {
 		return nil, nil, err
 	}
 	segmentsTook := time.Since(beforeSegments)
 
-	// TODO: this should use the same view, no need to get a second view here
 	// additional validation to ensure the primary key has not been marked as deleted
 	beforeReCheck := time.Now()
-	if _, err := b.get(k); err != nil {
+	if _, err := b.getWithConsistentView(k, view); err != nil {
 		return nil, nil, err
 	}
 	recheckTook := time.Since(beforeReCheck)
@@ -709,6 +667,100 @@ func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buf
 	})
 
 	return v, allocBuf, nil
+}
+
+func (b *Bucket) getFromMemtable(key []byte, memtable memtable, component string) (v []byte, err error) {
+	op := "get"
+
+	start := time.Now()
+	b.metrics.IncBucketReadOpCountByComponent(op, component)
+	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
+
+	defer func() {
+		if duration := time.Since(start); duration > 100*time.Millisecond {
+			b.logger.WithFields(logrus.Fields{
+				"duration": duration,
+				"action":   fmt.Sprintf("lsm_bucket_get_%s", component),
+			}).Debug("Waited more than 100ms to retrieve object from memtable")
+		}
+
+		b.metrics.DecBucketReadOpOngoingByComponent(op, component)
+		if err != nil && !lsmkv.IsDeletedOrNotFound(err) {
+			b.metrics.IncBucketReadOpFailureCountByComponent(op, component)
+			return
+		}
+		b.metrics.ObserveBucketReadOpDurationByComponent(op, component, time.Since(start))
+	}()
+
+	return memtable.get(key)
+}
+
+func (b *Bucket) getBySecondaryFromMemtable(pos int, seckey []byte, memtable memtable, component string,
+) (v []byte, err error) {
+	op := "getbysecondary"
+
+	start := time.Now()
+	b.metrics.IncBucketReadOpCountByComponent(op, component)
+	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
+
+	defer func() {
+		if duration := time.Since(start); duration > 100*time.Millisecond {
+			b.logger.WithFields(logrus.Fields{
+				"duration": duration,
+				"action":   fmt.Sprintf("lsm_bucket_getbysecondary_%s", component),
+			}).Debug("Waited more than 100ms to retrieve object from memtable")
+		}
+
+		b.metrics.DecBucketReadOpOngoingByComponent(op, component)
+		if err != nil && !lsmkv.IsDeletedOrNotFound(err) {
+			b.metrics.IncBucketReadOpFailureCountByComponent(op, component)
+			return
+		}
+		b.metrics.ObserveBucketReadOpDurationByComponent(op, component, time.Since(start))
+	}()
+
+	return memtable.getBySecondary(pos, seckey)
+}
+
+func (b *Bucket) getFromSegmentGroup(key []byte, segments []Segment) (v []byte, err error) {
+	op := "get"
+	component := "segment_group"
+
+	start := time.Now()
+	b.metrics.IncBucketReadOpCountByComponent(op, component)
+	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
+
+	defer func() {
+		b.metrics.DecBucketReadOpOngoingByComponent(op, component)
+		if err != nil && !lsmkv.IsDeletedOrNotFound(err) {
+			b.metrics.IncBucketReadOpFailureCountByComponent(op, component)
+			return
+		}
+		b.metrics.ObserveBucketReadOpDurationByComponent(op, component, time.Since(start))
+	}()
+
+	return b.disk.getWithSegmentList(key, segments)
+}
+
+func (b *Bucket) getBySecondaryFromSegmentGroup(pos int, seckey []byte, buffer []byte, segments []Segment,
+) (k, v []byte, buf []byte, err error) {
+	op := "getbysecondary"
+	component := "segment_group"
+
+	start := time.Now()
+	b.metrics.IncBucketReadOpCountByComponent(op, component)
+	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
+
+	defer func() {
+		b.metrics.DecBucketReadOpOngoingByComponent(op, component)
+		if err != nil && !lsmkv.IsDeletedOrNotFound(err) {
+			b.metrics.IncBucketReadOpFailureCountByComponent(op, component)
+			return
+		}
+		b.metrics.ObserveBucketReadOpDurationByComponent(op, component, time.Since(start))
+	}()
+
+	return b.disk.getBySecondaryWithSegmentList(pos, seckey, buffer, segments)
 }
 
 // SetList returns all Set entries for a given key.
