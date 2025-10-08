@@ -546,7 +546,8 @@ func (index *flat) createDistanceCalcQuantized(queryVector []float32) distanceCa
 	// Check quantizer type once outside the closure for performance
 	quantizerType := index.quantizer.Type()
 
-	if quantizerType == Uint64Quantizer {
+	switch quantizerType {
+	case Uint64Quantizer:
 		queryQuantized := index.quantizer.EncodeUint64(queryVector)
 		return func(vecAsBytes []byte) (float32, error) {
 			vecSliceQuantized := index.pool.uint64SlicePool.Get(len(vecAsBytes) / 8)
@@ -555,7 +556,7 @@ func (index *flat) createDistanceCalcQuantized(queryVector []float32) distanceCa
 			candidate := uint64SliceFromByteSlice(vecAsBytes, vecSliceQuantized.slice)
 			return index.quantizer.DistanceBetweenUint64Vectors(candidate, queryQuantized)
 		}
-	} else if quantizerType == ByteQuantizer {
+	case ByteQuantizer:
 		queryQuantized := index.quantizer.EncodeBytes(queryVector)
 		return func(vecAsBytes []byte) (float32, error) {
 			// For byte quantizer, use the bytes directly without conversion
@@ -653,12 +654,13 @@ func (index *flat) findTopVectorsQuantizedCached(heap *priorityqueue.Queue[any],
 
 	quantizerType := index.quantizer.Type()
 
-	if quantizerType == Uint64Quantizer {
+	switch quantizerType {
+	case Uint64Quantizer:
 		queryQuantizedUint64 = index.quantizer.EncodeUint64(queryVector)
 		pageSize = index.cache.uint64Cache.PageSize()
 		outUint64 = make([][]uint64, pageSize)
 		errs = make([]error, pageSize)
-	} else if quantizerType == ByteQuantizer {
+	case ByteQuantizer:
 		queryQuantizedBytes = index.quantizer.EncodeBytes(queryVector)
 		pageSize = index.cache.byteCache.PageSize()
 		outBytes = make([][]byte, pageSize)

@@ -26,11 +26,10 @@ import (
 // CompressionType represents the type of compression used
 type CompressionType string
 
+// Only supported quantizers are included
 const (
 	CompressionNone CompressionType = "none"
 	CompressionBQ   CompressionType = "bq"
-	CompressionPQ   CompressionType = "pq"
-	CompressionSQ   CompressionType = "sq"
 	CompressionRQ1  CompressionType = "rq-1"
 	CompressionRQ8  CompressionType = "rq-8"
 )
@@ -106,7 +105,7 @@ type BinaryQuantizerWrapper struct {
 }
 
 func (b *BinaryQuantizerWrapper) EncodeUint64(vector []float32) []uint64 {
-	return b.BinaryQuantizer.Encode(vector)
+	return b.Encode(vector)
 }
 
 func (b *BinaryQuantizerWrapper) EncodeBytes(vector []float32) []byte {
@@ -115,7 +114,7 @@ func (b *BinaryQuantizerWrapper) EncodeBytes(vector []float32) []byte {
 }
 
 func (b *BinaryQuantizerWrapper) DistanceBetweenUint64Vectors(x, y []uint64) (float32, error) {
-	return b.BinaryQuantizer.DistanceBetweenCompressedVectors(x, y)
+	return b.DistanceBetweenCompressedVectors(x, y)
 }
 
 func (b *BinaryQuantizerWrapper) DistanceBetweenByteVectors(x, y []byte) (float32, error) {
@@ -127,7 +126,7 @@ func (b *BinaryQuantizerWrapper) Type() QuantizerType {
 }
 
 func (b *BinaryQuantizerWrapper) FromCompressedBytesToUint64(compressed []byte, buffer *[]uint64) []uint64 {
-	return b.BinaryQuantizer.FromCompressedBytesWithSubsliceBuffer(compressed, buffer)
+	return b.FromCompressedBytesWithSubsliceBuffer(compressed, buffer)
 }
 
 func (b *BinaryQuantizerWrapper) FromCompressedBytesToBytes(compressed []byte, buffer *[]byte) []byte {
@@ -140,7 +139,7 @@ type BinaryRotationalQuantizerWrapper struct {
 }
 
 func (r *BinaryRotationalQuantizerWrapper) EncodeUint64(vector []float32) []uint64 {
-	return r.BinaryRotationalQuantizer.Encode(vector)
+	return r.Encode(vector)
 }
 
 func (r *BinaryRotationalQuantizerWrapper) EncodeBytes(vector []float32) []byte {
@@ -149,7 +148,7 @@ func (r *BinaryRotationalQuantizerWrapper) EncodeBytes(vector []float32) []byte 
 }
 
 func (r *BinaryRotationalQuantizerWrapper) DistanceBetweenUint64Vectors(x, y []uint64) (float32, error) {
-	return r.BinaryRotationalQuantizer.DistanceBetweenCompressedVectors(x, y)
+	return r.DistanceBetweenCompressedVectors(x, y)
 }
 
 func (r *BinaryRotationalQuantizerWrapper) DistanceBetweenByteVectors(x, y []byte) (float32, error) {
@@ -161,7 +160,7 @@ func (r *BinaryRotationalQuantizerWrapper) Type() QuantizerType {
 }
 
 func (r *BinaryRotationalQuantizerWrapper) FromCompressedBytesToUint64(compressed []byte, buffer *[]uint64) []uint64 {
-	return r.BinaryRotationalQuantizer.FromCompressedBytesWithSubsliceBuffer(compressed, buffer)
+	return r.FromCompressedBytesWithSubsliceBuffer(compressed, buffer)
 }
 
 func (r *BinaryRotationalQuantizerWrapper) FromCompressedBytesToBytes(compressed []byte, buffer *[]byte) []byte {
@@ -179,7 +178,7 @@ func (b *RotationalQuantizerWrapper) EncodeUint64(vector []float32) []uint64 {
 }
 
 func (b *RotationalQuantizerWrapper) EncodeBytes(vector []float32) []byte {
-	return b.RotationalQuantizer.Encode(vector)
+	return b.Encode(vector)
 }
 
 func (b *RotationalQuantizerWrapper) DistanceBetweenUint64Vectors(x, y []uint64) (float32, error) {
@@ -187,7 +186,7 @@ func (b *RotationalQuantizerWrapper) DistanceBetweenUint64Vectors(x, y []uint64)
 }
 
 func (b *RotationalQuantizerWrapper) DistanceBetweenByteVectors(x, y []byte) (float32, error) {
-	return b.RotationalQuantizer.DistanceBetweenCompressedVectors(x, y)
+	return b.DistanceBetweenCompressedVectors(x, y)
 }
 
 func (b *RotationalQuantizerWrapper) Type() QuantizerType {
@@ -199,7 +198,7 @@ func (b *RotationalQuantizerWrapper) FromCompressedBytesToUint64(compressed []by
 }
 
 func (b *RotationalQuantizerWrapper) FromCompressedBytesToBytes(compressed []byte, buffer *[]byte) []byte {
-	return b.RotationalQuantizer.FromCompressedBytesWithSubsliceBuffer(compressed, buffer)
+	return b.FromCompressedBytesWithSubsliceBuffer(compressed, buffer)
 }
 
 // Cache represents a cache that can work with different data types
