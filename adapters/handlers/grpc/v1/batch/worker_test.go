@@ -126,8 +126,8 @@ func TestWorkerLoop(t *testing.T) {
 		ref := &pb.BatchReference{}
 		// must use goroutine to avoid deadlock due to one worker sending error over read stream
 		// while next send to processing queue is blocked by there only being one worker
+		wg.Add(1)
 		go func() {
-			wg.Add(1)
 			processingQueue <- batch.NewProcessRequest(
 				[]*pb.BatchObject{obj, obj, obj},
 				[]*pb.BatchReference{ref, ref},
