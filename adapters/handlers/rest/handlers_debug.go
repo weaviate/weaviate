@@ -740,8 +740,10 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/lsm/deadlock", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startTime := time.Now()
 		colName := r.URL.Query().Get("collection")
 		w.Header().Set("Content-Type", "application/json")
+		anyLocked := false
 
 		if colName == "" {
 			response := map[string]interface{}{
@@ -801,23 +803,23 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		isDeadlock := false
 		var err error
 
-		output := make(map[string]map[string]map[string]string)
+		output := make(map[string]map[string]map[string]interface{})
 		idx.ForEachLoadedShard(
 			func(shardName string, shard db.ShardLike) error {
-				output[shardName] = make(map[string]map[string]string)
+				output[shardName] = make(map[string]map[string]interface{})
 				return nil
 			},
 		)
 		outputLock := sync.Mutex{}
 		eg := enterrors.NewErrorGroupWrapper(logger)
+		eg.SetLimit(-1)
 
 		for _, lockName := range locksToTest {
 			eg.Go(func() (err error) {
 				// shards will not be force loaded, as we are only getting the name
-				err = idx.ForEachLoadedShard(
+				err = idx.ForEachLoadedShardConcurrently(
 					func(shardName string, shard db.ShardLike) error {
 						timeoutAfter := time.After(timeout)
 						if len(shardsToLock) == 0 || slices.Contains(shardsToLock, shardName) {
@@ -828,11 +830,10 @@ func setupDebugHandlers(appState *state.State) {
 							} else {
 								b := shard.Store().Bucket(lockName)
 								if b == nil {
-									outputLock.Lock()
-									defer outputLock.Unlock()
-									output[shardName][lockName] = map[string]string{
-										"shard":   shardName,
+									output[shardName][lockName] = map[string]interface{}{
 										"error":   "error",
+										"locked":  false,
+										"took_ms": time.Since(startTime).Milliseconds(),
 										"message": fmt.Sprintf("bucket %s not found", lockName),
 									}
 									return nil
@@ -844,44 +845,49 @@ func setupDebugHandlers(appState *state.State) {
 							running := true
 							tries := 0
 							statusString := "unknown"
-							startTime := time.Now()
+							isLocked := false
+							startTimeInternal := time.Now()
 							for running {
 								select {
 								case <-timeoutAfter:
-									statusString = fmt.Sprintf("locked after %d tries and %s", tries, time.Since(startTime))
+									statusString = fmt.Sprintf("locked after %d tries and %s", tries, time.Since(startTimeInternal))
 									running = false
-									isDeadlock = true
+									isLocked = true
+									anyLocked = true
 								default:
+									tries++
 									locked, err := checkStatusOperation()
 									if err != nil {
 										statusString = "error: " + err.Error()
 										running = false
+										break
 									} else if !locked {
-										statusString = fmt.Sprintf("unlocked after %d tries and %s", tries, time.Since(startTime))
+										statusString = fmt.Sprintf("unlocked after %d tries and %s", tries, time.Since(startTimeInternal))
 										running = false
+										break
 									}
-
 									time.Sleep(10 * time.Millisecond)
-									tries++
 								}
 							}
-
+							took := time.Since(startTimeInternal).Milliseconds()
 							outputLock.Lock()
-							defer outputLock.Unlock()
-							output[shardName][lockName] = map[string]string{
-								"shard":   shardName,
-								"status":  statusString,
+							output[shardName][lockName] = map[string]interface{}{
+								"locked":  isLocked,
+								"tries":   tries,
+								"took_ms": took,
 								"message": fmt.Sprintf("shard %s %s", shardName, statusString),
 							}
+							outputLock.Unlock()
 
 						} else {
 							outputLock.Lock()
-							defer outputLock.Unlock()
-							output[shardName][lockName] = map[string]string{
-								"shard":   shardName,
+							output[shardName][lockName] = map[string]interface{}{
 								"status":  "skipped",
+								"locked":  false,
+								"took_ms": time.Since(startTime).Milliseconds(),
 								"message": fmt.Sprintf("shard %s not selected", shardName),
 							}
+							outputLock.Unlock()
 						}
 						return nil
 					},
@@ -894,6 +900,10 @@ func setupDebugHandlers(appState *state.State) {
 
 		response := map[string]interface{}{
 			"shards": output,
+			"response": map[string]interface{}{
+				"took_ms": time.Since(startTime).Milliseconds(),
+				"locked":  anyLocked,
+			},
 		}
 
 		if err != nil {
@@ -912,7 +922,7 @@ func setupDebugHandlers(appState *state.State) {
 			w.Write(jsonBytes)
 			return
 		}
-		if isDeadlock {
+		if anyLocked {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 		w.Write(jsonBytes)
