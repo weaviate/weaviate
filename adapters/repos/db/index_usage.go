@@ -209,16 +209,27 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		return nil, err
 	}
 
-	vectorConfigs := i.GetVectorIndexConfigs()
+	indexUsage, err := shardusage.CalculateUnloadedIndicesSize(i.path(), shard.Name())
+	if err != nil {
+		return nil, err
+	}
+
+	shardStorage, err := shardusage.CalculateShardStorage(i.path(), shard.Name())
+	if err != nil {
+		return nil, err
+	}
 
 	shardUsage := &types.ShardUsage{
-		Name:                shard.Name(),
-		Status:              strings.ToLower(models.TenantActivityStatusACTIVE),
-		ObjectsCount:        objectCount,
-		ObjectsStorageBytes: uint64(objectStorageSize) - uint64(uncompressedVectorSize),
-		VectorStorageBytes:  uint64(vectorStorageSize) + uint64(uncompressedVectorSize),
+		Name:                  shard.Name(),
+		Status:                strings.ToLower(models.TenantActivityStatusACTIVE),
+		ObjectsCount:          objectCount,
+		ObjectsStorageBytes:   uint64(objectStorageSize) - uint64(uncompressedVectorSize),
+		VectorStorageBytes:    uint64(vectorStorageSize) + uint64(uncompressedVectorSize),
+		IndexStorageBytes:     indexUsage,
+		FullShardStorageBytes: shardStorage,
 	}
 	// Get vector usage for each named vector
+	vectorConfigs := i.GetVectorIndexConfigs()
 	if err = shard.ForEachVectorIndex(func(targetVector string, vectorIndex VectorIndex) error {
 		var vectorIndexConfig schemaConfig.VectorIndexConfig
 		if vecCfg, exists := vectorConfigs[targetVector]; exists {
@@ -274,31 +285,43 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 	return shardUsage, nil
 }
 
-func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
+func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
 	// Cold tenant: calculate from disk without loading
-	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(i.logger, i.path(), tenantName)
+	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(i.logger, i.path(), shardName)
 	if err != nil {
 		return nil, err
 	}
 
 	vectorIndexConfigs := i.GetVectorIndexConfigs()
 
-	vectorStorageSize, err := shardusage.CalculateUnloadedVectorsMetrics(i.path(), tenantName)
+	vectorStorageSize, err := shardusage.CalculateUnloadedVectorsMetrics(i.path(), shardName)
 	if err != nil {
 		return nil, err
 	}
 
-	uncompressedVectorSize, err := shardusage.CalculateUnloadedUncompressedVectorSize(ctx, i.logger, i.path(), tenantName, vectorIndexConfigs)
+	uncompressedVectorSize, err := shardusage.CalculateUnloadedUncompressedVectorSize(ctx, i.logger, i.path(), shardName, vectorIndexConfigs)
+	if err != nil {
+		return nil, err
+	}
+
+	indexUsage, err := shardusage.CalculateUnloadedIndicesSize(i.path(), shardName)
+	if err != nil {
+		return nil, err
+	}
+
+	shardStorage, err := shardusage.CalculateShardStorage(i.path(), shardName)
 	if err != nil {
 		return nil, err
 	}
 
 	shardUsage := &types.ShardUsage{
-		Name:                tenantName,
-		ObjectsCount:        objectUsage.Count,
-		Status:              strings.ToLower(models.TenantActivityStatusINACTIVE),
-		ObjectsStorageBytes: uint64(objectUsage.StorageBytes) - uint64(uncompressedVectorSize),
-		VectorStorageBytes:  uint64(vectorStorageSize) + uint64(uncompressedVectorSize),
+		Name:                  shardName,
+		ObjectsCount:          objectUsage.Count,
+		Status:                strings.ToLower(models.TenantActivityStatusINACTIVE),
+		ObjectsStorageBytes:   uint64(objectUsage.StorageBytes) - uint64(uncompressedVectorSize),
+		VectorStorageBytes:    uint64(vectorStorageSize) + uint64(uncompressedVectorSize),
+		IndexStorageBytes:     indexUsage,
+		FullShardStorageBytes: shardStorage,
 	}
 
 	// Get named vector data for cold shards from schema configuration
@@ -321,7 +344,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, tenantName stri
 			vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
 		}
 
-		dimensionalities, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, i.logger, i.path(), tenantName, targetVector)
+		dimensionalities, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, i.logger, i.path(), shardName, targetVector)
 		if err != nil {
 			return nil, err
 		}

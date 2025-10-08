@@ -408,6 +408,14 @@ def test_object_storage(collection_factory: CollectionFactory):
     assert shard_cold.objects_storage_bytes > guesstimate
     assert shard_cold.objects_storage_bytes < 3 * guesstimate
 
+    assert shard_cold.index_storage_bytes == shard.index_storage_bytes
+    assert shard_cold.full_shard_storage_bytes == shard.full_shard_storage_bytes
+    # shard storage must be larger than sum of components
+    assert (
+        shard.full_shard_storage_bytes
+        > shard.vector_storage_bytes + shard.index_storage_bytes + shard.objects_storage_bytes
+    )
+
 
 def test_storage_vectors(collection_factory: CollectionFactory):
     collection = collection_factory(
@@ -471,6 +479,14 @@ def test_storage_vectors(collection_factory: CollectionFactory):
     # we want AT LEAST the calculated value, but it can be higher due to overhead
     assert shard_cold.vector_storage_bytes > 1328125
     assert shard_cold.vector_storage_bytes < 1328125 * 1.25  # allow 25% overhead
+
+    assert shard_cold.index_storage_bytes == shard.index_storage_bytes
+    assert shard_cold.full_shard_storage_bytes == shard.full_shard_storage_bytes
+    # shard storage must be larger than sum of components
+    assert (
+        shard.full_shard_storage_bytes
+        > shard.vector_storage_bytes + shard.index_storage_bytes + shard.objects_storage_bytes
+    )
 
 
 def analyse_tenant(

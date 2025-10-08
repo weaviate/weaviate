@@ -14,6 +14,7 @@ package shardusage
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -208,4 +210,59 @@ func getFileTypeCount(t *testing.T, path string) map[string]int {
 		fileTypes[filepath.Ext(entry.Name())] += 1
 	}
 	return fileTypes
+}
+
+func TestStorageCalculation(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	dirName := t.TempDir()
+
+	// create a LSM path for a shard
+	lsmFolder := shardPathLSM(dirName, "shard1")
+	require.NoError(t, os.MkdirAll(lsmFolder, 0o777))
+
+	buckets := []string{helpers.ObjectsBucketLSM, helpers.DimensionsBucketLSM, "vectors", "vectors_compressed", "property_someProp_searchable", "property_someProp", "property__id"}
+	sizeTracker := make(map[string]uint64, len(buckets))
+
+	// create different buckets with dummy files with varying sizes
+	for _, bucket := range buckets {
+		bucketPath := filepath.Join(lsmFolder, bucket)
+		require.NoError(t, os.MkdirAll(bucketPath, 0o777))
+		sizeTracker[bucket] = 0
+
+		// create some dummy files
+		for i := 0; i < rand.Intn(10); i++ {
+			filePath := filepath.Join(bucketPath, fmt.Sprintf("file%d.db", i))
+			f, err := os.Create(filePath)
+			require.NoError(t, err)
+
+			size := rand.Intn(10000)
+			sizeTracker[bucket] += uint64(size)
+			data := make([]byte, size)
+			_, err = f.Write(data)
+			require.NoError(t, err)
+			require.NoError(t, f.Close())
+		}
+	}
+
+	// calculate storage and compare
+	fulShardBytes, err := CalculateShardStorage(dirName, "shard1")
+	require.NoError(t, err)
+	expectedTotal := uint64(0)
+	for _, size := range sizeTracker {
+		expectedTotal += size
+	}
+	require.Equal(t, expectedTotal, fulShardBytes)
+
+	objectsBytes, err := CalculateUnloadedObjectsMetrics(logger, dirName, "shard1")
+	require.NoError(t, err)
+	require.Equal(t, sizeTracker[helpers.ObjectsBucketLSM], uint64(objectsBytes.StorageBytes))
+
+	vectorBytes, err := CalculateUnloadedVectorsMetrics(dirName, "shard1")
+	require.NoError(t, err)
+	require.Equal(t, sizeTracker["vectors"]+sizeTracker["vectors_compressed"], uint64(vectorBytes))
+
+	indexBytes, err := CalculateUnloadedIndicesSize(dirName, "shard1")
+	require.NoError(t, err)
+	require.Equal(t, sizeTracker["property_someProp_searchable"]+sizeTracker["property_someProp"]+sizeTracker["property__id"]+sizeTracker[helpers.DimensionsBucketLSM], indexBytes)
 }

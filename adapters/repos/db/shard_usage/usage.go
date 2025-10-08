@@ -66,7 +66,7 @@ func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLo
 	return CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
 }
 
-// CalculateUnloadedVectorsMetrics calculates vector storage size for a cold tenant without loading it into memory
+// CalculateUnloadedVectorsMetrics calculates vector storage size from disk
 func CalculateUnloadedVectorsMetrics(path, shard string) (int64, error) {
 	totalSize := int64(0)
 
@@ -77,22 +77,7 @@ func CalculateUnloadedVectorsMetrics(path, shard string) (int64, error) {
 	// 2) size of uncompressed vectors stored in dimensions bucket. The size of these is calculated based on the number
 	// of objects and their dimensionality. They need to be subtracted from the object bucket size to not count them twice.
 
-	sumDir := func(dirPath string) (int64, error) {
-		size := int64(0)
-		err := filepath.Walk(dirPath, func(_ string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			if !info.IsDir() {
-				size += info.Size()
-			}
-			return nil
-		})
-		return size, err
-	}
-
-	// check all vector folders and add their sizes
-	lsmPath := filepath.Join(path, shard, "lsm")
+	lsmPath := shardPathLSM(path, shard)
 	entries, err := os.ReadDir(lsmPath)
 	if err != nil {
 		return 0, err
@@ -156,7 +141,7 @@ func CalculateUnloadedUncompressedVectorSize(ctx context.Context, logger logrus.
 	return uncompressedSize, nil
 }
 
-// CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
+// CalculateUnloadedObjectsMetrics calculates both object count and storage size from disk
 func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, shardName string) (types.ObjectUsage, error) {
 	// Parse all .cna files in the object store and sum them up
 	totalObjectCount := int64(0)
@@ -204,6 +189,67 @@ func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, shardName 
 		Count:        totalObjectCount,
 		StorageBytes: totalDiskSize,
 	}, nil
+}
+
+// CalculateUnloadedIndicesSize calculates both object count and storage size for a cold tenant without loading it into memory
+func CalculateUnloadedIndicesSize(path, shardName string) (uint64, error) {
+	totalSize := uint64(0)
+
+	// get the storage of all lsm properties that are not objects or vector
+	includedPrefixes := []string{helpers.DimensionsBucketLSM, helpers.BucketFromPropNameLSM("")}
+
+	// check all vector folders and add their sizes
+	lsmPath := shardPathLSM(path, shardName)
+	entries, err := os.ReadDir(lsmPath)
+	if err != nil {
+		return 0, err
+	}
+	for _, entry := range entries {
+		included := false
+		for _, prefix := range includedPrefixes {
+			if strings.HasPrefix(entry.Name(), prefix) {
+				included = true
+				break
+			}
+		}
+		if !included {
+			continue
+		}
+
+		if entry.IsDir() {
+			fullPath := filepath.Join(lsmPath, entry.Name())
+			dirSize, err := sumDir(fullPath)
+			if err != nil {
+				return 0, err
+			}
+			totalSize += uint64(dirSize)
+		}
+	}
+	return totalSize, nil
+}
+
+// CalculateShardStorage calculates the full storage used by a shard, including objects, vectors, and indices
+func CalculateShardStorage(path, shardName string) (uint64, error) {
+	totalSize := uint64(0)
+
+	// check all vector folders and add their sizes
+	shardPath := filepath.Join(path, shardName)
+	if err := filepath.Walk(shardPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Only count files, not directories
+		if info.IsDir() {
+			return nil
+		}
+		totalSize += uint64(info.Size())
+
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+	return totalSize, nil
 }
 
 // CalculateTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
@@ -270,4 +316,18 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 	}
 
 	return dimensionality, nil
+}
+
+func sumDir(dirPath string) (int64, error) {
+	size := int64(0)
+	err := filepath.Walk(dirPath, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return nil
+	})
+	return size, err
 }
