@@ -1588,7 +1588,7 @@ func (b *Bucket) FlushAndSwitch() error {
 		}
 	}
 
-	segment, err := b.initAndPrecomputeNewSegment(segmentPath)
+	segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
 	if err != nil {
 		return fmt.Errorf("precompute metadata: %w", err)
 	}
@@ -1712,18 +1712,6 @@ func (b *Bucket) waitForZeroWriters(mt memtable) {
 	}
 }
 
-func (b *Bucket) initAndPrecomputeNewSegment(segmentPath string) (*segment, error) {
-	// Note that this operation does not require the flush lock, i.e. it can
-	// happen in the background and we can accept new writes will this
-	// pre-compute is happening.
-	segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
-	if err != nil {
-		return nil, err
-	}
-
-	return segment, nil
-}
-
 func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
@@ -1751,12 +1739,6 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 		if b.keepSegmentsInMemory {
 			b.disk.roaringSetRangeSegmentInMemory.MergeMemtableEventually(flushing.extractRoaringSetRange())
 		}
-	}
-
-	if b.strategy == StrategyReplace && b.monitorCount {
-		// having just flushed the memtable we now have the most up2date count which
-		// is a good place to update the metric
-		b.metrics.ObjectCount(b.disk.count())
 	}
 
 	return nil
