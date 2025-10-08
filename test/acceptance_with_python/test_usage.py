@@ -262,6 +262,7 @@ def test_usage_enabling_compression(
     assert dimensionality.dimensions == 150
     assert dimensionality.count == 1000
     assert named_vector.vector_index_type == "hnsw"
+    assert not named_vector.multi_vector_config.enabled
     if quantizer_config.quantizer_name() == "bq":
         assert named_vector.compression == "bq"
         assert named_vector.vector_compression_ratio == 32
@@ -326,6 +327,8 @@ def test_multi_vector(collection_factory: CollectionFactory):
     assert dimensionality.count == 2
     assert named_vector_pure.compression == "standard"
     assert named_vector_pure.vector_compression_ratio == 1
+    assert named_vector_pure.multi_vector_config.enabled
+    assert not named_vector_pure.multi_vector_config.muvera_config.enabled
 
     named_vector_muvera = next(nv for nv in shard.named_vectors if nv.name == vector_names[1])
     assert named_vector_muvera.name == vector_names[1]
@@ -335,6 +338,8 @@ def test_multi_vector(collection_factory: CollectionFactory):
     assert dimensionality.count == 2
     assert named_vector_muvera.compression == "standard"
     assert named_vector_muvera.vector_compression_ratio == 1
+    assert named_vector_muvera.multi_vector_config.enabled
+    assert named_vector_muvera.multi_vector_config.muvera_config.enabled
 
     named_vector_muvera_bq = next(nv for nv in shard.named_vectors if nv.name == vector_names[2])
     assert named_vector_muvera_bq.name == vector_names[2]
@@ -344,6 +349,8 @@ def test_multi_vector(collection_factory: CollectionFactory):
     assert dimensionality.count == 2
     assert named_vector_muvera_bq.compression == "bq"
     assert named_vector_muvera_bq.vector_compression_ratio == 32
+    assert named_vector_muvera_bq.multi_vector_config.enabled
+    assert named_vector_muvera_bq.multi_vector_config.muvera_config.enabled
 
     named_vector_bq = next(nv for nv in shard.named_vectors if nv.name == vector_names[3])
     assert named_vector_bq.name == vector_names[3]
@@ -353,6 +360,7 @@ def test_multi_vector(collection_factory: CollectionFactory):
     assert dimensionality.count == 2
     assert named_vector_bq.compression == "bq"
     assert named_vector_bq.vector_compression_ratio == 32
+    assert named_vector_muvera_bq.multi_vector_config.enabled
 
 
 def test_object_storage(collection_factory: CollectionFactory):

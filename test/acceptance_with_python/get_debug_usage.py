@@ -4,9 +4,23 @@ import httpx
 
 
 @dataclass
+class MuveraConfig:
+    enabled: Optional[bool] = None
+    ksim: Optional[int] = None
+    dprojections: Optional[int] = None
+    repetitions: Optional[int] = None
+
+
+@dataclass
 class Dimensionality:
     dimensions: Optional[int] = None
     count: Optional[int] = None
+
+
+@dataclass
+class MultiVectorConfig:
+    enabled: bool
+    muvera_config: MuveraConfig
 
 
 @dataclass
@@ -18,6 +32,7 @@ class VectorUsage:
     vector_compression_ratio: Optional[float] = None
     bits: Optional[int] = None
     dimensionalities: List[Dimensionality] = field(default_factory=list)
+    multi_vector_config: Optional[MultiVectorConfig] = None
 
 
 @dataclass
@@ -89,6 +104,21 @@ def parse_vector_usage(data):
             for d in (parse_dimensionality(dd) for dd in data.get("dimensionalities", []))
             if d is not None
         ],
+        multi_vector_config=(
+            MultiVectorConfig(
+                enabled=data["multi_vector_config"]["enabled"],
+                muvera_config=(
+                    MuveraConfig(
+                        enabled=data["multi_vector_config"]["muvera_config"]["enabled"],
+                        ksim=data["multi_vector_config"]["muvera_config"]["ksim"],
+                        dprojections=data["multi_vector_config"]["muvera_config"]["dprojections"],
+                        repetitions=data["multi_vector_config"]["muvera_config"]["repetitions"],
+                    )
+                    if "muvera_config" in data["multi_vector_config"]
+                    else None
+                ),
+            )
+        ),
     )
 
 
