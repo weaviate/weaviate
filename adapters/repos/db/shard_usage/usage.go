@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -27,8 +26,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
+
+func UsageTmpFilePath(indexPath, shardName string) string {
+	return path.Join(indexPath, shardName, "USAGE_TMP.tmp")
+}
 
 func shardPathLSM(indexPath, shardName string) string {
 	return path.Join(indexPath, shardName, "lsm")
@@ -68,7 +71,7 @@ func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLo
 }
 
 // CalculateUnloadedVectorsMetrics calculates vector storage size from disk
-func CalculateUnloadedVectorsMetrics(path, shard string) (int64, error) {
+func CalculateUnloadedVectorsMetrics(lsmPath string, directories []string) (int64, error) {
 	totalSize := int64(0)
 
 	// vector storage consists of:
@@ -77,112 +80,60 @@ func CalculateUnloadedVectorsMetrics(path, shard string) (int64, error) {
 	//     - the flat index extra copy of the uncompressed vectors (if flat index is used)
 	// 2) size of uncompressed vectors stored in dimensions bucket. The size of these is calculated based on the number
 	// of objects and their dimensionality. They need to be subtracted from the object bucket size to not count them twice.
-
-	lsmPath := shardPathLSM(path, shard)
-	entries, err := os.ReadDir(lsmPath)
-	if err != nil {
-		return 0, err
-	}
-	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Name(), "vector") {
+	for _, directory := range directories {
+		if !strings.HasPrefix(directory, "vector") {
 			continue
 		}
-		if entry.IsDir() {
-			fullPath := filepath.Join(lsmPath, entry.Name())
-			dirSize, err := sumDir(fullPath)
-			if err != nil {
-				return 0, err
-			}
-			totalSize += dirSize
+		fullPath := filepath.Join(lsmPath, directory)
+
+		files, _, err := diskio.GetFileWithSizes(fullPath)
+		if err != nil {
+			return 0, err
+		}
+		for _, size := range files {
+			totalSize += size
 		}
 	}
 	return totalSize, nil
 }
 
-func CalculateUnloadedUncompressedVectorSize(ctx context.Context, logger logrus.FieldLogger, path, tenantName string, vectorConfig map[string]schemaConfig.VectorIndexConfig) (int64, error) {
-	uncompressedSize := int64(0)
-	// For each target vector, calculate storage size using dimensions bucket and config-based compression
-	for targetVector := range vectorConfig {
-		err := func() error {
-			bucketPath := shardPathDimensionsLSM(path, tenantName)
-			strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, lsmkv.DimensionsBucketPrioritizedStrategies)
-			if err != nil {
-				return fmt.Errorf("determine dimensions bucket strategy: %w", err)
-			}
-
-			// Get dimensions and object count from the dimensions bucket
-			bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
-				bucketPath,
-				path,
-				logger,
-				nil,
-				cyclemanager.NewCallbackGroupNoop(),
-				cyclemanager.NewCallbackGroupNoop(),
-				lsmkv.WithStrategy(strategy),
-			)
-			if err != nil {
-				return err
-			}
-			defer bucket.Shutdown(ctx)
-
-			dimensionality, err := CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
-			if err != nil {
-				return err
-			}
-
-			if dimensionality.Count != 0 && dimensionality.Dimensions != 0 {
-				uncompressedSize += int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
-			}
-			return nil
-		}()
-		if err != nil {
-			return 0, err
-		}
-	}
-	return uncompressedSize, nil
-}
-
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size from disk
-func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, shardName string) (types.ObjectUsage, error) {
+func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, shardName string, includeCount bool) (types.ObjectUsage, error) {
 	// Parse all .cna files in the object store and sum them up
 	totalObjectCount := int64(0)
 	totalDiskSize := int64(0)
 
 	// Use a single walk to avoid multiple filepath.Walk calls and reduce file descriptors
 	objectStore := shardPathObjectsLSM(path, shardName)
-	if err := filepath.Walk(objectStore, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
+	files, _, err := diskio.GetFileWithSizes(objectStore)
+	if err != nil {
+		return types.ObjectUsage{}, err
+	}
+	for file, size := range files {
+		totalDiskSize += size
 
-		// Only count files, not directories
-		if !info.IsDir() {
-			totalDiskSize += info.Size()
-
+		if includeCount {
+			filePath := filepath.Join(objectStore, file)
 			// Look for .cna files (net count additions)
-			if strings.HasSuffix(info.Name(), lsmkv.CountNetAdditionsFileSuffix) {
-				count, err := lsmkv.ReadCountNetAdditionsFile(path)
+			if strings.HasSuffix(file, lsmkv.CountNetAdditionsFileSuffix) {
+				count, err := lsmkv.ReadCountNetAdditionsFile(filePath)
 				if err != nil {
-					logger.WithField("path", path).WithField("shard", shardName).WithError(err).Warn("failed to read .cna file")
-					return err
+					logger.WithField("path", filePath).WithField("shard", shardName).WithError(err).Warn("failed to read .cna file")
+					return types.ObjectUsage{}, err
 				}
 				totalObjectCount += count
 			}
 
 			// Look for .metadata files (bloom filters + count net additions)
-			if strings.HasSuffix(info.Name(), lsmkv.MetadataFileSuffix) {
-				count, err := lsmkv.ReadObjectCountFromMetadataFile(path)
+			if strings.HasSuffix(file, lsmkv.MetadataFileSuffix) {
+				count, err := lsmkv.ReadObjectCountFromMetadataFile(filePath)
 				if err != nil {
-					logger.WithField("path", path).WithField("shard", shardName).WithError(err).Warn("failed to read .metadata file")
-					return err
+					logger.WithField("path", filePath).WithField("shard", shardName).WithError(err).Warn("failed to read .metadata file")
+					return types.ObjectUsage{}, err
 				}
 				totalObjectCount += count
 			}
 		}
-
-		return nil
-	}); err != nil {
-		return types.ObjectUsage{}, err
 	}
 
 	// If we can't determine object count, return the disk size as fallback
@@ -193,59 +144,65 @@ func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, shardName 
 }
 
 // CalculateUnloadedIndicesSize calculates both object count and storage size for a cold tenant without loading it into memory
-func CalculateUnloadedIndicesSize(path, shardName string) (uint64, error) {
+func CalculateUnloadedIndicesSize(lsmPath string, directories []string) (uint64, error) {
 	totalSize := uint64(0)
 
 	// get the storage of all lsm properties that are not objects or vector
 	includedPrefixes := []string{helpers.DimensionsBucketLSM, helpers.BucketFromPropNameLSM("")}
 
-	// check all vector folders and add their sizes
-	lsmPath := shardPathLSM(path, shardName)
-	entries, err := os.ReadDir(lsmPath)
-	if err != nil {
-		return 0, err
-	}
-	for _, entry := range entries {
+	// check all folders and add their sizes
+	for _, directory := range directories {
 		included := slices.ContainsFunc(includedPrefixes, func(prefix string) bool {
-			return strings.HasPrefix(entry.Name(), prefix)
+			return strings.HasPrefix(directory, prefix)
 		})
 		if !included {
 			continue
 		}
 
-		if entry.IsDir() {
-			fullPath := filepath.Join(lsmPath, entry.Name())
-			dirSize, err := sumDir(fullPath)
-			if err != nil {
-				return 0, err
-			}
-			totalSize += uint64(dirSize)
+		fullPath := filepath.Join(lsmPath, directory)
+		files, _, err := diskio.GetFileWithSizes(fullPath)
+		if err != nil {
+			return 0, err
+		}
+		for _, size := range files {
+			totalSize += uint64(size)
 		}
 	}
 	return totalSize, nil
 }
 
-// CalculateShardStorage calculates the full storage used by a shard, including objects, vectors, and indices
-func CalculateShardStorage(path, shardName string) (uint64, error) {
+// CalculateNonLSMStorage calculates the full storage used by a shard, including objects, vectors, and indices
+func CalculateNonLSMStorage(path, shardName string) (uint64, error) {
 	totalSize := uint64(0)
-
-	// check all vector folders and add their sizes
 	shardPath := filepath.Join(path, shardName)
-	if err := filepath.Walk(shardPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
 
-		// Only count files, not directories
-		if info.IsDir() {
-			return nil
-		}
-		totalSize += uint64(info.Size())
-
-		return nil
-	}); err != nil {
+	files, dirs, err := diskio.GetFileWithSizes(shardPath)
+	if err != nil {
 		return 0, err
 	}
+
+	// Add sizes of all files in the shard root directory
+	for _, size := range files {
+		totalSize += uint64(size)
+	}
+	for _, dir := range dirs {
+		if strings.Contains(dir, "lsm") {
+			// lsm folder is already calculated, no need to read two times
+			continue
+		}
+
+		fullPath := filepath.Join(shardPath, dir)
+		filesSubFolder, _, err := diskio.GetFileWithSizes(fullPath)
+		if err != nil {
+			return 0, err
+		}
+
+		for _, size := range filesSubFolder {
+			totalSize += uint64(size)
+		}
+
+	}
+
 	return totalSize, nil
 }
 
@@ -316,21 +273,4 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 	}
 
 	return dimensionality, nil
-}
-
-// sumDir calculates the total size of all files in a directory recursively
-// Note that we sum up the logical file size, not the actual disk usage which might be slightly higher. This is only
-// relevant for very small files where the filesystem block size matters. In practice this is not relevant for us.
-func sumDir(dirPath string) (int64, error) {
-	size := int64(0)
-	err := filepath.Walk(dirPath, func(_ string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() {
-			size += info.Size()
-		}
-		return nil
-	})
-	return size, err
 }

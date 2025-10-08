@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -39,6 +40,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	reindexer ShardReindexerV3, lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 ) (_ *Shard, err error) {
 	start := time.Now()
+
+	if err := os.RemoveAll(shardusage.UsageTmpFilePath(index.path(), shardName)); err != nil {
+		return nil, err
+	}
 
 	index.logger.WithFields(logrus.Fields{
 		"action": "init_shard",
