@@ -181,14 +181,19 @@ func (s *lazySegment) close() error {
 	return s.segment.close()
 }
 
+func (s *lazySegment) dropMarked() error {
+	s.mustLoad()
+	return s.segment.dropMarked()
+}
+
 func (s *lazySegment) get(key []byte) ([]byte, error) {
 	s.mustLoad()
 	return s.segment.get(key)
 }
 
-func (s *lazySegment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
+func (s *lazySegment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
 	s.mustLoad()
-	return s.segment.getBySecondaryIntoMemory(pos, key, buffer)
+	return s.segment.getBySecondary(pos, key, buffer)
 }
 
 func (s *lazySegment) getCollection(key []byte) ([]value, error) {
@@ -223,7 +228,7 @@ func (s *lazySegment) MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error
 	return s.segment.MergeTombstones(other)
 }
 
-func (s *lazySegment) newCollectionCursor() *segmentCursorCollection {
+func (s *lazySegment) newCollectionCursor() innerCursorCollection {
 	s.mustLoad()
 	return s.segment.newCollectionCursor()
 }
@@ -233,7 +238,7 @@ func (s *lazySegment) newCollectionCursorReusable() *segmentCursorCollectionReus
 	return s.segment.newCollectionCursorReusable()
 }
 
-func (s *lazySegment) newCursor() *segmentCursorReplace {
+func (s *lazySegment) newCursor() innerCursorReplaceAllKeys {
 	s.mustLoad()
 	return s.segment.newCursor()
 }
@@ -243,7 +248,7 @@ func (s *lazySegment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	return s.segment.newCursorWithSecondaryIndex(pos)
 }
 
-func (s *lazySegment) newMapCursor() *segmentCursorMap {
+func (s *lazySegment) newMapCursor() innerCursorMap {
 	s.mustLoad()
 	return s.segment.newMapCursor()
 }
@@ -253,7 +258,7 @@ func (s *lazySegment) newNodeReader(offset nodeOffset, operation string) (*nodeR
 	return s.segment.newNodeReader(offset, operation)
 }
 
-func (s *lazySegment) newRoaringSetCursor() *roaringset.SegmentCursor {
+func (s *lazySegment) newRoaringSetCursor() roaringset.SegmentCursor {
 	s.mustLoad()
 	return s.segment.newRoaringSetCursor()
 }
@@ -263,7 +268,7 @@ func (s *lazySegment) newRoaringSetRangeCursor() roaringsetrange.SegmentCursor {
 	return s.segment.newRoaringSetRangeCursor()
 }
 
-func (s *lazySegment) newRoaringSetRangeReader() *roaringsetrange.SegmentReader {
+func (s *lazySegment) newRoaringSetRangeReader() roaringsetrange.InnerReader {
 	s.mustLoad()
 	return s.segment.newRoaringSetRangeReader()
 }
@@ -304,4 +309,34 @@ func (s *lazySegment) numberFromPath(re *regexp.Regexp) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+func (s *lazySegment) incRef() {
+	s.mustLoad()
+	s.segment.incRef()
+}
+
+func (s *lazySegment) decRef() {
+	s.mustLoad()
+	s.segment.decRef()
+}
+
+func (s *lazySegment) getRefs() int {
+	s.mustLoad()
+	return s.segment.getRefs()
+}
+
+func (s *lazySegment) hasKey(key []byte) bool {
+	s.mustLoad()
+	return s.segment.hasKey(key)
+}
+
+func (s *lazySegment) getDocCount(key []byte) uint64 {
+	s.mustLoad()
+	return s.segment.getDocCount(key)
+}
+
+func (s *lazySegment) getCountNetAdditions() int {
+	s.mustLoad()
+	return s.segment.getCountNetAdditions()
 }

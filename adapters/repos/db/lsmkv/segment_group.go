@@ -44,15 +44,7 @@ type SegmentGroup struct {
 	maintenanceLock sync.RWMutex
 	dir             string
 
-	cursorsLock      sync.RWMutex
-	activeCursors    int
-	enqueuedSegments []Segment
-
-	// flushVsCompactLock is a simple synchronization mechanism between the
-	// compaction and flush cycle. In general, those are independent, however,
-	// there are parts of it that are not. See the comments of the routines
-	// interacting with this lock for more details.
-	flushVsCompactLock sync.Mutex
+	segmentRefCounterLock sync.Mutex
 
 	strategy string
 
@@ -453,7 +445,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	case StrategyRoaringSetRange:
 		if cfg.keepSegmentsInMemory {
 			t := time.Now()
-			sg.roaringSetRangeSegmentInMemory = roaringsetrange.NewSegmentInMemory()
+			sg.roaringSetRangeSegmentInMemory = roaringsetrange.NewSegmentInMemory(sg.logger)
 			for _, seg := range sg.segments {
 				cursor := seg.newRoaringSetRangeCursor()
 				if err := sg.roaringSetRangeSegmentInMemory.MergeSegmentByCursor(cursor); err != nil {
@@ -482,6 +474,7 @@ func (sg *SegmentGroup) resumeCompaction(_ context.Context) error {
 	return sg.compactionCallbackCtrl.Activate()
 }
 
+// TODO aliszka:copy-on-read should method be using fixed list of segments?
 func (sg *SegmentGroup) makeExistsOn(segments []Segment) existsOnLowerSegmentsFn {
 	return func(key []byte) (bool, error) {
 		if len(segments) == 0 {
@@ -489,13 +482,13 @@ func (sg *SegmentGroup) makeExistsOn(segments []Segment) existsOnLowerSegmentsFn
 			// any key in this segment is previously unseen.
 			return false, nil
 		}
-
-		v, err := sg.getWithUpperSegmentBoundary(key, segments)
-		if err != nil {
-			return false, fmt.Errorf("check exists on segments: %w", err)
+		if _, err := sg.getWithSegmentList(key, segments); err != nil {
+			if !errors.Is(err, lsmkv.Deleted) && !errors.Is(err, lsmkv.NotFound) {
+				return false, fmt.Errorf("check exists on segments: %w", err)
+			}
+			return false, nil
 		}
-
-		return v != nil, nil
+		return true, nil
 	}
 }
 
@@ -526,29 +519,28 @@ func (sg *SegmentGroup) add(path string) error {
 	return nil
 }
 
-func (sg *SegmentGroup) getAndLockSegments() (segments []Segment, release func()) {
-	sg.cursorsLock.RLock()
+func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {
 	sg.maintenanceLock.RLock()
+	segments = make([]Segment, len(sg.segments))
+	copy(segments, sg.segments)
 
-	if len(sg.enqueuedSegments) == 0 {
-		return sg.segments, func() {
-			sg.cursorsLock.RUnlock()
-			sg.maintenanceLock.RUnlock()
-		}
+	sg.segmentRefCounterLock.Lock()
+	for i := range segments {
+		segments[i].incRef()
 	}
-
-	segments = make([]Segment, 0, len(sg.segments)+len(sg.enqueuedSegments))
-
-	segments = append(segments, sg.segments...)
-	segments = append(segments, sg.enqueuedSegments...)
+	sg.segmentRefCounterLock.Unlock()
+	sg.maintenanceLock.RUnlock()
 
 	return segments, func() {
-		sg.cursorsLock.RUnlock()
-		sg.maintenanceLock.RUnlock()
+		sg.segmentRefCounterLock.Lock()
+		for i := range segments {
+			segments[i].decRef()
+		}
+		sg.segmentRefCounterLock.Unlock()
 	}
 }
 
-func (sg *SegmentGroup) addInitializedSegment(segment *segment) (err error) {
+func (sg *SegmentGroup) addInitializedSegment(segment Segment) (err error) {
 	defer func() {
 		if err != nil {
 			return
@@ -557,135 +549,81 @@ func (sg *SegmentGroup) addInitializedSegment(segment *segment) (err error) {
 		sg.metrics.ObserveSegmentSize(sg.strategy, segment.Size())
 	}()
 
-	sg.cursorsLock.Lock()
-	defer sg.cursorsLock.Unlock()
-
-	if sg.activeCursors > 0 {
-		sg.enqueuedSegments = append(sg.enqueuedSegments, segment)
-		return nil
-	}
-
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 
 	sg.segments = append(sg.segments, segment)
-
 	return nil
-}
-
-func (sg *SegmentGroup) get(key []byte) ([]byte, error) {
-	beforeMaintenanceLock := time.Now()
-	segments, release := sg.getAndLockSegments()
-	defer release()
-
-	if time.Since(beforeMaintenanceLock) > 100*time.Millisecond {
-		sg.logger.WithField("duration", time.Since(beforeMaintenanceLock)).
-			WithField("action", "lsm_segment_group_get_obtain_maintenance_lock").
-			Debug("waited over 100ms to obtain maintenance lock in segment group get()")
-	}
-
-	return sg.getWithUpperSegmentBoundary(key, segments)
 }
 
 // not thread-safe on its own, as the assumption is that this is called from a
 // lockholder, e.g. within .get()
-func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, segments []Segment) ([]byte, error) {
-	// assumes "replace" strategy
+func (sg *SegmentGroup) getWithSegmentList(key []byte, segments []Segment) ([]byte, error) {
+	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
+		return nil, fmt.Errorf("SegmentGroup::getWithSegmentList(): %w", err)
+	}
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
 	for i := len(segments) - 1; i >= 0; i-- {
 		beforeSegment := time.Now()
 		v, err := segments[i].get(key)
-		if time.Since(beforeSegment) > 100*time.Millisecond {
-			sg.logger.WithField("duration", time.Since(beforeSegment)).
-				WithField("action", "lsm_segment_group_get_individual_segment").
-				WithError(err).
-				WithField("segment_pos", i).
-				Debug("waited over 100ms to get result from individual segment")
+		if duration := time.Since(beforeSegment); duration > 100*time.Millisecond {
+			sg.logger.WithError(err).
+				WithFields(logrus.Fields{
+					"duration":    duration,
+					"action":      "lsm_segment_group_get_individual_segment",
+					"segment_pos": i,
+				}).Debug("waited over 100ms to get result from individual segment")
 		}
-		if err != nil {
-			if errors.Is(err, lsmkv.NotFound) {
-				continue
-			}
-
-			if errors.Is(err, lsmkv.Deleted) {
-				return nil, nil
-			}
-
-			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v", err))
+		if err == nil {
+			return v, nil
 		}
-
-		return v, nil
-	}
-
-	return nil, nil
-}
-
-func (sg *SegmentGroup) getErrDeleted(key []byte) ([]byte, error) {
-	segments, release := sg.getAndLockSegments()
-	defer release()
-
-	return sg.getWithUpperSegmentBoundaryErrDeleted(key, segments)
-}
-
-func (sg *SegmentGroup) getWithUpperSegmentBoundaryErrDeleted(key []byte, segments []Segment) ([]byte, error) {
-	// assumes "replace" strategy
-
-	// start with latest and exit as soon as something is found, thus making sure
-	// the latest takes presence
-	for i := len(segments) - 1; i >= 0; i-- {
-		v, err := segments[i].get(key)
-		if err != nil {
-			if errors.Is(err, lsmkv.NotFound) {
-				continue
-			}
-
-			if errors.Is(err, lsmkv.Deleted) {
-				return nil, err
-			}
-
-			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v", err))
+		if errors.Is(err, lsmkv.Deleted) {
+			return nil, err
 		}
-
-		return v, nil
+		if !errors.Is(err, lsmkv.NotFound) {
+			return nil, fmt.Errorf("SegmentGroup::getWithSegmentList() %q: %w", segments[i].getPath(), err)
+		}
 	}
 
 	return nil, lsmkv.NotFound
 }
 
-func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
-	segments, release := sg.getAndLockSegments()
-	defer release()
-
-	// assumes "replace" strategy
+func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffer []byte,
+	segments []Segment,
+) ([]byte, []byte, []byte, error) {
+	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
+		return nil, nil, nil, fmt.Errorf("SegmentGroup::getWithSegmentList(): %w", err)
+	}
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
 	for i := len(segments) - 1; i >= 0; i-- {
-		k, v, allocatedBuff, err := segments[i].getBySecondaryIntoMemory(pos, key, buffer)
-		if err != nil {
-			if errors.Is(err, lsmkv.NotFound) {
-				continue
-			}
-
-			if errors.Is(err, lsmkv.Deleted) {
-				return nil, nil, nil, nil
-			}
-
-			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v for segment %s", err, segments[i].getPath()))
+		beforeSegment := time.Now()
+		k, v, allocBuf, err := segments[i].getBySecondary(pos, key, buffer)
+		if duration := time.Since(beforeSegment); duration > 100*time.Millisecond {
+			sg.logger.WithError(err).
+				WithFields(logrus.Fields{
+					"duration":    duration,
+					"action":      "lsm_segment_group_getbysecondary_individual_segment",
+					"segment_pos": i,
+				}).Debug("waited over 100ms to get result from individual segment")
 		}
-
-		return k, v, allocatedBuff, nil
+		if err == nil {
+			return k, v, allocBuf, nil
+		}
+		if errors.Is(err, lsmkv.Deleted) {
+			return nil, nil, nil, err
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return nil, nil, nil, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList() %q: %w", segments[i].getPath(), err)
+		}
 	}
-
-	return nil, nil, nil, nil
+	return nil, nil, nil, lsmkv.NotFound
 }
 
-func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
-	segments, release := sg.getAndLockSegments()
-	defer release()
-
+func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, error) {
 	var out []value
 
 	// start with first and do not exit
@@ -709,9 +647,7 @@ func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	return out, nil
 }
 
-func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte) ([][]value, []Segment, func(), error) {
-	segments, release := sg.getAndLockSegments()
-
+func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte, segments []Segment) ([][]value, []Segment, error) {
 	out := make([][]value, len(segments))
 	outSegments := make([]Segment, len(segments))
 
@@ -719,14 +655,12 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 	// start with first and do not exit
 	for _, segment := range segments {
 		if ctx.Err() != nil {
-			release()
-			return nil, nil, func() {}, ctx.Err()
+			return nil, nil, ctx.Err()
 		}
 		v, err := segment.getCollection(key)
 		if err != nil {
 			if !errors.Is(err, lsmkv.NotFound) {
-				release()
-				return nil, nil, func() {}, err
+				return nil, nil, err
 			}
 			// inverted segments need to be loaded anyway, even if they don't have
 			// the key, as we need to know if they have tombstones
@@ -740,13 +674,10 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 		i++
 	}
 
-	return out[:i], outSegments[:i], release, nil
+	return out[:i], outSegments[:i], nil
 }
 
-func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, release func(), err error) {
-	segments, sgRelease := sg.getAndLockSegments()
-	defer sgRelease()
-
+func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment) (out roaringset.BitmapLayers, release func(), err error) {
 	ln := len(segments)
 	if ln == 0 {
 		return nil, noopRelease, nil
@@ -786,12 +717,16 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, 
 }
 
 func (sg *SegmentGroup) count() int {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
 
+	return sg.countWithSegmentList(segments)
+}
+
+func (sg *SegmentGroup) countWithSegmentList(segments []Segment) int {
 	count := 0
 	for _, seg := range segments {
-		count += seg.getSegment().getCountNetAdditions()
+		count += seg.getCountNetAdditions()
 	}
 
 	return count
@@ -803,13 +738,6 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	}
 	if err := sg.segmentCleaner.close(); err != nil {
 		return err
-	}
-
-	sg.cursorsLock.Lock()
-	defer sg.cursorsLock.Unlock()
-
-	for _, seg := range sg.enqueuedSegments {
-		seg.close()
 	}
 
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
@@ -922,14 +850,14 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 }
 
 func (sg *SegmentGroup) Len() int {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
 
 	return len(segments)
 }
 
 func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {
-	segments, release := sg.getAndLockSegments()
+	segments, release := sg.getConsistentViewOfSegments()
 	defer release()
 
 	if len(segments) == 0 {

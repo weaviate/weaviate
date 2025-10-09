@@ -17,21 +17,32 @@ import (
 	"math"
 	"sync"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
+	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	entsync "github.com/weaviate/weaviate/entities/sync"
 )
 
 type SegmentInMemory struct {
-	lock    *sync.RWMutex
-	bitmaps rangeBitmaps
+	logger logrus.FieldLogger
+
+	bitmaps       rangeBitmaps
+	bitmapsLock   *entsync.ReadPreferringRWMutex
+	memtables     []*Memtable // flushed memtables, waiting to be merged into bitmaps
+	memtablesLock *sync.Mutex
 }
 
-func NewSegmentInMemory() *SegmentInMemory {
+func NewSegmentInMemory(logger logrus.FieldLogger) *SegmentInMemory {
 	s := &SegmentInMemory{
-		lock: new(sync.RWMutex),
+		logger:        logger,
+		bitmapsLock:   entsync.NewReadPreferringRWMutex(),
+		memtables:     make([]*Memtable, 0, 8),
+		memtablesLock: new(sync.Mutex),
 	}
+
 	for key := range s.bitmaps {
 		s.bitmaps[key] = sroar.NewBitmap()
 	}
@@ -48,8 +59,8 @@ func (s *SegmentInMemory) MergeSegmentByCursor(cursor SegmentCursor) error {
 		return fmt.Errorf("invalid first key of merged segment")
 	}
 
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.bitmapsLock.Lock()
+	defer s.bitmapsLock.Unlock()
 
 	if deletions := layer.Deletions; !deletions.IsEmpty() {
 		for key := range s.bitmaps {
@@ -62,25 +73,55 @@ func (s *SegmentInMemory) MergeSegmentByCursor(cursor SegmentCursor) error {
 	return nil
 }
 
-func (s *SegmentInMemory) MergeMemtable(memtable *Memtable) error {
-	nodes := memtable.Nodes()
-	if len(nodes) == 0 {
-		// empty memtable, nothing to merge
-		return nil
+func (s *SegmentInMemory) MergeMemtableEventually(memtable *Memtable) {
+	s.memtablesLock.Lock()
+	s.memtables = append(s.memtables, memtable)
+	ln := len(s.memtables)
+	s.memtablesLock.Unlock()
+
+	// run background merge only once,
+	// handle also all memtables added while merge is performed
+	if ln == 1 {
+		errors.GoWrapper(s.mergeMemtables, s.logger)
 	}
+}
 
-	s.lock.Lock()
-	defer s.lock.Unlock()
+func (s *SegmentInMemory) mergeMemtables() {
+	s.bitmapsLock.Lock()
+	defer s.bitmapsLock.Unlock()
 
-	if deletions := nodes[0].Deletions; !deletions.IsEmpty() {
-		for key := range s.bitmaps {
-			s.bitmaps[key].AndNotConc(deletions, concurrency.SROAR_MERGE)
+	i := 0
+	for {
+		s.memtablesLock.Lock()
+		if i == len(s.memtables) {
+			s.memtables = s.memtables[:0]
+			s.memtablesLock.Unlock()
+			return
+		}
+		memtable := s.memtables[i]
+		i++
+		s.memtablesLock.Unlock()
+
+		nodes := memtable.Nodes()
+		if len(nodes) == 0 {
+			continue
+		}
+		if deletions := nodes[0].Deletions; !deletions.IsEmpty() {
+			for key := range s.bitmaps {
+				s.bitmaps[key].AndNotConc(deletions, concurrency.SROAR_MERGE)
+			}
+		}
+		for _, node := range nodes {
+			s.bitmaps[node.Key].OrConc(node.Additions, concurrency.SROAR_MERGE)
 		}
 	}
-	for _, node := range nodes {
-		s.bitmaps[node.Key].OrConc(node.Additions, concurrency.SROAR_MERGE)
-	}
-	return nil
+}
+
+func (s *SegmentInMemory) countPendingMemtables() int {
+	s.memtablesLock.Lock()
+	defer s.memtablesLock.Unlock()
+
+	return len(s.memtables)
 }
 
 func (s *SegmentInMemory) Size() int {
@@ -91,21 +132,28 @@ func (s *SegmentInMemory) Size() int {
 	return size
 }
 
+func (s *SegmentInMemory) Readers(bufPool roaringset.BitmapBufPool) (readers []InnerReader, release func()) {
+	s.bitmapsLock.RLock()
+	s.memtablesLock.Lock()
+	memtables := s.memtables
+	s.memtablesLock.Unlock()
+
+	readers = make([]InnerReader, 1+len(memtables))
+	readers[0] = &segmentInMemoryReader{
+		bitmaps: s.bitmaps,
+		bufPool: bufPool,
+	}
+	for i := range memtables {
+		readers[1+i] = NewMemtableReader(memtables[i])
+	}
+	return readers, s.bitmapsLock.RUnlock
+}
+
 // -----------------------------------------------------------------------------
 
 type segmentInMemoryReader struct {
 	bitmaps rangeBitmaps
 	bufPool roaringset.BitmapBufPool
-}
-
-func NewSegmentInMemoryReader(s *SegmentInMemory, bufPool roaringset.BitmapBufPool,
-) (reader *segmentInMemoryReader, release func()) {
-	// TODO aliszka:roaringrange optimize locking?
-	s.lock.RLock()
-	return &segmentInMemoryReader{
-		bitmaps: s.bitmaps,
-		bufPool: bufPool,
-	}, s.lock.RUnlock
 }
 
 func (r *segmentInMemoryReader) Read(ctx context.Context, value uint64, operator filters.Operator,
