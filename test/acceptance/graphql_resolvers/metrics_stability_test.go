@@ -197,7 +197,7 @@ func countMetricsLines(t *testing.T) (int, []string) {
 		if strings.Contains(line, "shards_loaded") || strings.Contains(line, "shards_loading") || strings.Contains(line, "shards_unloading") || strings.Contains(line, "shards_unloaded") {
 			continue
 		}
-		if strings.Contains(line, "weaviate_lsm_bucket_cursor_duration_seconds_bucket") {
+		if strings.Contains(line, "weaviate_lsm_bucket_cursor_duration_seconds") {
 			continue
 		}
 		require.NotContains(
