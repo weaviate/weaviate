@@ -304,6 +304,16 @@ func NewDummyStore(t testing.TB) *lsmkv.Store {
 	return store
 }
 
+func NewDummyStoreFromFolder(storeDir string, t testing.TB) *lsmkv.Store {
+	logger, _ := test.NewNullLogger()
+	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	return store
+}
+
 type VectorIndex interface {
 	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 }

@@ -15,27 +15,29 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func createTestCommitLoggerForSnapshots(t *testing.T, rootDir, id string) *hnswCommitLogger {
-	opts := []CommitlogOption{
+func createTestCommitLoggerForSnapshotsWithOpts(t *testing.T, rootDir, id string, opts ...CommitlogOption) *hnswCommitLogger {
+	options := []CommitlogOption{
 		WithCommitlogThreshold(1000),
 		WithCommitlogThresholdForCombining(200),
 		WithCondensor(&fakeCondensor{}),
 		WithSnapshotDisabled(false),
-		WithAllocChecker(fakeAllocChecker{}),
 	}
+	options = append(options, opts...)
 
 	commitLogDir := commitLogDirectory(rootDir, id)
-	cl, err := NewCommitLogger(rootDir, id, logrus.New(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	cl, err := NewCommitLogger(rootDir, id, logrus.New(), cyclemanager.NewCallbackGroupNoop(), options...)
 	require.NoError(t, err)
 
 	// commit logger always creates an empty file if there is no data, remove it first
@@ -49,12 +51,16 @@ func createTestCommitLoggerForSnapshots(t *testing.T, rootDir, id string) *hnswC
 	return cl
 }
 
+func createTestCommitLoggerForSnapshots(t *testing.T, rootDir, id string) *hnswCommitLogger {
+	return createTestCommitLoggerForSnapshotsWithOpts(t, rootDir, id)
+}
+
 func createCommitlogTestData(t *testing.T, dir string, filenameSizes ...any) {
 	// create the files with the specified sizes
 	for i := 0; i < len(filenameSizes); i += 2 {
 		filename := fmt.Sprintf("%s/%s", dir, filenameSizes[i])
 		size := filenameSizes[i+1].(int)
-		cl := commitlog.NewLogger(filename)
+		cl := commitlog.NewLogger(filename, common.NewOSFS())
 
 		generateFakeCommitLogData(t, cl, int64(size))
 
@@ -63,7 +69,7 @@ func createCommitlogTestData(t *testing.T, dir string, filenameSizes ...any) {
 	}
 }
 
-func generateFakeCommitLogData(t *testing.T, cl *commitlog.Logger, size int64) {
+var generateFakeCommitLogData = func(t *testing.T, cl *commitlog.Logger, size int64) {
 	var err error
 
 	i := 0
@@ -90,6 +96,8 @@ func generateFakeCommitLogData(t *testing.T, cl *commitlog.Logger, size int64) {
 }
 
 func createCommitlogAndSnapshotTestData(t *testing.T, cl *hnswCommitLogger, commitlogNameSizes ...any) {
+	t.Helper()
+
 	require.GreaterOrEqual(t, len(commitlogNameSizes), 4, "at least 2 commitlog files are required to create snapshot")
 
 	clDir := commitLogDirectory(cl.rootPath, cl.id)
@@ -327,6 +335,80 @@ func TestCreateSnapshotCrashRecovery(t *testing.T) {
 		require.True(t, created)
 		files = readDir(t, sDir)
 		require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
+	})
+
+	t.Run("corrupt checkpoints", func(t *testing.T) {
+		dir := t.TempDir()
+		id := "main"
+		cl := createTestCommitLoggerForSnapshots(t, dir, id)
+		clDir := commitLogDirectory(dir, id)
+		sDir := snapshotDirectory(dir, id)
+
+		createCommitlogTestData(t, clDir, "1000.condensed", 1000, "1001.condensed", 1000, "1002.condensed", 1000)
+
+		// create snapshot
+		created, _, err := cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.NotNil(t, created)
+		files := readDir(t, sDir)
+		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+
+		// corrupt the checkpoints
+		err = os.WriteFile(filepath.Join(sDir, "1001.snapshot.checkpoints"), []byte("corrupt"), 0o644)
+		require.NoError(t, err)
+
+		// add new files
+		createCommitlogTestData(t, clDir, "1003.condensed", 1000, "1004.condensed", 1000, "1005.condensed", 1000)
+
+		// create snapshot should still work
+		created, _, err = cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.True(t, created)
+		files = readDir(t, sDir)
+		require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
+	})
+
+	t.Run("outdated checkpoints", func(t *testing.T) {
+		dir := t.TempDir()
+		id := "main"
+		cl := createTestCommitLoggerForSnapshots(t, dir, id)
+		clDir := commitLogDirectory(dir, id)
+		sDir := snapshotDirectory(dir, id)
+
+		createCommitlogTestData(t, clDir, "1000.condensed", 1000, "1001.condensed", 1000, "1002.condensed", 1000)
+
+		// create snapshot
+		created, _, err := cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.NotNil(t, created)
+		files := readDir(t, sDir)
+		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+
+		// copy the checkpoints file to a different file
+		oldCp, err := os.ReadFile(filepath.Join(sDir, "1001.snapshot.checkpoints"))
+		require.NoError(t, err)
+
+		// add new files
+		createCommitlogTestData(t, clDir, "1003.condensed", 1500, "1004.condensed", 2500, "1005.condensed", 3000)
+
+		// create new snapshot
+		created, _, err = cl.CreateSnapshot()
+		require.NoError(t, err)
+		require.True(t, created)
+		files = readDir(t, sDir)
+		require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
+
+		// restore the old checkpoints file
+		err = os.WriteFile(filepath.Join(sDir, "1004.snapshot.checkpoints"), oldCp, 0o644)
+		require.NoError(t, err)
+
+		// load the snapshot
+		state, createdAt, err := cl.LoadSnapshot()
+		require.NoError(t, err)
+		require.Nil(t, state)
+		require.Zero(t, createdAt)
+		files = readDir(t, sDir)
+		require.Zero(t, files)
 	})
 }
 
@@ -1337,4 +1419,30 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid checksum")
 	})
+}
+
+func TestCommitLogger_Snapshot_Race(t *testing.T) {
+	dir := t.TempDir()
+	id := "main"
+	cl := createTestCommitLoggerForSnapshots(t, dir, id)
+	clDir := commitLogDirectory(dir, id)
+	sDir := snapshotDirectory(dir, id)
+	os.MkdirAll(sDir, os.ModePerm)
+
+	createCommitlogTestData(t, clDir, "1000.condensed", 1000, "1001.condensed", 1000, "1002.condensed", 1000)
+
+	var wg sync.WaitGroup
+	for range 5 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// create snapshot
+			_, _, err := cl.CreateSnapshot()
+			require.NoError(t, err)
+			files := readDir(t, sDir)
+			require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+		}()
+	}
+
+	wg.Wait()
 }

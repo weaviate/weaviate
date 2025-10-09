@@ -28,6 +28,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
@@ -40,6 +41,7 @@ const (
 	snapshotConcurrency   = 8 // number of goroutines handling snapshot's checkpoints reading
 	snapshotDirSuffix     = ".hnsw.snapshot.d"
 	snapshotCheckInterval = 10 * time.Minute
+	maxExpectedConns      = 4096 * 4
 )
 
 const (
@@ -71,6 +73,9 @@ func snapshotDirectory(rootPath, name string) string {
 
 // Loads state of last available snapshot. Returns nil if no snaphshot was found.
 func (l *hnswCommitLogger) LoadSnapshot() (state *DeserializationResult, createdAt int64, err error) {
+	l.snapshotLock.Lock()
+	defer l.snapshotLock.Unlock()
+
 	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "load_snapshot"})
 	defer func() { onFinish(err) }()
 
@@ -96,6 +101,9 @@ func (l *hnswCommitLogger) LoadSnapshot() (state *DeserializationResult, created
 // or from the entire commit log if there is no previous snapshot.
 // The snapshot state contains all but last commitlog (may still be in use and mutable).
 func (l *hnswCommitLogger) CreateSnapshot() (created bool, createdAt int64, err error) {
+	l.snapshotLock.Lock()
+	defer l.snapshotLock.Unlock()
+
 	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "create_snapshot"})
 	defer func() { onFinish(err) }()
 
@@ -107,6 +115,9 @@ func (l *hnswCommitLogger) CreateSnapshot() (created bool, createdAt int64, err 
 // last snapshot. It is used at startup to automatically create a snapshot
 // while loading the commit log, to avoid having to load the commit log again.
 func (l *hnswCommitLogger) CreateAndLoadSnapshot() (state *DeserializationResult, createdAt int64, err error) {
+	l.snapshotLock.Lock()
+	defer l.snapshotLock.Unlock()
+
 	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "create_and_load_snapshot"})
 	defer func() { onFinish(err) }()
 
@@ -176,7 +187,7 @@ func (l *hnswCommitLogger) createAndOptionallyLoadSnapshotOnLastOne(logger logru
 		return state, "", createdAt, nil
 	}
 
-	newState, err := loadCommitLoggerState(l.logger, commitlogPaths, state, nil)
+	newState, err := loadCommitLoggerState(l.fs, l.logger, commitlogPaths, state, nil)
 	if err != nil {
 		return nil, "", 0, errors.Wrapf(err, "apply delta commitlogs")
 	}
@@ -272,7 +283,7 @@ func (l *hnswCommitLogger) initSnapshotData() error {
 	fields["partitions"] = l.snapshotPartitions
 
 	if !l.snapshotDisabled {
-		if err := os.MkdirAll(snapshotDirectory(l.rootPath, l.id), 0o755); err != nil {
+		if err := l.fs.MkdirAll(snapshotDirectory(l.rootPath, l.id), 0o755); err != nil {
 			return errors.Wrapf(err, "make snapshot directory")
 		}
 
@@ -316,10 +327,10 @@ func (l *hnswCommitLogger) calcSnapshotSize(snapshotPath string) int64 {
 	}
 
 	totalSize := int64(0)
-	if info, err := os.Stat(snapshotPath); err == nil {
+	if info, err := l.fs.Stat(snapshotPath); err == nil {
 		totalSize += info.Size()
 	}
-	if info, err := os.Stat(snapshotPath + ".checkpoints"); err == nil {
+	if info, err := l.fs.Stat(snapshotPath + ".checkpoints"); err == nil {
 		totalSize += info.Size()
 	}
 	return totalSize
@@ -333,7 +344,7 @@ func (l *hnswCommitLogger) calcCommitlogsSize(commitLogPaths ...string) int64 {
 
 	totalSize := int64(0)
 	for i := range commitLogPaths {
-		if info, err := os.Stat(commitLogPaths[i]); err == nil {
+		if info, err := l.fs.Stat(commitLogPaths[i]); err == nil {
 			totalSize += info.Size()
 		}
 	}
@@ -349,7 +360,7 @@ func (l *hnswCommitLogger) snapshotFileName(commitLogFileName string) string {
 func (l *hnswCommitLogger) getLastSnapshot() (path string, createdAt int64, err error) {
 	snapshotDir := snapshotDirectory(l.rootPath, l.id)
 
-	entries, err := os.ReadDir(snapshotDir)
+	entries, err := l.fs.ReadDir(snapshotDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			// no snapshot directory, no snapshot
@@ -381,7 +392,7 @@ func (l *hnswCommitLogger) getLastSnapshot() (path string, createdAt int64, err 
 }
 
 func (l *hnswCommitLogger) getDeltaCommitlogs(createdAfter int64) (paths []string, err error) {
-	files, err := getCommitFiles(l.rootPath, l.id, createdAfter)
+	files, err := getCommitFiles(l.rootPath, l.id, createdAfter, l.fs)
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +413,7 @@ func (l *hnswCommitLogger) getDeltaCommitlogs(createdAfter int64) (paths []strin
 func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 	snapshotDir := snapshotDirectory(l.rootPath, l.id)
 
-	files, err := os.ReadDir(snapshotDir)
+	files, err := l.fs.ReadDir(snapshotDir)
 	if err != nil {
 		return errors.Wrapf(err, "read snapshot directory %q", snapshotDir)
 	}
@@ -412,7 +423,7 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 		if strings.HasSuffix(name, ".snapshot.tmp") {
 			// a temporary snapshot file was found which means that a previous
 			// snapshoting process never completed, we can safely remove it.
-			err := os.Remove(filepath.Join(snapshotDir, name))
+			err := l.fs.Remove(filepath.Join(snapshotDir, name))
 			if err != nil {
 				return errors.Wrapf(err, "remove tmp snapshot file %q", name)
 			}
@@ -426,7 +437,7 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 			}
 
 			if i < before {
-				err := os.Remove(filepath.Join(snapshotDir, name))
+				err := l.fs.Remove(filepath.Join(snapshotDir, name))
 				if err != nil {
 					return errors.Wrapf(err, "remove snapshot file %q", name)
 				}
@@ -441,7 +452,7 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 			}
 
 			if i < before {
-				err := os.Remove(filepath.Join(snapshotDir, name))
+				err := l.fs.Remove(filepath.Join(snapshotDir, name))
 				if err != nil {
 					return errors.Wrapf(err, "remove checkpoints file %q", name)
 				}
@@ -452,7 +463,7 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 	return nil
 }
 
-func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state *DeserializationResult, metrics *Metrics) (*DeserializationResult, error) {
+func loadCommitLoggerState(fs common.FS, logger logrus.FieldLogger, fileNames []string, state *DeserializationResult, metrics *Metrics) (*DeserializationResult, error) {
 	start := time.Now()
 	defer func() {
 		logger.WithField("commitlog_files", len(fileNames)).
@@ -470,7 +481,7 @@ func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state 
 		beforeIndividual := time.Now()
 
 		err = func() error {
-			fd, err := os.Open(fileName)
+			fd, err := fs.Open(fileName)
 			if err != nil {
 				return errors.Wrapf(err, "open commit log %q for reading", fileName)
 			}
@@ -507,7 +518,7 @@ func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state 
 						Error("write-ahead-log ended abruptly, some elements may not have been recovered")
 
 					// we need to truncate the file to its valid length!
-					if err := os.Truncate(fileName, int64(valid)); err != nil {
+					if err := fs.Truncate(fileName, int64(valid)); err != nil {
 						return errors.Wrapf(err, "truncate corrupt commit log %q", fileName)
 					}
 				} else {
@@ -535,7 +546,19 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 	tmpSnapshotFileName := fmt.Sprintf("%s.tmp", filename)
 	checkPointsFileName := fmt.Sprintf("%s.checkpoints", filename)
 
-	snap, err := os.OpenFile(tmpSnapshotFileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	// check if checkpoints with the same name already exist
+	if _, err := l.fs.Stat(checkPointsFileName); err == nil {
+		l.logger.WithField("action", "write_snapshot").
+			WithField("path", checkPointsFileName).
+			Info("writing new snapshot with same name as last snapshot, deleting checkpoints file")
+
+		err = l.fs.Remove(checkPointsFileName)
+		if err != nil {
+			return errors.Wrap(err, "remove existing checkpoints file")
+		}
+	}
+
+	snap, err := l.fs.OpenFile(tmpSnapshotFileName, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return errors.Wrapf(err, "create snapshot file %q", tmpSnapshotFileName)
 	}
@@ -569,13 +592,13 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 	}
 
 	// write the checkpoints to a separate file
-	err = writeCheckpoints(checkPointsFileName, checkpoints)
+	err = writeCheckpoints(checkPointsFileName, checkpoints, l.fs)
 	if err != nil {
 		return errors.Wrap(err, "write checkpoints file")
 	}
 
 	// rename the temporary snapshot file to the final name
-	err = os.Rename(tmpSnapshotFileName, filename)
+	err = l.fs.Rename(tmpSnapshotFileName, filename)
 	if err != nil {
 		return errors.Wrapf(err, "rename snapshot file %q", tmpSnapshotFileName)
 	}
@@ -589,13 +612,13 @@ func (l *hnswCommitLogger) readSnapshot(path string) (*DeserializationResult, er
 		l.logger.WithField("snapshot", path).WithField("took", time.Since(start).String()).Info("snapshot loaded")
 	}()
 
-	checkpoints, err := readCheckpoints(path)
+	checkpoints, err := readCheckpoints(path, l.fs)
 	if err != nil {
 		// if for any reason the checkpoints file is not found or corrupted
 		// we need to remove the snapshot file and create a new one from the commit log.
-		_ = os.Remove(path)
+		_ = l.fs.Remove(path)
 		cpPath := path + ".checkpoints"
-		_ = os.Remove(cpPath)
+		_ = l.fs.Remove(cpPath)
 
 		l.logger.WithField("action", "hnsw_remove_corrupt_snapshot").
 			WithField("path", path).
@@ -609,9 +632,9 @@ func (l *hnswCommitLogger) readSnapshot(path string) (*DeserializationResult, er
 	if err != nil {
 		// if for any reason the snapshot file is not found or corrupted
 		// we need to remove the snapshot file and create a new one from the commit log.
-		_ = os.Remove(path)
+		_ = l.fs.Remove(path)
 		cpPath := path + ".checkpoints"
-		_ = os.Remove(cpPath)
+		_ = l.fs.Remove(cpPath)
 
 		l.logger.WithField("action", "hnsw_remove_corrupt_snapshot").
 			WithField("path", path).
@@ -990,7 +1013,7 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
 
-	f, err := os.Open(filename)
+	f, err := l.fs.Open(filename)
 	if err != nil {
 		return nil, errors.Wrapf(err, "open snapshot file %q", filename)
 	}
@@ -1463,6 +1486,9 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 							connCountAtLevel := uint64(binary.LittleEndian.Uint32(b[:4]))
 
 							if connCountAtLevel > 0 {
+								if connCountAtLevel > maxExpectedConns {
+									return fmt.Errorf("node %d has too many connections: %v", node.id, connCountAtLevel)
+								}
 								for c := uint64(0); c < connCountAtLevel; c++ {
 									n, err = io.ReadFull(r, b[:8]) // connection at level
 									if err != nil {
@@ -1530,8 +1556,8 @@ type Checkpoint struct {
 	Hash   uint32
 }
 
-func writeCheckpoints(fileName string, checkpoints []Checkpoint) error {
-	checkpointFile, err := os.OpenFile(fileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+func writeCheckpoints(fileName string, checkpoints []Checkpoint, fs common.FS) error {
+	checkpointFile, err := fs.OpenFile(fileName, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return fmt.Errorf("open new checkpoint file for writing: %w", err)
 	}
@@ -1562,10 +1588,10 @@ func writeCheckpoints(fileName string, checkpoints []Checkpoint) error {
 	return checkpointFile.Sync()
 }
 
-func readCheckpoints(snapshotFileName string) (checkpoints []Checkpoint, err error) {
+func readCheckpoints(snapshotFileName string, fs common.FS) (checkpoints []Checkpoint, err error) {
 	cpfn := snapshotFileName + ".checkpoints"
 
-	cpFile, err := os.Open(cpfn)
+	cpFile, err := fs.Open(cpfn)
 	if err != nil {
 		return nil, err
 	}

@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/backup"
@@ -329,9 +330,11 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 	response := make(models.BackupListResponse, len(backups))
 	for i, b := range backups {
 		response[i] = &models.BackupListResponseItems0{
-			ID:      b.ID,
-			Status:  string(b.Status),
-			Classes: b.Classes(),
+			ID:          b.ID,
+			Classes:     b.Classes(),
+			Status:      string(b.Status),
+			StartedAt:   strfmt.DateTime(b.StartedAt.UTC()),
+			CompletedAt: strfmt.DateTime(b.CompletedAt.UTC()),
 		}
 	}
 

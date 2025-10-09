@@ -17,6 +17,7 @@ import (
 	"slices"
 	"time"
 
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
 
 	"github.com/pkg/errors"
@@ -27,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/spfresh"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -117,6 +119,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		m.db.schemaReader,
 		m.db.replicationFSM,
 	).Build()
+	shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), m.db.schemaGetter)
 	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName:                                    schema.ClassName(class.Class),
@@ -166,13 +169,14 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			QuerySlowLogThreshold:                        m.db.config.QuerySlowLogThreshold,
 			InvertedSorterDisabled:                       m.db.config.InvertedSorterDisabled,
 			MaintenanceModeEnabled:                       m.db.config.MaintenanceModeEnabled,
+			SPFreshEnabled:                               m.db.config.SPFreshEnabled,
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
-		indexRouter, m.db.schemaGetter, m.db.schemaReader, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
+		indexRouter, shardResolver, m.db.schemaGetter, m.db.schemaReader, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
 		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool)
 	if err != nil {
@@ -737,6 +741,11 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 		return flat.ValidateUserConfigUpdate(old, updated)
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		return dynamic.ValidateUserConfigUpdate(old, updated)
+	case vectorindex.VectorIndexTypeSPFresh:
+		if !m.db.config.SPFreshEnabled {
+			return errors.New("spfresh index is available only in experimental mode")
+		}
+		return spfresh.ValidateUserConfigUpdate(old, updated)
 	}
 	return fmt.Errorf("invalid index type: %s", old.IndexType())
 }
@@ -745,7 +754,7 @@ func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]sche
 ) error {
 	for vecName := range old {
 		if err := m.ValidateVectorIndexConfigUpdate(old[vecName], updated[vecName]); err != nil {
-			return fmt.Errorf("vector %q", vecName)
+			return fmt.Errorf("invalid update for vector %q: %w", vecName, err)
 		}
 	}
 	return nil

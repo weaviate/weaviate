@@ -34,12 +34,12 @@ func AllTests(endpoint string, asyncIndexingEnabled bool) func(t *testing.T) {
 		t.Run("aggregate", testAggregate(endpoint))
 		t.Run("vector index types", testVectorIndexTypesConfigurations(endpoint))
 		t.Run("colbert", testColBERT(endpoint, asyncIndexingEnabled))
+		t.Run("legacy vector index with quantization", testCompressedLegacyVectorIndex(endpoint))
 	}
 }
 
-func ComposeModules() (composeModules *docker.Compose) {
-	composeModules = docker.New().
+func ComposeModules() *docker.Compose {
+	return docker.New().
 		WithText2VecModel2Vec().
 		WithText2VecTransformersImage("semitechnologies/model2vec-inference:minishlab-potion-base-8M-1.0.0")
-	return
 }

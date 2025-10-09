@@ -200,10 +200,7 @@ func (index *flat) getBucketName() string {
 }
 
 func (index *flat) getCompressedBucketName() string {
-	if index.targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsCompressedBucketLSM, index.targetVector)
-	}
-	return helpers.VectorsCompressedBucketLSM
+	return helpers.GetCompressedBucketName(index.targetVector)
 }
 
 func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
@@ -221,6 +218,7 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 		lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
 		lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
 		lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 
 		// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
 		// was simply missing. Now we want to explicitly set it to false for
@@ -244,6 +242,7 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 			lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments),
 			lsmkv.WithWriteSegmentInfoIntoFileName(cfg.WriteSegmentInfoIntoFileName),
 			lsmkv.WithWriteMetadata(cfg.WriteMetadataFilesEnabled),
+			lsmkv.WithStrategy(lsmkv.StrategyReplace),
 
 			// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
 			// was simply missing. Now we want to explicitly set it to false for
@@ -341,15 +340,7 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 	slice := make([]byte, len(vector)*4)
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
 
-	if index.isBQ() {
-		vectorBQ := index.bq.Encode(vector)
-		if index.isBQCached() {
-			index.bqCache.Grow(id)
-			index.bqCache.Preload(id, vectorBQ)
-		}
-		slice = make([]byte, len(vectorBQ)*8)
-		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
-	}
+	index.Preload(id, vector)
 
 	for {
 		oldCount := atomic.LoadUint64(&index.count)
@@ -798,6 +789,18 @@ func (index *flat) ValidateBeforeInsert(vector []float32) error {
 	}
 
 	return nil
+}
+
+func (index *flat) Preload(id uint64, vector []float32) {
+	if index.isBQ() {
+		vectorBQ := index.bq.Encode(vector)
+		if index.isBQCached() {
+			index.bqCache.Grow(id)
+			index.bqCache.Preload(id, vectorBQ)
+		}
+		slice := make([]byte, len(vectorBQ)*8)
+		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
+	}
 }
 
 func (index *flat) PostStartup() {

@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -66,13 +67,15 @@ func TestCompactionCleanupBothSegmentsPresent(t *testing.T) {
 				copyFile(t, tmpDir+"/"+entriesTmp[1].Name(), testDir+"/"+entriesTmp[1].Name())
 
 				b2, err := NewBucketCreator().NewBucket(ctx, testDir, "", logger, nil,
-					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo), WithCalcCountNetAdditions(true),
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
 				)
 				if tt.expectErr {
 					require.Error(t, err)
 				} else {
 					require.NoError(t, err)
-					require.Equal(t, 20, b2.Count())
+					count, err := b2.Count(ctx)
+					require.NoError(t, err)
+					require.Equal(t, 20, count)
 					entries, err := os.ReadDir(testDir)
 					require.NoError(t, err)
 					for _, entry := range entries {
@@ -146,13 +149,16 @@ func TestCompactionCleanupBothSegmentsPresentUpgrade(t *testing.T) {
 				copyFile(t, tmpDir+"/"+entriesTmp[1].Name(), testDir+"/"+entriesTmp[1].Name())
 
 				b2, err := NewBucketCreator().NewBucket(ctx, testDir, "", logger, nil,
-					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(fileInfo.loadingBucket), WithCalcCountNetAdditions(true),
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(fileInfo.loadingBucket), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
 				)
 				if tt.expectErr {
 					require.Error(t, err)
 				} else {
 					require.NoError(t, err)
-					require.Equal(t, 20, b2.Count())
+					count, err := b2.Count(ctx)
+					require.NoError(t, err)
+
+					require.Equal(t, 20, count)
 					entries, err := os.ReadDir(testDir)
 					require.NoError(t, err)
 					for _, entry := range entries {
@@ -194,7 +200,7 @@ func TestWalFilePresent(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
 	)
 
 	// create "incomplete" segment
@@ -231,7 +237,7 @@ func TestWalFilePresent(t *testing.T) {
 
 	// incomplete segment will be deleted and memtable is reconstructed from .wal
 	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 
@@ -244,6 +250,61 @@ func TestWalFilePresent(t *testing.T) {
 	require.Equal(t, walFiles, 1)
 }
 
+func TestComputeNetCountAfterCompaction(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	ctx := context.Background()
+
+	finalTestDir := t.TempDir()
+	b, err := NewBucketCreator().NewBucket(ctx, finalTestDir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
+	)
+	require.NoError(t, err)
+
+	// create separate segments for each entry
+	require.NoError(t, b.Put([]byte("hello1"), []byte("world1")))
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Put([]byte("hello2"), []byte("world2")))
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Put([]byte("hello3"), []byte("world3")))
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Put([]byte("hello4"), []byte("world4")))
+	require.NoError(t, b.FlushMemtable())
+
+	count, err := b.Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 4, count)
+	require.NoError(t, b.Shutdown(ctx))
+
+	fileTypes := getFileTypeCount(t, finalTestDir)
+	require.Equal(t, 4, fileTypes[".db"])
+	require.Equal(t, 0, fileTypes[".wal"])
+	require.Equal(t, 4, fileTypes[".cna"])
+
+	oldSegmentID := fmt.Sprintf("%v", time.Now().UnixNano())
+
+	require.NoError(t, b.Delete([]byte("hello1")))
+	require.NoError(t, b.Delete([]byte("hello2")))
+	require.NoError(t, b.Delete([]byte("hello3")))
+	require.NoError(t, b.Delete([]byte("hello4")))
+	require.NoError(t, b.FlushMemtable())
+
+	// rename new segment file so it looks like a compaction output after a crash - we only need to cover the case where
+	// none of the source files are present and the combined segment is kept
+	entriesTmp, err := os.ReadDir(finalTestDir)
+	require.NoError(t, err)
+	require.NoError(t, os.Rename(finalTestDir+"/"+entriesTmp[len(entriesTmp)-1].Name(), finalTestDir+"/"+"segment-"+oldSegmentID+"_"+fmt.Sprintf("%v", time.Now().UnixNano())+".db.tmp"))
+
+	// recover after "crash"
+	b, err = NewBucketCreator().NewBucket(ctx, finalTestDir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
+	)
+	require.NoError(t, err)
+	count, err = b.Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 0, count)
+}
+
 func createSegmentFiles(t *testing.T, ctx context.Context, logger logrus.FieldLogger, dirName, tmpDir string, addFileInfo []bool) []os.DirEntry {
 	t.Helper()
 	if len(addFileInfo) == 1 {
@@ -251,7 +312,7 @@ func createSegmentFiles(t *testing.T, ctx context.Context, logger logrus.FieldLo
 	}
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo[0]), WithMinWalThreshold(4096),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo[0]), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 	for i := 0; i < 10; i++ {
@@ -264,7 +325,7 @@ func createSegmentFiles(t *testing.T, ctx context.Context, logger logrus.FieldLo
 	require.NoError(t, b.Shutdown(ctx))
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo[1]), WithMinWalThreshold(4096),
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo[1]), WithMinWalThreshold(4096), WithStrategy(StrategyReplace),
 	)
 	require.NoError(t, err)
 

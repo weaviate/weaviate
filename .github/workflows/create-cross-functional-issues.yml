@@ -30,7 +30,7 @@ jobs:
       - name: Check PR body
         id: check_pr
         if: ${{ env.gh_token_exists == 'true' }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           github-token: ${{secrets.CROSS_REPO_ISSUE_WRITER_TOKEN}}
           script: |
@@ -62,7 +62,7 @@ jobs:
 
       - name: Create issues in respective repos
         if: ${{ env.gh_token_exists == 'true' }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           RESULTS: ${{ steps.check_pr.outputs.result }}
         with:
