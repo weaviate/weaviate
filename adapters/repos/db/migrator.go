@@ -17,6 +17,9 @@ import (
 	"slices"
 	"time"
 
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	"github.com/weaviate/weaviate/usecases/multitenancy"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -25,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/spfresh"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -91,9 +95,7 @@ func (m *Migrator) SetOffloadProvider(provider provider, moduleName string) {
 	m.logger.Info(fmt.Sprintf("module %s is enabled", moduleName))
 }
 
-func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
-	shardState *sharding.State,
-) error {
+func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	if err := replica.ValidateConfig(class, m.db.config.Replication); err != nil {
 		return fmt.Errorf("replication config: %w", err)
 	}
@@ -108,16 +110,16 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
-	multiTenancyEnabled := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 	collection := schema.ClassName(class.Class).String()
 	indexRouter := router.NewBuilder(
 		collection,
-		multiTenancyEnabled,
+		multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		m.db.nodeSelector,
 		m.db.schemaGetter,
 		m.db.schemaReader,
 		m.db.replicationFSM,
 	).Build()
+	shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), m.db.schemaGetter)
 	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName:                                    schema.ClassName(class.Class),
@@ -167,14 +169,14 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			QuerySlowLogThreshold:                        m.db.config.QuerySlowLogThreshold,
 			InvertedSorterDisabled:                       m.db.config.InvertedSorterDisabled,
 			MaintenanceModeEnabled:                       m.db.config.MaintenanceModeEnabled,
+			SPFreshEnabled:                               m.db.config.SPFreshEnabled,
 		},
-		shardState,
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
-		indexRouter, m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
+		indexRouter, shardResolver, m.db.schemaGetter, m.db.schemaReader, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
 		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool)
 	if err != nil {
@@ -264,7 +266,7 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 
 	{ // add index if missing
 		if idx == nil {
-			if err := m.AddClass(ctx, incomingClass, incomingSS); err != nil {
+			if err := m.AddClass(ctx, incomingClass); err != nil {
 				return fmt.Errorf(
 					"add missing class %s during update index: %w",
 					incomingClass.Class, err)
@@ -739,6 +741,11 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 		return flat.ValidateUserConfigUpdate(old, updated)
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		return dynamic.ValidateUserConfigUpdate(old, updated)
+	case vectorindex.VectorIndexTypeSPFresh:
+		if !m.db.config.SPFreshEnabled {
+			return errors.New("spfresh index is available only in experimental mode")
+		}
+		return spfresh.ValidateUserConfigUpdate(old, updated)
 	}
 	return fmt.Errorf("invalid index type: %s", old.IndexType())
 }
@@ -747,7 +754,7 @@ func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]sche
 ) error {
 	for vecName := range old {
 		if err := m.ValidateVectorIndexConfigUpdate(old[vecName], updated[vecName]); err != nil {
-			return fmt.Errorf("vector %q", vecName)
+			return fmt.Errorf("invalid update for vector %q: %w", vecName, err)
 		}
 	}
 	return nil

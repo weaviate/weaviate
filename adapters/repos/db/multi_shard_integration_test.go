@@ -285,6 +285,7 @@ func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger, *schemaUC.MockSchem
 	logger, _ := test.NewNullLogger()
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
@@ -316,7 +317,11 @@ func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, mockSchemaRea
 			schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 			shardState: shardState,
 		}
-		mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+		mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything).RunAndReturn(func(className string, readFunc func(*models.Class, *sharding.State) error) error {
+			class := &models.Class{Class: className}
+			return readFunc(class, shardState)
+		}).Maybe()
 		repo.SetSchemaGetter(schemaGetter)
 		err := repo.WaitForStartup(testCtx())
 		require.Nil(t, err)
@@ -324,7 +329,7 @@ func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, mockSchemaRea
 
 		t.Run("creating the class", func(t *testing.T) {
 			for _, class := range classes {
-				require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+				require.Nil(t, migrator.AddClass(context.Background(), class))
 			}
 		})
 

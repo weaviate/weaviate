@@ -187,7 +187,7 @@ func testSchemaValidation(host string) func(t *testing.T) {
 				},
 				ModuleConfig: map[string]interface{}{
 					"generative-openai": map[string]interface{}{
-						"model": "wrong-model",
+						"temperature": 2.0,
 					},
 				},
 				Vectorizer:      text2vecModel2Vec,
@@ -195,7 +195,7 @@ func testSchemaValidation(host string) func(t *testing.T) {
 			}
 			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
 			require.Error(t, err)
-			assert.ErrorContains(t, err, "wrong OpenAI model name")
+			assert.ErrorContains(t, err, "Wrong temperature configuration")
 		})
 
 		t.Run("generative module wrong configuration - multiple vectors", func(t *testing.T) {
@@ -227,13 +227,13 @@ func testSchemaValidation(host string) func(t *testing.T) {
 				},
 				ModuleConfig: map[string]interface{}{
 					"generative-openai": map[string]interface{}{
-						"model": "wrong-model",
+						"temperature": 2.0,
 					},
 				},
 			}
 			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
 			require.Error(t, err)
-			assert.ErrorContains(t, err, "wrong OpenAI model name")
+			assert.ErrorContains(t, err, "Wrong temperature configuration")
 		})
 
 		t.Run("generative module proper configuration - multiple vectors", func(t *testing.T) {

@@ -28,7 +28,7 @@ import (
 const GetGroupsOKCode int = 200
 
 /*
-GetGroupsOK Rolenames assigned to group
+GetGroupsOK A list of group names for the specified type.
 
 swagger:response getGroupsOK
 */
@@ -191,7 +191,7 @@ func (o *GetGroupsForbidden) WriteResponse(rw http.ResponseWriter, producer runt
 const GetGroupsUnprocessableEntityCode int = 422
 
 /*
-GetGroupsUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+GetGroupsUnprocessableEntity The request syntax is correct, but the server couldn't process it due to semantic issues.
 
 swagger:response getGroupsUnprocessableEntity
 */

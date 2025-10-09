@@ -21,7 +21,6 @@ import (
 
 	"github.com/weaviate/tiktoken-go"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
@@ -47,14 +46,18 @@ func (e *EncoderCache) Set(model string, tk *tiktoken.Tiktoken) {
 	e.cache[model] = tk
 }
 
-type TokenizerFuncType func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer, encoderCache *EncoderCache) ([]string, []int, bool, error)
+type TokenizerFuncType func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer, encoderCache *EncoderCache) ([]string, []int, []bool, bool, error)
 
 func ReturnBatchTokenizer(multiplier float32, moduleName string, lowerCaseInput bool) TokenizerFuncType {
-	return func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer, encoderCache *EncoderCache) ([]string, []int, bool, error) {
+	return ReturnBatchTokenizerWithAltNames(multiplier, moduleName, nil, lowerCaseInput)
+}
+
+func ReturnBatchTokenizerWithAltNames(multiplier float32, moduleName string, altNames []string, lowerCaseInput bool) TokenizerFuncType {
+	return func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer, encoderCache *EncoderCache) ([]string, []int, []bool, bool, error) {
 		texts := make([]string, len(objects))
 		tokenCounts := make([]int, len(objects))
 		var tke *tiktoken.Tiktoken
-		icheck := settings.NewBaseClassSettings(cfg, lowerCaseInput)
+		icheck := settings.NewBaseClassSettingsWithAltNames(cfg, lowerCaseInput, moduleName, altNames, nil)
 		modelString := modelToModelString(icheck.Model(), moduleName)
 		if multiplier > 0 {
 			var err error
@@ -77,13 +80,17 @@ func ReturnBatchTokenizer(multiplier float32, moduleName string, lowerCaseInput 
 				continue
 			}
 			skipAll = false
-			text := objectVectorizer.Texts(ctx, objects[i], icheck)
+			text, isEmpty := objectVectorizer.Texts(ctx, objects[i], icheck)
+			if isEmpty {
+				skipObject[i] = true
+				continue
+			}
 			texts[i] = text
 			if multiplier > 0 {
-				tokenCounts[i] = int(float32(clients.GetTokensCount(modelString, text, tke)) * multiplier)
+				tokenCounts[i] = int(float32(GetTokensCount(modelString, text, tke)) * multiplier)
 			}
 		}
-		return texts, tokenCounts, skipAll, nil
+		return texts, tokenCounts, skipObject, skipAll, nil
 	}
 }
 

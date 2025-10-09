@@ -237,114 +237,6 @@ func (_c *MockSchemaReader_ClassInfoWithVersion_Call) RunAndReturn(run func(cont
 	return _c
 }
 
-// CopyShardingState provides a mock function with given fields: class
-func (_m *MockSchemaReader) CopyShardingState(class string) *sharding.State {
-	ret := _m.Called(class)
-
-	if len(ret) == 0 {
-		panic("no return value specified for CopyShardingState")
-	}
-
-	var r0 *sharding.State
-	if rf, ok := ret.Get(0).(func(string) *sharding.State); ok {
-		r0 = rf(class)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*sharding.State)
-		}
-	}
-
-	return r0
-}
-
-// MockSchemaReader_CopyShardingState_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CopyShardingState'
-type MockSchemaReader_CopyShardingState_Call struct {
-	*mock.Call
-}
-
-// CopyShardingState is a helper method to define mock.On call
-//   - class string
-func (_e *MockSchemaReader_Expecter) CopyShardingState(class interface{}) *MockSchemaReader_CopyShardingState_Call {
-	return &MockSchemaReader_CopyShardingState_Call{Call: _e.mock.On("CopyShardingState", class)}
-}
-
-func (_c *MockSchemaReader_CopyShardingState_Call) Run(run func(class string)) *MockSchemaReader_CopyShardingState_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
-	})
-	return _c
-}
-
-func (_c *MockSchemaReader_CopyShardingState_Call) Return(_a0 *sharding.State) *MockSchemaReader_CopyShardingState_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockSchemaReader_CopyShardingState_Call) RunAndReturn(run func(string) *sharding.State) *MockSchemaReader_CopyShardingState_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// CopyShardingStateWithVersion provides a mock function with given fields: ctx, class, version
-func (_m *MockSchemaReader) CopyShardingStateWithVersion(ctx context.Context, class string, version uint64) (*sharding.State, error) {
-	ret := _m.Called(ctx, class, version)
-
-	if len(ret) == 0 {
-		panic("no return value specified for CopyShardingStateWithVersion")
-	}
-
-	var r0 *sharding.State
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, uint64) (*sharding.State, error)); ok {
-		return rf(ctx, class, version)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, uint64) *sharding.State); ok {
-		r0 = rf(ctx, class, version)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*sharding.State)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, uint64) error); ok {
-		r1 = rf(ctx, class, version)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockSchemaReader_CopyShardingStateWithVersion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CopyShardingStateWithVersion'
-type MockSchemaReader_CopyShardingStateWithVersion_Call struct {
-	*mock.Call
-}
-
-// CopyShardingStateWithVersion is a helper method to define mock.On call
-//   - ctx context.Context
-//   - class string
-//   - version uint64
-func (_e *MockSchemaReader_Expecter) CopyShardingStateWithVersion(ctx interface{}, class interface{}, version interface{}) *MockSchemaReader_CopyShardingStateWithVersion_Call {
-	return &MockSchemaReader_CopyShardingStateWithVersion_Call{Call: _e.mock.On("CopyShardingStateWithVersion", ctx, class, version)}
-}
-
-func (_c *MockSchemaReader_CopyShardingStateWithVersion_Call) Run(run func(ctx context.Context, class string, version uint64)) *MockSchemaReader_CopyShardingStateWithVersion_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(uint64))
-	})
-	return _c
-}
-
-func (_c *MockSchemaReader_CopyShardingStateWithVersion_Call) Return(_a0 *sharding.State, _a1 error) *MockSchemaReader_CopyShardingStateWithVersion_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockSchemaReader_CopyShardingStateWithVersion_Call) RunAndReturn(run func(context.Context, string, uint64) (*sharding.State, error)) *MockSchemaReader_CopyShardingStateWithVersion_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetAliasesForClass provides a mock function with given fields: class
 func (_m *MockSchemaReader) GetAliasesForClass(class string) []*models.Alias {
 	ret := _m.Called(class)
@@ -448,6 +340,64 @@ func (_c *MockSchemaReader_GetShardsStatus_Call) Return(_a0 models.ShardStatusLi
 }
 
 func (_c *MockSchemaReader_GetShardsStatus_Call) RunAndReturn(run func(string, string) (models.ShardStatusList, error)) *MockSchemaReader_GetShardsStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// LocalShards provides a mock function with given fields: class
+func (_m *MockSchemaReader) LocalShards(class string) ([]string, error) {
+	ret := _m.Called(class)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LocalShards")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string) ([]string, error)); ok {
+		return rf(class)
+	}
+	if rf, ok := ret.Get(0).(func(string) []string); ok {
+		r0 = rf(class)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string) error); ok {
+		r1 = rf(class)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSchemaReader_LocalShards_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LocalShards'
+type MockSchemaReader_LocalShards_Call struct {
+	*mock.Call
+}
+
+// LocalShards is a helper method to define mock.On call
+//   - class string
+func (_e *MockSchemaReader_Expecter) LocalShards(class interface{}) *MockSchemaReader_LocalShards_Call {
+	return &MockSchemaReader_LocalShards_Call{Call: _e.mock.On("LocalShards", class)}
+}
+
+func (_c *MockSchemaReader_LocalShards_Call) Run(run func(class string)) *MockSchemaReader_LocalShards_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockSchemaReader_LocalShards_Call) Return(_a0 []string, _a1 error) *MockSchemaReader_LocalShards_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSchemaReader_LocalShards_Call) RunAndReturn(run func(string) ([]string, error)) *MockSchemaReader_LocalShards_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1186,6 +1136,64 @@ func (_c *MockSchemaReader_ShardReplicasWithVersion_Call) Return(_a0 []string, _
 }
 
 func (_c *MockSchemaReader_ShardReplicasWithVersion_Call) RunAndReturn(run func(context.Context, string, string, uint64) ([]string, error)) *MockSchemaReader_ShardReplicasWithVersion_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Shards provides a mock function with given fields: class
+func (_m *MockSchemaReader) Shards(class string) ([]string, error) {
+	ret := _m.Called(class)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Shards")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string) ([]string, error)); ok {
+		return rf(class)
+	}
+	if rf, ok := ret.Get(0).(func(string) []string); ok {
+		r0 = rf(class)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string) error); ok {
+		r1 = rf(class)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSchemaReader_Shards_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Shards'
+type MockSchemaReader_Shards_Call struct {
+	*mock.Call
+}
+
+// Shards is a helper method to define mock.On call
+//   - class string
+func (_e *MockSchemaReader_Expecter) Shards(class interface{}) *MockSchemaReader_Shards_Call {
+	return &MockSchemaReader_Shards_Call{Call: _e.mock.On("Shards", class)}
+}
+
+func (_c *MockSchemaReader_Shards_Call) Run(run func(class string)) *MockSchemaReader_Shards_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockSchemaReader_Shards_Call) Return(_a0 []string, _a1 error) *MockSchemaReader_Shards_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSchemaReader_Shards_Call) RunAndReturn(run func(string) ([]string, error)) *MockSchemaReader_Shards_Call {
 	_c.Call.Return(run)
 	return _c
 }

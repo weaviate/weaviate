@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -240,6 +241,65 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 		})
 	}
 
+	t.Run("batch delete using alias", func(t *testing.T) {
+		resp, err := grpcClient.BatchObjects(ctx, &pb.BatchObjectsRequest{
+			Objects: []*pb.BatchObject{
+				{
+					Collection: booksAliasName,
+					Uuid:       uuid.NewString(),
+					Properties: &pb.BatchObject_Properties{
+						NonRefProperties: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"title":       structpb.NewStringValue("To be Deleted"),
+								"description": structpb.NewStringValue("object1"),
+							},
+						},
+					},
+				},
+				{
+					Collection: booksAliasName,
+					Uuid:       uuid.NewString(),
+					Properties: &pb.BatchObject_Properties{
+						NonRefProperties: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"title":       structpb.NewStringValue("To be Deleted"),
+								"description": structpb.NewStringValue("object2"),
+							},
+						},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Errors, 0)
+
+		// make sure objects exists
+		srep, err := grpcClient.Search(ctx, &pb.SearchRequest{
+			Collection: booksAliasName,
+			Filters:    &pb.Filters{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "To be Deleted"}, Target: &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "title"}}},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, srep)
+		require.Len(t, srep.Results, 2)
+
+		// delete
+		dresp, err := grpcClient.BatchDelete(ctx, &pb.BatchDeleteRequest{
+			Collection: booksAliasName,
+			Filters:    &pb.Filters{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "To be Deleted"}, Target: &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "title"}}},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, dresp)
+
+		// make sure objects are gone
+		srep, err = grpcClient.Search(ctx, &pb.SearchRequest{
+			Collection: booksAliasName,
+			Filters:    &pb.Filters{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "To be Deleted"}, Target: &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "title"}}},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, srep)
+		require.Len(t, srep.Results, 0)
+	})
 	t.Run("batch insert using alias", func(t *testing.T) {
 		theMartian := "67b79643-cf8b-4b22-b206-000000000001"
 		resp, err := grpcClient.BatchObjects(ctx, &pb.BatchObjectsRequest{

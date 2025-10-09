@@ -22,22 +22,25 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
 type MemoryCondensor struct {
-	newLogFile *os.File
+	newLogFile common.File
 	newLog     *bufWriter
 	logger     logrus.FieldLogger
+	fs         common.FS
+	bufferSize int
 }
 
 func (c *MemoryCondensor) Do(fileName string) error {
 	c.logger.WithField("action", "hnsw_condensing").Infof("start hnsw condensing")
 	defer c.logger.WithField("action", "hnsw_condensing_complete").Infof("completed hnsw condensing")
 
-	fd, err := os.Open(fileName)
+	fd, err := c.fs.Open(fileName)
 	if err != nil {
 		return errors.Wrap(err, "open commit log to be condensed")
 	}
@@ -49,15 +52,15 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "read commit log to be condensed")
 	}
 
-	newLogFile, err := os.OpenFile(fmt.Sprintf("%s.condensed", fileName),
-		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	newLogFile, err := c.fs.OpenFile(fmt.Sprintf("%s.condensed", fileName),
+		os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o666)
 	if err != nil {
 		return errors.Wrap(err, "open new commit log file for writing")
 	}
 
 	c.newLogFile = newLogFile
 
-	c.newLog = NewWriterSize(c.newLogFile, 1*1024*1024)
+	c.newLog = NewWriterSize(c.newLogFile, c.bufferSize)
 
 	if res.Compressed {
 		if res.CompressionPQData != nil {
@@ -161,11 +164,15 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "close new commit log")
 	}
 
+	if err := newLogFile.Sync(); err != nil {
+		return errors.Wrap(err, "fsync new commit log")
+	}
+
 	if err := c.newLogFile.Close(); err != nil {
 		return errors.Wrap(err, "close new commit log")
 	}
 
-	if err := os.Remove(fileName); err != nil {
+	if err := c.fs.Remove(fileName); err != nil {
 		return errors.Wrap(err, "cleanup old (uncondensed) commit log")
 	}
 
@@ -463,5 +470,5 @@ func (c *MemoryCondensor) AddBRQCompression(data compressionhelpers.BRQData) err
 }
 
 func NewMemoryCondensor(logger logrus.FieldLogger) *MemoryCondensor {
-	return &MemoryCondensor{logger: logger}
+	return &MemoryCondensor{logger: logger, fs: common.NewOSFS(), bufferSize: 1 * 1024 * 1024}
 }

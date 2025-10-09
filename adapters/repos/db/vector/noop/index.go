@@ -24,13 +24,19 @@ import (
 	hnswconf "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-type Index struct{}
+type Index struct {
+	AddFn      func(ctx context.Context, id uint64, vector []float32) error
+	AddBatchFn func(ctx context.Context, id []uint64, vector [][]float32) error
+}
 
 func NewIndex() *Index {
 	return &Index{}
 }
 
 func (i *Index) AddBatch(ctx context.Context, id []uint64, vector [][]float32) error {
+	if i.AddBatchFn != nil {
+		return i.AddBatchFn(ctx, id, vector)
+	}
 	// silently ignore
 	return nil
 }
@@ -41,6 +47,9 @@ func (i *Index) AddMultiBatch(ctx context.Context, docIds []uint64, vectors [][]
 }
 
 func (i *Index) Add(ctx context.Context, id uint64, vector []float32) error {
+	if i.AddFn != nil {
+		return i.AddFn(ctx, id, vector)
+	}
 	// silently ignore
 	return nil
 }
@@ -128,6 +137,9 @@ func (i *Index) PostStartup() {
 
 func (i *Index) ContainsDoc(docID uint64) bool {
 	return false
+}
+
+func (i *Index) Preload(id uint64, vector []float32) {
 }
 
 func (i *Index) Iterate(fn func(id uint64) bool) {}

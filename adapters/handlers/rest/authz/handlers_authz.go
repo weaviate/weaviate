@@ -1214,6 +1214,7 @@ func validateUserTypeInput(userTypeInput string) (authentication.AuthType, error
 // 		if (perm.Collection == nil || *perm.Collection == "" || *perm.Collection == "*") && perm.Tenant != nil && *perm.Tenant != "" && *perm.Tenant != "*" {
 // 			schema := h.schemaReader.GetSchemaSkipAuth()
 // 			for _, class := range schema.Objects.Classes {
+// 				//NOTE: CopyShardingState not available anymore
 // 				state := h.schemaReader.CopyShardingState(class.Class)
 // 				if state == nil {
 // 					continue

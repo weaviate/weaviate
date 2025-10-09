@@ -286,7 +286,9 @@ func (a *Client) DeleteRole(params *DeleteRoleParams, authInfo runtime.ClientAut
 }
 
 /*
-GetGroups gets all groups for the given type
+GetGroups lists all groups of a specific type
+
+Retrieves a list of all available group names for a specified group type (`oidc` or `db`).
 */
 func (a *Client) GetGroups(params *GetGroupsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetGroupsOK, error) {
 	// TODO: Validate the params before sending
@@ -325,7 +327,9 @@ func (a *Client) GetGroups(params *GetGroupsParams, authInfo runtime.ClientAuthI
 }
 
 /*
-GetGroupsForRole gets groups assigned to role
+GetGroupsForRole gets groups that have a specific role assigned
+
+Retrieves a list of all groups that have been assigned a specific role, identified by its name.
 */
 func (a *Client) GetGroupsForRole(params *GetGroupsForRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetGroupsForRoleOK, error) {
 	// TODO: Validate the params before sending
@@ -446,7 +450,9 @@ func (a *Client) GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInf
 }
 
 /*
-GetRolesForGroup gets roles assigned to the group of a given type
+GetRolesForGroup gets roles assigned to a specific group
+
+Retrieves a list of all roles assigned to a specific group. The group must be identified by both its name (`id`) and its type (`db` or `oidc`).
 */
 func (a *Client) GetRolesForGroup(params *GetRolesForGroupParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForGroupOK, error) {
 	// TODO: Validate the params before sending

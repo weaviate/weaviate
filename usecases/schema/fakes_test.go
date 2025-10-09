@@ -222,16 +222,6 @@ func (f *fakeSchemaManager) Aliases() map[string]string {
 	return nil
 }
 
-func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
-	args := f.Called(class)
-	return args.Get(0).(*sharding.State)
-}
-
-func (f *fakeSchemaManager) CopyShardingStateWithVersion(ctx context.Context, class string, version uint64) (*sharding.State, error) {
-	args := f.Called(ctx, class, version)
-	return args.Get(0).(*sharding.State), args.Error(1)
-}
-
 func (f *fakeSchemaManager) ShardReplicas(class, shard string) ([]string, error) {
 	args := f.Called(class, shard)
 	return args.Get(0).([]string), args.Error(1)
@@ -270,6 +260,16 @@ func (f *fakeSchemaManager) TenantsShardsWithVersion(ctx context.Context, versio
 func (f *fakeSchemaManager) Read(class string, reader func(*models.Class, *sharding.State) error) error {
 	args := f.Called(class, reader)
 	return args.Error(0)
+}
+
+func (f *fakeSchemaManager) Shards(class string) ([]string, error) {
+	args := f.Called(class)
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (f *fakeSchemaManager) LocalShards(class string) ([]string, error) {
+	args := f.Called(class)
+	return args.Get(0).([]string), args.Error(1)
 }
 
 func (f *fakeSchemaManager) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
@@ -346,4 +346,17 @@ func (f *fakeStore) UpdateClass(cls *models.Class) error {
 	cls.VectorIndexConfig = u.VectorIndexConfig
 	cls.InvertedIndexConfig = u.InvertedIndexConfig
 	return nil
+}
+
+// fakeSchemaManagerWithAlias wraps the fakeSchemaManager to provide alias resolution support
+type fakeSchemaManagerWithAlias struct {
+	*fakeSchemaManager
+	aliasMap map[string]string
+}
+
+func (f *fakeSchemaManagerWithAlias) ResolveAlias(alias string) string {
+	if resolvedClass, exists := f.aliasMap[alias]; exists {
+		return resolvedClass
+	}
+	return ""
 }
