@@ -112,7 +112,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 				}).Warn("skipping compressed vector with unexpected length")
 				continue
 			}
-			if cpi.loadId(k) > (1 << 15) {
+			if cpi.loadId(k) > (1e15) {
 				cpi.logger.WithFields(logrus.Fields{
 					"action": "hnsw_compressed_vector_cache_prefill",
 					"len":    len(v),
@@ -154,7 +154,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 					}).Warn("skipping compressed vector with unexpected length")
 					continue
 				}
-				if cpi.loadId(k) > (1 << 15) {
+				if cpi.loadId(k) > (1e15) {
 					cpi.logger.WithFields(logrus.Fields{
 						"action": "hnsw_compressed_vector_cache_prefill",
 						"len":    len(v),
@@ -193,7 +193,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 				}).Warn("skipping compressed vector with unexpected length")
 				continue
 			}
-			if cpi.loadId(k) > (1 << 15) {
+			if cpi.loadId(k) > (1e15) {
 				cpi.logger.WithFields(logrus.Fields{
 					"action": "hnsw_compressed_vector_cache_prefill",
 					"len":    len(v),
