@@ -25,7 +25,8 @@ func diskSpace(path string) (DiskUsage, error) {
 		return DiskUsage{}, err
 	}
 	return DiskUsage{
-		Total:     fs.Blocks * uint64(fs.Bsize),
-		Available: fs.Bavail * uint64(fs.Bsize),
+		Total: fs.Blocks * uint64(fs.Bsize),
+		// The defensive uint64() cast on Bavail ensures compatibility across Unix platforms.
+		Available: uint64(fs.Bavail) * uint64(fs.Bsize),
 	}, nil
 }
