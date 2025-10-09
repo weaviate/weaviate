@@ -103,27 +103,9 @@ func (sr *segmentReplacer) switchOnDisk() (*segment, *segment, error) {
 func (sr *segmentReplacer) switchInMemory() error {
 	start := time.Now()
 
-	// TODO: Is this lock still needed?
-	// We need a maintenanceLock.Lock() to switch segments, however, we can't
-	// simply call Lock(). Due to the write-preferring nature of the RWMutex this
-	// would mean that if any RLock() holder still holds the lock, all future
-	// RLock() holders would be blocked until we release the Lock() again.
-	//
-	// Typical RLock() holders are user operations that are short-lived. However,
-	// the flush routine also requires an RLock() and could potentially hold it
-	// for minutes. This is problematic, so we need to synchronize with the flush
-	// routine by obtaining the flushVsCompactLock.
-	//
-	// This gives us the guarantee that – until we have released the
-	// flushVsCompactLock – no flush routine will try to obtain a long-lived
-	// maintenanceLock.RLock().
-	sr.sg.flushVsCompactLock.Lock()
-	defer sr.sg.flushVsCompactLock.Unlock()
-
-	beforeMaintenanceLock := time.Now()
 	sr.sg.maintenanceLock.Lock()
-	if time.Since(beforeMaintenanceLock) > 100*time.Millisecond {
-		sr.sg.logger.WithField("duration", time.Since(beforeMaintenanceLock)).
+	if time.Since(start) > 100*time.Millisecond {
+		sr.sg.logger.WithField("duration", time.Since(start)).
 			Debug("compaction took more than 100ms to acquire maintenance lock")
 	}
 	defer sr.sg.maintenanceLock.Unlock()
