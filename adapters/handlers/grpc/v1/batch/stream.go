@@ -59,6 +59,11 @@ func NewStreamHandler(shuttingDownCtx context.Context, recvWg, sendWg *sync.Wait
 }
 
 func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
+	if h.metrics != nil {
+		h.metrics.OnStreamStart()
+		defer h.metrics.OnStreamStop()
+	}
+
 	id, err := uuid.NewRandom()
 	if err != nil {
 		return fmt.Errorf("stream ID generation failed: %w", err)
@@ -179,7 +184,7 @@ func (h *StreamHandler) send(ctx context.Context, streamId string, stream pb.Wea
 				stats := h.workerStats(streamId)
 				stats.updateBatchSize(report.Stats.processingTime, len(h.processingQueue))
 				if h.metrics != nil {
-					h.metrics.OnSchedulerReport(streamId, stats.getBatchSize(), stats.getProcessingTimeEma())
+					h.metrics.OnWorkerReport(streamId, stats.getThroughputEma(), stats.getProcessingTimeEma())
 				}
 				if innerErr := stream.Send(&pb.BatchStreamReply{
 					Message: &pb.BatchStreamReply_Backoff_{
@@ -272,6 +277,9 @@ func (h *StreamHandler) recv(ctx context.Context, streamId string, consistencyLe
 				Objects:          request.GetData().GetObjects().GetValues(),
 				References:       request.GetData().GetReferences().GetValues(),
 				Wg:               wg,
+			}
+			if h.metrics != nil {
+				h.metrics.OnStreamRequest(float64(len(h.processingQueue)) / float64(cap(h.processingQueue)))
 			}
 		} else {
 			return fmt.Errorf("invalid batch send request: data field is nil")

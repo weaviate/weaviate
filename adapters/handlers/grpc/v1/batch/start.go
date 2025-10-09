@@ -29,13 +29,9 @@ func Start(
 	numWorkers int,
 	processingQueue processingQueue,
 	logger logrus.FieldLogger,
-) (*StreamHandler, *BatchStreamingCallbacks) {
-	metrics := NewBatchStreamingCallbacks(reg)
-
+) *StreamHandler {
 	reportingQueues := NewReportingQueues()
-	streamHandler := NewStreamHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, reportingQueues, processingQueue, metrics, logger)
-	// batch workers set their own per-process timeout and should not be cancelled on shutdown
+	// batch workers set their own per-process timeout and should not be cancelled on shutdown but instead waited for to complete gracefully
 	StartBatchWorkers(context.Background(), shutdown.WorkersWg, numWorkers, processingQueue, reportingQueues, batchHandler, logger)
-
-	return streamHandler, metrics
+	return NewStreamHandler(shutdown.HandlersCtx, shutdown.RecvWg, shutdown.SendWg, reportingQueues, processingQueue, NewBatchStreamingCallbacks(reg), logger)
 }

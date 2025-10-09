@@ -163,12 +163,14 @@ type stats struct {
 	lock              sync.RWMutex
 	processingTimeEma float64
 	batchSize         int
+	throughputEma     float64
 }
 
 func newStats() *stats {
 	return &stats{
 		processingTimeEma: 0,
 		batchSize:         100,
+		throughputEma:     0,
 	}
 }
 
@@ -179,6 +181,7 @@ func (s *stats) updateBatchSize(processingTime time.Duration, processingQueueLen
 	alpha := 1 - math.Exp(-math.Log(2)/float64(processingQueueLen))
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	s.throughputEma = alpha*float64(s.batchSize)/processingTime.Seconds() + (1-alpha)*s.throughputEma
 	s.processingTimeEma = alpha*processingTime.Seconds() + (1-alpha)*s.processingTimeEma
 	s.batchSize = int(float64(s.batchSize) * (ideal / s.processingTimeEma))
 	if s.batchSize < 10 {
@@ -199,6 +202,12 @@ func (s *stats) getProcessingTimeEma() time.Duration {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return time.Duration(s.processingTimeEma * time.Second.Seconds())
+}
+
+func (s *stats) getThroughputEma() float64 {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.throughputEma
 }
 
 // Cubic backoff function based on processing queue utilisation:

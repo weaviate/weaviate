@@ -56,7 +56,6 @@ type Service struct {
 	authenticator      *auth.Handler
 	batchHandler       *batch.Handler
 	batchStreamHandler *batch.StreamHandler
-	batchMetrics       *batch.BatchStreamingCallbacks
 }
 
 func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
@@ -66,7 +65,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 ) *Service {
 	authenticator := auth.NewHandler(allowAnonymousAccess, authComposer)
 	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchStreamHandler, batchMetrics := batch.Start(authenticator, authorization, batchHandler, prometheus.DefaultRegisterer, shutdown, NUMCPU, shutdown.ProcessingQueue, logger)
+	batchStreamHandler := batch.Start(authenticator, authorization, batchHandler, prometheus.DefaultRegisterer, shutdown, NUMCPU, shutdown.ProcessingQueue, logger)
 	return &Service{
 		traverser:            traverser,
 		authComposer:         authComposer,
@@ -79,7 +78,6 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		authenticator:        authenticator,
 		batchHandler:         batchHandler,
 		batchStreamHandler:   batchStreamHandler,
-		batchMetrics:         batchMetrics,
 	}
 }
 
@@ -290,10 +288,6 @@ func (s *Service) BatchReferences(ctx context.Context, req *pb.BatchReferencesRe
 //
 // It should be used as part of the automatic batching process provided in clients.
 func (s *Service) BatchStream(stream pb.Weaviate_BatchStreamServer) error {
-	if s.batchMetrics != nil {
-		s.batchMetrics.OnStreamStart()
-		defer s.batchMetrics.OnStreamStop()
-	}
 	return s.batchStreamHandler.Handle(stream)
 }
 
