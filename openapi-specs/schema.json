@@ -4356,8 +4356,10 @@
                   "description": "Permissions to be added to the role."
                 }
               },
-              "required": ["permissions"]
-
+              "required": [
+                "name",
+                "permissions"
+              ]
             }
           }
         ],
@@ -4734,7 +4736,10 @@
                     "$ref": "#/definitions/UserTypeOutput"
                   }
                 },
-                "required": ["userId", "userType"]
+                "required": [
+                  "name",
+                  "userType"
+                ]
               }
             }
           },

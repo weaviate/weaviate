@@ -916,6 +916,7 @@ func init() {
             "schema": {
               "type": "object",
               "required": [
+                "name",
                 "permissions"
               ],
               "properties": {
@@ -1207,7 +1208,7 @@ func init() {
               "items": {
                 "type": "object",
                 "required": [
-                  "userId",
+                  "name",
                   "userType"
                 ],
                 "properties": {
@@ -9813,6 +9814,7 @@ func init() {
             "schema": {
               "type": "object",
               "required": [
+                "name",
                 "permissions"
               ],
               "properties": {
@@ -16031,7 +16033,7 @@ func init() {
     "GetUsersForRoleOKBodyItems0": {
       "type": "object",
       "required": [
-        "userId",
+        "name",
         "userType"
       ],
       "properties": {

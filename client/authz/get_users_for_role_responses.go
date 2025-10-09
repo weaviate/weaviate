@@ -468,8 +468,7 @@ swagger:model GetUsersForRoleOKBodyItems0
 type GetUsersForRoleOKBodyItems0 struct {
 
 	// user Id
-	// Required: true
-	UserID *string `json:"userId"`
+	UserID string `json:"userId,omitempty"`
 
 	// user type
 	// Required: true
@@ -480,10 +479,6 @@ type GetUsersForRoleOKBodyItems0 struct {
 func (o *GetUsersForRoleOKBodyItems0) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := o.validateUserID(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := o.validateUserType(formats); err != nil {
 		res = append(res, err)
 	}
@@ -491,15 +486,6 @@ func (o *GetUsersForRoleOKBodyItems0) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (o *GetUsersForRoleOKBodyItems0) validateUserID(formats strfmt.Registry) error {
-
-	if err := validate.Required("userId", "body", o.UserID); err != nil {
-		return err
-	}
-
 	return nil
 }
 
