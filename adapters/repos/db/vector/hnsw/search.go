@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -786,59 +787,82 @@ func (h *hnsw) plantSeeds(strategy FilterStrategy, allowList helpers.AllowList, 
 	if allowList == nil || strategy != ACORN {
 		return nil
 	}
-	queue := h.pools.GetQueue()
-	connsSlice := h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 
-	queue.Enqueue(entryPointID)
-	seeds := ef
-	found := 0
-	h.pools.visitedListsLock.RLock()
-	visited := h.pools.visitedLists.Borrow()
-	h.pools.visitedListsLock.RUnlock()
+	if os.Getenv("ENABLE_ACORN_SMART_SEED") == "true" {
+		queue := h.pools.GetQueue()
+		connsSlice := h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 
-	for found < seeds && !queue.IsEmpty() {
-		candidate, err := queue.Dequeue()
-		if err != nil {
-			return errors.Wrap(err, "knn search: smart seeeding")
-		}
+		seeds := ef
+		found := 0
 
-		h.shardedNodeLocks.RLock(candidate)
-		h.nodes[candidate].Lock()
-		h.nodes[candidate].connections.CopyLayer(connsSlice.Slice, 0)
-		h.nodes[candidate].Unlock()
-		h.shardedNodeLocks.RUnlock(candidate)
-		for _, nn := range connsSlice.Slice {
-			if visited.Visited(nn) {
-				continue
+		queue.Enqueue(entryPointID)
+		h.pools.visitedListsLock.RLock()
+		visited := h.pools.visitedLists.Borrow()
+		h.pools.visitedListsLock.RUnlock()
+
+		for found < seeds && !queue.IsEmpty() {
+			candidate, err := queue.Dequeue()
+			if err != nil {
+				return errors.Wrap(err, "knn search: smart seeeding")
 			}
-			visited.Visit(nn)
-			var allowed bool
-			if !isMultivec {
-				allowed = allowList.Contains(nn)
-			} else {
-				var docID uint64
-				if h.compressed.Load() {
-					docID, _ = h.compressor.GetKeys(nn)
-				} else {
-					docID, _ = h.cache.GetKeys(nn)
+
+			h.shardedNodeLocks.RLock(candidate)
+			h.nodes[candidate].Lock()
+			h.nodes[candidate].connections.CopyLayer(connsSlice.Slice, 0)
+			h.nodes[candidate].Unlock()
+			h.shardedNodeLocks.RUnlock(candidate)
+			for _, nn := range connsSlice.Slice {
+				if visited.Visited(nn) {
+					continue
 				}
-				allowed = allowList.Contains(docID)
+				visited.Visit(nn)
+				var allowed bool
+				if !isMultivec {
+					allowed = allowList.Contains(nn)
+				} else {
+					var docID uint64
+					if h.compressed.Load() {
+						docID, _ = h.compressor.GetKeys(nn)
+					} else {
+						docID, _ = h.cache.GetKeys(nn)
+					}
+					allowed = allowList.Contains(docID)
+				}
+				if allowed {
+					found++
+					nnDistance, _ := h.distToNode(compressorDistancer, nn, searchVec)
+					eps.Insert(nn, nnDistance)
+				}
+				queue.Enqueue(nn)
 			}
-			if allowed {
-				found++
-				nnDistance, _ := h.distToNode(compressorDistancer, nn, searchVec)
-				eps.Insert(nn, nnDistance)
-			}
-			queue.Enqueue(nn)
 		}
-	}
-	h.pools.PutQueue(queue)
-	h.pools.tempVectorsUint64.Put(connsSlice)
+		h.pools.PutQueue(queue)
+		h.pools.tempVectorsUint64.Put(connsSlice)
 
-	h.pools.visitedListsLock.RLock()
-	h.pools.visitedLists.Return(visited)
-	h.pools.visitedListsLock.RUnlock()
-	return nil
+		h.pools.visitedListsLock.RLock()
+		h.pools.visitedLists.Return(visited)
+		h.pools.visitedListsLock.RUnlock()
+		return nil
+	} else {
+		it := allowList.Iterator()
+		idx, ok := it.Next()
+		h.shardedNodeLocks.RLockAll()
+		if !isMultivec {
+			for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
+				idx, ok = it.Next()
+			}
+		} else {
+			_, exists := h.docIDVectors[idx]
+			for ok && !exists {
+				idx, ok = it.Next()
+				_, exists = h.docIDVectors[idx]
+			}
+		}
+		h.shardedNodeLocks.RUnlockAll()
+		entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
+		eps.Insert(idx, entryPointDistance)
+		return nil
+	}
 }
 
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
