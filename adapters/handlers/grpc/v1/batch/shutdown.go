@@ -19,42 +19,28 @@ import (
 )
 
 type Shutdown struct {
-	HandlersCtx      context.Context
-	HandlersCancel   context.CancelFunc
-	SendWg           *sync.WaitGroup
-	StreamWg         *sync.WaitGroup
-	SchedulerCtx     context.Context
-	SchedulerCancel  context.CancelFunc
-	SchedulerWg      *sync.WaitGroup
-	WorkersCtx       context.Context
-	WorkersCancel    context.CancelFunc
-	WorkersWg        *sync.WaitGroup
-	ShutdownFinished chan struct{}
+	HandlersCtx     context.Context
+	HandlersCancel  context.CancelFunc
+	RecvWg          *sync.WaitGroup
+	SendWg          *sync.WaitGroup
+	WorkersWg       *sync.WaitGroup
+	ProcessingQueue processingQueue
 }
 
-func NewShutdown(ctx context.Context) *Shutdown {
+func NewShutdown(ctx context.Context, numWorkers int) *Shutdown {
+	var recvWg sync.WaitGroup
 	var sendWg sync.WaitGroup
-	var streamWg sync.WaitGroup
-	var schedulerWg sync.WaitGroup
 	var workersWg sync.WaitGroup
 
 	hCtx, hCancel := context.WithCancel(ctx)
-	sCtx, sCancel := context.WithCancel(ctx)
-	wCtx, wCancel := context.WithCancel(ctx)
 
-	shutdownFinished := make(chan struct{})
 	return &Shutdown{
-		HandlersCtx:      hCtx,
-		HandlersCancel:   hCancel,
-		SendWg:           &sendWg,
-		StreamWg:         &streamWg,
-		SchedulerCtx:     sCtx,
-		SchedulerCancel:  sCancel,
-		SchedulerWg:      &schedulerWg,
-		WorkersCtx:       wCtx,
-		WorkersCancel:    wCancel,
-		WorkersWg:        &workersWg,
-		ShutdownFinished: shutdownFinished,
+		HandlersCtx:     hCtx,
+		HandlersCancel:  hCancel,
+		RecvWg:          &recvWg,
+		SendWg:          &sendWg,
+		WorkersWg:       &workersWg,
+		ProcessingQueue: NewProcessingQueue(numWorkers * 10), // buffer size of 10x workers
 	}
 }
 
@@ -81,26 +67,20 @@ func NewShutdown(ctx context.Context) *Shutdown {
 // The gRPC shutdown is then considered complete as every queue has been drained successfully so the server
 // can move onto switching off the HTTP handlers and shutting itself down completely.
 func (s *Shutdown) Drain(logger logrus.FieldLogger) {
+	log := logger.WithField("action", "shutdown_drain")
 	// stop handlers first
 	s.HandlersCancel()
-	logger.Info("shutting down grpc batch handlers")
-	// wait for all send requests to finish
-	logger.Info("draining in-flight BatchSend methods")
-	s.SendWg.Wait()
-	// stop the scheduler
-	s.SchedulerCancel()
-	logger.Info("shutting down grpc batch scheduler")
-	// wait for all objs in write queues to be added to internal queue
-	s.SchedulerWg.Wait()
-	// stop the workers now
-	s.WorkersCancel()
-	logger.Info("shutting down grpc batch workers")
+	log.Info("waiting for all receivers to finish")
+	s.RecvWg.Wait()
+	log.Info("all receivers finished, closing processing queue")
+	// close the processing queue to signal to workers that no more requests will be coming and that they can exit
+	close(s.ProcessingQueue)
+	// wait for all workers to finish
+	log.Info("waiting for all workers to drain the processing queue")
 	// wait for all the objects to be processed from the internal queue
 	s.WorkersWg.Wait()
-	logger.Info("finished draining the internal queues")
-	// signal that shutdown is complete
-	close(s.ShutdownFinished)
-	logger.Info("waiting for all streams to exit")
+	log.Info("all workers finished, waiting for all senders to finish")
 	// wait for all streams to exit, i.e. be hungup by their clients
-	s.StreamWg.Wait()
+	s.SendWg.Wait()
+	log.Info("all senders exited, shutdown complete")
 }

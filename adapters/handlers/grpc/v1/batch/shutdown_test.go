@@ -13,6 +13,9 @@ package batch_test
 
 import (
 	"context"
+	"errors"
+	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,7 +27,84 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-func TestShutdownLogic(t *testing.T) {
+func TestShutdownHappyPath(t *testing.T) {
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	logger := logrus.New()
+
+	mockBatcher := mocks.NewMockBatcher(t)
+	mockStream := newMockStream(ctx, t)
+
+	howManyObjs := 5000
+	objsCh := make(chan *pb.BatchObject, howManyObjs)
+	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+		time.Sleep(100 * time.Millisecond)
+		numErrs := int(len(req.Objects) / 10)
+		errors := make([]*pb.BatchObjectsReply_BatchError, 0, numErrs)
+		for i := 0; i < numErrs; i++ {
+			errors = append(errors, &pb.BatchObjectsReply_BatchError{
+				Error: "some error",
+				Index: int32(i),
+			})
+		}
+		for _, obj := range req.Objects {
+			objsCh <- obj
+		}
+		return &pb.BatchObjectsReply{
+			Took:   float32(1),
+			Errors: errors,
+		}, nil
+	}).Once()
+
+	objs := make([]*pb.BatchObject, 0, howManyObjs)
+	for i := 0; i < howManyObjs; i++ {
+		objs = append(objs, &pb.BatchObject{})
+	}
+
+	var count int
+	drain := make(chan struct{})
+	mockStream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+		count++
+		switch count {
+		case 1:
+			return newBatchStreamStartRequest(), nil
+		case 2:
+			close(drain)
+			return newBatchStreamObjsRequest(objs), nil
+		case 3:
+			return nil, io.EOF // End the stream
+		}
+		panic("should not be called more than thrice")
+	}).Times(3)
+	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetError().GetError() == "some error" &&
+			msg.GetError().GetObject() != nil
+	})).Return(nil).Maybe()
+	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
+	mockStream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetBackoff() != nil
+	})).Return(nil).Maybe()
+
+	numWorkers := 1
+	shutdown := batch.NewShutdown(ctx, numWorkers)
+	handler := batch.Start(mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-drain
+		shutdown.Drain(logger)
+	}()
+	err := handler.Handle(mockStream)
+	require.NotNil(t, err, "handler should return an error")
+	require.ErrorAs(t, err, &batch.ErrShutdown, "handler should return error shutting down")
+	require.Len(t, objsCh, howManyObjs, "all objects should have been processed")
+	wg.Wait()
+}
+
+func TestShutdownAfterBrokenStream(t *testing.T) {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -33,56 +113,143 @@ func TestShutdownLogic(t *testing.T) {
 
 	mockBatcher := mocks.NewMockBatcher(t)
 
-	readQueues := batch.NewBatchReadQueues()
-	readQueues.Make(StreamId)
-	writeQueues := batch.NewBatchWriteQueues()
-	writeQueues.Make(StreamId, nil, 0, 0)
-	wq, ok := writeQueues.GetQueue(StreamId)
-	require.Equal(t, true, ok, "write queue should exist")
-	internalQueue := batch.NewBatchInternalQueue()
-
 	howManyObjs := 5000
-	// 5000 objs will be sent five times in batches of 1000
-	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(context.Context, *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
-		time.Sleep(1 * time.Second)
+	numErrs := howManyObjs / 10
+	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+		time.Sleep(100 * time.Millisecond)
+		errors := make([]*pb.BatchObjectsReply_BatchError, 0, numErrs)
+		for i := 0; i < numErrs; i++ {
+			errors = append(errors, &pb.BatchObjectsReply_BatchError{
+				Error: "some error",
+				Index: int32(i),
+			})
+		}
 		return &pb.BatchObjectsReply{
 			Took:   float32(1),
-			Errors: nil,
+			Errors: errors,
 		}, nil
-	}).Times(5)
+	}).Once()
 
+	objs := make([]*pb.BatchObject, 0, howManyObjs)
 	for i := 0; i < howManyObjs; i++ {
-		wq <- batch.NewWriteObject(&pb.BatchObject{})
+		objs = append(objs, &pb.BatchObject{})
 	}
 
-	stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamMessage](t)
-	stream.EXPECT().Send(&pb.BatchStreamMessage{
-		StreamId: StreamId,
-		Message: &pb.BatchStreamMessage_Start_{
-			Start: &pb.BatchStreamMessage_Start{},
-		},
-	}).Return(nil).Once()
-	stream.EXPECT().Send(&pb.BatchStreamMessage{
-		StreamId: StreamId,
-		Message: &pb.BatchStreamMessage_ShuttingDown_{
-			ShuttingDown: &pb.BatchStreamMessage_ShuttingDown{},
-		},
-	}).Return(nil).Once()
-	stream.EXPECT().Send(&pb.BatchStreamMessage{
-		StreamId: StreamId,
-		Message: &pb.BatchStreamMessage_Shutdown_{
-			Shutdown: &pb.BatchStreamMessage_Shutdown{},
-		},
-	}).Return(nil).Once()
+	stream := newMockStream(ctx, t)
+	var count int
+	networkErr := errors.New("some network error")
+	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+		count++
+		switch count {
+		case 1:
+			return newBatchStreamStartRequest(), nil
+		case 2:
+			return newBatchStreamObjsRequest(objs), nil
+		case 3:
+			// simulate ending the stream from the client-side ungracefully
+			return nil, networkErr
+		}
+		panic("should not be called more than thrice")
+	}).Times(3)
 
-	shutdown := batch.NewShutdown(ctx)
-	handler := batch.NewQueuesHandler(shutdown.HandlersCtx, shutdown.SendWg, shutdown.StreamWg, shutdown.ShutdownFinished, writeQueues, readQueues, logger)
-	batch.StartScheduler(shutdown.SchedulerCtx, shutdown.SchedulerWg, writeQueues, internalQueue, logger)
-	batch.StartBatchWorkers(shutdown.WorkersCtx, shutdown.WorkersWg, 1, internalQueue, readQueues, mockBatcher, logger)
+	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetError().GetError() == "some error" &&
+			msg.GetError().GetObject() != nil
+	})).Return(nil).Times(numErrs)
 
-	go func() {
-		err := handler.Stream(ctx, StreamId, stream)
-		require.NoError(t, err, "Expected no error when streaming")
-	}()
+	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetBackoff() != nil
+	})).Return(nil).Maybe()
+
+	numWorkers := 1
+	shutdown := batch.NewShutdown(ctx, numWorkers)
+	handler := batch.Start(mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+	err := handler.Handle(stream)
+	require.NotNil(t, err, "handler should return an error")
+	require.ErrorAs(t, err, &networkErr, "handler should return network error")
 	shutdown.Drain(logger)
+}
+
+func TestShutdownWithHangingClient(t *testing.T) {
+	testDuration := 5 * time.Minute
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, testDuration)
+	defer cancel()
+
+	logger := logrus.New()
+
+	mockBatcher := mocks.NewMockBatcher(t)
+
+	howManyObjs := 5000
+	numErrs := howManyObjs / 10
+	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+		time.Sleep(100 * time.Millisecond)
+		errors := make([]*pb.BatchObjectsReply_BatchError, 0, numErrs)
+		for i := 0; i < numErrs; i++ {
+			errors = append(errors, &pb.BatchObjectsReply_BatchError{
+				Error: "some error",
+				Index: int32(i),
+			})
+		}
+		return &pb.BatchObjectsReply{
+			Took:   float32(1),
+			Errors: errors,
+		}, nil
+	}).Once()
+
+	objs := make([]*pb.BatchObject, 0, howManyObjs)
+	for i := 0; i < howManyObjs; i++ {
+		objs = append(objs, &pb.BatchObject{})
+	}
+
+	stream := newMockStream(ctx, t)
+	var count int
+	drain := make(chan struct{})
+	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+		count++
+		switch count {
+		case 1:
+			return newBatchStreamStartRequest(), nil
+		case 2:
+			return newBatchStreamObjsRequest(objs), nil
+		case 3:
+			close(drain)
+			// simulate a client that does not close the stream correctly
+			time.Sleep(testDuration)
+			return nil, io.EOF
+		}
+		panic("should not be called more than thrice")
+	}).Times(3)
+
+	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetError().GetError() == "some error" &&
+			msg.GetError().GetObject() != nil
+	})).Return(nil).Times(numErrs)
+	stream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
+	stream.EXPECT().Send(mock.MatchedBy(func(msg *pb.BatchStreamReply) bool {
+		return msg.GetBackoff() != nil
+	})).Return(nil).Maybe()
+
+	numWorkers := 1
+	shutdown := batch.NewShutdown(ctx, numWorkers)
+	handler := batch.Start(mockBatcher, nil, shutdown, numWorkers, shutdown.ProcessingQueue, logger)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-drain
+		shutdown.Drain(logger)
+	}()
+	err := handler.Handle(stream)
+	wg.Wait()
+	require.NotNil(t, err, "handler should return error shutting down")
+	require.ErrorAs(t, err, &context.Canceled, "handler should return context.Canceled error")
+}
+
+func newBatchStreamShuttingDownReply() *pb.BatchStreamReply {
+	return &pb.BatchStreamReply{
+		Message: &pb.BatchStreamReply_ShuttingDown_{
+			ShuttingDown: &pb.BatchStreamReply_ShuttingDown{},
+		},
+	}
 }

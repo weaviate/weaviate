@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package v1
+package auth
 
 import (
 	"context"
@@ -103,7 +103,7 @@ func TestAuth(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			a := &authHandler{
+			a := &Handler{
 				allowAnonymousAccess: test.allowAnon,
 				authComposer: func(token string, scopes []string) (*models.Principal, error) {
 					if token == "" {

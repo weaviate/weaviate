@@ -35,6 +35,7 @@ const (
 )
 
 func TestGRPC_FilteredSearch(t *testing.T) {
+	helper.SetupClient("localhost:8080")
 	grpcClient, _ := newClient(t)
 	helper.DeleteClass(t, collectionName)
 	helper.CreateClass(t, &models.Class{
