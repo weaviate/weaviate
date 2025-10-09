@@ -34,11 +34,15 @@ func TestParseRuntimeConfig(t *testing.T) {
 		// fields that are not known to the current version. We should ignore
 		// them, not fail.
 
-		buf := []byte(`autoschema_enbaled: true`) // note: typo.
+		buf := []byte(`autoschema_enbaled: true
+maximum_allowed_collections_count: 13
+`) // note: typo.
 		cfg, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 		// typo should be ignored, default value should be returned
 		assert.Equal(t, false, cfg.AutoschemaEnabled.Get())
+		// valid field should be parsed correctly
+		assert.Equal(t, 13, cfg.MaximumAllowedCollectionsCount.Get())
 	})
 
 	t.Run("YAML tag should be lower_snake_case", func(t *testing.T) {
